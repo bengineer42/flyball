@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Python tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Rust (firmware/target is ~1.5 GB)
+target/
+
+# KiCad local state
+*.kicad_prl
+*-backups/
+_autosave-*
+fp-info-cache
+
+# Editor / tooling
+.history/
+.playwright-mcp/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# OS
+.DS_Store
