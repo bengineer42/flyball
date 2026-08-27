@@ -1,33 +1,70 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import dataclass, field
 from typing import Protocol
 
+from humctrl.typing import Percent
 
-class ReadPolicy(Enum):
-    CONTINUOUS = 1
-    RATE = 3
+# region Exceptions
+
+
+class SensorError(Exception): ...
+
+
+class SensorReadError(SensorError):
+    def __init__(self, sensor_name: str, message: str):
+        super().__init__(f"Error reading from sensor '{sensor_name}': {message}")
+
+
+# endregion
 
 
 @dataclass(frozen=True, slots=True)
-class HTReading:
+class Reading:
     time_ns: int
-    humidity: float
+    humidity: Percent
     temperature: float
+    source: str | None = None
+
+    @property
+    def time(self) -> float:
+        return self.time_ns / 1e9
 
 
 @dataclass(frozen=True, slots=True)
-class ProcessorReading:
-    time_ns: int
-    humidity: float
-    temperature: float
-    raw: list[tuple[str, HTReading]] | None
+class FusedReading(Reading):
+    members: list[Reading] = field(default_factory=list)
 
 
-class HTSensors(Protocol):
-    def read(self) -> ProcessorReading: ...
+class Reader(Protocol):
+    def read(self) -> Reading: ...
 
 
-class HTSensor(Protocol):
-    def read(self) -> HTReading: ...
+class ReadersInterface(Protocol):
+    def read(self, /, **kwargs) -> dict[str, Reading]: ...
+
+
+class Readings:
+    process: Reading | None
+    dry: Reading | None
+    wet: Reading | None
+
+
+class Readers(Protocol):
+    def read_all(self) -> Readings: ...
+
+    def read_process(self) -> Reading: ...
+
+    def read_wet(self) -> Reading: ...
+
+    def read_dry(self) -> Reading: ...
+
+    def read(self, process: bool = True, wet: bool = True, dry: bool = True) -> Readings: ...
+
+
+class StreamingReader(Protocol):
+    def stream(self) -> Reading: ...
+
+
+class PolledReader(Protocol):
+    def read(self) -> Reading: ...

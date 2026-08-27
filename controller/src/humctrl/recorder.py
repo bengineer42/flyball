@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, Self, overload
 
+from humctrl.manager import State
 from humctrl.pumps import AbsoluteFlows
-from humctrl.sensors import HumidityTemperatureReading, ProcessorReading
+from humctrl.sensors import Reader, Reading
+from humctrl.typing import Percent
 
 # class Recorder:
 #     namespace:
@@ -25,19 +27,19 @@ class Record:
     dry_flow: float | None
     flow_units: str | None
     target_humidity: float | None
-    sensor_readings: list[tuple[str, HumidityTemperatureReading]] | None
+    sensor_readings: list[Reading] | None
 
     @classmethod
     def from_process_reading(
         cls,
-        process_reading: ProcessorReading,
-        wet_flow: float | None,
-        dry_flow: float | None,
-        flow_units: str | None,
-        target_humidity: float | None,
+        process_reading: Reader,
+        wet_flow: float | None = None,
+        dry_flow: float | None = None,
+        flow_units: str | None = None,
+        target_humidity: float | None = None,
     ) -> Self:
         return cls(
-            time=process_reading.time,
+            time_ns=process_reading.time_ns,
             process_humidity=process_reading.humidity,
             process_temperature=process_reading.temperature,
             wet_flow=wet_flow,
@@ -53,69 +55,16 @@ class Record:
         self.flow_units = flows.units
 
 
-class HTRecorder(Protocol):
-    @overload
-    def record(self, record: Record, /): ...
-
-    @overload
+class Recorder(Protocol):
     def record(
         self,
         time_ns: int,
-        *,
-        process_humidity: float | None,
-        process_temperature: float | None,
-        wet_flow: float | None,
-        dry_flow: float | None,
-        flow_units: str | None,
-        target_humidity: float | None,
-        sensor_readings: list[tuple[str, HumidityTemperatureReading]] | None,
+        reading: Reader | None = None,
+        flows: AbsoluteFlows | None = None,
+        target_humidity: Percent | None = None,
     ): ...
-
-    def record(
+    def record_state(
         self,
-        value,
-        process_humidity: float | None,
-        process_temperature: float | None,
-        wet_flow: float | None,
-        dry_flow: float | None,
-        flow_units: str | None,
-        target_humidity: float | None,
-        sensor_readings: list[tuple[str, HumidityTemperatureReading]] | None,
-    ):
-        if isinstance(value, Record):
-            self._record(
-                value.time_ns,
-                process_humidity=value.process_humidity,
-                process_temperature=value.process_temperature,
-                wet_flow=value.wet_flow,
-                dry_flow=value.dry_flow,
-                flow_units=value.flow_units,
-                target_humidity=value.target_humidity,
-                sensor_readings=value.sensor_readings,
-            )
-        else:
-            self._record(
-                value,
-                process_humidity=process_humidity,
-                process_temperature=process_temperature,
-                wet_flow=wet_flow,
-                dry_flow=dry_flow,
-                flow_units=flow_units,
-                target_humidity=target_humidity,
-                sensor_readings=sensor_readings,
-            )
-
-    def _record(
-        self,
-        time_ns: int,
-        *,
-        process_humidity: float | None,
-        process_temperature: float | None,
-        wet_flow: float | None,
-        dry_flow: float | None,
-        flow_units: str | None,
-        target_humidity: float | None,
-        sensor_readings: list[tuple[str, HumidityTemperatureReading]] | None,
+        state: State,
     ): ...
-
     def add_flag(self, flag: str, time: float): ...
