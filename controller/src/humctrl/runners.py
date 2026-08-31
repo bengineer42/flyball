@@ -93,7 +93,7 @@ class RampHumidity(Runner):
         self.manager = manager
         self.target = target
         if isinstance(start_from, StartFrom) and start_from == StartFrom.TARGET:
-            start_humidity = manager.required_target_humidity
+            start_humidity = manager.required_regulated_humidity
         else:
             start_humidity = (
                 manager.required_process_humidity

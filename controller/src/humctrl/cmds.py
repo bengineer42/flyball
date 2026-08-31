@@ -182,7 +182,7 @@ class HoldConfig(Command):
         mode = self.mode
 
         if target is None:
-            target = manager.required_target_humidity
+            target = manager.required_regulated_humidity
         if mode == TargetMode.CROSS:
             if manager.required_process_humidity > target:
                 mode = TargetMode.BELOW

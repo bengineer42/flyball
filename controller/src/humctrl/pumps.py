@@ -5,7 +5,7 @@ from enum import Enum
 from functools import cached_property
 from typing import Protocol
 
-from humctrl.typing import NonNegative, NonZero, Normalised, NormalisedPositive, Positive
+from humctrl.typing import NonNegative, NonZero, Normalised, Positive
 from humctrl.utils import format_quantity, validate_normalised
 
 
@@ -85,14 +85,6 @@ class PumpHardwareError(PumpError):
     """The underlying device failed."""
 
 
-class BlendFlowScale(Enum):
-    """How to interpret a flow value."""
-
-    ABSOLUTE = "absolute"  # in _flow_units, e.g. LPM
-    FULL_RANGE_MAX = "full_range_max"  # fraction of max_full_range_flow
-    BLEND_MAX = "blend_max"  # fraction of max_flow_at(wet_fraction)
-
-
 class OnOverdrive(Enum):
     """How to handle a requested flow change that exceeds the maximum."""
 
@@ -101,24 +93,57 @@ class OnOverdrive(Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class BlendFlow:
-    value: Positive
-    scale: BlendFlowScale = BlendFlowScale.ABSOLUTE
+class Absolute:
+    value: NonNegative
+    on_overdrive: OnOverdrive = OnOverdrive.RAISE
 
-    @classmethod
-    def full_range_max(cls, value: NormalisedPositive = 1.0) -> BlendFlow:
-        return cls(value, BlendFlowScale.FULL_RANGE_MAX)
 
-    @classmethod
-    def blend_max(cls, value: NormalisedPositive = 1.0) -> BlendFlow:
-        return cls(value, BlendFlowScale.BLEND_MAX)
+@dataclass(frozen=True, slots=True)
+class OfBlendMax:
+    value: NonNegative = 1.0
 
-    @classmethod
-    def absolute(cls, value: Positive) -> BlendFlow:
-        return cls(value, BlendFlowScale.ABSOLUTE)
 
-    def __float__(self) -> float:
-        return self.value
+@dataclass(frozen=True, slots=True)
+class OfFullRangeMax:
+    value: NonNegative = 1.0
+
+
+class OnRail(Enum):
+    RAISE = "raise"  # raise FlowsOverdrivenError
+    CLAMP = "clamp"  # clamp to the maximum flow
+
+
+type BlendFlow = Absolute | OfBlendMax | OfFullRangeMax
+
+MaxFullRangeMax = OfFullRangeMax()
+
+
+@dataclass(slots=True, frozen=True)
+class Blend:
+    wet_fraction: Normalised
+    flow: NonNegative
+    units: str | None = None
+
+
+# @dataclass(frozen=True, slots=True)
+# class BlendFlow:
+#     value: Positive
+#     scale: BlendFlowScale = BlendFlowScale.ABSOLUTE
+
+#     @classmethod
+#     def full_range_max(cls, value: NormalisedPositive = 1.0) -> BlendFlow:
+#         return cls(value, BlendFlowScale.FULL_RANGE_MAX)
+
+#     @classmethod
+#     def blend_max(cls, value: NormalisedPositive = 1.0) -> BlendFlow:
+#         return cls(value, BlendFlowScale.BLEND_MAX)
+
+#     @classmethod
+#     def absolute(cls, value: Positive) -> BlendFlow:
+#         return cls(value, BlendFlowScale.ABSOLUTE)
+
+#     def __float__(self) -> float:
+#         return self.value
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,49 +186,23 @@ class AbsoluteFlows:
     def blend(self) -> Blend:
         return Blend(self.wet_fraction, self.total, units=self.units)
 
-    def is_valid(self, wet_max: Positive, dry_max: Positive, total_max: Positive) -> bool:
-        return self.wet <= wet_max and self.dry <= dry_max and self.total <= total_max
+    def is_valid(self, wet_max: Positive, dry_max: Positive) -> bool:
+        return self.wet <= wet_max and self.dry <= dry_max
 
     def to_efforts(self, wet_max: Positive, dry_max: Positive) -> Efforts:
         return Efforts(wet=self.wet / wet_max, dry=self.dry / dry_max)
 
-    def derated(
-        self, wet_max: Positive, dry_max: Positive, total_max: Positive
-    ) -> tuple[AbsoluteFlows, Efforts, bool]:
-        if wet_max <= 0 or dry_max <= 0 or total_max <= 0:
+    def derated(self, wet_max: Positive, dry_max: Positive) -> AbsoluteFlows:
+        if wet_max <= 0 or dry_max <= 0:
             raise ValueError("Max flows must be > 0")
-        wet_effort, dry_effort = self.wet / wet_max, self.dry / dry_max
-        scale = max(wet_effort, dry_effort, self.total / total_max, 1.0)
-        efforts = Efforts(wet=wet_effort, dry=dry_effort)
-        if scale <= 1.0:
-            return self, efforts, False
-        efforts = efforts / scale
-        return efforts.to_flows(wet_max, dry_max, units=self.units), efforts, True
+        efforts = self.to_efforts(wet_max, dry_max)
+        return self / max(efforts.wet, efforts.dry, 1.0)
 
     def __truediv__(self, scale: float) -> AbsoluteFlows:
         return AbsoluteFlows(self.wet / scale, self.dry / scale, units=self.units)
 
     def __mul__(self, scale: float) -> AbsoluteFlows:
         return AbsoluteFlows(self.wet * scale, self.dry * scale, units=self.units)
-
-
-@dataclass(slots=True, frozen=True)
-class Blend:
-    wet_fraction: Normalised
-    flow: NonNegative
-    units: str | None = None
-
-
-class FractionChangePolicy(Enum):
-    HOLD_OR_RAISE = "hold_or_raise"
-    HOLD_CLAMPED = "hold_clamped"
-    TRACKED_MAX = "tracked_max"
-
-    @property
-    def on_overdrive(self) -> OnOverdrive:
-        if self == FractionChangePolicy.HOLD_CLAMPED:
-            return OnOverdrive.CLAMP
-        return OnOverdrive.RAISE
 
 
 @dataclass(slots=True, frozen=True)
@@ -231,6 +230,12 @@ class Efforts:
 
     def __mul__(self, scale: float) -> Efforts:
         return Efforts(self.wet * scale, self.dry * scale)
+
+
+@dataclass(slots=True, frozen=True)
+class PumpsOutput:
+    flows: AbsoluteFlows
+    efforts: Efforts
 
 
 class PumpDriver(Protocol):
@@ -363,10 +368,8 @@ class DualPumps:
         return self.pumps.efforts
 
     @property
-    def efforts_and_flows(self) -> tuple[Efforts, AbsoluteFlows]:
-        efforts = self.efforts
-        flows = efforts.to_flows(self.wet_max_flow, self.dry_max_flow, units=self.units)
-        return efforts, flows
+    def output(self) -> PumpsOutput:
+        return self.efforts_to_outputs(self.efforts)
 
     @property
     def wet_effort(self) -> Normalised:
@@ -471,33 +474,37 @@ class DualPumps:
             wet_fraction=wet_fraction,
         )
 
-    def blend_to_flows(
-        self, flow: BlendFlow | NonNegative, wet_fraction: Normalised
-    ) -> AbsoluteFlows:
-        validate_normalised("wet_fraction", wet_fraction)
-        if isinstance(flow, BlendFlow):
-            if flow.scale == BlendFlowScale.BLEND_MAX:
-                flow = flow.value * self._max_flow_at(wet_fraction)
-            elif flow.scale == BlendFlowScale.FULL_RANGE_MAX:
-                flow = flow.value * self.max_full_range_flow
-        return AbsoluteFlows.from_blend(float(flow), wet_fraction, units=self.units)
-
     def set_blend(
         self,
-        flow: BlendFlow | NonNegative,
+        flow: BlendFlow,
         wet_fraction: Normalised,
-        on_overdrive: OnOverdrive = OnOverdrive.RAISE,
-    ) -> AbsoluteFlows:
-        raw_flows = self.blend_to_flows(flow, wet_fraction)
-        efforts = raw_flows.to_efforts(self.wet_max_flow, self.dry_max_flow)
-        if efforts.overdriven:
-            if on_overdrive == OnOverdrive.RAISE:
-                self.raise_flow_overdriven(raw_flows.wet, raw_flows.dry, wet_fraction)
-            efforts = efforts / max(efforts.wet, efforts.dry)
-        return self.efforts_to_flows(self.set_efforts(efforts.wet, efforts.dry))
+    ) -> PumpsOutput:
+        if isinstance(flow, Absolute):
+            flows = AbsoluteFlows.from_blend(flow.value, wet_fraction, units=self.units)
+            efforts = flows.to_efforts(self.wet_max_flow, self.dry_max_flow)
+            if not efforts.overdriven:
+                if flow.on_overdrive == OnOverdrive.RAISE:
+                    self.raise_flow_overdriven(flows.wet, flows.dry, wet_fraction)
+                efforts = efforts.derated()[0]
 
-    def efforts_to_flows(self, efforts: Efforts) -> AbsoluteFlows:
-        return efforts.to_flows(self.wet_max_flow, self.dry_max_flow, units=self.units)
+        else:
+            if isinstance(flow, OfBlendMax):
+                flows = AbsoluteFlows.from_blend(
+                    flow.value * self._max_flow_at(wet_fraction), wet_fraction, units=self.units
+                )
+            elif isinstance(flow, OfFullRangeMax):
+                flows = AbsoluteFlows.from_blend(
+                    flow.value * self.max_full_range_flow, wet_fraction, units=self.units
+                )
+            efforts = flows.to_efforts(self.wet_max_flow, self.dry_max_flow)
+
+        return self.set_efforts(efforts.wet, efforts.dry)
+
+    def efforts_to_outputs(self, efforts: Efforts) -> PumpsOutput:
+        return PumpsOutput(
+            efforts=efforts,
+            flows=efforts.to_flows(self.wet_max_flow, self.dry_max_flow, units=self.units),
+        )
 
     # def set_blend_flow(
 
@@ -524,20 +531,18 @@ class DualPumps:
     # ) -> AbsoluteFlows:
     #     return self.set_wet_fraction(1.0 - dry_fraction, policy=policy)
 
-    def set_flows(self, wet: NonNegative, dry: NonNegative) -> AbsoluteFlows:
+    def set_flows(self, wet: NonNegative, dry: NonNegative) -> PumpsOutput:
         efforts = self.validate_flows(wet, dry)
-        return self.set_efforts(efforts.wet, efforts.dry).to_flows(
-            self.wet_max_flow, self.dry_max_flow, units=self.units
-        )
+        return self.set_efforts(efforts.wet, efforts.dry)
 
-    def set_efforts(self, wet: Normalised, dry: Normalised) -> Efforts:
+    def set_efforts(self, wet: Normalised, dry: Normalised) -> PumpsOutput:
         efforts = self.pumps.set_efforts(wet, dry)
         self._target_wet_fraction = (
             efforts.to_flows(self.wet_max_flow, self.dry_max_flow, units=self.units).wet_fraction
             if efforts.wet + efforts.dry > 0
             else None
         )
-        return efforts
+        return self.efforts_to_outputs(efforts)
 
     def stop(self):
         self.pumps.stop()

@@ -19,7 +19,9 @@ class ControlLaw(Protocol):
     ) -> None:
         pass
 
-    def step(self, time: float, reading: float, set_point: float) -> float: ...
+    def step(
+        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+    ) -> float: ...
 
 
 class ControlLawConfig(Config[ControlLaw]):
@@ -51,9 +53,10 @@ class PControllerConfig(ControlLawConfig):
 class PIControllerConfig(ControlLawConfig):
     kp: float = 0.0
     ki: float = 0.0
+    tt: float = 0.0
 
     def build(self) -> PIController:
-        return PIController(self.kp, self.ki)
+        return PIController(self.kp, self.ki, self.tt)
 
 
 @control_law_config("PID")
@@ -61,9 +64,10 @@ class PIDControllerConfig(ControlLawConfig):
     kp: float = 0.0
     ki: float = 0.0
     kd: float = 0.0
+    tt: float = 0.0
 
     def build(self) -> PIDController:
-        return PIDController(self.kp, self.ki, self.kd)
+        return PIDController(self.kp, self.ki, self.kd, self.tt)
 
 
 class PController(ControlLaw):
@@ -72,80 +76,131 @@ class PController(ControlLaw):
     def __init__(self, kp: float):
         self.kp = kp
 
-    def step(self, time: float, reading: float, set_point: float) -> float:
+    def step(
+        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+    ) -> float:
         error = set_point - reading
         output = self.kp * error
         return output
 
 
-class PIController(ControlLaw):
-    kp: float = 0
-    ki: float = 0
+class IComponent:
+    _ki: float = 0.0
+    _tt_mul_ki: float = 0.0
 
     integral: float = 0.0
-    last_time: float
+    last_raw: float | None = None
+    last_time: float = 0.0
 
-    def __init__(self, kp: float = 0, ki: float = 0):
-        self.kp = kp
-        self.ki = ki
+    @property
+    def ki(self) -> float:
+        return self._ki
+
+    @property
+    def tt(self) -> float:
+        return self._tt_mul_ki / self._ki if self._ki else 0.0
+
+    @property
+    def integral_value(self) -> float:
+        return self.integral * self.ki
+
+    def set_ki_tt(self, ki: float, tt: float = 0.0) -> None:
+        self._ki = ki
+        self._tt_mul_ki = tt * ki
+
+    def start_integral(
+        self,
+        time: float,
+        reading: float,
+        set_point: float,
+        kp: float = 0.0,
+        output: float | None = None,
+    ) -> None:
+        self.last_time = time
+        self.integral = 0.0
+        self.last_raw = output
+        if output is not None and self._ki:
+            self.integral = (output - kp * (set_point - reading)) / self._ki
+
+    def step_integral(self, error: float, time: float, last_applied: float | None = None) -> float:
+        dt = time - self.last_time
+
+        if dt <= 0:
+            raise ValueError("Time must be increasing")
+
+        self.integral += error * dt
+        if self._tt_mul_ki and last_applied is not None and self.last_raw is not None:
+            self.integral += (last_applied - self.last_raw) * dt / self._tt_mul_ki
+
+        self.last_time = time
+
+        return dt
+
+    def update_output(self, output: float):
+        self.last_raw = output
+
+
+class PIController(ControlLaw, IComponent):
+    _kp: float = 0.0
+
+    def __init__(self, kp: float = 0, ki: float = 0, tt: float = 0):
+        self._kp = kp
+        self.set_ki_tt(ki, tt)
+
+    @property
+    def kp(self) -> float:
+        return self._kp
 
     def start(
         self, time: float, reading: float, set_point: float, output: float | None = None
     ) -> None:
-        self.last_time = time
-        self.integral = 0.0
-        if output is not None and self.ki:
-            self.integral = (output - self.kp * (set_point - reading)) / self.ki
+        self.start_integral(time, reading, set_point, self._kp, output)
 
-    def step(self, time: float, reading: float, set_point: float) -> float:
+    def step(
+        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+    ) -> float:
         error = set_point - reading
-        if self.last_time is not None:
-            dt = time - self.last_time
-            assert dt > 0, ValueError("Time must be increasing")
-            self.integral += error * dt
-
-        output = self.kp * error + self.ki * self.integral
-
-        self.last_time = time
-
+        self.step_integral(error, time, last_applied)
+        output = self._kp * error + self.integral_value
+        self.update_output(output)
         return output
 
 
-class PIDController(ControlLaw):
-    kp: float = 0
-    ki: float = 0
-    kd: float = 0
+class PIDController(ControlLaw, IComponent):
+    _kp: float = 0.0
+    _kd: float = 0.0
 
-    integral: float = 0.0
-    last_error: float = 0.0
-    last_time: float
+    last_reading: float = 0.0
 
-    def __init__(self, kp: float = 0, ki: float = 0, kd: float = 0):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
+    def __init__(self, kp: float = 0, ki: float = 0, kd: float = 0, tt: float = 0.0):
+        self._kp = kp
+        self._kd = kd
+        self.set_ki_tt(ki, tt)
+
+    @property
+    def kp(self) -> float:
+        return self._kp
+
+    @property
+    def kd(self) -> float:
+        return self._kd
 
     def start(
         self, time: float, reading: float, set_point: float, output: float | None = None
     ) -> None:
-        self.last_time = time
-        self.last_error = set_point - reading
-        self.integral = 0.0
-        if output is not None and self.ki:
-            self.integral = (output - self.kp * (set_point - reading)) / self.ki
 
-    def step(self, time: float, reading: float, set_point: float) -> float:
+        self.last_reading = reading
+        self.start_integral(time, reading, set_point, self._kp, output)
+
+    def step(
+        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+    ) -> float:
         error = set_point - reading
-        derivative = 0.0
-        if self.last_time is not None:
-            dt = time - self.last_time
-            assert dt > 0, ValueError("Time must be increasing")
-            self.integral += error * dt
-            derivative = (error - self.last_error) / dt
+        dt = self.step_integral(error, time, last_applied)
 
-        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        derivative = (self.last_reading - reading) / dt
+        output = self._kp * error + self.integral_value + self._kd * derivative
 
-        self.last_error = error
-        self.last_time = time
-
+        self.last_reading = reading
+        self.update_output(output)
         return output

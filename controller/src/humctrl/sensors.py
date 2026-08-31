@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from humctrl.typing import Percent
+from humctrl.utils import Unset, UnsetType
 
 # region Exceptions
 
@@ -45,9 +46,9 @@ class ReadersInterface(Protocol):
 
 
 class Readings:
-    process: Reading | None
-    dry: Reading | None
-    wet: Reading | None
+    process: Reading | UnsetType | None = Unset
+    dry: Reading | UnsetType | None = Unset
+    wet: Reading | UnsetType | None = Unset
 
 
 class Readers(Protocol):
@@ -60,10 +61,6 @@ class Readers(Protocol):
     def read_dry(self) -> Reading: ...
 
     def read(self, process: bool = True, wet: bool = True, dry: bool = True) -> Readings: ...
-
-
-class StreamingReader(Protocol):
-    def stream(self) -> Reading: ...
 
 
 class PolledReader(Protocol):

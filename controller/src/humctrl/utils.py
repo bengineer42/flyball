@@ -33,9 +33,9 @@ def format_quantity(flow: float, units: str | None = None) -> str:
     return f"{flow:.3f}{f' {units}' if units else ''}"
 
 
-def require[T](value: T | None, error: type[Exception]) -> T:
+def require[T](value: T | None, error: type[Exception], *args, **kwargs) -> T:
     if value is None:
-        raise error()
+        raise error(*args, **kwargs)
     return value
 
 
