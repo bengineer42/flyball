@@ -9,3 +9,4 @@ NonZero = Annotated[float, Field(lt=0.0)] | Annotated[float, Field(gt=0.0)]
 Normalised = Annotated[float, Field(ge=0.0, le=1.0)]
 NormalisedPositive = Annotated[float, Field(gt=0.0, le=1.0)]
 Percent = Annotated[float, Field(ge=0.0, le=100.0)]
+UnclampedPercent = float

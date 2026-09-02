@@ -1,21 +1,38 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from threading import Event
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from humctrl.clock import Duration, Rate, Time
-from humctrl.manager import Manager
-from humctrl.sensors import Reading
+from humctrl.controller import ControlLaw, ControlLawConfig
+from humctrl.pumps import BlendFlow
+from humctrl.readers import Reading
 from humctrl.typing import Percent, Positive, PositiveInt
+
+if TYPE_CHECKING:
+    from humctrl.manager import Manager
 
 
 class Runner(Protocol):
-    def hold(self): ...
-    def step(self, reading: Reading): ...
-    def interrupt(self): ...
+    _suspended: bool = False
+
+    @property
+    def suspended(self) -> bool:
+        return self._suspended
+
+    def hold(self) -> None: ...
+    def step(self, reading: Reading) -> None: ...
+    def suspend(self) -> None:
+        self._suspended = True
+
+    def resume(self) -> None:
+        self._suspended = False
+
+    def interrupt(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,11 +47,12 @@ class TestHumidities:
 
 class HoldUntilHumidity(Runner):
     readings: list[Reading]
-    wait: Event = Event()
+    wait: Event
     min_duration: float
     min_readings: PositiveInt
     timeout: Positive | None
     test: Callable[[list[Reading]], bool]
+    _suspend_time: float | None = None
 
     def __init__(
         self,
@@ -42,19 +60,24 @@ class HoldUntilHumidity(Runner):
         timeout: Positive | None = None,
         min_duration: Duration | float = 0.0,
         min_readings: PositiveInt = 1,
-    ):
+    ) -> None:
+        self.wait = Event()
         self.readings: list[Reading] = []
         self.timeout = timeout
         self.min_duration = float(min_duration)
         self.min_readings = min_readings
         self.test = test
 
-    def hold(self):
+    def hold(self) -> None:
         self.wait.clear()
         if self.timeout is not None:
             self.wait.wait(timeout=self.timeout)
 
-    def step(self, reading: Reading):
+    def suspend(self) -> None:
+        self._suspended = True
+        self._suspend_time = time.monotonic()
+
+    def step(self, reading: Reading) -> None:
         self.readings.append(reading)
         if (
             len(self.readings) >= self.min_readings
@@ -68,7 +91,7 @@ class HoldUntilHumidity(Runner):
             if self.test(self.readings):
                 self.wait.set()
 
-    def interrupt(self):
+    def interrupt(self) -> None:
         self.wait.set()
 
 
@@ -79,7 +102,7 @@ class StartFrom(Enum):
 
 class RampHumidity(Runner):
     target: Percent
-    _wait: Event = Event()
+    wait: Event
     end_time: float
     rate: float
 
@@ -88,44 +111,51 @@ class RampHumidity(Runner):
         manager: Manager,
         target: Percent,
         pace: Rate | Time | Duration,
+        flow: BlendFlow | None = None,
         start_from: StartFrom | Percent = StartFrom.READING,
-    ):
+        control_law: ControlLaw | ControlLawConfig | None = None,
+    ) -> None:
         self.manager = manager
         self.target = target
+        self.wait = Event()
         if isinstance(start_from, StartFrom) and start_from == StartFrom.TARGET:
-            start_humidity = manager.required_regulated_humidity
+            start_humidity = manager.required_target_humidity
         else:
             start_humidity = (
                 manager.required_process_humidity
                 if isinstance(start_from, StartFrom)
                 else start_from
             )
-            manager.start_regulating(start_humidity)
-        now = manager.time()
+        if control_law is None and manager.controller is not None:
+            manager.update_target(start_humidity)
+        else:
+            manager.start_controller(start_humidity, flow, control_law=control_law)
+
+        now = manager.elapsed_s()
         match pace:
             case Rate(per_second=per_second):
-                self._end_time = now + abs(self.target - start_humidity) / per_second
-            case Duration(as_seconds=seconds):
-                self._end_time = now + seconds
-            case Time(as_seconds=end_time):
-                self._end_time = end_time
-        self._rate = (self.target - start_humidity) / (self._end_time - now)
+                self.end_time = now + abs(self.target - start_humidity) / per_second
+            case Duration(seconds=seconds):
+                self.end_time = now + seconds
+            case Time(seconds=end_time):
+                self.end_time = end_time
+        self.rate = (self.target - start_humidity) / (self.end_time - now)
 
-    def step(self, reading: Reading):
-        now = self.manager.time()
-        dt = self._end_time - now
+    def step(self, reading: Reading) -> None:
+        now = self.manager.elapsed_s()
+        dt = self.end_time - now
         if dt <= 0:
-            self.manager.update_regulating(self.target)
-            self._wait.set()
+            self.manager.update_target(self.target)
+            self.wait.set()
         else:
-            self.manager.update_regulating(self.target - dt * self._rate)
+            self.manager.update_target(self.target - dt * self.rate)
 
-    def hold(self):
-        wait_time = self._end_time - self.manager.time()
+    def hold(self) -> None:
+        wait_time = self.end_time - self.manager.elapsed_s()
         if wait_time > 0:
-            self._wait.wait(timeout=wait_time)
-        if self._wait.is_set():
-            self.manager.update_regulating(self.target)
+            self.wait.wait(timeout=wait_time)
+        if self.wait.is_set():
+            self.manager.update_target(self.target)
 
-    def interrupt(self):
-        self._wait.set()
+    def interrupt(self) -> None:
+        self.wait.set()

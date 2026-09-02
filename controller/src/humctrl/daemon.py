@@ -17,7 +17,7 @@ from humctrl.clock import Clock
 from humctrl.control_law import PIController
 from humctrl.manager import Manager
 from humctrl.pumps import DualPumps, PumpPair
-from humctrl.sensors import Reader, Reading
+from humctrl.readers import Reading
 
 log = logging.getLogger("humctrl.daemon")
 
@@ -48,7 +48,7 @@ def build_rig(args: argparse.Namespace) -> Manager:
         ),
         wet_max_flow=args.wet_max_flow,
         dry_max_flow=args.dry_max_flow,
-        flow_units=args.flow_units,
+        units=args.flow_units,
     )
     sensor = I2CSHT4x(label=args.sensor_label)
     return Manager(
@@ -102,7 +102,7 @@ def build_simulated_rig(args: argparse.Namespace) -> Manager:
         pair,
         wet_max_flow=args.wet_max_flow,
         dry_max_flow=args.dry_max_flow,
-        flow_units=args.flow_units,
+        units=args.flow_units,
     )
     sensor = SimSensor(args.sensor_label, pair)
     return Manager(

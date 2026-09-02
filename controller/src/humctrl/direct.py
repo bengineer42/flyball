@@ -5,7 +5,7 @@ from linux_pwm import PWMChannel, PWMChip
 
 from humctrl.clock import Clock
 from humctrl.pumps import DualPumps, DualPumpsConfig, PumpDriver, PumpError, PumpPair
-from humctrl.sensors import Reader, Reading
+from humctrl.readers import Reader, Reading
 from humctrl.typing import Normalised, Positive
 
 DEFAULT_PWM_FREQUENCY: float = 20_000.0  # Hz
@@ -14,7 +14,7 @@ DEFAULT_PWM_FREQUENCY: float = 20_000.0  # Hz
 class PumpFlowError(PumpError, ValueError):
     """A requested flow or fraction cannot be applied."""
 
-    def __init__(self, flow: float, max_flow: float, name: str | None = None):
+    def __init__(self, flow: float, max_flow: float, name: str | None = None) -> None:
         self.flow = flow
         self.max_flow = max_flow
         self.name = name
@@ -36,7 +36,7 @@ class LinuxPwmDualPumpsConfig(DualPumpsConfig):
 
     def build(self) -> DualPumps:
         return DualPumps(
-            self.build_driver(), self.wet_max_flow, self.dry_max_flow, flow_units=self.flow_units
+            self.build_driver(), self.wet_max_flow, self.dry_max_flow, units=self.flow_units
         )
 
     def build_driver(self) -> PumpPair:
@@ -64,7 +64,7 @@ class LinuxPWMPump(PumpDriver):
         deadband: float = 0.0,
         chip: PWMChip | int = 0,
         timeout: float = 10,
-    ):
+    ) -> None:
         self._frequency = frequency
         self._deadband = deadband
         self.pwm = PWMChannel(channel=channel, chip=chip, timeout=timeout)
@@ -88,7 +88,7 @@ class LinuxPWMPump(PumpDriver):
         self._effort = effort
         return self._effort
 
-    def stop(self):
+    def stop(self) -> None:
         self.pwm.stop()
 
 
@@ -117,7 +117,7 @@ class I2CSHT4x(Reader):
         i2c: I2C | None = None,
         address: int = _SHT4X_DEFAULT_ADDR,
         clock: Clock | None = None,
-    ):
+    ) -> None:
         self._label = label
         self.i2c = board.I2C() if i2c is None else i2c
         self._sensor = SHT4x(self.i2c, address)

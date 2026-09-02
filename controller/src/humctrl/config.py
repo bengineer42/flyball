@@ -1,17 +1,31 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, overload
 
-from humctrl.control_law import ControlLawConfig
+from humctrl.controller import ControlLawConfig
 from humctrl.manager import Manager
 from humctrl.pumps import DualPumps
 from humctrl.typing import Percent, Positive
-from humctrl.utils import Config
 
 
-def build_or_none[T](config: Config[T] | None) -> T | None:
-    if config is None:
-        return None
-    return config.build()
+class Config[T](ABC):
+    @abstractmethod
+    def build(self) -> T: ...
+
+
+type ConfigOr[T] = Config[T] | T
+
+
+@overload
+def resolve[T](config: Config[T]) -> T: ...
+@overload
+def resolve[T](config: Config[T] | None) -> T | None: ...
+@overload
+def resolve[T](config: ConfigOr[T]) -> T: ...
+def resolve[T](config: Config[T] | T | None) -> T | None:
+    if isinstance(config, Config):
+        return config.build()
+    return config
 
 
 @dataclass(slots=True)
@@ -23,11 +37,9 @@ class ManagerConfig(Config[Manager]):
     wet_humidity: Percent = 100
 
     def build(self) -> Manager:
-        pumps = build_or_none(self.pumps)
-        control_law = build_or_none(self.control_law)
         return Manager(
-            pumps=pumps,
-            control_law=control_law,
+            pumps=resolve(self.pumps),
+            control_law=resolve(self.control_law),
             process_time=self.process_time,
             dry_humidity=self.dry_humidity,
             wet_humidity=self.wet_humidity,

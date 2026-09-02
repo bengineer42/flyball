@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from enum import Enum
+from typing import TYPE_CHECKING, Protocol
 
-from humctrl.typing import Percent
-from humctrl.utils import Unset, UnsetType
+if TYPE_CHECKING:
+    from humctrl.typing import Percent
 
 # region Exceptions
 
@@ -13,7 +14,7 @@ class SensorError(Exception): ...
 
 
 class SensorReadError(SensorError):
-    def __init__(self, sensor_name: str, message: str):
+    def __init__(self, sensor_name: str, message: str) -> None:
         super().__init__(f"Error reading from sensor '{sensor_name}': {message}")
 
 
@@ -41,14 +42,22 @@ class Reader(Protocol):
     def read(self) -> Reading: ...
 
 
-class ReadersInterface(Protocol):
-    def read(self, /, **kwargs) -> dict[str, Reading]: ...
+class ReaderSource(Enum):
+    WET = "wet"
+    DRY = "dry"
+    PROCESS = "process"
 
 
+@dataclass(frozen=True, slots=True)
 class Readings:
-    process: Reading | UnsetType | None = Unset
-    dry: Reading | UnsetType | None = Unset
-    wet: Reading | UnsetType | None = Unset
+    process: Reading | Exception | None = None
+    dry: Reading | Exception | None = None
+    wet: Reading | Exception | None = None
+
+    def __iter__(self):
+        yield (ReaderSource.PROCESS, self.process)
+        yield (ReaderSource.DRY, self.dry)
+        yield (ReaderSource.WET, self.wet)
 
 
 class Readers(Protocol):

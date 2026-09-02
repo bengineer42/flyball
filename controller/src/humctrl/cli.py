@@ -27,7 +27,7 @@ EXIT_UNREACHABLE = 3
 class CliError(Exception):
     """Anything the user should see as a one-line message, not a traceback."""
 
-    def __init__(self, message: str, code: int = EXIT_ERROR):
+    def __init__(self, message: str, code: int = EXIT_ERROR) -> None:
         super().__init__(message)
         self.code = code
 

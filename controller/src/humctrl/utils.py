@@ -1,16 +1,13 @@
 import asyncio
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from enum import Enum
 from threading import Event, Thread
 from time import monotonic
-from typing import Protocol
+from typing import Any
 
 from humctrl.typing import Positive
-
-
-class Config[T](Protocol):
-    def build(self) -> T: ...
 
 
 class UnsetType(Enum):
@@ -33,7 +30,7 @@ def format_quantity(flow: float, units: str | None = None) -> str:
     return f"{flow:.3f}{f' {units}' if units else ''}"
 
 
-def require[T](value: T | None, error: type[Exception], *args, **kwargs) -> T:
+def require[T](value: T | None, error: type[Exception], *args: Any, **kwargs: Any) -> T:
     if value is None:
         raise error(*args, **kwargs)
     return value
@@ -42,18 +39,23 @@ def require[T](value: T | None, error: type[Exception], *args, **kwargs) -> T:
 class Topic[T]:
     """Fan-out to asyncio subscribers, publishable from any thread.
 
-    Construct on the event loop that serves the subscribers. A subscriber that
-    falls behind drops stale items rather than blocking the publisher.
+    Subscribe from the event loop that serves the subscribers; publish from any
+    thread. Publishing before the first subscriber is a no-op, so the owner need
+    not be constructed on the loop. A subscriber that falls behind drops stale
+    items rather than blocking the publisher.
     """
 
     def __init__(self) -> None:
-        self._loop = asyncio.get_running_loop()
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._subscribers: set[asyncio.Queue[T]] = set()
 
     def publish(self, item: T) -> None:
         """Offer an item to every subscriber. Never blocks, never raises."""
+        loop = self._loop  # read once: a subscriber may bind it on the loop thread
+        if loop is None:
+            return  # nobody has subscribed yet, so there is nowhere to deliver
         with suppress(RuntimeError):  # loop closed during shutdown
-            self._loop.call_soon_threadsafe(self._fanout, item)
+            loop.call_soon_threadsafe(self._fanout, item)
 
     def _fanout(self, item: T) -> None:
         for queue in self._subscribers:
@@ -68,6 +70,7 @@ class Topic[T]:
         Holds at most ``maxsize`` items, dropping the oldest to make room. Pass
         0 to queue without limit, at the risk of growing behind a stuck reader.
         """
+        self._loop = asyncio.get_running_loop()
         queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
         self._subscribers.add(queue)
         try:
@@ -85,7 +88,9 @@ class PeriodicLoop:
     _next_loop_time: float | None = None
     _stop_on_error: bool
 
-    def __init__(self, fn: Callable[[], None], loop_time: Positive, stop_on_error: bool = True):
+    def __init__(
+        self, fn: Callable[[], None], loop_time: Positive, stop_on_error: bool = True
+    ) -> None:
         self._loop_time = loop_time
         self._event = Event()
         self._fn = fn
@@ -99,10 +104,10 @@ class PeriodicLoop:
     def loop_time(self) -> Positive:
         return self._loop_time
 
-    def set_loop_time(self, loop_time: Positive):
+    def set_loop_time(self, loop_time: Positive) -> None:
         self._loop_time = loop_time
 
-    def start(self):
+    def start(self) -> None:
         if self._thread is not None:
             if self._thread.is_alive():
                 raise RuntimeError("Loop is already running")
@@ -111,18 +116,18 @@ class PeriodicLoop:
         self._thread = Thread(target=self.run, daemon=True)
         self._thread.start()
 
-    def stop(self, timeout: float | None = None):
+    def stop(self, timeout: float | None = None) -> None:
         if self._thread is not None:
             self._event.set()
             self._thread.join(timeout=timeout)
 
-    def set_error(self, error: Exception | None):
+    def set_error(self, error: Exception | None) -> None:
         self._erroring = error
 
-    def set_ok(self):
+    def set_ok(self) -> None:
         self._erroring = None
 
-    def run(self):
+    def run(self) -> None:
         self._next_loop_time = monotonic() + self.loop_time
         while not self._event.is_set():
             try:
@@ -137,3 +142,32 @@ class PeriodicLoop:
                 self._event.wait(timeout=sleep_time)
             self._next_loop_time += self.loop_time
         self._thread = None
+
+
+def to_list[T](item: T | list[T] | None) -> list[T]:
+    if item is None:
+        return []
+    if isinstance(item, list):
+        return item
+    return [item]
+
+
+def all_to_list[T](*args: T | list[T] | None) -> list[T]:
+    return [item for arg in args for item in to_list(arg)]
+
+
+@dataclass(frozen=True, slots=True)
+class WithWarning[T]:
+    value: T
+    warning: Exception | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.warning is None
+
+    def try_raise(self) -> None:
+        if self.warning is not None:
+            raise self.warning
+
+    def __call__(self) -> T:
+        return self.value

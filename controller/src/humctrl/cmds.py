@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from humctrl.clock import Duration, Rate, Time
-from humctrl.control_law import ControlLaw, ControlLawConfig
-from humctrl.manager import Manager
-from humctrl.pumps import BlendFlow, OnOverdrive
+from humctrl.controller import ControlLaw, ControlLawConfig
+from humctrl.pumps import BlendFlow
 from humctrl.runners import HoldUntilHumidity, RampHumidity, Runner, StartFrom, TestHumidities
 from humctrl.typing import Percent, Positive, PositiveInt
+
+if TYPE_CHECKING:
+    from humctrl.manager import Manager
 
 
 class Command(Protocol):
@@ -17,18 +19,10 @@ class Command(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class SetControlLaw(Command):
-    control_law: ControlLaw | ControlLawConfig
-
-    def __call__(self, manager: Manager):
-        manager.set_control_law(self.control_law)
-
-
-@dataclass(frozen=True, slots=True)
 class StartRecording(Command):
     name: str | None
 
-    def __call__(self, manager: Manager):
+    def __call__(self, manager: Manager) -> None:
         manager.start_recording(self.name)
 
 
@@ -36,7 +30,7 @@ class StartRecording(Command):
 class StopRecording(Command):
     name: str | None
 
-    def __call__(self, manager: Manager):
+    def __call__(self, manager: Manager) -> None:
         manager.stop_recording(self.name)
 
 
@@ -44,7 +38,7 @@ class StopRecording(Command):
 class AddFlag(Command):
     flag: str
 
-    def __call__(self, manager: Manager):
+    def __call__(self, manager: Manager) -> None:
         manager.add_recorder_flag(self.flag)
 
 
@@ -54,38 +48,10 @@ class AddFlag(Command):
 @dataclass(frozen=True, slots=True)
 class SetBlend(Command):
     wet_fraction: float
-    flow: BlendFlow | float
-    on_overdrive: OnOverdrive | None = None
+    flow: BlendFlow
 
-    def __call__(self, manager: Manager):
-        manager.set_blend(self.flow, self.wet_fraction, self.on_overdrive)
-
-
-@dataclass(frozen=True, slots=True)
-class SetBlendFlow(Command):
-    flow: BlendFlow | float
-    on_overdrive: OnOverdrive | None = None
-
-    def __call__(self, manager: Manager):
-        manager.set_blend_flow(self.flow, self.on_overdrive)
-
-
-@dataclass(frozen=True, slots=True)
-class SetWetFraction(Command):
-    wet_fraction: float
-    on_overdrive: OnOverdrive | None = None
-
-    def __call__(self, manager: Manager):
-        manager.set_wet_fraction(self.wet_fraction, self.on_overdrive)
-
-
-@dataclass(frozen=True, slots=True)
-class SetDryFraction(Command):
-    dry_fraction: float
-    on_overdrive: OnOverdrive | None = None
-
-    def __call__(self, manager: Manager):
-        manager.set_dry_fraction(self.dry_fraction, self.on_overdrive)
+    def __call__(self, manager: Manager) -> None:
+        manager.set_blend(self.flow, self.wet_fraction)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +59,7 @@ class SetFlows(Command):
     wet: float
     dry: float
 
-    def __call__(self, manager: Manager):
+    def __call__(self, manager: Manager) -> None:
         manager.set_flows(self.wet, self.dry)
 
 
@@ -102,36 +68,40 @@ class SetEfforts(Command):
     wet: float
     dry: float
 
-    def __call__(self, manager: Manager):
+    def __call__(self, manager: Manager) -> None:
         manager.set_efforts(self.wet, self.dry)
 
 
 @dataclass(frozen=True, slots=True)
 class StopPumps(Command):
-    def __call__(self, manager: Manager):
+    def __call__(self, manager: Manager) -> None:
         manager.stop_pumps()
 
 
-PumpCmds = (SetBlend, SetBlendFlow, SetWetFraction, SetDryFraction, SetFlows, SetEfforts, StopPumps)
+PumpCmds = (SetBlend, SetFlows, SetEfforts, StopPumps)
 
 
 # endregion
 
 
 @dataclass(frozen=True, slots=True)
-class StartRegulation(Command):
+class StartController(Command):
     humidity: Percent
+    flow: BlendFlow | None = None
+    control_law: ControlLaw | ControlLawConfig | None = None
 
-    def __call__(self, manager: Manager):
-        manager.start_regulating(self.humidity)
+    def __call__(self, manager: Manager) -> None:
+        manager.start_controller(self.humidity, self.flow, self.control_law)
+        manager.apply()
 
 
 @dataclass(frozen=True, slots=True)
-class UpdateRegulation(Command):
+class UpdateTargetHumidity(Command):
     humidity: Percent
 
-    def __call__(self, manager: Manager):
-        manager.update_regulating(self.humidity)
+    def __call__(self, manager: Manager) -> None:
+        manager.update_target(self.humidity)
+        manager.apply()
 
 
 class TargetMode(Enum):
@@ -145,14 +115,18 @@ class TargetMode(Enum):
 class RampHumidityConfig(Command):
     target: Percent
     pace: Rate | Time | Duration
+    flow: BlendFlow | None = None
     start_from: StartFrom | Percent = StartFrom.READING
+    control_law: ControlLaw | ControlLawConfig | None = None
 
     def __call__(self, manager: Manager) -> RampHumidity:
         return RampHumidity(
             manager,
             target=self.target,
             pace=self.pace,
+            flow=self.flow,
             start_from=self.start_from,
+            control_law=self.control_law,
         )
 
 
@@ -182,7 +156,7 @@ class HoldConfig(Command):
         mode = self.mode
 
         if target is None:
-            target = manager.required_regulated_humidity
+            target = manager.required_target_humidity
         if mode == TargetMode.CROSS:
             if manager.required_process_humidity > target:
                 mode = TargetMode.BELOW
@@ -209,16 +183,20 @@ class ControlProgram:
     _n: int = 0
     _running: bool = False
 
-    def __init__(self, commands: list[Command]):
+    def __init__(self, commands: list[Command]) -> None:
         self.commands = commands
 
+    @property
     def running(self) -> bool:
         return self._running
 
-    def run(self, manager: Manager, start: int = 0):
+    def suspend(self) -> None:
+        self._running = False
+
+    def run(self, manager: Manager, start: int = 0) -> None:
         self._running = True
         self._n = start
         while self._running and self._n < len(self.commands):
-            manager._run_command(self.commands[self._n])
+            manager.run_command(self.commands[self._n])
             self._n += 1
         self._running = False

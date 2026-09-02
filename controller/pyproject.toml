@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "humctrl"
+description = "Split-range humidity control: PI core, device abstraction, supervised runtime"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+dynamic = ["version"]
+
+# Core has no required dependencies. The pure controller, the Device protocol,
+# the simulated plant and the SQLite store are all stdlib-only, so downstream
+# consumers can depend on the algorithm without pulling in a serial stack.
+dependencies = []
+
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5"]
+# FastAPI won: humctrl.server needs its WebSocket support for live telemetry
+# and pydantic for request validation. uvicorn is the ASGI server.
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.32"]
+all = ["humctrl[serial,web]"]
+rpi = [
+    "adafruit-blinka>=8.0",
+    "adafruit-circuitpython-sht4x>=1.0",
+    "rpi-hardware-pwm>=0.2",
+]
+
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "import-linter>=2.1",
+    "types-pyserial",
+]
+
+[tool.hatch.version]
+path = "src/humctrl/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/humctrl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # simplify
+    "RUF",
+]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["humctrl"]
+strict = true
+warn_unreachable = true
+
+# Enforces the layering by hand rather than by splitting into separate
+# distributions: control/device/store are mutually independent, and nothing
+# below may import anything above. Run with `lint-imports`.
+[tool.importlinter]
+root_packages = ["humctrl"]
+
+[[tool.importlinter.contracts]]
+name = "Layers"
+type = "layers"
+layers = [
+    "humctrl.web",
+    "humctrl.runtime",
+    "humctrl.devices",
+    "humctrl.control | humctrl.device | humctrl.store",
+    "humctrl.types",
+]
