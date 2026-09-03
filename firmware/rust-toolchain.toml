@@ -1,0 +1,7 @@
+[toolchain]
+channel = "stable"
+targets = [
+    "thumbv6m-none-eabi",         # RP2040  — Pico, Pico W
+    "thumbv8m.main-none-eabihf",  # RP2350A — Pico 2, Pico 2 W
+]
+components = ["rust-src", "llvm-tools"]

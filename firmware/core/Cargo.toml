@@ -1,0 +1,15 @@
+[package]
+name = "humctrl-firmware-core"
+description = "Board-independent firmware logic: line protocol, duty scaling, command watchdog"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Deliberately none. Everything here is `no_std` + core-only so it builds for
+# any MCU and runs under `cargo test` on the host.
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"

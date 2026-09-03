@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = ["core", "pico"]
+
+# `cargo build` / `cargo test` with no `-p` only touches the host-testable core.
+# The board crates are cross-compiled and are selected explicitly, either by
+# `-p` or through the aliases in `.cargo/config.toml`.
+default-members = ["core"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+humctrl-firmware-core = { path = "core" }
+
+# Small and predictable beats fast: the loop is idle almost all the time, and
+# 2 MB of flash is not the constraint. `debug = true` costs nothing on the
+# device (symbols stay in the ELF, not the UF2) and makes probe output useful.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+debug = true
+overflow-checks = true
+
+[profile.dev]
+opt-level = 1

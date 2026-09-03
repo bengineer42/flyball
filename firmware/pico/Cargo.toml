@@ -1,0 +1,42 @@
+[package]
+name = "humctrl-pico"
+description = "humctrl firmware for RP2040 and RP2350 boards (Pico, Pico W, Pico 2, Pico 2 W)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# The BOM in HANDOFF.md §11 specifies a Pico 2 W, so that is the default.
+default = ["rp2350"]
+# Pico, Pico W — build with `cargo pico1`.
+rp2040 = ["embassy-rp/rp2040"]
+# Pico 2, Pico 2 W — build with `cargo pico2`.
+rp2350 = ["embassy-rp/rp235xa", "embassy-rp/binary-info"]
+
+[dependencies]
+humctrl-firmware-core.workspace = true
+
+embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
+embassy-futures = "0.1"
+embassy-rp = { version = "0.10", features = ["time-driver", "critical-section-impl"] }
+embassy-sync = "0.8"
+embassy-time = "0.5"
+embassy-usb = "0.6"
+
+cortex-m = { version = "0.7.7", features = ["inline-asm"] }
+cortex-m-rt = "0.7"
+static_cell = "2.1"
+
+# Cortex-M0+ has no atomic compare-and-swap; embassy's executor needs one
+# emulated with a critical section. Inert on the M33.
+portable-atomic = { version = "1", features = ["critical-section"] }
+
+# A panic must not leave the pumps running. `panic-reset` resets the core, which
+# returns the PWM pins to inputs; the gate pulldowns then hold the MOSFETs off.
+panic-reset = "0.1"
+
+sht4x = { version = "0.2", default-features = false, features = ["embedded-hal-async"] }
+
+[lints.rust]
+missing_docs = "warn"
