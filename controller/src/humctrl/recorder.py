@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Protocol
 
 from humctrl.pumps import Flows, PumpsOutput
-from humctrl.sensors import Reader, Reading, Readings
+from humctrl.readers import Reader, Reading, Readings
 from humctrl.state import ControllerState, State
 from humctrl.typing import Percent
 
