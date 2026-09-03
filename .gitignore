@@ -9,6 +9,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.import_linter_cache/
 
 # Rust (firmware/target is ~1.5 GB)
 target/
