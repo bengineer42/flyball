@@ -22,9 +22,7 @@ fp-info-cache
 # Editor / tooling
 .history/
 .playwright-mcp/
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
+.vscode/
 
 # OS
 .DS_Store
