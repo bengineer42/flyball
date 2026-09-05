@@ -35,17 +35,11 @@ def get_manager() -> Manager:
 
 
 def get_pumps() -> DualPumps:
-    manager = get_manager()
-    if manager._pumps is None:
-        raise HTTPException(status_code=503, detail="No pumps attached to this rig")
-    return manager._pumps
+    return get_manager().require_pumps()
 
 
 def get_controller() -> Controller:
-    manager = get_manager()
-    if manager.controller is None:
-        raise HTTPException(status_code=503, detail="No controller attached to this rig")
-    return manager.controller
+    return get_manager().require_controller()
 
 
 ManagerDep = Annotated[Manager, Depends(get_manager)]

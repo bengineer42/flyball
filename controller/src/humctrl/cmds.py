@@ -1,81 +1,123 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from pydantic.alias_generators import to_snake
 
 from humctrl.clock import Duration, Rate, Time
 from humctrl.controller import ControlLaw, ControlLawConfig
+from humctrl.controller.types import ControlLawView, Tuning
 from humctrl.pumps import BlendFlow
-from humctrl.runners import HoldUntilHumidity, RampHumidity, Runner, StartFrom, TestHumidities
+from humctrl.runners import HoldUntilHumidity, RampHumidityRunner, Runner, StartFrom, TestHumidities
 from humctrl.typing import Percent, Positive, PositiveInt
+from humctrl.utils import Labelled
 
 if TYPE_CHECKING:
     from humctrl.manager import Manager
 
 
-class Command(Protocol):
-    def __call__(self, manager: Manager) -> Runner | None: ...
+Commands: dict[str, type[Command]] = {}
 
 
-@dataclass(frozen=True, slots=True)
+class Command:
+    """Base for everything a program can run.
+
+    Subclassing registers the command under its tag. The wire model is built by
+    the server layer, which is the only place that knows how a domain type
+    crosses the wire.
+    """
+
+    tag: ClassVar[str] = ""
+
+    def __init_subclass__(
+        cls, tag: str | None = None, register: bool = True, **kwargs: Any
+    ) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.tag = tag or cls.__dict__.get("tag") or to_snake(cls.__name__)
+        if not register:
+            return
+        clash = Commands.get(cls.tag)
+        # ``@dataclass(slots=True)`` rebuilds the class, so this runs a second
+        # time with a different object for the same command. Same qualified
+        # name means the rebuild, not a clash.
+        if clash is not None and (clash.__module__, clash.__qualname__) != (
+            cls.__module__,
+            cls.__qualname__,
+        ):
+            raise ValueError(f"tag {cls.tag!r} is already {clash.__name__}")
+        Commands[cls.tag] = cls
+
+    def __call__(self, manager: Manager) -> Runner | None:
+        """Do the work, returning a runner if it has to be waited on."""
+        ...
+
+
+@dataclass(frozen=True)
 class StartRecording(Command):
     name: str | None
 
-    def __call__(self, manager: Manager) -> None:
+    def __call__(self, manager: Manager) -> Runner | None:
         manager.start_recording(self.name)
+        return None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class StopRecording(Command):
     name: str | None
 
-    def __call__(self, manager: Manager) -> None:
+    def __call__(self, manager: Manager) -> Runner | None:
         manager.stop_recording(self.name)
+        return None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AddFlag(Command):
     flag: str
 
-    def __call__(self, manager: Manager) -> None:
+    def __call__(self, manager: Manager) -> Runner | None:
         manager.add_recorder_flag(self.flag)
+        return None
 
 
 # region PumpCmds
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SetBlend(Command):
     wet_fraction: float
     flow: BlendFlow
 
-    def __call__(self, manager: Manager) -> None:
+    def __call__(self, manager: Manager) -> Runner | None:
         manager.set_blend(self.flow, self.wet_fraction)
+        return None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SetFlows(Command):
-    wet: float
     dry: float
+    wet: float
 
-    def __call__(self, manager: Manager) -> None:
-        manager.set_flows(self.wet, self.dry)
+    def __call__(self, manager: Manager) -> Runner | None:
+        manager.set_flows(dry=self.dry, wet=self.wet)
+        return None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SetEfforts(Command):
-    wet: float
     dry: float
+    wet: float
 
-    def __call__(self, manager: Manager) -> None:
-        manager.set_efforts(self.wet, self.dry)
+    def __call__(self, manager: Manager) -> Runner | None:
+        manager.set_efforts(dry=self.dry, wet=self.wet)
+        return None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class StopPumps(Command):
-    def __call__(self, manager: Manager) -> None:
+    def __call__(self, manager: Manager) -> Runner | None:
         manager.stop_pumps()
+        return None
 
 
 PumpCmds = (SetBlend, SetFlows, SetEfforts, StopPumps)
@@ -84,49 +126,51 @@ PumpCmds = (SetBlend, SetFlows, SetEfforts, StopPumps)
 # endregion
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class StartController(Command):
     humidity: Percent
     flow: BlendFlow | None = None
-    control_law: ControlLaw | ControlLawConfig | None = None
+    tuning: Tuning | ControlLaw | ControlLawConfig | ControlLawView | str | None = None
 
-    def __call__(self, manager: Manager) -> None:
-        manager.start_controller(self.humidity, self.flow, self.control_law)
+    def __call__(self, manager: Manager) -> Runner | None:
+        manager.start_controller(self.humidity, self.flow, self.tuning)
         manager.apply()
 
 
-@dataclass(frozen=True, slots=True)
-class UpdateTargetHumidity(Command):
+@dataclass(frozen=True)
+class UpdateSetpoint(Command):
     humidity: Percent
 
-    def __call__(self, manager: Manager) -> None:
-        manager.update_target(self.humidity)
+    def __call__(self, manager: Manager) -> Runner | None:
+        manager.update_set_point(self.humidity)
         manager.apply()
 
 
-class TargetMode(Enum):
-    ABOVE = "above"
-    BELOW = "below"
-    CROSS = "cross"
-    AT = "at"
+class TargetMode(Labelled):
+    """Which way the process humidity must move past the target to satisfy a hold."""
+
+    ABOVE = "above", "Rises above the target"
+    BELOW = "below", "Falls below the target"
+    CROSS = "cross", "Crosses the target, either way"
+    AT = "at", "Settles within tolerance"
 
 
-@dataclass(frozen=True, slots=True)
-class RampHumidityConfig(Command):
+@dataclass(frozen=True)
+class RampHumidity(Command):
     target: Percent
     pace: Rate | Time | Duration
     flow: BlendFlow | None = None
-    start_from: StartFrom | Percent = StartFrom.READING
-    control_law: ControlLaw | ControlLawConfig | None = None
+    start: StartFrom | Percent = StartFrom.READING
+    tuning: Tuning | ControlLaw | ControlLawConfig | str | None = None
 
-    def __call__(self, manager: Manager) -> RampHumidity:
-        return RampHumidity(
+    def __call__(self, manager: Manager) -> Runner | None:
+        return RampHumidityRunner(
             manager,
             target=self.target,
             pace=self.pace,
             flow=self.flow,
-            start_from=self.start_from,
-            control_law=self.control_law,
+            start_from=self.start,
+            tuning=self.tuning,
         )
 
 
@@ -142,7 +186,7 @@ def within_tolerance(value: float, target: float, tolerance: float) -> bool:
     return abs(value - target) <= tolerance
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class HoldConfig(Command):
     timeout: Positive | None
     min_duration: Duration | float = 0.0
@@ -151,13 +195,13 @@ class HoldConfig(Command):
     tolerance: Percent = 0.0
     target: Percent | None = None
 
-    def __call__(self, manager: Manager) -> Runner:
+    def __call__(self, manager: Manager) -> Runner | None:
         target = self.target
         mode = self.mode
 
         if target is None:
             target = manager.required_target_humidity
-        if mode == TargetMode.CROSS:
+        if mode is TargetMode.CROSS:
             if manager.required_process_humidity > target:
                 mode = TargetMode.BELOW
             else:

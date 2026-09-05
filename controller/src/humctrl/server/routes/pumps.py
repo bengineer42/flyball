@@ -10,7 +10,6 @@ from humctrl.server.schemas import (
     EffortsRequest,
     FlowsRequest,
 )
-from humctrl.server.snapshots import rig_state
 from humctrl.typing import Normalised
 
 router = APIRouter(prefix="/api/pumps", tags=["pumps"])
@@ -54,22 +53,21 @@ async def read_blend(pumps: PumpsDep) -> Blend:
 @router.put("/blend")
 async def set_blend(body: BlendRequest, manager: ManagerDep) -> PumpsOutput:
     """Total flow and blend ratio together. Suspends the controller."""
-    output = manager.set_blend(body.flow.to_blend_flow(), body.wet_fraction)
+    output = manager.set_blend(body.flow.parse(), body.wet_fraction)
     return output
 
 
-@router.get("/wet_fraction")
+@router.get("/wet-fraction")
 async def read_wet_fraction(manager: ManagerDep) -> Normalised:
     return manager.require_pumps().wet_fraction
 
 
-@router.get("/dry_fraction")
+@router.get("/dry-fraction")
 async def read_dry_fraction(manager: ManagerDep) -> Normalised:
     return manager.require_pumps().dry_fraction
 
 
 @router.post("/stop")
-async def stop(manager: ManagerDep) -> PumpsOutput:
+async def stop(manager: ManagerDep) -> None:
     """Stop the pumps, leaving the loop running."""
     manager.stop_pumps()
-    return rig_state(manager)

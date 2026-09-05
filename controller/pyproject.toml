@@ -27,11 +27,17 @@ serial = ["pyserial>=3.5"]
 # FastAPI won: humctrl.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.32"]
-all = ["humctrl[serial,web]"]
+# humctrl.cli is a pure HTTP client for the daemon: no hardware libraries,
+# no domain imports, so it carries its own dependency rather than riding on web.
+cli = ["httpx>=0.27"]
+all = ["humctrl[cli,serial,web]"]
+# linux-pwm is not on PyPI; humctrl.direct drives the sysfs PWM channels
+# through it, so it comes straight from the repo.
 rpi = [
     "adafruit-blinka>=8.0",
     "adafruit-circuitpython-sht4x>=1.0",
     "rpi-hardware-pwm>=0.2",
+    "linux-pwm @ git+https://github.com/bengineer42/linux-pwm.git@main",
 ]
 
 
@@ -43,7 +49,12 @@ dev = [
     "ruff>=0.8",
     "import-linter>=2.1",
     "types-pyserial",
+    "ipykernel>=7.3.0",
 ]
+
+# Required for the linux-pwm git direct reference in the rpi extra.
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.version]
 path = "src/humctrl/__init__.py"
@@ -70,7 +81,15 @@ select = [
     "UP",  # pyupgrade
     "SIM", # simplify
     "RUF",
+    "D",   # pydocstyle
 ]
+
+# Docstrings are Google style. The missing-docstring rules stay off: the house
+# style documents what needs explaining, not every definition.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 python_version = "3.12"

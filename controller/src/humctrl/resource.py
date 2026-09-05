@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Container, Iterable
+from collections.abc import Callable, Container, Iterable, Iterator
 from contextlib import suppress
 from enum import Enum
 from threading import RLock
 
+from humctrl.error import ConflictError, HumCtrlError, NotFoundError
 
-class ClaimError(Exception):
-    pass
+
+class ClaimError(HumCtrlError):
+    """Base for everything the resource graph raises."""
 
 
 class ClaimGraphError(ClaimError):
-    pass
+    """The claim graph itself is malformed: a cycle, or a double requirement."""
 
 
-class NotClaimantError(ClaimGraphError):
+class NotClaimantError(ClaimGraphError, ConflictError):
     def __init__(self, lease: Resource, claimant: Resource) -> None:
         name = lease.claimant_name
         string = f"Resource {lease.name} is not held by {claimant.name}"
@@ -33,11 +35,21 @@ class ClaimAlreadyRequiredError(ClaimGraphError):
         super().__init__(f"Resource {lease.name} is already required")
 
 
-class AlreadyClaimedError(ClaimError):
+class AlreadyClaimedError(ClaimError, ConflictError):
     def __init__(self, lease: Resource, claimant: Resource) -> None:
         super().__init__(
-            f"Resource {lease.name} is already held by {lease.claimant and lease.claimant.name}, cannot be claimed by {claimant.name}"
+            f"Resource {lease.name} is already held by "
+            f"{lease.claimant and lease.claimant.name}, "
+            f"cannot be claimed by {claimant.name}"
         )
+
+
+class ResourceDoesNotExistError(ClaimError, NotFoundError):
+    def __init__(self, resource_name: str, claimant: Operator | None = None) -> None:
+        string = f"Resource {resource_name} does not exist"
+        if claimant is not None:
+            string += f"so cannot be claimed by {claimant.name}"
+        super().__init__(string)
 
 
 class RootType(Enum):
@@ -50,24 +62,33 @@ class RootType(Enum):
 
 
 class Resource:
+    __slots__ = (
+        "_as_operator",
+        "_claimant",
+        "_claimed",
+        "_name",
+        "_on_release",
+        "_requires",
+    )
     _claimant: Resource | None
-    _as_operator: bool = False
     _name: str
     _requires: frozenset[Resource]
 
     _claimed: set[Resource]
 
-    _on_release: Callable | None = None
+    _on_release: Callable | None
 
     def __init__(
         self,
         name: str,
         requires: Iterable[Resource] | None = None,
-        as_operator: bool = False,
     ) -> None:
         self._name = name
         self._requires = frozenset(requires) if requires is not None else frozenset()
         self._claimed = set()
+        self._on_release = None
+        self._claimant = None
+        self.validate_requirements()
 
     @property
     def name(self) -> str:
@@ -85,8 +106,6 @@ class Resource:
     def operator(self) -> Resource | None:
         if isinstance(self._claimant, Resource):
             return self._claimant.operator
-        elif self._claimant is RootType.OPERATOR:
-            return self
         return None
 
     @property
@@ -152,12 +171,6 @@ class Resource:
         if self not in nodes:
             exceptions.append(error(self, *args))
 
-    def attach_on_claim(self, callback: Callable[[], None]) -> None:
-        self._on_claim = callback
-
-    def remove_on_claim(self) -> None:
-        self._on_claim = None
-
     def attach_on_release(self, callback: Callable[[], None]) -> None:
         self._on_release = callback
 
@@ -217,8 +230,6 @@ class Resource:
         self._claimant = None
         self._claimed.clear()
 
-    def as_operator(self):
-
     def take(self, resource: Resource) -> None:
         if resource not in self._claimed:
             raise NotClaimantError(self, resource)
@@ -226,25 +237,38 @@ class Resource:
         self.release()
 
 
+class Operator(Resource):
+    @property
+    def operator(self) -> Resource | None:
+        return self
+
+
 class Arbiter:
     _resources: dict[str, Resource]
-    _operators: dict[str, Resource]
+    _operators: dict[str, Operator]
     lock: RLock
 
     def __init__(self) -> None:
         self._resources = {}
+        self._operators = {}
         self.lock = RLock()
 
-    def add(self, lease: Resource) -> None:
-        self._resources[lease.name] = lease
+    def add_resource(self, lease: Resource) -> None:
+        with self.lock:
+            self._add(lease)
 
-    def get(self, name: str) -> Resource | None:
-        return self._resources.get(name)
+    def add_resources(self, leases: Iterator[Resource]) -> None:
+        with self.lock:
+            for lease in leases:
+                self._add(lease)
 
+    def _add(self, resource: Resource) -> None:
+        self._resources[resource.name] = resource
 
-FlowResource = Resource("flow")
-FractionResource = Resource("fraction")
-
-PumpsResource = Resource("pumps", [FlowResource, FractionResource])
-
-ControllerResource = Resource("controller", [FractionResource])
+    def claim(self, claimant: Operator, resource: str) -> None:
+        with self.lock:
+            if _resource := self._resources.get(resource):
+                _resource.claim(claimant)
+            else:
+                raise ResourceDoesNotExistError(resource, claimant)
+            self._operators[claimant.name] = claimant

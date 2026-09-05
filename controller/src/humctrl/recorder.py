@@ -3,9 +3,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Protocol
 
+from humctrl.controller.types import ControllerState
 from humctrl.pumps import Flows, PumpsOutput
 from humctrl.readers import Reader, Reading, Readings
-from humctrl.state import ControllerState, State
+from humctrl.state import State
 from humctrl.typing import Percent
 
 

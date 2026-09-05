@@ -1,11 +1,26 @@
+from humctrl.error import ConflictError, HumCtrlError, NotFoundError, UnachievableError
 from humctrl.typing import Percent
 
 
-class ControllerError(Exception):
+class ControllerError(HumCtrlError):
     """Base class for exceptions raised by the controller."""
 
 
-class HumidityRailError(ControllerError, ValueError):
+class ControllerSuspendedError(ControllerError, ConflictError):
+    """Raised when an operation is attempted on a suspended controller."""
+
+    def __init__(self) -> None:
+        super().__init__("Controller is suspended.")
+
+
+class ControlLawNotRegisteredError(ControllerError, NotFoundError):
+    """Raised when a control law is not registered."""
+
+    def __init__(self, tag: str) -> None:
+        super().__init__(f"Control law '{tag}' is not registered.")
+
+
+class HumidityRailError(ControllerError, UnachievableError):
     """The target humidity is outside the range the two lines can mix to.
 
     Reported on :class:`StreamState` rather than raised: the blend rails to the
@@ -22,7 +37,7 @@ class HumidityRailError(ControllerError, ValueError):
         )
 
 
-class PumpHumiditiesError(ControllerError, ValueError):
+class PumpHumiditiesError(ControllerError, UnachievableError):
     """The wet and dry line humidities are not in the expected order.
 
     Raised rather than reported: with no span between the lines there is no

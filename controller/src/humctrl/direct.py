@@ -4,6 +4,7 @@ from busio import I2C
 from linux_pwm import PWMChannel, PWMChip
 
 from humctrl.clock import Clock
+from humctrl.error import UnachievableError
 from humctrl.pumps import DualPumps, DualPumpsConfig, PumpDriver, PumpError, PumpPair
 from humctrl.readers import Reader, Reading
 from humctrl.typing import Normalised, Positive
@@ -11,7 +12,7 @@ from humctrl.typing import Normalised, Positive
 DEFAULT_PWM_FREQUENCY: float = 20_000.0  # Hz
 
 
-class PumpFlowError(PumpError, ValueError):
+class PumpFlowError(PumpError, UnachievableError):
     """A requested flow or fraction cannot be applied."""
 
     def __init__(self, flow: float, max_flow: float, name: str | None = None) -> None:

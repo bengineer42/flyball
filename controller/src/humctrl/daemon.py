@@ -28,6 +28,12 @@ def build_rig(args: argparse.Namespace) -> Manager:
     The imports are local because they only resolve on a Pi: pulling blinka in
     at module scope would stop the daemon importing anywhere else, including in
     ``--simulate`` mode.
+
+    Args:
+        args: Parsed command line, supplying the pump, PWM and sensor settings.
+
+    Returns:
+        A manager wired to the real pumps and sensors.
     """
     from humctrl.direct import I2CSHT4x, LinuxPWMPump
 

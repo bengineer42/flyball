@@ -2,12 +2,74 @@ import asyncio
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
+from inspect import signature
 from threading import Event, Thread
 from time import monotonic
-from typing import Any
+from typing import Any, Self, get_type_hints
+
+from pydantic import BeforeValidator, GetJsonSchemaHandler, create_model
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from humctrl.typing import Positive
+
+
+def keyed_by(field: str) -> BeforeValidator:
+    """Accept a list of items and key it by ``field``.
+
+    A mapping passes through untouched, so a config file may write either form.
+    Items may be raw mappings or already-built objects.
+
+    Args:
+        field: The attribute or key to use as the mapping key.
+
+    Returns:
+        A validator to put in an ``Annotated`` alias.
+
+    Raises:
+        ValueError: If two items share a key. Silently keeping the last would
+            drop a tuning the file plainly asked for.
+    """
+
+    def to_mapping(value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        mapping = {
+            item[field] if isinstance(item, dict) else getattr(item, field): item
+            for item in value
+        }
+        if len(mapping) != len(value):
+            raise ValueError(f"duplicate {field} in list")
+        return mapping
+
+    return BeforeValidator(to_mapping)
+
+
+class Labelled(StrEnum):
+    """A string enum whose members carry a display label.
+
+    Declare members as ``NAME = "wire_value", "Display label"``. The label goes
+    into the JSON schema as a per-option title, so a form can show it without a
+    second copy of the options on the client. Omit it and the value is used.
+    """
+
+    label: str
+
+    def __new__(cls, value: str, label: str = "") -> Self:
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.label = label or value
+        return member
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        schema = handler(core)
+        schema.pop("enum", None)
+        schema["oneOf"] = [{"const": member.value, "title": member.label} for member in cls]
+        return schema
 
 
 class UnsetType(Enum):
@@ -67,8 +129,13 @@ class Topic[T]:
     def subscribe(self, maxsize: int = 1) -> Generator[asyncio.Queue[T]]:
         """A queue of the items published while subscribed.
 
-        Holds at most ``maxsize`` items, dropping the oldest to make room. Pass
-        0 to queue without limit, at the risk of growing behind a stuck reader.
+        Args:
+            maxsize: How many items to hold, dropping the oldest to make room.
+                0 queues without limit, at the risk of growing behind a stuck
+                reader.
+
+        Yields:
+            The queue, for as long as the context is open.
         """
         self._loop = asyncio.get_running_loop()
         queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
@@ -171,3 +238,68 @@ class WithWarning[T]:
 
     def __call__(self) -> T:
         return self.value
+
+
+def creation_model(
+    cls: type,
+    name: str | None = None,
+    suffix: str | None = "Args",
+    base=None,
+    extra: dict[str, Any] | None = None,
+):
+    """The pydantic model for constructing ``cls``, taken from its signature.
+
+    One field per constructor parameter, keeping its annotation and default, so
+    a class that can be built can also be described, validated and sent over the
+    wire without the fields being written twice.
+
+    Args:
+        cls: The class whose ``__init__`` defines the fields.
+        name: Model name stem. Defaults to ``cls.__name__``.
+        suffix: Appended to the stem, e.g. ``"Config"``.
+        base: Model to inherit from, for shared behaviour and ``isinstance``.
+        extra: Fields to add beyond the constructor's own, as
+            ``{name: (annotation, default)}``.
+
+    Returns:
+        The generated model.
+
+    Raises:
+        TypeError: If ``cls`` takes ``*args`` or ``**kwargs``, which have no
+            field names to derive.
+    """
+    hints = get_type_hints(cls.__init__)
+    fields: dict[str, Any] = {}
+    for field, parameter in signature(cls).parameters.items():
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+            raise TypeError(f"{cls.__name__} takes *args/**kwargs; no schema can be derived")
+        fields[field] = (
+            hints.get(field, Any),
+            ... if parameter.default is parameter.empty else parameter.default,
+        )
+    fields.update(extra or {})
+    return create_model((name or cls.__name__) + (suffix or ""), __base__=base, **fields)
+
+
+class ModelOf:
+    """A model on the class, an instance of it on the instance.
+
+    Accessed through the owning class the descriptor returns the model itself,
+    so its schema is reachable without constructing anything. Accessed through
+    an instance it reads ``names`` off that instance and returns a populated
+    model.
+    """
+
+    def __init__(self, model: type, names: tuple[str, ...]) -> None:
+        self._model = model
+        self._names = names
+
+    @property
+    def model(self) -> type:
+        """The model this descriptor hands out."""
+        return self._model
+
+    def __get__(self, obj: Any, owner: type | None = None) -> Any:
+        if obj is None:
+            return self._model
+        return self._model(**{name: getattr(obj, name) for name in self._names})

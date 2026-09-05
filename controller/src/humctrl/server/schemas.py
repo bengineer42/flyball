@@ -13,118 +13,51 @@ carry an explicit discriminator and do the conversion in one place.
 
 from __future__ import annotations
 
-from enum import StrEnum
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
-from humctrl.controller.laws import (
-    ControlLawConfig,
-    PControllerConfig,
-    PIControllerConfig,
-    PIDControllerConfig,
-)
+from humctrl.clock import Duration, Rate, TimeUnit
+from humctrl.controller import ControlLawConfig, ControlLaws
 from humctrl.pumps import Absolute, BlendFlow, OfBlendMax, OfFullRangeMax, OnOverdrive
-from humctrl.readers import Reading
-from humctrl.typing import NonNegative, Normalised, Percent, Positive
-
-# A control law, chosen by the same ``type`` tag used in config files.
-LawConfig = Annotated[
-    PControllerConfig | PIControllerConfig | PIDControllerConfig,
-    Field(discriminator="type"),
-]
+from humctrl.typing import NonNegative, Normalised, Percent
 
 
-class FlowScale(StrEnum):
-    """How to read :attr:`FlowRequest.value`."""
-
-    ABSOLUTE = "absolute"  # in the pumps' flow units, e.g. LPM
-    BLEND_MAX = "blend_max"  # fraction of the most this blend can deliver
-    FULL_RANGE_MAX = "full_range_max"  # fraction of the most any blend can deliver
-
-
-class FlowRequest(BaseModel):
-    """A total flow. ``scale`` disambiguates the three ``BlendFlow`` variants."""
-
-    value: NonNegative = 1.0
-    scale: FlowScale = FlowScale.FULL_RANGE_MAX
-    on_overdrive: OnOverdrive | None = None
-
-    def to_blend_flow(self) -> BlendFlow:
-        match self.scale:
-            case FlowScale.ABSOLUTE:
-                if self.on_overdrive is None:
-                    return Absolute(self.value)
-                return Absolute(self.value, self.on_overdrive)
-            case FlowScale.BLEND_MAX:
-                return OfBlendMax(self.value)
-            case FlowScale.FULL_RANGE_MAX:
-                return OfFullRangeMax(self.value)
+def generate_command_schema[T](
+    methods: dict[str, type[T]],
+    discriminator: str,
+    parser: Callable[[type[T]], type[Any]] = lambda x: x,
+) -> Any:
+    return Annotated[
+        Union[tuple(parser(command) for command in methods.values())],  # noqa: UP007
+        Field(discriminator=discriminator),
+    ]
 
 
-class FlowState(BaseModel):
-    """The flow a controller is holding, as :class:`FlowRequest` would express it."""
+class AbsoluteRequest(BaseModel):
+    absolute: NonNegative
+    on_overdrive: OnOverdrive = OnOverdrive.CLAMP
 
-    value: NonNegative
-    scale: FlowScale
-
-    @classmethod
-    def of(cls, flow: BlendFlow) -> FlowState:
-        match flow:
-            case Absolute():
-                return cls(value=flow.value, scale=FlowScale.ABSOLUTE)
-            case OfBlendMax():
-                return cls(value=flow.value, scale=FlowScale.BLEND_MAX)
-            case OfFullRangeMax():
-                return cls(value=flow.value, scale=FlowScale.FULL_RANGE_MAX)
+    def parse(self) -> Absolute:
+        return Absolute(self.absolute, self.on_overdrive)
 
 
-class ReadingState(BaseModel):
-    """A sensor reading. ``time`` is seconds, not the domain's nanoseconds."""
+class OfBlendMaxRequest(BaseModel):
+    of_blend_max: Normalised
 
-    time: float
-    humidity: Percent
-    temperature: float
-    source: str | None = None
-
-    @classmethod
-    def of(cls, reading: Reading) -> ReadingState:
-        return cls(
-            time=reading.time,
-            humidity=reading.humidity,
-            temperature=reading.temperature,
-            source=reading.source,
-        )
+    def parse(self) -> OfBlendMax:
+        return OfBlendMax(self.of_blend_max)
 
 
-class ReadingsState(BaseModel):
-    """The three lines. A line that failed to read reports its error, not a value."""
+class OfFullRangeMaxRequest(BaseModel):
+    of_full_range_max: Normalised
 
-    process: ReadingState | None = None
-    dry: ReadingState | None = None
-    wet: ReadingState | None = None
-    errors: dict[str, str] = Field(default_factory=dict)
+    def parse(self) -> OfFullRangeMax:
+        return OfFullRangeMax(self.of_full_range_max)
 
 
-class Lines[T](BaseModel):
-    wet: T
-    dry: T
-
-
-class PumpConfig(BaseModel):
-    max_flows: Lines[Positive]
-    units: str | None
-    full_range_max_flow: Positive
-
-
-class ControllerState(BaseModel):
-    """What the controller is doing. ``demand`` may leave 0-100 when railed."""
-
-    type: str
-    set_point: Percent
-    demand: float
-    flow: FlowState
-    suspended: bool
+type BlendFlowRequest = AbsoluteRequest | OfBlendMaxRequest | OfFullRangeMaxRequest
 
 
 # region Requests
@@ -134,11 +67,19 @@ class StartControllerRequest(BaseModel):
     """Start regulating. Omit ``control_law`` for open loop."""
 
     humidity: Percent
-    flow: FlowRequest | None = None
-    control_law: LawConfig | None = None
+    flow: BlendFlowRequest | None = None
+    #: A stored tuning by name, or a law config inline. Validated against the
+    #: law its tag names, so a wrong gain is a 422 rather than a later failure.
+    tuning: str | LawConfig | None = None
 
-    def law(self) -> ControlLawConfig | None:
-        return self.control_law
+    def parse_tuning(self) -> ControlLawConfig | str | None:
+        return self.tuning
+
+    def parse_flow(self) -> BlendFlow | None:
+        return self.flow and self.flow.parse()
+
+    def parse(self) -> tuple[Percent, BlendFlow | None, ControlLawConfig | str | None]:
+        return (self.humidity, self.parse_flow(), self.parse_tuning())
 
 
 class SetPointRequest(BaseModel):
@@ -148,7 +89,7 @@ class SetPointRequest(BaseModel):
 class BlendRequest(BaseModel):
     """Total flow and blend ratio together."""
 
-    flow: FlowRequest
+    flow: BlendFlowRequest
     wet_fraction: Normalised
 
 
@@ -166,8 +107,25 @@ class EffortsRequest(BaseModel):
     dry: Normalised
 
 
-class RecordingRequest(BaseModel):
-    flag: str | None = None
+LawConfig = generate_command_schema(ControlLaws, "tag", lambda law: law.config)
+LawsSchema = TypeAdapter(LawConfig).json_schema()
 
 
-# endregion
+class DefaultTuningRequest(BaseModel):
+    tag: str
+
+
+class DurationRequest(BaseModel):
+    seconds: int
+    nanoseconds: int
+
+    def parse(self) -> Duration:
+        return Duration(self.seconds, self.nanoseconds)
+
+
+class RateRequest(BaseModel):
+    per: TimeUnit
+    value: float
+
+    def parse(self) -> Rate:
+        return Rate(self.value, self.per)

@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from enum import Enum
-from typing import Self, cast
+from typing import Self, cast, overload
 
 from humctrl.typing import NonNegative, Normalised, Percent, Positive
+from humctrl.utils import Labelled
 
 
-class OnOverdrive(Enum):
+class OnOverdrive(Labelled):
     """How to handle a requested flow change that exceeds the maximum."""
 
-    RAISE = "raise"  # raise FlowsOverdrivenError
-    CLAMP = "clamp"  # clamp to the maximum flow
+    RAISE = "raise", "Refuse the request"  # raise FlowsOverdrivenError
+    CLAMP = "clamp", "Clamp to the maximum"  # clamp to the maximum flow
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,11 +53,32 @@ class DryWet[T: float]:
         yield self.dry
         yield self.wet
 
-    def __truediv__(self, scale: float) -> Self:
-        return type(self).__cast_floats(self.dry / scale, self.wet / scale)
+    @overload
+    def __truediv__(self, other: float) -> Self: ...
+    @overload
+    def __truediv__(self, other: DryWet) -> Self: ...
 
-    def __mul__(self, scale: float) -> Self:
-        return type(self).__cast_floats(self.dry * scale, self.wet * scale)
+    def __truediv__(self, other) -> Self:
+        if isinstance(other, float):
+            return type(self).__cast_floats(self.dry / other, self.wet / other)
+        if isinstance(other, DryWet):
+            return type(self).__cast_floats(self.dry / other.dry, self.wet / other.wet)
+        raise TypeError(f"Unsupported operand type(s) for /: 'DryWet' and '{type(other).__name__}'")
+
+    @overload
+    def __mul__(self, other: float) -> Self: ...
+    @overload
+    def __mul__(self, other: DryWet) -> Self: ...
+
+    def __mul__(self, other):
+        if isinstance(other, float):
+            return type(self).__cast_floats(self.dry * other, self.wet * other)
+        if isinstance(other, DryWet):
+            return type(self).__cast_floats(self.dry * other.dry, self.wet * other.wet)
+        raise TypeError(f"Unsupported operand type(s) for *: 'DryWet' and '{type(other).__name__}'")
+
+    def sum(self) -> float:
+        return self.dry + self.wet
 
 
 @dataclass(frozen=True, slots=True)

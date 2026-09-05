@@ -3,15 +3,16 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
 from threading import Event
 from typing import TYPE_CHECKING, Protocol
 
 from humctrl.clock import Duration, Rate, Time
 from humctrl.controller import ControlLaw, ControlLawConfig
+from humctrl.controller.types import Tuning
 from humctrl.pumps import BlendFlow
 from humctrl.readers import Reading
 from humctrl.typing import Percent, Positive, PositiveInt
+from humctrl.utils import Labelled
 
 if TYPE_CHECKING:
     from humctrl.manager import Manager
@@ -95,12 +96,14 @@ class HoldUntilHumidity(Runner):
         self.wait.set()
 
 
-class StartFrom(Enum):
-    READING = "reading"
-    TARGET = "target"
+class StartFrom(Labelled):
+    """Where a ramp begins."""
+
+    READING = "reading", "The current reading"
+    TARGET = "target", "The current target"
 
 
-class RampHumidity(Runner):
+class RampHumidityRunner(Runner):
     target: Percent
     wait: Event
     end_time: float
@@ -113,7 +116,7 @@ class RampHumidity(Runner):
         pace: Rate | Time | Duration,
         flow: BlendFlow | None = None,
         start_from: StartFrom | Percent = StartFrom.READING,
-        control_law: ControlLaw | ControlLawConfig | None = None,
+        tuning: Tuning | ControlLaw | ControlLawConfig | str | None = None,
     ) -> None:
         self.manager = manager
         self.target = target
@@ -126,10 +129,10 @@ class RampHumidity(Runner):
                 if isinstance(start_from, StartFrom)
                 else start_from
             )
-        if control_law is None and manager.controller is not None:
-            manager.update_target(start_humidity)
+        if tuning is None and manager.controller is not None:
+            manager.update_set_point(start_humidity)
         else:
-            manager.start_controller(start_humidity, flow, control_law=control_law)
+            manager.start_controller(start_humidity, flow, tuning=tuning)
 
         now = manager.elapsed_s()
         match pace:
@@ -145,17 +148,17 @@ class RampHumidity(Runner):
         now = self.manager.elapsed_s()
         dt = self.end_time - now
         if dt <= 0:
-            self.manager.update_target(self.target)
+            self.manager.update_set_point(self.target)
             self.wait.set()
         else:
-            self.manager.update_target(self.target - dt * self.rate)
+            self.manager.update_set_point(self.target - dt * self.rate)
 
     def hold(self) -> None:
         wait_time = self.end_time - self.manager.elapsed_s()
         if wait_time > 0:
             self.wait.wait(timeout=wait_time)
         if self.wait.is_set():
-            self.manager.update_target(self.target)
+            self.manager.update_set_point(self.target)
 
     def interrupt(self) -> None:
         self.wait.set()

@@ -10,9 +10,22 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from humctrl.manager import HumCtrlError
+from humctrl.error import (
+    ConflictError,
+    HardwareError,
+    HumCtrlError,
+    NotFoundError,
+    NotReadyError,
+    UnachievableError,
+)
 from humctrl.server.deps import current_manager
-from humctrl.server.routes import pumps_router, rig_router, telemetry_router
+from humctrl.server.routes import (
+    command_router,
+    controller_router,
+    pumps_router,
+    rig_router,
+    telemetry_router,
+)
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -50,23 +63,37 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.exception_handler(ValueError)
-    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
-        # The domain raises ValueError (FlowError and friends) for out-of-range
-        # or unreachable flow. That is a bad request, not a server fault.
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    # One handler per error base rather than per class: the hierarchy in
+    # humctrl.error already says what a caller can do about each failure.
+    # Starlette dispatches on the exception's MRO, so the HumCtrlError entry
+    # catches anything not yet classified, and ValueError covers the domain's
+    # out-of-range values (FlowError, HumidityRailError, PumpHumiditiesError).
+    codes: dict[type[Exception], int] = {
+        NotFoundError: 404,  # no such tuning or law
+        ConflictError: 409,  # wrong state; stop or start something and retry
+        UnachievableError: 422,  # well formed, but the numbers are unachievable
+        ValueError: 422,  # anything else that is simply a bad value
+        NotReadyError: 503,  # rig not configured, or no reading yet
+        HardwareError: 503,  # a device failed; usually transient
+        HumCtrlError: 409,  # fallback for anything unclassified
+    }
 
-    @app.exception_handler(HumCtrlError)
-    async def humctrl_error_handler(request: Request, exc: HumCtrlError) -> JSONResponse:
-        # Missing pumps, recorder, controller or target: the rig is not in a
-        # state where this request makes sense.
-        return JSONResponse(status_code=409, content={"detail": str(exc)})
+    for error, code in codes.items():
+
+        async def handler(request: Request, exc: Exception, code: int = code) -> JSONResponse:
+            # ``code`` is bound as a default: without it every handler would
+            # close over the loop variable and share the last value.
+            return JSONResponse(status_code=code, content={"detail": str(exc)})
+
+        app.add_exception_handler(error, handler)
 
     @app.get("/api/health", tags=["rig"])
     async def health() -> dict[str, Any]:
         return {"status": "ok", "rig_attached": current_manager() is not None}
 
     app.include_router(rig_router)
+    app.include_router(controller_router)
+    app.include_router(command_router)
     app.include_router(pumps_router)
     app.include_router(telemetry_router)
     return app

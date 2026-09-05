@@ -3,12 +3,12 @@ from __future__ import annotations
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Self, TypeGuard, overload
 
 from pydantic_core import core_schema
 
 from humctrl.typing import Positive
+from humctrl.utils import Labelled
 
 type Numeric = float | int
 
@@ -341,16 +341,16 @@ class Clock:
         return Time.from_nanoseconds(self.now_ns())
 
 
-class TimeUnit(Enum):
-    """How to pace a ramp to regulation."""
+class TimeUnit(Labelled):
+    """The unit a rate is expressed per."""
 
-    NANOSECOND = "nanosecond"
-    MICROSECOND = "microsecond"
-    MILLISECOND = "millisecond"
-    SECOND = "second"
-    MINUTE = "minute"
-    HOUR = "hour"
-    DAY = "day"
+    NANOSECOND = "nanosecond", "per nanosecond"
+    MICROSECOND = "microsecond", "per microsecond"
+    MILLISECOND = "millisecond", "per millisecond"
+    SECOND = "second", "per second"
+    MINUTE = "minute", "per minute"
+    HOUR = "hour", "per hour"
+    DAY = "day", "per day"
 
     @property
     def seconds(self) -> Positive:
@@ -391,8 +391,8 @@ class TimeUnit(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Rate:
-    per: TimeUnit
     value: Positive
+    per: TimeUnit = TimeUnit.SECOND
 
     @property
     def per_second(self) -> float:

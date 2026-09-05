@@ -2,19 +2,20 @@ from __future__ import annotations
 
 from functools import cached_property
 
+from humctrl.error import HardwareError, HumCtrlError, UnachievableError
 from humctrl.pumps.types import MaxFlows
 from humctrl.typing import NonNegative, Normalised, Positive
 from humctrl.utils import format_quantity
 
 
-class PumpError(Exception):
+class PumpError(HumCtrlError):
     """Base for everything humctrl.pumps raises."""
 
 
 class PumpErrorGroup(ExceptionGroup, PumpError): ...
 
 
-class FlowError(PumpError, ValueError):
+class FlowError(PumpError, UnachievableError):
     """A requested flow or fraction cannot be applied."""
 
 
@@ -76,5 +77,5 @@ class FlowsOverdrivenError(FlowError):
         return self.total_flow > self.max_flow
 
 
-class PumpHardwareError(PumpError):
+class PumpHardwareError(PumpError, HardwareError):
     """The underlying device failed."""
