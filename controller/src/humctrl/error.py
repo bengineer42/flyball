@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from humctrl.cmds import Command
-    from humctrl.controller import ControlLaw, ControlLawConfig, Controller
+    from humctrl.controller import ControlLaw, ControlLawConfig, DualPumpController
     from humctrl.controller.types import Tuning
     from humctrl.readers import ReaderSource
     from humctrl.runners import Runner
@@ -142,8 +142,8 @@ class CurrentWetFractionNotSetError(ConflictError):
 class ControllerAlreadyRunningError(ConflictError):
     def __init__(
         self,
-        current: Controller | str,
-        new: ControlLaw | ControlLawConfig | Controller | Tuning | str,
+        current: DualPumpController | str,
+        new: ControlLaw | ControlLawConfig | DualPumpController | Tuning | str,
     ) -> None:
         super().__init__(
             f"Controller {current if isinstance(current, str) else current.tag} is already "

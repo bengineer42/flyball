@@ -64,6 +64,21 @@ class View:
 
 
 @dataclass(frozen=True, slots=True)
+class ActuatorView:
+    efforts: Efforts | None
+    flows: Flows | None
+    expected_humidity: Percent | None = None
+
+    @classmethod
+    def of(cls, pumps: PumpsOutput | None, expected_humidity: Percent | None = None) -> Self:
+        return cls(
+            efforts=pumps.efforts if pumps is not None else None,
+            flows=pumps.flows if pumps is not None else None,
+            expected_humidity=expected_humidity,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ControllerOutput(ControllerView):
     efforts: Efforts
     flows: Flows

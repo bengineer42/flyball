@@ -207,7 +207,7 @@ class ControlLaw:
                 raise ValueError(f"Law with tag '{cls.tag}' is already registered.")
             ControlLaws[cls.tag] = cls
 
-    def start(self, time: float, reading: float) -> None:
+    def start(self, time: float) -> None:
         return None
 
     def resume(self, time: float, reading: float, set_point: float, correction: float) -> float:
@@ -222,7 +222,7 @@ class ControlLaw:
         The default is a cold start carrying no offset. A law that can compute
         the correction it will actually produce should override this.
         """
-        self.start(time, reading)
+        self.start(time)
         return correction
 
     def step(
@@ -286,3 +286,7 @@ class Tuning:
 
     def build(self) -> ControlLaw:
         return self.config.build()
+
+    @property
+    def tuple(self) -> tuple[str, SerializeAsAny[ControlLawConfig | ControlLawView]]:
+        return (self.tag, self.config)

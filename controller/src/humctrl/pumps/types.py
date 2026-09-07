@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Self, cast, overload
+from typing import NamedTuple, Self, cast, overload
 
 from humctrl.typing import NonNegative, Normalised, Percent, Positive
 from humctrl.utils import Labelled
@@ -34,6 +34,11 @@ class OfFullRangeMax:
 type BlendFlow = Absolute | OfBlendMax | OfFullRangeMax
 
 MaxFullRangeMax = OfFullRangeMax()
+
+
+class Blend(NamedTuple):
+    flow: BlendFlow
+    wet_fraction: Normalised
 
 
 @dataclass(slots=True, frozen=True)
@@ -96,8 +101,8 @@ class Flows(DryWet[NonNegative]):
         return cls(dry, total - dry)
 
     @property
-    def blend(self) -> Blend:
-        return Blend(self.wet_fraction, self.total)
+    def blend(self) -> CurrentBlend:
+        return CurrentBlend(self.wet_fraction, self.total)
 
     @property
     def total(self) -> float:
@@ -144,6 +149,9 @@ class Efforts(DryWet[Normalised]):
         return Flows(self.dry * dry_max, self.wet * wet_max)
 
 
+type PumpsMode = Blend | Flows | Efforts
+
+
 class MaxFlows(DryWet[Positive]):
     pass
 
@@ -161,7 +169,7 @@ class PumpsOutput:
 
 
 @dataclass(slots=True, frozen=True)
-class Blend:
+class CurrentBlend:
     wet_fraction: Normalised
     flow: NonNegative
 

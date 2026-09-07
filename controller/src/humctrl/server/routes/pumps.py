@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from humctrl.pumps import Efforts, Flows, PumpsOutput, PumpsView
-from humctrl.pumps.types import Blend
+from humctrl.pumps.types import CurrentBlend
 from humctrl.server.deps import ManagerDep, PumpsDep
 from humctrl.server.schemas import (
     BlendRequest,
@@ -45,7 +45,7 @@ async def set_efforts(body: EffortsRequest, manager: ManagerDep) -> PumpsOutput:
 
 
 @router.get("/blend")
-async def read_blend(pumps: PumpsDep) -> Blend:
+async def read_blend(pumps: PumpsDep) -> CurrentBlend:
     """Total flow and blend ratio together."""
     return pumps.blend
 

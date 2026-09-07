@@ -52,13 +52,18 @@ class ResourceDoesNotExistError(ClaimError, NotFoundError):
         super().__init__(string)
 
 
-class RootType(Enum):
-    OPERATOR = "Operator"
-    UNCLAIMED = "Unclaimed"
+# class RootType(Enum):
+#     OPERATOR = "Operator"
+#     UNCLAIMED = "Unclaimed"
 
-    @property
-    def is_root(self) -> bool:
-        return True
+#     @property
+#     def is_root(self) -> bool:
+#         return True
+
+
+class ReleaseReason(Enum):
+    RELEASED = "released"
+    REVOKED = "revoked"
 
 
 class Resource:
@@ -67,7 +72,8 @@ class Resource:
         "_claimant",
         "_claimed",
         "_name",
-        "_on_release",
+        "_on_idle",
+        "_on_revoke",
         "_requires",
     )
     _claimant: Resource | None
@@ -76,7 +82,8 @@ class Resource:
 
     _claimed: set[Resource]
 
-    _on_release: Callable | None
+    _on_revoke: Callable | None
+    _on_idle: Callable | None
 
     def __init__(
         self,
@@ -86,7 +93,8 @@ class Resource:
         self._name = name
         self._requires = frozenset(requires) if requires is not None else frozenset()
         self._claimed = set()
-        self._on_release = None
+        self._on_revoke = None
+        self._on_idle = None
         self._claimant = None
         self.validate_requirements()
 
@@ -130,14 +138,6 @@ class Resource:
         return seen
 
     @property
-    def is_root(self) -> bool:
-        return isinstance(self._claimant, RootType)
-
-    @property
-    def is_operator(self) -> bool:
-        return self._claimant is RootType.OPERATOR
-
-    @property
     def requirements_open(self) -> bool:
         return all(resource.claimant is None for resource in self.required_descendants)
 
@@ -171,70 +171,79 @@ class Resource:
         if self not in nodes:
             exceptions.append(error(self, *args))
 
-    def attach_on_release(self, callback: Callable[[], None]) -> None:
-        self._on_release = callback
+    def attach_on_revoke(self, callback: Callable[[], None]) -> None:
+        self._on_revoke = callback
 
-    def remove_on_release(self) -> None:
-        self._on_release = None
+    def attach_on_idle(self, callback: Callable[[], None]) -> None:
+        self._on_idle = callback
+
+    def remove_on_revoke(self) -> None:
+        self._on_revoke = None
+
+    def remove_on_idle(self) -> None:
+        self._on_idle = None
 
     def add_claim(self, resource: Resource) -> None:
         resource.raise_if_in(self._claimed, ClaimAlreadyRequiredError, self)
         resource.claim(self)
         self._claimed.add(resource)
 
+    def drop(self, resource: Resource) -> None:
+        resource.raise_if_not_in(self._claimed, NotClaimantError, self)
+        self._claimed.remove(resource)
+
     def claim(self, claimant: Resource) -> None:
         if old := self.claimant:
+            self.try_on_revoke()
+            old.drop(self)
             old.revoke(self)
         else:
             for resource in self._requires:
-                resource.add_claim(self)
+                self.add_claim(resource)
         self._claimant = claimant
 
     def on_graph_error(self, error: ClaimGraphError) -> None:
         with suppress(ClaimGraphError):
             if claimant := self.claimant:
                 claimant.revoke(self)
-        self.release()
+        self.release(ReleaseReason.REVOKED)
         raise error
 
     def revoke(self, resource: Resource | None = None) -> None:
-
         if resource is not None:
             self.raise_if_not_in(self._claimed, NotClaimantError, self)
             self._claimed.remove(resource)
         if claimant := self.claimant:
             claimant.revoke(self)
-        self.release()
+        self.release(ReleaseReason.REVOKED)
 
-    def _revoke(self, resource: Resource, exceptions: list[Exception]) -> None:
-        if resource is not None:
-            self.raise_if_not_in(self._claimed, NotClaimantError, self)
-            self._claimed.remove(resource)
-        if claimant := self.claimant:
-            claimant.revoke(self)
-        self.release()
-
-    def try_on_release(self) -> Exception | None:
+    def try_on_revoke(self) -> Exception | None:
         try:
-            if self._on_release:
-                self._on_release()
+            if self._on_revoke:
+                self._on_revoke()
+                self._on_revoke = None
         except Exception as e:
             return e
         return None
 
-    def release(self) -> None:
+    def try_on_idle(self) -> Exception | None:
+        try:
+            if self._on_idle:
+                self._on_idle()
+                self._on_idle = None
+        except Exception as e:
+            return e
+        return None
+
+    def release(self, reason: ReleaseReason = ReleaseReason.RELEASED) -> None:
         self._claimant = None
-        self.try_on_release()
+        if reason == ReleaseReason.REVOKED:
+            self.try_on_revoke()
+
         for claim in self._claimed:
-            claim.release()
+            claim.release(reason)
         self._claimant = None
         self._claimed.clear()
-
-    def take(self, resource: Resource) -> None:
-        if resource not in self._claimed:
-            raise NotClaimantError(self, resource)
-        self._claimed.remove(resource)
-        self.release()
 
 
 class Operator(Resource):

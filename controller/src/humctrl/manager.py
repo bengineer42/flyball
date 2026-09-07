@@ -8,13 +8,13 @@ from threading import RLock, Thread
 from typing import Any, overload
 
 from humctrl.clock import Clock, Duration, Time
-from humctrl.cmds import Command, ControlProgram, Runner
+from humctrl.cmds import Command, ControlProgram
 from humctrl.controller import (
     ControlLaw,
     ControlLawConfig,
     ControlLawView,
-    Controller,
     ControllerSuspendedError,
+    DualPumpController,
     OpenLoopTuning,
     Tuning,
     expected_humidity_from_fraction,
@@ -36,9 +36,11 @@ from humctrl.error import (
     TuningNotRegisteredError,
 )
 from humctrl.pumps import (
+    Blend,
     BlendFlow,
     DryWet,
     DualPumps,
+    Efforts,
     Flows,
     MaxFullRangeMax,
     PumpsOutput,
@@ -52,8 +54,11 @@ from humctrl.readers import (
     SensorNotSetError,
 )
 from humctrl.recorder import Recorder
-from humctrl.resource import Resource
-from humctrl.state import ControllerOutput, Spec, State, View
+from humctrl.resource import Operator, ReleaseReason
+from humctrl.resources import ControllerResource
+from humctrl.runners import Runner
+from humctrl.set_point import SetPointGenerator
+from humctrl.state import ActuatorView, ControllerOutput, Spec, State, View
 from humctrl.typing import NonNegative, Normalised, Percent, Positive
 from humctrl.utils import PeriodicLoop, Topic, WithWarning, require
 
@@ -68,14 +73,6 @@ class Overdriven(Enum):
                 return 1.0
             case Overdriven.DRY:
                 return 0.0
-
-
-FlowResource = Resource("flow")
-FractionResource = Resource("fraction")
-
-PumpsResource = Resource("pumps", [FlowResource, FractionResource])
-
-ControllerResource = Resource("controller", [FractionResource])
 
 
 class LoggingMsg:
@@ -109,9 +106,11 @@ class Manager:
     _program: ControlProgram | None = None
     program_running: bool = False
     _runner: Runner | None = None
+    _runner_thread: Thread | None = None
 
     _default_stream_flow: BlendFlow = MaxFullRangeMax
-    controller: Controller | None = None
+    controller: DualPumpController | None = None
+    _set_point_generator: SetPointGenerator | None = None
 
     _state_topic: Topic[State]
     _readings_topic: Topic[Readings]
@@ -124,6 +123,12 @@ class Manager:
     _dry_reading: Reading | Percent | None = None
     _wet_reading: Reading | Percent | None = None
     expected_humidity: Percent | None = None
+
+    _operators: dict[str, Operator] | None = None
+
+    _pumps_owned: bool = False
+    _set_point_owned: bool = False
+    _flow_owned: bool = False
 
     def __init__(
         self,
@@ -161,6 +166,7 @@ class Manager:
         self._readings_topic = Topic[Readings]()
         self._state_topic = Topic[State]()
         self._warnings_topic = Topic[Any]()
+        self._operator = Operator("manager")
 
     @property
     def default_tuning(self) -> Tuning:
@@ -276,13 +282,17 @@ class Manager:
         return self._pump_outputs.flows if self._pump_outputs is not None else None
 
     @property
-    def set_point(self) -> Percent | None:
+    def set_humidity(self) -> Percent | None:
         if self.controller is not None:
             return self.controller.set_point
 
     @property
-    def required_target_humidity(self) -> Percent:
-        return require(self.set_point, TargetHumidityNotSetError)
+    def required_set_humidity(self) -> Percent:
+        return require(self.set_humidity, TargetHumidityNotSetError)
+
+    @property
+    def actuator_view(self) -> ActuatorView:
+        return ActuatorView.of(self._pump_outputs, self.expected_humidity)
 
     @property
     def state(self) -> State:
@@ -388,7 +398,7 @@ class Manager:
     def set_default_tuning(self, tuning: str | Tuning) -> Tuning:
         if isinstance(tuning, Tuning):
             self._tunings[tuning.tag] = tuning.config
-            tuning, config = tuning
+            tuning, config = tuning.tuple
         else:
             config = self.require_tuning(tuning)
         self._default_tuning = tuning
@@ -423,7 +433,7 @@ class Manager:
             raise PumpsNotSetError()
         return self._pumps
 
-    def require_controller(self) -> Controller:
+    def require_controller(self) -> DualPumpController:
         if self.controller is None:
             raise ControllerNotRunningError()
         return self.controller
@@ -461,11 +471,12 @@ class Manager:
     # region Pumps control
 
     @contextmanager
-    def manual_pumps(self) -> Generator[DualPumps]:
-        """Take the loop off the pumps and hand them over, under the lock."""
+    def manual_pumps(self) -> Generator[DualPumps, None, None]:
+        """Take the pumps for a quick operation under the lock."""
         with self.lock:
             pumps = self.require_pumps()
             if self.controller is not None:
+                self._set_point_generator = None
                 self.controller.suspend()
             yield pumps
 
@@ -493,11 +504,19 @@ class Manager:
                 self.on_pump_error(e)
                 raise e
 
-    def stop_pumps(self) -> None:
+    def set_pumps_mode(self, pump_mode: Blend | Efforts | Flows) -> PumpsOutput:
+        with self.manual_pumps() as pumps:
+            try:
+                return self._update_outputs(pumps.set_mode(pump_mode))
+            except Exception as e:
+                self.on_pump_error(e)
+                raise e
+
+    def stop_pumps(self) -> PumpsOutput:
         with self.manual_pumps() as pumps:
             try:
                 pumps.stop()
-                self._update_outputs(pumps.output)
+                return self._update_outputs(pumps.output)
             except Exception as e:
                 self.on_pump_error(e)
                 raise e
@@ -520,49 +539,68 @@ class Manager:
         humidity: Percent,
         flow: BlendFlow | None = None,
         tuning: ControlLaw | ControlLawConfig | ControlLawView | Tuning | str | None = None,
+        force: bool = False,
     ) -> ControllerOutput:
         with self.lock:
-            if isinstance(tuning, str) or tuning is None:
-                tuning = self.get_tuning(tuning)
-            if self.controller is not None:
-                raise ControllerAlreadyRunningError(self.controller, tuning)
-            self.controller = Controller(
-                self.require_pumps(),
-                flow if flow is not None else self._default_stream_flow,
-                humidity,
-                self.required_dry_humidity,
-                self.required_wet_humidity,
-                tuning,
-            )
-            pump_output = self.apply_unsuspended_controller(self.controller)
-            return ControllerOutput.from_parts(
-                self.controller.view, pump_output, self.expected_humidity
-            )
+            controller = self._start_controller(humidity, flow, tuning, force)
+            return self.apply_unsuspended_controller(controller)
 
-    # def suspend_controller(self) -> ControllerOutput:
-    #     """Take the pumps away from the running controller."""
-    #     with self.lock:
-    #         controller = self.require_controller()
-    #         controller.set_suspend()
-    #         pump_outputs = self.apply_suspended_controller(controller)
-    #         return ControllerOutput.from_parts(
-    #             controller.view,
-    #             pump_outputs,
-    #             self.expected_humidity,
-    #         )
+    def _start_controller(
+        self,
+        humidity: Percent,
+        flow: BlendFlow | None = None,
+        tuning: ControlLaw | ControlLawConfig | ControlLawView | Tuning | str | None = None,
+        force: bool = False,
+    ) -> DualPumpController:
+        if isinstance(tuning, str) or tuning is None:
+            tuning = self.get_tuning(tuning)
+        if self.controller is not None and not force:
+            raise ControllerAlreadyRunningError(self.controller, tuning)
+        self.controller = DualPumpController(
+            self.require_pumps(),
+            flow if flow is not None else self._default_stream_flow,
+            humidity,
+            self.elapsed_s(),
+            self.required_dry_humidity,
+            self.required_wet_humidity,
+            tuning,
+        )
+        return self.controller
 
-    def resume_controller(self) -> ControllerOutput:
+    def suspend_controller(self, pump_mode: Blend | Efforts | Flows | None = None) -> ActuatorView:
+        """Take the pumps away from the running controller."""
+        with self.lock:
+            self._suspend_controller()
+            if pump_mode is not None:
+                self.set_pumps_mode(pump_mode)
+            self.publish_state()
+            return self.actuator_view
+
+    def _suspend_controller(self) -> None:
+        with self.lock:
+            self._set_point_generator = None
+            controller = self.require_controller()
+            controller.suspend()
+            ControllerResource.release(ReleaseReason.RELEASED)
+
+    def resume_controller(self, operator: Operator | None = None) -> ControllerOutput:
         """Give the suspended controller the pumps back."""
         with self.lock:
             controller = self.require_controller()
-            controller.set_resume()
-            controller.resume(self.required_process_reading, self.expected_humidity)
-            pump_outputs = self.apply_unsuspended_controller(controller)
-            return ControllerOutput.from_parts(
-                controller.view,
-                pump_outputs,
-                self.expected_humidity,
-            )
+            ControllerResource.claim(operator or self._operator)
+            controller.resume_with_reading(self.required_process_reading, self.expected_humidity)
+            return self.apply_unsuspended_controller(controller)
+
+    def set_set_point_generator(self, generator: SetPointGenerator) -> ControllerOutput:
+        with self.lock:
+            controller = self.require_controller()
+            self._set_point_generator = generator
+            controller.set_point = generator.generate(self.elapsed_s())
+            return self.apply_unsuspended_controller(controller)
+
+    def remove_set_point_generator(self) -> None:
+        with self.lock:
+            self._set_point_generator = None
 
     def _update_stream_state(self, stream_state: WithWarning[PumpsOutput]) -> PumpsOutput:
         if stream_state.warning is not None:
@@ -571,7 +609,8 @@ class Manager:
 
     def update_set_point(self, humidity: Percent) -> None:
         with self.lock:
-            self.require_controller().update_set_point(humidity)
+            self._set_point_generator = None
+            self.require_controller().set_point = humidity
 
     def update_stream_flow(self, flow: BlendFlow, run: bool = False) -> None:
         with self.lock:
@@ -637,6 +676,10 @@ class Manager:
                 if self._runner is not None and isinstance(readings.process, Reading):
                     self._runner.step(readings.process)
                 if self.controller is not None:
+                    if self._set_point_generator is not None:
+                        self.controller.set_point = self._set_point_generator.generate(
+                            self.elapsed_s()
+                        )
                     self.controller.update_readings(readings)
                     self.apply_running_controller(self.controller)
 
@@ -644,32 +687,38 @@ class Manager:
             except Exception as e:
                 self.publish_warning(e)
 
-    def apply_running_controller(self, controller: Controller) -> PumpsOutput | None:
+    def apply_running_controller(self, controller: DualPumpController) -> PumpsOutput | None:
         if not controller.suspended:
             return self._update_stream_state(controller.apply())
 
-    def apply_unsuspended_controller(self, controller: Controller) -> PumpsOutput:
+    def apply_unsuspended_controller(self, controller: DualPumpController) -> ControllerOutput:
         if not controller.suspended:
             output = self._update_stream_state(controller.apply())
             self.publish_state()
-            return output
+            return ControllerOutput.from_parts(controller.view, output, self.expected_humidity)
 
         raise ControllerSuspendedError()
 
-    def apply(self) -> None:
+    def apply_state(self) -> None:
         with self.lock:
             if self.controller is not None:
                 self.apply_running_controller(self.controller)
             self.publish_state()
 
-    def _apply_command(self, command: Command, interrupt: bool = False) -> State:
+    def run_command(
+        self, command: Command, background: bool, interrupt: bool = False
+    ) -> Any | None:
         """Run ``command`` and apply it, returning the state it produced.
 
         The runner it leaves, if any, is held afterwards by whichever of
         :meth:`run_command` or :meth:`start_command` was called.
 
+        Returns:
+            The state produced by running the command, if any.
+
         Args:
             command: The command to run.
+            background: Whether to run the command in the background.
             interrupt: Stop whatever is running first. Done under the same lock,
                 so nothing can slip in between.
 
@@ -679,76 +728,45 @@ class Manager:
         """
         with self.lock:
             if interrupt:
-                self.interrupt()
-            # Checked inside the lock: outside it two callers both pass, and the
-            # second silently replaces a runner that is then never held.
+                self.interrupt_runner()
             if self._runner is not None:
                 raise CommandAlreadyRunningError(self._runner, command)
-            self._runner = command(self)
-            if self._runner is not None:
-                self.apply()
-            return self.state
+            response, self._runner = command.run(self)
+            if background and self._runner is not None:
+                self._runner_thread = Thread(
+                    target=self._run_runner, args=(self._runner,), daemon=True
+                )
+                self._runner_thread.start()
+        if not background and self._runner is not None:
+            return self._run_runner(self._runner)
+        return response
 
-    def _hold(self, runner: Runner) -> None:
+    def _run_runner(self, runner: Runner) -> None:
         """Wait on ``runner``, clearing it however it ends."""
         try:
-            runner.hold()
+            if self._runner is not runner:
+                return
+            runner.dwell()
         except Exception as error:
-            # This may be a background thread, where an escaping exception is
-            # lost. Report it the way the loop reports its own faults.
             self.publish_warning(error)
         finally:
             with self.lock:
-                # Identity, not truthiness: ``interrupt`` may already have
-                # cleared this and started something else.
                 if self._runner is runner:
                     self._runner = None
 
-    def run_command(self, command: Command, interrupt: bool = False) -> State:
-        """Run ``command`` and wait for it to finish.
+    def start_runner_thread(self) -> None:
+        if self._runner is not None:
+            self._runner_thread = Thread(target=self._run_runner, args=(self._runner,), daemon=True)
+            self._runner_thread.start()
 
-        Blocking, because :class:`ControlProgram` sequences its steps by this
-        call returning. Use :meth:`start_command` to be handed the rig back
-        before a hold or ramp completes.
-
-        Args:
-            command: The command to run.
-            interrupt: Stop whatever is running first.
-
-        Returns:
-            The state the command settled at, read under the lock.
-        """
-        state = self._apply_command(command, interrupt)
-        runner = self._runner
-        if runner is None:
-            return state
-        self._hold(runner)
-        with self.lock:
-            return self.state
-
-    def start_command(self, command: Command, interrupt: bool = False) -> State:
-        """Run ``command`` and return without waiting on its runner.
-
-        The hold runs on its own thread, so the caller gets the state the
-        command produced immediately and watches the rest over telemetry.
-
-        Args:
-            command: The command to run.
-            interrupt: Stop whatever is running first.
-
-        Returns:
-            The state the command produced, before any hold begins.
-        """
-        state = self._apply_command(command, interrupt)
-        runner = self._runner
-        if runner is not None:
-            Thread(target=self._hold, args=(runner,), daemon=True).start()
-        return state
-
-    def interrupt(self) -> None:
+    def interrupt_runner(self) -> None:
         with self.lock:
             if self._runner is not None:
                 self._runner.interrupt()
+            if self._runner_thread is not None:
+                self._runner_thread.join()
+                self._runner_thread = None
+
                 self._runner = None
 
     def run_program(self, program: ControlProgram | list[Command]) -> None:

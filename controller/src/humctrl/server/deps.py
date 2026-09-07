@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 
-from humctrl.controller import Controller
+from humctrl.controller import DualPumpController
 from humctrl.manager import Manager
 from humctrl.pumps import DualPumps
 
@@ -38,10 +38,10 @@ def get_pumps() -> DualPumps:
     return get_manager().require_pumps()
 
 
-def get_controller() -> Controller:
+def get_controller() -> DualPumpController:
     return get_manager().require_controller()
 
 
 ManagerDep = Annotated[Manager, Depends(get_manager)]
 PumpsDep = Annotated[DualPumps, Depends(get_pumps)]
-ControllerDep = Annotated[Controller, Depends(get_controller)]
+ControllerDep = Annotated[DualPumpController, Depends(get_controller)]

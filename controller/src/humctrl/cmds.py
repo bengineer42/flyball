@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 from pydantic.alias_generators import to_snake
 
-from humctrl.clock import Duration, Rate, Time
+from humctrl.clock import Duration, Rate
 from humctrl.controller import ControlLaw, ControlLawConfig
 from humctrl.controller.types import ControlLawView, Tuning
 from humctrl.pumps import BlendFlow
-from humctrl.runners import HoldUntilHumidity, RampHumidityRunner, Runner, StartFrom, TestHumidities
+from humctrl.pumps.types import PumpsMode, PumpsOutput
+from humctrl.runners import HoldUntilHumidity, Runner, StartFrom, TestHumidities, WaitForGenerator
+from humctrl.set_point import LinearRamp
+from humctrl.state import ControllerOutput
 from humctrl.typing import Percent, Positive, PositiveInt
 from humctrl.utils import Labelled
 
@@ -48,36 +51,53 @@ class Command:
             raise ValueError(f"tag {cls.tag!r} is already {clash.__name__}")
         Commands[cls.tag] = cls
 
-    def __call__(self, manager: Manager) -> Runner | None:
+    def _run(self, manager: Manager) -> CommandResponse | Runner | None:
         """Do the work, returning a runner if it has to be waited on."""
         ...
+
+    def run(self, manager: Manager) -> CommandResponse:
+        rtrn = self._run(manager)
+        response, runner = None, None
+
+        if isinstance(rtrn, CommandResponse):
+            response, runner = rtrn
+        elif isinstance(rtrn, Runner):
+            runner = rtrn
+        elif rtrn is not None:
+            response = rtrn
+
+        if runner is not None:
+            runner.setup()
+        return CommandResponse(response=response, runner=runner)
+
+
+class CommandResponse[T](NamedTuple):
+    response: T
+    runner: Runner | None = None
 
 
 @dataclass(frozen=True)
 class StartRecording(Command):
     name: str | None
 
-    def __call__(self, manager: Manager) -> Runner | None:
+    def _run(self, manager: Manager) -> None:
         manager.start_recording(self.name)
-        return None
 
 
 @dataclass(frozen=True)
 class StopRecording(Command):
     name: str | None
 
-    def __call__(self, manager: Manager) -> Runner | None:
+    def _run(self, manager: Manager) -> None:
         manager.stop_recording(self.name)
-        return None
 
 
 @dataclass(frozen=True)
 class AddFlag(Command):
     flag: str
 
-    def __call__(self, manager: Manager) -> Runner | None:
+    def _run(self, manager: Manager) -> Runner | None:
         manager.add_recorder_flag(self.flag)
-        return None
 
 
 # region PumpCmds
@@ -88,9 +108,8 @@ class SetBlend(Command):
     wet_fraction: float
     flow: BlendFlow
 
-    def __call__(self, manager: Manager) -> Runner | None:
-        manager.set_blend(self.flow, self.wet_fraction)
-        return None
+    def _run(self, manager: Manager) -> CommandResponse[PumpsOutput]:
+        return CommandResponse(response=manager.set_blend(self.flow, self.wet_fraction))
 
 
 @dataclass(frozen=True)
@@ -98,9 +117,8 @@ class SetFlows(Command):
     dry: float
     wet: float
 
-    def __call__(self, manager: Manager) -> Runner | None:
-        manager.set_flows(dry=self.dry, wet=self.wet)
-        return None
+    def _run(self, manager: Manager) -> CommandResponse[PumpsOutput]:
+        return CommandResponse(response=manager.set_flows(dry=self.dry, wet=self.wet))
 
 
 @dataclass(frozen=True)
@@ -108,16 +126,14 @@ class SetEfforts(Command):
     dry: float
     wet: float
 
-    def __call__(self, manager: Manager) -> Runner | None:
-        manager.set_efforts(dry=self.dry, wet=self.wet)
-        return None
+    def _run(self, manager: Manager) -> CommandResponse[PumpsOutput]:
+        return CommandResponse(response=manager.set_efforts(dry=self.dry, wet=self.wet))
 
 
 @dataclass(frozen=True)
 class StopPumps(Command):
-    def __call__(self, manager: Manager) -> Runner | None:
-        manager.stop_pumps()
-        return None
+    def _run(self, manager: Manager) -> CommandResponse[PumpsOutput]:
+        return CommandResponse(response=manager.stop_pumps())
 
 
 PumpCmds = (SetBlend, SetFlows, SetEfforts, StopPumps)
@@ -131,19 +147,29 @@ class StartController(Command):
     humidity: Percent
     flow: BlendFlow | None = None
     tuning: Tuning | ControlLaw | ControlLawConfig | ControlLawView | str | None = None
+    force: bool = False
 
-    def __call__(self, manager: Manager) -> Runner | None:
-        manager.start_controller(self.humidity, self.flow, self.tuning)
-        manager.apply()
+    def _run(self, manager: Manager) -> CommandResponse[ControllerOutput]:
+        response = manager.start_controller(self.humidity, self.flow, self.tuning, self.force)
+        return CommandResponse(response=response)
 
 
 @dataclass(frozen=True)
 class UpdateSetpoint(Command):
     humidity: Percent
 
-    def __call__(self, manager: Manager) -> Runner | None:
+    def _run(self, manager: Manager) -> Runner | None:
         manager.update_set_point(self.humidity)
-        manager.apply()
+        manager.apply_state()
+
+
+@dataclass(frozen=True)
+class SuspendController(Command):
+    pump_mode: PumpsMode | None = None
+
+    def _run(self, manager: Manager) -> Runner | None:
+        manager.suspend_controller(self.pump_mode)
+        return None
 
 
 class TargetMode(Labelled):
@@ -156,22 +182,28 @@ class TargetMode(Labelled):
 
 
 @dataclass(frozen=True)
-class RampHumidity(Command):
-    target: Percent
-    pace: Rate | Time | Duration
-    flow: BlendFlow | None = None
+class LinearRampHumidity(Command):
+    end: Percent
+    pace: Rate | Duration
     start: StartFrom | Percent = StartFrom.READING
-    tuning: Tuning | ControlLaw | ControlLawConfig | str | None = None
 
-    def __call__(self, manager: Manager) -> Runner | None:
-        return RampHumidityRunner(
-            manager,
-            target=self.target,
-            pace=self.pace,
-            flow=self.flow,
-            start_from=self.start,
-            tuning=self.tuning,
-        )
+    def _run(self, manager: Manager) -> Runner | None:
+        if self.start is StartFrom.TARGET:
+            start_humidity = manager.required_set_humidity
+        elif self.start is StartFrom.READING:
+            start_humidity = manager.required_process_humidity
+        else:
+            start_humidity = self.start
+
+        now = manager.elapsed_s()
+
+        if isinstance(self.pace, Rate):
+            duration = abs(self.end - start_humidity) / self.pace.per_second
+        else:
+            duration = float(self.pace)
+        manager.set_set_point_generator(LinearRamp(now, now + duration, start_humidity, self.end))
+
+        return WaitForGenerator(manager, self.end, duration=duration)
 
 
 def less_than(value: float, target: float, tolerance: float) -> bool:
@@ -195,12 +227,12 @@ class HoldConfig(Command):
     tolerance: Percent = 0.0
     target: Percent | None = None
 
-    def __call__(self, manager: Manager) -> Runner | None:
+    def _run(self, manager: Manager) -> Runner:
         target = self.target
         mode = self.mode
 
         if target is None:
-            target = manager.required_target_humidity
+            target = manager.required_set_humidity
         if mode is TargetMode.CROSS:
             if manager.required_process_humidity > target:
                 mode = TargetMode.BELOW
@@ -213,7 +245,6 @@ class HoldConfig(Command):
                 test = less_than
             case TargetMode.AT:
                 test = within_tolerance
-
         return HoldUntilHumidity(
             TestHumidities(test, target, self.tolerance),
             timeout=self.timeout,
@@ -222,25 +253,25 @@ class HoldConfig(Command):
         )
 
 
-class ControlProgram:
-    commands: list[Command]
-    _n: int = 0
-    _running: bool = False
+# class ControlProgram:
+#     commands: list[Command]
+#     _n: int = 0
+#     _running: bool = False
 
-    def __init__(self, commands: list[Command]) -> None:
-        self.commands = commands
+#     def __init__(self, commands: list[Command]) -> None:
+#         self.commands = commands
 
-    @property
-    def running(self) -> bool:
-        return self._running
+#     @property
+#     def running(self) -> bool:
+#         return self._running
 
-    def suspend(self) -> None:
-        self._running = False
+#     def suspend(self) -> None:
+#         self._running = False
 
-    def run(self, manager: Manager, start: int = 0) -> None:
-        self._running = True
-        self._n = start
-        while self._running and self._n < len(self.commands):
-            manager.run_command(self.commands[self._n])
-            self._n += 1
-        self._running = False
+#     def run(self, manager: Manager, start: int = 0) -> None:
+#         self._running = True
+#         self._n = start
+#         while self._running and self._n < len(self.commands):
+#             manager.run_command(self.commands[self._n])
+#             self._n += 1
+#         self._running = False

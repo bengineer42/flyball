@@ -11,6 +11,7 @@ from .types import (
     Absolute,
     Blend,
     BlendFlow,
+    CurrentBlend,
     DryWet,
     Efforts,
     Flows,
@@ -20,6 +21,7 @@ from .types import (
     OfFullRangeMax,
     OnOverdrive,
     PumpOutput,
+    PumpsMode,
     PumpsOutput,
     PumpsSpec,
     PumpsView,
@@ -29,6 +31,7 @@ __all__ = [
     "Absolute",
     "Blend",
     "BlendFlow",
+    "CurrentBlend",
     "DryWet",
     "DualPumpDriver",
     "DualPumps",
@@ -40,6 +43,7 @@ __all__ = [
     "OfFullRangeMax",
     "OnOverdrive",
     "PumpOutput",
+    "PumpsMode",
     "PumpsOutput",
     "PumpsSpec",
     "PumpsView",
@@ -118,7 +122,7 @@ class DualPumps:
         return self.efforts_to_outputs(self.efforts)
 
     @property
-    def blend(self) -> Blend:
+    def blend(self) -> CurrentBlend:
         return self.flows.blend
 
     @property
@@ -226,6 +230,14 @@ class DualPumps:
             else None
         )
         return self.efforts_to_outputs(efforts)
+
+    def set_mode(self, mode: PumpsMode) -> PumpsOutput:
+        if isinstance(mode, Blend):
+            return self.set_blend(*mode)
+        if isinstance(mode, Efforts):
+            return self.set_efforts(*mode)
+        if isinstance(mode, Flows):
+            return self.set_flows(*mode)
 
     def stop(self) -> None:
         self.pumps.stop()

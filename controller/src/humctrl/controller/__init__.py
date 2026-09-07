@@ -37,9 +37,9 @@ __all__ = [
     "ControlLawState",
     "ControlLawView",
     "ControlLaws",
-    "Controller",
     "ControllerState",
     "ControllerSuspendedError",
+    "DualPumpController",
     "HumidityRailError",
     "OpenLoop",
     "OpenLoopTuning",
@@ -60,13 +60,51 @@ def get_law_config(tag: str, *args, **kwargs) -> ControlLawConfig:
 
 
 class Controller:
+    set_point: float
+    law: ControlLaw
+    correction: float = 0.0
+
+    def setup(
+        self,
+        law: ControlLaw | ControlLawConfig | ControlLawView | Tuning,
+        set_point: float,
+        time: float,
+    ) -> None:
+        self.correction = 0.0
+        self.set_point = set_point
+        self.law = law if isinstance(law, ControlLaw) else law.build()
+        self.law.start(time)
+
+    @property
+    def demand(self) -> float:
+        return self.set_point + self.correction
+
+    @property
+    def tag(self) -> str:
+        return self.law.tag
+
+    def step(self, time: float, value: float) -> None:
+        self.correction = self.law.step(time, value, self.set_point, self.correction)
+
+    def resume(self, time: float, value: float, expected: float | None = None) -> None:
+        """Resume the controller from a given state.
+
+        Args:
+            time: The time to resume from.
+            value: The value to resume from.
+            expected: The expected value to resume from.
+        """
+        if expected is not None:
+            self.correction = expected - self.set_point
+        self.correction = self.law.resume(time, value, self.set_point, self.correction)
+
+
+class DualPumpController(Controller):
     flow: BlendFlow
-    set_point: Percent
     pumps: DualPumps
     dry: Percent
     wet: Percent
-    law: ControlLaw
-    correction: UnclampedPercent = 0.0
+    last_reading: Reading | None = None
     _suspended: bool = False
 
     def __init__(
@@ -74,21 +112,17 @@ class Controller:
         pumps: DualPumps,
         flow: BlendFlow,
         set_point: UnclampedPercent,
+        time: float,
         dry: Percent,
         wet: Percent,
         law: ControlLaw | ControlLawConfig | ControlLawView | Tuning,
     ) -> None:
         self.flow = flow
-        self.set_point = set_point
         self.pumps = pumps
         self.dry = dry
         self.wet = wet
+        self.setup(law, set_point, time)
         self._suspended = False
-        self.law = law if isinstance(law, ControlLaw) else law.build()
-
-    @property
-    def demand(self) -> UnclampedPercent:
-        return self.set_point + self.correction
 
     @property
     def state(self) -> ControllerState:
@@ -116,19 +150,11 @@ class Controller:
     def suspend(self) -> None:
         self._suspended = True
 
-    def set_resume(self) -> None:
-        if not self._suspended:
-            raise RuntimeError("Controller is not suspended")
-        self._suspended = False
-
     def set_stream(self, flow: BlendFlow | None = None, humidity: Percent | None = None) -> None:
         if humidity is not None:
-            self.update_set_point(humidity)
+            self.set_point = humidity
         if flow is not None:
             self.update_flow(flow)
-
-    def update_set_point(self, set_point: Percent) -> None:
-        self.set_point = set_point
 
     def update_flow(self, flow: BlendFlow) -> None:
         self.flow = flow
@@ -139,12 +165,7 @@ class Controller:
         if isinstance(readings.wet, Reading):
             self.wet = readings.wet.humidity
         if not self.suspended and isinstance(readings.process, Reading):
-            self.update_process_reading(readings.process)
-
-    def update_process_reading(self, reading: Reading) -> None:
-        self.correction = self.law.step(
-            reading.time, reading.humidity, self.set_point, self.correction
-        )
+            self.step(readings.process.time, readings.process.humidity)
 
     def apply(self) -> WithWarning[PumpsOutput]:
         wet_fraction = calculate_wet_fraction(self.dry, self.wet, self.demand)
@@ -153,20 +174,5 @@ class Controller:
             return WithWarning(outputs, HumidityRailError(self.dry, self.wet, self.set_point))
         return WithWarning(outputs, None)
 
-    def resume(self, reading: Reading, expected: Percent | None = None) -> None:
-        """Take the pumps back, holding the humidity they are already delivering.
-
-        Compare ``demand`` against ``expected`` afterwards to size the step: a
-        law with no integral cannot hold an offset, so it resumes at whatever
-        its proportional term gives and the hand-back bumps the pumps.
-
-        Args:
-            reading: The reading to resume from.
-            expected: The humidity the pumps are currently delivering. Without
-                it the correction this controller last commanded is held.
-        """
-        if expected is not None:
-            self.correction = expected - self.set_point
-        self.correction = self.law.resume(
-            reading.time, reading.humidity, self.set_point, self.correction
-        )
+    def resume_with_reading(self, reading: Reading, expected: Percent | None = None) -> None:
+        self.resume(reading.time, reading.humidity, expected)
