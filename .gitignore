@@ -27,3 +27,6 @@ fp-info-cache
 
 # OS
 .DS_Store
+
+# git worktrees live here; they are checkouts, not content
+.worktrees/

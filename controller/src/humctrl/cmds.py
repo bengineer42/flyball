@@ -10,7 +10,7 @@ from humctrl.controller import ControlLaw, ControlLawConfig
 from humctrl.controller.types import ControlLawView, Tuning
 from humctrl.pumps import BlendFlow
 from humctrl.pumps.types import PumpsMode, PumpsOutput
-from humctrl.runners import HoldUntilHumidity, Runner, StartFrom, TestHumidities, WaitForGenerator
+from humctrl.runners import DwellUntilHumidity, Runner, StartFrom, TestHumidities, WaitForGenerator
 from humctrl.set_point import LinearRamp
 from humctrl.state import ControllerOutput
 from humctrl.typing import Percent, Positive, PositiveInt
@@ -187,24 +187,15 @@ class LinearRampHumidity(Command):
     pace: Rate | Duration
     start: StartFrom | Percent = StartFrom.READING
 
-    def _run(self, manager: Manager) -> Runner | None:
-        if self.start is StartFrom.TARGET:
-            start_humidity = manager.required_set_humidity
-        elif self.start is StartFrom.READING:
-            start_humidity = manager.required_process_humidity
-        else:
-            start_humidity = self.start
+    def _run(self, manager: Manager) -> CommandResponse[ControllerOutput]:
 
-        now = manager.elapsed_s()
+        generator = LinearRamp(self.pace, self.end)
+        output, wait = manager.start_set_point_generator(generator, self.start)
 
-        if isinstance(self.pace, Rate):
-            duration = abs(self.end - start_humidity) / self.pace.per_second
-        else:
-            duration = float(self.pace)
-        manager.set_set_point_generator(LinearRamp(now, now + duration, start_humidity, self.end))
+        return CommandResponse(response=output, runner=WaitForGenerator(manager, self.end, wait))
 
-        return WaitForGenerator(manager, self.end, duration=duration)
 
+class SetPointManger
 
 def less_than(value: float, target: float, tolerance: float) -> bool:
     return value < target - tolerance
@@ -245,7 +236,7 @@ class HoldConfig(Command):
                 test = less_than
             case TargetMode.AT:
                 test = within_tolerance
-        return HoldUntilHumidity(
+        return DwellUntilHumidity(
             TestHumidities(test, target, self.tolerance),
             timeout=self.timeout,
             min_duration=self.min_duration,
@@ -253,25 +244,25 @@ class HoldConfig(Command):
         )
 
 
-# class ControlProgram:
-#     commands: list[Command]
-#     _n: int = 0
-#     _running: bool = False
+class ControlProgram:
+    commands: list[Command]
+    _n: int = 0
+    _running: bool = False
 
-#     def __init__(self, commands: list[Command]) -> None:
-#         self.commands = commands
+    def __init__(self, commands: list[Command]) -> None:
+        self.commands = commands
 
-#     @property
-#     def running(self) -> bool:
-#         return self._running
+    @property
+    def running(self) -> bool:
+        return self._running
 
-#     def suspend(self) -> None:
-#         self._running = False
+    def suspend(self) -> None:
+        self._running = False
 
-#     def run(self, manager: Manager, start: int = 0) -> None:
-#         self._running = True
-#         self._n = start
-#         while self._running and self._n < len(self.commands):
-#             manager.run_command(self.commands[self._n])
-#             self._n += 1
-#         self._running = False
+    def run(self, manager: Manager, start: int = 0) -> None:
+        self._running = True
+        self._n = start
+        while self._running and self._n < len(self.commands):
+            manager.run_command(self.commands[self._n])
+            self._n += 1
+        self._running = False

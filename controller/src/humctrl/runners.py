@@ -58,7 +58,7 @@ class TestHumidities:
         return all(self.test(reading.humidity, self.target, self.tolerance) for reading in readings)
 
 
-class HoldUntilHumidity(Runner):
+class DwellUntilHumidity(Runner):
     readings: list[Reading]
     min_duration: float
     min_readings: PositiveInt
@@ -103,10 +103,13 @@ class WaitForGenerator(Runner):
     end: Percent
     manager: Manager
 
-    def __init__(self, manager: Manager, end: Percent, duration: float) -> None:
+    def __init__(self, manager: Manager, end: Percent, wait: Event | float | None) -> None:
         self.end = end
         self.manager = manager
-        self.set_wait(duration)
+        if isinstance(wait, Event):
+            self._wait = wait
+        else:
+            self.set_wait(wait)
 
     def on_timeout(self) -> None:
         self.manager.update_set_point(self.end)

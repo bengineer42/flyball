@@ -4,7 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from threading import RLock, Thread
+from threading import Event, RLock, Thread
 from typing import Any, overload
 
 from humctrl.clock import Clock, Duration, Time
@@ -56,7 +56,7 @@ from humctrl.readers import (
 from humctrl.recorder import Recorder
 from humctrl.resource import Operator, ReleaseReason
 from humctrl.resources import ControllerResource
-from humctrl.runners import Runner
+from humctrl.runners import Runner, StartFrom
 from humctrl.set_point import SetPointGenerator
 from humctrl.state import ActuatorView, ControllerOutput, Spec, State, View
 from humctrl.typing import NonNegative, Normalised, Percent, Positive
@@ -591,12 +591,24 @@ class Manager:
             controller.resume_with_reading(self.required_process_reading, self.expected_humidity)
             return self.apply_unsuspended_controller(controller)
 
-    def set_set_point_generator(self, generator: SetPointGenerator) -> ControllerOutput:
+    def _get_set_point_start(self, start_from: StartFrom | Percent = StartFrom.READING) -> Percent:
+        if start_from is StartFrom.TARGET:
+            return self.required_set_humidity
+        elif start_from is StartFrom.READING:
+            return self.required_process_humidity
+        else:
+            return start_from
+
+    def start_set_point_generator(
+        self, generator: SetPointGenerator, start_from: StartFrom | Percent = StartFrom.READING
+    ) -> tuple[ControllerOutput, float | Event | None]:
         with self.lock:
             controller = self.require_controller()
             self._set_point_generator = generator
-            controller.set_point = generator.generate(self.elapsed_s())
-            return self.apply_unsuspended_controller(controller)
+            wait = self._set_point_generator.start(
+                self.elapsed_s(), self._get_set_point_start(start_from)
+            )
+            return self.apply_unsuspended_controller(controller), wait
 
     def remove_set_point_generator(self) -> None:
         with self.lock:
@@ -693,6 +705,8 @@ class Manager:
 
     def apply_unsuspended_controller(self, controller: DualPumpController) -> ControllerOutput:
         if not controller.suspended:
+            if self._set_point_generator is not None:
+                controller.set_point = self._set_point_generator.generate(self.elapsed_s())
             output = self._update_stream_state(controller.apply())
             self.publish_state()
             return ControllerOutput.from_parts(controller.view, output, self.expected_humidity)
