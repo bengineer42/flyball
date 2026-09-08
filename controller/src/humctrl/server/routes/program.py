@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from humctrl.server.commands import CommandRequest, CommandsSchema
-from humctrl.server.deps import ManagerDep
+from humctrl.server.deps import RigDep
 from humctrl.state import State
 
 command_router = APIRouter(prefix="/api/command", tags=["controller"])
@@ -24,7 +24,7 @@ async def read_command_schema() -> dict[str, Any]:
 
 
 @command_router.post("/")
-def run_command(body: CommandRequest, manager: ManagerDep, interrupt: bool = False) -> State:
+def run_command(body: CommandRequest, rig: RigDep, interrupt: bool = False) -> State:
     """Run one command, returning the rig state it produced.
 
     Returns as soon as the command has been applied: a hold or ramp continues
@@ -36,10 +36,10 @@ def run_command(body: CommandRequest, manager: ManagerDep, interrupt: bool = Fal
 
     Args:
         body: The command to run.
-        manager: The attached rig.
+        rig: The attached rig.
         interrupt: ``?interrupt=true`` stops whatever is running first, rather
             than refusing with a conflict. A query parameter rather than a field
             on the command: it says how to apply this request, and would be
             meaningless replayed as a step inside a stored program.
     """
-    return manager.start_command(body.parse(), interrupt=interrupt)
+    return rig.start_command(body.parse(), interrupt=interrupt)

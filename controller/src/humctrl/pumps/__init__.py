@@ -6,7 +6,7 @@ from humctrl.typing import NonNegative, Normalised, Positive
 from humctrl.utils import format_quantity, validate_normalised
 
 from .drivers import DualPumpDriver
-from .errors import FlowsOverdrivenError
+from .errors import FlowsOverdrivenError, PumpError
 from .types import (
     Absolute,
     Blend,
@@ -42,6 +42,7 @@ __all__ = [
     "OfBlendMax",
     "OfFullRangeMax",
     "OnOverdrive",
+    "PumpError",
     "PumpOutput",
     "PumpsMode",
     "PumpsOutput",
@@ -144,7 +145,7 @@ class DualPumps:
 
     @property
     def view(self) -> PumpsView:
-        return PumpsView.from_spec_output(self.spec, self.output)
+        return PumpsView.of(self.spec, self.output)
 
     def flow_str(self, flow: NonNegative) -> str:
         return format_quantity(flow, units=self.units)

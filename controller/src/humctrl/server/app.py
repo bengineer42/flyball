@@ -18,7 +18,7 @@ from humctrl.error import (
     NotReadyError,
     UnachievableError,
 )
-from humctrl.server.deps import current_manager
+from humctrl.server.deps import current_rig
 from humctrl.server.routes import (
     command_router,
     controller_router,
@@ -35,17 +35,17 @@ DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Leave the rig as we found it.
 
-    The server owns no topics of its own: telemetry subscribes to the manager's,
+    The server owns no topics of its own: telemetry subscribes to the rig's,
     so the two cannot disagree about what was published. On the way out the
     pumps are stopped and the loop halted, since nothing is left watching them.
     """
     try:
         yield
     finally:
-        manager = current_manager()
-        if manager is not None:
+        rig = current_rig()
+        if rig is not None:
             with contextlib.suppress(Exception):
-                manager.stop()
+                rig.stop()
 
 
 def create_app() -> FastAPI:
@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health", tags=["rig"])
     async def health() -> dict[str, Any]:
-        return {"status": "ok", "rig_attached": current_manager() is not None}
+        return {"status": "ok", "rig_attached": current_rig() is not None}
 
     app.include_router(rig_router)
     app.include_router(controller_router)

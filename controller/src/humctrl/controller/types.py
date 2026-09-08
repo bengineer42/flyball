@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from inspect import signature
 from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, create_model
 
-from humctrl.pumps import BlendFlow, DryWet
-from humctrl.typing import Percent, UnclampedPercent
-from humctrl.utils import ModelOf, creation_model
+from humctrl.typing import Percent
+from humctrl.utils import Labelled, ModelOf, creation_model
+
+
+class Transfer(Labelled):
+    NONE = "none", "Do not transfer any correction"
+    CARRY = "carry", "Keep the correction the law is already holding"
+    TRACK = "track", "Seed the correction from what the pumps are delivering"
+    RESET = "reset", "Start the law cold"
 
 
 class ControlLawConfig(BaseModel):
@@ -210,7 +215,7 @@ class ControlLaw:
     def start(self, time: float) -> None:
         return None
 
-    def resume(self, time: float, reading: float, set_point: float, correction: float) -> float:
+    def resume(self, time: float, reading: float, setpoint: float, correction: float) -> float:
         """Re-enter control so the first step reproduces ``correction``.
 
         Used to hand back from manual pump control without stepping the output.
@@ -229,52 +234,41 @@ class ControlLaw:
         self,
         time: float,
         reading: float,
-        set_point: float,
+        setpoint: float,
         last_applied: float | None = None,
     ) -> float:
         return 0.0
 
 
-class Rail(Enum):
-    WET = "wet"
-    DRY = "dry"
-
-    def __float__(self) -> float:
-        match self:
-            case Rail.WET:
-                return 1.0
-            case Rail.DRY:
-                return 0.0
-
-
 @dataclass(slots=True, frozen=True)
 class ControllerState:
-    set_point: Percent | None
-    correction: UnclampedPercent
-    flow: BlendFlow
-    flow_humidities: DryWet[Percent]
-    suspended: bool
-    law: ControlLawState | None
+    generator: bool
+    setpoint: Percent
+    correction: float
+    last_value: float | None
+    law: ControlLawState
 
 
 @dataclass(slots=True, frozen=True)
 class ControllerView(ControllerState):
-    law: str | ControlLawView | None
+    law: ControlLawView
 
-    @classmethod
-    def of(cls, config: ControlLawConfig, state: ControllerState) -> Self:
-        return cls(
-            law=(
-                ControlLawView.of(config, state.law)
-                if config.law is not None and state.law is not None
-                else None
-            ),
-            set_point=state.set_point,
-            correction=state.correction,
-            flow=state.flow,
-            flow_humidities=state.flow_humidities,
-            suspended=state.suspended,
-        )
+    # @classmethod
+    # def of(cls, config: ControlLawConfig, state: ControllerState) -> Self:
+    #     return cls(
+    #         generator=state.generator,
+    #         setpoint=state.setpoint,
+    #         correction=state.correction,
+    #         last_value=state.last_value,
+    #         law=(
+    #             ControlLawView.of(config, state.law)
+    #             if config.law is not None and state.law is not None
+    #             else None
+    #         ),
+    #     )
+
+
+type ControlLawLike = ControlLaw | ControlLawConfig | ControlLawView | Tuning
 
 
 @dataclass(slots=True, frozen=True)
@@ -290,3 +284,11 @@ class Tuning:
     @property
     def tuple(self) -> tuple[str, SerializeAsAny[ControlLawConfig | ControlLawView]]:
         return (self.tag, self.config)
+
+
+class ValueSource(Labelled):
+    """Where a ramp begins."""
+
+    PROCESS = "process", "The current reading"
+    SETPOINT = "setpoint", "The current target"
+    DEMAND = "demand", "The current demand"

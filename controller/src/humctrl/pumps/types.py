@@ -20,15 +20,30 @@ class Absolute:
     value: NonNegative
     on_overdrive: OnOverdrive = OnOverdrive.RAISE
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Absolute):
+            return False
+        return self.value == other.value and self.on_overdrive is other.on_overdrive
+
 
 @dataclass(frozen=True, slots=True)
 class OfBlendMax:
     value: Normalised = 1.0
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, OfBlendMax):
+            return False
+        return self.value == other.value
+
 
 @dataclass(frozen=True, slots=True)
 class OfFullRangeMax:
     value: Normalised = 1.0
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, OfFullRangeMax):
+            return False
+        return self.value == other.value
 
 
 type BlendFlow = Absolute | OfBlendMax | OfFullRangeMax
@@ -41,7 +56,7 @@ class Blend(NamedTuple):
     wet_fraction: Normalised
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class DryWet[T: float]:
     dry: T
     wet: T
@@ -86,7 +101,7 @@ class DryWet[T: float]:
         return self.dry + self.wet
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Flows(DryWet[NonNegative]):
     @classmethod
     def from_blend(cls, total: NonNegative, wet_fraction: Normalised) -> Flows:
@@ -133,7 +148,7 @@ class Flows(DryWet[NonNegative]):
         return self / max(efforts.dry, efforts.wet, 1.0)
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class Efforts(DryWet[Normalised]):
     @property
     def overdriven(self) -> bool:
@@ -178,7 +193,7 @@ class CurrentBlend:
 class PumpsSpec:
     max_flows: MaxFlows
     full_range_max_flow: Positive
-    units: str | None = None
+    units: str | None
 
 
 @dataclass(slots=True, frozen=True)
@@ -187,10 +202,10 @@ class PumpsView:
     efforts: Efforts
     max_flows: MaxFlows
     full_range_max_flow: Positive
-    units: str | None = None
+    units: str | None
 
     @classmethod
-    def from_spec_output(cls, spec: PumpsSpec, output: PumpsOutput) -> PumpsView:
+    def of(cls, spec: PumpsSpec, output: PumpsOutput) -> PumpsView:
         return cls(
             flows=output.flows,
             efforts=output.efforts,

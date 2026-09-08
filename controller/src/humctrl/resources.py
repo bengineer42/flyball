@@ -6,10 +6,13 @@ FlowResource = Resource("flow")
 FractionResource = Resource("fraction")
 
 PumpsResource = Resource("pumps", [FlowResource, FractionResource])
+BlendResource = Resource("blend", [FlowResource, FractionResource])
 
 ControllerResource = Resource("controller", [FractionResource])
 
-SetPointResource = Resource("set_point", [ControllerResource])
+SetPointResource = Resource("setpoint", [ControllerResource])
+
+SetPointProfileResource = Resource("setpoint_profile", [SetPointResource])
 
 
 class PumpsClaim(Enum):

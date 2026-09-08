@@ -36,8 +36,7 @@ def keyed_by(field: str) -> BeforeValidator:
         if not isinstance(value, list):
             return value
         mapping = {
-            item[field] if isinstance(item, dict) else getattr(item, field): item
-            for item in value
+            item[field] if isinstance(item, dict) else getattr(item, field): item for item in value
         }
         if len(mapping) != len(value):
             raise ValueError(f"duplicate {field} in list")

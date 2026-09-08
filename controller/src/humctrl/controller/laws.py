@@ -14,14 +14,14 @@ class P(ControlLaw):
     def __init__(self, kp: float) -> None:
         self.kp = kp
 
-    def resume(self, time: float, reading: float, set_point: float, correction: float) -> float:
+    def resume(self, time: float, reading: float, setpoint: float, correction: float) -> float:
         """A proportional law has no memory, so it cannot hold ``correction``."""
-        return self.kp * (set_point - reading)
+        return self.kp * (setpoint - reading)
 
     def step(
-        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+        self, time: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
-        error = set_point - reading
+        error = setpoint - reading
         output = self.kp * error
         return output
 
@@ -121,16 +121,16 @@ class PI(IComponent, ControlLaw):
     def kp(self) -> float:
         return self._kp
 
-    def start(self, time: float, reading: float) -> None:
+    def start(self, time: float) -> None:
         self.start_integral(time)
 
-    def resume(self, time: float, reading: float, set_point: float, correction: float) -> float:
-        return self.resume_integral(time, self._kp * (set_point - reading), correction)
+    def resume(self, time: float, reading: float, setpoint: float, correction: float) -> float:
+        return self.resume_integral(time, self._kp * (setpoint - reading), correction)
 
     def step(
-        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+        self, time: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
-        error = set_point - reading
+        error = setpoint - reading
         self.step_integral(error, time, last_applied)
         output = self._kp * error + self.integral_value
         self.update_output(output)
@@ -160,14 +160,14 @@ class PID(ControlLaw, IComponent):
     def start(self, time: float) -> None:
         self.start_integral(time)
 
-    def resume(self, time: float, reading: float, set_point: float, correction: float) -> float:
+    def resume(self, time: float, reading: float, setpoint: float, correction: float) -> float:
         self.last_reading = reading
-        return self.resume_integral(time, self._kp * (set_point - reading), correction)
+        return self.resume_integral(time, self._kp * (setpoint - reading), correction)
 
     def step(
-        self, time: float, reading: float, set_point: float, last_applied: float | None = None
+        self, time: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
-        error = set_point - reading
+        error = setpoint - reading
         dt = self.step_integral(error, time, last_applied)
 
         derivative = 0.0 if self.last_reading is None else (self.last_reading - reading) / dt

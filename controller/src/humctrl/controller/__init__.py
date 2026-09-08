@@ -1,31 +1,24 @@
-from humctrl.pumps import BlendFlow, DualPumps, PumpsOutput
-from humctrl.pumps.types import DryWet
-from humctrl.readers import Reading, Readings
-from humctrl.typing import Percent, UnclampedPercent
-from humctrl.utils import WithWarning
+from humctrl.utils import Unset, UnsetType, require
 
 from .errors import (
     ControlLawNotRegisteredError,
     ControllerSuspendedError,
-    HumidityRailError,
-    PumpHumiditiesError,
+    LastReadingNotAvailableError,
 )
 from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
+from .setpoint import LinearRamp, SetPointGenerator
 from .types import (
     ControlLaw,
     ControlLawConfig,
+    ControlLawLike,
     ControlLaws,
     ControlLawState,
     ControlLawView,
     ControllerState,
     ControllerView,
-    Rail,
+    Transfer,
     Tuning,
-)
-from .utils import (
-    calculate_wet_fraction,
-    expected_humidity_from_fraction,
-    get_expected_humidity_from_flows,
+    ValueSource,
 )
 
 __all__ = [
@@ -33,23 +26,25 @@ __all__ = [
     "PID",
     "ControlLaw",
     "ControlLawConfig",
+    "ControlLawLike",
     "ControlLawNotRegisteredError",
     "ControlLawState",
     "ControlLawView",
     "ControlLaws",
+    "Controller",
     "ControllerState",
     "ControllerSuspendedError",
-    "DualPumpController",
-    "HumidityRailError",
+    "ControllerView",
+    "LastReadingNotAvailableError",
+    "LinearRamp",
     "OpenLoop",
     "OpenLoopTuning",
     "P",
-    "PumpHumiditiesError",
-    "Rail",
+    "SetPointGenerator",
+    "Transfer",
     "Tuning",
-    "calculate_wet_fraction",
-    "expected_humidity_from_fraction",
-    "get_expected_humidity_from_flows",
+    "ValueSource",
+    "get_law_config",
 ]
 
 
@@ -60,31 +55,127 @@ def get_law_config(tag: str, *args, **kwargs) -> ControlLawConfig:
 
 
 class Controller:
-    set_point: float
+    generator: SetPointGenerator | None = None
+    _setpoint: float
     law: ControlLaw
     correction: float = 0.0
+    last_value: float | None = None
 
-    def setup(
+    def __init__(
         self,
         law: ControlLaw | ControlLawConfig | ControlLawView | Tuning,
-        set_point: float,
+        setpoint: float,
         time: float,
     ) -> None:
         self.correction = 0.0
-        self.set_point = set_point
+        self._setpoint = setpoint
+        self.set_law(law, time)
+
+    def set_law(
+        self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning, time: float
+    ) -> None:
+        self._set_law(law)
+        self.law.start(time)
+
+    def _set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
         self.law = law if isinstance(law, ControlLaw) else law.build()
+
+    def reset(self, time: float, value: float | UnsetType | None = Unset) -> None:
+        self.correction = 0.0
+        if value is not Unset:
+            self.last_value = value
+        self._update_setpoint(time)
         self.law.start(time)
 
     @property
+    def setpoint(self) -> float:
+        return self._setpoint
+
+    @property
     def demand(self) -> float:
-        return self.set_point + self.correction
+        return self.setpoint + self.correction
+
+    @property
+    def state(self) -> ControllerState:
+        return ControllerState(
+            generator=self.generator is not None,
+            setpoint=self.setpoint,
+            correction=self.correction,
+            law=self.law.state,
+            last_value=self.last_value,
+        )
+
+    @property
+    def spec(self) -> ControlLawConfig:
+        return self.law.config
+
+    @property
+    def view(self) -> ControllerView:
+        return ControllerView(
+            generator=self.generator is not None,
+            setpoint=self.setpoint,
+            correction=self.correction,
+            last_value=self.last_value,
+            law=self.law.view,
+        )
+
+    def demand_at(self, time: float | None = None) -> float:
+        return self.setpoint_at(time) + self.correction
+
+    def setpoint_at(self, time: float | None) -> float:
+        if self.generator is not None and time is not None:
+            return self.generator.generate(time)
+        return self._setpoint
 
     @property
     def tag(self) -> str:
         return self.law.tag
 
+    def _update_setpoint(self, time: float) -> None:
+        if self.generator is not None:
+            self._setpoint = self.generator.generate(time)
+
+    def _new_value(self, time: float, value: float) -> None:
+        self.last_value = value
+        self._update_setpoint(time)
+
+    def set_setpoint(
+        self,
+        setpoint: float | ValueSource,
+        time: float | None = None,
+    ) -> None:
+        self._setpoint = self.resolve_value(setpoint, time)
+        self.generator = None
+
+    def set_reference(
+        self, at: float | ValueSource, time: float, generator: SetPointGenerator | None
+    ) -> None:
+        self._setpoint = self.resolve_value(at, time)
+        self.generator = generator
+        if self.generator is not None:
+            self.generator.start(time, self._setpoint)
+            self._setpoint = self.generator.generate(time)
+
+    def set_generator(
+        self,
+        generator: SetPointGenerator,
+        time: float,
+        at: ValueSource | float = ValueSource.SETPOINT,
+    ) -> None:
+        self.set_reference(at=at, time=time, generator=generator)
+
+    def resolve_value(self, start_from: ValueSource | float, time: float | None = None) -> float:
+        if start_from is ValueSource.PROCESS:
+            return require(self.last_value, LastReadingNotAvailableError)
+        if start_from is ValueSource.SETPOINT:
+            return self.setpoint_at(time)
+        if start_from is ValueSource.DEMAND:
+            return self.demand_at(time)
+        return float(start_from)
+
     def step(self, time: float, value: float) -> None:
-        self.correction = self.law.step(time, value, self.set_point, self.correction)
+        self._new_value(time, value)
+        self.correction = self.law.step(time, value, self.setpoint, self.correction)
 
     def resume(self, time: float, value: float, expected: float | None = None) -> None:
         """Resume the controller from a given state.
@@ -94,85 +185,36 @@ class Controller:
             value: The value to resume from.
             expected: The expected value to resume from.
         """
+        self._new_value(time, value)
         if expected is not None:
-            self.correction = expected - self.set_point
-        self.correction = self.law.resume(time, value, self.set_point, self.correction)
+            self.correction = expected - self.setpoint
+        self.correction = self.law.resume(time, value, self.setpoint, self.correction)
 
+    def _seed(self, time: float, mode: Transfer, expected: float | None) -> float:
+        """Set ``correction`` so the first step reproduces the chosen output.
 
-class DualPumpController(Controller):
-    flow: BlendFlow
-    pumps: DualPumps
-    dry: Percent
-    wet: Percent
-    last_reading: Reading | None = None
-    _suspended: bool = False
+        Degrades rather than fails: ``TRACK`` needs something to be delivered, and
+        anything but ``COLD`` needs a measurement to compute the law's proportional
+        term. Where either is missing the seed falls back, and the returned bump is
+        what tells the caller it did.
+        """
+        if mode is Transfer.NONE:
+            return 0.0
+        reference = self.demand if expected is None else expected
+        if self.last_value is None or mode is Transfer.RESET:
+            self.reset(time)
+        else:
+            self.resume(time, self.last_value, None if mode is Transfer.CARRY else expected)
+        return self.demand - reference
 
-    def __init__(
+    def transfer(
         self,
-        pumps: DualPumps,
-        flow: BlendFlow,
-        set_point: UnclampedPercent,
         time: float,
-        dry: Percent,
-        wet: Percent,
-        law: ControlLaw | ControlLawConfig | ControlLawView | Tuning,
-    ) -> None:
-        self.flow = flow
-        self.pumps = pumps
-        self.dry = dry
-        self.wet = wet
-        self.setup(law, set_point, time)
-        self._suspended = False
-
-    @property
-    def state(self) -> ControllerState:
-        return ControllerState(
-            set_point=self.set_point,
-            correction=self.correction,
-            flow=self.flow,
-            flow_humidities=DryWet(dry=self.dry, wet=self.wet),
-            suspended=self._suspended,
-            law=self.law.state,
-        )
-
-    @property
-    def view(self) -> ControllerView:
-        return ControllerView.of(self.law.config, self.state)
-
-    @property
-    def suspended(self) -> bool:
-        return self._suspended
-
-    @property
-    def tag(self) -> str:
-        return self.law.tag
-
-    def suspend(self) -> None:
-        self._suspended = True
-
-    def set_stream(self, flow: BlendFlow | None = None, humidity: Percent | None = None) -> None:
-        if humidity is not None:
-            self.set_point = humidity
-        if flow is not None:
-            self.update_flow(flow)
-
-    def update_flow(self, flow: BlendFlow) -> None:
-        self.flow = flow
-
-    def update_readings(self, readings: Readings) -> None:
-        if isinstance(readings.dry, Reading):
-            self.dry = readings.dry.humidity
-        if isinstance(readings.wet, Reading):
-            self.wet = readings.wet.humidity
-        if not self.suspended and isinstance(readings.process, Reading):
-            self.step(readings.process.time, readings.process.humidity)
-
-    def apply(self) -> WithWarning[PumpsOutput]:
-        wet_fraction = calculate_wet_fraction(self.dry, self.wet, self.demand)
-        outputs = self.pumps.set_blend(self.flow, float(wet_fraction))
-        if isinstance(wet_fraction, Rail) and not (self.dry <= self.set_point <= self.wet):
-            return WithWarning(outputs, HumidityRailError(self.dry, self.wet, self.set_point))
-        return WithWarning(outputs, None)
-
-    def resume_with_reading(self, reading: Reading, expected: Percent | None = None) -> None:
-        self.resume(reading.time, reading.humidity, expected)
+        law: ControlLawLike | None = None,
+        mode: Transfer = Transfer.TRACK,
+        expected: float | None = None,
+    ) -> float:
+        """Re-seed the correction. Returns the bump this will put through."""
+        if law is not None:
+            self._set_law(law)
+        return self._seed(time, mode, expected)

@@ -89,12 +89,14 @@ class Resource:
         self,
         name: str,
         requires: Iterable[Resource] | None = None,
+        on_idle: Callable | None = None,
+        on_revoke: Callable | None = None,
     ) -> None:
         self._name = name
         self._requires = frozenset(requires) if requires is not None else frozenset()
         self._claimed = set()
-        self._on_revoke = None
-        self._on_idle = None
+        self._on_revoke = on_revoke
+        self._on_idle = on_idle
         self._claimant = None
         self.validate_requirements()
 
@@ -192,7 +194,10 @@ class Resource:
         resource.raise_if_not_in(self._claimed, NotClaimantError, self)
         self._claimed.remove(resource)
 
-    def claim(self, claimant: Resource) -> None:
+    def claim(self, claimant: Resource | None) -> None:
+        if claimant is self.claimant:
+            return
+
         if old := self.claimant:
             self.try_on_revoke()
             old.drop(self)
@@ -221,7 +226,6 @@ class Resource:
         try:
             if self._on_revoke:
                 self._on_revoke()
-                self._on_revoke = None
         except Exception as e:
             return e
         return None
@@ -230,7 +234,6 @@ class Resource:
         try:
             if self._on_idle:
                 self._on_idle()
-                self._on_idle = None
         except Exception as e:
             return e
         return None

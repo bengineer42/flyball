@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from humctrl.pumps import Efforts, Flows, PumpsOutput, PumpsView
 from humctrl.pumps.types import CurrentBlend
-from humctrl.server.deps import ManagerDep, PumpsDep
+from humctrl.server.deps import PumpsDep, RigDep
 from humctrl.server.schemas import (
     BlendRequest,
     EffortsRequest,
@@ -27,9 +27,9 @@ async def read_flows(pumps: PumpsDep) -> Flows:
 
 
 @router.put("/flows")
-async def set_flows(body: FlowsRequest, manager: ManagerDep) -> PumpsOutput:
+async def set_flows(body: FlowsRequest, rig: RigDep) -> PumpsOutput:
     """Each line independently, in absolute flow units. Suspends the controller."""
-    return manager.set_flows(body.wet, body.dry)
+    return rig.set_flows(body.wet, body.dry)
 
 
 @router.get("/efforts")
@@ -39,9 +39,9 @@ async def read_efforts(pumps: PumpsDep) -> Efforts:
 
 
 @router.put("/efforts")
-async def set_efforts(body: EffortsRequest, manager: ManagerDep) -> PumpsOutput:
+async def set_efforts(body: EffortsRequest, rig: RigDep) -> PumpsOutput:
     """Each line independently, in normalised effort units. Suspends the controller."""
-    return manager.set_efforts(body.wet, body.dry)
+    return rig.set_efforts(body.wet, body.dry)
 
 
 @router.get("/blend")
@@ -51,23 +51,23 @@ async def read_blend(pumps: PumpsDep) -> CurrentBlend:
 
 
 @router.put("/blend")
-async def set_blend(body: BlendRequest, manager: ManagerDep) -> PumpsOutput:
+async def set_blend(body: BlendRequest, rig: RigDep) -> PumpsOutput:
     """Total flow and blend ratio together. Suspends the controller."""
-    output = manager.set_blend(body.flow.parse(), body.wet_fraction)
+    output = rig.set_blend(body.flow.parse(), body.wet_fraction)
     return output
 
 
 @router.get("/wet-fraction")
-async def read_wet_fraction(manager: ManagerDep) -> Normalised:
-    return manager.require_pumps().wet_fraction
+async def read_wet_fraction(rig: RigDep) -> Normalised:
+    return rig.require_pumps().wet_fraction
 
 
 @router.get("/dry-fraction")
-async def read_dry_fraction(manager: ManagerDep) -> Normalised:
-    return manager.require_pumps().dry_fraction
+async def read_dry_fraction(rig: RigDep) -> Normalised:
+    return rig.require_pumps().dry_fraction
 
 
 @router.post("/stop")
-async def stop(manager: ManagerDep) -> None:
+async def stop(rig: RigDep) -> None:
     """Stop the pumps, leaving the loop running."""
-    manager.stop_pumps()
+    rig.stop_pumps()

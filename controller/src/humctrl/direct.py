@@ -5,9 +5,12 @@ from linux_pwm import PWMChannel, PWMChip
 
 from humctrl.clock import Clock
 from humctrl.error import UnachievableError
-from humctrl.pumps import DualPumps, DualPumpsConfig, PumpDriver, PumpError, PumpPair
+from humctrl.pumps import DualPumps, DualPumpsConfig
+from humctrl.pumps.drivers import PumpDriver, PumpPair
+from humctrl.pumps.errors import PumpError
+from humctrl.pumps.types import MaxFlows
 from humctrl.readers import Reader, Reading
-from humctrl.typing import Normalised, Positive
+from humctrl.typing import Normalised
 
 DEFAULT_PWM_FREQUENCY: float = 20_000.0  # Hz
 
@@ -31,14 +34,11 @@ class LinuxPwmDualPumpsConfig(DualPumpsConfig):
     pwm_frequency: float = DEFAULT_PWM_FREQUENCY
     wet_deadband: Normalised = 0.0
     dry_deadband: Normalised = 0.0
-    wet_max_flow: Positive = 1.0
-    dry_max_flow: Positive = 1.0
+    max_flows: MaxFlows = MaxFlows(1.0, 1.0)
     flow_units: str | None = None
 
     def build(self) -> DualPumps:
-        return DualPumps(
-            self.build_driver(), self.wet_max_flow, self.dry_max_flow, units=self.flow_units
-        )
+        return DualPumps(self.build_driver(), self.max_flows, units=self.flow_units)
 
     def build_driver(self) -> PumpPair:
         return setup_linux_pwm_pumps_interface(

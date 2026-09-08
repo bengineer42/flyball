@@ -1,5 +1,9 @@
-from humctrl.error import ConflictError, HumCtrlError, NotFoundError, UnachievableError
-from humctrl.typing import Percent
+from humctrl.error import (
+    ConflictError,
+    HumCtrlError,
+    NotFoundError,
+    NotReadyError,
+)
 
 
 class ControllerError(HumCtrlError):
@@ -13,39 +17,20 @@ class ControllerSuspendedError(ControllerError, ConflictError):
         super().__init__("Controller is suspended.")
 
 
+class LastReadingNotAvailableError(ControllerError, NotReadyError):
+    """The controller has not been given a reading yet.
+
+    Not a fault: nothing has come round the loop so far. Anything anchored to
+    the process value has to wait a tick, whereas anchoring to the setpoint
+    never needs a sensor at all.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Controller has not seen a reading yet.")
+
+
 class ControlLawNotRegisteredError(ControllerError, NotFoundError):
     """Raised when a control law is not registered."""
 
     def __init__(self, tag: str) -> None:
         super().__init__(f"Control law '{tag}' is not registered.")
-
-
-class HumidityRailError(ControllerError, UnachievableError):
-    """The target humidity is outside the range the two lines can mix to.
-
-    Reported on :class:`StreamState` rather than raised: the blend rails to the
-    nearest achievable end and the run continues. No amount of pump capacity
-    fixes it, so the remedy is a wetter or drier supply, not more flow.
-    """
-
-    def __init__(
-        self, dry_humidity: Percent, wet_humidity: Percent, target_humidity: Percent
-    ) -> None:
-        super().__init__(
-            f"Target humidity ({target_humidity}%) is outside the achievable range "
-            f"{dry_humidity}% (dry) to {wet_humidity}% (wet)."
-        )
-
-
-class PumpHumiditiesError(ControllerError, UnachievableError):
-    """The wet and dry line humidities are not in the expected order.
-
-    Raised rather than reported: with no span between the lines there is no
-    blend to compute, so the mixing model cannot produce an answer at all.
-    """
-
-    def __init__(self, wet: Percent, dry: Percent) -> None:
-        super().__init__(
-            f"Wet ({wet}) and dry ({dry}) humidities are not in the expected order. Wet humidity "
-            "must be greater than dry humidity."
-        )

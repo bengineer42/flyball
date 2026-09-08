@@ -14,15 +14,15 @@ import sys
 from contextlib import suppress
 
 from humctrl.clock import Clock
-from humctrl.control_law import PIController
-from humctrl.manager import Manager
+from humctrl.controller import PIController
 from humctrl.pumps import DualPumps, PumpPair
 from humctrl.readers import Reading
+from humctrl.rig import Rig
 
 log = logging.getLogger("humctrl.daemon")
 
 
-def build_rig(args: argparse.Namespace) -> Manager:
+def build_rig(args: argparse.Namespace) -> Rig:
     """A rig on real hardware.
 
     The imports are local because they only resolve on a Pi: pulling blinka in
@@ -57,7 +57,7 @@ def build_rig(args: argparse.Namespace) -> Manager:
         units=args.flow_units,
     )
     sensor = I2CSHT4x(label=args.sensor_label)
-    return Manager(
+    return Rig(
         pumps=pumps,
         process_reader=sensor,
         regulator=PIController(kp=args.kp, ki=args.ki),
@@ -102,7 +102,7 @@ class SimSensor:
         return Reading(self._label, self._clock.now_ns(), self._humidity, 21.0)
 
 
-def build_simulated_rig(args: argparse.Namespace) -> Manager:
+def build_simulated_rig(args: argparse.Namespace) -> Rig:
     pair = PumpPair(wet=SimPump(), dry=SimPump())
     pumps = DualPumps(
         pair,
@@ -111,7 +111,7 @@ def build_simulated_rig(args: argparse.Namespace) -> Manager:
         units=args.flow_units,
     )
     sensor = SimSensor(args.sensor_label, pair)
-    return Manager(
+    return Rig(
         pumps=pumps,
         process_readerr=sensor,
         sensors={args.sensor_label: sensor},
@@ -175,14 +175,14 @@ def main(argv: list[str] | None = None) -> int:
     # Import here so a rig can be built and inspected without the web extra.
     import uvicorn
 
-    from humctrl.server import create_app, set_manager
+    from humctrl.server import create_app, set_rig
 
-    set_manager(manager)
+    set_rig(manager)
     log.info("serving on http://%s:%d (simulated=%s)", args.host, args.port, args.simulate)
     try:
         uvicorn.run(create_app(), host=args.host, port=args.port, log_level=args.log_level)
     finally:
-        set_manager(None)
+        set_rig(None)
         with suppress(Exception):
             manager.stop()
     return 0

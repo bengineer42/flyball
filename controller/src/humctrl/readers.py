@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Annotated, Any, Protocol
-
-from pydantic import PlainSerializer
+from typing import NamedTuple, Protocol
 
 from humctrl.error import HardwareError, HumCtrlError, NotFoundError
 from humctrl.typing import Percent
@@ -41,8 +39,14 @@ class Reading:
     source: str | None = None
 
     @property
-    def time(self) -> float:
+    def seconds(self) -> float:
         return self.time_ns / 1e9
+
+
+def to_percent(value: Reading | Percent) -> Percent:
+    if isinstance(value, Reading):
+        return value.humidity
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,20 +64,22 @@ class ReaderSource(Enum):
     PROCESS = "process"
 
 
-#: What a line last reported: a reading, the failure that stopped it, or
-#: nothing yet. An exception cannot cross the wire, so it goes out as its
-#: message.
-type Reported = Annotated[
-    Reading | Any | None,
-    PlainSerializer(lambda value: str(value) if isinstance(value, Exception) else value),
-]
+class ReadError(Exception):
+    source: ReaderSource
+    message: str
+    time_ns: int
+
+    def __init__(self, source: ReaderSource, message: str, time_ns: int) -> None:
+        self.source = source
+        self.message = message
+        self.time_ns = time_ns  # Assuming you want to capture the current time in nanoseconds
+        super().__init__(f"Error reading from {source.value} sensor at {time_ns / 1e9}: {message}")
 
 
-@dataclass(frozen=True, slots=True)
-class Readings:
-    process: Reported = None
-    dry: Reported = None
-    wet: Reported = None
+class Readings(NamedTuple):
+    process: Reading | Exception | None = None
+    dry: Reading | Exception | None = None
+    wet: Reading | Exception | None = None
 
     def __iter__(self):
         yield (ReaderSource.PROCESS, self.process)

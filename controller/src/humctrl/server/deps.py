@@ -1,7 +1,7 @@
 """Rig injection.
 
 The server owns no hardware. Whatever builds the rig — ``humctrl.daemon``, a
-simulation harness, a test — calls :func:`set_manager` before serving, so the
+simulation harness, a test — calls :func:`set_rig` before serving, so the
 same app runs against a real chamber, a simulated plant or a stub.
 """
 
@@ -11,37 +11,37 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 
-from humctrl.controller import DualPumpController
-from humctrl.manager import Manager
+from humctrl.controller import Controller
 from humctrl.pumps import DualPumps
+from humctrl.rig import Rig
 
-_manager: Manager | None = None
-
-
-def set_manager(manager: Manager | None) -> None:
-    global _manager
-    _manager = manager
+_rig: Rig | None = None
 
 
-def current_manager() -> Manager | None:
+def set_rig(rig: Rig | None) -> None:
+    global _rig
+    _rig = rig
+
+
+def current_rig() -> Rig | None:
     """The attached rig, or None. For lifespan and telemetry, which tolerate absence."""
-    return _manager
+    return _rig
 
 
-def get_manager() -> Manager:
-    if _manager is None:
+def get_rig() -> Rig:
+    if _rig is None:
         raise HTTPException(status_code=503, detail="No rig attached to this server")
-    return _manager
+    return _rig
 
 
 def get_pumps() -> DualPumps:
-    return get_manager().require_pumps()
+    return get_rig().require_pumps()
 
 
-def get_controller() -> DualPumpController:
-    return get_manager().require_controller()
+def get_controller() -> Controller:
+    return get_rig().controller
 
 
-ManagerDep = Annotated[Manager, Depends(get_manager)]
+RigDep = Annotated[Rig, Depends(get_rig)]
 PumpsDep = Annotated[DualPumps, Depends(get_pumps)]
-ControllerDep = Annotated[DualPumpController, Depends(get_controller)]
+ControllerDep = Annotated[Controller, Depends(get_controller)]

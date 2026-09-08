@@ -11,11 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from humctrl.cmds import Command
-    from humctrl.controller import ControlLaw, ControlLawConfig, DualPumpController
-    from humctrl.controller.types import Tuning
     from humctrl.readers import ReaderSource
-    from humctrl.runners import Runner
 
 
 class HumCtrlError(Exception):
@@ -100,10 +96,10 @@ class ProcessReadingNotAvailableError(NotReadyError):
 # region Wrong state
 
 
-class ManagerNotRunningError(ConflictError):
+class RigNotRunningError(ConflictError):
     def __init__(self) -> None:
         super().__init__(
-            "Manager not running. Use start() to start the manager before calling this method."
+            "Rig not running. Use start() to start the rig before calling this method."
         )
 
 
@@ -139,29 +135,16 @@ class CurrentWetFractionNotSetError(ConflictError):
         )
 
 
-class ControllerAlreadyRunningError(ConflictError):
-    def __init__(
-        self,
-        current: DualPumpController | str,
-        new: ControlLaw | ControlLawConfig | DualPumpController | Tuning | str,
-    ) -> None:
-        super().__init__(
-            f"Controller {current if isinstance(current, str) else current.tag} is already "
-            f"running. Stop it before starting a {new if isinstance(new, str) else new.tag}."
-        )
-
-
-class CommandAlreadyRunningError(ConflictError):
-    def __init__(self, current: Runner, new: Command) -> None:
-        super().__init__(
-            f"Command is already running ({current}). Interrupt it before starting a new one "
-            f"({new})."
-        )
-
-
-class ProgramAlreadyRunningError(ConflictError):
-    def __init__(self) -> None:
-        super().__init__("Program is already running. Interrupt it before starting a new one.")
+# class ControllerAlreadyRunningError(ConflictError):
+#     def __init__(
+#         self,
+#         current: DualPumpController | str,
+#         new: ControlLaw | ControlLawConfig | DualPumpController | Tuning | str,
+#     ) -> None:
+#         super().__init__(
+#             f"Controller {current if isinstance(current, str) else current.tag} is already "
+#             f"running. Stop it before starting a {new if isinstance(new, str) else new.tag}."
+#         )
 
 
 # endregion

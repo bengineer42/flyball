@@ -9,7 +9,7 @@ from humctrl.controller import (
     ControllerState,
     ControllerView,
 )
-from humctrl.server.deps import ControllerDep, ManagerDep
+from humctrl.server.deps import ControllerDep, RigDep
 from humctrl.server.schemas import StartControllerRequest
 from humctrl.state import ControllerOutput
 from humctrl.typing import UnclampedPercent
@@ -23,8 +23,8 @@ async def read_view(controller: ControllerDep) -> ControllerView | None:
 
 
 @router.post("/")
-async def create_controller(body: StartControllerRequest, manager: ManagerDep) -> ControllerOutput:
-    return manager.start_controller(*body.parse())
+async def create_controller(body: StartControllerRequest, rig: RigDep) -> ControllerOutput:
+    return rig.start_controller(*body.parse())
 
 
 @router.get("/state")
@@ -58,8 +58,8 @@ async def read_suspended(controller: ControllerDep) -> bool:
 
 
 @router.get("/set-point")
-async def read_set_point(controller: ControllerDep) -> UnclampedPercent | None:
-    return controller.set_point
+async def read_setpoint(controller: ControllerDep) -> UnclampedPercent | None:
+    return controller.setpoint
 
 
 @router.get("/demand")
@@ -78,5 +78,5 @@ async def read_correction(controller: ControllerDep) -> UnclampedPercent | None:
 
 
 @router.put("/resume")
-async def resume_controller(manager: ManagerDep) -> ControllerOutput:
-    return manager.resume_controller()
+async def resume_controller(rig: RigDep) -> ControllerOutput:
+    return rig.resume_controller()

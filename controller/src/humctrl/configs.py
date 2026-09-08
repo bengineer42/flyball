@@ -3,27 +3,27 @@ from typing import Self
 
 from humctrl.config import Config, resolve
 from humctrl.controller import Tuning
-from humctrl.controller.types import ControlLawConfig
-from humctrl.manager import Manager
+from humctrl.controller.types import ControlLawLike
 from humctrl.pumps import DualPumps
+from humctrl.rig import Rig
 from humctrl.typing import Percent, Positive
 
 
 @dataclass(slots=True)
-class ManagerConfig(Config[Manager]):
-    process_time: Positive = 1.0
+class RigConfig(Config[Rig]):
+    process_interval: Positive = 1.0
     pumps: Config[DualPumps] | None = None
     tunings: list[Tuning] | None = None
-    default_tuning: str | None = None
+    tuning: str | ControlLawLike = None
     dry_humidity: Percent = 0
     wet_humidity: Percent = 100
 
-    def build(self) -> Manager:
-        return Manager(
+    def build(self) -> Rig:
+        return Rig(
             pumps=resolve(self.pumps),
             tunings=self.tunings,
-            default_tuning=self.default_tuning,
-            process_time=self.process_time,
+            tuning=self.tuning,
+            process_interval=self.process_interval,
             dry_humidity=self.dry_humidity,
             wet_humidity=self.wet_humidity,
         )
@@ -36,8 +36,12 @@ class ManagerConfig(Config[Manager]):
         self.pumps = pumps
         return self
 
-    def add_control_law(self, control_law: ControlLawConfig | None) -> Self:
-        self.control_law = control_law
+    def add_tunings(self, tunings: list[Tuning] | None) -> Self:
+        self.tunings = tunings
+        return self
+
+    def add_default_tuning(self, default_tuning: str | None) -> Self:
+        self.default_tuning = default_tuning
         return self
 
     def add_dry_humidity(self, dry_humidity: Percent) -> Self:
