@@ -32,12 +32,12 @@ from humctrl.error import (
 from humctrl.pumps import (
     Blend,
     BlendFlow,
-    DryWet,
+    DefaultBlendFlow,
     DualPumps,
-    Efforts,
-    Flows,
-    MaxFullRangeMax,
+    SupplyEfforts,
+    SupplyFlows,
 )
+from humctrl.pumps.types import DefaultHumidities, SupplyHumidities
 from humctrl.readers import (
     Reader,
     Readers,
@@ -140,9 +140,9 @@ class Rig:
         process_interval: float = 1.0,
         recorder: Recorder | None = None,
         process_reader: Reader | None = None,
-        humidities: DryWet[Percent] = DryWet(dry=0.0, wet=100.0),
+        supply_humidities: SupplyHumidities = DefaultHumidities,
         setpoint: Percent | None = None,
-        blend_flow: BlendFlow = MaxFullRangeMax,
+        blend_flow: BlendFlow = DefaultBlendFlow,
         tuning: ControlLawLike | str = OpenLoopTuning,
         tunings: list[Tuning] | None = None,
     ) -> None:
@@ -153,8 +153,8 @@ class Rig:
         self.lock = RLock()
         self._main_thread = PeriodicLoop(self.tick, process_interval)
         self._tunings = {OpenLoopTuning.tag: OpenLoopTuning.config}
-        self._dry_reading = humidities.dry
-        self._wet_reading = humidities.wet
+        self._dry_reading = supply_humidities.dry
+        self._wet_reading = supply_humidities.wet
         self._on_tick = {}
         if tunings is not None:
             for tuning in tunings:
@@ -217,8 +217,8 @@ class Rig:
         return to_percent(self._wet_reading)
 
     @property
-    def flow_humidities(self) -> DryWet:
-        return DryWet(dry=self.dry_humidity, wet=self.wet_humidity)
+    def supply_humidities(self) -> SupplyHumidities:
+        return SupplyHumidities(dry=self.dry_humidity, wet=self.wet_humidity)
 
     @property
     def dry_reading(self) -> Reading | None:
@@ -358,9 +358,9 @@ class Rig:
             return Tuning(tag=tag, config=config)
 
     def set_pumps(
-        self, pumps: DualPumps, flow: BlendFlow = MaxFullRangeMax, demand: Percent | None = None
+        self, pumps: DualPumps, flow: BlendFlow = DefaultBlendFlow, demand: Percent | None = None
     ) -> None:
-        self.pump = DualPumpsBlender(pumps, self.flow_humidities, flow=flow, demand=demand)
+        self.pump = DualPumpsBlender(pumps, self.supply_humidities, flow=flow, demand=demand)
 
     def set_recorder(self, recorder: Recorder) -> None:
         self._recorder = recorder
@@ -455,7 +455,7 @@ class Rig:
         self, dry: NonNegative, wet: Percent, *, publish: bool = False, by: Operator | None = None
     ) -> BlenderState:
         with self.manual_pumps(publish=publish, by=by) as pumps:
-            pumps.set_flows(dry, wet)
+            pumps.set_supply_flows(dry, wet)
             return pumps.state
 
     def set_fraction_blend(
@@ -486,14 +486,17 @@ class Rig:
         self, dry: NonNegative, wet: Percent, *, publish: bool = False, by: Operator | None = None
     ) -> BlenderState:
         with self.manual_pumps(publish=publish, by=by) as pumps:
-            pumps.set_efforts(dry, wet)
+            pumps.set_supply_efforts(dry, wet)
             return pumps.state
 
     def set_pumps_mode(
-        self, mode: Blend | Efforts | Flows, publish: bool = False, by: Operator | None = None
+        self,
+        mode: Blend | SupplyEfforts | SupplyFlows,
+        publish: bool = False,
+        by: Operator | None = None,
     ) -> BlenderState:
         with self.manual_pumps(publish=publish, by=by) as pumps:
-            pumps.set_pumps_mode(mode)
+            pumps.set_pumps(mode)
             return pumps.state
 
     def stop_pumps(self, publish: bool = False, by: Operator | None = None) -> BlenderState:
@@ -608,7 +611,7 @@ class Rig:
 
     def run_on_tick(self, readings: Readings) -> None:
         with self.lock:
-            for callback in self._on_tick.keys():
+            for callback in self._on_tick:
                 try:
                     callback(self, readings)
                 except Exception as e:

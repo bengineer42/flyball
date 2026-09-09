@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from typing import Self
 
+from humctrl.blender import DualPumpsBlender
 from humctrl.config import Config, resolve
 from humctrl.controller import Tuning
 from humctrl.controller.types import ControlLawLike
-from humctrl.pumps import DualPumps
+from humctrl.pumps import DualPumps, DualPumpsConfig
 from humctrl.rig import Rig
 from humctrl.typing import Percent, Positive
 
@@ -51,3 +52,7 @@ class RigConfig(Config[Rig]):
     def add_wet_humidity(self, wet_humidity: Percent) -> Self:
         self.wet_humidity = wet_humidity
         return self
+
+
+class DualPumpBlenderConfig(Config[DualPumpsBlender]):
+    pumps: DualPumpsConfig

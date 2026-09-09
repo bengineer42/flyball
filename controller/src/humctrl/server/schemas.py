@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from humctrl.clock import Duration, Rate, TimeUnit
 from humctrl.controller import ControlLawConfig, ControlLaws
-from humctrl.pumps import Absolute, BlendFlow, OfBlendMax, OfFullRangeMax, OnOverdrive
+from humctrl.pumps import Absolute, BlendFlow, OfBlendMax, OfGuaranteedMax, OnOverdrive
 from humctrl.typing import NonNegative, Normalised, Percent
 
 
@@ -53,8 +53,8 @@ class OfBlendMaxRequest(BaseModel):
 class OfFullRangeMaxRequest(BaseModel):
     of_full_range_max: Normalised
 
-    def parse(self) -> OfFullRangeMax:
-        return OfFullRangeMax(self.of_full_range_max)
+    def parse(self) -> OfGuaranteedMax:
+        return OfGuaranteedMax(self.of_full_range_max)
 
 
 type BlendFlowRequest = AbsoluteRequest | OfBlendMaxRequest | OfFullRangeMaxRequest

@@ -3,7 +3,7 @@ from typing import Protocol
 from humctrl.typing import Normalised
 
 from .errors import PumpErrorGroup, PumpHardwareError
-from .types import Efforts
+from .types import SupplyEfforts
 
 
 class PumpDriver(Protocol):
@@ -23,12 +23,12 @@ class DualPumpDriver(Protocol):
     def wet_effort(self) -> Normalised: ...
 
     @property
-    def efforts(self) -> Efforts:
-        return Efforts(self.dry_effort, self.wet_effort)
+    def efforts(self) -> SupplyEfforts:
+        return SupplyEfforts(self.dry_effort, self.wet_effort)
 
-    def set_efforts(self, dry: Normalised, wet: Normalised) -> Efforts: ...
+    def set_efforts(self, efforts: SupplyEfforts) -> SupplyEfforts: ...
 
-    def stop(self) -> None: ...
+    def stop(self) -> SupplyEfforts: ...
 
 
 class PumpPair(DualPumpDriver):
@@ -44,10 +44,10 @@ class PumpPair(DualPumpDriver):
     def wet_effort(self) -> Normalised:
         return self.wet.effort
 
-    def set_efforts(self, dry: Normalised, wet: Normalised) -> Efforts:
-        dry_effort = self.set_dry_effort(dry)
-        wet_effort = self.set_wet_effort(wet)
-        return Efforts(dry_effort, wet_effort)
+    def set_efforts(self, efforts: SupplyEfforts) -> SupplyEfforts:
+        dry_effort = self.set_dry_effort(efforts.dry)
+        wet_effort = self.set_wet_effort(efforts.wet)
+        return SupplyEfforts(dry_effort, wet_effort)
 
     def set_dry_effort(self, effort: Normalised) -> Normalised:
         try:
@@ -73,7 +73,7 @@ class PumpPair(DualPumpDriver):
         except Exception as e:
             raise PumpHardwareError(f"Wet pump failed to stop: {e.__class__.__name__}: {e}") from e
 
-    def stop(self) -> None:
+    def stop(self) -> SupplyEfforts:
         errors: list[PumpHardwareError] = []
         for stop_one in (self.stop_dry, self.stop_wet):
             try:
@@ -82,3 +82,4 @@ class PumpPair(DualPumpDriver):
                 errors.append(e)
         if errors:
             raise PumpErrorGroup("Failed to stop pumps", errors)
+        return self.efforts

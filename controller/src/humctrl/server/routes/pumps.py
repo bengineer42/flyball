@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from humctrl.pumps import Efforts, Flows, PumpsOutput, PumpsView
+from humctrl.pumps import PumpsState, PumpsView, SupplyEfforts, SupplyFlows
 from humctrl.pumps.types import CurrentBlend
 from humctrl.server.deps import PumpsDep, RigDep
 from humctrl.server.schemas import (
@@ -21,25 +21,25 @@ async def read_view(pumps: PumpsDep) -> PumpsView | None:
 
 
 @router.get("/flows")
-async def read_flows(pumps: PumpsDep) -> Flows:
+async def read_flows(pumps: PumpsDep) -> SupplyFlows:
     """Each line independently, in absolute flow units."""
     return pumps.flows
 
 
 @router.put("/flows")
-async def set_flows(body: FlowsRequest, rig: RigDep) -> PumpsOutput:
+async def set_flows(body: FlowsRequest, rig: RigDep) -> PumpsState:
     """Each line independently, in absolute flow units. Suspends the controller."""
     return rig.set_flows(body.wet, body.dry)
 
 
 @router.get("/efforts")
-async def read_efforts(pumps: PumpsDep) -> Efforts:
+async def read_efforts(pumps: PumpsDep) -> SupplyEfforts:
     """Each line independently, in normalised effort units."""
     return pumps.efforts
 
 
 @router.put("/efforts")
-async def set_efforts(body: EffortsRequest, rig: RigDep) -> PumpsOutput:
+async def set_efforts(body: EffortsRequest, rig: RigDep) -> PumpsState:
     """Each line independently, in normalised effort units. Suspends the controller."""
     return rig.set_efforts(body.wet, body.dry)
 
@@ -51,7 +51,7 @@ async def read_blend(pumps: PumpsDep) -> CurrentBlend:
 
 
 @router.put("/blend")
-async def set_blend(body: BlendRequest, rig: RigDep) -> PumpsOutput:
+async def set_blend(body: BlendRequest, rig: RigDep) -> PumpsState:
     """Total flow and blend ratio together. Suspends the controller."""
     output = rig.set_blend(body.flow.parse(), body.wet_fraction)
     return output

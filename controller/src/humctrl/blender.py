@@ -6,14 +6,13 @@ from humctrl.error import NotReadyError, UnachievableError
 from humctrl.pumps import (
     Blend,
     BlendFlow,
-    DryWet,
+    DefaultBlendFlow,
     DualPumps,
-    Efforts,
-    Flows,
-    MaxFullRangeMax,
-    PumpsOutput,
+    PumpsState,
+    SupplyEfforts,
+    SupplyFlows,
 )
-from humctrl.pumps.types import MaxFlows
+from humctrl.pumps.types import MaxFlows, SupplyHumidities
 from humctrl.typing import NonNegative, Normalised, Percent, Positive
 from humctrl.utils import require
 
@@ -38,7 +37,7 @@ class HumidityRailError(BlenderError, UnachievableError):
         )
 
 
-class PumpHumiditiesError(BlenderError, UnachievableError):
+class SupplyHumiditiesError(BlenderError, UnachievableError):
     """The wet and dry line humidities are not in the expected order.
 
     Raised rather than reported: with no span between the lines there is no
@@ -70,30 +69,32 @@ class Rail(Enum):
 
 
 def expected_humidity_from_fraction(
-    dry_humidity: Percent, wet_humidity: Percent, wet_fraction: Normalised
+    humidities: SupplyHumidities, wet_fraction: Normalised
 ) -> Percent:
-    return dry_humidity + wet_fraction * (wet_humidity - dry_humidity)
+    return humidities.dry + wet_fraction * humidities.difference
 
 
-def expected_humidity_from_flows(flows: Flows, humidities: DryWet[Percent]) -> Percent | None:
+def expected_humidity_from_flows(
+    flows: SupplyFlows, humidities: SupplyHumidities
+) -> Percent | None:
     total = flows.total
-    return (flows * humidities).sum() / total if total != 0.0 else None
+    return (flows * humidities).total / total if total != 0.0 else None
 
 
-def calculate_wet_fraction(humidities: DryWet[Percent], target: Percent) -> Normalised | Rail:
+def calculate_wet_fraction(humidities: SupplyHumidities, target: Percent) -> Normalised | Rail:
 
     if humidities.wet <= humidities.dry:
-        raise PumpHumiditiesError(wet=humidities.wet, dry=humidities.dry)
+        raise SupplyHumiditiesError(wet=humidities.wet, dry=humidities.dry)
     if target < humidities.dry:
         return Rail.DRY
     if target > humidities.wet:
         return Rail.WET
-    return (target - humidities.dry) / (humidities.wet - humidities.dry)
+    return (target - humidities.dry) / humidities.difference
 
 
 @dataclass(frozen=True, slots=True)
-class BlenderState(PumpsOutput):
-    humidities: DryWet[Percent]
+class BlenderState(PumpsState):
+    humidities: SupplyHumidities
     demand: Percent | None
     expected_humidity: Percent | None
 
@@ -130,10 +131,10 @@ class BlenderView(BlenderState):
 
 class DualPumpsBlender:
     pumps: DualPumps
-    humidities: DryWet[Percent]
+    humidities: SupplyHumidities
     lock: RLock
     _demand: Percent | None
-    output: PumpsOutput
+    output: PumpsState
     blend_flow: BlendFlow
     expected_humidity: Percent | None
     _updated: bool = False
@@ -141,9 +142,9 @@ class DualPumpsBlender:
     def __init__(
         self,
         pumps: DualPumps,
-        humidities: DryWet[Percent],
+        humidities: SupplyHumidities,
         demand: Percent | None = None,
-        flow: BlendFlow = MaxFullRangeMax,
+        flow: BlendFlow = DefaultBlendFlow,
     ):
         self.pumps = pumps
         self.blend_flow = flow
@@ -153,7 +154,7 @@ class DualPumpsBlender:
         self.lock = RLock()
 
     @property
-    def flow_humidities(self) -> DryWet[Percent]:
+    def supply_humidities(self) -> SupplyHumidities:
         return self.humidities
 
     @property
@@ -169,7 +170,7 @@ class DualPumpsBlender:
         pumps = self.pumps.spec
         return BlenderSpec(
             max_flows=pumps.max_flows,
-            full_range_max_flow=pumps.full_range_max_flow,
+            full_range_max_flow=pumps.guaranteed_max_flow,
             flow_units=pumps.units,
             blend_flow=self.blend_flow,
         )
@@ -177,7 +178,7 @@ class DualPumpsBlender:
     @property
     def state(self) -> BlenderState:
         return BlenderState(
-            humidities=self.flow_humidities,
+            humidities=self.supply_humidities,
             demand=self._demand,
             flows=self.output.flows,
             efforts=self.output.efforts,
@@ -206,7 +207,7 @@ class DualPumpsBlender:
             self._updated = True
             self.humidities.wet = wet
 
-    def set_flows(self, dry: NonNegative, wet: NonNegative):
+    def set_supply_flows(self, dry: NonNegative, wet: NonNegative):
         with self.lock:
             self._update_outputs(self.pumps.set_flows(dry, wet))
 
@@ -214,11 +215,11 @@ class DualPumpsBlender:
         with self.lock:
             self._update_outputs(self.pumps.set_blend(flow, wet_fraction))
 
-    def set_efforts(self, dry: Normalised, wet: Normalised):
+    def set_supply_efforts(self, dry: Normalised, wet: Normalised):
         with self.lock:
             self._update_outputs(self.pumps.set_efforts(dry, wet))
 
-    def set_pumps_mode(self, pump_mode: Blend | Efforts | Flows):
+    def set_pumps(self, pump_mode: Blend | SupplyEfforts | SupplyFlows):
         with self.lock:
             self._update_outputs(self.pumps.set_mode(pump_mode))
 
@@ -263,11 +264,11 @@ class DualPumpsBlender:
         with self.lock:
             return self._update(demand, dry, wet, flow)
 
-    def _update_outputs(self, output: PumpsOutput) -> PumpsOutput:
+    def _update_outputs(self, output: PumpsState) -> PumpsState:
         self.pump_error = None
         self.output = output
         self.expected_humidity = expected_humidity_from_flows(
-            self.output.flows, self.flow_humidities
+            self.output.flows, self.supply_humidities
         )
         return output
 

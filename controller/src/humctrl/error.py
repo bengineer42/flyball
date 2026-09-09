@@ -76,11 +76,6 @@ class PumpsNotSetError(NotReadyError):
         super().__init__("Pumps not set. Use set_pumps() to set pumps before using them.")
 
 
-class PumpHumidityNotSetError(NotReadyError):
-    def __init__(self, line: str) -> None:
-        super().__init__(f"Pump humidities for {line!r} pump not set.")
-
-
 class ProcessReadingNotAvailableError(NotReadyError):
     """The sensor is fitted but has not been read yet. The next loop tick fixes it."""
 

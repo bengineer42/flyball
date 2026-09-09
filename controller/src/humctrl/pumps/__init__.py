@@ -3,7 +3,7 @@ from typing import NoReturn
 
 from humctrl.config import Config, ConfigOr, resolve
 from humctrl.typing import NonNegative, Normalised, Positive
-from humctrl.utils import format_quantity, validate_normalised
+from humctrl.utils import format_quantity
 
 from .drivers import DualPumpDriver
 from .errors import FlowsOverdrivenError, PumpError
@@ -12,19 +12,22 @@ from .types import (
     Blend,
     BlendFlow,
     CurrentBlend,
+    DefaultBlendFlow,
     DryWet,
-    Efforts,
-    Flows,
     MaxFlows,
-    MaxFullRangeMax,
+    MaxFlowsLike,
     OfBlendMax,
-    OfFullRangeMax,
+    OfGuaranteedMax,
     OnOverdrive,
-    PumpOutput,
     PumpsMode,
-    PumpsOutput,
     PumpsSpec,
+    PumpsState,
+    PumpState,
     PumpsView,
+    SupplyEfforts,
+    SupplyEffortsLike,
+    SupplyFlows,
+    SupplyFlowsLike,
 )
 
 __all__ = [
@@ -32,22 +35,26 @@ __all__ = [
     "Blend",
     "BlendFlow",
     "CurrentBlend",
+    "DefaultBlendFlow",
     "DryWet",
     "DualPumpDriver",
     "DualPumps",
-    "Efforts",
-    "Flows",
     "FlowsOverdrivenError",
-    "MaxFullRangeMax",
+    "MaxFlows",
+    "MaxFlowsLike",
     "OfBlendMax",
-    "OfFullRangeMax",
+    "OfGuaranteedMax",
     "OnOverdrive",
     "PumpError",
-    "PumpOutput",
+    "PumpState",
     "PumpsMode",
-    "PumpsOutput",
     "PumpsSpec",
+    "PumpsState",
     "PumpsView",
+    "SupplyEfforts",
+    "SupplyEffortsLike",
+    "SupplyFlows",
+    "SupplyFlowsLike",
 ]
 
 
@@ -56,16 +63,14 @@ class DualPumps:
     units: str | None = None
     max_flows: MaxFlows
 
-    _target_wet_fraction: Normalised | None = None
-
     def __init__(
         self,
         pumps: ConfigOr[DualPumpDriver],
-        max_flows: MaxFlows,
+        max_flows: MaxFlowsLike,
         units: str | None = None,
     ) -> None:
         self.pumps = resolve(pumps)
-        self.max_flows = max_flows
+        self.max_flows = MaxFlows.of(max_flows)
         self.units = units
 
     @property
@@ -76,14 +81,14 @@ class DualPumps:
     def wet_max_flow(self) -> Positive:
         return self.max_flows.wet
 
-    @cached_property
-    def max_full_range_flow(self) -> Positive:
-        return min(self.max_flows.dry, self.max_flows.wet)
+    @property
+    def guaranteed_max_flow(self) -> Positive:
+        return self.max_flows.guaranteed
 
     @property
     def spec(self) -> PumpsSpec:
         return PumpsSpec(
-            max_flows=self.max_flows, full_range_max_flow=self.max_full_range_flow, units=self.units
+            max_flows=self.max_flows, guaranteed_max_flow=self.guaranteed_max_flow, units=self.units
         )
 
     @property
@@ -95,7 +100,7 @@ class DualPumps:
         return self.pumps.wet_effort
 
     @property
-    def efforts(self) -> Efforts:
+    def efforts(self) -> SupplyEfforts:
         return self.pumps.efforts
 
     @property
@@ -107,19 +112,19 @@ class DualPumps:
         return self.wet_max_flow * self.wet_effort
 
     @property
-    def flows(self) -> Flows:
-        return self.efforts.to_flows(self.dry_max_flow, self.wet_max_flow)
+    def flows(self) -> SupplyFlows:
+        return self.efforts.to_flows(self.max_flows)
 
     @property
-    def dry_output(self) -> PumpOutput:
-        return PumpOutput(effort=self.dry_effort, flow=self.dry_flow)
+    def dry_output(self) -> PumpState:
+        return PumpState(effort=self.dry_effort, flow=self.dry_flow)
 
     @property
-    def wet_output(self) -> PumpOutput:
-        return PumpOutput(effort=self.wet_effort, flow=self.wet_flow)
+    def wet_output(self) -> PumpState:
+        return PumpState(effort=self.wet_effort, flow=self.wet_flow)
 
     @property
-    def output(self) -> PumpsOutput:
+    def output(self) -> PumpsState:
         return self.efforts_to_outputs(self.efforts)
 
     @property
@@ -140,8 +145,7 @@ class DualPumps:
 
     @property
     def blend_effort(self) -> Normalised:
-        efforts = self.efforts
-        return max(efforts.dry, efforts.wet)
+        return self.efforts.max
 
     @property
     def view(self) -> PumpsView:
@@ -150,42 +154,24 @@ class DualPumps:
     def flow_str(self, flow: NonNegative) -> str:
         return format_quantity(flow, units=self.units)
 
-    def max_flow_at(self, wet_fraction: Normalised) -> NonNegative:
-        return self._max_flow_at(validate_normalised("wet_fraction", wet_fraction))
-
-    def _max_flow_at(self, wet_fraction: Normalised) -> NonNegative:
-        if wet_fraction <= 0.0:
-            return self.dry_max_flow
-        if wet_fraction >= 1.0:
-            return self.wet_max_flow
-        return min(self.dry_max_flow / (1.0 - wet_fraction), self.wet_max_flow / wet_fraction)
-
-    def flows_to_efforts(self, dry: NonNegative, wet: NonNegative) -> Efforts:
-        return Efforts(dry=dry / self.dry_max_flow, wet=wet / self.wet_max_flow)
+    def flows_to_efforts(self, flows: SupplyFlowsLike) -> SupplyEfforts:
+        return self.max_flows.to_efforts(flows)
 
     def validate_flows(
         self,
-        dry: NonNegative,
-        wet: NonNegative,
+        flows: SupplyFlowsLike,
         wet_fraction: Normalised | None = None,
-    ) -> Efforts:
-        efforts = self.flows_to_efforts(dry, wet)
+    ) -> SupplyEfforts:
+        efforts = self.flows_to_efforts(flows)
         if efforts.overdriven:
-            raise FlowsOverdrivenError(
-                dry_flow=dry,
-                wet_flow=wet,
-                max_flows=self.max_flows,
-                units=self.units,
-                wet_fraction=wet_fraction,
-            )
+            self.raise_flow_overdriven(flows, wet_fraction)
         return efforts
 
     def raise_flow_overdriven(
-        self, dry: NonNegative, wet: NonNegative, wet_fraction: Normalised | None = None
+        self, flows: SupplyFlowsLike, wet_fraction: Normalised | None = None
     ) -> NoReturn:
         raise FlowsOverdrivenError(
-            dry_flow=dry,
-            wet_flow=wet,
+            flows=flows,
             max_flows=self.max_flows,
             units=self.units,
             wet_fraction=wet_fraction,
@@ -195,64 +181,37 @@ class DualPumps:
         self,
         flow: BlendFlow,
         wet_fraction: Normalised,
-    ) -> PumpsOutput:
+    ) -> PumpsState:
         if isinstance(flow, Absolute):
-            flows = Flows.from_blend(flow.value, wet_fraction)
-            efforts = flows.to_efforts(self.dry_max_flow, self.wet_max_flow)
-            if efforts.overdriven:
-                if flow.on_overdrive == OnOverdrive.RAISE:
-                    self.raise_flow_overdriven(flows.dry, flows.wet, wet_fraction)
-                efforts = efforts.derated()[0]
-
+            flows = SupplyFlows.from_blend(flow.value, wet_fraction)
+            if flow.on_overdrive == OnOverdrive.RAISE and not flows.is_valid(self.max_flows):
+                self.raise_flow_overdriven(flows, wet_fraction)
+            flows = flows.derated(self.max_flows)
+        elif isinstance(flow, OfBlendMax):
+            flows = self.max_flows.flows_at_blend(wet_fraction) * flow.value
         else:
-            if isinstance(flow, OfBlendMax):
-                flows = Flows.from_blend(flow.value * self._max_flow_at(wet_fraction), wet_fraction)
-            else:
-                flows = Flows.from_blend(flow.value * self.max_full_range_flow, wet_fraction)
-            efforts = flows.to_efforts(self.dry_max_flow, self.wet_max_flow)
+            flows = SupplyFlows.from_blend(flow.value * self.guaranteed_max_flow, wet_fraction)
+        efforts = flows.to_efforts(self.max_flows)
 
-        return self.set_efforts(efforts.dry, efforts.wet)
+        return self.set_efforts(efforts)
 
-    def efforts_to_outputs(self, efforts: Efforts) -> PumpsOutput:
-        return PumpsOutput(
-            efforts=efforts,
-            flows=efforts.to_flows(self.dry_max_flow, self.wet_max_flow),
-        )
+    def efforts_to_outputs(self, efforts: SupplyEffortsLike) -> PumpsState:
+        return PumpsState(efforts=SupplyEfforts.of(efforts), flows=self.max_flows.to_flows(efforts))
 
-    def set_flows(self, dry: NonNegative, wet: NonNegative) -> PumpsOutput:
-        efforts = self.validate_flows(dry, wet)
-        return self.set_efforts(efforts.dry, efforts.wet)
+    def set_flows(self, flows: SupplyFlowsLike) -> PumpsState:
+        efforts = self.validate_flows(flows)
+        return self.set_efforts(efforts)
 
-    def set_efforts(self, dry: Normalised, wet: Normalised) -> PumpsOutput:
-        efforts = self.pumps.set_efforts(dry, wet)
-        self._target_wet_fraction = (
-            efforts.to_flows(self.dry_max_flow, self.wet_max_flow).wet_fraction
-            if efforts.dry + efforts.wet > 0
-            else None
-        )
-        return self.efforts_to_outputs(efforts)
+    def set_efforts(self, efforts: SupplyEffortsLike) -> PumpsState:
+        return self.efforts_to_outputs(self.pumps.set_efforts(SupplyEfforts.of(efforts)))
 
-    def set_mode(self, mode: PumpsMode) -> PumpsOutput:
+    def set_mode(self, mode: PumpsMode) -> PumpsState:
         if isinstance(mode, Blend):
             return self.set_blend(*mode)
-        if isinstance(mode, Efforts):
-            return self.set_efforts(*mode)
-        if isinstance(mode, Flows):
-            return self.set_flows(*mode)
+        if isinstance(mode, SupplyEfforts):
+            return self.set_efforts(mode)
+        if isinstance(mode, SupplyFlows):
+            return self.set_flows(mode)
 
     def stop(self) -> None:
         self.pumps.stop()
-        self._target_wet_fraction = None
-
-
-class DualPumpsConfig(Config[DualPumps]):
-    units: str | None = None
-    max_flows: MaxFlows
-    driver: ConfigOr[DualPumpDriver]
-
-    def build(self) -> DualPumps:
-        return DualPumps(
-            pumps=resolve(self.driver),
-            units=self.units,
-            max_flows=self.max_flows,
-        )

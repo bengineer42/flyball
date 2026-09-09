@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Protocol
 
 from humctrl.controller.types import ControllerState
-from humctrl.pumps import Flows, PumpsOutput
+from humctrl.pumps import PumpsState, SupplyFlows
 from humctrl.readers import Reader, Reading, Readings
 from humctrl.state import State
 from humctrl.typing import Percent
@@ -42,7 +42,7 @@ class Sample:
     id: int
     offset_ns: int
     reading: Readings
-    pumps: PumpsOutput | None = None
+    pumps: PumpsState | None = None
     target_humidity: Percent | None = None
     dry_humidity: Percent | None = None
     wet_humidity: Percent | None = None
@@ -54,7 +54,7 @@ class Recorder(Protocol):
         self,
         time_ns: int,
         reading: Reader | None = None,
-        flows: Flows | None = None,
+        flows: SupplyFlows | None = None,
         target_humidity: Percent | None = None,
     ) -> None: ...
     def record_state(
