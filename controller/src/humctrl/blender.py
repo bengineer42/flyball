@@ -2,18 +2,25 @@ from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
 
-from humctrl.error import NotReadyError, UnachievableError
+from humctrl.control import Actuator
+from humctrl.errors import NotReadyError, UnachievableError
 from humctrl.pumps import (
-    Blend,
     BlendFlow,
     DefaultBlendFlow,
     DualPumps,
     PumpsState,
-    SupplyEfforts,
     SupplyFlows,
 )
-from humctrl.pumps.types import MaxFlows, SupplyHumidities
-from humctrl.typing import NonNegative, Normalised, Percent, Positive
+from humctrl.pumps.types import (
+    MaxFlows,
+    MutSupplyHumidities,
+    PumpsMode,
+    SupplyEffortsLike,
+    SupplyFlowsLike,
+    SupplyHumidities,
+    SupplyHumiditiesLike,
+)
+from humctrl.typing import Normalised, Percent, Positive
 from humctrl.utils import require
 
 
@@ -44,10 +51,10 @@ class SupplyHumiditiesError(BlenderError, UnachievableError):
     blend to compute, so the mixing model cannot produce an answer at all.
     """
 
-    def __init__(self, wet: Percent, dry: Percent) -> None:
+    def __init__(self, humidities: SupplyHumidities | MutSupplyHumidities) -> None:
         super().__init__(
-            f"Wet ({wet}) and dry ({dry}) humidities are not in the expected order. Wet humidity "
-            "must be greater than dry humidity."
+            f"Wet ({humidities.wet}%) and dry ({humidities.dry}%) humidities are not in the "
+            "expected order. Wet humidity must be greater than dry humidity."
         )
 
 
@@ -81,10 +88,12 @@ def expected_humidity_from_flows(
     return (flows * humidities).total / total if total != 0.0 else None
 
 
-def calculate_wet_fraction(humidities: SupplyHumidities, target: Percent) -> Normalised | Rail:
+def calculate_wet_fraction(
+    humidities: SupplyHumidities | MutSupplyHumidities, target: Percent
+) -> Normalised | Rail:
 
     if humidities.wet <= humidities.dry:
-        raise SupplyHumiditiesError(wet=humidities.wet, dry=humidities.dry)
+        raise SupplyHumiditiesError(humidities)
     if target < humidities.dry:
         return Rail.DRY
     if target > humidities.wet:
@@ -129,9 +138,9 @@ class BlenderView(BlenderState):
         )
 
 
-class DualPumpsBlender:
+class DualPumpsBlender(Actuator):
     pumps: DualPumps
-    humidities: SupplyHumidities
+    _humidities: MutSupplyHumidities
     lock: RLock
     _demand: Percent | None
     output: PumpsState
@@ -142,20 +151,20 @@ class DualPumpsBlender:
     def __init__(
         self,
         pumps: DualPumps,
-        humidities: SupplyHumidities,
+        humidities: SupplyHumiditiesLike,
         demand: Percent | None = None,
         flow: BlendFlow = DefaultBlendFlow,
     ):
         self.pumps = pumps
         self.blend_flow = flow
         self._demand = demand
-        self.humidities = humidities
+        self._humidities = MutSupplyHumidities.of(humidities)
         self.expected_humidity = None
         self.lock = RLock()
 
     @property
     def supply_humidities(self) -> SupplyHumidities:
-        return self.humidities
+        return SupplyHumidities.of_dry_wet(self._humidities)
 
     @property
     def demand(self) -> Percent | None:
@@ -200,26 +209,26 @@ class DualPumpsBlender:
         self.blend_flow = flow
 
     def _update_readings(self, dry: Percent | None = None, wet: Percent | None = None) -> None:
-        if dry is not None and self.humidities.dry != dry:
+        if dry is not None and self._humidities.dry != dry:
             self._updated = True
-            self.humidities.dry = dry
-        if wet is not None and wet != self.humidities.wet:
+            self._humidities.dry = dry
+        if wet is not None and wet != self._humidities.wet:
             self._updated = True
-            self.humidities.wet = wet
+            self._humidities.wet = wet
 
-    def set_supply_flows(self, dry: NonNegative, wet: NonNegative):
+    def set_supply_flows(self, flows: SupplyFlowsLike):
         with self.lock:
-            self._update_outputs(self.pumps.set_flows(dry, wet))
+            self._update_outputs(self.pumps.set_flows(flows))
 
     def set_blend(self, flow: BlendFlow, wet_fraction: Normalised):
         with self.lock:
             self._update_outputs(self.pumps.set_blend(flow, wet_fraction))
 
-    def set_supply_efforts(self, dry: Normalised, wet: Normalised):
+    def set_supply_efforts(self, efforts: SupplyEffortsLike):
         with self.lock:
-            self._update_outputs(self.pumps.set_efforts(dry, wet))
+            self._update_outputs(self.pumps.set_efforts(efforts))
 
-    def set_pumps(self, pump_mode: Blend | SupplyEfforts | SupplyFlows):
+    def set_pumps(self, pump_mode: PumpsMode):
         with self.lock:
             self._update_outputs(self.pumps.set_mode(pump_mode))
 
@@ -282,6 +291,6 @@ class DualPumpsBlender:
         with self.lock:
             self._update(demand, dry, wet, flow)
             if self._updated and self.demand is not None:
-                fraction = calculate_wet_fraction(self.humidities, self.demand)
+                fraction = calculate_wet_fraction(self._humidities, self.demand)
                 self._update_outputs(self.pumps.set_blend(self.blend_flow, float(fraction)))
                 self._updated = False

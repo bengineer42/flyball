@@ -1,23 +1,93 @@
 from dataclasses import dataclass
 from typing import Self
 
+from linux_pwm import PWMChip
+from linux_pwm.sysfs import PWM_PATH
+
 from humctrl.blender import DualPumpsBlender
-from humctrl.config import Config, resolve
-from humctrl.controller import Tuning
-from humctrl.controller.types import ControlLawLike
-from humctrl.pumps import DualPumps, DualPumpsConfig
+from humctrl.config import Config, ConfigOr, resolve
+from humctrl.control import Tuning
+from humctrl.control.laws import OpenLoopTuning
+from humctrl.control.types import ControlLawLike
+from humctrl.direct import DEFAULT_PWM_FREQUENCY, LinuxPWMPump
+from humctrl.pumps import (
+    BlendFlow,
+    DefaultBlendFlow,
+    DefaultHumidities,
+    DualPumps,
+    PumpPair,
+    SupplyHumiditiesLike,
+)
 from humctrl.rig import Rig
 from humctrl.typing import Percent, Positive
+
+
+@dataclass(slots=True, frozen=True)
+class PumpConfig:
+    channel: int | None = None
+    deadband: float = 0.0
+
+
+DefaultPumpConfig = PumpConfig()
+
+
+class ChipConfig(Config[PWMChip]):
+    index: int = 0
+    path: str = PWM_PATH
+
+    def build(self) -> PWMChip:
+        return PWMChip(self.index, self.path)
+
+    @classmethod
+    def resolve(cls, config: int | ConfigOr[PWMChip]) -> PWMChip:
+        return PWMChip(config) if isinstance(config, int) else resolve(config)
+
+
+class LinuxPwmDualPumpsConfig(Config[PumpPair]):
+    dry: PumpConfig = DefaultPumpConfig
+    wet: PumpConfig = DefaultPumpConfig
+    setpoint: Percent | None = None
+    chip: int | ConfigOr[PWMChip] = 0
+    frequency: float = DEFAULT_PWM_FREQUENCY
+    timeout: float = 10.0
+    flip_channels: bool = False
+
+    def build(self) -> PumpPair:
+        chip = PWMChip(self.chip) if isinstance(self.chip, int) else resolve(self.chip)
+        dry_channel = self.dry.channel if self.dry.channel is not None else 0
+        wet_channel = self.wet.channel if self.wet.channel is not None else 1
+        if self.flip_channels:
+            wet_channel, dry_channel = dry_channel, wet_channel
+        dry = LinuxPWMPump(
+            dry_channel, self.frequency, self.dry.deadband, chip, timeout=self.timeout
+        )
+        wet = LinuxPWMPump(
+            wet_channel, self.frequency, self.wet.deadband, chip, timeout=self.timeout
+        )
+        return PumpPair(dry, wet)
+
+
+class DualPumpBlenderConfig(Config[DualPumpsBlender]):
+    pumps: ConfigOr[DualPumps]
+    humidities: SupplyHumiditiesLike = DefaultHumidities
+    flow: BlendFlow = DefaultBlendFlow
+    demand: Percent | None = None
+
+    def build(self) -> DualPumpsBlender:
+        return DualPumpsBlender(
+            pumps=resolve(self.pumps),
+            humidities=self.humidities,
+            flow=self.flow,
+            demand=self.demand,
+        )
 
 
 @dataclass(slots=True)
 class RigConfig(Config[Rig]):
     process_interval: Positive = 1.0
-    pumps: Config[DualPumps] | None = None
+    pumps: Config[DualPumpsBlender] | None = None
     tunings: list[Tuning] | None = None
-    tuning: str | ControlLawLike = None
-    dry_humidity: Percent = 0
-    wet_humidity: Percent = 100
+    tuning: str | ControlLawLike = OpenLoopTuning
 
     def build(self) -> Rig:
         return Rig(
@@ -25,8 +95,7 @@ class RigConfig(Config[Rig]):
             tunings=self.tunings,
             tuning=self.tuning,
             process_interval=self.process_interval,
-            dry_humidity=self.dry_humidity,
-            wet_humidity=self.wet_humidity,
+            supply_humidities=self.supply_humidities,
         )
 
     def add_process_time(self, time: Positive) -> Self:
@@ -52,7 +121,3 @@ class RigConfig(Config[Rig]):
     def add_wet_humidity(self, wet_humidity: Percent) -> Self:
         self.wet_humidity = wet_humidity
         return self
-
-
-class DualPumpBlenderConfig(Config[DualPumpsBlender]):
-    pumps: DualPumpsConfig

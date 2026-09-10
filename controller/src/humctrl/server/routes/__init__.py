@@ -5,9 +5,9 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import SerializeAsAny
 
-from humctrl.controller import ControlLawConfig, ControlLawView, Tuning
-from humctrl.error import TuningNotRegisteredError
-from humctrl.readers import Reading, Readings
+from humctrl.control import ControlLawConfig, ControlLawView, Tuning
+from humctrl.errors import TuningNotRegisteredError
+from humctrl.readers import HTReading, HTReadings
 from humctrl.server.deps import RigDep
 from humctrl.state import State, View
 from humctrl.utils import require
@@ -41,25 +41,25 @@ async def read_state(rig: RigDep) -> State:
 
 
 @router.get("/readings")
-async def read_readings(rig: RigDep) -> Readings:
+async def read_readings(rig: RigDep) -> HTReadings:
     """The last readings the loop took. Does not touch the sensors."""
     return rig.readings
 
 
 @router.get("/reading/process")
-async def read_process_reading(rig: RigDep) -> Reading | None:
+async def read_process_reading(rig: RigDep) -> HTReading | None:
     return rig.process_sensor_reading
 
 
 @router.get("/reading/dry")
-async def read_dry_reading(rig: RigDep) -> Reading | None:
+async def read_dry_reading(rig: RigDep) -> HTReading | None:
     # The loop owns the sensors; this reports what it last saw rather than
     # doing blocking I2C on the event loop.
     return rig.dry_sensor_reading
 
 
 @router.get("/reading/wet")
-async def read_wet_reading(rig: RigDep) -> Reading | None:
+async def read_wet_reading(rig: RigDep) -> HTReading | None:
     return rig.wet_sensor_reading
 
 
@@ -99,9 +99,7 @@ async def set_default_tuning(body: DefaultTuningRequest, rig: RigDep) -> Tuning:
 
 
 @router.get("/tuning/{name}")
-async def read_tuning(
-    rig: RigDep, name: str
-) -> SerializeAsAny[ControlLawConfig | ControlLawView]:
+async def read_tuning(rig: RigDep, name: str) -> SerializeAsAny[ControlLawConfig | ControlLawView]:
     return rig.require_tuning(name)
 
 

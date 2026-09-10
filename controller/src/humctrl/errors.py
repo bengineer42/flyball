@@ -14,53 +14,10 @@ if TYPE_CHECKING:
     from humctrl.readers import ReaderSource
 
 
-class HumCtrlError(Exception):
-    """Base for everything humctrl raises."""
-
-
-class NotFoundError(HumCtrlError, LookupError):
-    """No such named thing. Nothing the caller does to the rig will conjure it."""
-
-
-class ConflictError(HumCtrlError, RuntimeError):
-    """The rig is in the wrong state, and the caller can put it right."""
-
-
-class NotReadyError(HumCtrlError):
-    """The rig is not configured, or the value does not exist yet.
-
-    No builtin fits: unlike :class:`ConflictError` the caller cannot fix this by
-    issuing another request, and unlike :class:`HardwareError` nothing is broken.
-    """
-
-
-class UnachievableError(HumCtrlError, ValueError):
-    """Well formed, but the numbers cannot be applied to this rig.
-
-    Sorted ahead of :class:`HumCtrlError` in the MRO of anything that inherits
-    it, so a subsystem base such as ``PumpError`` cannot shadow the mapping.
-    """
-
-
-class HardwareError(HumCtrlError, OSError):
-    """A device failed. Usually transient, and never the caller's fault."""
-
-
-# region Not configured
-
-
 class RecorderNotSetError(NotReadyError):
     def __init__(self) -> None:
         super().__init__(
             "Recorder not set. Use set_recorder() to set a recorder before starting recording."
-        )
-
-
-class ControlLawNotSetError(NotReadyError):
-    def __init__(self) -> None:
-        super().__init__(
-            "Control law not set. Use set_control_law() to set a control law before starting "
-            "regulation."
         )
 
 
@@ -98,14 +55,6 @@ class RigNotRunningError(ConflictError):
         )
 
 
-class ControllerNotRunningError(ConflictError):
-    def __init__(self) -> None:
-        super().__init__(
-            "Controller not running. Use start_controller() to start the controller before calling "
-            "this method."
-        )
-
-
 class TargetHumidityNotSetError(ConflictError):
     def __init__(self) -> None:
         super().__init__(
@@ -129,30 +78,6 @@ class CurrentWetFractionNotSetError(ConflictError):
             "fraction before calling this method."
         )
 
-
-# class ControllerAlreadyRunningError(ConflictError):
-#     def __init__(
-#         self,
-#         current: DualPumpController | str,
-#         new: ControlLaw | ControlLawConfig | DualPumpController | Tuning | str,
-#     ) -> None:
-#         super().__init__(
-#             f"Controller {current if isinstance(current, str) else current.tag} is already "
-#             f"running. Stop it before starting a {new if isinstance(new, str) else new.tag}."
-#         )
-
-
-# endregion
-
-# region Not found
-
-
-class TuningNotRegisteredError(NotFoundError):
-    def __init__(self, tuning: str) -> None:
-        super().__init__(f"Control law tuning with name {tuning!r} is not registered.")
-
-
-# endregion
 
 # region Hardware
 

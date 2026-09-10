@@ -5,7 +5,7 @@ from contextlib import suppress
 from enum import Enum
 from threading import RLock
 
-from humctrl.error import ConflictError, HumCtrlError, NotFoundError
+from .errors import ConflictError, HumCtrlError, NotFoundError
 
 
 class ClaimError(HumCtrlError):
@@ -45,7 +45,7 @@ class AlreadyClaimedError(ClaimError, ConflictError):
 
 
 class ResourceDoesNotExistError(ClaimError, NotFoundError):
-    def __init__(self, resource_name: str, claimant: Operator | None = None) -> None:
+    def __init__(self, resource_name: str, claimant: Resource | None = None) -> None:
         string = f"Resource {resource_name} does not exist"
         if claimant is not None:
             string += f"so cannot be claimed by {claimant.name}"
@@ -279,8 +279,8 @@ class Arbiter:
 
     def claim(self, claimant: Operator, resource: str) -> None:
         with self.lock:
-            if _resource := self._resources.get(resource):
-                _resource.claim(claimant)
+            if resource_ := self._resources.get(resource):
+                resource_.claim(claimant)
             else:
                 raise ResourceDoesNotExistError(resource, claimant)
             self._operators[claimant.name] = claimant

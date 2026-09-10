@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 
-from humctrl.controller import Controller
+from humctrl.control import Controller
 from humctrl.pumps import DualPumps
 from humctrl.rig import Rig
 

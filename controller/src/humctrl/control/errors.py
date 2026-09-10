@@ -1,4 +1,4 @@
-from humctrl.error import (
+from humctrl.core import (
     ConflictError,
     HumCtrlError,
     NotFoundError,
@@ -34,3 +34,15 @@ class ControlLawNotRegisteredError(ControllerError, NotFoundError):
 
     def __init__(self, tag: str) -> None:
         super().__init__(f"Control law '{tag}' is not registered.")
+
+
+class TuningNotRegisteredError(NotFoundError):
+    def __init__(self, tuning: str) -> None:
+        super().__init__(f"Control law tuning with name {tuning!r} is not registered.")
+
+
+class ControllerNotStartedError(ControllerError, NotReadyError):
+    """Raised when an operation is attempted on a controller that has not been started."""
+
+    def __init__(self) -> None:
+        super().__init__("Controller has not been started.")

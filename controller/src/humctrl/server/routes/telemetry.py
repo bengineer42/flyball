@@ -13,7 +13,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from humctrl.readers import Readings
+from humctrl.readers import HTReadings
 from humctrl.rig import ErrorMsg, Rig
 from humctrl.server.deps import current_rig
 from humctrl.state import State
@@ -82,7 +82,7 @@ async def telemetry(websocket: WebSocket) -> None:
     await push(websocket, STATE, lambda rig: rig.state_topic, snapshot=lambda m: m.state)
 
 
-READINGS = TypeAdapter(Readings)
+READINGS = TypeAdapter(HTReadings)
 
 
 @router.websocket("/ws/readings")
@@ -111,6 +111,7 @@ async def warnings(websocket: WebSocket) -> None:
                         message: ErrorMsg = await asyncio.wait_for(queue.get(), IDLE_POLL_S)
                     except TimeoutError:
                         continue
-                    await websocket.send_json(
-                        {"time": message.time.seconds, "detail": message.detail}
-                    )
+                    await websocket.send_json({
+                        "time": message.time.seconds,
+                        "detail": message.detail,
+                    })

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from humctrl.error import ConflictError
+    from humctrl.errors import ConflictError
 
     from .command import Activity, Command
     from .program import Program

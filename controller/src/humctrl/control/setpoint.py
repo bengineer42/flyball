@@ -4,8 +4,7 @@ from typing import Any, ClassVar
 
 from pydantic.alias_generators import to_snake
 
-from humctrl.clock import Duration, Rate
-from humctrl.signal import Signal, TimedSignal
+from humctrl.core import Duration, Rate, Signal, Speed
 
 #: Every registered generator, keyed by the tag it crosses the wire under.
 SetPointGenerators: dict[str, type[SetPointGenerator]] = {}
@@ -32,7 +31,7 @@ class SetPointGenerator:
             raise ValueError(f"tag {cls.tag!r} is already {clash.__name__}")
         SetPointGenerators[cls.tag] = cls
 
-    def start(self, time: float, value: float) -> None:
+    def start(self, time_ns: float, value: float) -> None:
         """Bind to the rig: the clock origin and where the process is now.
 
         Args:
@@ -41,40 +40,36 @@ class SetPointGenerator:
                 from wherever the rig happens to be.
         """
 
-    def generate(self, time: float) -> float:
+    def generate(self, time_ns: float) -> float:
         """The set point at ``time``."""
         raise NotImplementedError
 
 
-class LinearRamp(SetPointGenerator):
+class LinearRampSetpoint(SetPointGenerator):
     """A set point walking from ``start`` to ``end`` between two instants."""
 
-    pace: Rate | Duration
+    pace: Speed | Duration
     end: float
-    end_time: float
-    rate: float
+    end_ns: int
+    per_ns: float
 
-    def __init__(self, pace: Rate | Duration, end: float) -> None:
+    def __init__(self, pace: Speed | Duration, end: float) -> None:
         self.pace = pace
         self.end = end
 
-    def duration_from(self, value: float) -> float:
-        """How long this ramp takes, starting from ``value``."""
-        if not isinstance(self.pace, Rate):
-            return float(self.pace)
-        # The direction comes from the distance, so the rate's sign is ignored.
-        return abs((self.end - value) / self.pace.per_second)
+    def start(self, time_ns: int, value: float) -> None:
+        if isinstance(self.pace, Rate):
+            self.per_ns = self.pace.per_nanosecond
+            self.end_ns = time_ns + abs(round((self.end - value) / self.per_ns))
+        else:
+            if self.pace.nanoseconds <= 0:
+                self.end_ns = time_ns
+                self.per_ns = 0.0
+            else:
+                self.end_ns = time_ns + self.pace.nanoseconds
+                self.per_ns = (self.end - value) / self.pace.nanoseconds
 
-    def start(self, time: float, value: float) -> None:
-        duration = self.duration_from(value)
-        self.signal = TimedSignal(duration)
-        self.end_time = time + duration
-        # Already there: arrive immediately rather than dividing by zero.
-        self.rate = 0.0 if duration == 0 else (self.end - value) / duration
-
-    def generate(self, time: float) -> float:
-        if time >= self.end_time:
+    def generate(self, time_ns: int) -> float:
+        if time_ns >= self.end_ns:
             return self.end
-        # Anchored on the target, so accumulated timing error cannot drift the
-        # trajectory away from where it must land.
-        return self.end - (self.end_time - time) * self.rate
+        return self.end - (self.end_ns - time_ns) * self.per_ns

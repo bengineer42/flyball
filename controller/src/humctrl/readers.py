@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import NamedTuple, Protocol
 
-from humctrl.error import HardwareError, HumCtrlError, NotFoundError
-from humctrl.typing import Percent
+from humctrl.core import Clock, HardwareError, HumCtrlError, NotFoundError, Percent
 
 # region Exceptions
 
@@ -32,7 +31,7 @@ class SensorNotSetError(SensorError, NotFoundError):
 
 
 @dataclass(frozen=True, slots=True)
-class Reading:
+class HTReading:
     time_ns: int
     humidity: Percent
     temperature: float
@@ -43,19 +42,19 @@ class Reading:
         return self.time_ns / 1e9
 
 
-def to_percent(value: Reading | Percent) -> Percent:
-    if isinstance(value, Reading):
+def to_percent(value: HTReading | Percent) -> Percent:
+    if isinstance(value, HTReading):
         return value.humidity
     return value
 
 
 @dataclass(frozen=True, slots=True)
-class FusedReading(Reading):
-    members: list[Reading] = field(default_factory=list)
+class FusedReading(HTReading):
+    members: list[HTReading] = field(default_factory=list)
 
 
 class Reader(Protocol):
-    def read(self) -> Reading: ...
+    def read(self) -> HTReading: ...
 
 
 class ReaderSource(Enum):
@@ -76,10 +75,10 @@ class ReadError(Exception):
         super().__init__(f"Error reading from {source.value} sensor at {time_ns / 1e9}: {message}")
 
 
-class Readings(NamedTuple):
-    process: Reading | Exception | None = None
-    dry: Reading | Exception | None = None
-    wet: Reading | Exception | None = None
+class HTReadings(NamedTuple):
+    process: HTReading | Exception | None = None
+    dry: HTReading | Exception | None = None
+    wet: HTReading | Exception | None = None
 
     def __iter__(self):
         yield (ReaderSource.PROCESS, self.process)
@@ -88,18 +87,29 @@ class Readings(NamedTuple):
 
 
 class Readers(Protocol):
-    @property
-    def process_available(self) -> bool: ...
-    @property
-    def dry_available(self) -> bool: ...
-    @property
-    def wet_available(self) -> bool: ...
-    def read_all(self) -> Readings: ...
-    def read_process(self) -> Reading: ...
-    def read_wet(self) -> Reading: ...
-    def read_dry(self) -> Reading: ...
-    def read(self, process: bool = True, wet: bool = True, dry: bool = True) -> Readings: ...
+    clock: Clock
 
+    def attach_clock(self, clock: Clock) -> None:
+        self.clock = clock
 
-class PolledReader(Protocol):
-    def read(self) -> Reading: ...
+    def read_all(self) -> HTReadings:
+        return HTReadings(
+            process=self.read_process(),
+            dry=self.read_dry(),
+            wet=self.read_wet(),
+        )
+
+    def read_process(self) -> HTReading | Exception | None:
+        return None
+
+    def read_wet(self) -> HTReading | Exception | None:
+        return None
+
+    def read_dry(self) -> HTReading | Exception | None:
+        return None
+
+    def read(self, process: bool = True, wet: bool = True, dry: bool = True) -> HTReadings:
+        dry_reading = self.read_dry() if dry else None
+        wet_reading = self.read_wet() if wet else None
+        process_reading = self.read_process() if process else None
+        return HTReadings(process=process_reading, dry=dry_reading, wet=wet_reading)

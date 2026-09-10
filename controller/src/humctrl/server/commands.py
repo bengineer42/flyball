@@ -14,8 +14,8 @@ from typing import Any, Literal, get_type_hints
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
 from humctrl.clock import Duration, Rate, Time
-from humctrl.controller import ControlLaw, ControlLawConfig
-from humctrl.controller.types import ControlLawView, Tuning
+from humctrl.control import ControlLaw, ControlLawConfig
+from humctrl.control.types import ControlLawView, Tuning
 from humctrl.programmer.commands import Command
 from humctrl.pumps.types import BlendFlow
 from humctrl.server.schemas import (

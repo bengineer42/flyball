@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from humctrl.controller import (
+from humctrl.control import (
     ControlLawConfig,
     ControlLawState,
     ControlLawView,
@@ -59,7 +59,7 @@ async def read_suspended(controller: ControllerDep) -> bool:
 
 @router.get("/set-point")
 async def read_setpoint(controller: ControllerDep) -> UnclampedPercent | None:
-    return controller.setpoint
+    return controller.require_setpoint
 
 
 @router.get("/demand")

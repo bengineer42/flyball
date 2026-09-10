@@ -19,7 +19,7 @@ from typing import Annotated, Any, Union
 from pydantic import BaseModel, Field, TypeAdapter
 
 from humctrl.clock import Duration, Rate, TimeUnit
-from humctrl.controller import ControlLawConfig, ControlLaws
+from humctrl.control import ControlLawConfig, ControlLaws
 from humctrl.pumps import Absolute, BlendFlow, OfBlendMax, OfGuaranteedMax, OnOverdrive
 from humctrl.typing import NonNegative, Normalised, Percent
 

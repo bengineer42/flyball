@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import exp, sqrt
 from typing import NamedTuple, cast
 
-from humctrl.controller import PI, PID, ControlLawConfig, Tuning
+from humctrl.control import PI, PID, ControlLawConfig, Tuning
 from humctrl.typing import NonNegative, Positive
 
 

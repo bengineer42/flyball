@@ -3,9 +3,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Protocol
 
-from humctrl.controller.types import ControllerState
+from humctrl.control.types import ControllerState
 from humctrl.pumps import PumpsState, SupplyFlows
-from humctrl.readers import Reader, Reading, Readings
+from humctrl.readers import HTReading, HTReadings, Reader
 from humctrl.state import State
 from humctrl.typing import Percent
 
@@ -41,7 +41,7 @@ class Span:
 class Sample:
     id: int
     offset_ns: int
-    reading: Readings
+    reading: HTReadings
     pumps: PumpsState | None = None
     target_humidity: Percent | None = None
     dry_humidity: Percent | None = None
@@ -76,5 +76,5 @@ class SessionStore(Protocol):
 
 class Store(Protocol):
     def write_state(self, state: State) -> None: ...
-    def write_reading(self, reading: Reading) -> None: ...
+    def write_reading(self, reading: HTReading) -> None: ...
     def write_session(self) -> None: ...

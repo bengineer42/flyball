@@ -164,81 +164,6 @@ class MutDryWet(DryWetOps):
     wet: float
 
 
-# @dataclass(slots=True)
-# class DryWet[T: float]:
-#     dry: T
-#     wet: T
-
-#     @classmethod
-#     def of(cls, values: DryWetLike[T]) -> Self:
-#         return cls(*require_values(values, cls.__name__))  # pyright: ignore[reportArgumentType]
-
-#     @classmethod
-#     def of_dry_wet(cls, values: DryWet[float]) -> Self:
-#         return cls(values.dry, values.wet)  # pyright: ignore[reportArgumentType]
-
-#     def __iter__(self) -> Iterator[T]:
-#         yield self.dry
-#         yield self.wet
-
-#     def __truediv__(self, other: DryWetLike[T]) -> Self:
-#         if (pair := parse_values(other)) is None:
-#             return NotImplemented
-#         return type(self)(self.dry / pair[0], self.wet / pair[1])  # pyright: ignore[reportArgumentType]
-
-#     def __rtruediv__(self, other: DryWetLike[T]) -> Self:
-#         if (pair := parse_values(other)) is None:
-#             return NotImplemented
-#         return type(self)(pair[0] / self.dry, pair[1] / self.wet)  # pyright: ignore[reportArgumentType]
-
-#     def __mul__(self, other: DryWetLike[T]) -> Self:
-#         if (pair := parse_values(other)) is None:
-#             return NotImplemented
-#         return type(self)(self.dry * pair[0], self.wet * pair[1])  # pyright: ignore[reportArgumentType]
-
-#     __rmul__ = __mul__
-
-#     def __add__(self, other: DryWetLike[T]) -> Self:
-#         if (pair := parse_values(other)) is None:
-#             return NotImplemented
-#         return type(self)(self.dry + pair[0], self.wet + pair[1])  # pyright: ignore[reportArgumentType]
-
-#     __radd__ = __add__
-
-#     def __sub__(self, other: DryWetLike[T]) -> Self:
-#         if (pair := parse_values(other)) is None:
-#             return NotImplemented
-#         return type(self)(self.dry - pair[0], self.wet - pair[1])  # pyright: ignore[reportArgumentType]
-
-#     def __rsub__(self, other: DryWetLike[T]) -> Self:
-#         if (pair := parse_values(other)) is None:
-#             return NotImplemented
-#         return type(self)(pair[0] - self.dry, pair[1] - self.wet)  # pyright: ignore[reportArgumentType]
-
-#     def __neg__(self) -> Self:
-#         return type(self)(-self.dry, -self.wet)  # pyright: ignore[reportArgumentType]
-
-#     @property
-#     def total(self) -> float:
-#         return self.dry + self.wet
-
-#     @property
-#     def difference(self) -> float:
-#         return self.wet - self.dry
-
-#     @property
-#     def min(self) -> float:
-#         return min(self.dry, self.wet)
-
-#     @property
-#     def max(self) -> float:
-#         return max(self.dry, self.wet)
-
-#     def max_with(self, *args) -> float:
-#         """Return the maximum of the dry and wet values, or the maximum of the given arguments."""
-#         return max(self.dry, self.wet, *args)
-
-
 type DryWetLike = DryWetOps | tuple[float, float] | list[float] | float
 
 
@@ -252,7 +177,9 @@ class MutSupplyHumidities(MutDryWet):
     pass
 
 
-type SupplyHumiditiesLike = SupplyHumidities | DryWetOps | tuple[Percent, Percent] | list[Percent]
+type SupplyHumiditiesLike = (
+    SupplyHumidities | MutSupplyHumidities | DryWetOps | tuple[Percent, Percent] | list[Percent]
+)
 
 DefaultHumidities = SupplyHumidities(dry=0.0, wet=100.0)
 
@@ -336,6 +263,17 @@ type SupplyEffortsLike = (
 )
 
 
+class SupplyDeadbands(DryWet):
+    dry: Normalised
+    wet: Normalised
+
+
+type SupplyDeadbandsLike = (
+    SupplyDeadbands | DryWetOps | tuple[Normalised, Normalised] | Normalised | list[Normalised]
+)
+
+DefaultDeadbands = SupplyDeadbands(dry=0.0, wet=0.0)
+
 type PumpsMode = Blend | SupplyFlows | SupplyEfforts
 
 
@@ -369,7 +307,10 @@ class MaxFlows(DryWet):
         return self.to_efforts(self.flows_at_blend(wet_fraction))
 
 
-type MaxFlowsLike = MaxFlows | tuple[Positive, Positive] | Positive
+type MaxFlowsLike = MaxFlows | DryWetOps | tuple[Positive, Positive] | Positive
+
+
+MaxFlowsDefault = MaxFlows(dry=1.0, wet=1.0)
 
 
 @dataclass(slots=True, frozen=True)

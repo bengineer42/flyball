@@ -12,7 +12,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
-    from humctrl.programmer.command import Command
+    from .command import Command
 
 
 class Program(Sequence["Command[Any]"]):

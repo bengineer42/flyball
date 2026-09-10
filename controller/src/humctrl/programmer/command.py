@@ -6,10 +6,8 @@ from typing import Any, ClassVar, NamedTuple, overload
 
 from pydantic.alias_generators import to_snake
 
-from humctrl.readers import Readings
-from humctrl.resource import Operator
-from humctrl.rig import Rig
-from humctrl.signal import Signal
+from humctrl.control import Loop
+from humctrl.core import Operator, Reading, Signal
 
 Commands: dict[str, type[Command]] = {}
 
@@ -23,10 +21,10 @@ class Activity:
     def __init__(self, signal: Signal | None = None) -> None:
         self.signal = signal or Signal()
 
-    def tick(self, rig: Rig, reading: Readings) -> None:
+    def tick(self, rig: Any, reading: Reading) -> None:
         """Called once per loop tick while attached. Default: nothing."""
 
-    def detach(self, rig: Rig) -> None:
+    def detach(self, rig: Any) -> None:
         """Put back whatever this took over. Default: nothing."""
 
     def finish(self) -> None:
@@ -41,7 +39,50 @@ class Activity:
         self.signal.fire()
 
     @property
-    def on_tick(self) -> Callable[[Rig, Readings], None] | None:
+    def on_tick(self) -> Callable[[Any, Any], None] | None:
+        return self.tick
+
+    @property
+    def interrupted(self) -> bool:
+        return self.signal.interrupted
+
+    def set(self) -> None:
+        self.signal.set()
+
+    def fire(self) -> None:
+        self.signal.fire()
+
+    __hash__ = object.__hash__
+
+
+class LoopActivity:
+    """The ongoing part of a command: driven by the rig, waited on by the programmer."""
+
+    signal: Signal
+    error: Exception | None = None
+
+    def __init__(self, signal: Signal | None = None) -> None:
+        self.signal = signal or Signal()
+
+    def tick(self, loop: Loop, reading: Reading | None) -> None:
+        """Called once per loop tick while attached. Default: nothing."""
+
+    def detach(self, loop: Loop) -> None:
+        """Put back whatever this took over. Default: nothing."""
+
+    def finish(self) -> None:
+        self.signal.fire()
+
+    def fail(self, error: Exception) -> None:
+        """Give up. The waiter re-raises this instead of moving on.
+
+        Fires rather than cancels: the activity ended, it was not interrupted.
+        """
+        self.error = error
+        self.signal.fire()
+
+    @property
+    def on_tick(self) -> Callable[[Loop, Reading | None], None] | None:
         return self.tick
 
     @property
@@ -59,7 +100,7 @@ class Activity:
 
 class SignalActivity(Activity):
     @property
-    def on_tick(self) -> Callable[[Rig, Readings], None] | None:
+    def on_tick(self) -> Callable[[Any, Reading], None] | None:
         return None
 
 
@@ -125,6 +166,6 @@ class Command[T]:
 
     @abstractmethod
     def run(
-        self, rig: Rig, operator: Operator | None = None
+        self, rig: Any, operator: Operator | None = None
     ) -> CommandResult[T] | Activity | Signal | T:
         """Do the work, returning a runner if it has to be waited on."""

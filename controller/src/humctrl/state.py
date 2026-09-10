@@ -2,11 +2,11 @@ from dataclasses import dataclass
 
 from humctrl.blender import BlenderSpec, BlenderState, BlenderView
 from humctrl.clock import Time
-from humctrl.controller import (
+from humctrl.control import (
     ControllerView,
 )
-from humctrl.controller.types import ControlLawConfig
-from humctrl.readers import Readings
+from humctrl.control.types import ControlLawConfig
+from humctrl.readers import HTReadings
 from humctrl.typing import Positive
 
 
@@ -16,7 +16,7 @@ class State:
     duration_ns: int
     controller: ControllerView
     pumps: BlenderState | None = None
-    readings: Readings | None = None
+    readings: HTReadings | None = None
     recording: bool | None = None
 
 
@@ -36,5 +36,5 @@ class View:
     process_interval: Positive
     controller: ControllerView
     pumps: BlenderView | None = None
-    readings: Readings | None = None
+    readings: HTReadings | None = None
     recording: bool | None = None

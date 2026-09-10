@@ -7,8 +7,8 @@ from typing import Any, Self, TypeGuard, overload
 
 from pydantic_core import core_schema
 
-from humctrl.typing import Positive
-from humctrl.utils import Labelled
+from .typing import Positive
+from .utils import Labelled
 
 type Numeric = float | int
 
@@ -78,12 +78,10 @@ class TimeBase:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
-        parts = core_schema.typed_dict_schema(
-            {
-                "seconds": core_schema.typed_dict_field(core_schema.int_schema()),
-                "nanoseconds": core_schema.typed_dict_field(core_schema.int_schema()),
-            }
-        )
+        parts = core_schema.typed_dict_schema({
+            "seconds": core_schema.typed_dict_field(core_schema.int_schema()),
+            "nanoseconds": core_schema.typed_dict_field(core_schema.int_schema()),
+        })
         return core_schema.json_or_python_schema(
             json_schema=core_schema.no_info_after_validator_function(
                 lambda d: cls.from_parts(d["seconds"], d["nanoseconds"]), parts
@@ -391,9 +389,25 @@ class TimeUnit(Labelled):
 
 @dataclass(frozen=True, slots=True)
 class Rate:
-    value: Positive
+    value: float
     per: TimeUnit = TimeUnit.SECOND
 
     @property
     def per_second(self) -> float:
         return self.value / self.per.seconds
+
+    @property
+    def per_nanosecond(self) -> float:
+        return self.value / self.per.nanoseconds
+
+    def __float__(self) -> float:
+        return self.per_second
+
+
+@dataclass(frozen=True, slots=True)
+class Speed(Rate):
+    value: Positive
+
+    def __post_init__(self) -> None:
+        if self.value <= 0:
+            raise ValueError(f"rate must be positive, got {self.value} per {self.per.value}")

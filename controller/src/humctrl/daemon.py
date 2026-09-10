@@ -14,9 +14,9 @@ import sys
 from contextlib import suppress
 
 from humctrl.clock import Clock
-from humctrl.controller import PIController
+from humctrl.control import PIController
 from humctrl.pumps import DualPumps, PumpPair
-from humctrl.readers import Reading
+from humctrl.readers import HTReading
 from humctrl.rig import Rig
 
 log = logging.getLogger("humctrl.daemon")
@@ -94,12 +94,12 @@ class SimSensor:
         self._clock = clock or Clock()
         self._humidity = 50.0
 
-    def read(self) -> Reading:
+    def read(self) -> HTReading:
         efforts = self._pumps.efforts
         total = efforts.wet + efforts.dry
         target = 100.0 * efforts.wet / total if total > 0 else 20.0
         self._humidity += 0.1 * (target - self._humidity)
-        return Reading(self._label, self._clock.now_ns(), self._humidity, 21.0)
+        return HTReading(self._label, self._clock.now_ns(), self._humidity, 21.0)
 
 
 def build_simulated_rig(args: argparse.Namespace) -> Rig:

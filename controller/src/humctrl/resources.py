@@ -1,6 +1,6 @@
 from enum import Enum
 
-from humctrl.resource import Resource
+from humctrl.core import Resource
 
 FlowResource = Resource("flow")
 FractionResource = Resource("fraction")

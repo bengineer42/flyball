@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import overload
 
+from pydantic import BaseModel
 
-class Config[T](ABC):
+
+class Config[T](BaseModel, ABC):
     @abstractmethod
     def build(self) -> T: ...
 
