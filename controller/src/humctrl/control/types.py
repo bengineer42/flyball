@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from inspect import signature
-from typing import Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, create_model
 
@@ -212,10 +212,10 @@ class ControlLaw:
                 raise ValueError(f"Law with tag '{cls.tag}' is already registered.")
             ControlLaws[cls.tag] = cls
 
-    def start(self, time_ns: int) -> None:
+    def reset(self) -> None:
         return None
 
-    def resume(self, time_ns: int, reading: float, setpoint: float, correction: float) -> float:
+    def resume(self, reading: float, setpoint: float, correction: float) -> float:
         """Re-enter control so the first step reproduces ``correction``.
 
         Used to hand back from manual pump control without stepping the output.
@@ -227,12 +227,11 @@ class ControlLaw:
         The default is a cold start carrying no offset. A law that can compute
         the correction it will actually produce should override this.
         """
-        self.start(time_ns)
         return correction
 
     def step(
         self,
-        time_ns: int,
+        elapsed: float,
         reading: float,
         setpoint: float,
         last_applied: float | None = None,
@@ -242,7 +241,6 @@ class ControlLaw:
 
 @dataclass(slots=True, frozen=True)
 class ControllerState:
-    generator: bool
     setpoint: float | None
     correction: float
     last_value: float | None
@@ -292,3 +290,16 @@ class ValueSource(Labelled):
     PROCESS = "process", "The current reading"
     SETPOINT = "setpoint", "The current target"
     DEMAND = "demand", "The current demand"
+
+
+class ApplyResult(NamedTuple):
+    demand: float
+    expected: float | None
+    delivered_correction: float | None
+
+
+class RegulateResult(NamedTuple):
+    demand: float
+    expected: float | None
+    delivered_correction: float | None
+    bump: float

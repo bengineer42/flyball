@@ -34,7 +34,7 @@ from .program import Program
 
 if TYPE_CHECKING:
     from humctrl.programmer.command import Activity, Command
-    from humctrl.rig import Rig
+    from humctrl.rig import HumRig
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +56,7 @@ IDLE = ProgrammerState(running=False, step=0, steps=0, command=None)
 class Programmer:
     """Applies commands to a rig, in order, waiting where a step says to wait."""
 
-    rig: Rig
+    rig: HumRig
     lock: RLock
 
     _program: Program | None = None
@@ -67,7 +67,7 @@ class Programmer:
     _step: int = 0
     _abort: bool = False
 
-    def __init__(self, rig: Rig) -> None:
+    def __init__(self, rig: HumRig) -> None:
         self.rig = rig
         self.lock = RLock()
         self.operator = Operator("program", on_revoke=self.interrupt)

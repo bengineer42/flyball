@@ -10,7 +10,7 @@ from .errors import (
     RecorderNotSetError,
     UnachievableError,
 )
-from .reading import Channel, Reading
+from .reading import Channel, Quantity, Reading, Sample, Source
 from .resource import Arbiter, Operator, Resource
 from .signal import Signal
 from .topic import Topic
@@ -54,12 +54,15 @@ __all__ = [
     "PeriodicLoop",
     "Positive",
     "PositiveInt",
+    "Quantity",
     "Rate",
     "ReadersNotSetError",
     "Reading",
     "RecorderNotSetError",
     "Resource",
+    "Sample",
     "Signal",
+    "Source",
     "Speed",
     "Time",
     "TimeUnit",

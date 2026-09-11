@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import NamedTuple, Protocol
 
-from humctrl.core import Clock, HardwareError, HumCtrlError, NotFoundError, Percent
+from humctrl.core import (
+    Channel,
+    HardwareError,
+    HumCtrlError,
+    Labelled,
+    NotFoundError,
+    Percent,
+    Quantity,
+    Sample,
+    Source,
+)
 
 # region Exceptions
 
@@ -30,22 +39,60 @@ class SensorNotSetError(SensorError, NotFoundError):
 # endregion
 
 
-@dataclass(frozen=True, slots=True)
-class HTReading:
-    time_ns: int
-    humidity: Percent
-    temperature: float
-    source: str | None = None
-
-    @property
-    def seconds(self) -> float:
-        return self.time_ns / 1e9
-
-
 def to_percent(value: HTReading | Percent) -> Percent:
     if isinstance(value, HTReading):
         return value.humidity
     return value
+
+
+class Reader(Protocol):
+    def read(self) -> HTReading: ...
+
+
+Temperature = Quantity("temperature", "°C")
+Humidity = Quantity("humidity", "%RH")
+
+HTQuantities = (Humidity, Temperature)
+
+
+class HTReaderSource(Labelled):
+    DRY = "dry"
+    WET = "wet"
+    PROCESS = "process"
+
+
+class HTSource(Source):
+    channels: dict[Quantity, Channel]
+
+    def __init__(self, name: HTReaderSource):
+        self.declare(Temperature)
+        self.declare(Humidity)
+        super().__init__(name, HTQuantities)
+
+    @property
+    def humidity(self) -> Channel:
+        return self.channels[Humidity]
+
+    @property
+    def temperature(self) -> Channel:
+        return self.channels[Temperature]
+
+
+@dataclass(frozen=True, slots=True)
+class HTReading(Sample):
+    source: HTSource
+
+    @classmethod
+    def of(cls, time_ns: int, source: HTSource, humidity: Percent, temperature: float) -> HTReading:
+        return cls(time_ns, source, {Humidity: humidity, Temperature: temperature})
+
+    @property
+    def humidity(self) -> Percent:
+        return self.values[Humidity]
+
+    @property
+    def temperature(self) -> float:
+        return self.values[Temperature]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,22 +100,12 @@ class FusedReading(HTReading):
     members: list[HTReading] = field(default_factory=list)
 
 
-class Reader(Protocol):
-    def read(self) -> HTReading: ...
-
-
-class ReaderSource(Enum):
-    WET = "wet"
-    DRY = "dry"
-    PROCESS = "process"
-
-
 class ReadError(Exception):
-    source: ReaderSource
+    source: HTReaderSource
     message: str
     time_ns: int
 
-    def __init__(self, source: ReaderSource, message: str, time_ns: int) -> None:
+    def __init__(self, source: HTReaderSource, message: str, time_ns: int) -> None:
         self.source = source
         self.message = message
         self.time_ns = time_ns  # Assuming you want to capture the current time in nanoseconds
@@ -81,17 +118,12 @@ class HTReadings(NamedTuple):
     wet: HTReading | Exception | None = None
 
     def __iter__(self):
-        yield (ReaderSource.PROCESS, self.process)
-        yield (ReaderSource.DRY, self.dry)
-        yield (ReaderSource.WET, self.wet)
+        yield (HTReaderSource.PROCESS, self.process)
+        yield (HTReaderSource.DRY, self.dry)
+        yield (HTReaderSource.WET, self.wet)
 
 
-class Readers(Protocol):
-    clock: Clock
-
-    def attach_clock(self, clock: Clock) -> None:
-        self.clock = clock
-
+class HTSetReader(Reader):
     def read_all(self) -> HTReadings:
         return HTReadings(
             process=self.read_process(),
@@ -99,13 +131,13 @@ class Readers(Protocol):
             wet=self.read_wet(),
         )
 
-    def read_process(self) -> HTReading | Exception | None:
+    def read_process(self, time_ns: int) -> HTReading | Exception | None:
         return None
 
-    def read_wet(self) -> HTReading | Exception | None:
+    def read_wet(self, time_ns: int) -> HTReading | Exception | None:
         return None
 
-    def read_dry(self) -> HTReading | Exception | None:
+    def read_dry(self, time_ns: int) -> HTReading | Exception | None:
         return None
 
     def read(self, process: bool = True, wet: bool = True, dry: bool = True) -> HTReadings:

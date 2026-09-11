@@ -18,7 +18,7 @@ from humctrl.utils import Labelled
 from .activites import Sustained, TestHumidities
 
 if TYPE_CHECKING:
-    from humctrl.rig import Rig
+    from humctrl.rig import HumRig
 
 
 # @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class SetFractionBlend(Command):
     wet_fraction: float
     flow: BlendFlow
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> BlenderState:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> BlenderState:
         return rig.set_fraction_blend(self.flow, self.wet_fraction, publish=False, by=operator)
 
 
@@ -62,7 +62,7 @@ class SetBlend(Command):
     humidity: float
     flow: BlendFlow
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> BlenderState:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> BlenderState:
         return rig.set_blend(self.flow, self.humidity, publish=False, by=operator)
 
 
@@ -71,7 +71,7 @@ class SetFlows(Command[BlenderState]):
     dry: float
     wet: float
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> BlenderState:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> BlenderState:
         return rig.set_flows(dry=self.dry, wet=self.wet, publish=False, by=operator)
 
 
@@ -80,13 +80,13 @@ class SetEfforts(Command[BlenderState]):
     dry: float
     wet: float
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> BlenderState:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> BlenderState:
         return rig.set_efforts(dry=self.dry, wet=self.wet, publish=False, by=operator)
 
 
 @dataclass(frozen=True)
 class StopPumps(Command[BlenderState]):
-    def run(self, rig: Rig, operator: Operator | None = None) -> BlenderState:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> BlenderState:
         return rig.stop_pumps(publish=False, by=operator)
 
 
@@ -104,7 +104,7 @@ class RegulateHumidity(Command):
     tuning: ControlLawLike | str | None = None
     transfer: Transfer | None = None
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> View:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> View:
         rig.regulate(
             self.at,
             flow=self.flow,
@@ -120,7 +120,7 @@ class RegulateHumidity(Command):
 class UpdateSetpoint(Command[None]):
     humidity: Percent
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> None:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> None:
         rig.controller_reference(at=self.humidity, by=operator)
 
 
@@ -139,7 +139,7 @@ class LinearRampHumidity(Command):
     pace: Rate | Duration
     start: ValueSource | Percent = ValueSource.PROCESS
 
-    def run(self, rig: Rig, operator: Operator | None = None) -> CommandResult[State]:
+    def run(self, rig: HumRig, operator: Operator | None = None) -> CommandResult[State]:
 
         generator = LinearRampSetpoint(self.pace, self.end)
         rig.controller_reference(at=self.start, generator=generator, publish=False, by=operator)
@@ -168,7 +168,7 @@ class Settle(Command):
     tolerance: Percent = 0.0
     target: ValueSource | Percent = ValueSource.SETPOINT
 
-    def run(self, rig: Rig) -> Activity:
+    def run(self, rig: HumRig) -> Activity:
         target = self.target
         mode = self.mode
 

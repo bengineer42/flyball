@@ -14,7 +14,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
 from humctrl.readers import HTReadings
-from humctrl.rig import ErrorMsg, Rig
+from humctrl.rig import ErrorMsg, HumRig
 from humctrl.server.deps import current_rig
 from humctrl.state import State
 from humctrl.utils import Topic
@@ -25,7 +25,7 @@ router = APIRouter(tags=["telemetry"])
 IDLE_POLL_S = 1.0
 
 
-async def _wait_for_rig(websocket: WebSocket) -> Rig | None:
+async def _wait_for_rig(websocket: WebSocket) -> HumRig | None:
     """Tell the client there is no rig, then let it keep the socket open."""
     await websocket.send_json({"error": "no rig attached"})
     await asyncio.sleep(IDLE_POLL_S)
@@ -35,9 +35,9 @@ async def _wait_for_rig(websocket: WebSocket) -> Rig | None:
 async def push[T](
     websocket: WebSocket,
     adapter: TypeAdapter[T],
-    topic: Callable[[Rig], Topic[T]],
+    topic: Callable[[HumRig], Topic[T]],
     maxsize: int = 1,
-    snapshot: Callable[[Rig], T] | None = None,
+    snapshot: Callable[[HumRig], T] | None = None,
 ) -> None:
     """Push everything ``topic`` publishes, until the rig goes away.
 

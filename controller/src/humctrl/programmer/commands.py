@@ -1,22 +1,23 @@
 from __future__ import annotations
 
+from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from humctrl.core import Speed
 
 from humctrl.control import (
     ControlLawLike,
     LinearRampSetpoint,
+    Loop,
     SetPointGenerator,
     Transfer,
     ValueSource,
 )
-from humctrl.core import Duration, Operator, Percent, Positive, PositiveInt, Rate, Reading
+from humctrl.core import Duration, Operator, Percent, Positive, PositiveInt, Reading, Speed
 from humctrl.state import State, View
 
 from .activites import Sustained
-from .command import Activity, Command, CommandResult
+from .command import Command, CommandResult, LoopActivity, LoopCommand
 
 # @dataclass(frozen=True)
 # class StartRecording(Command):
@@ -137,73 +138,78 @@ class WithinToleranceTest:
 
 class SequentialPassesReadings:
     test: Callable[[float], bool]
-    min_readings: PositiveInt
-    min_duration_ns: int
-    pass_time_ns: int = 0
+    readings: PositiveInt
+    duration_ns: int
+    first_time_ns: int = 0
     passed: int = 0
 
     def __init__(
         self,
         test: Callable[[float], bool],
-        min_readings: PositiveInt = 1,
-        min_duration_ns: int = 0,
+        readings: PositiveInt = 1,
+        duration_ns: int = 0,
     ) -> None:
         self.test = test
-        self.min_readings = min_readings
-        self.min_duration_ns = min_duration_ns
+        self.readings = readings
+        self.duration_ns = duration_ns
 
     def __call__(self, reading: Reading) -> bool:
         if self.passed == 0:
-            self.pass_time_ns = reading.time_ns
+            self.first_time_ns = reading.time_ns
         self.passed = self.passed + 1 if self.test(reading.value) else 0
         return (
-            self.passed >= self.min_readings
-            and reading.time_ns - self.pass_time_ns >= self.min_duration_ns
+            self.passed >= self.readings
+            and reading.time_ns - self.first_time_ns >= self.duration_ns
         )
 
 
-class SustainTest
+class Sustain(LoopCommand, registered=True):
+    timeout: Positive | None
+    duration: Duration
+    readings: PositiveInt = 1
 
-class Sustain(Command, registered=False):
+    @abstractmethod
+    def resolve_test(self, loop: Loop) -> Callable[[float], bool]: ...
+
+    def run_on_loop(self, loop: Loop, operator: Operator | None = None) -> LoopActivity:
+        return Sustained(
+            SequentialPassesReadings(
+                self.resolve_test(loop),
+                readings=self.readings,
+                duration_ns=self.duration.nanoseconds,
+            ),
+            timeout=self.timeout,
+        )
+
+
+class SettleAbove(Sustain):
+    above: float | ValueSource
+    margin: float = 0.0
+    timeout: Positive | None
+    min_duration: Duration | float = 0.0
+    min_readings: PositiveInt = 1
+
+    def resolve_test(self, loop: Loop) -> Callable[[float], bool]:
+        return GreaterThanTest(loop.resolve_value(self.above), self.margin)
+
+
+class SettleBelow(Sustain):
+    below: float | ValueSource
+    margin: float = 0.0
+    timeout: Positive | None
+    min_duration: Duration | float = 0.0
+    min_readings: PositiveInt = 1
+
+    def resolve_test(self, loop: Loop) -> Callable[[float], bool]:
+        return LessThanTest(loop.resolve_value(self.below), self.margin)
+
+
+class SettleAt(Sustain):
     at: float | ValueSource
-    test: Callable[[float], bool]
+    tolerance: float
     timeout: Positive | None
     min_duration: Duration | float = 0.0
     min_readings: PositiveInt = 1
 
-    def run(self, rig: Any, operator: Operator | None = None) -> Activity:
-        value = rig.resolve_value_source(self.value)
-        if isinstance(self.min_duration, Duration):
-            min_duration_ns = self.min_duration.nanoseconds
-        else:
-            min_duration_ns = int(self.min_duration * 1e9)
-        return Sustained(
-            TestAllReadings(self.test, self.min_readings, min_duration_ns=min_duration_ns),
-            timeout=self.timeout,
-        )
-
-
-class SettleValue(Command, registered=False):
-    value: float | ValueSource
-    test: Callable[[float], bool]
-    timeout: Positive | None
-    min_duration: Duration | float = 0.0
-    min_readings: PositiveInt = 1
-
-    def run(self, rig: Any, operator: Operator | None = None) -> Activity:
-        value = rig.resolve_value_source(self.value)
-        if isinstance(self.min_duration, Duration):
-            min_duration_ns = self.min_duration.nanoseconds
-        else:
-            min_duration_ns = int(self.min_duration * 1e9)
-        return Sustained(
-            TestAllReadings(self.test, self.min_readings, min_duration_ns=min_duration_ns),
-            timeout=self.timeout,
-        )
-
-
-class SettleAbove(SettleValue, registered=True):
-    test: Callable[[float], bool]
-    timeout: Positive | None
-    min_duration: Duration | float = 0.0
-    min_readings: PositiveInt = 1
+    def resolve_test(self, loop: Loop) -> Callable[[float], bool]:
+        return WithinToleranceTest(loop.resolve_value(self.at), self.tolerance)

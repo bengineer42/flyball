@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
+from humctrl.control import Loop
 from humctrl.core import Positive, Reading, Signal
 
-from .command import Activity
+from .command import LoopActivity
 
 
-class Sustained(Activity):
+class Sustained(LoopActivity):
     def __init__(
         self,
         test: Callable[[Reading], bool],
@@ -17,6 +17,6 @@ class Sustained(Activity):
         self.signal = Signal(timeout)
         self.test = test
 
-    def tick(self, rig: Any, reading: Reading) -> None:
+    def tick(self, loop: Loop, reading: Reading) -> None:
         if self.test(reading):
             self.finish()

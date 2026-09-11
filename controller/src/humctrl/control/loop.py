@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import Enum
 from threading import RLock
-from typing import NamedTuple, Protocol, Self
+from typing import Protocol
 
-from humctrl.control.errors import LastReadingNotAvailableError
-from humctrl.core import Reading
-from humctrl.core.clock import Clock
-from humctrl.core.utils import require
+from humctrl.core import Clock, Reading, require
+from humctrl.core.reading import Channel
 
-from .controller import Controller
+from .errors import (
+    ControlLawNotSetError,
+    ControllerNotStartedError,
+    LastReadingNotAvailableError,
+)
 from .setpoint import SetPointGenerator
 from .types import (
+    ApplyResult,
     ControlLaw,
     ControlLawConfig,
     ControlLawLike,
     ControlLawView,
+    RegulateResult,
     Transfer,
     Tuning,
     ValueSource,
@@ -26,39 +31,67 @@ class Actuator(Protocol):
     def set_demand(self, demand: float) -> float | None: ...
 
 
-class ApplyResult(NamedTuple):
-    expected: float | None = None
-    last_demand: float | None = None
+type LoopTickCallback = Callable[[Loop, Reading | None], None]
 
 
-class RegulateResult(NamedTuple):
+class LoopMode(Enum):
+    MANUAL = "manual"
+    OPEN = "open"
+    REGULATING = "regulating"
+
+    def active(self) -> bool:
+        return self is not LoopMode.MANUAL
+
+
+class LoopSpec:
+    name: str
+    law: ControlLaw | None
+    offset_ns: int = 0
+    actuator: str
+    reference: float | SetPointGenerator | None = None
+
+
+class LoopState:
+    correction: float = 0.0
+    offset_ns: int = 0
+    reference: float | SetPointGenerator | None = None
+    demand: float | None = None
     expected: float | None = None
-    last_demand: float | None = None
-    bump: float | None = None
+    delivered_correction: float | None = None
+    mode: LoopMode = LoopMode.MANUAL
+    reading: Reading | None = None
 
 
 class Loop[A: Actuator]:
+    name: str
     clock: Clock
     actuator: A
+    law: ControlLaw | None
+    channel: Channel
+    correction: float = 0.0
+    offset_ns: int = 0
+    reference: float | SetPointGenerator | None = None
+    demand: float | None = None
     expected: float | None = None
-    last_demand: float | None = None
-    controller: Controller
-    generator: SetPointGenerator | None = None
     reading: Reading | None = None
-    regulating: bool = False
-    _on_tick: dict[Callable[[Self, Reading | None], None], None]
+    delivered_correction: float | None = None
+    mode: LoopMode = LoopMode.MANUAL
+    _on_tick: dict[LoopTickCallback, None]
     lock: RLock
+    units: str | None = None
 
     def __init__(
         self,
+        name: str,
         clock: Clock,
-        law: ControlLaw | ControlLawConfig | ControlLawView | Tuning,
         actuator: A,
+        law: ControlLaw | ControlLawConfig | ControlLawView | Tuning | None = None,
     ) -> None:
+        self.name = name
         self.clock = clock
         self.actuator = actuator
-        self.controller = Controller(law)
-        self.last_time_ns = self.clock.now_ns()
+        if law is not None:
+            self._set_law(law)
         self.lock = RLock()
         self._on_tick = {}
 
@@ -71,59 +104,117 @@ class Loop[A: Actuator]:
         return require(self.last_value, LastReadingNotAvailableError)
 
     @property
-    def last_time(self) -> float | None:
-        return self.reading and self.reading.seconds
+    def required_law(self) -> ControlLaw:
+        return require(self.law, ControlLawNotSetError)
+
+    def setpoint_at(self, time_ns: int) -> float:
+        if isinstance(self.reference, SetPointGenerator):
+            return self.reference.generate(self.clock.from_start_s(time_ns))
+        return require(self.reference, ControllerNotStartedError)
+
+    def demand_at(self, time_ns: int) -> float:
+        return self.setpoint_at(time_ns) + self.correction
+
+    def _set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
+        self.law = law if isinstance(law, ControlLaw) else law.build()
+
+    def set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
+        self._set_law(law)
 
     def resolve_value(self, at: ValueSource | float, time_ns: int | None = None) -> float:
         if at is ValueSource.PROCESS:
             return self.required_last_value
         if at is ValueSource.SETPOINT:
-            return self.controller.setpoint_at(self.get_time_ns(time_ns))
+            return self.setpoint_at(self.get_time_ns(time_ns))
         if at is ValueSource.DEMAND:
-            return self.controller.demand_at(self.get_time_ns(time_ns))
+            return self.demand_at(self.get_time_ns(time_ns))
         return float(at)
+
+    def reset_law(self, time_ns: int | None = None) -> None:
+        time_ns = self.get_time_ns(time_ns)
+        self.offset_ns = time_ns
+
+        if self.law is not None:
+            self.law.reset()
 
     def regulate(
         self,
         at: ValueSource | float,
         generator: SetPointGenerator | None = None,
         tuning: ControlLawLike | None = None,
-        transfer: Transfer = Transfer.TRACK,
         time_ns: int | None = None,
+        transfer: Transfer = Transfer.TRACK,
     ) -> RegulateResult:
+        """Aim at ``at`` and hand control back to the law.
 
-        time_ns = self.get_time_ns(time_ns)
-        self.controller.set_reference(self.resolve_value(at, time_ns), time_ns, generator)
-        bump = self.controller.transfer(time_ns, tuning, transfer, self.expected)
-        return RegulateResult(*self.apply(time_ns), bump=bump)
+        The aim is set before the law is seeded, so the seed reproduces the
+        delivered output against the *new* setpoint. Seeding first would leave
+        the correction sized for the old one, stepping the actuator by the
+        difference and reporting no bump for it.
+
+        Args:
+            at: Where to aim, or the source to take it from. Resolved before
+                the aim moves, so ``SETPOINT`` and ``DEMAND`` mean the current
+                ones.
+            generator: A trajectory to follow from ``at``. Held rather than
+                resolved, so the setpoint stays exact between ticks.
+            tuning: A law to swap in first, for a bumpless retune.
+            time_ns: The handover instant, and the law's new clock origin.
+                Defaults to now.
+            transfer: How to seed the correction across the handover.
+                Degrades rather than fails: ``TRACK`` needs something delivered
+                and any seeded mode needs a reading to compute the law's
+                proportional term from. Where either is missing it falls back,
+                and the bump is what tells the caller it did.
+
+        Returns:
+            What was applied, and the step the handover put through the
+            actuator -- zero when the seed held the output.
+        """
+        with self.lock:
+            time_ns = self.get_time_ns(time_ns)
+            held = self.expected if self.expected is not None else self.demand
+            setpoint = self.resolve_value(at, time_ns)
+
+            if tuning is not None:
+                self._set_law(tuning)
+
+            self.reference = setpoint
+            if generator is not None:
+                generator.start(self.clock.from_start_s(time_ns), setpoint)
+                self.reference = generator
+
+            if transfer is not Transfer.NONE:
+                self.reset_law(time_ns)
+                setpoint = self.setpoint_at(time_ns)
+                reading = self.last_value
+                if reading is None or transfer is Transfer.RESET:
+                    self.correction = 0.0
+                else:
+                    hold = (
+                        self.correction
+                        if transfer is Transfer.CARRY or held is None
+                        else held - setpoint
+                    )
+                    if self.law is not None:
+                        self.correction = self.law.resume(reading, setpoint, hold)
+            self.mode = LoopMode.REGULATING
+            applied = self._apply_demand(setpoint)
+            bump = 0.0 if held is None else applied.demand - held
+            return RegulateResult(*applied, bump=bump)
 
     def get_time_ns(self, time_ns: int | None = None) -> int:
         return self.clock.now_ns() if time_ns is None else time_ns
 
-    def _set_reference(
-        self,
-        at: float,
-        time_ns: int,
-        generator: SetPointGenerator | None = None,
-    ) -> ApplyResult:
-        self.controller.set_reference(at, time_ns, generator)
-        return self.apply(time_ns)
+    def to_law_time(self, time_ns: int) -> float:
+        return (time_ns - self.offset_ns) / 1e9
 
-    def set_reference(
-        self,
-        at: float | ValueSource,
-        time_ns: int | None = None,
-        generator: SetPointGenerator | None = None,
-    ) -> ApplyResult:
-        time_ns = self.get_time_ns(time_ns)
-        return self._set_reference(self.resolve_value(at, time_ns), time_ns, generator=generator)
-
-    def attach_on_tick(self, callback: Callable[[Self, Reading], None] | None) -> None:
+    def attach_on_tick(self, callback: LoopTickCallback | None) -> None:
         with self.lock:
             if callback is not None:
                 self._on_tick[callback] = None
 
-    def detach_on_tick(self, callback: Callable[[Self, Reading], None] | None) -> None:
+    def detach_on_tick(self, callback: LoopTickCallback | None) -> None:
         with self.lock:
             if callback is not None:
                 self._on_tick.pop(callback)
@@ -133,18 +224,29 @@ class Loop[A: Actuator]:
             callback(self, reading)
 
     def tick(self, reading: Reading | None) -> None:
+        time_ns = self.get_time_ns(reading and reading.time_ns)
         if reading is not None:
             self.reading = reading
         self._run_on_tick(reading)
-        if self.regulating:
-            self._step(reading)
 
-    def _step(self, reading: Reading) -> ApplyResult:
-        self.controller.step(reading.time_ns, reading.value)
-        return self.apply(reading.time_ns)
+        if self.mode.active():
+            setpoint = self.setpoint_at(time_ns)
+            if reading is not None and self.mode is LoopMode.REGULATING:
+                self.correction = self.required_law.step(
+                    self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
+                )
+            self._apply_demand(setpoint)
+
+    def _apply_demand(self, setpoint: float) -> ApplyResult:
+        self.demand = setpoint + self.correction
+        self.expected = self.actuator.set_demand(self.demand)
+        self.delivered_correction = None if self.expected is None else self.expected - setpoint
+
+        return ApplyResult(
+            expected=self.expected,
+            demand=self.demand,
+            delivered_correction=self.delivered_correction,
+        )
 
     def apply(self, time_ns: int | None = None) -> ApplyResult:
-        time = self.get_time_ns(time_ns)
-        self.last_demand = self.controller.demand_at(time)
-        self.expected = self.actuator.set_demand(self.last_demand)
-        return ApplyResult(expected=self.expected, last_demand=self.last_demand)
+        return self._apply_demand(self.setpoint_at(self.get_time_ns(time_ns)))

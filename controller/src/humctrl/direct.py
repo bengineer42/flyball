@@ -6,10 +6,11 @@ from linux_pwm import PWMChannel, PWMChip
 
 from humctrl.core import Normalised
 from humctrl.core.errors import UnachievableError
+from humctrl.core.reading import Channel
 from humctrl.i2c import I2CBus
 from humctrl.pumps.drivers import PumpDriver
 from humctrl.pumps.errors import PumpError
-from humctrl.readers import HTReading, HTReadings, Readers, ReaderSource
+from humctrl.readers import HTReaderSource, HTReading, HTReadings, HTSetReader
 from humctrl.sht4x import _MUX_ADDR, _SHT4X_ADDR, MuxedSHT4xBank, SHT4x
 
 DEFAULT_PWM_FREQUENCY: float = 20_000.0  # Hz
@@ -69,30 +70,36 @@ class LinuxPWMPump(PumpDriver):
         self.pwm.stop()
 
 
-def labelled[T](dry: T, wet: T, process: T) -> Generator[tuple[str, T], None, None]:
-    yield "dry", dry
-    yield "wet", wet
-    yield "process", process
+def labelled[T](dry: T, wet: T, process: T) -> Generator[tuple[HTReaderSource, T], None, None]:
+    yield HTReaderSource.DRY, dry
+    yield HTReaderSource.WET, wet
+    yield HTReaderSource.PROCESS, process
 
 
-class MuxedI2CSHT4xReaders(Readers):
+class MuxedI2CSHT4xReaders(HTSetReader):
     bank: MuxedSHT4xBank
+    _channels: set[Channel]
 
     def __init__(
         self,
         i2c: I2CBus,
-        process_channel: int | None = None,
-        dry_channel: int | None = None,
-        wet_channel: int | None = None,
+        process_port: int | None = None,
+        dry_port: int | None = None,
+        wet_port: int | None = None,
         mux_address: int = _MUX_ADDR,
         sensor_address: int = _SHT4X_ADDR,
     ) -> None:
         channels = {
             label: channel
-            for label, channel in labelled(dry_channel, wet_channel, process_channel)
+            for label, channel in labelled(dry_port, wet_port, process_port)
             if channel is not None
         }
+        self._channels = {Channel(s, q, q.unit) for s in channels for q in HTQuantity}
         self.bank = MuxedSHT4xBank(i2c, channels, mux_address, sensor_address)
+
+    @property
+    def channels(self) -> set[Channel]:
+        return self._channels
 
     def read_process(self) -> HTReading | Exception | None:
         return self.bank.read(self.clock.now_ns(), "process")
@@ -113,19 +120,27 @@ class MuxedI2CSHT4xReaders(Readers):
         return HTReadings(**readings)
 
 
-class I2CSHT4xReader(Readers):
-    source: ReaderSource
+class I2CSHT4xReader(HTSetReader):
+    source: HTReaderSource
     sensor: SHT4x
 
     def _read(self) -> HTReading | Exception | None:
         return self.sensor.read(self.clock.now_ns())
 
     def __init__(
-        self, i2c: I2CBus, source: ReaderSource = ReaderSource.PROCESS, address: int = _SHT4X_ADDR
+        self,
+        i2c: I2CBus,
+        source: HTReaderSource = HTReaderSource.PROCESS,
+        address: int = _SHT4X_ADDR,
     ) -> None:
+        self._channels = {Channel(source, q, q.unit) for q in HTQuantity}
         self.source = source
         self.sensor = SHT4x(i2c, source.value, address)
         assert hasattr(self, f"read_{source.value}"), (
             f"Source {source.value} is not a valid reader source"
         )
         setattr(self, f"read_{source.value}", self._read)
+
+    @property
+    def channels(self) -> set[Channel]:
+        return self._channels

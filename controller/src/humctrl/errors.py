@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from humctrl.readers import ReaderSource
+    from humctrl.readers import HTReaderSource
 
 
 class RecorderNotSetError(NotReadyError):
@@ -83,7 +83,7 @@ class CurrentWetFractionNotSetError(ConflictError):
 
 
 class ReaderError(HardwareError):
-    def __init__(self, reader: ReaderSource, error: Exception) -> None:
+    def __init__(self, reader: HTReaderSource, error: Exception) -> None:
         super().__init__(f"Error reading from {reader}: {error}")
 
 

@@ -31,7 +31,7 @@ class SetPointGenerator:
             raise ValueError(f"tag {cls.tag!r} is already {clash.__name__}")
         SetPointGenerators[cls.tag] = cls
 
-    def start(self, time_ns: float, value: float) -> None:
+    def start(self, time: float, value: float) -> None:
         """Bind to the rig: the clock origin and where the process is now.
 
         Args:
@@ -40,7 +40,7 @@ class SetPointGenerator:
                 from wherever the rig happens to be.
         """
 
-    def generate(self, time_ns: float) -> float:
+    def generate(self, time: float) -> float:
         """The set point at ``time``."""
         raise NotImplementedError
 
@@ -50,26 +50,24 @@ class LinearRampSetpoint(SetPointGenerator):
 
     pace: Speed | Duration
     end: float
-    end_ns: int
-    per_ns: float
+    end_time: float
+    per_second: float
 
     def __init__(self, pace: Speed | Duration, end: float) -> None:
         self.pace = pace
         self.end = end
 
-    def start(self, time_ns: int, value: float) -> None:
-        if isinstance(self.pace, Rate):
-            self.per_ns = self.pace.per_nanosecond
-            self.end_ns = time_ns + abs(round((self.end - value) / self.per_ns))
-        else:
-            if self.pace.nanoseconds <= 0:
-                self.end_ns = time_ns
-                self.per_ns = 0.0
-            else:
-                self.end_ns = time_ns + self.pace.nanoseconds
-                self.per_ns = (self.end - value) / self.pace.nanoseconds
+    def start(self, time: float, value: float) -> None:
+        span = self.end - value
+        duration = (
+            abs(span / self.pace.per_second) if isinstance(self.pace, Rate) else self.pace.seconds
+        )
+        self.end_time = time + duration
+        # Signed by the distance: the pace says how fast, never which way, so a
+        # descending ramp needs the sign taken from the span.
+        self.per_second = span / duration if duration > 0.0 else 0.0
 
-    def generate(self, time_ns: int) -> float:
-        if time_ns >= self.end_ns:
+    def generate(self, time: float) -> float:
+        if time >= self.end_time:
             return self.end
-        return self.end - (self.end_ns - time_ns) * self.per_ns
+        return self.end - (self.end_time - time) * self.per_second

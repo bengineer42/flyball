@@ -8,6 +8,7 @@ from pydantic.alias_generators import to_snake
 
 from humctrl.control import Loop
 from humctrl.core import Operator, Reading, Signal
+from humctrl.runtime.rig import Rig
 
 Commands: dict[str, type[Command]] = {}
 
@@ -166,6 +167,21 @@ class Command[T]:
 
     @abstractmethod
     def run(
-        self, rig: Any, operator: Operator | None = None
+        self, rig: Rig, operator: Operator | None = None
+    ) -> CommandResult[T] | Activity | Signal | T:
+        """Do the work, returning a runner if it has to be waited on."""
+
+
+class LoopCommand[T](Command[T], registered=False):
+    loop: str | None
+
+    def run(
+        self, rig: Rig, operator: Operator | None = None
+    ) -> CommandResult[T] | Activity | Signal | T:
+        return self.run_on_loop(rig.resolve_loop(self.loop), operator=operator)
+
+    @abstractmethod
+    def run_on_loop(
+        self, loop: Loop, operator: Operator | None = None
     ) -> CommandResult[T] | Activity | Signal | T:
         """Do the work, returning a runner if it has to be waited on."""

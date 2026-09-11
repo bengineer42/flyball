@@ -40,10 +40,10 @@ from humctrl.pumps.types import (
     SupplyFlowsLike,
 )
 from humctrl.readers import (
+    HTReaderSource,
     HTReading,
     HTReadings,
-    Readers,
-    ReaderSource,
+    HTSetReader,
     SensorError,
     SensorNotSetError,
 )
@@ -116,7 +116,7 @@ class Rig:
 
     _tunings: dict[str, ControlLawConfig]
     recorder: Recorder | None = None
-    readers: Readers | None = None
+    readers: HTSetReader | None = None
     clock: Clock
 
     lock: RLock
@@ -142,7 +142,7 @@ class Rig:
         pumps: DualPumpsBlender | None = None,
         process_interval: float = 1.0,
         recorder: Recorder | None = None,
-        readers: Readers | None = None,
+        readers: HTSetReader | None = None,
         tuning: ControlLawLike | str = OpenLoopTuning,
         tunings: list[Tuning] | None = None,
         setpoint: Percent = 50,
@@ -339,7 +339,7 @@ class Rig:
     def set_recorder(self, recorder: Recorder) -> None:
         self.recorder = recorder
 
-    def set_readers(self, reader: Readers) -> None:
+    def set_readers(self, reader: HTSetReader) -> None:
         self.readers = reader
         self.read_readers()
 
@@ -362,7 +362,7 @@ class Rig:
     def require_recorder(self) -> Recorder:
         return require(self.recorder, RecorderNotSetError)
 
-    def require_readers(self) -> Readers:
+    def require_readers(self) -> HTSetReader:
         return require(self.readers, ReadersNotSetError)
 
     def require_pumps(self) -> DualPumpsBlender:
@@ -573,11 +573,11 @@ class Rig:
     def update_readings(self, readings: HTReadings) -> None:
         for reader, reading in readings:
             if isinstance(reading, HTReading):
-                if reader == ReaderSource.PROCESS:
+                if reader == HTReaderSource.PROCESS:
                     self.process_reading = reading
-                elif reader == ReaderSource.DRY:
+                elif reader == HTReaderSource.DRY:
                     self._dry_reading = reading
-                elif reader == ReaderSource.WET:
+                elif reader == HTReaderSource.WET:
                     self._wet_reading = reading
             elif isinstance(reading, Exception):
                 self.publish_warning(ReaderError(reader, reading))

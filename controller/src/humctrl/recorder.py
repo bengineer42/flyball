@@ -3,11 +3,12 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Protocol
 
+from humctrl.control.loop import LoopMode
 from humctrl.control.types import ControllerState
+from humctrl.core import Percent
 from humctrl.pumps import PumpsState, SupplyFlows
 from humctrl.readers import HTReading, HTReadings, Reader
 from humctrl.state import State
-from humctrl.typing import Percent
 
 
 class SpanKind(Enum):
@@ -47,6 +48,18 @@ class Sample:
     dry_humidity: Percent | None = None
     wet_humidity: Percent | None = None
     controller: ControllerState | None = None
+
+
+class Tick:
+    loop: str
+    time_ns: int
+    mode: LoopMode
+    setpoint: float | None = None
+    correction: float
+    demand: float | None = None
+    expected: float | None = None
+    delivered_correction: float | None = None
+    reading: float | None
 
 
 class Recorder(Protocol):

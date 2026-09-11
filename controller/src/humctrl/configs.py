@@ -18,7 +18,7 @@ from humctrl.pumps import (
     PumpPair,
     SupplyHumiditiesLike,
 )
-from humctrl.rig import Rig
+from humctrl.rig import HumRig
 from humctrl.typing import Percent, Positive
 
 
@@ -83,14 +83,14 @@ class DualPumpBlenderConfig(Config[DualPumpsBlender]):
 
 
 @dataclass(slots=True)
-class RigConfig(Config[Rig]):
+class RigConfig(Config[HumRig]):
     process_interval: Positive = 1.0
     pumps: Config[DualPumpsBlender] | None = None
     tunings: list[Tuning] | None = None
     tuning: str | ControlLawLike = OpenLoopTuning
 
-    def build(self) -> Rig:
-        return Rig(
+    def build(self) -> HumRig:
+        return HumRig(
             pumps=resolve(self.pumps),
             tunings=self.tunings,
             tuning=self.tuning,

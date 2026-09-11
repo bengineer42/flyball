@@ -305,6 +305,17 @@ class Clock:
             return self.elapsed(label)
         return None
 
+    def from_start_ns(self, time_ns: int) -> int:
+        return time_ns - self.start_time_ns
+
+    def from_start_s(self, time_ns: int) -> float:
+        """Seconds from this clock's origin to ``time_ns``.
+
+        The subtraction is integer, so only the small result is converted and
+        precision does not depend on the magnitude of the timebase.
+        """
+        return (time_ns - self.start_time_ns) / 1e9
+
     def tag_time_ns(self, label: str) -> int:
         return self.tags_ns[label] + self.offset_ns
 
@@ -337,6 +348,23 @@ class Clock:
 
     def now(self) -> Time:
         return Time.from_nanoseconds(self.now_ns())
+
+    def fork(self) -> Self:
+        cls = type(self)
+        clock = cls.__new__(cls)
+        clock.offset_ns = self.offset_ns
+        clock.tags_ns = {}
+        mono = time.monotonic_ns()
+        clock.start_mono_ns = mono
+        clock.start_time_ns = mono + self.offset_ns
+
+        return clock
+
+    def reset(self) -> None:
+        mono = time.monotonic_ns()
+        self.start_mono_ns = mono
+        self.start_time_ns = mono + self.offset_ns
+        self.tags_ns.clear()
 
 
 class TimeUnit(Labelled):

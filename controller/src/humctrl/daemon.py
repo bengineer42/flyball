@@ -17,12 +17,12 @@ from humctrl.clock import Clock
 from humctrl.control import PIController
 from humctrl.pumps import DualPumps, PumpPair
 from humctrl.readers import HTReading
-from humctrl.rig import Rig
+from humctrl.rig import HumRig
 
 log = logging.getLogger("humctrl.daemon")
 
 
-def build_rig(args: argparse.Namespace) -> Rig:
+def build_rig(args: argparse.Namespace) -> HumRig:
     """A rig on real hardware.
 
     The imports are local because they only resolve on a Pi: pulling blinka in
@@ -57,7 +57,7 @@ def build_rig(args: argparse.Namespace) -> Rig:
         units=args.flow_units,
     )
     sensor = I2CSHT4x(label=args.sensor_label)
-    return Rig(
+    return HumRig(
         pumps=pumps,
         process_reader=sensor,
         regulator=PIController(kp=args.kp, ki=args.ki),
@@ -102,7 +102,7 @@ class SimSensor:
         return HTReading(self._label, self._clock.now_ns(), self._humidity, 21.0)
 
 
-def build_simulated_rig(args: argparse.Namespace) -> Rig:
+def build_simulated_rig(args: argparse.Namespace) -> HumRig:
     pair = PumpPair(wet=SimPump(), dry=SimPump())
     pumps = DualPumps(
         pair,
@@ -111,7 +111,7 @@ def build_simulated_rig(args: argparse.Namespace) -> Rig:
         units=args.flow_units,
     )
     sensor = SimSensor(args.sensor_label, pair)
-    return Rig(
+    return HumRig(
         pumps=pumps,
         process_readerr=sensor,
         sensors={args.sensor_label: sensor},

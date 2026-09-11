@@ -8,17 +8,19 @@ from threading import RLock
 from typing import TYPE_CHECKING, Any, overload
 
 from humctrl.blender import BlenderState, DualPumpsBlender
-from humctrl.clock import Clock, Duration, Time
 from humctrl.control import (
     ControlLawConfig,
+    ControlLawLike,
     ControlLawView,
-    Controller,
+    Loop,
     OpenLoopTuning,
     SetPointGenerator,
+    Transfer,
     Tuning,
     ValueSource,
 )
-from humctrl.control.types import ControlLawLike, Transfer
+from humctrl.core import Clock, Duration, Time
+from humctrl.core.reading import Channel
 from humctrl.errors import (
     ProcessReadingNotAvailableError,
     PumpsNotSetError,
@@ -40,16 +42,17 @@ from humctrl.pumps.types import (
     SupplyFlowsLike,
 )
 from humctrl.readers import (
+    HTReaderSource,
     HTReading,
     HTReadings,
-    Readers,
-    ReaderSource,
+    HTSetReader,
     SensorError,
     SensorNotSetError,
 )
 from humctrl.recorder import Recorder
 from humctrl.resource import Operator
 from humctrl.resources import PumpsResource, SetPointProfileResource, SetPointResource
+from humctrl.runtime.rig import Rig
 from humctrl.state import Spec, State, View
 from humctrl.utils import Labelled, PeriodicLoop, Topic, require
 
@@ -110,15 +113,13 @@ class SystemClaims:
     profiled: None
 
 
-class Rig:
-    controller: Controller
+class HumRig(Rig):
     pumps: DualPumpsBlender | None
-
+    loop: Loop[DualPumpsBlender] | None
     _tunings: dict[str, ControlLawConfig]
     recorder: Recorder | None = None
-    readers: Readers | None = None
+    readers: HTSetReader | None = None
     clock: Clock
-
     lock: RLock
     _main_thread: PeriodicLoop
 
@@ -129,7 +130,7 @@ class Rig:
     _warnings_topic: Topic[Any]
     mode: PumpMode = PumpMode.MANUAL
 
-    _on_tick: dict[Callable[[Rig, HTReadings], None], None]
+    _on_tick: dict[Callable[[HumRig, HTReadings], None], None]
 
     # region Cached state
     process_reading: HTReading | None = None
@@ -142,15 +143,16 @@ class Rig:
         pumps: DualPumpsBlender | None = None,
         process_interval: float = 1.0,
         recorder: Recorder | None = None,
-        readers: Readers | None = None,
+        readers: HTSetReader | None = None,
         tuning: ControlLawLike | str = OpenLoopTuning,
         tunings: list[Tuning] | None = None,
         setpoint: Percent = 50,
     ) -> None:
+        self.clock = Clock()
 
         self.recorder = recorder
         self.readers = readers
-        self.clock = Clock()
+
         self.lock = RLock()
         self._main_thread = PeriodicLoop(self.tick, process_interval)
         self._tunings = {OpenLoopTuning.tag: OpenLoopTuning.config}
@@ -161,7 +163,8 @@ class Rig:
                     raise ValueError(f"duplicate tuning tag {tuning.tag!r}")
                 self._tunings[tuning.tag] = tuning.config
         self.pumps = pumps
-        self.controller = Controller(self.get_tuning(tuning), setpoint=setpoint, time=self.now_s())
+        if pumps is not None:
+            self.loop = Loop("humidity", self.clock.fork(), pumps)
         if self.pumps is not None and setpoint is not None and self.pumps.demand is None:
             self.pumps.update_demand(demand=setpoint)
         self._readings_topic = Topic[HTReadings]()
@@ -177,6 +180,10 @@ class Rig:
             controller=self.controller.spec,
             pumps=self.pumps and self.pumps.spec,
         )
+
+    @property
+    def channels(self) -> set[Channel]:
+        return set() if self.readers is None else self.readers.channels
 
     # region Properties
     @property
@@ -339,19 +346,9 @@ class Rig:
     def set_recorder(self, recorder: Recorder) -> None:
         self.recorder = recorder
 
-    def set_readers(self, reader: Readers) -> None:
+    def set_readers(self, reader: HTSetReader) -> None:
         self.readers = reader
         self.read_readers()
-
-    def attach_on_tick(self, callback: Callable[[Rig, HTReadings], None] | None) -> None:
-        with self.lock:
-            if callback is not None:
-                self._on_tick[callback] = None
-
-    def detach_on_tick(self, callback: Callable[[Rig, HTReadings], None] | None) -> None:
-        with self.lock:
-            if callback is not None:
-                self._on_tick.pop(callback)
 
     # endregion
 
@@ -362,7 +359,7 @@ class Rig:
     def require_recorder(self) -> Recorder:
         return require(self.recorder, RecorderNotSetError)
 
-    def require_readers(self) -> Readers:
+    def require_readers(self) -> HTSetReader:
         return require(self.readers, ReadersNotSetError)
 
     def require_pumps(self) -> DualPumpsBlender:
@@ -573,11 +570,11 @@ class Rig:
     def update_readings(self, readings: HTReadings) -> None:
         for reader, reading in readings:
             if isinstance(reading, HTReading):
-                if reader == ReaderSource.PROCESS:
+                if reader == HTReaderSource.PROCESS:
                     self.process_reading = reading
-                elif reader == ReaderSource.DRY:
+                elif reader == HTReaderSource.DRY:
                     self._dry_reading = reading
-                elif reader == ReaderSource.WET:
+                elif reader == HTReaderSource.WET:
                     self._wet_reading = reading
             elif isinstance(reading, Exception):
                 self.publish_warning(ReaderError(reader, reading))

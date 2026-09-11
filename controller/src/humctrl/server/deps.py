@@ -13,22 +13,22 @@ from fastapi import Depends, HTTPException
 
 from humctrl.control import Controller
 from humctrl.pumps import DualPumps
-from humctrl.rig import Rig
+from humctrl.rig import HumRig
 
-_rig: Rig | None = None
+_rig: HumRig | None = None
 
 
-def set_rig(rig: Rig | None) -> None:
+def set_rig(rig: HumRig | None) -> None:
     global _rig
     _rig = rig
 
 
-def current_rig() -> Rig | None:
+def current_rig() -> HumRig | None:
     """The attached rig, or None. For lifespan and telemetry, which tolerate absence."""
     return _rig
 
 
-def get_rig() -> Rig:
+def get_rig() -> HumRig:
     if _rig is None:
         raise HTTPException(status_code=503, detail="No rig attached to this server")
     return _rig
@@ -42,6 +42,6 @@ def get_controller() -> Controller:
     return get_rig().controller
 
 
-RigDep = Annotated[Rig, Depends(get_rig)]
+RigDep = Annotated[HumRig, Depends(get_rig)]
 PumpsDep = Annotated[DualPumps, Depends(get_pumps)]
 ControllerDep = Annotated[Controller, Depends(get_controller)]

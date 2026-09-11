@@ -4,9 +4,11 @@ import struct
 import time
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager, suppress
+from enum import Enum
 from threading import RLock
 from typing import overload
 
+from humctrl.core import Percent
 from humctrl.i2c import I2CBus
 from humctrl.readers import HTReading
 
@@ -26,7 +28,7 @@ class CrcError(Exception):
 class SHT4xTriggerError(Exception):
     """Raised when a sensor trigger fails."""
 
-    def __init__(self, sensor: str, cause: OSError) -> None:
+    def __init__(self, sensor: str | Enum, cause: OSError) -> None:
         self.sensor = sensor
         self.cause = cause
         super().__init__(f"Trigger failed for sensor {sensor!r}: {cause}")
@@ -35,7 +37,7 @@ class SHT4xTriggerError(Exception):
 class SHT4xReadError(Exception):
     """Raised when a sensor read fails."""
 
-    def __init__(self, sensor: str, cause: OSError | CrcError) -> None:
+    def __init__(self, sensor: str | Enum, cause: OSError | CrcError) -> None:
         self.sensor = sensor
         self.cause = cause
         super().__init__(f"Read failed for sensor {sensor!r}: {cause}")
@@ -66,7 +68,7 @@ class MuxedSHT4xBank:
     def __init__(
         self,
         i2c: I2CBus,
-        channels: dict[str, int],
+        channels: dict[str | Enum, int],
         mux_address: int = _MUX_ADDR,
         sensor_address: int = _SHT4X_ADDR,
     ) -> None:
@@ -81,21 +83,21 @@ class MuxedSHT4xBank:
         self._i2c.writeto(self._mux, bytes((mask,)))
 
     @overload
-    def read(self, time_ns: int, sensors: str) -> HTReading | Exception | None: ...
+    def read(self, time_ns: int, sensors: str | Enum) -> HTReading | Exception | None: ...
     @overload
     def read(
-        self, time_ns: int, sensors: Iterable[str] | None = None
-    ) -> dict[str, HTReading | Exception]: ...
+        self, time_ns: int, sensors: Iterable[str | Enum] | None = None
+    ) -> dict[str | Enum, HTReading | Exception]: ...
     def read(
-        self, time_ns: int, sensors: str | Iterable[str] | None = None
-    ) -> HTReading | Exception | dict[str, HTReading | Exception] | None:
-        if isinstance(sensors, str):
+        self, time_ns: int, sensors: str | Enum | Iterable[str | Enum] | None = None
+    ) -> HTReading | Exception | dict[str | Enum, HTReading | Exception] | None:
+        if isinstance(sensors, (str, Enum)):
             return self.read_sensor(time_ns, sensors)
         if sensors is None:
             return self.read_all(time_ns)
         return self.read_sensors(time_ns, sensors)
 
-    def read_sensor(self, time_ns: int, sensor: str) -> HTReading | Exception | None:
+    def read_sensor(self, time_ns: int, sensor: str | Enum) -> HTReading | Exception | None:
         offset_ns = time_ns - time.monotonic_ns()
         if (channel := self._channels.get(sensor)) is None:
             return None
@@ -107,11 +109,11 @@ class MuxedSHT4xBank:
             return self._try_read(sensor, channel, offset_ns, r_ns)
 
     def read_sensors(
-        self, time_ns: int, sensors: Iterable[str]
-    ) -> dict[str, HTReading | Exception]:
+        self, time_ns: int, sensors: Iterable[str | Enum]
+    ) -> dict[str | Enum, HTReading | Exception]:
         offset_ns = time_ns - time.monotonic_ns()
-        results: dict[str, HTReading | Exception] = {}
-        triggered: list[tuple[str, int, int]] = []
+        results: dict[str | Enum, HTReading | Exception] = {}
+        triggered: list[tuple[str | Enum, int, int]] = []
 
         with self.lock():
             for label in sensors:
@@ -132,7 +134,9 @@ class MuxedSHT4xBank:
         self._i2c.writeto(self._addr, bytes((_TRIGGER,)))
         return time.monotonic_ns()
 
-    def _try_read(self, label: str, channel: int, wall_ns: int, r_ns: int) -> HTReading | Exception:
+    def _try_read(
+        self, label: str | Enum, channel: int, wall_ns: int, r_ns: int
+    ) -> HTReading | Exception:
         try:
             return HTReading(wall_ns + r_ns, *self._read_channel(channel, r_ns), label)
         except (OSError, CrcError) as e:
@@ -158,7 +162,7 @@ class MuxedSHT4xBank:
                     self._select(0x00)
                 self._i2c.unlock()
 
-    def read_all(self, time_ns: int) -> dict[str, HTReading | Exception]:
+    def read_all(self, time_ns: int) -> dict[str | Enum, HTReading | Exception]:
         return self.read_sensors(time_ns, self._channels.keys())
 
 

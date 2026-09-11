@@ -36,7 +36,14 @@ class ControlLawNotRegisteredError(ControllerError, NotFoundError):
         super().__init__(f"Control law '{tag}' is not registered.")
 
 
-class TuningNotRegisteredError(NotFoundError):
+class ControlLawNotSetError(ControllerError, NotReadyError):
+    """Raised when a control law is not set."""
+
+    def __init__(self) -> None:
+        super().__init__("Control law is not set.")
+
+
+class TuningNotRegisteredError(ControllerError, NotFoundError):
     def __init__(self, tuning: str) -> None:
         super().__init__(f"Control law tuning with name {tuning!r} is not registered.")
 
