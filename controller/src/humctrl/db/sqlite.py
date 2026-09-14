@@ -22,6 +22,7 @@ from humctrl.core.reading import Channel, Quantity, Sample, Source
 from .errors import NotDeclaredError, SessionEndedError, SessionNotFoundError, TuningNotFoundError
 from .migrate import migrate
 from .types import (
+    ActuatorRow,
     ChannelRow,
     Downsample,
     Event,
@@ -94,13 +95,14 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
 class SqliteSessionWriter:
     """Appends to one session. Not thread-safe on its own; the store's lock covers it."""
 
-    __slots__ = ("_ended", "_loops", "_quantities", "_session", "_sources", "_store")
+    __slots__ = ("_actuators", "_ended", "_loops", "_quantities", "_session", "_sources", "_store")
 
     def __init__(self, store: SqliteStore, session: SessionRow) -> None:
         self._store = store
         self._session = session
         self._sources: dict[Source, int] = {}
         self._quantities: dict[Quantity, int] = {}
+        self._actuators: set[str] = set()
         self._loops: set[str] = set()
         self._ended = False
 
@@ -143,23 +145,35 @@ class SqliteSessionWriter:
             )
             self._sources[source] = sid
 
-    def declare_loop(self, name: str, channel: Channel, actuator: str, config: Any = None) -> None:
+    def declare_actuator(self, name: str, kind: str, config: Any = None) -> None:
+        self._open()
+        if name in self._actuators:
+            return
+        with self._store._transaction() as connection:
+            connection.execute(
+                "INSERT INTO actuator (session_id, name, kind, config) VALUES (?, ?, ?, ?)",
+                (self._session.id, name, kind, _dumps(config)),
+            )
+            self._actuators.add(name)
+
+    def declare_loop(self, name: str, channel: Channel, config: Any = None) -> None:
         self._open()
         if name in self._loops:
             return
+        if name not in self._actuators:
+            raise NotDeclaredError("actuator", name)
         sid = self._sources.get(channel.source)
         if sid is None:
             raise NotDeclaredError("source", str(channel.source.name))
         with self._store._transaction() as connection:
             connection.execute(
-                "INSERT INTO loop (session_id, name, source_id, quantity_id, actuator, config)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO loop (session_id, name, source_id, quantity_id, config)"
+                " VALUES (?, ?, ?, ?, ?)",
                 (
                     self._session.id,
                     name,
                     sid,
                     self._quantity_id(channel.quantity, connection),
-                    actuator,
                     _dumps(config),
                 ),
             )
@@ -385,14 +399,22 @@ class SqliteStore:
             QuantityRow(r["qid"], r["qname"], r["unit"], r["label"]),
         )
 
+    def actuators(self, session_id: int) -> list[ActuatorRow]:
+        return [
+            ActuatorRow(r["name"], r["kind"], _loads(r["config"]))
+            for r in self._query(
+                "SELECT * FROM actuator WHERE session_id = ? ORDER BY name", (session_id,)
+            )
+        ]
+
     def loops(self, session_id: int) -> list[LoopRow]:
         quantities = self._quantities(session_id)
         sources = {s.id: s for s in self.sources(session_id)}
+        actuators = {a.name: a for a in self.actuators(session_id)}
         return [
             LoopRow(
-                r["name"],
+                actuators[r["name"]],
                 ChannelRow(sources[r["source_id"]], quantities[r["quantity_id"]]),
-                r["actuator"],
                 _loads(r["config"]),
             )
             for r in self._query(

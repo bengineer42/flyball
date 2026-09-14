@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from humctrl.control import Loop
-from humctrl.core.reading import Reading, Sample, Source
+from humctrl.core.reading import Channel, Reading, Sample, Source
 from humctrl.db import SessionWriter, Tick
 
 
@@ -37,26 +37,32 @@ class Recorder:
     __slots__ = ("_start_ns", "loops", "sources", "writer")
 
     def __init__(
-        self, writer: SessionWriter, sources: Iterable[Source], loops: Iterable[Loop[Any]] = ()
+        self,
+        writer: SessionWriter,
+        sources: Iterable[Source],
+        loops: Iterable[tuple[Channel, Loop[Any]]] = (),
     ) -> None:
         self.writer = writer
         self.sources = frozenset(sources)
-        self.loops = frozenset(loops)
+        loops = tuple(loops)
+        self.loops = frozenset(loop for _, loop in loops)
         self._start_ns = writer.session.start_ns
+        # A loop's controlled variable is always recorded, asked for or not.
+        self.sources |= {channel.source for channel, _ in loops}
         for source in self.sources:
             writer.declare_source(source)
-        for loop in self.loops:
+        for channel, loop in loops:
+            writer.declare_actuator(loop.actuator.name, type(loop.actuator).__name__)
             writer.declare_loop(
                 loop.name,
-                loop.process,
-                type(loop.actuator).__name__,
+                channel,
                 None if loop.law is None else loop.law.config.model_dump(mode="json"),
             )
 
     def record(
         self, samples: Sequence[Sample], ticked: Sequence[tuple[Loop[Any], Reading]]
     ) -> None:
-        """One delivery. Samples from unrecorded sources and ticks of unrecorded loops are skipped."""
+        """One delivery. Unrecorded sources and loops are skipped."""
         self.writer.write_samples(s for s in samples if s.source in self.sources)
         for loop, reading in ticked:
             if loop in self.loops:

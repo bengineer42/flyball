@@ -90,16 +90,26 @@ CREATE INDEX reading_by_channel ON reading (session_id, source_id, quantity_id, 
 -- "Everything between t1 and t2" across sources, for export.
 CREATE INDEX sample_by_time ON sample (session_id, offset_ns);
 
--- A control loop as wired for this session: which channel it regulated and
--- what it drove. Declared once, like source; tick is its data.
+-- Something the rig drives. Exists whether or not a loop drives it -- pumps
+-- can be commanded by hand -- and its own configuration lives here.
+CREATE TABLE actuator (
+    session_id  INTEGER NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL,           -- "pumps"
+    kind        TEXT    NOT NULL,           -- "DualPumps" -- informational
+    config      TEXT,                       -- JSON: max flows, deadbands, ...
+    PRIMARY KEY (session_id, name)
+);
+
+-- A control loop as wired for this session: the actuator it drives (whose
+-- name is the loop's) and the channel it regulates. tick is its data.
 CREATE TABLE loop (
     session_id  INTEGER NOT NULL,
-    name        TEXT    NOT NULL,           -- "humidity"
+    name        TEXT    NOT NULL,           -- = actuator.name
     source_id   INTEGER NOT NULL,           -- the CV channel...
     quantity_id INTEGER NOT NULL,           -- ...and so its unit
-    actuator    TEXT    NOT NULL,           -- "dual-pumps" -- informational
     config      TEXT,                       -- JSON: the law it started with
     PRIMARY KEY (session_id, name),
+    FOREIGN KEY (session_id, name) REFERENCES actuator(session_id, name) ON DELETE CASCADE,
     FOREIGN KEY (session_id, source_id, quantity_id)
         REFERENCES channel(session_id, source_id, quantity_id) ON DELETE CASCADE
 );

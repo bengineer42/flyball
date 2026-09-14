@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from humctrl.core.reading import Channel, Sample, Source
 
 from .types import (
+    ActuatorRow,
     ChannelRow,
     Downsample,
     Event,
@@ -42,9 +43,13 @@ class SessionWriter(Protocol):
         """Register a source and every quantity it carries. Idempotent."""
         ...
 
-    def declare_loop(
-        self, name: str, channel: Channel, actuator: str, config: Any = None
-    ) -> None: ...
+    def declare_actuator(self, name: str, kind: str, config: Any = None) -> None:
+        """Idempotent."""
+        ...
+
+    def declare_loop(self, name: str, channel: Channel, config: Any = None) -> None:
+        """``name`` is the actuator's, which must already be declared."""
+        ...
 
     # endregion
 
@@ -111,6 +116,8 @@ class Store(Protocol):
     def sources(self, session_id: int) -> list[SourceRow]: ...
 
     def channels(self, session_id: int) -> list[ChannelRow]: ...
+
+    def actuators(self, session_id: int) -> list[ActuatorRow]: ...
 
     def loops(self, session_id: int) -> list[LoopRow]: ...
 

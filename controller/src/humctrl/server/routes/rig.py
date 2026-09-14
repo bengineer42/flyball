@@ -10,13 +10,14 @@ from __future__ import annotations
 from typing import Annotated, Any, Union
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field, SerializeAsAny
+from pydantic import Field, SerializeAsAny
 
-from humctrl.control import ControlLawConfig, ControlLaws, ControlLawView, Loop, Tuning
+from humctrl.control import ControlLawConfig, ControlLaws, ControlLawView, Tuning
 from humctrl.control.errors import TuningNotRegisteredError
 from humctrl.core.errors import NotFoundError
-from humctrl.core.reading import Channel, Quantity, Sample, Source
+from humctrl.core.reading import Channel, Quantity, Source
 from humctrl.server.deps import RigDep
+from humctrl.server.schemas import ChannelOut, LoopOut, ReaderOut, SourceOut
 
 router = APIRouter(prefix="/api", tags=["rig"])
 
@@ -27,106 +28,6 @@ LawConfig = Annotated[  # type: ignore[valid-type]
     Union[tuple(law.config for law in ControlLaws.values())],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
 ]
-
-# region Wire models
-
-
-class ChannelOut(BaseModel):
-    source: str
-    quantity: str
-    unit: str
-    label: str
-
-    @classmethod
-    def of(cls, channel: Channel) -> ChannelOut:
-        return cls(
-            source=str(channel.source.name),
-            quantity=channel.quantity.name,
-            unit=channel.unit,
-            label=channel.quantity.label,
-        )
-
-
-class SampleOut(BaseModel):
-    seq: int
-    time_ns: int
-    values: dict[str, float]
-
-    @classmethod
-    def of(cls, sample: Sample) -> SampleOut:
-        return cls(
-            seq=sample.seq,
-            time_ns=sample.time_ns,
-            values={q.name: v for q, v in sample.values.items()},
-        )
-
-
-class SourceOut(BaseModel):
-    name: str
-    channels: list[ChannelOut]
-    latest: SampleOut | None
-
-    @classmethod
-    def of(cls, source: Source, latest: Sample | None) -> SourceOut:
-        return cls(
-            name=str(source.name),
-            channels=[ChannelOut.of(c) for c in source.channels],
-            latest=None if latest is None else SampleOut.of(latest),
-        )
-
-
-class ReaderOut(BaseModel):
-    sources: list[str]
-    period_s: float
-
-
-class ReadingOut(BaseModel):
-    time_ns: int
-    value: float
-
-
-class LoopOut(BaseModel):
-    """A loop as a client sees it: identity, what it is doing, and the law in force.
-
-    Built here rather than returning ``LoopView`` so the wire shape is the
-    server's to keep stable while the loop's internals move.
-    """
-
-    name: str
-    channel: ChannelOut
-    default: bool
-    mode: str
-    law: SerializeAsAny[ControlLawView] | None
-    reference: float | str | None
-    correction: float
-    demand: float | None
-    expected: float | None
-    delivered_correction: float | None
-    reading: ReadingOut | None
-
-    @classmethod
-    def of(cls, channel: Channel, loop: Loop[Any], default: bool) -> LoopOut:
-        reference = loop.reference
-        return cls(
-            name=loop.name,
-            channel=ChannelOut.of(channel),
-            default=default,
-            mode=loop.mode.value,
-            law=None if loop.law is None else loop.law.view,
-            reference=reference
-            if isinstance(reference, float | int | type(None))
-            else reference.tag,
-            correction=loop.correction,
-            demand=loop.demand,
-            expected=loop.expected,
-            delivered_correction=loop.delivered_correction,
-            reading=None
-            if loop.reading is None
-            else ReadingOut(time_ns=loop.reading.time_ns, value=loop.reading.value),
-        )
-
-
-# endregion
 
 
 def _channel(rig: RigDep, name: str) -> Channel:
@@ -177,22 +78,22 @@ async def read_readers(rig: RigDep) -> list[ReaderOut]:
 
 @router.get("/loops")
 async def read_loops(rig: RigDep) -> list[LoopOut]:
-    return [LoopOut.of(ch, loop, ch is rig.loops.default) for ch, loop in rig.loops.items()]  # type: ignore[no-untyped-call]
+    return [
+        LoopOut.of(ch, loop, loop.name == rig.loops.default) for ch, loop in rig.loops.entries()
+    ]
 
 
 @router.get("/loops/default")
 async def read_default_loop(rig: RigDep) -> LoopOut:
     loop = rig.loops.resolve()
-    ch = rig.loops.default
-    assert ch is not None
-    return LoopOut.of(ch, loop, True)
+    return LoopOut.of(rig.loops.channel(loop.name), loop, True)
 
 
-@router.get("/loops/{channel}")
-async def read_loop(rig: RigDep, channel: str) -> LoopOut:
-    """``channel`` is ``source.quantity``, the loop's controlled variable."""
-    ch = _channel(rig, channel)
-    return LoopOut.of(ch, rig.loops.resolve(ch), ch is rig.loops.default)
+@router.get("/loops/{name}")
+async def read_loop(rig: RigDep, name: str) -> LoopOut:
+    """``name`` is the loop's -- which is its actuator's."""
+    loop = rig.loops.resolve(name)
+    return LoopOut.of(rig.loops.channel(name), loop, name == rig.loops.default)
 
 
 # endregion

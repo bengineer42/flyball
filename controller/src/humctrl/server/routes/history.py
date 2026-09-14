@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from humctrl.db import (
+    ActuatorRow,
     ChannelRow,
     Downsample,
     Event,
@@ -63,6 +64,11 @@ async def read_sources(store: StoreDep, session_id: int) -> list[SourceRow]:
 @router.get("/sessions/{session_id}/channels")
 async def read_channels(store: StoreDep, session_id: int) -> list[ChannelRow]:
     return store.channels(session_id)
+
+
+@router.get("/sessions/{session_id}/actuators")
+async def read_actuators(store: StoreDep, session_id: int) -> list[ActuatorRow]:
+    return store.actuators(session_id)
 
 
 @router.get("/sessions/{session_id}/loops")

@@ -13,8 +13,8 @@ import logging
 import sys
 from contextlib import suppress
 
-from humctrl.clock import Clock
 from humctrl.control import PIController
+from humctrl.core.clock import Clock
 from humctrl.humidity.readers import HTReading
 from humctrl.pumps import DualPumps, PumpPair
 from humctrl.rig import HumRig

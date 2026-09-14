@@ -4,16 +4,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from humctrl.blender import BlenderState
-from humctrl.clock import Duration, Rate
 from humctrl.control import ValueSource
 from humctrl.control.setpoint import LinearRampSetpoint, SetPointGenerator
 from humctrl.control.types import ControlLawLike, Transfer
+from humctrl.core.clock import Duration, Rate
+from humctrl.core.resource import Operator
+from humctrl.core.typing import Percent, Positive, PositiveInt
+from humctrl.core.utils import Labelled
 from humctrl.programmer.command import Activity, Command, CommandResult
 from humctrl.pumps import BlendFlow
-from humctrl.resource import Operator
 from humctrl.state import State, View
-from humctrl.typing import Percent, Positive, PositiveInt
-from humctrl.utils import Labelled
 
 from .activites import Sustained, TestHumidities
 

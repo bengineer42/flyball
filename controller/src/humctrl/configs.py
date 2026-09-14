@@ -5,10 +5,11 @@ from linux_pwm import PWMChip
 from linux_pwm.sysfs import PWM_PATH
 
 from humctrl.blender import DualPumpsBlender
-from humctrl.core.config import Config, ConfigOr, resolve
 from humctrl.control import Tuning
 from humctrl.control.laws import OpenLoopTuning
 from humctrl.control.types import ControlLawLike
+from humctrl.core.config import Config, ConfigOr, resolve
+from humctrl.core.typing import Percent, Positive
 from humctrl.direct import DEFAULT_PWM_FREQUENCY, LinuxPWMPump
 from humctrl.pumps import (
     BlendFlow,
@@ -19,7 +20,6 @@ from humctrl.pumps import (
     SupplyHumiditiesLike,
 )
 from humctrl.rig import HumRig
-from humctrl.typing import Percent, Positive
 
 
 @dataclass(slots=True, frozen=True)

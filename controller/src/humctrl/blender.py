@@ -4,8 +4,10 @@ from threading import RLock
 
 from humctrl.control import Actuator
 from humctrl.core import Observer
+from humctrl.core.errors import NotReadyError, UnachievableError
 from humctrl.core.reading import Reading
-from humctrl.errors import NotReadyError, UnachievableError
+from humctrl.core.typing import Normalised, Percent, Positive
+from humctrl.core.utils import require
 from humctrl.humidity.readers import HTSource
 from humctrl.pumps import (
     BlendFlow,
@@ -23,8 +25,6 @@ from humctrl.pumps.types import (
     SupplyHumidities,
     SupplyHumiditiesLike,
 )
-from humctrl.typing import Normalised, Percent, Positive
-from humctrl.utils import require
 
 
 class BlenderError(Exception): ...
@@ -159,7 +159,9 @@ class DualPumpsBlender(Actuator, Observer):
         humidities: SupplyHumiditiesLike,
         demand: Percent | None = None,
         flow: BlendFlow = DefaultBlendFlow,
-    ):
+        name: str = "pumps",
+    ) -> None:
+        super().__init__(name)
         self.pumps = pumps
         self.blend_flow = flow
         self._demand = demand

@@ -1,3 +1,5 @@
+from pydantic import ConfigDict
+
 from humctrl.core.config import Config, ConfigOr, resolve
 from humctrl.pumps.types import MaxFlowsDefault, MaxFlowsLike
 
@@ -6,6 +8,10 @@ from .dual import DualPumps
 
 
 class DualPumpsConfig(Config[DualPumps]):
+    # The driver is a protocol and the flow types are plain classes: neither
+    # has a pydantic schema, and neither needs one to be built from code.
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     units: str | None = None
     max_flows: MaxFlowsLike = MaxFlowsDefault
     driver: ConfigOr[DualPumpDriver]

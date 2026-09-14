@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from functools import cached_property
 
-from humctrl.errors import HardwareError, HumCtrlError, UnachievableError
-from humctrl.typing import Normalised, Positive
-from humctrl.utils import format_quantity
+from humctrl.core.errors import HardwareError, HumCtrlError, UnachievableError
+from humctrl.core.typing import Normalised, Positive
+from humctrl.core.utils import format_quantity
 
 from .types import MaxFlows, SupplyFlows, SupplyFlowsLike
 

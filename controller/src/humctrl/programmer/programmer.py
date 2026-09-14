@@ -25,14 +25,14 @@ from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
 
-from humctrl.resource import Operator
+from humctrl.core.resource import Operator
 
 from .errors import CommandRuntimeError, ProgramAlreadyRunningError
 from .program import Program
 
 if TYPE_CHECKING:
     from humctrl.programmer.command import Activity, Command
-    from humctrl.rig import Rig
+    from humctrl.runtime.rig import Rig
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-from humctrl.errors import ConflictError, HumCtrlError, NotReadyError, UnachievableError
+from humctrl.core.errors import ConflictError, HumCtrlError, NotReadyError, UnachievableError
 
 
 class AutotuneError(HumCtrlError):

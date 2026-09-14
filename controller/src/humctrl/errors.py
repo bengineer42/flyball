@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from humctrl.core.errors import ConflictError, HardwareError, NotReadyError
+
 if TYPE_CHECKING:
     from humctrl.humidity.readers import HTReaderSource
 

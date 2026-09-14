@@ -5,7 +5,7 @@ from math import exp, sqrt
 from typing import NamedTuple, cast
 
 from humctrl.control import PI, PID, ControlLawConfig, Tuning
-from humctrl.typing import NonNegative, Positive
+from humctrl.core.typing import NonNegative, Positive
 
 
 class Sample(NamedTuple):

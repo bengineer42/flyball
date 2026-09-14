@@ -1,4 +1,9 @@
-"""Commands and programs: what a rig can be told to do, and running a list of it."""
+"""Commands and programs: what a rig can be told to do, and running a list of it.
+
+Not mounted yet: ``humctrl.programmer`` does not import (a dangling ``from`` in
+its ``__init__`` and a stale ``humctrl.resource`` import). Once it does, add
+``program_router`` to ``routes/__init__.py`` and ``app.py``.
+"""
 
 from __future__ import annotations
 
@@ -6,40 +11,56 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from humctrl.programmer import Program
+from humctrl.programmer.programmer import ProgrammerState
 from humctrl.server.commands import CommandRequest, CommandsSchema
-from humctrl.server.deps import RigDep
-from humctrl.state import State
+from humctrl.server.deps import ProgrammerDep
 
-command_router = APIRouter(prefix="/api/command", tags=["controller"])
+program_router = APIRouter(prefix="/api/program", tags=["program"])
 
 
-@command_router.get("/schema")
+@program_router.get("/commands/schema")
 async def read_command_schema() -> dict[str, Any]:
-    """The JSON schema for every registered command, for building a form.
-
-    ``discriminator.mapping`` lists the commands and points at the fields of
-    each, so a client needs no second copy of what a command looks like.
-    """
+    """The JSON schema for every registered command, for building a form."""
     return CommandsSchema
 
 
-@command_router.post("/")
-def run_command(body: CommandRequest, rig: RigDep, interrupt: bool = False) -> State:
-    """Run one command, returning the rig state it produced.
+@program_router.get("")
+async def read_program(programmer: ProgrammerDep) -> ProgrammerState:
+    return programmer.state
 
-    Returns as soon as the command has been applied: a hold or ramp continues
-    on its own thread, and the client watches the rest over ``/ws/telemetry``.
 
-    Not ``async``: applying a command writes to the pumps, and that blocking
-    I/O on the event loop would stall the telemetry sockets. A plain ``def``
-    route runs in a threadpool instead.
+@program_router.post("/command")
+def run_command(
+    body: CommandRequest,  # type: ignore[valid-type]
+    programmer: ProgrammerDep,
+    interrupt: bool = False,
+) -> ProgrammerState:
+    """Apply one command and return as soon as it has been applied.
 
-    Args:
-        body: The command to run.
-        rig: The attached rig.
-        interrupt: ``?interrupt=true`` stops whatever is running first, rather
-            than refusing with a conflict. A query parameter rather than a field
-            on the command: it says how to apply this request, and would be
-            meaningless replayed as a step inside a stored program.
+    A hold or ramp carries on on the programmer's thread; watch it over the
+    websockets. Not ``async``: applying a command may write to hardware.
+
+    ``interrupt`` stops whatever is running first rather than refusing with a
+    conflict. A query parameter rather than a field: it says how to apply
+    this request, and means nothing replayed as a step in a stored program.
     """
-    return rig.start_command(body.parse(), interrupt=interrupt)
+    programmer.start(body.parse(), interrupt=interrupt)
+    return programmer.state
+
+
+@program_router.post("")
+def run_program(
+    body: list[CommandRequest],  # type: ignore[valid-type]
+    programmer: ProgrammerDep,
+    interrupt: bool = False,
+) -> ProgrammerState:
+    """Start a list of commands, in order."""
+    programmer.start(Program([step.parse() for step in body]), interrupt=interrupt)
+    return programmer.state
+
+
+@program_router.post("/interrupt")
+def interrupt(programmer: ProgrammerDep) -> ProgrammerState:
+    programmer.interrupt()
+    return programmer.state

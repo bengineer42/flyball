@@ -2,7 +2,16 @@ from .reading import Channel, Reading, Sample, Source
 
 
 class Sink:
-    """Takes something in, commits on ``apply``. Base for actuators and buffering observers."""
+    """Takes something in, commits on ``apply``. Base for actuators and buffering observers.
+
+    ``name`` identifies it in the rig, on the wire and in a recording -- for
+    an actuator it is also the name of the loop driving it.
+    """
+
+    name: str
+
+    def __init__(self, name: str) -> None:
+        self.name = name
 
     def apply(self) -> None:
         """Commit whatever was handed over since the last apply. Default: nothing."""

@@ -61,11 +61,23 @@ class ChannelRow:
 
 
 @dataclass(frozen=True, slots=True)
-class LoopRow:
+class ActuatorRow:
     name: str
-    channel: ChannelRow
-    actuator: str
+    kind: str
     config: Any
+
+
+@dataclass(frozen=True, slots=True)
+class LoopRow:
+    """A loop is named by the actuator it drives."""
+
+    actuator: ActuatorRow
+    channel: ChannelRow
+    config: Any
+
+    @property
+    def name(self) -> str:
+        return self.actuator.name
 
 
 @dataclass(frozen=True, slots=True)

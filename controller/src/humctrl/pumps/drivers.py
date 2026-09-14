@@ -1,6 +1,6 @@
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
-from humctrl.typing import Normalised
+from humctrl.core.typing import Normalised
 
 from .errors import PumpErrorGroup, PumpHardwareError
 from .types import SupplyEfforts
@@ -15,6 +15,7 @@ class PumpDriver(Protocol):
     def stop(self) -> None: ...
 
 
+@runtime_checkable
 class DualPumpDriver(Protocol):
     @property
     def dry_effort(self) -> Normalised: ...

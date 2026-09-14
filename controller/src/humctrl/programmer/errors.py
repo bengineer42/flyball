@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from humctrl.errors import ConflictError
+from humctrl.core.errors import ConflictError
 
+if TYPE_CHECKING:
     from .command import Activity, Command
     from .program import Program
 

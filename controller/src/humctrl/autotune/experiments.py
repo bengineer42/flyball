@@ -19,7 +19,7 @@ from __future__ import annotations
 from math import pi
 from statistics import fmean
 
-from humctrl.typing import Positive
+from humctrl.core.typing import Positive
 
 from .errors import ExperimentIncompleteError, ExperimentTimeoutError, ResponseTooSmallError
 from .fit import SteadyState, fit_fopdt

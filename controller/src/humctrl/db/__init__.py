@@ -16,6 +16,7 @@ from .errors import (
 from .sqlite import SqliteSessionWriter, SqliteStore
 from .store import SessionWriter, Store
 from .types import (
+    ActuatorRow,
     ChannelRow,
     Downsample,
     Event,
@@ -33,6 +34,7 @@ from .types import (
 )
 
 __all__ = [
+    "ActuatorRow",
     "ChannelRow",
     "Downsample",
     "Event",

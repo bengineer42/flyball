@@ -4,8 +4,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import NamedTuple, Self
 
-from humctrl.typing import NonNegative, Normalised, Percent, Positive
-from humctrl.utils import Labelled
+from humctrl.core.typing import NonNegative, Normalised, Percent, Positive
+from humctrl.core.utils import Labelled
 
 
 class OnOverdrive(Labelled):

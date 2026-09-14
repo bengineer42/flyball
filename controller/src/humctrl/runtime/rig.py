@@ -11,7 +11,7 @@ from humctrl.core.sink import Actuator, Observer, Sink
 from humctrl.db import Store
 from humctrl.runtime.reader import Readers
 
-from .loops import LoopNotFoundError, Loops
+from .loops import Loops
 from .recorder import Recorder
 
 type OrderedSet[T] = dict[T, None]
@@ -20,7 +20,6 @@ type OrderedSet[T] = dict[T, None]
 class Rig(Protocol):
     clock: Clock
     loops: Loops
-    default_loop: Channel | None
     lock: RLock
     observations: dict[Source | Channel, OrderedSet[Observer]]
     tunings: Tunings
@@ -32,7 +31,6 @@ class Rig(Protocol):
     def __init__(self) -> None:
         self.clock = Clock()
         self.loops = Loops()
-        self.default_loop = None
         self.lock = RLock()
         self.observations = {}
         self.tunings = Tunings()
@@ -43,7 +41,12 @@ class Rig(Protocol):
 
     @property
     def sources(self) -> set[Source]:
-        return set(self._samples.keys())
+        """Every source the rig can hear: from its readers, its loops, and anything already seen."""
+        return (
+            {source for reader in self._readers.periodic for source in reader.sources}
+            | {channel.source for channel, _ in self.loops.entries()}
+            | set(self._samples)
+        )
 
     def attach_observer(self, observer: Observer) -> None:
         """Register under every source and channel the observer asked for."""
@@ -60,11 +63,14 @@ class Rig(Protocol):
 
     def attach_loop(
         self,
-        name: str,
+        channel: Channel,
         actuator: Actuator,
         law: ControlLawLike | str | None = None,
         default: bool = False,
-    ) -> None: ...
+    ) -> None:
+        if isinstance(law, str):
+            law = self.tunings.get(law)
+        self.loops.add(channel, Loop(self.clock, actuator, law=law), default=default)
 
     # region Recording
 
@@ -72,7 +78,7 @@ class Rig(Protocol):
         self,
         store: Store,
         sources: Iterable[Source] | None = None,
-        loops: Iterable[Loop[Any]] | None = None,
+        loops: Iterable[tuple[Channel, Loop[Any]]] | None = None,
         **session: Any,
     ) -> Recorder:
         """Open a session and record into it from the next delivery on.
@@ -87,7 +93,7 @@ class Rig(Protocol):
             self.recorder = Recorder(
                 writer,
                 self.sources if sources is None else sources,
-                [loop for _, loop in self.loops.items()] if loops is None else loops,
+                self.loops.entries() if loops is None else loops,
             )
             return self.recorder
 
@@ -101,7 +107,7 @@ class Rig(Protocol):
 
     def read(self, reader: Reader) -> None:
         with self.lock:
-            self.on_read(reader.read(self.clock.now_ns()))
+            self.on_read(tuple(reader.read(self.clock.now_ns())))
 
     def on_read(self, samples: Sequence[Sample]) -> None:
         """One delivery: observers, then the loops, one apply per touched sink, then the recorder.
@@ -123,10 +129,8 @@ class Rig(Protocol):
                     for observer in self.observations[channel]:
                         observer.observe(reading)
                         touched.update(observer.touches)
-                try:
-                    processes.append((self.loops.resolve(channel), reading))
-                except LoopNotFoundError:
-                    pass  # not a controlled variable
+                if (loop := self.loops.find(channel)) is not None:
+                    processes.append((loop, reading))
 
         for loop, reading in processes:
             loop.tick(reading)

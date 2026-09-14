@@ -1,7 +1,7 @@
 from typing import NoReturn
 
-from humctrl.typing import NonNegative, Normalised, Positive
-from humctrl.utils import format_quantity
+from humctrl.core.typing import NonNegative, Normalised, Positive
+from humctrl.core.utils import format_quantity
 
 from .drivers import DualPumpDriver
 from .errors import FlowsOverdrivenError

@@ -79,7 +79,6 @@ class LoopView(LoopSpec, LoopState):
 
 
 class Loop[A: Actuator]:
-    name: str
     clock: Clock
     actuator: A
     law: ControlLaw | None
@@ -97,12 +96,10 @@ class Loop[A: Actuator]:
 
     def __init__(
         self,
-        name: str,
         clock: Clock,
         actuator: A,
         law: ControlLaw | ControlLawConfig | ControlLawView | Tuning | None = None,
     ) -> None:
-        self.name = name
         self.clock = clock
         self.actuator = actuator
         if law is not None:
@@ -121,6 +118,11 @@ class Loop[A: Actuator]:
     @property
     def required_law(self) -> ControlLaw:
         return require(self.law, ControlLawNotSetError)
+
+    @property
+    def name(self) -> str:
+        """A loop is known by what it drives."""
+        return self.actuator.name
 
     @property
     def spec(self) -> LoopSpec:

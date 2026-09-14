@@ -13,31 +13,28 @@ from typing import Any, Literal, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
-from humctrl.core.clock import Duration, Rate, Time
-from humctrl.control import ControlLaw, ControlLawConfig
+from humctrl.control import ControlLaw, ControlLawConfig, ControlLawLike
 from humctrl.control.types import ControlLawView, Tuning
-from humctrl.programmer.commands import Command
-from humctrl.pumps.types import BlendFlow
+from humctrl.core.clock import Duration, Speed
+from humctrl.programmer.command import Command, Commands
 from humctrl.server.schemas import (
-    BlendFlowRequest,
     DurationRequest,
     LawConfig,
     RateRequest,
-    generate_command_schema,
+    discriminated_union,
 )
 
 #: Domain annotation -> how it crosses the wire. A parameter whose annotation is
 #: not a key here keeps its own type. Keys are matched whole, so a union must be
 #: written exactly as the command declares it.
 WIRE_TYPES: dict[Any, Any] = {
-    BlendFlow: BlendFlowRequest,
-    BlendFlow | None: BlendFlowRequest | None,
+    Duration: DurationRequest,
     Duration | float: DurationRequest | float,
-    Rate | Time | Duration: RateRequest | DurationRequest,
+    Speed | Duration: RateRequest | DurationRequest,
     # A running law cannot cross the wire, so the tuning unions narrow to a
     # config or the name of a stored one.
+    ControlLawLike | str | None: LawConfig | str | None,
     Tuning | ControlLaw | ControlLawConfig | ControlLawView | str | None: LawConfig | str | None,
-    Tuning | ControlLaw | ControlLawConfig | str | None: LawConfig | str | None,
 }
 
 
@@ -98,7 +95,7 @@ def request_for(command: type[Command]) -> type[CommandBase]:
 
 
 #: Every registered command, discriminated by its tag.
-CommandRequest = generate_command_schema(Commands, "command", request_for)
+CommandRequest = discriminated_union(Commands, "command", request_for)
 
 #: The same union as a JSON schema, for a client building a command form.
 CommandsSchema = TypeAdapter(CommandRequest).json_schema()

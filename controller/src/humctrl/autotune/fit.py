@@ -13,7 +13,7 @@ from collections import deque
 from math import exp
 from statistics import fmean
 
-from humctrl.typing import Positive
+from humctrl.core.typing import Positive
 
 from .errors import ResponseTooSmallError
 from .types import FOPDT, Sample

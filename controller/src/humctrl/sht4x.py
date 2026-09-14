@@ -66,13 +66,14 @@ class SHT4x:
     ``collect`` waits it out and decodes. ``read`` is the two back to back.
     """
 
-    __slots__ = ("_addr", "_buf", "_i2c", "_lock", "source")
+    __slots__ = ("_addr", "_buf", "_i2c", "_lock", "seq", "source")
 
     def __init__(self, i2c: I2CBus, source: HTSource, address: int = SHT4X_ADDRESS) -> None:
         self._i2c = i2c
         self._addr = address
         self.source = source
         self._lock = RLock()
+        self.seq = 0
         self._buf = bytearray(6)
 
     def trigger(self) -> int:
@@ -101,7 +102,8 @@ class SHT4x:
                 raise SHT4xReadError(self.source, e) from e
             finally:
                 self._i2c.unlock()
-        return HTReading.of(self.source, stamp_ns, humidity, temperature)
+                self.seq += 1
+        return HTReading.of(self.source, self.seq, stamp_ns, humidity, temperature)
 
     def read(self, time_ns: int) -> HTReading:
         """Trigger, wait, collect. Stamped at the trigger instant in the caller's epoch."""

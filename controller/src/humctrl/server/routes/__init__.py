@@ -1,11 +1,11 @@
 """Routers the app mounts.
 
-Only routers written against the current rig and store are exported. The
-controller, pumps, program and telemetry routes predate ``runtime.rig`` and
-are rewired as those parts land.
+The program router is written against the current programmer but is not
+exported until ``humctrl.programmer`` imports again; see ``program.py``.
 """
 
 from .history import router as history_router
 from .rig import router as rig_router
+from .telemetry import router as telemetry_router
 
-__all__ = ["history_router", "rig_router"]
+__all__ = ["history_router", "rig_router", "telemetry_router"]
