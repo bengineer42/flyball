@@ -13,7 +13,7 @@ from typing import Any, Literal, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
-from humctrl.clock import Duration, Rate, Time
+from humctrl.core.clock import Duration, Rate, Time
 from humctrl.control import ControlLaw, ControlLawConfig
 from humctrl.control.types import ControlLawView, Tuning
 from humctrl.programmer.commands import Command

@@ -10,7 +10,7 @@ from humctrl.server.schemas import (
     EffortsRequest,
     FlowsRequest,
 )
-from humctrl.typing import Normalised
+from humctrl.core.typing import Normalised
 
 router = APIRouter(prefix="/api/pumps", tags=["pumps"])
 

@@ -1,3 +1,4 @@
+from ..core.sink import Actuator
 from .errors import (
     ControlLawNotRegisteredError,
     ControlLawNotSetError,
@@ -5,11 +6,12 @@ from .errors import (
     LastReadingNotAvailableError,
 )
 from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
-from .loop import Actuator, Loop
+from .loop import Loop, LoopSpec, LoopState, LoopView
 from .setpoint import LinearRampSetpoint, SetPointGenerator
 from .types import (
     ApplyResult,
     ControlLaw,
+    ControlLawBuilder,
     ControlLawConfig,
     ControlLawLike,
     ControlLaws,
@@ -20,6 +22,7 @@ from .types import (
     RegulateResult,
     Transfer,
     Tuning,
+    Tunings,
     ValueSource,
 )
 
@@ -29,6 +32,7 @@ __all__ = [
     "Actuator",
     "ApplyResult",
     "ControlLaw",
+    "ControlLawBuilder",
     "ControlLawConfig",
     "ControlLawLike",
     "ControlLawNotRegisteredError",
@@ -42,6 +46,9 @@ __all__ = [
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "Loop",
+    "LoopSpec",
+    "LoopState",
+    "LoopView",
     "OpenLoop",
     "OpenLoopTuning",
     "P",
@@ -49,5 +56,6 @@ __all__ = [
     "SetPointGenerator",
     "Transfer",
     "Tuning",
+    "Tunings",
     "ValueSource",
 ]

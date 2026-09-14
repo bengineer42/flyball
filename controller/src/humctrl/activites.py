@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from humctrl.clock import Duration
+from humctrl.humidity.readers import HTReading
 from humctrl.programmer.command import Activity
-from humctrl.readers import HTReading
 from humctrl.typing import Percent, Positive, PositiveInt
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ class Sustained(Activity):
         self.min_readings = min_readings
         self.test = test
 
-    def tick(self, reading: HTReading) -> None:
+    def observe(self, reading: HTReading) -> None:
         self._window.append(reading)
         start = reading.seconds - self.min_duration
         limit = len(self._window) - self.min_readings

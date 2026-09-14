@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from humctrl.errors import (
+from humctrl.core.errors import (
     ConflictError,
     HardwareError,
     HumCtrlError,
@@ -19,13 +19,7 @@ from humctrl.errors import (
     UnachievableError,
 )
 from humctrl.server.deps import current_rig
-from humctrl.server.routes import (
-    command_router,
-    controller_router,
-    pumps_router,
-    rig_router,
-    telemetry_router,
-)
+from humctrl.server.routes import history_router, rig_router
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -45,7 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         rig = current_rig()
         if rig is not None:
             with contextlib.suppress(Exception):
-                rig.stop()
+                rig._readers.stop_all()
 
 
 def create_app() -> FastAPI:
@@ -92,10 +86,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "rig_attached": current_rig() is not None}
 
     app.include_router(rig_router)
-    app.include_router(controller_router)
-    app.include_router(command_router)
-    app.include_router(pumps_router)
-    app.include_router(telemetry_router)
+    app.include_router(history_router)
     return app
 
 

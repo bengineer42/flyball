@@ -12,7 +12,7 @@ from humctrl.control import (
 from humctrl.server.deps import ControllerDep, RigDep
 from humctrl.server.schemas import StartControllerRequest
 from humctrl.state import ControllerOutput
-from humctrl.typing import UnclampedPercent
+from humctrl.core.typing import UnclampedPercent
 
 router = APIRouter(prefix="/api/controller", tags=["controller"])
 

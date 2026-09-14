@@ -1,74 +1,137 @@
-from collections.abc import Callable
+from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
 from threading import RLock
-from typing import Protocol
+from typing import Any, Protocol
 
-from humctrl.control import ControlLawLike, Loop, Tuning
-from humctrl.control.loop import Actuator
+from humctrl.control import ControlLawLike, Loop, Tunings
 from humctrl.core import Clock
-from humctrl.core.reading import Channel, Reading
+from humctrl.core.reading import Channel, Reader, Reading, Sample, Source
+from humctrl.core.sink import Actuator, Observer, Sink
+from humctrl.db import Store
+from humctrl.runtime.reader import Readers
 
-
-class LoopNotFoundError(Exception):
-    def __init__(self, name: str) -> None:
-        super().__init__(f"Loop not found: {name}")
-
-
-class NoDefaultLoopSetError(Exception):
-    def __init__(self) -> None:
-        super().__init__("No default loop set")
-
-
-type RigOnTickCallback = Callable[[Rig, list[Reading]], None]
-
+from .loops import LoopNotFoundError, Loops
+from .recorder import Recorder
 
 type OrderedSet[T] = dict[T, None]
 
 
-class Router:
-    loops: OrderedSet[Loop]
-    actuators: OrderedSet[Actuator]
-
-
 class Rig(Protocol):
     clock: Clock
-    _on_tick: dict[RigOnTickCallback, None]
+    loops: Loops
+    default_loop: Channel | None
     lock: RLock
+    observations: dict[Source | Channel, OrderedSet[Observer]]
+    tunings: Tunings
+    recorder: Recorder | None
+    _readers: Readers
+    _samples: dict[Source, Sample]
+    _readings: dict[Channel, Reading]
+
+    def __init__(self) -> None:
+        self.clock = Clock()
+        self.loops = Loops()
+        self.default_loop = None
+        self.lock = RLock()
+        self.observations = {}
+        self.tunings = Tunings()
+        self.recorder = None
+        self._readers = Readers(self)
+        self._samples = {}
+        self._readings = {}
+
+    @property
+    def sources(self) -> set[Source]:
+        return set(self._samples.keys())
+
+    def attach_observer(self, observer: Observer) -> None:
+        """Register under every source and channel the observer asked for."""
+        for key in observer.observes:
+            self.observations.setdefault(key, {})[observer] = None
+
+    def detach_observer(self, observer: Observer) -> None:
+        for key in observer.observes:
+            if (observers := self.observations.get(key)) is not None:
+                observers.pop(observer, None)
+
+    def start_reader(self, reader: Reader, period: float, stop_on_error: bool = True) -> None:
+        self._readers.start_periodic(reader, period)
 
     def attach_loop(
-        self, name: str, actuator: Actuator, law: ControlLawLike | str | None = None
+        self,
+        name: str,
+        actuator: Actuator,
+        law: ControlLawLike | str | None = None,
+        default: bool = False,
     ) -> None: ...
-    def resolve_loop(self, name: str | None = None) -> Loop: ...
-    def attach_on_tick(self, callback: RigOnTickCallback) -> None:
+
+    # region Recording
+
+    def start_recording(
+        self,
+        store: Store,
+        sources: Iterable[Source] | None = None,
+        loops: Iterable[Loop[Any]] | None = None,
+        **session: Any,
+    ) -> Recorder:
+        """Open a session and record into it from the next delivery on.
+
+        Defaults to every source seen so far and every loop. Replaces a
+        recorder already running, closing its session first. ``session`` is
+        passed to ``Store.open_session`` -- config, hardware, version.
+        """
         with self.lock:
-            if callback is not None:
-                self._on_tick[callback] = None
+            self.stop_recording()
+            writer = store.open_session(self.clock.now_ns(), **session)
+            self.recorder = Recorder(
+                writer,
+                self.sources if sources is None else sources,
+                [loop for _, loop in self.loops.items()] if loops is None else loops,
+            )
+            return self.recorder
 
-    def detach_on_tick(self, callback: RigOnTickCallback) -> None:
+    def stop_recording(self) -> None:
         with self.lock:
-            if callback is not None:
-                self._on_tick.pop(callback, None)
+            if (recorder := self.recorder) is not None:
+                self.recorder = None
+                recorder.close(self.clock.now_ns())
 
+    # endregion
 
-class MultiLoopRig:
-    tunings: dict[str, Tuning]
-    default_loop: str | None
-    loops: dict[str, Loop]
-    channels: dict[str, Channel]
+    def read(self, reader: Reader) -> None:
+        with self.lock:
+            self.on_read(reader.read(self.clock.now_ns()))
 
-    def resolve_loop(self, name: str | None = None) -> Loop:
-        name = name or self.default_loop
-        if name is None:
-            raise NoDefaultLoopSetError()
-        try:
-            return self.loops[name]
-        except KeyError as e:
-            raise LoopNotFoundError(name) from e
+    def on_read(self, samples: Sequence[Sample]) -> None:
+        """One delivery: observers, then the loops, one apply per touched sink, then the recorder.
 
+        The recorder goes last so it sees what each tick produced.
+        """
+        processes: list[tuple[Loop[Any], Reading]] = []
+        touched: set[Sink] = set()
+        for sample in samples:
+            self._samples[sample.source] = sample
+            for observer in self.observations.get(sample.source, ()):
+                observer.observe(sample)
+                touched.update(observer.touches)
+            for quantity in sample.values:
+                channel = sample.source[quantity]
+                reading = sample.reading(quantity)
+                self._readings[channel] = reading
+                if channel in self.observations:
+                    for observer in self.observations[channel]:
+                        observer.observe(reading)
+                        touched.update(observer.touches)
+                try:
+                    processes.append((self.loops.resolve(channel), reading))
+                except LoopNotFoundError:
+                    pass  # not a controlled variable
 
-class SingleLoopRig[A: Actuator](Rig):
-    loop: Loop[A]
-
-    def resolve_loop(self, name: str | None = None) -> Loop[A]:
-        if name and name != self.loop.name:
-            raise LoopNotFoundError(name)
-        return self.loop
+        for loop, reading in processes:
+            loop.tick(reading)
+            touched.add(loop.actuator)
+        for sink in touched:
+            sink.apply()
+        if self.recorder is not None:
+            self.recorder.record(samples, processes)

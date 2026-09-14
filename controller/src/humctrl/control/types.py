@@ -268,19 +268,21 @@ class ControllerView(ControllerState):
 
 type ControlLawLike = ControlLaw | ControlLawConfig | ControlLawView | Tuning
 
+type ControlLawBuilder = ControlLawConfig | ControlLawView
+
 
 @dataclass(slots=True, frozen=True)
 class Tuning:
     tag: str
     # Serialised by its runtime type: declared as the base, a response would
     # carry only ``tag`` and drop every gain the law actually has.
-    config: SerializeAsAny[ControlLawConfig | ControlLawView]
+    config: SerializeAsAny[ControlLawBuilder]
 
     def build(self) -> ControlLaw:
         return self.config.build()
 
     @property
-    def tuple(self) -> tuple[str, SerializeAsAny[ControlLawConfig | ControlLawView]]:
+    def tuple(self) -> tuple[str, SerializeAsAny[ControlLawBuilder]]:
         return (self.tag, self.config)
 
 
@@ -303,3 +305,25 @@ class RegulateResult(NamedTuple):
     expected: float | None
     delivered_correction: float | None
     bump: float
+
+
+class Tunings:
+    def __init__(self, tunings: list[Tuning] | None = None) -> None:
+        self._tunings: dict[str, ControlLawBuilder] = {}
+        if tunings is not None:
+            for tuning in tunings:
+                if tuning.tag in self._tunings:
+                    raise ValueError(f"duplicate tuning tag {tuning.tag!r}")
+                self._tunings[tuning.tag] = tuning.config
+
+    def add(self, tuning: Tuning) -> None:
+        self._tunings[tuning.tag] = tuning.config
+
+    def get(self, tag: str) -> SerializeAsAny[ControlLawBuilder] | None:
+        return self._tunings.get(tag)
+
+    def all(self) -> dict[str, ControlLawConfig | ControlLawView]:
+        return dict(self._tunings)
+
+    def list(self) -> list[Tuning]:
+        return [Tuning(tag=tag, config=config) for tag, config in self._tunings.items()]

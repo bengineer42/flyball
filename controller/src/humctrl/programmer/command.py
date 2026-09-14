@@ -1,143 +1,77 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Callable
-from typing import Any, ClassVar, NamedTuple, overload
+from typing import Any, ClassVar
 
 from pydantic.alias_generators import to_snake
 
-from humctrl.control import Loop
-from humctrl.core import Operator, Reading, Signal
+from humctrl.core import Operator, Signal
 from humctrl.runtime.rig import Rig
 
 Commands: dict[str, type[Command]] = {}
 
 
-class Activity:
-    """The ongoing part of a command: driven by the rig, waited on by the programmer."""
+class Activity(Signal):
+    """A signal a program step waits on, that knows how to hook itself into the rig.
 
-    signal: Signal
-    error: Exception | None = None
+    ``attach`` registers whatever feeds it -- an observer, a timer, a prompt;
+    ``detach`` undoes that and puts back anything taken over. ``fail`` fires
+    with an error the waiter re-raises: the activity ended, it was not
+    interrupted.
+    """
 
-    def __init__(self, signal: Signal | None = None) -> None:
-        self.signal = signal or Signal()
+    __slots__ = ("error",)
 
-    def tick(self, rig: Any, reading: Reading) -> None:
-        """Called once per loop tick while attached. Default: nothing."""
+    error: Exception | None
 
-    def detach(self, rig: Any) -> None:
-        """Put back whatever this took over. Default: nothing."""
+    def __init__(self, timeout: float | None = None) -> None:
+        super().__init__(timeout)
+        self.error = None
 
-    def finish(self) -> None:
-        self.signal.fire()
+    def attach(self, rig: Rig) -> None:
+        """Hook in. Default: nothing -- a pure wait."""
 
-    def fail(self, error: Exception) -> None:
-        """Give up. The waiter re-raises this instead of moving on.
+    def detach(self, rig: Rig) -> None:
+        """Undo attach. Default: nothing."""
 
-        Fires rather than cancels: the activity ended, it was not interrupted.
-        """
+    def fail(self, error: Exception) -> bool:
         self.error = error
-        self.signal.fire()
-
-    @property
-    def on_tick(self) -> Callable[[Any, Any], None] | None:
-        return self.tick
-
-    @property
-    def interrupted(self) -> bool:
-        return self.signal.interrupted
-
-    def set(self) -> None:
-        self.signal.set()
-
-    def fire(self) -> None:
-        self.signal.fire()
-
-    __hash__ = object.__hash__
+        return self.fire()
 
 
-class LoopActivity:
-    """The ongoing part of a command: driven by the rig, waited on by the programmer."""
+# class CommandResult[T](NamedTuple):
+#     value: T
+#     activity: Activity | None = None
 
-    signal: Signal
-    error: Exception | None = None
-
-    def __init__(self, signal: Signal | None = None) -> None:
-        self.signal = signal or Signal()
-
-    def tick(self, loop: Loop, reading: Reading | None) -> None:
-        """Called once per loop tick while attached. Default: nothing."""
-
-    def detach(self, loop: Loop) -> None:
-        """Put back whatever this took over. Default: nothing."""
-
-    def finish(self) -> None:
-        self.signal.fire()
-
-    def fail(self, error: Exception) -> None:
-        """Give up. The waiter re-raises this instead of moving on.
-
-        Fires rather than cancels: the activity ended, it was not interrupted.
-        """
-        self.error = error
-        self.signal.fire()
-
-    @property
-    def on_tick(self) -> Callable[[Loop, Reading | None], None] | None:
-        return self.tick
-
-    @property
-    def interrupted(self) -> bool:
-        return self.signal.interrupted
-
-    def set(self) -> None:
-        self.signal.set()
-
-    def fire(self) -> None:
-        self.signal.fire()
-
-    __hash__ = object.__hash__
+#     @overload
+#     @classmethod
+#     def parse(
+#         cls, activity: Activity | Signal | None = None, value: T | None = None
+#     ) -> CommandResult[T]: ...
+#     @overload
+#     @classmethod
+#     def parse(
+#         cls, value: T | None = None, activity: Activity | Signal | None = None
+#     ) -> CommandResult[T]: ...
+#     @overload
+#     @classmethod
+#     def parse(cls, result: CommandResult[T] | Activity | Signal | T) -> CommandResult[T]: ...
+#     @classmethod
+#     def parse(cls, *args, **kwargs) -> CommandResult[T]:
+#         value, activity = kwargs.get("value"), kwargs.get("activity")
+#         for arg in args:
+#             if isinstance(arg, CommandResult):
+#                 return arg
+#             elif isinstance(arg, Activity):
+#                 activity = arg
+#             elif isinstance(arg, Signal):
+#                 activity = Activity(arg)
+#             else:
+#                 value = arg
+#         return cls(value=value, activity=activity)  # pyright: ignore[reportArgumentType]
 
 
-class SignalActivity(Activity):
-    @property
-    def on_tick(self) -> Callable[[Any, Reading], None] | None:
-        return None
-
-
-class CommandResult[T](NamedTuple):
-    value: T
-    activity: Activity | None = None
-
-    @overload
-    @classmethod
-    def parse(
-        cls, activity: Activity | Signal | None = None, value: T | None = None
-    ) -> CommandResult[T]: ...
-    @overload
-    @classmethod
-    def parse(
-        cls, value: T | None = None, activity: Activity | Signal | None = None
-    ) -> CommandResult[T]: ...
-    @overload
-    @classmethod
-    def parse(cls, result: CommandResult[T] | Activity | Signal | T) -> CommandResult[T]: ...
-    @classmethod
-    def parse(cls, *args, **kwargs) -> CommandResult[T]:
-        value, activity = kwargs.get("value"), kwargs.get("activity")
-        for arg in args:
-            if isinstance(arg, CommandResult):
-                return arg
-            elif isinstance(arg, Activity):
-                activity = arg
-            elif isinstance(arg, Signal):
-                activity = SignalActivity(arg)
-            else:
-                value = arg
-        return cls(value=value, activity=activity)  # pyright: ignore[reportArgumentType]
-
-
-class Command[T]:
+class Command:
     """Base for everything a program can run.
 
     Subclassing registers the command under its tag. The wire model is built by
@@ -166,22 +100,5 @@ class Command[T]:
         Commands[cls.tag] = cls
 
     @abstractmethod
-    def run(
-        self, rig: Rig, operator: Operator | None = None
-    ) -> CommandResult[T] | Activity | Signal | T:
-        """Do the work, returning a runner if it has to be waited on."""
-
-
-class LoopCommand[T](Command[T], registered=False):
-    loop: str | None
-
-    def run(
-        self, rig: Rig, operator: Operator | None = None
-    ) -> CommandResult[T] | Activity | Signal | T:
-        return self.run_on_loop(rig.resolve_loop(self.loop), operator=operator)
-
-    @abstractmethod
-    def run_on_loop(
-        self, loop: Loop, operator: Operator | None = None
-    ) -> CommandResult[T] | Activity | Signal | T:
+    def run(self, rig: Rig, operator: Operator | None = None) -> Activity | Signal:
         """Do the work, returning a runner if it has to be waited on."""

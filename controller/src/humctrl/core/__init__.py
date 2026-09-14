@@ -10,9 +10,10 @@ from .errors import (
     RecorderNotSetError,
     UnachievableError,
 )
-from .reading import Channel, Quantity, Reading, Sample, Source
+from .reading import Channel, Point, Quantity, Reading, Sample, Source
 from .resource import Arbiter, Operator, Resource
 from .signal import Signal
+from .sink import Actuator, Observer, Sink
 from .topic import Topic
 from .typing import (
     NonNegative,
@@ -33,6 +34,7 @@ from .utils import (
 )
 
 __all__ = [
+    "Actuator",
     "Arbiter",
     "Channel",
     "Clock",
@@ -49,9 +51,11 @@ __all__ = [
     "NormalisedPositive",
     "NotFoundError",
     "NotReadyError",
+    "Observer",
     "Operator",
     "Percent",
     "PeriodicLoop",
+    "Point",
     "Positive",
     "PositiveInt",
     "Quantity",
@@ -62,6 +66,7 @@ __all__ = [
     "Resource",
     "Sample",
     "Signal",
+    "Sink",
     "Source",
     "Speed",
     "Time",

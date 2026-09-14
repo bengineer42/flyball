@@ -13,11 +13,11 @@ from collections.abc import Callable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from humctrl.readers import HTReadings
+from humctrl.humidity.readers import HTReadings
 from humctrl.rig import ErrorMsg, HumRig
 from humctrl.server.deps import current_rig
 from humctrl.state import State
-from humctrl.utils import Topic
+from humctrl.core.utils import Topic
 
 router = APIRouter(tags=["telemetry"])
 

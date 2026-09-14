@@ -15,7 +15,7 @@ twice is one object and a second declaration with a different unit is an error.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol
 
@@ -172,6 +172,10 @@ class Channel:
             ),
         )
 
+    def latest(self, readings: Sequence[Reading]) -> Reading | None:
+        """The last reading on this channel, or None. Assumes time order (see ``Reader``)."""
+        return next((r for r in reversed(readings) if r.channel is self), None)
+
 
 class Source:
     """Something that emits readings. Subclass it, or instantiate it directly.
@@ -245,10 +249,19 @@ class Source:
 
 
 @dataclass(frozen=True, slots=True)
-class Reading:
+class Point:
     time_ns: int
     value: float
-    channel: Channel
+
+
+@dataclass(frozen=True, slots=True)
+class Reading:
+    """One value on one channel at one instant. Identity, then time, then value."""
+
+    sample: Sample
+    quantity: Quantity
+    time_ns: int
+    value: float
 
     @property
     def seconds(self) -> float:
@@ -256,24 +269,33 @@ class Reading:
 
     @property
     def source(self) -> Source:
-        return self.channel.source
-
-    @property
-    def quantity(self) -> Quantity:
-        return self.channel.quantity
+        return self.sample.source
 
     @property
     def unit(self) -> str:
-        return self.channel.unit
+        return self.quantity.unit
+
+    @property
+    def channel(self) -> Channel:
+        return self.sample.source[self.quantity]
+
+    @property
+    def point(self) -> Point:
+        return Point(self.time_ns, self.value)
 
 
 @dataclass(frozen=True, slots=True)
 class Sample:
     """Every quantity of one source at one instant."""
 
-    time_ns: int
     source: Source
+    seq: int
+    time_ns: int
     values: Mapping[Quantity, float]
+
+    @property
+    def seconds(self) -> float:
+        return self.time_ns / 1e9
 
     def __getitem__(self, quantity: Quantity) -> float:
         return self.values[quantity]
@@ -284,15 +306,34 @@ class Sample:
     def reading(self, quantity: Quantity) -> Reading:
         try:
             value = self.values[quantity]
+            return Reading(self, quantity, self.time_ns, value)
         except KeyError:
             raise ChannelNotFoundError(self.source, quantity.name) from None
-        return Reading(self.time_ns, value, self.source[quantity])
+
+    @property
+    def channels(self) -> set[Channel]:
+        return {self.source[quantity] for quantity in self.values}
+
+    def points(self) -> dict[Quantity, Point]:
+        return {q: Point(self.time_ns, v) for q, v in self.values.items()}
 
 
 class Reader(Protocol):
-    sources: tuple[Source, ...]
+    """Reads one or more sources in one transaction.
 
+    Contract: ``read`` returns its readings in non-decreasing ``time_ns``.
+    Equal stamps are allowed -- a bank's samples share one -- but never a step
+    backwards. The rig delivers in the order received and never reorders, so
+    every observer inherits the guarantee, and ``Channel.latest`` relies on it.
+    A reader that assembles history from several sources must sort before
+    returning.
+    """
+
+    name: str
+    sources: Iterable[Source]
+
+    @property
     def channels(self) -> set[Channel]:
         return {ch for src in self.sources for ch in src.channels}
 
-    def read(self, time_ns: int) -> tuple[Reading | Sample, ...]: ...
+    def read(self, time_ns: int) -> Iterable[Sample]: ...

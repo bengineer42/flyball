@@ -6,8 +6,8 @@ from typing import Any, Protocol
 from humctrl.control.loop import LoopMode
 from humctrl.control.types import ControllerState
 from humctrl.core import Percent
+from humctrl.humidity.readers import HTReading, HTReadings, Reader
 from humctrl.pumps import PumpsState, SupplyFlows
-from humctrl.readers import HTReading, HTReadings, Reader
 from humctrl.state import State
 
 
@@ -54,12 +54,12 @@ class Tick:
     loop: str
     time_ns: int
     mode: LoopMode
+    reading: float | None
     setpoint: float | None = None
     correction: float
     demand: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
-    reading: float | None
 
 
 class Recorder(Protocol):

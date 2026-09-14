@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from pydantic.alias_generators import to_snake
+from pydantic_core import core_schema
 
 from humctrl.core import Duration, Rate, Signal, Speed
 
@@ -31,6 +32,21 @@ class SetPointGenerator:
             raise ValueError(f"tag {cls.tag!r} is already {clash.__name__}")
         SetPointGenerators[cls.tag] = cls
 
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+        """Serialise as ``{"tag": ...}``: a view of a running trajectory, not a way to build one."""
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.no_info_plain_validator_function(cls._reject),
+            python_schema=core_schema.is_instance_schema(cls),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda g: {"tag": g.tag}, when_used="always"
+            ),
+        )
+
+    @staticmethod
+    def _reject(value: Any) -> Any:
+        raise ValueError("a running trajectory cannot be built from the wire")
+
     def start(self, time: float, value: float) -> None:
         """Bind to the rig: the clock origin and where the process is now.
 
@@ -48,6 +64,7 @@ class SetPointGenerator:
 class LinearRampSetpoint(SetPointGenerator):
     """A set point walking from ``start`` to ``end`` between two instants."""
 
+    signal: Signal
     pace: Speed | Duration
     end: float
     end_time: float
@@ -56,6 +73,7 @@ class LinearRampSetpoint(SetPointGenerator):
     def __init__(self, pace: Speed | Duration, end: float) -> None:
         self.pace = pace
         self.end = end
+        self.signal = Signal()
 
     def start(self, time: float, value: float) -> None:
         span = self.end - value
@@ -63,6 +81,7 @@ class LinearRampSetpoint(SetPointGenerator):
             abs(span / self.pace.per_second) if isinstance(self.pace, Rate) else self.pace.seconds
         )
         self.end_time = time + duration
+        self.signal.set_timeout(duration)
         # Signed by the distance: the pace says how fast, never which way, so a
         # descending ramp needs the sign taken from the span.
         self.per_second = span / duration if duration > 0.0 else 0.0

@@ -74,11 +74,13 @@ class PeriodicLoop:
     _stop_on_error: bool
 
     def __init__(
-        self, fn: Callable[[], None], loop_time: Positive, stop_on_error: bool = True
+        self, fn: Callable, loop_time: Positive, stop_on_error: bool, *args, **kwargs: Any
     ) -> None:
         self._loop_time = loop_time
         self._event = Event()
         self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
         self._stop_on_error = stop_on_error
 
     @property
@@ -116,7 +118,7 @@ class PeriodicLoop:
         self._next_loop_time = monotonic() + self.loop_time
         while not self._event.is_set():
             try:
-                self._fn()
+                self._fn(*self._args, **self._kwargs)
                 self.set_ok()
             except Exception as e:
                 self.set_error(e)

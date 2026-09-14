@@ -1,4 +1,4 @@
-from humctrl.config import Config, ConfigOr, resolve
+from humctrl.core.config import Config, ConfigOr, resolve
 from humctrl.pumps.types import MaxFlowsDefault, MaxFlowsLike
 
 from .drivers import DualPumpDriver

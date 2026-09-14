@@ -1,8 +1,9 @@
-"""Rig injection.
+"""Rig and store injection.
 
-The server owns no hardware. Whatever builds the rig — ``humctrl.daemon``, a
-simulation harness, a test — calls :func:`set_rig` before serving, so the
-same app runs against a real chamber, a simulated plant or a stub.
+The server owns no hardware and no database. Whatever builds them -- the
+daemon, a simulation harness, a test -- calls :func:`set_rig` and
+:func:`set_store` before serving, so the same app runs against a real
+chamber, a simulated plant, or a database copied from another machine.
 """
 
 from __future__ import annotations
@@ -11,37 +12,39 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 
-from humctrl.control import Controller
-from humctrl.pumps import DualPumps
-from humctrl.rig import HumRig
+from humctrl.db import Store
+from humctrl.runtime.rig import Rig
 
-_rig: HumRig | None = None
+_rig: Rig | None = None
+_store: Store | None = None
 
 
-def set_rig(rig: HumRig | None) -> None:
+def set_rig(rig: Rig | None) -> None:
     global _rig
     _rig = rig
 
 
-def current_rig() -> HumRig | None:
+def current_rig() -> Rig | None:
     """The attached rig, or None. For lifespan and telemetry, which tolerate absence."""
     return _rig
 
 
-def get_rig() -> HumRig:
+def get_rig() -> Rig:
     if _rig is None:
         raise HTTPException(status_code=503, detail="No rig attached to this server")
     return _rig
 
 
-def get_pumps() -> DualPumps:
-    return get_rig().require_pumps()
+def set_store(store: Store | None) -> None:
+    global _store
+    _store = store
 
 
-def get_controller() -> Controller:
-    return get_rig().controller
+def get_store() -> Store:
+    if _store is None:
+        raise HTTPException(status_code=503, detail="No store attached to this server")
+    return _store
 
 
-RigDep = Annotated[HumRig, Depends(get_rig)]
-PumpsDep = Annotated[DualPumps, Depends(get_pumps)]
-ControllerDep = Annotated[Controller, Depends(get_controller)]
+RigDep = Annotated[Rig, Depends(get_rig)]
+StoreDep = Annotated[Store, Depends(get_store)]

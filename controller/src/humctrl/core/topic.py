@@ -16,11 +16,16 @@ class Topic[T]:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._subscribers: set[asyncio.Queue[T]] = set()
 
+    @property
+    def subscribed(self) -> bool:
+        """Whether anyone is listening -- check before building an expensive item."""
+        return bool(self._subscribers)
+
     def publish(self, item: T) -> None:
         """Offer an item to every subscriber. Never blocks, never raises."""
         loop = self._loop  # read once: a subscriber may bind it on the loop thread
-        if loop is None:
-            return  # nobody has subscribed yet, so there is nowhere to deliver
+        if loop is None or not self._subscribers:
+            return  # nobody listening, so there is nowhere to deliver
         with suppress(RuntimeError):  # loop closed during shutdown
             loop.call_soon_threadsafe(self._fanout, item)
 
@@ -49,3 +54,5 @@ class Topic[T]:
             yield queue
         finally:
             self._subscribers.discard(queue)
+            if not self._subscribers:
+                self._loop = None  # so publish is free again until the next subscriber

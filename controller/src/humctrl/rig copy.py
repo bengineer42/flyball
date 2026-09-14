@@ -29,6 +29,14 @@ from humctrl.errors import (
     TargetHumidityNotSetError,
     TuningNotRegisteredError,
 )
+from humctrl.humidity.readers import (
+    HTReaderSource,
+    HTReading,
+    HTReadings,
+    HTSetReader,
+    SensorError,
+    SensorNotSetError,
+)
 from humctrl.pumps import (
     Blend,
     BlendFlow,
@@ -38,14 +46,6 @@ from humctrl.pumps import (
 from humctrl.pumps.types import (
     SupplyEffortsLike,
     SupplyFlowsLike,
-)
-from humctrl.readers import (
-    HTReaderSource,
-    HTReading,
-    HTReadings,
-    HTSetReader,
-    SensorError,
-    SensorNotSetError,
 )
 from humctrl.recorder import Recorder
 from humctrl.resource import Operator

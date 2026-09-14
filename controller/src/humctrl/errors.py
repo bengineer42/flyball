@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from humctrl.readers import HTReaderSource
+    from humctrl.humidity.readers import HTReaderSource
 
 
 class RecorderNotSetError(NotReadyError):

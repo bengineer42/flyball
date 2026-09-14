@@ -15,8 +15,8 @@ from contextlib import suppress
 
 from humctrl.clock import Clock
 from humctrl.control import PIController
+from humctrl.humidity.readers import HTReading
 from humctrl.pumps import DualPumps, PumpPair
-from humctrl.readers import HTReading
 from humctrl.rig import HumRig
 
 log = logging.getLogger("humctrl.daemon")
@@ -35,7 +35,7 @@ def build_rig(args: argparse.Namespace) -> HumRig:
     Returns:
         A manager wired to the real pumps and sensors.
     """
-    from humctrl.direct import I2CSHT4x, LinuxPWMPump
+    from humctrl.humidity.direct import I2CSHT4x, LinuxPWMPump
 
     pumps = DualPumps(
         PumpPair(

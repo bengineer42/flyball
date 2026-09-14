@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
-from typing import Protocol
 
 from humctrl.core import Clock, Reading, require
-from humctrl.core.reading import Channel
 
+from ..core.sink import Actuator
 from .errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
@@ -19,17 +19,13 @@ from .types import (
     ControlLaw,
     ControlLawConfig,
     ControlLawLike,
+    ControlLawState,
     ControlLawView,
     RegulateResult,
     Transfer,
     Tuning,
     ValueSource,
 )
-
-
-class Actuator(Protocol):
-    def set_demand(self, demand: float) -> float | None: ...
-
 
 type LoopTickCallback = Callable[[Loop, Reading | None], None]
 
@@ -43,17 +39,17 @@ class LoopMode(Enum):
         return self is not LoopMode.MANUAL
 
 
+@dataclass(frozen=True, kw_only=True)
 class LoopSpec:
     name: str
-    law: ControlLaw | None
-    offset_ns: int = 0
-    actuator: str
-    reference: float | SetPointGenerator | None = None
+    law: ControlLawConfig | None
+    offset_ns: int
 
 
+@dataclass(frozen=True, kw_only=True)
 class LoopState:
+    law: ControlLawState | None
     correction: float = 0.0
-    offset_ns: int = 0
     reference: float | SetPointGenerator | None = None
     demand: float | None = None
     expected: float | None = None
@@ -62,12 +58,31 @@ class LoopState:
     reading: Reading | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class LoopView(LoopSpec, LoopState):
+    law: ControlLawView | None
+
+    @classmethod
+    def of(cls, spec: LoopSpec, state: LoopState) -> LoopView:
+        return cls(
+            name=spec.name,
+            law=spec.law and state.law and ControlLawView.of(spec.law, state.law),
+            offset_ns=spec.offset_ns,
+            correction=state.correction,
+            reference=state.reference,
+            demand=state.demand,
+            expected=state.expected,
+            delivered_correction=state.delivered_correction,
+            mode=state.mode,
+            reading=state.reading,
+        )
+
+
 class Loop[A: Actuator]:
     name: str
     clock: Clock
     actuator: A
     law: ControlLaw | None
-    channel: Channel
     correction: float = 0.0
     offset_ns: int = 0
     reference: float | SetPointGenerator | None = None
@@ -106,6 +121,34 @@ class Loop[A: Actuator]:
     @property
     def required_law(self) -> ControlLaw:
         return require(self.law, ControlLawNotSetError)
+
+    @property
+    def spec(self) -> LoopSpec:
+        return LoopSpec(
+            name=self.name,
+            law=self.law and self.law.config,
+            offset_ns=self.offset_ns,
+        )
+
+    @property
+    def state(self) -> LoopState:
+        return LoopState(
+            law=self.law and self.law.state,
+            correction=self.correction,
+            reference=self.reference,
+            demand=self.demand,
+            expected=self.expected,
+            delivered_correction=self.delivered_correction,
+            mode=self.mode,
+            reading=self.reading,
+        )
+
+    @property
+    def view(self) -> LoopView:
+        return LoopView.of(
+            spec=self.spec,
+            state=self.state,
+        )
 
     def setpoint_at(self, time_ns: int) -> float:
         if isinstance(self.reference, SetPointGenerator):
@@ -202,6 +245,19 @@ class Loop[A: Actuator]:
             applied = self._apply_demand(setpoint)
             bump = 0.0 if held is None else applied.demand - held
             return RegulateResult(*applied, bump=bump)
+
+    def set_reference(
+        self,
+        at: ValueSource | float,
+        generator: SetPointGenerator | None = None,
+        time_ns: int | None = None,
+    ) -> None:
+        with self.lock:
+            setpoint = self.resolve_value(at)
+            self.reference = setpoint
+            if generator is not None:
+                generator.start(self.clock.from_start_s(self.get_time_ns(time_ns)), setpoint)
+                self.reference = generator
 
     def get_time_ns(self, time_ns: int | None = None) -> int:
         return self.clock.now_ns() if time_ns is None else time_ns

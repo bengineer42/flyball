@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from humctrl.control import (
     ControlLawLike,
@@ -13,11 +12,12 @@ from humctrl.control import (
     Transfer,
     ValueSource,
 )
-from humctrl.core import Duration, Operator, Percent, Positive, PositiveInt, Reading, Speed
-from humctrl.state import State, View
+from humctrl.core import Channel, Duration, Operator, Percent, Positive, PositiveInt, Reading, Speed
+from humctrl.core.signal import Signal
+from humctrl.runtime import Rig
 
 from .activites import Sustained
-from .command import Command, CommandResult, LoopActivity, LoopCommand
+from .command import Activity, Command
 
 # @dataclass(frozen=True)
 # class StartRecording(Command):
@@ -51,42 +51,47 @@ from .command import Command, CommandResult, LoopActivity, LoopCommand
 
 @dataclass(frozen=True)
 class Regulate(Command):
+    loop: str
     at: ValueSource | float
     generator: SetPointGenerator | None = None
     tuning: ControlLawLike | str | None = None
-    transfer: Transfer | None = None
+    transfer: Transfer = Transfer.TRACK
 
-    def run(self, rig: Any, operator: Operator | None = None) -> View:
-        rig.regulate(
+    def run(self, rig: Rig, operator: Operator | None = None) -> None:
+
+        control_law = (
+            rig.resolve_tuning(self.tuning) if isinstance(self.tuning, str) else self.tuning
+        )
+        loop = rig.resolve_loop(self.loop)
+        loop.regulate(
             self.at,
             generator=self.generator,
-            tuning=self.tuning,
+            tuning=control_law,
             transfer=self.transfer,
-            by=operator,
         )
-        return rig.view
 
 
 @dataclass(frozen=True)
 class LinearRamp(Command):
+    loop: str
     end: float
     pace: Speed | Duration
     start: ValueSource | float = ValueSource.PROCESS
 
-    def run(self, rig: Any, operator: Operator | None = None) -> CommandResult[State]:
+    def run(self, rig: Rig, operator: Operator | None = None) -> Signal:
 
         generator = LinearRampSetpoint(self.pace, self.end)
-        rig.controller_reference(at=self.start, generator=generator, publish=False, by=operator)
-
-        return CommandResult.parse(rig.state, generator.signal)
+        rig.resolve_loop(self.loop).set_reference(at=self.start, generator=generator)
+        return generator.signal
 
 
 @dataclass(frozen=True)
-class UpdateSetpoint(Command[None]):
+class UpdateSetpoint(Command):
+    loop: str
     value: float
 
-    def run(self, rig: Any, operator: Operator | None = None) -> None:
-        rig.controller_reference(at=self.value, by=operator)
+    def run(self, rig: Rig, operator: Operator | None = None) -> None:
+        rig.resolve_loop(self.loop).set_reference(at=self.value)
 
 
 class CriterionBase: ...
@@ -163,7 +168,8 @@ class SequentialPassesReadings:
         )
 
 
-class Sustain(LoopCommand, registered=True):
+class Sustain(Command, registered=True):
+    channel: Channel
     timeout: Positive | None
     duration: Duration
     readings: PositiveInt = 1
@@ -171,10 +177,11 @@ class Sustain(LoopCommand, registered=True):
     @abstractmethod
     def resolve_test(self, loop: Loop) -> Callable[[float], bool]: ...
 
-    def run_on_loop(self, loop: Loop, operator: Operator | None = None) -> LoopActivity:
+    def run(self, rig: Rig, operator: Operator | None = None) -> Activity:
         return Sustained(
+            self.channel,
             SequentialPassesReadings(
-                self.resolve_test(loop),
+                self.resolve_test(rig.resolve_loop(None)),
                 readings=self.readings,
                 duration_ns=self.duration.nanoseconds,
             ),

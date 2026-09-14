@@ -18,10 +18,10 @@ from typing import Annotated, Any, Union
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from humctrl.clock import Duration, Rate, TimeUnit
+from humctrl.core.clock import Duration, Rate, TimeUnit
 from humctrl.control import ControlLawConfig, ControlLaws
 from humctrl.pumps import Absolute, BlendFlow, OfBlendMax, OfGuaranteedMax, OnOverdrive
-from humctrl.typing import NonNegative, Normalised, Percent
+from humctrl.core.typing import NonNegative, Normalised, Percent
 
 
 def generate_command_schema[T](

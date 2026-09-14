@@ -21,15 +21,29 @@ class Outcome(Labelled):
         return self is not Outcome.PENDING
 
 
-class Signal(Event):
-    outcome: Outcome = Outcome.PENDING
+class Signal:
+    """Fires once, and says how it ended.
+
+    Wraps an ``Event`` rather than being one: an Event's ``set``/``clear`` do
+    not mean anything here, and hiding them keeps the outcome the only way to
+    settle it.
+    """
+
+    __slots__ = ("_event", "_lock", "_timer", "outcome")
+
+    outcome: Outcome
 
     def __init__(self, timeout: float | None = None) -> None:
-        super().__init__()
+        self._event = Event()
         self._lock = Lock()
         self._timer: Thread | None = None
+        self.outcome = Outcome.PENDING
         if timeout is not None:
             self.set_timeout(timeout)
+
+    @property
+    def settled(self) -> bool:
+        return self.outcome.settled
 
     @property
     def interrupted(self) -> bool:
@@ -49,7 +63,7 @@ class Signal(Event):
             if self.outcome is not Outcome.PENDING:
                 return False
             self.outcome = outcome
-        Event.set(self)
+        self._event.set()
         return True
 
     def fire(self) -> bool:
@@ -61,11 +75,9 @@ class Signal(Event):
     def expire(self) -> bool:
         return self._settle(Outcome.TIMEOUT)
 
-    def set(self) -> None:
-        self.interrupt()
-
-    def clear(self) -> None:
-        raise RuntimeError("a Signal is single-use; construct a new one")
+    def wait(self, timeout: float | None = None) -> bool:
+        """Block until settled. False only if ``timeout`` elapsed first."""
+        return self._event.wait(timeout)
 
     def wait_outcome(self, timeout: float | None = None) -> Outcome:
         """Block until settled, then say how it ended."""

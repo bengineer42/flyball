@@ -23,18 +23,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any
 
 from humctrl.resource import Operator
-from humctrl.signal import Signal
 
-from .command import CommandResult
 from .errors import CommandRuntimeError, ProgramAlreadyRunningError
 from .program import Program
 
 if TYPE_CHECKING:
     from humctrl.programmer.command import Activity, Command
-    from humctrl.rig import HumRig
+    from humctrl.rig import Rig
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,18 +54,16 @@ IDLE = ProgrammerState(running=False, step=0, steps=0, command=None)
 class Programmer:
     """Applies commands to a rig, in order, waiting where a step says to wait."""
 
-    rig: HumRig
+    rig: Rig
     lock: RLock
 
     _program: Program | None = None
     _activity: Activity | None = None
-    _response: Any | None = None
-    _last_response: Any | None = None
     _thread: Thread | None = None
     _step: int = 0
     _abort: bool = False
 
-    def __init__(self, rig: HumRig) -> None:
+    def __init__(self, rig: Rig) -> None:
         self.rig = rig
         self.lock = RLock()
         self.operator = Operator("program", on_revoke=self.interrupt)
@@ -79,12 +75,6 @@ class Programmer:
         """A program is part way through: waiting, or with steps still to come."""
         with self.lock:
             return self._program is not None
-
-    @property
-    def response(self) -> Any:
-        """What the most recently applied step returned."""
-        with self.lock:
-            return self._response
 
     @property
     def state(self) -> ProgrammerState:
@@ -103,11 +93,7 @@ class Programmer:
 
     # region Running
 
-    @overload
-    def start[T](self, work: Command[T], interrupt: bool = False) -> T: ...
-    @overload
-    def start(self, work: Program, interrupt: bool = False) -> Any: ...
-    def start(self, work: Command[Any] | Program, interrupt: bool = False) -> Any:
+    def start(self, work: Command[Any] | Program, interrupt: bool = False) -> None:
         """Begin ``work`` and return without waiting for it to finish.
 
         The first step is applied on the calling thread, so a command that
@@ -118,10 +104,6 @@ class Programmer:
         Args:
             work: A command, or a program of them.
             interrupt: Stop whatever is running first.
-
-        Returns:
-            What the first step returned. For a single command that is its own
-            typed response; for a program it is the first step's.
 
         Raises:
             ProgramAlreadyRunningError: Something is still running and
@@ -139,9 +121,8 @@ class Programmer:
         with self.lock:
             self._thread = thread
         thread.start()
-        return self._last_response
 
-    def load(self, work: Program | Command[Any]) -> Program:
+    def load(self, work: Program | Command) -> Program:
         with self.lock:
             if self._program is not None:
                 raise ProgramAlreadyRunningError(self._program, work)
@@ -149,19 +130,16 @@ class Programmer:
             self._step = 0
             self._abort = False
             self._activity = None
-            self._response = None
-            self._last_response = None
             return self._program
 
-    def run(self, work: Command[Any] | Program, interrupt: bool = False) -> Any:
+    def run(self, work: Command[Any] | Program, interrupt: bool = False) -> None:
         """Apply ``work`` and block until it has finished or been interrupted.
 
         For tests, the CLI and anything else off the request path. A program is
         minutes long, so routes want :meth:`start`.
         """
-        response = self.start(work, interrupt)
+        self.start(work, interrupt)
         self.join()
-        return response
 
     def join(self, timeout: float | None = None) -> None:
         """Wait for the running program, if any. A no-op called from the worker."""
@@ -177,7 +155,7 @@ class Programmer:
             if self._activity is not None:
                 # Cancels rather than completes, so the worker breaks out
                 # instead of moving on. Its finally clause detaches.
-                self._activity.signal.set()
+                self._activity.interrupt()
             thread = self._thread
         # Never join under the lock: the worker takes it on the way out, and
         # an RLock held by another thread does not help us here.
@@ -228,19 +206,18 @@ class Programmer:
                 thread so :meth:`_work` ends the program rather than treating
                 the step as done.
         """
-        self.rig.attach_on_tick(activity.on_tick)
+        activity.attach(self.rig)
         try:
-            activity.signal.wait()
+            activity.wait()
         finally:
-            self.rig.detach_on_tick(activity.on_tick)
             activity.detach(self.rig)
 
         if activity.error is not None:
             raise activity.error
-        return not activity.signal.interrupted
+        return not activity.interrupted
 
-    def _apply[T](self, command: Command[T]) -> Activity | None:
-        """Apply one step under the rig's lock, keeping what it produced.
+    def _apply(self, command: Command) -> Activity | None:
+        """Apply one step under the rig's lock.
 
         Returns:
             The activity to wait out before the next step, or ``None`` to move
@@ -248,24 +225,13 @@ class Programmer:
             raise a flag.
         """
         with self.rig.lock:
-            request = command.run(self.rig, self.operator)
-        return self._apply_result(request)
-
-    def _apply_result[T](self, result: CommandResult[T] | Activity | Signal | T) -> Activity | None:
-        request = CommandResult.parse(result)
+            activity = command.run(self.rig, self.operator)
         with self.lock:
-            self._response = request.value
-            self._activity = request.activity
-            if request.value is not None:
-                self._last_response = request.value
-        return request.activity
+            self._activity = activity
+        return activity
 
     def _finish(self, program: Program) -> None:
-        """Clear ``program``, unless something else has already replaced it.
-
-        ``_response`` survives, so a caller can read what the last step
-        produced after the run has ended.
-        """
+        """Clear ``program``, unless something else has already replaced it."""
         with self.lock:
             if self._program is program:
                 self._program = None

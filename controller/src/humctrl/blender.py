@@ -3,7 +3,10 @@ from enum import Enum
 from threading import RLock
 
 from humctrl.control import Actuator
+from humctrl.core import Observer
+from humctrl.core.reading import Reading
 from humctrl.errors import NotReadyError, UnachievableError
+from humctrl.humidity.readers import HTSource
 from humctrl.pumps import (
     BlendFlow,
     DefaultBlendFlow,
@@ -138,7 +141,7 @@ class BlenderView(BlenderState):
         )
 
 
-class DualPumpsBlender(Actuator):
+class DualPumpsBlender(Actuator, Observer):
     pumps: DualPumps
     _humidities: MutSupplyHumidities
     lock: RLock
@@ -147,6 +150,8 @@ class DualPumpsBlender(Actuator):
     blend_flow: BlendFlow
     expected_humidity: Percent | None
     _updated: bool = False
+    dry: HTSource | None = None
+    wet: HTSource | None = None
 
     def __init__(
         self,
@@ -161,6 +166,7 @@ class DualPumpsBlender(Actuator):
         self._humidities = MutSupplyHumidities.of(humidities)
         self.expected_humidity = None
         self.lock = RLock()
+        self.touches = frozenset((self,))
 
     @property
     def supply_humidities(self) -> SupplyHumidities:
@@ -197,6 +203,14 @@ class DualPumpsBlender(Actuator):
     @property
     def view(self) -> BlenderView:
         return BlenderView.of(self.spec, self.state)
+
+    def set_channels(self, dry: HTSource | None, wet: HTSource | None) -> None:
+        self.dry = dry
+        self.wet = wet
+        if dry is not None:
+            self.dry = dry
+        if wet is not None:
+            self.wet = wet
 
     def _update_demand(self, demand: Percent) -> None:
         if self._demand != demand:
@@ -263,6 +277,13 @@ class DualPumpsBlender(Actuator):
         with self.lock:
             self._update_readings(dry, wet)
 
+    def observe(self, reading: Reading) -> None:
+        match reading.source:
+            case self.wet:
+                self.update_readings(wet=reading.value)
+            case self.dry:
+                self.update_readings(dry=reading.value)
+
     def update(
         self,
         demand: Percent | None,
@@ -281,6 +302,12 @@ class DualPumpsBlender(Actuator):
         )
         return output
 
+    def _apply(self) -> None:
+        if self._updated and self.demand is not None:
+            fraction = calculate_wet_fraction(self._humidities, self.demand)
+            self._update_outputs(self.pumps.set_blend(self.blend_flow, float(fraction)))
+            self._updated = False
+
     def update_blend(
         self,
         demand: Percent | None = None,
@@ -290,7 +317,8 @@ class DualPumpsBlender(Actuator):
     ) -> None:
         with self.lock:
             self._update(demand, dry, wet, flow)
-            if self._updated and self.demand is not None:
-                fraction = calculate_wet_fraction(self._humidities, self.demand)
-                self._update_outputs(self.pumps.set_blend(self.blend_flow, float(fraction)))
-                self._updated = False
+            self._apply()
+
+    def apply(self) -> None:
+        with self.lock:
+            self._apply()

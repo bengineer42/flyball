@@ -2,20 +2,15 @@ from __future__ import annotations
 
 import struct
 import time
-from collections.abc import Generator, Iterable
-from contextlib import contextmanager, suppress
-from enum import Enum
 from threading import RLock
-from typing import overload
 
 from humctrl.core import Percent
-from humctrl.i2c import I2CBus
-from humctrl.readers import HTReading
+from humctrl.hardware import I2CBus
+from humctrl.humidity.readers import HTReading, HTSource
 
 _TRIGGER = 0xFD  # Mode.NOHEAT_HIGHPRECISION
 _CONVERSION_NS = 8_500_000  # datasheet t_meas max 8.3 ms, plus margin
-_MUX_ADDR = 0x70
-_SHT4X_ADDR = 0x44
+SHT4X_ADDRESS = 0x44
 
 
 class CrcError(Exception):
@@ -28,19 +23,19 @@ class CrcError(Exception):
 class SHT4xTriggerError(Exception):
     """Raised when a sensor trigger fails."""
 
-    def __init__(self, sensor: str | Enum, cause: OSError) -> None:
-        self.sensor = sensor
+    def __init__(self, source: HTSource, cause: OSError) -> None:
+        self.source = source
         self.cause = cause
-        super().__init__(f"Trigger failed for sensor {sensor!r}: {cause}")
+        super().__init__(f"Trigger failed for sensor {source.name!r}: {cause}")
 
 
 class SHT4xReadError(Exception):
     """Raised when a sensor read fails."""
 
-    def __init__(self, sensor: str | Enum, cause: OSError | CrcError) -> None:
-        self.sensor = sensor
+    def __init__(self, source: HTSource, cause: OSError | CrcError) -> None:
+        self.source = source
         self.cause = cause
-        super().__init__(f"Read failed for sensor {sensor!r}: {cause}")
+        super().__init__(f"Read failed for sensor {source.name!r}: {cause}")
 
 
 def _crc8(data: bytes) -> int:
@@ -64,134 +59,52 @@ def _decode(buf: bytes) -> tuple[Percent, float]:
     )
 
 
-class MuxedSHT4xBank:
-    def __init__(
-        self,
-        i2c: I2CBus,
-        channels: dict[str | Enum, int],
-        mux_address: int = _MUX_ADDR,
-        sensor_address: int = _SHT4X_ADDR,
-    ) -> None:
-        self._i2c = i2c
-        self._channels = channels
-        self._mux = mux_address
-        self._addr = sensor_address
-        self._lock = RLock()
-        self._buf = bytearray(6)
-
-    def _select(self, mask: int) -> None:
-        self._i2c.writeto(self._mux, bytes((mask,)))
-
-    @overload
-    def read(self, time_ns: int, sensors: str | Enum) -> HTReading | Exception | None: ...
-    @overload
-    def read(
-        self, time_ns: int, sensors: Iterable[str | Enum] | None = None
-    ) -> dict[str | Enum, HTReading | Exception]: ...
-    def read(
-        self, time_ns: int, sensors: str | Enum | Iterable[str | Enum] | None = None
-    ) -> HTReading | Exception | dict[str | Enum, HTReading | Exception] | None:
-        if isinstance(sensors, (str, Enum)):
-            return self.read_sensor(time_ns, sensors)
-        if sensors is None:
-            return self.read_all(time_ns)
-        return self.read_sensors(time_ns, sensors)
-
-    def read_sensor(self, time_ns: int, sensor: str | Enum) -> HTReading | Exception | None:
-        offset_ns = time_ns - time.monotonic_ns()
-        if (channel := self._channels.get(sensor)) is None:
-            return None
-        with self.lock():
-            try:
-                r_ns = self._trigger_channel(channel)
-            except OSError as e:
-                return SHT4xTriggerError(sensor, e)
-            return self._try_read(sensor, channel, offset_ns, r_ns)
-
-    def read_sensors(
-        self, time_ns: int, sensors: Iterable[str | Enum]
-    ) -> dict[str | Enum, HTReading | Exception]:
-        offset_ns = time_ns - time.monotonic_ns()
-        results: dict[str | Enum, HTReading | Exception] = {}
-        triggered: list[tuple[str | Enum, int, int]] = []
-
-        with self.lock():
-            for label in sensors:
-                channel = self._channels.get(label)
-                if channel is not None:
-                    try:
-                        triggered.append((label, channel, self._trigger_channel(channel)))
-                    except OSError as e:
-                        results[label] = SHT4xTriggerError(label, e)
-
-            for label, channel, r_ns in triggered:
-                results[label] = self._try_read(label, channel, offset_ns, r_ns)
-
-        return results
-
-    def _trigger_channel(self, channel: int) -> int:
-        self._select(1 << channel)
-        self._i2c.writeto(self._addr, bytes((_TRIGGER,)))
-        return time.monotonic_ns()
-
-    def _try_read(
-        self, label: str | Enum, channel: int, wall_ns: int, r_ns: int
-    ) -> HTReading | Exception:
-        try:
-            return HTReading(wall_ns + r_ns, *self._read_channel(channel, r_ns), label)
-        except (OSError, CrcError) as e:
-            return SHT4xReadError(label, e)
-
-    def _read_channel(self, channel: int, time_ns: int) -> tuple[Percent, float]:
-        remaining = time_ns + _CONVERSION_NS - time.monotonic_ns()
-        if remaining > 0:
-            time.sleep(remaining / 1e9)
-        self._select(1 << channel)
-        self._i2c.readfrom_into(self._addr, self._buf)
-        return _decode(bytes(self._buf))
-
-    @contextmanager
-    def lock(self) -> Generator[None, None, None]:
-        """Context manager to lock the bank for multiple reads."""
-        with self._lock:
-            self._i2c.try_lock()
-            try:
-                yield
-            finally:
-                with suppress(OSError):
-                    self._select(0x00)
-                self._i2c.unlock()
-
-    def read_all(self, time_ns: int) -> dict[str | Enum, HTReading | Exception]:
-        return self.read_sensors(time_ns, self._channels.keys())
-
-
 class SHT4x:
-    """A single SHT4x sensor on an I2C bus."""
+    """One SHT4x on an :class:`I2CBus` -- the root bus or a mux lane, it does not care.
 
-    def __init__(self, i2c: I2CBus, label: str, address: int = _SHT4X_ADDR) -> None:
+    Satisfies ``hardware.bank.TwoPhase``: ``trigger`` starts a conversion,
+    ``collect`` waits it out and decodes. ``read`` is the two back to back.
+    """
+
+    __slots__ = ("_addr", "_buf", "_i2c", "_lock", "source")
+
+    def __init__(self, i2c: I2CBus, source: HTSource, address: int = SHT4X_ADDRESS) -> None:
         self._i2c = i2c
         self._addr = address
-        self._label = label
+        self.source = source
         self._lock = RLock()
         self._buf = bytearray(6)
 
-    def read(self, time_ns: int) -> HTReading:
-        """Trigger a conversion, wait it out, and read the result.
-
-        The reading is stamped at the instant the conversion was triggered,
-        expressed in the caller's epoch. Raises ``OSError`` on a bus fault and
-        ``CrcError`` on a corrupt frame.
-        """
-        offset_ns = time_ns - time.monotonic_ns()
+    def trigger(self) -> int:
+        """Start a high-precision conversion. Returns the monotonic ns it was sent."""
         with self._lock:
             self._i2c.try_lock()
             try:
                 self._i2c.writeto(self._addr, bytes((_TRIGGER,)))
-                trigger_ns = time.monotonic_ns()
-                time.sleep(_CONVERSION_NS / 1e9)
-                self._i2c.readfrom_into(self._addr, self._buf)
-                humidity, temperature = _decode(bytes(self._buf))
+            except OSError as e:
+                raise SHT4xTriggerError(self.source, e) from e
             finally:
                 self._i2c.unlock()
-        return HTReading(trigger_ns + offset_ns, humidity, temperature, self._label)
+        return time.monotonic_ns()
+
+    def collect(self, trigger_ns: int, stamp_ns: int) -> HTReading:
+        """Wait for the conversion started at ``trigger_ns``, then read and decode."""
+        remaining = trigger_ns + _CONVERSION_NS - time.monotonic_ns()
+        if remaining > 0:
+            time.sleep(remaining / 1e9)
+        with self._lock:
+            self._i2c.try_lock()
+            try:
+                self._i2c.readfrom_into(self._addr, self._buf)
+                humidity, temperature = _decode(bytes(self._buf))
+            except (OSError, CrcError) as e:
+                raise SHT4xReadError(self.source, e) from e
+            finally:
+                self._i2c.unlock()
+        return HTReading.of(self.source, stamp_ns, humidity, temperature)
+
+    def read(self, time_ns: int) -> HTReading:
+        """Trigger, wait, collect. Stamped at the trigger instant in the caller's epoch."""
+        offset_ns = time_ns - time.monotonic_ns()
+        trigger_ns = self.trigger()
+        return self.collect(trigger_ns, trigger_ns + offset_ns)

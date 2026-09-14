@@ -6,7 +6,7 @@ from humctrl.control import (
     ControllerView,
 )
 from humctrl.control.types import ControlLawConfig
-from humctrl.readers import HTReadings
+from humctrl.humidity.readers import HTReadings
 from humctrl.typing import Positive
 
 

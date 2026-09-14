@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -13,16 +13,15 @@ from humctrl.control import (
     ControlLawLike,
     ControlLawView,
     Loop,
-    OpenLoopTuning,
     SetPointGenerator,
     Transfer,
     Tuning,
     ValueSource,
 )
+from humctrl.control.types import Tunings
 from humctrl.core import Clock, Duration, Time
-from humctrl.core.reading import Channel
+from humctrl.core.reading import Channel, Reading
 from humctrl.errors import (
-    ProcessReadingNotAvailableError,
     PumpsNotSetError,
     ReaderError,
     ReadersNotSetError,
@@ -30,6 +29,14 @@ from humctrl.errors import (
     RigNotRunningError,
     TargetHumidityNotSetError,
     TuningNotRegisteredError,
+)
+from humctrl.humidity.readers import (
+    HTReaderSource,
+    HTReading,
+    HTReadings,
+    HTSetReader,
+    SensorError,
+    SensorNotSetError,
 )
 from humctrl.pumps import (
     Blend,
@@ -40,14 +47,6 @@ from humctrl.pumps import (
 from humctrl.pumps.types import (
     SupplyEffortsLike,
     SupplyFlowsLike,
-)
-from humctrl.readers import (
-    HTReaderSource,
-    HTReading,
-    HTReadings,
-    HTSetReader,
-    SensorError,
-    SensorNotSetError,
 )
 from humctrl.recorder import Recorder
 from humctrl.resource import Operator
@@ -115,62 +114,41 @@ class SystemClaims:
 
 class HumRig(Rig):
     pumps: DualPumpsBlender | None
-    loop: Loop[DualPumpsBlender] | None
-    _tunings: dict[str, ControlLawConfig]
     recorder: Recorder | None = None
-    readers: HTSetReader | None = None
     clock: Clock
     lock: RLock
     _main_thread: PeriodicLoop
 
-    _recording: bool = False
-
     _state_topic: Topic[State]
     _readings_topic: Topic[HTReadings]
     _warnings_topic: Topic[Any]
-    mode: PumpMode = PumpMode.MANUAL
-
-    _on_tick: dict[Callable[[HumRig, HTReadings], None], None]
-
-    # region Cached state
-    process_reading: HTReading | None = None
-    dry_reading: HTReading | None = None
-    wet_reading: HTReading | None = None
-    # endregion Cached state
 
     def __init__(
         self,
-        pumps: DualPumpsBlender | None = None,
-        process_interval: float = 1.0,
+        reader: HTSetReader,
+        pumps: DualPumpsBlender,
+        period: float = 1.0,
         recorder: Recorder | None = None,
-        readers: HTSetReader | None = None,
-        tuning: ControlLawLike | str = OpenLoopTuning,
+        tuning: ControlLawLike | str | None = None,
         tunings: list[Tuning] | None = None,
-        setpoint: Percent = 50,
     ) -> None:
+        super().__init__()
+        self.tunings = Tunings(tunings)
+        if isinstance(tuning, str):
+            tuning = self.tunings.get(tuning)
+
         self.clock = Clock()
 
         self.recorder = recorder
-        self.readers = readers
-
-        self.lock = RLock()
-        self._main_thread = PeriodicLoop(self.tick, process_interval)
-        self._tunings = {OpenLoopTuning.tag: OpenLoopTuning.config}
-        self._on_tick = {}
-        if tunings is not None:
-            for tuning in tunings:
-                if tuning.tag in self._tunings:
-                    raise ValueError(f"duplicate tuning tag {tuning.tag!r}")
-                self._tunings[tuning.tag] = tuning.config
+        if (process := reader.process) is None:
+            raise ValueError("No process reader available")
         self.pumps = pumps
-        if pumps is not None:
-            self.loop = Loop("humidity", self.clock.fork(), pumps)
-        if self.pumps is not None and setpoint is not None and self.pumps.demand is None:
-            self.pumps.update_demand(demand=setpoint)
+        self.pumps.set_channels(reader.dry, reader.wet)
+        self.loops.add(process.humidity, Loop(self.clock, pumps, law=tuning), default=True)
         self._readings_topic = Topic[HTReadings]()
         self._state_topic = Topic[State]()
         self._warnings_topic = Topic[Any]()
-        self._operator = Operator("rig")
+        self._readers.start_periodic(reader, period)
 
     @property
     def spec(self) -> Spec:
@@ -193,14 +171,6 @@ class HumRig(Rig):
     @property
     def recording(self) -> bool:
         return self._recording
-
-    @property
-    def tunings(self) -> dict[str, ControlLawConfig | ControlLawView]:
-        return self._tunings
-
-    @property
-    def required_process_reading(self) -> HTReading:
-        return require(self.process_reading, ProcessReadingNotAvailableError)
 
     @property
     def process_humidity(self) -> Percent | None:
@@ -337,10 +307,10 @@ class HumRig(Rig):
             raise ValueError("Tag must be specified for the tuning.")
         if config is None:
             raise ValueError("Config must be specified for the tuning.")
-        self._tunings[tag] = config
+        self.tunings[tag] = config
 
     def remove_tuning(self, tag: str) -> Tuning | None:
-        if (config := self._tunings.pop(tag, None)) is not None:
+        if (config := self.tunings.pop(tag, None)) is not None:
             return Tuning(tag=tag, config=config)
 
     def set_recorder(self, recorder: Recorder) -> None:
@@ -368,8 +338,8 @@ class HumRig(Rig):
     def get_tuning(self, tuning: ControlLawLike | str) -> ControlLawLike | Tuning:
         if isinstance(tuning, str):
             return self.require_tuning(tuning)
-        if isinstance(tuning, Tuning) and tuning.tag not in self._tunings:
-            self._tunings[tuning.tag] = tuning.config
+        if isinstance(tuning, Tuning) and tuning.tag not in self.tunings:
+            self.tunings[tuning.tag] = tuning.config
         return tuning
 
     def get_tuning_or_none(
@@ -378,7 +348,7 @@ class HumRig(Rig):
         return None if tuning is None else self.get_tuning(tuning)
 
     def require_tuning(self, name: str) -> ControlLawConfig | ControlLawView:
-        return require(self._tunings.get(name), TuningNotRegisteredError, name)
+        return require(self.tunings.get(name), TuningNotRegisteredError, name)
 
     def record_state(self) -> None:
         self.require_recorder().record_state(self.state)
@@ -527,6 +497,13 @@ class HumRig(Rig):
             if publish:
                 self.publish_state()
 
+    def new_readings(self, readings: list[Reading]) -> None:
+        observations = {}
+        steps = {}
+        for reading in readings:
+            for observe in self.observations.get(reading.channel, []):
+                observations.setdefault(observe, [])
+
     # endregion
 
     # def stop_main(self) -> None:
@@ -582,7 +559,7 @@ class HumRig(Rig):
 
     def run_on_tick(self, readings: HTReadings) -> None:
         with self.lock:
-            for callback in self._on_tick:
+            for callback in self._on_update:
                 try:
                     callback(self, readings)
                 except Exception as e:
