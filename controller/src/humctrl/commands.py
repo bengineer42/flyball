@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from humctrl.blender import BlenderState
+from humctrl.humidity.blender import BlenderState
 from humctrl.control import ValueSource
 from humctrl.control.setpoint import LinearRampSetpoint, SetPointGenerator
 from humctrl.control.types import ControlLawLike, Transfer

@@ -207,12 +207,10 @@ class DualPumpsBlender(Actuator, Observer):
         return BlenderView.of(self.spec, self.state)
 
     def set_channels(self, dry: HTSource | None, wet: HTSource | None) -> None:
+        """Which supply sensors to follow. Call before attaching to the rig."""
         self.dry = dry
         self.wet = wet
-        if dry is not None:
-            self.dry = dry
-        if wet is not None:
-            self.wet = wet
+        self.observes = frozenset(source for source in (dry, wet) if source is not None)
 
     def _update_demand(self, demand: Percent) -> None:
         if self._demand != demand:
@@ -232,23 +230,23 @@ class DualPumpsBlender(Actuator, Observer):
             self._updated = True
             self._humidities.wet = wet
 
-    def set_supply_flows(self, flows: SupplyFlowsLike):
+    def set_supply_flows(self, flows: SupplyFlowsLike) -> PumpsState:
         with self.lock:
-            self._update_outputs(self.pumps.set_flows(flows))
+            return self._update_outputs(self.pumps.set_flows(flows))
 
-    def set_blend(self, flow: BlendFlow, wet_fraction: Normalised):
+    def set_blend(self, flow: BlendFlow, wet_fraction: Normalised) -> PumpsState:
         with self.lock:
-            self._update_outputs(self.pumps.set_blend(flow, wet_fraction))
+            return self._update_outputs(self.pumps.set_blend(flow, wet_fraction))
 
-    def set_supply_efforts(self, efforts: SupplyEffortsLike):
+    def set_supply_efforts(self, efforts: SupplyEffortsLike) -> PumpsState:
         with self.lock:
-            self._update_outputs(self.pumps.set_efforts(efforts))
+            return self._update_outputs(self.pumps.set_efforts(efforts))
 
-    def set_pumps(self, pump_mode: PumpsMode):
+    def set_pumps(self, pump_mode: PumpsMode) -> PumpsState:
         with self.lock:
-            self._update_outputs(self.pumps.set_mode(pump_mode))
+            return self._update_outputs(self.pumps.set_mode(pump_mode))
 
-    def stop_pumps(self):
+    def stop_pumps(self) -> None:
         with self.lock:
             self.pumps.stop()
             self._update_outputs(self.pumps.output)
@@ -278,13 +276,6 @@ class DualPumpsBlender(Actuator, Observer):
     def update_readings(self, dry: Percent | None = None, wet: Percent | None = None) -> None:
         with self.lock:
             self._update_readings(dry, wet)
-
-    def observe(self, reading: Reading) -> None:
-        match reading.source:
-            case self.wet:
-                self.update_readings(wet=reading.value)
-            case self.dry:
-                self.update_readings(dry=reading.value)
 
     def update(
         self,
@@ -320,6 +311,17 @@ class DualPumpsBlender(Actuator, Observer):
         with self.lock:
             self._update(demand, dry, wet, flow)
             self._apply()
+
+    def set_demand(self, demand: float) -> None:
+        with self.lock:
+            self._update_demand(demand)
+
+    def observe(self, reading: Reading) -> None:
+        match reading.source:
+            case self.wet:
+                self.update_readings(wet=reading.value)
+            case self.dry:
+                self.update_readings(dry=reading.value)
 
     def apply(self) -> None:
         with self.lock:

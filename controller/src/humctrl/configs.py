@@ -4,7 +4,7 @@ from typing import Self
 from linux_pwm import PWMChip
 from linux_pwm.sysfs import PWM_PATH
 
-from humctrl.blender import DualPumpsBlender
+from humctrl.humidity.blender import DualPumpsBlender
 from humctrl.control import Tuning
 from humctrl.control.laws import OpenLoopTuning
 from humctrl.control.types import ControlLawLike
