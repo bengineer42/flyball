@@ -1,10 +1,10 @@
-"""Errors the units package raises, classified as in :mod:`flyball.core.errors`."""
+"""Errors the units package raises, classified as in [flyball.core.errors][flyball.core.errors]."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from flyball.core.errors import FlyballError, UnachievableError
+from flyball.core.errors import FlyballError, NotFoundError, UnachievableError
 
 if TYPE_CHECKING:
     from .dimension import Unit
@@ -14,12 +14,13 @@ class UnitError(FlyballError):
     """Base for everything flyball.core.units raises."""
 
 
-class DimensionMismatchError(UnitError, UnachievableError):
-    """A conversion between units of different dimensions.
+class UnitNotFoundError(UnitError, NotFoundError):
+    def __init__(self, symbol: str) -> None:
+        super().__init__(f"No unit with symbol {symbol!r}")
 
-    Well formed -- both units exist -- but no factor relates a length to a
-    time, so it is unachievable rather than malformed.
-    """
+
+class DimensionMismatchError(UnitError, UnachievableError):
+    """A conversion between units of different dimensions. Unachievable, not malformed."""
 
     def __init__(self, source: Unit, target: Unit) -> None:
         self.source = source

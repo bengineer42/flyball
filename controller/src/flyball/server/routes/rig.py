@@ -1,8 +1,7 @@
 """The live rig: what it is made of and what it is doing now.
 
-Read-only except for tunings. Everything here reports the rig's own state;
-nothing touches hardware on the event loop. Changes to what the rig is doing
-go through commands, not through these routes.
+Read-only except for tunings; nothing here touches hardware. Changes go
+through commands.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ LawConfig = Annotated[  # type: ignore[valid-type]
 
 
 def _channel(rig: RigDep, name: str) -> Channel:
-    """``source.measurand`` -> the live channel, or 404."""
+    """`source.measurand` -> the live channel, or 404."""
     source_name, _, measurand_name = name.partition(".")
     try:
         return Source.get(source_name)[Measurand.get(measurand_name)]
@@ -94,7 +93,7 @@ async def read_default_loop(rig: RigDep) -> LoopOut:
 
 @router.get("/loops/{name}")
 async def read_loop(rig: RigDep, name: str) -> LoopOut:
-    """``name`` is the loop's -- which is its actuator's."""
+    """`name` is the loop's -- which is its actuator's."""
     loop = rig.loops.resolve(name)
     return LoopOut.of(rig.loops.channel(name), loop, name == rig.loops.default)
 
@@ -118,7 +117,7 @@ async def read_tuning(rig: RigDep, tag: str) -> SerializeAsAny[ControlLawConfig 
 
 @router.put("/tunings/{tag}")
 async def set_tuning(rig: RigDep, tag: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
-    """Store ``body`` under ``tag`` on the live rig, replacing any tuning already there."""
+    """Store `body` under `tag` on the live rig, replacing any tuning already there."""
     tuning = Tuning(tag=tag, config=body)
     with rig.lock:
         rig.tunings.add(tuning)

@@ -8,9 +8,7 @@ class AutotuneError(FlyballError):
 class ExperimentTimeoutError(AutotuneError, ConflictError):
     """A phase of an experiment ran out of time.
 
-    Nearly always the rig, not the tuner: a pump that is not moving air, a
-    settling band tighter than the sensor noise, or a chamber far slower than
-    the timeout allows.
+    Usually the rig: no flow, a band tighter than the noise, or a slow chamber.
     """
 
     def __init__(self, phase: str, timeout: float) -> None:
@@ -25,12 +23,7 @@ class ExperimentIncompleteError(AutotuneError, NotReadyError):
 
 
 class ResponseTooSmallError(AutotuneError, UnachievableError):
-    """The reading moved too little to identify anything from.
-
-    A step that lands inside the noise, or a relay whose oscillation never
-    escapes its own dead band, carries no information about the plant. Step
-    further, or narrow the hysteresis.
-    """
+    """The reading moved too little to identify from. Step further, or narrow the hysteresis."""
 
     def __init__(self, detail: str) -> None:
         super().__init__(f"Response too small to fit: {detail}")

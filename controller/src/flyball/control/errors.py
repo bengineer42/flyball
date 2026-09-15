@@ -7,37 +7,32 @@ from flyball.core import (
 
 
 class ControllerError(FlyballError):
-    """Base class for exceptions raised by the controller."""
+    """Base for controller errors."""
 
 
 class ControllerSuspendedError(ControllerError, ConflictError):
-    """Raised when an operation is attempted on a suspended controller."""
+    """The controller is suspended."""
 
     def __init__(self) -> None:
         super().__init__("Controller is suspended.")
 
 
 class LastReadingNotAvailableError(ControllerError, NotReadyError):
-    """The controller has not been given a reading yet.
-
-    Not a fault: nothing has come round the loop so far. Anything anchored to
-    the process value has to wait a tick, whereas anchoring to the setpoint
-    never needs a sensor at all.
-    """
+    """No reading has come round the loop yet. Not a fault; wait a tick."""
 
     def __init__(self) -> None:
         super().__init__("Controller has not seen a reading yet.")
 
 
 class ControlLawNotRegisteredError(ControllerError, NotFoundError):
-    """Raised when a control law is not registered."""
+    """No control law registered under that name."""
 
     def __init__(self, tag: str) -> None:
         super().__init__(f"Control law '{tag}' is not registered.")
 
 
 class ControlLawNotSetError(ControllerError, NotReadyError):
-    """Raised when a control law is not set."""
+    """No control law is set."""
 
     def __init__(self) -> None:
         super().__init__("Control law is not set.")
@@ -49,7 +44,7 @@ class TuningNotRegisteredError(ControllerError, NotFoundError):
 
 
 class ControllerNotStartedError(ControllerError, NotReadyError):
-    """Raised when an operation is attempted on a controller that has not been started."""
+    """The controller has not been started."""
 
     def __init__(self) -> None:
         super().__init__("Controller has not been started.")

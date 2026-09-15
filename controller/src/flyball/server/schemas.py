@@ -1,12 +1,9 @@
 """Wire format shared across routes.
 
-Deliberately separate from the domain types: the HTTP surface should be free
-to change shape without dragging the control code with it, and vice versa.
-``Duration`` and ``Rate`` carry their own wire forms (see ``core.clock``). Law
-configs cross as a union told apart
-by ``tag``, built from the registry so a law added by a package is accepted
-without a change here. Application-specific requests -- pump flows, blends --
-live with that application, not here.
+Separate from the domain types so the HTTP surface and the control code can
+change shape independently. Law configs cross as a `tag`-discriminated union
+built from the registry. Application-specific requests live with the
+application.
 """
 
 from __future__ import annotations
@@ -41,12 +38,7 @@ LawsSchema = TypeAdapter(LawConfig).json_schema()
 
 
 class ClockOut(BaseModel):
-    """The rig's timebase, so a client can place its own clock against the rig's.
-
-    ``now_ns`` is the rig's wall-clock reading at the moment of the request;
-    ``elapsed_ns`` is how long the rig has been up. A client that records
-    ``now_ns`` against its own clock can convert any telemetry timestamp.
-    """
+    """The rig's timebase: `now_ns` is wall clock at the request, `elapsed_ns` uptime."""
 
     start_time_ns: int
     now_ns: int
@@ -117,11 +109,7 @@ class ReadingOut(BaseModel):
 
 
 class LoopOut(BaseModel):
-    """A loop as a client sees it: identity, what it is doing, and the law in force.
-
-    Built here rather than returning ``LoopView`` so the wire shape is the
-    server's to keep stable while the loop's internals move.
-    """
+    """A loop as a client sees it. Separate from `LoopView` so the wire shape stays stable."""
 
     name: str
     channel: ChannelOut

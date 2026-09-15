@@ -19,10 +19,10 @@ class Prompt(Activity):
 
 @dataclass(frozen=True)
 class Wait(Command, tag="wait", primary="message"):
-    """Pause the program until the named signal is fired -- from the UI, the CLI or the API.
+    """Pause the program until the named signal is fired.
 
-    ``name`` is what it is fired by (``POST /api/signals/{name}/fire``); it
-    defaults to ``wait``. ``timeout`` gives up and ends the program.
+    `name` is what it is fired by (`POST /api/signals/{name}/fire`), default
+    `wait`. `timeout` gives up and ends the program.
     """
 
     message: str

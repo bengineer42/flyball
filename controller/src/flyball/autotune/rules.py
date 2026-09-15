@@ -1,13 +1,14 @@
-"""Tuning rules: a measured plant in, a set of gains out.
+"""Tuning rules: a measured plant in, gains out.
 
 Each rule is stated in the ideal form its source uses and converted once by
-:meth:`~flyball.autotune.types.Gains.of_ideal`, so the coefficients here can be
-checked line by line against the literature without unpicking any algebra.
+[Gains.of_ideal][flyball.autotune.types.Gains.of_ideal], so coefficients can be
+checked against the literature line by line.
 
-Two families, by what they need. :func:`imc` and :func:`amigo` take a fitted
-:class:`~flyball.autotune.types.FOPDT` from a step test; :func:`ziegler_nichols`
-and :func:`tyreus_luyben` take an :class:`~flyball.autotune.types.Ultimate` from
-a relay test and need no model at all.
+[imc][flyball.autotune.rules.imc] and [amigo][flyball.autotune.rules.amigo] take
+a fitted [FOPDT][flyball.autotune.types.FOPDT] from a step test;
+[ziegler_nichols][flyball.autotune.rules.ziegler_nichols] and
+[tyreus_luyben][flyball.autotune.rules.tyreus_luyben] take an
+[Ultimate][flyball.autotune.types.Ultimate] from a relay test.
 """
 
 from __future__ import annotations
@@ -17,28 +18,19 @@ from .types import FOPDT, Gains, Ultimate
 
 
 def imc(model: FOPDT, lam: float | None = None, derivative: bool = True) -> Gains:
-    """IMC / lambda tuning: one dial, and it means something.
+    """IMC / lambda tuning.
 
-    ``lam`` is the closed-loop time constant you are asking for — how fast the
-    loop should chase a setpoint change — so it is tuned in seconds against the
-    process, not by feel. Smaller is faster and less tolerant of the model being
-    wrong. It cannot usefully go below the dead time: nothing makes the plant
-    respond before ``θ``.
-
-    Recommended over the oscillation-based rules for this rig: the step test it
-    needs is gentler on the pumps than driving a limit cycle, and the model it
-    fits is worth having on its own.
+    `lam` is the closed-loop time constant asked for, in seconds. Smaller is
+    faster and less tolerant of model error; below the dead time it gains
+    nothing. Preferred rule: the step test is gentler than a limit cycle and
+    the model is reusable.
 
     Args:
         model: The fitted plant.
-        lam: Desired closed-loop time constant. Defaults to ``max(τ, 0.8θ)``,
-            which is the conservative end — roughly no faster than the plant
-            already is.
-        derivative: Whether to include derivative action. PI is the safer choice
-            on a noisy reading, and gives up little unless ``θ`` is large.
-
-    Returns:
-        The gains.
+        lam: Closed-loop time constant. Defaults to `max(τ, 0.8θ)`, about as
+            fast as the plant already is.
+        derivative: Include derivative action. PI is safer on a noisy reading
+            and gives up little unless `θ` is large.
     """
     tau, dead_time = model.tau, model.dead_time
     if lam is None:
@@ -54,23 +46,12 @@ def imc(model: FOPDT, lam: float | None = None, derivative: bool = True) -> Gain
 
 
 def amigo(model: FOPDT) -> Gains:
-    """AMIGO (Åström & Hägglund): Ziegler-Nichols' replacement, PID form.
+    """AMIGO (Åström & Hägglund), PID form.
 
-    Fitted to hold a bounded maximum sensitivity rather than to hit a decay
-    ratio, so it detunes as the plant gets harder instead of ringing. Where
-    Ziegler-Nichols is reliably too aggressive for a process with real dead time,
-    this is not.
-
-    Only the PID form is implemented. The published PI variant has coefficients
-    that differ between the sources available, and an unverified transcription of
-    a tuning rule is worse than no rule: use :func:`imc` with
-    ``derivative=False`` for PI.
-
-    Args:
-        model: The fitted plant.
-
-    Returns:
-        The gains.
+    Holds a bounded maximum sensitivity rather than a decay ratio, so it detunes
+    as the plant gets harder instead of ringing. PID only: published PI
+    coefficients differ between sources, so use [imc][flyball.autotune.rules.imc]
+    with `derivative=False` for PI.
 
     Raises:
         NoDeadTimeError: If the model has no dead time, which the rule divides by.
@@ -86,20 +67,12 @@ def amigo(model: FOPDT) -> Gains:
 
 
 def ziegler_nichols(ultimate: Ultimate, derivative: bool = True) -> Gains:
-    """The classic closed-loop rule, targeting quarter-amplitude damping.
+    """Ziegler-Nichols closed-loop rule, targeting quarter-amplitude damping.
 
-    Included because everything is compared against it, not because it is a good
-    default: a quarter-decay response overshoots by roughly a quarter and sits
-    close to the stability edge, which on a rig whose supply humidities drift is
-    close enough to be a problem. Prefer :func:`tyreus_luyben` from the same
+    Included as the baseline, not a default: it overshoots by about a quarter
+    and sits near the stability edge. Prefer
+    [tyreus_luyben][flyball.autotune.rules.tyreus_luyben] from the same
     measurement.
-
-    Args:
-        ultimate: The critical point from a relay test.
-        derivative: Whether to include derivative action.
-
-    Returns:
-        The gains.
     """
     gain, period = ultimate.gain, ultimate.period
     if not derivative:
@@ -108,18 +81,10 @@ def ziegler_nichols(ultimate: Ultimate, derivative: bool = True) -> Gains:
 
 
 def tyreus_luyben(ultimate: Ultimate, derivative: bool = True) -> Gains:
-    """Ziegler-Nichols detuned for processes with real dead time.
+    """Ziegler-Nichols detuned for dead time: about half the gain, twice the integral time.
 
-    Roughly half the gain and twice the integral time, which buys a much larger
-    stability margin for a slower approach to setpoint. The sane default if a
-    relay test is all you have.
-
-    Args:
-        ultimate: The critical point from a relay test.
-        derivative: Whether to include derivative action.
-
-    Returns:
-        The gains.
+    A larger stability margin for a slower approach. The default when a relay
+    test is all there is.
     """
     gain, period = ultimate.gain, ultimate.period
     if not derivative:

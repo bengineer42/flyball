@@ -15,9 +15,8 @@ from .typing import Positive
 class Labelled(StrEnum):
     """A string enum whose members carry a display label.
 
-    Declare members as ``NAME = "wire_value", "Display label"``. The label goes
-    into the JSON schema as a per-option title, so a form can show it without a
-    second copy of the options on the client. Omit it and the value is used.
+    Declare members as `NAME = "wire_value", "Display label"`; the label
+    becomes the option's title in the JSON schema. Omitted, the value is used.
     """
 
     label: str

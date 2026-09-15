@@ -1,8 +1,8 @@
 """An ordered list of commands.
 
-A program is data: what to do and in what order. It holds no cursor and no
-running flag -- :class:`~flyball.programmer.Programmer` owns those, so the same
-program can be run twice, or twice at once on two rigs.
+A program is data with no cursor or running flag;
+[Programmer][flyball.programmer.Programmer] owns those, so one program can
+run twice, or on two rigs at once.
 """
 
 from __future__ import annotations
@@ -16,17 +16,10 @@ if TYPE_CHECKING:
 
 
 class Program(Sequence["Command[Any]"]):
-    """The steps of a run, in order.
-
-    Args:
-        commands: The steps. Copied, so later edits to the caller's list cannot
-            shift the sequence under a run in progress.
-        name: What to call it in telemetry and logs.
+    """The steps of a run, in order. `commands` is copied.
 
     Raises:
-        ValueError: ``commands`` is empty. A program that does nothing is a
-            mistake at the point it was written, not something to discover
-            halfway through a run.
+        ValueError: `commands` is empty.
     """
 
     __slots__ = ("_commands", "name")
@@ -78,7 +71,7 @@ class Program(Sequence["Command[Any]"]):
         return f"Program({name}{len(self)} steps: {' -> '.join(self.tags)})"
 
 
-# A slice of an empty program is impossible: ``Program`` cannot be empty, and
-# ``__getitem__`` would raise on ``program[5:]`` past the end. Slicing exists
-# for resuming a part-finished run -- ``programmer.start(program[n:])`` -- so
+# A slice of an empty program is impossible: `Program` cannot be empty, and
+# `__getitem__` would raise on `program[5:]` past the end. Slicing exists
+# for resuming a part-finished run -- `programmer.start(program[n:])` -- so
 # that case wants a guard at the call site rather than an empty program here.

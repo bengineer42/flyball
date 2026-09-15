@@ -1,9 +1,9 @@
 """The I2C bus protocol, and a multiplexer that presents each lane as a bus.
 
-A device driver takes an :class:`I2CBus` and never knows whether it is the
-root bus or a lane behind an :class:`I2CMux`. Selecting the lane happens inside
-the lane's transaction, under the mux's lock, so two drivers on different lanes
-cannot interleave.
+A driver takes an [I2CBus][flyball.hardware.i2c.I2CBus] and cannot tell the
+root bus from a lane behind an [I2CMux][flyball.hardware.i2c.I2CMux]. Lane
+selection happens inside the transaction, under the mux's lock, so drivers on
+different lanes cannot interleave.
 """
 
 from __future__ import annotations
@@ -18,12 +18,7 @@ TCA9548_ADDRESS = 0x70
 
 @runtime_checkable
 class I2CBus(Protocol):
-    """The subset of ``busio.I2C`` this package uses.
-
-    Blinka ships no ``py.typed`` and no annotations, so importing ``busio.I2C``
-    as a type gives a name and no checking. This is narrow on purpose: it keeps
-    test fakes substitutable.
-    """
+    """The subset of `busio.I2C` this package uses. Blinka is untyped; fakes stay substitutable."""
 
     def try_lock(self) -> bool: ...
     def unlock(self) -> None: ...
@@ -32,11 +27,10 @@ class I2CBus(Protocol):
 
 
 class I2CMux:
-    """A TCA9548-style multiplexer: one control byte selects which lanes are live.
+    """A TCA9548-style multiplexer: one control byte selects the live lanes.
 
-    Holds its own lock so a lane transaction -- select, then transfer -- is
-    atomic against other lanes on the same mux. ``lane(n)`` returns an
-    :class:`I2CBus` a driver can use without knowing the mux exists.
+    Its lock makes select-then-transfer atomic against other lanes. `lane(n)`
+    returns an [I2CBus][flyball.hardware.i2c.I2CBus].
     """
 
     __slots__ = ("_address", "_depth", "_i2c", "_lock", "_selected")
@@ -58,11 +52,7 @@ class I2CMux:
         return MuxedLane(self, lane)
 
     def acquire(self, lane: int) -> I2CBus:
-        """Take the mux and the root bus with ``lane`` routed. Re-entrant.
-
-        The select byte is written only when the lane changes, so nested or
-        repeated transfers on one lane cost no bus traffic.
-        """
+        """Take the mux and root bus with `lane` routed. Re-entrant; selects only on change."""
         self._lock.acquire()
         try:
             if self._depth == 0:
@@ -77,7 +67,7 @@ class I2CMux:
         return self._i2c
 
     def release(self) -> None:
-        """Undo one ``acquire``. The outermost release deselects every lane."""
+        """Undo one `acquire`. The outermost release deselects every lane."""
         try:
             self._depth -= 1
             if self._depth == 0:
@@ -90,7 +80,7 @@ class I2CMux:
 
     @contextmanager
     def select(self, lane: int) -> Generator[I2CBus]:
-        """``acquire``/``release`` as a context manager, for one transaction."""
+        """`acquire`/`release` as a context manager, for one transaction."""
         bus = self.acquire(lane)
         try:
             yield bus
@@ -99,9 +89,9 @@ class I2CMux:
 
 
 class MuxedLane:
-    """One lane of an :class:`I2CMux`, presented as an :class:`I2CBus`.
+    """One [I2CMux][flyball.hardware.i2c.I2CMux] lane as an [I2CBus][flyball.hardware.i2c.I2CBus].
 
-    Each transfer selects the lane first. ``try_lock``/``unlock`` bracket a
+    Each transfer selects the lane first. `try_lock`/`unlock` bracket a
     multi-transfer sequence so the lane stays selected between them.
     """
 

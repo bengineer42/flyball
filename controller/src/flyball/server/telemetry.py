@@ -1,9 +1,9 @@
 """The rig's live feed, for the websockets.
 
-The rig publishes nothing itself; the server attaches one observer that turns
-every sample into a wire model and fans it out through a :class:`Topic`. When
-nobody is connected the topic drops it in ~25 ns, so an idle server costs the
-control thread nothing.
+The server attaches one observer that turns every sample into a wire model
+and fans it out through a [Topic][flyball.core.topic.Topic]. With nobody
+connected the topic drops it, so an idle server costs the control thread
+nothing.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from .schemas import SampleOut
 
 
 class Telemetry(Observer):
-    """Attach to a rig; ``samples`` then carries everything the rig hears."""
+    """Attach to a rig; `samples` then carries everything the rig hears."""
 
     def __init__(self, rig: Rig) -> None:
         self.samples: Topic[SampleOut] = Topic()

@@ -1,9 +1,7 @@
 """A client for a running rig, built from the schema it publishes.
 
-Nothing here knows what a pump is. ``Rig`` fetches ``/api/schema`` once and
-synthesises a method per device command from it, validating arguments against
-the command's argument schema before anything is sent, so a wrong call fails
-here with the schema's own words rather than on the rig::
+`Rig` fetches `/api/schema` once and synthesises a method per device command,
+validating arguments against the schema before sending:
 
     rig = Rig("http://pi:8000")
     rig.actuators.pumps.set_blend(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
@@ -110,7 +108,7 @@ class Devices:
 
 
 class Rig:
-    """A running rig, over HTTP. ``schema`` may be given to work from a saved one."""
+    """A running rig, over HTTP. `schema` may be given to work from a saved one."""
 
     def __init__(
         self,
@@ -146,7 +144,7 @@ class Rig:
 
     @property
     def schema(self) -> dict[str, Any]:
-        """``/api/schema``, fetched once."""
+        """`/api/schema`, fetched once."""
         if self._schema is None:
             self._schema = self.get("/api/schema")
         return self._schema
@@ -177,7 +175,7 @@ class Rig:
         return bool(self.post(f"/api/signals/{name}/interrupt")["interrupted"])
 
     def clock(self) -> dict[str, Any]:
-        """The rig's timebase: ``start_time_ns``, ``now_ns``, ``elapsed_ns``, ``tags``."""
+        """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`."""
         return self.get("/api/clock")
 
     def sources(self) -> Any:
@@ -187,7 +185,7 @@ class Rig:
         return self.get("/api/loops")
 
     def watch(self, stream: str) -> Iterator[dict[str, Any]]:
-        """Frames from ``/ws/<stream>``: samples, loops, actuators, readers, signals."""
+        """Frames from `/ws/<stream>`: samples, loops, actuators, readers, signals."""
         from websockets.sync.client import connect
 
         ws_url = self.url.replace("http://", "ws://", 1).replace("https://", "wss://", 1)

@@ -1,11 +1,9 @@
 """Live push over websockets.
 
-``/ws/samples`` forwards every sample the rig hears as it arrives.
-``/ws/loops``, ``/ws/actuators`` and ``/ws/signals`` send everything on
-connect, then every ``FLUSH_S`` one frame holding whatever changed since the
-last: the rig keeps only the newest view of each loop, state of each actuator
-and outcome of each signal, so a loop at any tick rate costs the control
-thread one snapshot per tick and the socket at most one frame per flush.
+`/ws/samples` forwards every sample as it arrives. `/ws/loops`,
+`/ws/actuators` and `/ws/signals` send everything on connect, then every
+`FLUSH_S` one frame of whatever changed: the rig keeps only the newest value
+per key, so the socket costs at most one frame per flush at any tick rate.
 """
 
 from __future__ import annotations
@@ -30,9 +28,8 @@ router = APIRouter(tags=["telemetry"])
 
 # How long a socket waits for a push before checking whether the rig went away.
 IDLE_POLL_S = 1.0
-#: How often the loop and actuator sockets send what changed. A dashboard
-#: cannot use more than ~20 frames a second; a loop may tick far faster.
 FLUSH_S = 0.05
+"""How often the loop and actuator sockets send what changed; a dashboard needs at most ~20/s."""
 
 SAMPLE = TypeAdapter(dict)
 LOOPS = TypeAdapter(list[LoopOut])
@@ -75,11 +72,7 @@ async def samples(websocket: WebSocket) -> None:
 
 
 async def _closed(websocket: WebSocket) -> None:
-    """Return once the client has gone.
-
-    Nothing is sent to a quiet socket, so only receiving notices a
-    disconnect; this runs beside the push loop.
-    """
+    """Return once the client has gone. Only receiving notices a disconnect."""
     while (await websocket.receive())["type"] != "websocket.disconnect":
         pass
 
@@ -90,9 +83,9 @@ async def _flush[V](
     key: str,
     encode: Callable[[Rig, str, V], dict[str, Any]],
 ) -> None:
-    """Send everything, then every ``FLUSH_S`` whatever changed, until the client or rig goes.
+    """Send everything, then every `FLUSH_S` whatever changed, until the client or rig goes.
 
-    Frames are ``{key: [encoded, ...]}``; an empty flush sends nothing.
+    Frames are `{key: [encoded, ...]}`; an empty flush sends nothing.
     """
     rig = current_rig()
     if rig is None:
@@ -152,7 +145,7 @@ def _prime(rig: Rig) -> None:
 
 @router.websocket("/ws/loops")
 async def loops(websocket: WebSocket) -> None:
-    """Every loop on connect, then each loop that ticked, at most every ``FLUSH_S``."""
+    """Every loop on connect, then each loop that ticked, at most every `FLUSH_S`."""
     await websocket.accept()
     with contextlib.suppress(WebSocketDisconnect):
         while True:
@@ -166,7 +159,7 @@ async def loops(websocket: WebSocket) -> None:
 
 @router.websocket("/ws/actuators")
 async def actuators(websocket: WebSocket) -> None:
-    """Every actuator on connect, then each that changed, at most every ``FLUSH_S``."""
+    """Every actuator on connect, then each that changed, at most every `FLUSH_S`."""
     await websocket.accept()
     with contextlib.suppress(WebSocketDisconnect):
         while True:

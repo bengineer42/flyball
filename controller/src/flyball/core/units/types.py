@@ -1,11 +1,10 @@
 """Annotating a float with the unit it is reported in.
 
-``Quantity(Celsius)`` is a ``float`` to a type checker and to pydantic, plus a
-:class:`UnitRef` in its ``Annotated`` metadata. Pydantic reads that while
-building the field's JSON schema, so the unit lands on the wire; in-process
-code reads it back off the type with :func:`unit_of`. Nothing here converts:
-the annotation records what a value *is in*, and a driver reports in exactly
-that.
+`Quantity(Celsius)` is a `float` plus a
+[UnitRef][flyball.core.units.types.UnitRef] in its `Annotated` metadata.
+Pydantic puts the unit in the JSON schema;
+[unit_of][flyball.core.units.types.unit_of] reads it back in-process. Nothing
+here converts: a driver reports in exactly the annotated unit.
 """
 
 from typing import Annotated, Any, get_type_hints
@@ -19,10 +18,8 @@ from .dimension import Unit
 class UnitRef:
     """Annotated metadata: the unit a float is reported in.
 
-    Sits in ``Annotated[float, UnitRef(...)]``. Pydantic calls
-    ``__get_pydantic_json_schema__`` while building the field's schema, so the
-    unit lands in the JSON; ``get_type_hints(cls, include_extras=True)`` finds
-    the object itself, so in-process code (the CLI) never parses JSON to learn it.
+    Pydantic puts it in the field's JSON schema;
+    `get_type_hints(cls, include_extras=True)` finds the object in-process.
     """
 
     __slots__ = ("unit",)
@@ -52,20 +49,16 @@ class UnitRef:
 
 
 def Quantity(unit: Unit, /, **constraints: Any) -> Any:
-    """A ``float`` annotated with the unit it is reported in.
+    """A `float` annotated with the unit it is reported in.
 
-    ``Quantity(Kelvin)`` reports in K, ``Quantity(Celsius)`` in °C, ``Quantity(Litre / Minute)`` in
-    L/min. Keyword arguments are pydantic ``Field`` constraints, so
-    ``Quantity(Litre / Minute, ge=0)`` also puts ``minimum: 0`` in the schema.
-
-    Returns:
-        ``Annotated[float, UnitRef, Field]`` -- to a type checker it is ``float``.
+    Keyword arguments are pydantic `Field` constraints:
+    `Quantity(Litre / Minute, ge=0)` also puts `minimum: 0` in the schema.
     """
     return Annotated[float, UnitRef(unit), Field(**constraints)]
 
 
 def unit_of(cls: type, field: str) -> UnitRef | None:
-    """The ``UnitRef`` on ``cls.field``, or None if the field carries no unit."""
+    """The `UnitRef` on `cls.field`, or None if the field carries no unit."""
     hint = get_type_hints(cls, include_extras=True)[field]
     for meta in getattr(hint, "__metadata__", ()):
         if isinstance(meta, UnitRef):

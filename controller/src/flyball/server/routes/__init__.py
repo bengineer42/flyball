@@ -1,8 +1,4 @@
-"""Routers the app mounts.
-
-The program router is written against the current programmer but is not
-exported until ``flyball.programmer`` imports again; see ``program.py``.
-"""
+"""Routers the app mounts. The program router is not exported yet; see `program.py`."""
 
 from .actuators import router as actuators_router
 from .history import router as history_router

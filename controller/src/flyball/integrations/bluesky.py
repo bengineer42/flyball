@@ -1,21 +1,16 @@
 """Run flyball devices inside a Bluesky plan.
 
-Bluesky's device interface is duck-typed (``bluesky.protocols``): a
-*Readable* has ``read()``/``describe()``, a *Movable* adds ``set()`` returning
-a *Status*, and a plan drives them while the RunEngine records documents.
-This module wraps a flyball :class:`~flyball.core.reading.Source`, the rig
-as a whole, or an actuator command in those shapes, without importing
-bluesky -- so it imports anywhere and the ``bluesky`` extra is only needed
-to actually run a plan::
+Wraps a [Source][flyball.core.reading.Source], the rig, or an actuator
+command in Bluesky's duck-typed *Readable* and *Movable* shapes without
+importing bluesky, so the `bluesky` extra is only needed to run a plan:
 
     from bluesky import RunEngine
     from bluesky.plans import count
     RE = RunEngine()
     RE(count([SourceReadable(rig, chamber)], num=10))
 
-Document shape follows the event model: each channel is one data key named
-``<source>.<measurand>``, described with its dtype, shape, units and
-precision -- the same fields a Measurand already carries.
+Each channel is one data key named `<source>.<measurand>`, described with the
+dtype, shape, units and precision the Measurand carries.
 """
 
 from __future__ import annotations
@@ -82,10 +77,9 @@ class SourceReadable:
 
 
 class Status:
-    """A Bluesky *Status* over a flyball :class:`Signal`.
+    """A Bluesky *Status* over a [Signal][flyball.core.signal.Signal].
 
-    Done when the signal settles; success when it fired rather than timed out
-    or was interrupted.
+    Done when it settles; success if it fired.
     """
 
     def __init__(self, signal: Signal, timeout: float | None = None) -> None:
@@ -138,7 +132,7 @@ class Status:
 
 
 class DemandMovable:
-    """An actuator's demand as a Bluesky *Movable*. ``set`` is immediate: its status is done."""
+    """An actuator's demand as a Bluesky *Movable*. `set` is immediate: its status is done."""
 
     def __init__(self, rig: Rig, actuator: Actuator, name: str | None = None) -> None:
         self._rig = rig

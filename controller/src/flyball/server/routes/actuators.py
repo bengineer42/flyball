@@ -1,9 +1,8 @@
 """Actuators: what each one is, and the commands its class marked.
 
-Routes are resolved at request time against the live rig rather than mounted
-per actuator, since the app exists before the rig is set. The price is that
-OpenAPI lists one generic command route; ``/{name}/schema`` carries the real
-request schema for each command, which is what a form or CLI reads anyway.
+Routes resolve against the live rig at request time, since the app exists
+before the rig is set. OpenAPI therefore lists one generic command route;
+`/{name}/schema` carries each command's real request schema.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ def read_actuator_schema(rig: RigDep, name: str) -> dict[str, Any]:
     return device_schema(actuator, demand_unit=None if unit is None else unit.symbol)
 
 
-# Plain ``def``: FastAPI runs it in the threadpool, so a command that touches
+# Plain `def`: FastAPI runs it in the threadpool, so a command that touches
 # hardware never blocks the event loop.
 @router.post("/{name}/{command}")
 def run_command(

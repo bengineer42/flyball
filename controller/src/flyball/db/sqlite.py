@@ -1,10 +1,9 @@
 """The SQLite store.
 
-One connection per :class:`SqliteStore`, guarded by a lock, so a store may be
-shared across threads; the rig's writer and the server's reader normally each
-open their own against the same file, and WAL lets them overlap. Session
-declarations are interned in the writer so the hot path -- a delivery of
-samples -- is one ``executemany`` per table with integer keys already known.
+One locked connection per [SqliteStore][flyball.db.sqlite.SqliteStore]; the
+rig's writer and the server's reader normally each open their own on the same
+file, and WAL lets them overlap. Declarations are interned in the writer so a
+delivery is one `executemany` per table.
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ def _loads(text: str | None) -> Any:
 
 
 def _window_clause(window: Window | None, column: str) -> tuple[str, list[int]]:
-    """SQL and parameters restricting ``column`` to the window; empty when unbounded."""
+    """SQL and parameters restricting `column` to the window; empty when unbounded."""
     if window is None:
         return "", []
     clauses, params = [], []
@@ -292,7 +291,7 @@ class SqliteSessionWriter:
 
 
 class SqliteStore:
-    """A :class:`Store` on one SQLite file. ``":memory:"`` for tests."""
+    """A [Store][flyball.db.store.Store] on one SQLite file. `":memory:"` for tests."""
 
     __slots__ = ("_connection", "_lock", "path")
 

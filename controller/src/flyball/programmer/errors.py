@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class ProgramAlreadyRunningError(ConflictError):
-    """Raised when an attempt is made to start a new program while another is still running."""
+    """A program is still running."""
 
     def __init__(self, current: Program | Command, new: Program | Command) -> None:
         self.current = current
@@ -29,7 +29,7 @@ class CommandAlreadyRunningError(ConflictError):
 
 
 class CommandRuntimeError(Exception):
-    """Raised when there is an error during the runtime of a program."""
+    """A program failed while running."""
 
     def __init__(self, command: Command, step: int, error: Exception) -> None:
         self.command = command
@@ -39,7 +39,7 @@ class CommandRuntimeError(Exception):
 
 
 class ProgramFinishedError(Exception):
-    """Raised when an operation is attempted on a program that has already finished."""
+    """The program has already finished."""
 
     def __init__(self, program: Program, step: int) -> None:
         self.program = program

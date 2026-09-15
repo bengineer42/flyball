@@ -1,11 +1,9 @@
 """HTTP + WebSocket front end for a running rig.
 
-Wire a rig in, then serve::
+from flyball.server import app, set_rig
+set_rig(rig)
 
-    from flyball.server import app, set_rig
-    set_rig(rig)
-
-    uvicorn flyball.server:app --host 0.0.0.0 --port 8000
+uvicorn flyball.server:app --host 0.0.0.0 --port 8000
 """
 
 from flyball.server.app import app, create_app

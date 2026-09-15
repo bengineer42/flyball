@@ -1,12 +1,12 @@
 """Dimensions, units and prefixes.
 
-A :class:`BaseDimension` is irreducible: the seven of the SI, plus any
-pseudo-dimension worth keeping apart in composition (angle, solid angle). A
-:class:`Dimension` is a product of powers of those -- every quantity has one,
-and two units convert only if theirs agree. A :class:`Unit` is a magnitude on a
-dimension: a factor to the coherent base, and for absolute scales (°C, °F) a
-zero. Values in the framework are bare floats in a quantity's canonical unit;
-this module is what converts at the edges and what a schema reads.
+A [BaseDimension][flyball.core.units.dimension.BaseDimension] is irreducible:
+the seven of the SI, plus angle and solid angle. A
+[Dimension][flyball.core.units.dimension.Dimension] is a product of their
+powers; two units convert only if theirs agree. A
+[Unit][flyball.core.units.dimension.Unit] is a magnitude on a dimension: a
+factor to the coherent base, and for absolute scales a zero. Values in the
+framework are bare floats in a canonical unit; conversion happens at the edges.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Self
 
-from .errors import DimensionMismatchError
+from .errors import DimensionMismatchError, UnitNotFoundError
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,16 +53,26 @@ Yotta = Prefix("yotta", "Y", 1e24)
 Ronna = Prefix("ronna", "R", 1e27)
 Quetta = Prefix("quetta", "Q", 1e30)
 
+_prefixes: tuple[Prefix, ...] = tuple(
+    sorted(
+        (p for p in list(globals().values()) if isinstance(p, Prefix)),
+        key=lambda p: -len(p.symbol),
+    )
+)
+
 
 _SUPERSCRIPTS = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+_FROM_SUPERSCRIPT = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻", "0123456789-")
+_SUPERSCRIPT_DIGITS = set("⁰¹²³⁴⁵⁶⁷⁸⁹")
+_units: dict[str, Unit] = {}  # every unit by symbol, first definition wins
 
 
 def superscript(n: int) -> str:
     return str(n).translate(_SUPERSCRIPTS)
 
 
-_bases: list[BaseDimension] = []  #: registration order; a term's ``axis`` indexes here
-_named: dict[tuple[Term, ...], list[NamedDimension]] = {}  #: every declared name per tuple
+_bases: list[BaseDimension] = []  # registration order; a term's `axis` indexes here
+_named: dict[tuple[Term, ...], list[NamedDimension]] = {}  # every declared name per tuple
 
 
 def _base_dimension(name: str) -> BaseDimension:
@@ -71,16 +81,15 @@ def _base_dimension(name: str) -> BaseDimension:
 
 
 class Term(NamedTuple):
-    axis: int  #: index of the base dimension in ``_bases``
+    axis: int  # index of the base dimension in `_bases`
     exponent: int
 
 
 class Dimension(tuple[Term, ...]):
     """A product of powers of base dimensions.
 
-    Stored as ``(axis, exponent)`` terms sorted by axis with zero exponents
-    dropped, so there is exactly one tuple per dimension and equality is a
-    tuple compare. Build one from any iterable of pairs; duplicates merge.
+    Stored as `(axis, exponent)` terms sorted by axis, zero exponents dropped,
+    so equality is a tuple compare. Build from any iterable of pairs.
     """
 
     __slots__ = ()
@@ -91,7 +100,7 @@ class Dimension(tuple[Term, ...]):
             exps[axis] = exps.get(axis, 0) + exponent
         return super().__new__(cls, (Term(a, e) for a, e in sorted(exps.items()) if e))
 
-    # tuple's ``*`` is repetition; here it is the product of dimensions.
+    # tuple's `*` is repetition; here it is the product of dimensions.
     def __mul__(self, other: Dimension) -> Dimension:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
         return Dimension((*self, *other))
 
@@ -115,16 +124,12 @@ class Dimension(tuple[Term, ...]):
 
     @property
     def label(self) -> str:
-        """The best human name: a name declared for an equal tuple, else the formula.
-
-        Where several names share a tuple (energy and torque) the first
-        declared wins, so declaration order in ``dimensions`` is the tie-break.
-        """
+        """A name declared for an equal tuple (first declared wins), else the formula."""
         named = _named.get(tuple(self))
         return named[0].name if named else self.formula()
 
     def describe(self) -> str:
-        """Label with the formula when they differ: ``Power (M L² T⁻³)``. For messages."""
+        """Label with the formula when they differ: `Power (M L² T⁻³)`. For messages."""
         label, formula = self.label, self.formula()
         return f"{label} ({formula})" if label != formula else formula
 
@@ -138,15 +143,13 @@ class Dimension(tuple[Term, ...]):
 class NamedDimension(Dimension):
     """A dimension with the name it was declared under.
 
-    Equality and hashing are the tuple's, so ``Torque == Energy`` still holds;
-    the name is what a schema or message shows, not what conversions compare.
-    Anything derived by arithmetic is a plain :class:`Dimension` again: the
-    name says what this was declared as, not what any equal tuple is.
+    Equality is the tuple's, so `Torque == Energy`; the name is for display.
+    Arithmetic yields a plain [Dimension][flyball.core.units.dimension.Dimension].
     """
 
-    # A tuple subclass cannot add slots, so this one carries a ``__dict__``.
+    # A tuple subclass cannot add slots, so this one carries a `__dict__`.
     _name: str
-    symbol: str | None  #: the conventional quantity symbol (F, E, ρ), where one exists
+    symbol: str | None  # the conventional quantity symbol (F, E, ρ), where one exists
 
     def __new__(
         cls,
@@ -169,7 +172,7 @@ class NamedDimension(Dimension):
         return self._name
 
     def __reduce__(self) -> tuple[Any, ...]:
-        # tuple pickling does not carry ``__dict__``; rebuild by name and terms.
+        # tuple pickling does not carry `__dict__`; rebuild by name and terms.
         return (type(self), (self._name, tuple(self), self.symbol))
 
     def __repr__(self) -> str:
@@ -179,8 +182,8 @@ class NamedDimension(Dimension):
 class BaseDimension(NamedDimension):
     """An irreducible dimension: a named dimension whose one term is itself.
 
-    Registering allocates the next axis. One object per name for the life of
-    the process, so pickling gives back the registered one.
+    Registering allocates the next axis. One object per name per process;
+    pickling gives back the registered one.
     """
 
     symbol: str  # pyright: ignore[reportIncompatibleVariableOverride]  a base always has one: M, L, T
@@ -207,11 +210,10 @@ DIMENSIONLESS = NamedDimension("Dimensionless")
 class Unit:
     """A magnitude on a dimension.
 
-    ``factor`` takes a value to the dimension's coherent base unit; ``zero`` is
-    the base-unit value at this unit's 0, non-zero only for absolute scales
-    (°C, °F). Intervals, rates and anything composed ignore ``zero``: there is
-    no such thing as an absolute J/°C, and a rise of 5 °C is a rise of 5 K.
-    Which conversion a value gets is decided by its quantity, not here.
+    `factor` takes a value to the coherent base unit; `zero` is the base-unit
+    value at this unit's 0, non-zero only for absolute scales (°C, °F).
+    Intervals and composed units ignore `zero`: a rise of 5 °C is 5 K. The
+    quantity decides which conversion applies.
     """
 
     name: str
@@ -220,6 +222,47 @@ class Unit:
     factor: float = 1.0
     zero: float = 0.0
     prefix: Prefix | None = None
+
+    def __post_init__(self) -> None:
+        # First definition of a symbol wins: a composed `L/min` built twice is
+        # the same unit, and a clash of different units is a naming mistake to
+        # surface, not silently shadow.
+        existing = _units.get(self.symbol)
+        if existing is None:
+            _units[self.symbol] = self
+        elif (existing.dimension, existing.factor, existing.zero) != (
+            self.dimension,
+            self.factor,
+            self.zero,
+        ):
+            raise ValueError(f"symbol {self.symbol!r} is already {existing.name}")
+
+    @classmethod
+    def get(cls, symbol: str) -> Unit:
+        """The unit written `symbol`: exact, prefixed (`kPa`), or a quotient or product (`g/m³`).
+
+        Raises:
+            UnitNotFoundError: If nothing matches.
+        """
+        from . import si  # ruff: ignore[unused-import]  populates the registry with the SI units
+
+        if (unit := _units.get(symbol)) is not None:
+            return unit
+        if "/" in symbol:
+            num, _, den = symbol.partition("/")
+            return cls.get(num) / cls.get(den)
+        if "·" in symbol:
+            a, _, b = symbol.partition("·")
+            return cls.get(a) * cls.get(b)
+        if symbol[-1:] in _SUPERSCRIPT_DIGITS:  # m³, s⁻²
+            root, power = symbol.rstrip("⁰¹²³⁴⁵⁶⁷⁸⁹⁻"), symbol[len(symbol.rstrip("⁰¹²³⁴⁵⁶⁷⁸⁹⁻")) :]
+            return cls.get(root) ** int(power.translate(_FROM_SUPERSCRIPT))
+        for prefix in _prefixes:
+            if prefix.symbol and symbol.startswith(prefix.symbol):
+                root = _units.get(symbol[len(prefix.symbol) :])
+                if root is not None and root.prefix is None:
+                    return root.prefixed(prefix)
+        raise UnitNotFoundError(symbol)
 
     def to(self, other: Unit, value: float) -> float:
         """Convert an interval: differences, rates, composed units."""

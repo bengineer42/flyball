@@ -1,9 +1,8 @@
 """Sinks, observers and actuators.
 
-An actuator is a :class:`~flyball.core.device.Device` that a loop drives:
-it takes a demand, commits on ``apply``, and reports what it is doing. The
-three tiers -- config, settings, state -- and :func:`command` are the
-device's; see that module.
+An actuator is a [Device][flyball.core.device.Device] a loop drives: it takes
+a demand, commits on `apply`, and reports what it is doing. Tiers and
+[command][flyball.core.device.command] are the device's.
 """
 
 from __future__ import annotations
@@ -39,9 +38,9 @@ __all__ = [
 
 
 class Sink:
-    """Takes something in, commits on ``apply``. Base for actuators and buffering observers.
+    """Takes something in, commits on `apply`. Base for actuators and buffering observers.
 
-    ``name`` identifies it in the rig, on the wire and in a recording -- for
+    `name` identifies it in the rig, on the wire and in a recording -- for
     an actuator it is also the name of the loop driving it.
     """
 
@@ -57,10 +56,9 @@ class Sink:
 class Observer[S: Sample | Reading]:
     """Hears samples from the sources and channels it names.
 
-    ``observe`` is called once per sample whose source, or any of whose
-    channels, is in ``observes`` -- an observer keyed on a channel still gets
-    the whole sample and picks its measurand. ``touches`` lists the sinks the
-    rig should ``apply`` after a delivery in which this observer fired.
+    `observe` gets the whole sample whenever its source or any of its channels
+    is in `observes`. `touches` lists the sinks the rig should `apply` after a
+    delivery in which this observer fired.
     """
 
     name: str
@@ -93,8 +91,8 @@ ActuatorView = DeviceView
 class Actuator(Device, Sink):
     """A device a loop drives.
 
-    ``demand_unit`` is what :meth:`set_demand` is in -- the loop's measurand,
-    or None for a unitless demand.
+    `demand_unit` is what [set_demand][flyball.core.sink.Actuator.set_demand]
+    takes; None if unitless.
     """
 
     config_type: ClassVar[type[DeviceConfig[Any]]] = ActuatorConfig

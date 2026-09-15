@@ -1,10 +1,5 @@
 class Lag:
-    """A first-order lag: the output chases the input with a time constant.
-
-    ``dy/dt = (gain * u - y) / tau``, stepped exactly for a held input, so the
-    step size does not change the trajectory. Most things a loop regulates
-    look like this, or like two of these in series.
-    """
+    """A first-order lag: `dy/dt = (gain * u - y) / tau`, stepped exactly for a held input."""
 
     __slots__ = ("gain", "tau_s", "value")
 
@@ -16,7 +11,7 @@ class Lag:
         self.gain = gain
 
     def step(self, u: float, dt_s: float) -> float:
-        """Hold ``u`` for ``dt_s`` seconds; return the new output."""
+        """Hold `u` for `dt_s` seconds; return the new output."""
         from math import exp
 
         target = self.gain * u

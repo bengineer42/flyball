@@ -1,11 +1,8 @@
 """What the rig is waiting on, by name, so a person or a client can answer.
 
-Anything that blocks a program -- an operator prompt, a settle test, a hold
--- is a :class:`~flyball.core.signal.Signal`. Registering it here gives it a
-name and a message, so the server can list what is pending, fire one (the
-operator pressed the button, or wants to skip a wait), or interrupt one.
-Outcomes are pushed through ``latest`` as they settle, from whichever
-thread settles them.
+Anything that blocks a program is a [Signal][flyball.core.signal.Signal].
+Registering it here gives it a name and a message, so the server can list,
+fire or interrupt it. Outcomes are pushed through `latest` as they settle.
 """
 
 from __future__ import annotations
@@ -41,8 +38,8 @@ class Signals:
         self._clock = clock
         self._lock = Lock()
         self._entries: dict[str, _Entry] = {}
-        #: Every registration and settlement, by name, for the telemetry flush.
         self.latest: Latest[str, SignalState] = Latest()
+        """Every registration and settlement, by name, for the telemetry flush."""
 
     def register(
         self,
@@ -54,7 +51,7 @@ class Signals:
         """Name a signal while something waits on it.
 
         Raises:
-            ConflictError: ``name`` is already waiting on something else.
+            ConflictError: `name` is already waiting on something else.
         """
         state = SignalState(name, message, signal.outcome, self._clock.now_ns(), timeout_s)
         with self._lock:
@@ -66,7 +63,7 @@ class Signals:
         return state
 
     def remove(self, name: str) -> None:
-        """Forget a signal once its wait is over. The last state stays in ``latest``."""
+        """Forget a signal once its wait is over. The last state stays in `latest`."""
         with self._lock:
             entry = self._entries.pop(name, None)
         if entry is not None:
@@ -94,7 +91,7 @@ class Signals:
             return entry.signal
 
     def fire(self, name: str) -> bool:
-        """Settle ``name`` as met -- the operator answered, or wants the wait skipped."""
+        """Settle `name` as met -- the operator answered, or wants the wait skipped."""
         return self._signal(name).fire()
 
     def interrupt(self, name: str) -> bool:

@@ -1,10 +1,8 @@
-"""Deciding when a reading has settled, and fitting a plant model to a step.
+"""Settling detection, and fitting a plant model to a step.
 
-Stdlib only, like the rest of the core: the fit is Smith's two-point estimate
-seeding a shrinking grid search on (τ, θ), which is a handful of lines and needs
-no optimiser. The gain is not searched over — it comes from the two plateaus the
-settling detector already measured, which is a better estimate than anything the
-transient can offer.
+Stdlib only: Smith's two-point estimate seeds a shrinking grid search on
+(τ, θ). The gain is not searched; it comes from the two measured plateaus, which
+is a better estimate than the transient gives.
 """
 
 from __future__ import annotations
@@ -28,15 +26,14 @@ _HIGH = 0.632
 class SteadyState:
     """A rolling window that reports when a reading has stopped moving.
 
-    Settled means the whole of the last ``window`` seconds fits inside a ``band``
-    wide envelope. A range test rather than a slope test: a slow ramp and a noisy
-    plateau look alike to a slope, but only one of them stays inside the band.
+    Settled means the last `window` seconds fit inside a `band`-wide envelope. A
+    range test, not a slope test: a slow ramp and a noisy plateau look alike to
+    a slope.
 
     Args:
         window: How long the reading must stay put.
-        band: How much it may move in that time and still count as still. Set it
-            above the sensor noise or nothing ever settles; the SHT45's ±1%RH is
-            the floor.
+        band: How much it may move in that time. Set above the sensor noise or
+            nothing ever settles.
     """
 
     def __init__(self, window: Positive, band: Positive) -> None:
@@ -54,20 +51,13 @@ class SteadyState:
         return fmean(sample.value for sample in self._samples) if self._samples else 0.0
 
     def push(self, time: float, value: float) -> bool:
-        """Add a reading and say whether the window is now steady.
+        """Add a reading; return whether the last `window` seconds sit within `band`.
 
-        Args:
-            time: When the reading was taken.
-            value: What it read.
-
-        Returns:
-            Whether the last ``window`` seconds all sit within ``band``. False
-            until the window has filled, so a fresh detector never reports
-            settled on its first sample.
+        False until the window has filled.
         """
         self._samples.append(Sample(time, value))
         # One sample older than the window is kept, so the span the test runs
-        # over is genuinely at least ``window`` and not one sample short of it.
+        # over is genuinely at least `window` and not one sample short of it.
         while len(self._samples) > 1 and time - self._samples[1].time >= self.window:
             self._samples.popleft()
         if time - self._samples[0].time < self.window:
@@ -77,14 +67,7 @@ class SteadyState:
 
 
 def _reaches(fractions: list[Sample], target: float) -> float:
-    """The time the normalised response first reaches ``target``, interpolated.
-
-    Args:
-        fractions: The response normalised to run 0 → 1, timed from the step.
-        target: The fraction to find.
-
-    Returns:
-        The interpolated crossing time.
+    """The time the normalised (0 → 1) response first reaches `target`, interpolated.
 
     Raises:
         ResponseTooSmallError: If the response never gets there.
@@ -114,12 +97,10 @@ def _sse(fractions: list[Sample], tau: float, dead_time: float) -> float:
 def _refine(
     fractions: list[Sample], tau: float, dead_time: float, passes: int = 8, points: int = 7
 ) -> tuple[float, float]:
-    """Least-squares polish of (τ, θ) by a grid that halves each pass.
+    """Least-squares polish of (τ, θ) on a grid that halves each pass.
 
-    The two-point seed reads two samples and trusts them; this reads all of them.
-    Deterministic and derivative-free, which matters more here than speed: a few
-    hundred evaluations of a scalar exponential is nothing next to the minutes
-    the experiment itself took.
+    The two-point seed trusts two samples; this uses all of them. Deterministic
+    and derivative-free; speed is irrelevant next to the experiment's duration.
 
     Args:
         fractions: The normalised response, timed from the step.
@@ -127,9 +108,6 @@ def _refine(
         dead_time: Seed dead time.
         passes: How many times to halve the search box.
         points: Grid resolution per axis, per pass.
-
-    Returns:
-        The best (τ, θ) found.
     """
     best = _sse(fractions, tau, dead_time)
     tau_span = dead_span = tau * 0.5
@@ -156,23 +134,23 @@ def fit_fopdt(
     size: float,
     refine: bool = True,
 ) -> FOPDT:
-    """Fit a first order plus dead time model to a logged step response.
+    """Fit a first-order-plus-dead-time model to a logged step response.
 
     Args:
-        samples: Readings spanning the step. Anything before ``start`` is ignored.
+        samples: Readings spanning the step; anything before `start` is ignored.
         start: When the input step was applied.
         initial: The plateau before the step.
         final: The plateau after it.
-        size: How far the input moved. Signed, and in the input's own units.
-        refine: Whether to least-squares polish the two-point estimate.
+        size: Signed input step, in the input's units.
+        refine: Least-squares polish the two-point estimate.
 
     Returns:
-        The fitted model, with :attr:`FOPDT.error` giving the RMS residual in
-        reading units.
+        The fitted model; [FOPDT.error][flyball.autotune.types.FOPDT.error] is
+        the RMS residual in reading units.
 
     Raises:
-        ResponseTooSmallError: If the reading did not move, or never covered
-            enough of its own change to locate the two points.
+        ResponseTooSmallError: If the reading did not move enough to locate the
+            two points.
     """
     change = final - initial
     if not change or not size:

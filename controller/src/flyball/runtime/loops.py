@@ -24,8 +24,7 @@ class ChannelClaimedError(ConflictError):
 class Loops:
     """The rig's loops: by name for people and programs, by channel for the tick.
 
-    A loop's name is its actuator's. One loop per channel, one channel per
-    loop -- two loops on one measurement would fight.
+    A loop's name is its actuator's. One loop per channel: two would fight.
     """
 
     _loops: dict[str, Loop[Any]]
@@ -60,7 +59,7 @@ class Loops:
             self.default = loop.name
 
     def find(self, channel: Channel) -> Loop[Any] | None:
-        """The loop regulating ``channel``, or None. The hot path: most channels have none."""
+        """The loop regulating `channel`, or None. The hot path: most channels have none."""
         return self._process.get(channel)
 
     def resolve(self, name: str | None = None) -> Loop[Any]:

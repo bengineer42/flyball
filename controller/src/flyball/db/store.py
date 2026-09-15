@@ -1,10 +1,9 @@
 """The store's two faces.
 
-A :class:`SessionWriter` is bound to one open session and only appends. A
-:class:`Store` opens sessions and answers questions about any of them. Keeping
-them apart lets the rig hold a writer on its own thread while the server holds
-the store on another, and lets either be replaced -- an in-memory store for
-tests, a remote one later -- without the other noticing.
+A [SessionWriter][flyball.db.store.SessionWriter] is bound to one open session
+and only appends; a [Store][flyball.db.store.Store] opens sessions and reads
+any of them. The rig holds a writer on its thread, the server the store on
+another, and either can be replaced without the other noticing.
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ class SessionWriter(Protocol):
         ...
 
     def declare_loop(self, name: str, channel: Channel, config: Any = None) -> None:
-        """``name`` is the actuator's, which must already be declared."""
+        """`name` is the actuator's, which must already be declared."""
         ...
 
     # endregion
@@ -77,7 +76,7 @@ class SessionWriter(Protocol):
         parent_id: int | None = None,
         details: Any = None,
     ) -> int:
-        """Returns the span's id, for ``close_span`` and for children."""
+        """Returns the span's id, for `close_span` and for children."""
         ...
 
     def close_span(self, span_id: int, end_ns: int, details: Any = None) -> None: ...
@@ -135,8 +134,8 @@ class Store(Protocol):
     ) -> Series:
         """One channel over a window.
 
-        None returns every reading; see :class:`Downsample` for the three
-        ways to thin it.
+        `downsample` is a [Downsample][flyball.db.types.Downsample], or `None`
+        for every reading.
         """
         ...
 
@@ -147,7 +146,7 @@ class Store(Protocol):
     ) -> list[Event]: ...
 
     def spans(self, session_id: int) -> list[Span]:
-        """In start order; nest by ``parent_id``."""
+        """In start order; nest by `parent_id`."""
         ...
 
     # endregion
@@ -164,11 +163,11 @@ class Store(Protocol):
         loop: str | None = None,
         notes: Any = None,
     ) -> TuningRow:
-        """Add a version under ``name``. Earlier versions stay; ``tuning`` returns the newest."""
+        """Add a version under `name`. Earlier versions stay; `tuning` returns the newest."""
         ...
 
     def tuning(self, name: str) -> TuningRow:
-        """The newest version under ``name``."""
+        """The newest version under `name`."""
         ...
 
     def tunings(self) -> list[TuningRow]:
@@ -176,7 +175,7 @@ class Store(Protocol):
         ...
 
     def tuning_history(self, name: str) -> list[TuningRow]:
-        """Every version under ``name``, newest first."""
+        """Every version under `name`, newest first."""
         ...
 
     def delete_tuning(self, name: str) -> None:

@@ -94,3 +94,55 @@ def test_function_reader_stamps_every_source_with_one_instant(fresh, temperature
     assert [s.time_ns for s in samples] == [123, 123]
     assert {s.source: s.values[temperature] for s in samples} == {a: 1.0, b: 2.0}
     assert reader.channels == {a[temperature], b[temperature]}
+
+
+def test_a_pushed_sample_reaches_the_rig_at_once(rig, probe, temperature, fresh):
+    from flyball.core.reading import Reader
+
+    reader = Reader(fresh("mqtt"), (probe,))
+    rig.start_reader(reader)  # no period: push only
+    reader.push(probe, {temperature: 3.0}, time_ns=50)
+    assert rig._readings[probe[temperature]].value == 3.0, "delivered without waiting for a poll"
+    assert rig.readers.run(reader.name).last_read_ns == 50
+
+
+def test_samples_pushed_before_attaching_are_delivered_on_attach(rig, probe, temperature, fresh):
+    from flyball.core.reading import Reader
+
+    reader = Reader(fresh("early"), (probe,))
+    reader.push(probe, {temperature: 1.0}, time_ns=10)
+    reader.push(probe, {temperature: 2.0}, time_ns=20)
+    assert probe[temperature] not in rig._readings
+    rig.start_reader(reader)
+    assert rig._readings[probe[temperature]].value == 2.0
+    assert [s.seq for s in [rig._samples[probe]]] == [2], "seq is the source's, in order"
+
+
+def test_a_polled_reader_still_polls_and_records_its_run(rig, probe, temperature, fresh, clock):
+    from flyball.core.reading import Reader, Sample
+
+    class Polled(Reader):
+        def read(self, time_ns):
+            return [Sample(probe, probe.next_seq(), time_ns, {temperature: 7.0})]
+
+    reader = Polled(fresh("polled"), (probe,))
+    rig.readers.add(reader)
+    clock.advance(1.0)
+    rig.readers._read(reader)
+    assert rig._readings[probe[temperature]].value == 7.0
+    assert rig.readers.run(reader.name).last_read_ns == clock.now_ns()
+
+
+def test_a_mixed_reader_delivers_both_paths(rig, probe, temperature, fresh, clock):
+    from flyball.core.reading import Reader, Sample
+
+    class Mixed(Reader):
+        def read(self, time_ns):
+            return [Sample(probe, probe.next_seq(), time_ns, {temperature: 1.0})]
+
+    reader = Mixed(fresh("mixed"), (probe,))
+    rig.start_reader(reader)
+    rig.read(reader)
+    assert rig._readings[probe[temperature]].value == 1.0
+    reader.push(probe, {temperature: 2.0}, time_ns=clock.now_ns() + 1)
+    assert rig._readings[probe[temperature]].value == 2.0

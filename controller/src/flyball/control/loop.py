@@ -189,31 +189,24 @@ class Loop[A: Actuator]:
         time_ns: int | None = None,
         transfer: Transfer = Transfer.TRACK,
     ) -> RegulateResult:
-        """Aim at ``at`` and hand control back to the law.
+        """Aim at `at` and hand control back to the law.
 
         The aim is set before the law is seeded, so the seed reproduces the
-        delivered output against the *new* setpoint. Seeding first would leave
-        the correction sized for the old one, stepping the actuator by the
-        difference and reporting no bump for it.
+        delivered output against the new setpoint.
 
         Args:
-            at: Where to aim, or the source to take it from. Resolved before
-                the aim moves, so ``SETPOINT`` and ``DEMAND`` mean the current
-                ones.
-            generator: A trajectory to follow from ``at``. Held rather than
-                resolved, so the setpoint stays exact between ticks.
+            at: Where to aim, or the source to take it from; `SETPOINT` and
+                `DEMAND` mean the current ones.
+            generator: A trajectory to follow from `at`.
             tuning: A law to swap in first, for a bumpless retune.
-            time_ns: The handover instant, and the law's new clock origin.
+            time_ns: The handover instant and the law's new clock origin.
                 Defaults to now.
-            transfer: How to seed the correction across the handover.
-                Degrades rather than fails: ``TRACK`` needs something delivered
-                and any seeded mode needs a reading to compute the law's
-                proportional term from. Where either is missing it falls back,
-                and the bump is what tells the caller it did.
+            transfer: How to seed the correction. Degrades rather than fails
+                when the mode needs something missing; the bump reports it.
 
         Returns:
             What was applied, and the step the handover put through the
-            actuator -- zero when the seed held the output.
+            actuator; zero when the seed held the output.
         """
         with self.lock:
             time_ns = self.get_time_ns(time_ns)

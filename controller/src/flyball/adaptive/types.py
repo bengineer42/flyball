@@ -26,11 +26,9 @@ class Term:
 
 @dataclass(frozen=True, slots=True)
 class Schema:
-    """Which signals a loop's model is built from.
+    """Which signals a loop's model is built from: controlled, manipulated, disturbances.
 
-    One controlled and one manipulated variable, plus any measured disturbances.
-    Ordering is fixed here so a regressor and a parameter vector always line up;
-    nothing downstream may reorder them.
+    The order is fixed here so regressors and parameter vectors line up.
     """
 
     controlled: Channel
@@ -55,11 +53,9 @@ class Schema:
 class Arx:
     """A discrete first-order model with input delay.
 
-    ``y[k] = a*y[k-1] + b*u[k-d] + sum(c[i]*w[i][k])``
-
-    Linear in its parameters, which is the whole reason for this form: it is
-    what lets the estimator recurse. The continuous parameters a tuning rule
-    wants come from :meth:`plant`.
+    `y[k] = a*y[k-1] + b*u[k-d] + sum(c[i]*w[i][k])`. Linear in its parameters,
+    which lets the estimator recurse.
+    [plant][flyball.adaptive.types.Arx.plant] gives the continuous form.
     """
 
     a: float
@@ -71,12 +67,9 @@ class Arx:
     def plant(self) -> Plant:
         """The continuous first-order plant this describes.
 
-        Returns:
-            Gain, time constant and dead time, in the units the tuning rules take.
-
         Raises:
-            ModelRejectedError: ``a`` is outside ``(0, 1)``, so the discrete pole
-                is not a stable first-order lag and the conversion is meaningless.
+            ModelRejectedError: `a` is outside `(0, 1)`: not a stable
+                first-order lag.
         """
         if not 0.0 < self.a < 1.0:
             raise ModelRejectedError(f"pole a={self.a:.4f} outside (0, 1)")
@@ -101,11 +94,7 @@ class Plant:
         return self.dead_time / self.tau if self.tau else float("inf")
 
     def within(self, other: Plant, tolerance: float) -> bool:
-        """Whether ``other`` is within ``tolerance`` (fractional) of this one.
-
-        Used to decide whether a fresh fit is a drift worth retuning for or
-        noise worth ignoring.
-        """
+        """Whether `other` is within fractional `tolerance` of this one."""
         return abs(other.gain - self.gain) <= tolerance * abs(self.gain) and (
             abs(other.tau - self.tau) <= tolerance * self.tau
         )

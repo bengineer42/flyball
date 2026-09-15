@@ -1,9 +1,8 @@
 """Command line for a running rig, built from the schema it publishes.
 
-``flyball`` fetches ``/api/schema`` once (cached under ``~/.cache/flyball``)
-and builds a subcommand per device and per device command from it, so a new
-actuator with ``@command`` methods is on the command line with no code here.
-Help text is the docstrings, units and choices the schema carries::
+`flyball` fetches `/api/schema` once (cached under `~/.cache/flyball`) and
+builds a subcommand per device and per command, so a new `@command` needs no
+code here. Help text comes from the schema:
 
     flyball actuators                       what is attached
     flyball pumps                           config, settings and state
@@ -13,9 +12,8 @@ Help text is the docstrings, units and choices the schema carries::
     flyball signal fire lid                 answer it
     flyball watch loops                     one JSON line per frame
 
-Argument flags come from the argument schema: ``--name`` per property,
-dotted for nested objects, ``--flag/--no-flag`` for booleans, choices for
-enums. Any flag also takes a JSON literal, for shapes the flags cannot spell.
+Flags: `--name` per property, dotted for nested objects, `--flag/--no-flag`
+for booleans, choices for enums. Any flag also takes a JSON literal.
 """
 
 from __future__ import annotations
@@ -94,7 +92,7 @@ def _describe(schema: dict[str, Any], defs: dict[str, Any]) -> str:
 
 
 def _choices(schema: dict[str, Any], defs: dict[str, Any]) -> list[tuple[Any, str]] | None:
-    """``(value, label)`` pairs for an enum or a oneOf of constants."""
+    """`(value, label)` pairs for an enum or a oneOf of constants."""
     schema = _resolve(schema, defs)
     if "enum" in schema:
         return [(v, str(v)) for v in schema["enum"]]
@@ -105,7 +103,7 @@ def _choices(schema: dict[str, Any], defs: dict[str, Any]) -> list[tuple[Any, st
 
 
 def _json_or_str(text: str) -> Any:
-    """A flag value: JSON if it parses, else the text. ``"4"`` is 4, ``"on"`` is ``"on"``."""
+    """A flag value: JSON if it parses, else the text. `"4"` is 4, `"on"` is `"on"`."""
     try:
         return json.loads(text)
     except ValueError:
@@ -179,7 +177,7 @@ def add_arguments(
 
 
 def body_from(args: argparse.Namespace, skip: frozenset[str]) -> dict[str, Any]:
-    """Nest ``a.b.c`` flags back into an object; drop what was not given."""
+    """Nest `a.b.c` flags back into an object; drop what was not given."""
     body: dict[str, Any] = {}
     for key, value in vars(args).items():
         if key in skip or value is None:
@@ -276,7 +274,7 @@ def _add_device(sub: Any, kind: str, name: str, device: dict[str, Any]) -> None:
         )
         cmd.set_defaults(fn=cmd_run, command=tag)
         add_arguments(cmd, arguments, defs)
-        # One argument: it may be given positionally -- ``set_flows 2 6``, ``set_flows 4``.
+        # One argument: it may be given positionally -- `set_flows 2 6`, `set_flows 4`.
         properties = arguments.get("properties", {})
         if len(properties) == 1:
             (only,) = properties
@@ -324,7 +322,7 @@ def cmd_watch(rig: Rig, args: argparse.Namespace) -> None:
     try:
         for frame in rig.watch(args.stream):
             print(json.dumps(frame), flush=True)
-    except BrokenPipeError:  # ``| head`` closed the pipe; that is the end, not an error
+    except BrokenPipeError:  # `| head` closed the pipe; that is the end, not an error
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 

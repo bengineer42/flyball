@@ -126,3 +126,48 @@ class TestDurationAndRateWire:
             "seconds",
             "minutes",
         }
+
+
+class TestUnitLookup:
+    @pytest.mark.parametrize(
+        ("symbol", "label", "factor"),
+        [
+            ("°C", "Temperature", 1.0),
+            ("mL", "Volume", 1e-6),
+            ("kPa", "Pressure", 1000.0),
+            ("mL/min", "Volume flow", 1e-6 / 60),
+            ("g/m³", "Density", 1e-3),
+            ("m/s²", "Acceleration", 1.0),
+            ("N·m", "Energy", 1.0),
+            ("µL/h", "Volume flow", 1e-9 / 3600),
+        ],
+    )
+    def test_get_resolves_symbols_prefixes_quotients_products_and_powers(
+        self, symbol, label, factor
+    ):
+        from flyball.core.units.dimension import Unit
+
+        unit = Unit.get(symbol)
+        assert unit.dimension.label == label and unit.factor == pytest.approx(factor)
+
+    def test_get_returns_the_registered_object_for_an_exact_symbol(self):
+        from flyball.core.units.dimension import Unit
+
+        assert Unit.get("°C") is Celsius and Unit.get("K") is Kelvin
+
+    def test_unknown_symbol_is_a_typed_not_found(self):
+        from flyball.core.errors import NotFoundError
+        from flyball.core.units.dimension import Unit
+        from flyball.core.units.errors import UnitNotFoundError
+
+        with pytest.raises(UnitNotFoundError) as e:
+            Unit.get("furlong")
+        assert isinstance(e.value, NotFoundError)
+
+    def test_a_clashing_definition_of_a_symbol_is_refused(self):
+        from flyball.core.units.dimension import Unit
+        from flyball.core.units.dimensions import Length, Time
+
+        with pytest.raises(ValueError, match="already"):
+            Unit("bogus metre", "m", Time)
+        Unit("metre again", "m", Length)  # the same unit under the same symbol is fine

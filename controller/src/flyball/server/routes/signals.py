@@ -1,9 +1,7 @@
 """What the rig is waiting on, and answering it.
 
-A program step that waits -- a prompt to the operator, a settle test, a hold
--- registers a named signal while it waits. These routes list them, and let a
-client fire one (the operator pressed the button; or skip a wait) or
-interrupt one (stop the program at this step).
+A waiting program step registers a named signal. These routes list them, fire
+one (answer or skip the wait) or interrupt one (stop the program here).
 """
 
 from __future__ import annotations

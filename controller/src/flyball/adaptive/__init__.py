@@ -1,16 +1,13 @@
 """Identifying a plant while it runs, and retuning from what is found.
 
-The slow half of a self-tuning regulator. :class:`Identifier` tracks a discrete
-model of a loop from its own samples; :class:`SelfTuner` watches that model
-drift and says when a retune is warranted. Neither writes to a loop -- the
-caller derives gains and hands them over, so a retune goes through the same
-bumpless path as any other tuning change and reports its own bump.
+[Identifier][flyball.adaptive.Identifier] tracks a discrete model of a loop
+from its samples; [SelfTuner][flyball.adaptive.SelfTuner] watches it drift and
+says when a retune is warranted. Neither writes to a loop: the caller hands
+the gains over, so a retune takes the same bumpless path as any tuning change.
 
-Generic in the same sense as :mod:`flyball.control`: a loop is a controlled
-quantity, a manipulated one and any measured disturbances, named by
-:class:`Schema`. Nothing here knows what is being controlled.
-
-Sketched against a loop that already reads and commands::
+A loop is a controlled quantity, a manipulated one and any measured
+disturbances, named by [Schema][flyball.adaptive.Schema]; nothing here knows
+what is controlled.
 
     schema = Schema(controlled=process, manipulated=demand, disturbances=(supply,))
     identifier = Identifier(schema, interval=1.0, delay_samples=4)
@@ -27,15 +24,10 @@ Sketched against a loop that already reads and commands::
         loop.regulate(ValueSource.SETPOINT, tuning=tuner.accept(retune.plant),
                       transfer=Transfer.TRACK)
 
-Why this shape:
-
-- The model is ARX because it is linear in its parameters, which is what lets
-  the estimate recurse. The continuous form a tuning rule wants comes from
-  :meth:`Arx.plant`.
-- Updates are gated on excitation. A loop holding a setpoint says nothing about
-  the plant, and an estimator that forgets will drift on noise while it waits.
-- Dead time is not identifiable by recursion. It comes from a calibration step
-  and is revisited rarely; everything else tracks continuously.
+The model is ARX because it is linear in its parameters, so the estimate can
+recurse; [Arx.plant][flyball.adaptive.types.Arx.plant] gives the continuous
+form. Updates are gated on excitation. Dead time is not identifiable by
+recursion, so it comes from calibration.
 """
 
 from .errors import (

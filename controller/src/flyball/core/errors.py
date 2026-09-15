@@ -1,9 +1,7 @@
-"""Domain errors, grouped by the answer they give a caller.
+"""Domain errors, classified by what a caller can do about them, not by which subsystem raised them.
 
-The four bases below carry the whole classification: what a caller (or an HTTP
-client) can do about a failure, rather than which subsystem raised it. Each also
-mixes in the builtin a library consumer would reach for, so ``except LookupError``
-and ``except RuntimeError`` behave as expected without importing anything here.
+Each base mixes in the matching builtin, so `except LookupError` works
+without importing anything here.
 """
 
 from __future__ import annotations
@@ -22,18 +20,14 @@ class ConflictError(FlyballError, RuntimeError):
 
 
 class NotReadyError(FlyballError):
-    """The rig is not configured, or the value does not exist yet.
-
-    No builtin fits: unlike :class:`ConflictError` the caller cannot fix this by
-    issuing another request, and unlike :class:`HardwareError` nothing is broken.
-    """
+    """The rig is not configured, or the value does not exist yet. Nothing is broken."""
 
 
 class UnachievableError(FlyballError, ValueError):
     """Well formed, but the numbers cannot be applied to this rig.
 
-    Sorted ahead of :class:`FlyballError` in the MRO of anything that inherits
-    it, so a subsystem base such as ``PumpError`` cannot shadow the mapping.
+    Precedes [FlyballError][flyball.core.errors.FlyballError] in the MRO so a
+    subsystem base cannot shadow the mapping.
     """
 
 

@@ -1,21 +1,21 @@
 """Channels, the sources that declare them, and the readings taken on them.
 
-A :class:`Source` is one thing that is measured -- a sensor, a fused estimate, a
-processor's output -- and it declares its channels once, at construction. A
-:class:`Channel` is one measurand from one source; nothing else constructs one,
-so there is exactly one object per ``(source, measurand)`` and equality is
-identity. A :class:`Reading` is one value on one channel at one instant, in the
-channel's unit. Units live on the measurand, never on the channel or the reading.
+A [Source][flyball.core.reading.Source] is one thing measured -- a sensor, a
+fused estimate -- and declares its channels once, at construction. A
+[Channel][flyball.core.reading.Channel] is one measurand from one source; only
+the source constructs one, so equality is identity. A
+[Reading][flyball.core.reading.Reading] is one value on one channel at one
+instant. Units live on the measurand only.
 
-Applications declare their measurands as module constants --
-``HUMIDITY = Measurand("humidity", PercentRH)`` -- or at runtime from config; core
-never names one. A measurand is interned on its name, so the same declaration
-twice is one object and a second declaration with a different unit is an error.
+Applications declare measurands (`HUMIDITY = Measurand("humidity", PercentRH)`);
+core names none. A measurand is interned on its name: redeclaring it returns
+the same object, redeclaring with another unit is an error.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -53,20 +53,19 @@ class ChannelNotFoundError(NotFoundError):
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Measurand:
-    """What a channel measures, with the unit every reading of it is in.
+    """What a channel measures, and its unit.
 
-    Interned on ``name``: constructing one that exists returns the existing
-    object, so equality and hashing are identity. ``label`` is for display and
-    defaults to the name.
+    Interned on `name`, so equality and hashing are identity. `label` is for
+    display and defaults to the name.
     """
 
     name: str
     unit: Unit
     label: str
-    #: The values a reading can plausibly take, for a gauge or an axis; None if unbounded.
     range: tuple[float, float] | None
-    #: Decimal places worth showing; None if the reader has not said.
+    """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
     precision: int | None
+    """Decimal places worth showing; None if the reader has not said."""
 
     _registry: ClassVar[dict[str, Measurand]] = {}
 
@@ -99,7 +98,7 @@ class Measurand:
         range: tuple[float, float] | None = None,
         precision: int | None = None,
     ) -> None:
-        """No-op: ``__new__`` owns construction, so an interned measurand is not overwritten."""
+        """No-op: `__new__` owns construction, so an interned measurand is not overwritten."""
 
     def __repr__(self) -> str:
         return f"Measurand({self.name!r}, {self.unit})"
@@ -146,10 +145,9 @@ class Measurand:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Channel:
-    """One measurand from one source. Constructed only by :class:`Source`.
+    """One measurand from one source. Constructed only by [Source][flyball.core.reading.Source].
 
-    ``eq=False`` keeps identity equality and hashing: the source guarantees one
-    object per ``(source, measurand)``, so two pointers are the whole comparison.
+    One object per `(source, measurand)`, so equality is identity.
     """
 
     source: Source
@@ -195,20 +193,19 @@ class Channel:
         )
 
     def latest(self, readings: Sequence[Reading]) -> Reading | None:
-        """The last reading on this channel, or None. Assumes time order (see ``Reader``)."""
+        """The last reading on this channel, or None. Assumes time order (see `Reader`)."""
         return next((r for r in reversed(readings) if r.channel is self), None)
 
 
 class Source:
     """Something that emits readings. Subclass it, or instantiate it directly.
 
-    Declares its channels once, at construction, and registers itself by name
-    so a channel can be found again from its wire form. Names are unique per
-    process; two sensors with the same name is an error, not a merge. A
-    ``StrEnum`` member is a valid name -- it is a ``str`` -- a plain ``Enum`` is not.
+    Declares its channels at construction and registers itself by name, so a
+    channel can be found from its wire form. Names are unique per process; a
+    duplicate is an error, not a merge.
     """
 
-    __slots__ = ("_channels", "name")
+    __slots__ = ("_channels", "_seq", "name")
 
     _registry: ClassVar[dict[str, Source]] = {}
 
@@ -220,12 +217,18 @@ class Source:
             raise SourceExistsError(name)
         self.name = name
         self._channels = {}
+        self._seq = 0
         self._registry[name] = self
         for measurand in measurands:
             self.declare(measurand)
 
+    def next_seq(self) -> int:
+        """The next sample number for this source. Every sample of a source is one series."""
+        self._seq += 1
+        return self._seq
+
     def declare(self, measurand: Measurand) -> Channel:
-        """Add a channel for ``measurand``, or return the one already declared."""
+        """Add a channel for `measurand`, or return the one already declared."""
         if (channel := self._channels.get(measurand)) is None:
             channel = self._channels[measurand] = Channel(self, measurand)
         return channel
@@ -341,17 +344,25 @@ class Sample:
 
 
 class Reader(Device):
-    """A device that reads one or more sources in one transaction.
+    """A device that delivers samples for one or more sources.
 
-    Contract: ``read`` returns its readings in non-decreasing ``time_ns``.
-    Equal stamps are allowed -- a bank's samples share one -- but never a step
-    backwards. The rig delivers in the order received and never reorders, so
-    every observer inherits the guarantee, and ``Channel.latest`` relies on it.
-    A reader that assembles history from several sources must sort before
-    returning.
+    Samples reach the rig by one path, :meth:`emit`, fed two ways:
 
-    Config, settings, state and commands are the device's: see
-    :mod:`flyball.core.device`.
+    - **polled** -- override :meth:`read`; the runtime calls it on the
+      reader's period and emits what it returns.
+    - **pushed** -- whatever produces the values (a callback, another thread,
+      a subscription) calls :meth:`emit` or :meth:`push` itself, and they
+      reach the rig at once. Before the reader is attached to a rig they are
+      held and handed over by the default :meth:`read`.
+
+    A reader may do both. Contract: samples are emitted in non-decreasing
+    ``time_ns`` -- equal stamps are allowed, a step backwards is not -- and
+    the rig never reorders, so every observer inherits it. A reader that
+    both polls and pushes must keep that true across the two paths itself; a
+    pushed sample stamped "now" always does. ``seq`` numbers a *source's*
+    samples: take it from ``source.next_seq()``.
+
+    Config, settings, state and commands: see :mod:`flyball.core.device`.
     """
 
     sources: Iterable[Source]
@@ -359,10 +370,48 @@ class Reader(Device):
     def __init__(self, name: str, sources: Iterable[Source] = ()) -> None:
         super().__init__(name)
         self.sources = tuple(sources)
+        self._pending: deque[Sample] = deque()
+        self._deliver: Callable[[Sequence[Sample]], None] | None = None
 
     @property
     def channels(self) -> set[Channel]:
         return {ch for src in self.sources for ch in src.channels}
 
+    # region Delivery
+
+    def attach(self, deliver: Callable[[Sequence[Sample]], None]) -> None:
+        """Hand every emitted sample to ``deliver`` from now on -- the rig, in practice.
+
+        Whatever was emitted while unattached goes first, so nothing is lost
+        to the order things were wired up in.
+        """
+        self._deliver = deliver
+        if self._pending:
+            held = list(self._pending)
+            self._pending.clear()
+            deliver(held)
+
+    def detach(self) -> None:
+        self._deliver = None
+
+    def emit(self, samples: Iterable[Sample]) -> None:
+        """Deliver samples now, or hold them until attached. Safe from any thread."""
+        samples = list(samples)
+        if not samples:
+            return
+        if self._deliver is not None:
+            self._deliver(samples)
+        else:
+            self._pending.extend(samples)
+
+    def push(self, source: Source, values: Mapping[Measurand, float], time_ns: int) -> None:
+        """Emit one sample; the common case for a callback-driven source."""
+        self.emit((Sample(source, source.next_seq(), time_ns, dict(values)),))
+
+    # endregion
+
     def read(self, time_ns: int) -> Iterable[Sample]:
-        raise NotImplementedError
+        """Polled readers override this. Default: whatever was emitted while unattached."""
+        samples = list(self._pending)
+        self._pending.clear()
+        return samples

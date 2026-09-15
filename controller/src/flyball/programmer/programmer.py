@@ -1,22 +1,18 @@
 """Sequencing: runs commands and programs against a rig.
 
-The rig is what the equipment *is* -- pumps, readers, controller, loop, topics.
-The programmer is what it is *doing*. Keeping them apart stops "abort the
-program" from tangling with "stop the pumps", and gives each its own lock.
+The rig is what the equipment *is*; the programmer is what it is *doing*. Each
+has its own lock, so "abort the program" never tangles with "stop the pumps".
+A single command is a program of one step: one execution path, one interrupt.
 
-A single command is a program of one step, so there is one execution path, one
-interrupt, and one answer to "what is running".
-
-Ownership of an :class:`~flyball.programmer.Activity` is split: the rig *drives*
-it, because it owns the clock and the sensors; the programmer owns its
-*lifetime*, because it owns the sequence. So attach and detach bracket the wait
-in :meth:`Programmer._wait_out`, and teardown is a single ``finally`` reached by
-completion, failure and cancellation alike.
+The rig *drives* an [Activity][flyball.programmer.Activity] (it owns the clock
+and sensors); the programmer owns its *lifetime* (it owns the sequence). Attach
+and detach bracket the wait in `Programmer._wait_out`, and teardown is one
+`finally` reached by completion, failure and cancellation alike.
 
 Locking:
-    The programmer's lock is always the inner lock. :meth:`_apply` takes the
-    rig's lock and then this one; nothing here takes the rig's lock while
-    already holding this one, and no thread is ever joined under it.
+    The programmer's lock is always the inner lock. `_apply` takes the rig's
+    lock, then this one; nothing takes them the other way round, and no thread
+    is joined under it.
 """
 
 from __future__ import annotations
@@ -45,7 +41,7 @@ class ProgrammerState:
     steps: int
     """Steps in the running program, zero when idle."""
     command: str | None
-    """Tag of the step being run, ``None`` when idle."""
+    """Tag of the step being run, `None` when idle."""
 
 
 IDLE = ProgrammerState(running=False, step=0, steps=0, command=None)
@@ -94,20 +90,18 @@ class Programmer:
     # region Running
 
     def start(self, work: Command[Any] | Program, interrupt: bool = False) -> None:
-        """Begin ``work`` and return without waiting for it to finish.
+        """Begin `work` without waiting for it to finish.
 
-        The first step is applied on the calling thread, so a command that
-        cannot be applied raises here rather than disappearing into the
-        warnings topic. Only what is left over -- an activity to wait out, or
-        later steps -- goes to the worker thread.
+        The first step is applied on the calling thread, so an unapplicable
+        command raises here; the rest goes to the worker thread.
 
         Args:
             work: A command, or a program of them.
             interrupt: Stop whatever is running first.
 
         Raises:
-            ProgramAlreadyRunningError: Something is still running and
-                ``interrupt`` was not asked for.
+            ProgramAlreadyRunningError: Something is running and `interrupt`
+                is false.
         """
         if interrupt:
             self.interrupt()
@@ -133,10 +127,10 @@ class Programmer:
             return self._program
 
     def run(self, work: Command[Any] | Program, interrupt: bool = False) -> None:
-        """Apply ``work`` and block until it has finished or been interrupted.
+        """Apply `work` and block until it finishes or is interrupted.
 
-        For tests, the CLI and anything else off the request path. A program is
-        minutes long, so routes want :meth:`start`.
+        For use off the request path; routes want
+        [start][flyball.programmer.programmer.Programmer.start].
         """
         self.start(work, interrupt)
         self.join()
@@ -196,15 +190,14 @@ class Programmer:
             self._finish(program)
 
     def _wait_out(self, activity: Activity, command: Command) -> bool:
-        """Run ``activity`` to its end, registered by name so it can be answered.
+        """Run `activity` to its end, registered by name so it can be answered.
 
         Returns:
-            False if the program should stop -- the activity was cancelled.
+            False if the activity was cancelled and the program should stop.
 
         Raises:
-            Exception: Whatever the activity failed with, re-raised on this
-                thread so :meth:`_work` ends the program rather than treating
-                the step as done.
+            Exception: Whatever the activity failed with, so `_work` ends the
+                program rather than treating the step as done.
         """
         name = activity.name or command.tag
         self.rig.signals.register(name, activity, activity.message, activity.timeout_s)
@@ -223,9 +216,8 @@ class Programmer:
         """Apply one step under the rig's lock.
 
         Returns:
-            The activity to wait out before the next step, or ``None`` to move
-            straight on. A step with no activity is a setting -- open a valve,
-            raise a flag.
+            The activity to wait out before the next step, or `None` to move
+            straight on.
         """
         with self.rig.lock:
             activity = command.run(self.rig, self.operator)
@@ -234,7 +226,7 @@ class Programmer:
         return activity
 
     def _finish(self, program: Program) -> None:
-        """Clear ``program``, unless something else has already replaced it."""
+        """Clear `program`, unless something else has already replaced it."""
         with self.lock:
             if self._program is program:
                 self._program = None
@@ -264,19 +256,19 @@ class Programmer:
 #                    self._activity = None
 #                    activity.detach(self)
 #
-# 2. rig.main_step (rig.py:661) still steps ``self._runner``. It should step
-#    ``self._activity`` when the signal is not already set, with the call
+# 2. rig.main_step (rig.py:661) still steps `self._runner`. It should step
+#    `self._activity` when the signal is not already set, with the call
 #    wrapped so a raising activity fails its signal rather than throwing every
-#    tick -- ``activity.fail(error)``.
+#    tick -- `activity.fail(error)`.
 #
-# 3. command.parse_response tests ``isinstance(value, Signal)`` and puts the
-#    result in the ``activity`` slot. Since Activity now holds a signal rather
-#    than being one, that branch wants ``Activity``, or a bare signal wrapped
+# 3. command.parse_response tests `isinstance(value, Signal)` and puts the
+#    result in the `activity` slot. Since Activity now holds a signal rather
+#    than being one, that branch wants `Activity`, or a bare signal wrapped
 #    in one.
 #
 # 4. Ownership. The rig must not own the programmer, or the split is undone.
-#    ``daemon.py`` builds both and ``server/deps.py`` injects both; the route
-#    composes ``rig.state`` with ``programmer.state`` rather than ``Rig.state``
+#    `daemon.py` builds both and `server/deps.py` injects both; the route
+#    composes `rig.state` with `programmer.state` rather than `Rig.state`
 #    reaching for a back-reference.
 #
 # Open question, not decided: a program that ends leaves the last generator

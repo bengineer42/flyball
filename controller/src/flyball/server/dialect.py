@@ -1,23 +1,20 @@
 """The program file dialect: how a person writes steps, and its schema.
 
 A program file is YAML. Each step is *externally tagged* -- the command's tag
-is the key, its arguments the value -- because that is what reads well and
-what every hand-written YAML dialect does::
+is the key, its arguments the value:
 
     - ramp: {to: 60, pace: {seconds: 600}}
-    - flag: "sample loaded"                  # scalar shorthand: the command's ``primary`` field
+    - flag: "sample loaded"                  # scalar shorthand: the command's `primary` field
     - setpoint: 50
       settle: {within: 0.5, readings: 5}     # a modifier alongside the command
 
-The HTTP API speaks the *internally tagged* form (``{"command": "ramp", ...}``)
-that pydantic and OpenAPI understand natively. This module is the bridge: a
-normaliser that rewrites a file step into that form before validation, and a
-schema emitter that describes the file form from the same command registry,
-so the two can never disagree about what a command takes.
+The HTTP API speaks the *internally tagged* form (`{"command": "ramp", ...}`).
+This module bridges them: a normaliser rewrites a file step into that form
+before validation, and a schema emitter describes the file form from the same
+command registry, so the two cannot disagree.
 
-Modifiers -- keys a step may carry beside its command -- are declared in a
-:class:`Dialect` by the application, since which ones exist (a completion, a
-duration, a flow) is the application's business.
+Modifiers -- keys allowed beside the command -- are declared in a
+[Dialect][flyball.server.dialect.Dialect] by the application.
 """
 
 from __future__ import annotations
@@ -39,8 +36,8 @@ from flyball.server.commands import command_request, request_for
 class Modifier:
     """A key allowed beside the command in a file step.
 
-    ``key`` is what the author writes; ``field`` is where it lands in the
-    normalised step; ``schema`` describes its value for the file schema.
+    `key` is what the author writes; `field` is where it lands in the
+    normalised step; `schema` describes its value for the file schema.
     """
 
     key: str
@@ -66,7 +63,7 @@ class StepError(ValueError):
 
 
 def _time_keys(annotation: Any) -> dict[str, Any] | None:
-    """The flat keys a ``Duration``/``Rate`` field may be spelt with, or None if it is neither."""
+    """The flat keys a `Duration`/`Rate` field may be spelt with, or None if it is neither."""
     members = get_args(annotation) or (annotation,)
     keys: dict[str, Any] = {}
     for member in members:
@@ -81,11 +78,11 @@ _FOLDS: dict[type[Command], tuple[str, dict[str, Any]] | None] = {}
 
 
 def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
-    """The one field of ``command`` that may be written flat, with its keys.
+    """The one field of `command` that may be written flat, with its keys.
 
-    ``ramp: {to: 60, per_minute: 2}`` stands for ``ramp: {to: 60, pace: {per_minute: 2}}``.
-    Only when exactly one field is a duration or rate: with two, flat keys
-    would be ambiguous, so the nested form is required.
+    `ramp: {to: 60, per_minute: 2}` stands for `ramp: {to: 60, pace: {per_minute: 2}}`.
+    Only when exactly one field is a duration or rate; otherwise flat keys
+    would be ambiguous.
     """
     if command not in _FOLDS:
         candidates = [
@@ -112,14 +109,11 @@ def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> di
 
 
 def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict[str, Any]:
-    """One file step -> ``{"command": {...internally tagged...}, <modifier field>: ...}``.
+    """One file step -> `{"command": {...internally tagged...}, <modifier field>: ...}`.
 
-    Rules, in order:
-
-    - A mapping with exactly one command key, or one command key plus modifier
-      keys. Any other key is an error: unknown keys are how typos hide.
-    - A scalar (or list) under a command key means its ``primary`` field.
-    - A mapping under a command key is the command's arguments verbatim.
+    A step is a mapping with one command key plus any modifier keys; any other
+    key is an error. A scalar or list under the command key means its
+    `primary` field; a mapping is the arguments verbatim.
     """
     where = f"step {index}" if index is not None else "step"
     if not isinstance(raw, Mapping):
@@ -163,12 +157,10 @@ def normalise_program(document: Any, dialect: Dialect) -> dict[str, Any]:
 
 
 def commands_from_yaml(text: str, dialect: Dialect) -> Program:
-    """Parse a program file into a :class:`Program` of commands.
+    """Parse a program file into a [Program][flyball.programmer.program.Program] of commands.
 
-    Modifiers are validated as part of the step but not attached to the
-    command: how a completion or a duration wraps a command is the
-    programmer's job, once it has a step model. Until then the commands are
-    what a program is.
+    Modifiers are validated but not attached: wrapping a command in a
+    completion or duration is the programmer's job.
     """
     document = normalise_program(yaml.safe_load(text), dialect)
     adapter = TypeAdapter(command_request())
@@ -177,12 +169,11 @@ def commands_from_yaml(text: str, dialect: Dialect) -> Program:
 
 
 def step_schema(dialect: Dialect) -> dict[str, Any]:
-    """JSON schema for one file step: externally tagged, from the command registry.
+    """JSON schema for one file step, from the command registry.
 
-    One ``oneOf`` branch per command, each requiring its own key. The value is
-    the command's request schema without the ``command`` field, or -- when the
-    command declares a ``primary`` -- that field's bare schema as an
-    alternative. Modifier keys are allowed on every branch.
+    One `oneOf` branch per command, requiring its key. The value is the
+    request schema without `command`, or the bare `primary` field's schema as
+    an alternative. Modifier keys are allowed on every branch.
     """
     modifiers = {
         m.key: {**m.schema, **({"description": m.description} if m.description else {})}

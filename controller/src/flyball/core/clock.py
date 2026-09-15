@@ -65,10 +65,10 @@ class TimeBase:
 
     @classmethod
     def _from_wire(cls, value: Any) -> Self:
-        """``{seconds: 90}``, ``{minutes: 1, seconds: 30}``, ``{hours: 2}``, or a number of seconds.
+        """`{seconds: 90}`, `{minutes: 1, seconds: 30}`, or a number of seconds.
 
-        Keys are the plural of any :class:`TimeUnit`; they add. Anything else
-        is a ``ValueError`` rather than a ``KeyError`` so a union can move on.
+        Keys are the plural of any [TimeUnit][flyball.core.clock.TimeUnit] and
+        add. Anything else is a `ValueError`, so a union can move on.
         """
         if isinstance(value, cls):
             return value
@@ -336,11 +336,7 @@ class Clock:
         return time_ns - self.start_time_ns
 
     def from_start_s(self, time_ns: int) -> float:
-        """Seconds from this clock's origin to ``time_ns``.
-
-        The subtraction is integer, so only the small result is converted and
-        precision does not depend on the magnitude of the timebase.
-        """
+        """Seconds from this clock's origin to `time_ns`. Integer subtraction first."""
         return (time_ns - self.start_time_ns) / 1e9
 
     def tag_time_ns(self, label: str) -> int:
@@ -442,15 +438,15 @@ class TimeUnit(Labelled):
                 return 86_400_000_000_000
 
 
-#: Duration keys on the wire: ``{"minutes": 1, "seconds": 30}``.
 DURATION_KEYS: dict[str, TimeUnit] = {unit.value + "s": unit for unit in TimeUnit}
-#: Rate keys on the wire: ``{"per_minute": 2}``.
+"""Duration keys on the wire: `{'minutes': 1, 'seconds': 30}`."""
 RATE_KEYS: dict[str, TimeUnit] = {"per_" + unit.value: unit for unit in TimeUnit}
+"""Rate keys on the wire: `{'per_minute': 2}`."""
 
 
 @dataclass(frozen=True, slots=True)
 class Rate:
-    """``value`` per ``per``. On the wire also ``{"per_minute": 2}``: one key naming the unit."""
+    """`value` per `per`. On the wire also `{"per_minute": 2}`: one key naming the unit."""
 
     value: float
     per: TimeUnit = TimeUnit.SECOND

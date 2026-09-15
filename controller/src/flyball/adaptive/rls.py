@@ -9,7 +9,7 @@ type Matrix = list[list[float]]
 
 
 def identity(width: int, scale: float) -> Matrix:
-    """A ``width``-square diagonal matrix, for seeding a covariance."""
+    """A `width`-square diagonal matrix, for seeding a covariance."""
     return [[scale if row == column else 0.0 for column in range(width)] for row in range(width)]
 
 
@@ -20,21 +20,16 @@ def trace(matrix: Matrix) -> float:
 class RecursiveLeastSquares:
     """Tracks the parameters of a model that is linear in them.
 
-    Kept in plain lists rather than arrays: the regressors here are a handful of
-    terms wide, where allocating an array per sample costs more than the
-    arithmetic it replaces, and the estimator stays free of dependencies.
+    Plain lists, not arrays: regressors are a few terms wide and the estimator
+    stays dependency-free.
 
     Args:
-        width: How many parameters. Must match every regressor pushed.
-        forgetting: How fast old samples lose weight. One keeps everything and
-            never adapts; lower tracks drift faster and follows noise further.
-        covariance: Initial diagonal. Large means "no idea yet", so the first
-            samples move the estimate a long way.
-        covariance_limit: Trace above which the covariance is rescaled. Without
-            excitation the covariance grows without bound and the next sample
-            produces a wild estimate; this bounds that. Excitation gating in
-            :class:`~flyball.adaptive.identifier.Identifier` is the first line of
-            defence, this is the second.
+        width: How many parameters; every regressor must match.
+        forgetting: How fast old samples lose weight. One never adapts; lower
+            tracks drift faster and follows noise further.
+        covariance: Initial diagonal. Large means "no idea yet".
+        covariance_limit: Trace above which the covariance is rescaled, so it
+            cannot grow without bound during a lull in excitation.
     """
 
     __slots__ = ("_covariance", "_limit", "_parameters", "forgetting", "width")
@@ -74,16 +69,7 @@ class RecursiveLeastSquares:
         )
 
     def update(self, regressor: Vector, output: float) -> float:
-        """Fold one sample in, returning the error it corrected for.
-
-        Args:
-            regressor: The terms of this sample, in the schema's order.
-            output: The measured output at this sample.
-
-        Returns:
-            The prediction error before the update -- the residual. A residual
-            that stops shrinking means the model has stopped describing the
-            plant, which is worth acting on rather than tuning through.
+        """Fold one sample in; return the prediction error before the update.
 
         Raises:
             RegressorMismatchError: The regressor is the wrong width.
@@ -119,12 +105,7 @@ class RecursiveLeastSquares:
         return residual
 
     def _bound_covariance(self) -> None:
-        """Rescale if the covariance has grown past its limit.
-
-        Rescaling rather than resetting keeps the *shape* of what has been
-        learned -- which directions are well determined -- while stopping the
-        magnitude running away.
-        """
+        """Rescale if the covariance has passed its limit, keeping its shape."""
         total = trace(self._covariance)
         if total <= self._limit:
             return

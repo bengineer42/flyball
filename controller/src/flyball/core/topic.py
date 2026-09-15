@@ -6,10 +6,9 @@ from contextlib import contextmanager, suppress
 class Topic[T]:
     """Fan-out to asyncio subscribers, publishable from any thread.
 
-    Subscribe from the event loop that serves the subscribers; publish from any
-    thread. Publishing before the first subscriber is a no-op, so the owner need
-    not be constructed on the loop. A subscriber that falls behind drops stale
-    items rather than blocking the publisher.
+    Subscribe from the event loop; publish from anywhere. Publishing with no
+    subscriber is a no-op. A subscriber that falls behind drops stale items
+    rather than blocking the publisher.
     """
 
     def __init__(self) -> None:
@@ -37,15 +36,11 @@ class Topic[T]:
 
     @contextmanager
     def subscribe(self, maxsize: int = 1) -> Generator[asyncio.Queue[T]]:
-        """A queue of the items published while subscribed.
+        """A queue of the items published while the context is open.
 
         Args:
-            maxsize: How many items to hold, dropping the oldest to make room.
-                0 queues without limit, at the risk of growing behind a stuck
-                reader.
-
-        Yields:
-            The queue, for as long as the context is open.
+            maxsize: How many items to hold, dropping the oldest to make room;
+                0 is unbounded.
         """
         self._loop = asyncio.get_running_loop()
         queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
@@ -61,11 +56,9 @@ class Topic[T]:
 class Latest[K, V]:
     """The newest value per key, for readers that poll at their own rate.
 
-    The writer (a control thread) does one dict store per update; nothing is
-    queued and nothing is handed to another thread, so a loop at any rate costs
-    the same. A reader asks for what changed since the version it last saw and
-    gets at most one value per key -- the current one. Several readers can
-    watch at once; each keeps its own version.
+    The writer does one dict store per update, so a loop at any rate costs the
+    same. A reader asks for what changed since the version it last saw and gets
+    at most one value per key. Each reader keeps its own version.
     """
 
     def __init__(self) -> None:
@@ -79,7 +72,7 @@ class Latest[K, V]:
         return self._watchers > 0
 
     def set(self, key: K, value: V) -> None:
-        """Record the newest value for ``key``. Never blocks, never raises."""
+        """Record the newest value for `key`. Never blocks, never raises."""
         self._version += 1
         self._values[key] = (self._version, value)
 
@@ -91,10 +84,9 @@ class Latest[K, V]:
         return self._version
 
     def changed_since(self, version: int) -> tuple[int, dict[K, V]]:
-        """Every key updated after ``version``, and the version to ask from next time.
+        """Every key updated after `version` (0 for all), and the version to ask from next.
 
-        Pass 0 for everything. A key stored while this runs may or may not be
-        included; it will be next time, since the returned version predates it.
+        A key stored during the call may be missed now but is caught next time.
         """
         current = self._version
         changed = {key: value for key, (at, value) in list(self._values.items()) if at > version}

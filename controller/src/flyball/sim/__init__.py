@@ -1,8 +1,7 @@
 """Pieces for a rig with no hardware.
 
-Nothing here knows what is being simulated. An application composes these
-into its own simulator -- a chamber, a heater, a stage -- and the library's
-tests use them directly. ``runtime`` must never import this package.
+Nothing here knows what is simulated; an application composes these into its
+own simulator. `runtime` must never import this package.
 """
 
 from .clock import SteppedClock

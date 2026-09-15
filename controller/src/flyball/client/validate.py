@@ -1,9 +1,8 @@
 """Enough JSON Schema to check a command's arguments before sending them.
 
-Covers what the server's argument schemas use: object properties, required,
-additionalProperties, scalar types, enum and ``oneOf`` of constants, bounds,
-``anyOf``, ``$ref`` into ``$defs``, and null. Errors say where and why in the
-schema's own terms, so a caller learns the contract from the failure.
+Covers what the server's argument schemas use: objects, required, scalar
+types, enum and `oneOf` of constants, bounds, `anyOf`, `$ref` into `$defs`,
+null. Errors say where and why in the schema's terms.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ class SchemaError(ValueError):
 def validate(
     schema: dict[str, Any], value: Any, where: str = "", defs: dict[str, Any] | None = None
 ) -> None:
-    """Raise :class:`SchemaError` if ``value`` does not satisfy ``schema``."""
+    """Raise [SchemaError][flyball.client.validate.SchemaError] if `value` fails `schema`."""
     defs = {**(defs or {}), **schema.get("$defs", {})}
     _check(schema, value, where or "value", defs)
 

@@ -1,13 +1,8 @@
 """A bank of two-phase devices read together so their results share an instant.
 
-Many sensors split a measurement into *trigger* (start converting) and
-*collect* (wait, then read). Triggering every device before collecting any
-means the conversions overlap: three sensors cost one conversion time, not
-three, and their results are stamped within microseconds of each other.
-
-The bank knows nothing about what a device returns. It maps each key to that
-device's result, or to the exception that stopped it, and leaves the caller to
-decide what a failure means.
+Triggering every device before collecting any overlaps the conversions: three
+sensors cost one conversion time and are stamped microseconds apart. The bank
+maps each key to its device's result or the exception that stopped it.
 """
 
 from __future__ import annotations
@@ -21,15 +16,11 @@ class TwoPhase[R](Protocol):
     """A device whose read splits into trigger and collect."""
 
     def trigger(self) -> int:
-        """Start a conversion. Returns ``time.monotonic_ns()`` at the trigger."""
+        """Start a conversion. Returns `time.monotonic_ns()` at the trigger."""
         ...
 
     def collect(self, trigger_ns: int, stamp_ns: int) -> R:
-        """Wait out the conversion started at ``trigger_ns`` and read it.
-
-        ``stamp_ns`` is the trigger instant in the caller's epoch, for the
-        result to carry.
-        """
+        """Wait out the conversion started at `trigger_ns` and read it, stamped `stamp_ns`."""
         ...
 
 

@@ -1,9 +1,8 @@
 """Rig and store injection.
 
-The server owns no hardware and no database. Whatever builds them -- the
-daemon, a simulation harness, a test -- calls :func:`set_rig` and
-:func:`set_store` before serving, so the same app runs against a real
-chamber, a simulated plant, or a database copied from another machine.
+The server owns no hardware and no database; whatever builds them calls
+[set_rig][flyball.server.deps.set_rig] and
+[set_store][flyball.server.deps.set_store] before serving.
 """
 
 from __future__ import annotations
@@ -19,11 +18,7 @@ from .telemetry import Telemetry
 
 
 class Programmer(Protocol):
-    """What the program routes need of ``flyball.programmer.Programmer``.
-
-    A protocol rather than the class so the server does not import the
-    programmer package to type a dependency.
-    """
+    """What the program routes need of `flyball.programmer.Programmer`, without importing it."""
 
     @property
     def state(self) -> Any: ...

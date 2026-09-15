@@ -7,8 +7,8 @@ from pydantic_core import core_schema
 
 from flyball.core import Duration, Rate, Signal, Speed
 
-#: Every registered generator, keyed by the tag it crosses the wire under.
 SetPointGenerators: dict[str, type[SetPointGenerator]] = {}
+"""Every registered generator, keyed by the tag it crosses the wire under."""
 
 
 class SetPointGenerator:
@@ -34,7 +34,7 @@ class SetPointGenerator:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
-        """Serialise as ``{"tag": ...}``: a view of a running trajectory, not a way to build one."""
+        """Serialise as `{"tag": ...}`: a view of a running trajectory, not a way to build one."""
         return core_schema.json_or_python_schema(
             json_schema=core_schema.no_info_plain_validator_function(cls._reject),
             python_schema=core_schema.is_instance_schema(cls),
@@ -48,21 +48,15 @@ class SetPointGenerator:
         raise ValueError("a running trajectory cannot be built from the wire")
 
     def start(self, time: float, value: float) -> None:
-        """Bind to the rig: the clock origin and where the process is now.
-
-        Args:
-            time: The instant the trajectory begins.
-            value: The process value at that instant, for generators that start
-                from wherever the rig happens to be.
-        """
+        """Bind to the rig: `time` is the origin, `value` the process value then."""
 
     def generate(self, time: float) -> float:
-        """The set point at ``time``."""
+        """The set point at `time`."""
         raise NotImplementedError
 
 
 class LinearRampSetpoint(SetPointGenerator):
-    """A set point walking from ``start`` to ``end`` between two instants."""
+    """A set point walking from `start` to `end` between two instants."""
 
     signal: Signal
     pace: Speed | Duration

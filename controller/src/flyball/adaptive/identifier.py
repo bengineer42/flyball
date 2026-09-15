@@ -20,17 +20,15 @@ class Sample:
 
 
 class Excitation:
-    """Says whether the recent input has moved enough to learn anything from.
+    """Whether the recent input has moved enough to learn from.
 
-    A loop holding a setpoint supplies no information about the plant, and an
-    estimator that forgets will drift on noise while it waits. Gating the update
-    on movement is the cheapest robust answer -- and it costs nothing here,
-    because ramps and setpoint steps in a program provide the excitation
-    naturally.
+    A loop holding a setpoint says nothing about the plant, and a forgetting
+    estimator drifts on noise while it waits; ramps and steps in a program
+    supply the excitation.
 
     Args:
         window: How many recent inputs to judge on.
-        threshold: The spread the window must show, in the input's own units.
+        threshold: The spread the window must show, in the input's units.
     """
 
     __slots__ = ("_window", "threshold")
@@ -55,19 +53,18 @@ class Excitation:
 class Identifier:
     """Tracks a plant model from a loop's samples.
 
-    Holds the delayed input history the regressor needs, gates updates on
-    excitation, and converts the discrete estimate into the continuous form the
-    tuning rules take.
+    Holds the delayed input history, gates updates on excitation, and converts
+    the discrete estimate to the continuous form the tuning rules take.
 
     Args:
-        schema: Which signals the model is built from, and in what order.
-        interval: Nominal seconds between samples. Only used to convert the
-            discrete estimate; the estimator itself is sample-indexed.
-        delay_samples: Input delay, in samples. Not identifiable by recursion,
-            so it comes from a calibration step and is revisited rarely.
+        schema: Which signals the model is built from, in order.
+        interval: Nominal seconds between samples; only used to convert the
+            discrete estimate.
+        delay_samples: Input delay in samples. Not identifiable by recursion,
+            so it comes from calibration.
         forgetting: Passed to the estimator.
-        excitation: The gate. Omit for one with the default window.
-        settle: Excited samples required before a model is offered at all.
+        excitation: The gate. Omit for the default window.
+        settle: Excited samples required before a model is offered.
     """
 
     __slots__ = (
@@ -125,11 +122,10 @@ class Identifier:
         self.residual = 0.0
 
     def push(self, sample: Sample) -> bool:
-        """Fold one sample in, returning whether it was used.
+        """Fold one sample in; return whether it was used.
 
-        The first sample has no previous output to regress on, and a sample
-        taken while the input is steady carries no information about the plant.
-        Both are recorded and skipped rather than fitted.
+        The first sample, and any taken while the input is steady, are recorded
+        but not fitted.
         """
         self._inputs.append(sample.manipulated)
         excited = self._excitation.push(sample.manipulated)
@@ -170,11 +166,10 @@ class Identifier:
         return self.arx().plant()
 
     def feedforward(self, setpoint: float, rate: NonNegative = 0.0) -> float:
-        """The demand that would produce ``setpoint`` with no feedback.
+        """The demand that would produce `setpoint` with no feedback.
 
-        Inverts the model: the steady-state term holds the setpoint, the rate
-        term covers the lag while it is moving. A trajectory that knows where it
-        is going can supply ``rate`` and stop the loop chasing it.
+        The steady-state term holds the setpoint; the `rate` term covers the
+        lag while it moves.
 
         Raises:
             NotIdentifiedError: Too few excited samples.

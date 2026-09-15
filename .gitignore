@@ -30,3 +30,6 @@ fp-info-cache
 
 # git worktrees live here; they are checkouts, not content
 .worktrees/
+
+# MkDocs output
+build/

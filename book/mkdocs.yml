@@ -1,0 +1,104 @@
+site_name: Flyball
+site_description: Closed-loop control of a quantity with an actuator
+site_author: Ben Laurence
+docs_dir: src
+site_dir: ../build/book
+strict: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Dark }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Light }
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.arithmatex: { generic: true }
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [../controller/src]
+          options:
+            docstring_style: google
+            docstring_options: { warn_unknown_params: false, warn_missing_types: false }
+            show_source: false
+            show_root_heading: true
+            show_if_no_docstring: true
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            extensions:
+              - griffe_pydantic: { schema: false }
+
+nav:
+  - Introduction: index.md
+  - Concepts:
+      - A quantity, an actuator, a source: 1-concepts/model.md
+      - The loop: 1-concepts/loop.md
+      - Programs: 1-concepts/programs.md
+  - Building an application:
+      - 2-building/index.md
+      - Writing an actuator: 2-building/actuator.md
+      - Writing a sensor: 2-building/sensor.md
+      - Config and build: 2-building/config.md
+      - Assembling a rig: 2-building/rig.md
+  - Running:
+      - The daemon: 3-running/daemon.md
+      - The CLI: 3-running/cli.md
+      - The UI: 3-running/ui.md
+      - Writing programs: 3-running/programs.md
+      - Autotune: 3-running/autotune.md
+  - Control:
+      - The loop in detail: 4-control/loop.md
+      - Control laws: 4-control/laws.md
+      - Identification: 4-control/identification.md
+      - Simulation: 4-control/simulation.md
+  - Internals:
+      - Architecture: 5-internals/architecture.md
+      - Core: 5-internals/core.md
+      - Runtime: 5-internals/runtime.md
+      - Server: 5-internals/server.md
+      - Storage: 5-internals/db.md
+      - Decisions: 5-internals/decisions.md
+  - Reference:
+      - CLI: 6-reference/cli.md
+      - HTTP and websocket API: 6-reference/api.md
+      - Program file schema: 6-reference/program-schema.md
+      - Wire format: 6-reference/wire.md
+      - Python API:
+          - flyball: 6-reference/python/flyball.md
+          - flyball.core: 6-reference/python/flyball/core.md
+          - flyball.core.units: 6-reference/python/flyball/core/units.md
+          - flyball.control: 6-reference/python/flyball/control.md
+          - flyball.adaptive: 6-reference/python/flyball/adaptive.md
+          - flyball.autotune: 6-reference/python/flyball/autotune.md
+          - flyball.runtime: 6-reference/python/flyball/runtime.md
+          - flyball.programmer: 6-reference/python/flyball/programmer.md
+          - flyball.sim: 6-reference/python/flyball/sim.md
+          - flyball.hardware: 6-reference/python/flyball/hardware.md
+          - flyball.db: 6-reference/python/flyball/db.md
+          - flyball.server: 6-reference/python/flyball/server.md
+          - flyball.server.routes: 6-reference/python/flyball/server/routes.md
+          - flyball.client: 6-reference/python/flyball/client.md
+          - flyball.integrations: 6-reference/python/flyball/integrations.md
+  - Worked examples: examples.md
+  - Glossary: glossary.md

@@ -1,7 +1,7 @@
 """Recording and reading back.
 
-``Store`` is the interface; ``SqliteStore`` the one implementation. A rig opens
-a session and holds its ``SessionWriter``; a server holds a ``Store`` and asks
+`Store` is the interface; `SqliteStore` the one implementation. A rig opens
+a session and holds its `SessionWriter`; a server holds a `Store` and asks
 it for series, ticks, events and spans to draw.
 """
 

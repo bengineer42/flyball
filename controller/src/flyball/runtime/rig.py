@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from threading import RLock
-from typing import Any, Protocol
+from typing import Any
 
 from flyball.control import ControlLawLike, Loop, LoopState, Tunings
 from flyball.core import Clock
@@ -19,21 +19,17 @@ from .loops import Loops
 from .recorder import Recorder
 
 
-class Rig(Protocol):
+class Rig:
     clock: Clock
     loops: Loops
     actuators: dict[str, Actuator]
     lock: RLock
-    #: The newest state of each actuator, by name: after a tick applied to it
-    #: or a command ran on it. A snapshot, built only while someone watches,
-    #: so an idle rig pays a bool check per apply and a watched one a dict store.
     actuator_states: Latest[str, ActuatorState]
-    #: The newest state of each loop, by name, after each tick. Same terms.
-    #: State, not view: the spec (law config, offset) changes only on a
-    #: retune, and a reader joins it on at its own rate.
+    """The newest state of each actuator, by name. Built only while someone watches."""
     loop_states: Latest[str, LoopState]
-    #: What is being waited on, by name: prompts, settle tests, holds.
+    """The newest state of each loop, by name, after each tick. A reader joins the spec itself."""
     signals: Signals
+    """What is being waited on, by name: prompts, settle tests, holds."""
     observations: dict[Source | Channel, OrderedSet[Observer]]
     tunings: Tunings
     recorder: Recorder | None
@@ -89,8 +85,12 @@ class Rig(Protocol):
         if isinstance(sink, Actuator) and self.actuator_states.watched:
             self.actuator_states.set(sink.name, sink.state)
 
-    def start_reader(self, reader: Reader, period: float, stop_on_error: bool = True) -> None:
-        self._readers.start_periodic(reader, period)
+    def start_reader(self, reader: Reader, period: float | None = None) -> None:
+        """Attach a reader; with a `period`, poll it too. A push-only reader needs none."""
+        if period is None:
+            self._readers.add(reader)
+        else:
+            self._readers.start_periodic(reader, period)
 
     @property
     def readers(self) -> Readers:
@@ -119,9 +119,8 @@ class Rig(Protocol):
     ) -> Recorder:
         """Open a session and record into it from the next delivery on.
 
-        Defaults to every source seen so far and every loop. Replaces a
-        recorder already running, closing its session first. ``session`` is
-        passed to ``Store.open_session`` -- config, hardware, version.
+        Defaults to every source seen so far and every loop. Replaces a running
+        recorder, closing its session first.
         """
         with self.lock:
             self.stop_recording()
@@ -142,8 +141,13 @@ class Rig(Protocol):
     # endregion
 
     def read(self, reader: Reader) -> None:
-        with self.lock:
-            self.on_read(tuple(reader.read(self.clock.now_ns())))
+        """Poll `reader` once, now. An attached reader delivers through its own path."""
+        samples = tuple(reader.read(self.clock.now_ns()))
+        if reader.name in self._readers.by_name:
+            reader.emit(samples)
+        else:
+            with self.lock:
+                self.on_read(samples)
 
     def on_read(self, samples: Sequence[Sample]) -> None:
         """One delivery: observers, then the loops, one apply per touched sink, then the recorder.

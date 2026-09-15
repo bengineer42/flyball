@@ -1,8 +1,7 @@
 """What comes out of a store, and what goes in that has no core type.
 
-Rows are plain frozen values: no store knowledge, no live objects, so a server
-can serialise them straight out and a plot can consume them without the rig.
-Times inside a session are ``offset_ns`` from the session's ``start_ns``.
+Rows are plain frozen values with no live objects, so a server serialises
+them directly. Times inside a session are `offset_ns` from its `start_ns`.
 """
 
 from __future__ import annotations
@@ -82,7 +81,7 @@ class LoopRow:
 
 @dataclass(frozen=True, slots=True)
 class TuningRow:
-    """A named law and its gains. ``config`` is the law's constructor arguments."""
+    """A named law and its gains. `config` is the law's constructor arguments."""
 
     id: int
     name: str
@@ -109,11 +108,9 @@ class Point:
 class Downsample:
     """How to thin a series. Exactly one of the three.
 
-    ``every`` keeps every nth sample by sequence number: cheap, every point a
-    real reading, but periodic noise can alias and a spike between kept
-    samples vanishes. ``bucket_ns`` averages each bucket of that size;
-    ``max_points`` averages into buckets sized so the window fits in that many
-    points -- the store resolves it to a ``bucket_ns`` and reports that back.
+    `every` keeps every nth sample: cheap, but can alias and miss spikes.
+    `bucket_ns` averages each bucket. `max_points` averages into buckets sized
+    to fit the window; the store reports the resolved `bucket_ns`.
     """
 
     every: int | None = None
@@ -127,11 +124,7 @@ class Downsample:
 
 @dataclass(frozen=True, slots=True)
 class Series:
-    """One channel over a window, ready to plot.
-
-    ``downsample`` is what was applied, with ``max_points`` resolved to the
-    ``bucket_ns`` actually used, so a client can label the axis.
-    """
+    """One channel over a window. `downsample` is what was applied, `max_points` resolved."""
 
     channel: ChannelRow
     points: tuple[Point, ...]
@@ -180,7 +173,7 @@ class SpanKind(Labelled):
 
 @dataclass(frozen=True, slots=True)
 class Span:
-    """A labelled interval on the timeline; ``end_ns`` is None while open."""
+    """A labelled interval on the timeline; `end_ns` is None while open."""
 
     id: int
     kind: SpanKind
@@ -193,7 +186,7 @@ class Span:
 
 @dataclass(frozen=True, slots=True)
 class Window:
-    """A half-open range of offsets, ``[start_ns, end_ns)``. None means unbounded."""
+    """A half-open range of offsets, `[start_ns, end_ns)`. None means unbounded."""
 
     start_ns: int | None = None
     end_ns: int | None = None

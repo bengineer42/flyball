@@ -1,14 +1,11 @@
 """Writes deliveries to a session.
 
-Not an observer: it wants the whole delivery, after the loops have ticked --
-so it sees the demand and expected value each tick produced, which no
-observer can. The rig holds at most one and calls it last. Which sources and
-loops are recorded is decided here, once, at construction.
+Not an observer: it sees the whole delivery after the loops have ticked, so it
+records what each tick produced. The rig holds at most one and calls it last.
 
-Deliveries are buffered and written in one transaction every ``flush_s``:
-a transaction costs the same whether it holds one row or a hundred, and on
-an SD card that cost is milliseconds. A loop at any rate then pays one list
-append per tick and one write per interval. ``close`` writes what is left.
+Deliveries are buffered and written in one transaction every `flush_s`, since
+a transaction costs milliseconds on an SD card regardless of size. `close`
+writes what is left.
 """
 
 from __future__ import annotations
@@ -23,7 +20,7 @@ from flyball.db import SessionWriter, Tick
 
 
 def _tick(loop: Loop[Any], reading: Reading, start_ns: int) -> Tick:
-    """The loop's state after ticking on ``reading``, as a row."""
+    """The loop's state after ticking on `reading`, as a row."""
     return Tick(
         loop=loop.name,
         offset_ns=reading.time_ns - start_ns,

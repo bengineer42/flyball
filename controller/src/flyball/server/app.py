@@ -35,12 +35,7 @@ DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Leave the rig as we found it.
-
-    The server owns no topics of its own: telemetry subscribes to the rig's,
-    so the two cannot disagree about what was published. On the way out the
-    pumps are stopped and the loop halted, since nothing is left watching them.
-    """
+    """Attach telemetry to the rig's topics; on exit stop the pumps and halt the loop."""
     try:
         yield
     finally:
@@ -83,7 +78,7 @@ def create_app() -> FastAPI:
     for error, code in codes.items():
 
         async def handler(request: Request, exc: Exception, code: int = code) -> JSONResponse:
-            # ``code`` is bound as a default: without it every handler would
+            # `code` is bound as a default: without it every handler would
             # close over the loop variable and share the last value.
             return JSONResponse(status_code=code, content={"detail": str(exc)})
 

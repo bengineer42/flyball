@@ -1,17 +1,13 @@
-"""The two experiments, as state machines a caller pushes readings into.
+"""The two identification experiments, as state machines fed readings.
 
-Neither owns a clock, a thread, or the rig. Each takes ``(time, reading)`` and
-returns the target to command, so it drops into whatever loop already exists and
-nothing here has to know how the pumps are reached — which also means both can
-be run against a simulated plant in a test without a single stub.
+Neither owns a clock, a thread or the rig: each takes `(time, reading)` and
+returns the target to command, so it runs inside any existing loop, including
+one over a simulated plant.
 
-Run them through the *feedforward* path: the law set to
-:class:`~flyball.control.laws.OpenLoop` so ``correction`` stays at zero, and the
-target moved directly. That is deliberate. The step then travels the same route
-the trim will, through the application's actuator arithmetic (the humidity
-rig's ``calculate_wet_fraction``), which has already divided out the
-``wet - dry`` span -- so the gain that comes back is near 1 and the resulting
-gains stay valid when the supply humidities change.
+Run them with the law set to [OpenLoop][flyball.control.laws.OpenLoop] and the
+target moved directly. The step then passes through the application's actuator
+arithmetic, so the fitted gain is in the same units the trim will use and stays
+valid when the supply changes.
 """
 
 from __future__ import annotations
@@ -27,13 +23,7 @@ from .types import FOPDT, Sample, Ultimate
 
 
 def _check_timeout(started: float | None, time: float, timeout: float | None, phase: str) -> None:
-    """Raise if ``phase`` has been running longer than it is allowed to.
-
-    Args:
-        started: When the phase began, or ``None`` if it has not.
-        time: Now.
-        timeout: How long the phase may take. ``None`` disables the check.
-        phase: The name to report.
+    """Raise if `phase` has run longer than `timeout`; `None` for either disables the check.
 
     Raises:
         ExperimentTimeoutError: If the phase has overrun.
@@ -43,25 +33,20 @@ def _check_timeout(started: float | None, time: float, timeout: float | None, ph
 
 
 class StepTest:
-    """Hold, step, hold. Fits a plant model to the response between the plateaus.
+    """Hold, step, hold; fit a plant model to the response between the plateaus.
 
-    The gentler of the two experiments and the one to reach for first: the rig
-    only ever moves between two steady targets, and the model it produces is
-    reusable — for feedforward sizing, for simulation, for re-tuning later at a
-    different ``lam`` without touching the hardware again.
+    The gentler experiment: the rig only moves between two steady targets, and
+    the model is reusable for simulation and re-tuning without another run.
 
     Args:
         base: The target to settle at before stepping.
-        size: How far to step. Signed. Big enough to clear the noise by a good
-            margin, small enough to stay in the range the loop will work over.
+        size: Signed step. Well above the noise, within the loop's working range.
         window: How long the reading must hold still to count as a plateau. Must
-            comfortably exceed the dead time, or the flat stretch before the
-            response even starts reads as a plateau.
-        band: How much the reading may move within that window. Above the sensor
-            noise, well below ``size``.
-        timeout: How long to allow each plateau before giving up. ``None`` waits
-            forever, which is right for a manual run and wrong for an automated
-            one.
+            exceed the dead time, or the flat stretch before the response reads
+            as a plateau.
+        band: How much the reading may move within `window`. Above the noise,
+            well below `size`.
+        timeout: How long to allow each plateau. `None` waits forever.
     """
 
     def __init__(
@@ -109,18 +94,10 @@ class StepTest:
         return self._result
 
     def step(self, time: float, reading: float) -> float:
-        """Advance the experiment by one reading.
-
-        Args:
-            time: When the reading was taken.
-            reading: What it read.
-
-        Returns:
-            The target to command until the next reading.
+        """Advance by one reading; return the target to command until the next.
 
         Raises:
-            ExperimentTimeoutError: If the current plateau takes longer than
-                ``timeout`` to arrive.
+            ExperimentTimeoutError: If the current plateau outruns `timeout`.
         """
         if self._result is not None:
             return self.target
@@ -140,7 +117,7 @@ class StepTest:
 
         self._samples.append(Sample(time, reading))
         # A plateau that has not moved is the dead time, not the response: the
-        # reading sits at ``initial`` for θ seconds after the step, and with a
+        # reading sits at `initial` for θ seconds after the step, and with a
         # window shorter than that it would otherwise settle on the spot.
         if settled and abs(self._steady.mean - self._initial) > self._steady.band:
             self._result = fit_fopdt(
@@ -158,32 +135,23 @@ class StepTest:
 class RelayTest:
     """Bang-bang the target and read the critical point off the limit cycle.
 
-    No model in between: the relay drives a sustained oscillation whose amplitude
-    and period give ``Ku`` and ``Tu`` directly. Useful when a clean open-loop
-    step is impractical, at the cost of deliberately cycling the rig — which for
-    two DC pumps is wear you have chosen to spend.
+    The oscillation's amplitude and period give `Ku` and `Tu` directly, with no
+    model in between, at the cost of deliberately cycling the rig.
 
-    ``hysteresis`` is what makes it work on a real reading. Without it the relay
-    chatters on sensor noise and the measured period is meaningless; with it the
-    describing-function estimate of ``Ku`` picks up a correction term, which is
-    applied here.
-
-    Expect ``Ku`` to come out low by 10-20%. The estimate keeps only the first
-    harmonic, and a limit cycle on a lag-dominated plant is nearer triangular
-    than sinusoidal, so the measured peak overstates the fundamental. The error
-    is towards detuning, which is the safe direction, but it is why a step test
-    and :func:`~flyball.autotune.rules.imc` beat this where both are possible.
-    Wide hysteresis also stretches the measured period, so keep it just above
-    the noise rather than comfortably above it.
+    `hysteresis` stops the relay chattering on noise; the describing-function
+    estimate of `Ku` includes the correction for it. Expect `Ku` 10-20% low:
+    the estimate keeps only the first harmonic and a lag-dominated limit cycle
+    is nearer triangular than sinusoidal. That errs towards detuning, which is
+    why a step test with [imc][flyball.autotune.rules.imc] is preferred where
+    possible. Wide hysteresis also stretches the period, so keep it just above
+    the noise.
 
     Args:
         centre: The reading to oscillate about.
-        amplitude: The relay's half-swing ``d``, in target units.
-        hysteresis: Half-width ``h`` of the dead band, in reading units. Set it
-            above the peak-to-peak noise. Must stay below the oscillation
-            amplitude the rig actually achieves.
-        cycles: How many usable cycles to average over. The first is discarded as
-            warm-up regardless.
+        amplitude: The relay's half-swing `d`, in target units.
+        hysteresis: Half-width `h` of the dead band, in reading units. Above the
+            peak-to-peak noise, below the oscillation amplitude achieved.
+        cycles: Usable cycles to average over; the first is always discarded.
         timeout: How long to allow the whole test.
     """
 
@@ -230,17 +198,10 @@ class RelayTest:
         return self._result
 
     def step(self, time: float, reading: float) -> float:
-        """Advance the experiment by one reading.
-
-        Args:
-            time: When the reading was taken.
-            reading: What it read.
-
-        Returns:
-            The target to command until the next reading.
+        """Advance by one reading; return the target to command until the next.
 
         Raises:
-            ExperimentTimeoutError: If the test outruns ``timeout``.
+            ExperimentTimeoutError: If the test outruns `timeout`.
             ResponseTooSmallError: If the oscillation never clears the dead band.
         """
         if self._result is not None:

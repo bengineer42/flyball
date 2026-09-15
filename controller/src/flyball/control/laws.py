@@ -15,7 +15,7 @@ class P(ControlLaw):
         self.kp = kp
 
     def resume(self, reading: float, setpoint: float, correction: float) -> float:
-        """A proportional law has no memory, so it cannot hold ``correction``."""
+        """A proportional law has no memory, so it cannot hold `correction`."""
         return self.kp * (setpoint - reading)
 
     def step(
@@ -55,31 +55,21 @@ class IComponent:
         self._tt_mul_ki = tt * ki
 
     def reset_integral(self) -> None:
-        """Clear the integrator.
-
-        ``last_raw`` stays unset so the next step skips the anti-windup term,
-        which has no previous output to compare.
-        """
+        """Clear the integrator. `last_raw` stays unset so the next step skips anti-windup."""
         self.integral = 0.0
         self.last_raw = None
         self.last_elapsed = 0.0
 
     def resume_integral(self, kp_term: float, correction: float) -> float:
-        """Seed the integrator so the next output is ``correction``.
+        """Seed the integrator so the next output is `correction`; return what was seeded.
 
-        ``last_raw`` is set to whatever is returned rather than left unset, so the
-        first step's anti-windup term measures against the output the law really
-        is resuming from.
+        `last_raw` is set to the result so the first anti-windup term measures
+        against the real resume point. Without an integral the law resumes at
+        `kp_term` regardless.
 
         Args:
-            kp_term: The law's proportional contribution at that instant, which
-                the integral has to cancel.
+            kp_term: The proportional contribution at that instant.
             correction: The offset the next step should reproduce.
-
-        Returns:
-            The correction actually seeded. With no integral there is nothing to
-            hold the offset, so the law resumes at ``kp_term`` however much was
-            asked for.
         """
         self.integral = 0.0
         self.last_raw = None
@@ -94,23 +84,16 @@ class IComponent:
     def step_integral(
         self, error: float, elapsed: float, last_applied: float | None = None
     ) -> float:
-        """Advance the integrator to ``elapsed``.
+        """Advance the integrator to `elapsed`; return the interval since the previous step.
 
-        ``elapsed`` is measured from the law's own start, not from the previous
-        step, so the law keeps no clock and the caller need not remember when it
-        last called. The interval is the difference from the last call, which is
-        zero on the first one and on a repeated instant -- both add nothing,
-        without needing a branch.
+        `elapsed` is from the law's own start, so the law keeps no clock. The
+        first step and a repeated instant have zero interval and add nothing.
 
         Args:
-            error: Setpoint minus reading at this instant.
+            error: Setpoint minus reading.
             elapsed: Seconds since the law was reset or resumed.
-            last_applied: What was actually delivered last step, for the
-                back-calculation anti-windup term. Ignored without ``tt``.
-
-        Returns:
-            The interval since the previous step, for a caller computing a
-            derivative over the same span.
+            last_applied: What was delivered last step, for back-calculation
+                anti-windup. Ignored without `tt`.
         """
         dt = elapsed - self.last_elapsed
         self.last_elapsed = elapsed

@@ -1,8 +1,8 @@
 """Commands and programs: what a rig can be told to do, and running a list of it.
 
-Not mounted yet: :class:`~flyball.programmer.Programmer` still calls
-``rig.publish_warning``, which does not exist until the events stream lands.
-Once it runs, add ``program_router`` to ``routes/__init__.py`` and ``app.py``.
+Not mounted yet: [Programmer][flyball.programmer.Programmer] still calls
+`rig.publish_warning`, which does not exist until the events stream lands.
+Once it runs, add `program_router` to `routes/__init__.py` and `app.py`.
 """
 
 from __future__ import annotations
@@ -37,14 +37,11 @@ def run_command(
     programmer: ProgrammerDep,
     interrupt: bool = False,
 ) -> ProgrammerState:
-    """Apply one command and return as soon as it has been applied.
+    """Apply one command and return; a hold or ramp continues on the programmer's thread.
 
-    A hold or ramp carries on on the programmer's thread; watch it over the
-    websockets. Not ``async``: applying a command may write to hardware.
-
-    ``interrupt`` stops whatever is running first rather than refusing with a
-    conflict. A query parameter rather than a field: it says how to apply
-    this request, and means nothing replayed as a step in a stored program.
+    Not `async`: applying may write to hardware. `interrupt` stops whatever is
+    running instead of refusing with a conflict; a query parameter, since it
+    means nothing as a stored step.
     """
     # Validated here rather than in the signature: the command union exists
     # only once commands have registered, which is after this module loads.

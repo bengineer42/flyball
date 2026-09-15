@@ -12,20 +12,17 @@ Commands: dict[str, type[Command]] = {}
 
 
 class Activity(Signal):
-    """A signal a program step waits on, that knows how to hook itself into the rig.
+    """A signal a program step waits on, that hooks itself into the rig.
 
-    ``attach`` registers whatever feeds it -- an observer, a timer, a prompt;
-    ``detach`` undoes that and puts back anything taken over. ``fail`` fires
-    with an error the waiter re-raises: the activity ended, it was not
-    interrupted.
+    `attach` registers whatever feeds it; `detach` undoes that. `fail` fires
+    with an error the waiter re-raises.
     """
 
     __slots__ = ("error", "message", "name", "timeout_s")
 
     error: Exception | None
-    #: How the wait is known to a person: the name it is registered under
-    #: (the command's tag when None) and what it is waiting for.
     name: str | None
+    """The name the wait is registered under (the command's tag when None) and its message."""
     message: str | None
     timeout_s: float | None
 
@@ -53,15 +50,11 @@ class Activity(Signal):
 
 
 class Command:
-    """Base for everything a program can run.
+    """Base for everything a program can run. Subclassing registers it under its tag.
 
-    Subclassing registers the command under its tag. The wire model is built by
-    the server layer, which is the only place that knows how a domain type
-    crosses the wire.
-
-    ``primary`` names the field a bare scalar means in the program file
-    dialect, so ``- flag: "loaded"`` can stand for ``- flag: {flag: "loaded"}``.
-    None means the command takes no shorthand.
+    `primary` names the field a bare scalar means in a program file, so
+    `- flag: "loaded"` stands for `- flag: {flag: "loaded"}`; None means no
+    shorthand.
     """
 
     tag: ClassVar[str] = ""
@@ -81,7 +74,7 @@ class Command:
         if not register:
             return
         clash = Commands.get(cls.tag)
-        # ``@dataclass(slots=True)`` rebuilds the class, so this runs a second
+        # `@dataclass(slots=True)` rebuilds the class, so this runs a second
         # time with a different object for the same command. Same qualified
         # name means the rebuild, not a clash.
         if clash is not None and (clash.__module__, clash.__qualname__) != (

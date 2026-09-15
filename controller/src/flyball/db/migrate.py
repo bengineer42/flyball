@@ -1,8 +1,7 @@
-"""Apply the numbered SQL files in ``flyball/migrations`` in order.
+"""Apply the numbered SQL files in `flyball/migrations` in order.
 
-Each file is one transaction. ``schema_version`` records the last applied, so
-opening an older database brings it forward and opening a current one is a
-single read. Files are ``NNNN_name.sql``; the number is the version.
+Each file (`NNNN_name.sql`) is one transaction; `schema_version` records the
+last applied.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ def current(connection: sqlite3.Connection) -> int:
 
 
 def migrate(connection: sqlite3.Connection) -> int:
-    """Bring ``connection`` up to the newest migration. Returns the version now in force."""
+    """Bring `connection` up to the newest migration. Returns the version now in force."""
     applied = current(connection)
     pending = sorted(v for v in available() if v > applied)
     for version in pending:

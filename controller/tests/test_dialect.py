@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import textwrap
 from dataclasses import dataclass
+from typing import Any, cast
 
 import pytest
 
-from flyball.core.clock import Duration, Rate
+from flyball.core.clock import Duration, Rate, TimeUnit
 from flyball.core.typing import Percent
 from flyball.programmer.command import Command
 from flyball.server.dialect import (
@@ -32,7 +33,7 @@ def commands(fresh):
 
         at: Percent
 
-        def run(self, rig, operator=None): ...
+        def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
     class Ramp(Command, tag=tags["ramp"]):
@@ -40,20 +41,20 @@ def commands(fresh):
         pace: Rate | Duration
         start: Percent | str = "setpoint"
 
-        def run(self, rig, operator=None): ...
+        def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
     class Flag(Command, tag=tags["flag"], primary="flag"):
         flag: str
 
-        def run(self, rig, operator=None): ...
+        def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
     class Twice(Command, tag=tags["twice"]):
         a: Duration
         b: Duration
 
-        def run(self, rig, operator=None): ...
+        def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     return tags, {"Setpoint": Setpoint, "Ramp": Ramp, "Flag": Flag, "Twice": Twice}
 
@@ -92,7 +93,8 @@ class TestNormalise:
 
     def test_flat_time_keys_fold_into_the_one_time_field(self, dialect, commands):
         tags, classes = commands
-        assert foldable(classes["Ramp"])[0] == "pace"
+        fold = foldable(classes["Ramp"])
+        assert fold is not None and fold[0] == "pace"
         assert foldable(classes["Twice"]) is None, "two time fields: no fold"
         step = normalise_step({tags["ramp"]: {"to": 60, "per_minute": 2}}, dialect)
         assert step["command"]["pace"] == {"per_minute": 2}
@@ -135,8 +137,9 @@ def test_commands_from_yaml_builds_a_program(dialect, commands):
     program = commands_from_yaml(text, dialect)
     assert program.name == "demo" and len(program) == 4
     assert program[0] == classes["Setpoint"](at=50.0)
-    assert program[1].pace == Duration(600)
-    assert program[2].pace == Rate(2.0, "minute") and program[2].start == "reading"
+    ramp_a, ramp_b = cast(Any, program[1]), cast(Any, program[2])
+    assert ramp_a.pace == Duration(600)
+    assert ramp_b.pace == Rate(2.0, TimeUnit.MINUTE) and ramp_b.start == "reading"
 
 
 def test_program_schema_is_externally_tagged_with_shorthand_and_folds(dialect, commands):

@@ -1,10 +1,9 @@
 """How a method's arguments cross the wire.
 
-Each request model is derived from a callable's own signature, so an argument
-list is described once. :data:`WIRE_TYPES` covers the parameters whose domain
-types cannot cross the wire as they stand: everything else is used verbatim,
-which works for anything pydantic can describe. Nothing here touches a
-registry, so it can be imported before any command exists.
+Each request model is derived from the callable's signature.
+[WIRE_TYPES][flyball.server.wire.WIRE_TYPES] substitutes the domain types
+that cannot cross as they stand. Touches no registry, so it imports before
+any command exists.
 """
 
 from __future__ import annotations
@@ -19,25 +18,27 @@ from flyball.control import ControlLaw, ControlLawConfig, ControlLawLike
 from flyball.control.types import ControlLawView, Tuning
 from flyball.server.schemas import LawConfig
 
-#: Domain annotation -> how it crosses the wire. A parameter whose annotation is
-#: not a key here keeps its own type. Keys are matched whole, so a union must be
-#: written exactly as the command declares it.
 WIRE_TYPES: dict[Any, Any] = {
-    # Durations and rates carry their own wire forms (see ``core.clock``);
+    # Durations and rates carry their own wire forms (see `core.clock`);
     # only types that cannot -- a running law -- need a stand-in here.
     # A running law cannot cross the wire, so the tuning unions narrow to a
     # config or the name of a stored one.
     ControlLawLike | str | None: LawConfig | str | None,
     Tuning | ControlLaw | ControlLawConfig | ControlLawView | str | None: LawConfig | str | None,
 }
+"""Domain annotation -> how it crosses the wire.
+
+A parameter whose annotation is not a key here keeps its own type. Keys are
+matched whole, so a union must be written exactly as the command declares it.
+"""
 
 
 def wire_fields(fn: Callable[..., Any], *, skip: int = 0) -> dict[str, Any]:
-    """``create_model`` fields for ``fn``'s parameters, domain types swapped for wire ones.
+    """`create_model` fields for `fn`'s parameters, domain types swapped for wire ones.
 
     Args:
         fn: The callable whose signature defines the fields.
-        skip: Leading parameters to drop -- 1 for an unbound method's ``self``.
+        skip: Leading parameters to drop; 1 for an unbound method's `self`.
     """
     hints = get_type_hints(fn, include_extras=True)  # keep Field(...) and UnitRef metadata
     fields: dict[str, Any] = {}
@@ -61,5 +62,5 @@ class ArgumentsBase(BaseModel):
 
 
 def arguments_model(fn: Callable[..., Any], name: str) -> type[ArgumentsBase]:
-    """The pydantic request for calling method ``fn``: one field per argument after ``self``."""
+    """The pydantic request for calling method `fn`: one field per argument after `self`."""
     return create_model(name, __base__=ArgumentsBase, **wire_fields(fn, skip=1))

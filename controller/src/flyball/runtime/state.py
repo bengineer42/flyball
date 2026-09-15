@@ -1,12 +1,9 @@
-"""The rig as data, in the three tiers everything in it is described by.
+"""The rig as data, in three tiers.
 
-- **config** is the rig's structure and is not a model here: it is the rig.
-- **settings** change on a command -- a retune, a blend policy -- and are
-  published when they do.
-- **state** changes every tick or apply, and is what the telemetry cells hold.
-
-A :class:`RigView` joins settings and state at one instant, the way
-:class:`~flyball.control.LoopView` does for one loop.
+**config** is the rig's structure and is not a model here. **settings** change
+on a command and are published when they do. **state** changes every tick or
+apply. A [RigView][flyball.runtime.state.RigView] joins settings and state at
+one instant, as [LoopView][flyball.control.LoopView] does for one loop.
 """
 
 from __future__ import annotations

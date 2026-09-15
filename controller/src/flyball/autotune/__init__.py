@@ -1,21 +1,17 @@
 """Working out the gains instead of guessing them.
 
-Three steps, each usable on its own:
+1. **Measure.** [StepTest][flyball.autotune.StepTest] or
+   [RelayTest][flyball.autotune.RelayTest]: push `(time, reading)`, command
+   the target returned, stop when `done`.
+2. **Model.** A step test yields an [FOPDT][flyball.autotune.FOPDT]; a relay
+   test yields an [Ultimate][flyball.autotune.Ultimate] directly.
+3. **Tune.** A rule turns either into [Gains][flyball.autotune.Gains], with a
+   [config][flyball.autotune.types.Gains.config] for a controller and
+   [to_tuning][flyball.autotune.types.Gains.to_tuning] to register.
 
-1. **Measure.** :class:`StepTest` or :class:`RelayTest`, driven from whatever
-   loop already reads the sensor. Both are state machines: push
-   ``(time, reading)``, command the target they return, stop when ``done``.
-2. **Model.** A step test yields an :class:`FOPDT` — gain, time constant, dead
-   time. A relay test skips this and yields an :class:`Ultimate` directly.
-3. **Tune.** A rule turns either into :class:`Gains`, which carry a
-   :attr:`~Gains.config` ready for a controller and a
-   :meth:`~Gains.to_tuning` to register.
-
-Run the experiment through the feedforward path, with the law set to
-:class:`~flyball.control.laws.OpenLoop`, so the plant gain the tuner sees is the
-one the trim loop will see. See :mod:`flyball.autotune.experiments`.
-
-Sketched against a loop that already has a clock and a reader::
+Run the experiment with the law set to
+[OpenLoop][flyball.control.laws.OpenLoop] so the gain measured is the one the
+trim loop will see; see [flyball.autotune.experiments][].
 
     test = StepTest(base=50.0, size=10.0, window=120.0, band=0.3, timeout=1800.0)
     while not test.done:
@@ -23,12 +19,11 @@ Sketched against a loop that already has a clock and a reader::
         controller.set_stream(humidity=test.step(reading.time, reading.humidity))
         controller.apply()
 
-    model = test.result
-    gains = imc(model)                    # or imc(model, lam=model.tau / 2) to push it
+    gains = imc(test.result)
     manager.register_tuning("fitted", gains.to_tuning("fitted"))
 
-Nothing here writes to the rig or mutates a controller; the caller does both, so
-an autotune run is as interruptible as the loop driving it.
+Nothing here writes to the rig or a controller, so a run is as interruptible
+as the loop driving it.
 """
 
 from .errors import (

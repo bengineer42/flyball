@@ -1,23 +1,21 @@
 """Devices: the things a rig is made of, and how they describe themselves.
 
-A device -- a reader or an actuator -- is described by three tiers, told
-apart by who changes them:
+A device -- a reader or an actuator -- has three tiers, told apart by who
+changes them:
 
 - **config** -- what it was built from; changed only by rebuilding. A
-  :class:`~flyball.core.config.Config`, so it is also what builds it.
-- **settings** -- what an operator or a program can re-set while it runs, by
-  a command: a blend policy, a sample period, a heater mode.
-- **state** -- what the device reports now, every tick or read: the demand,
-  the last reading, and any :class:`Condition` that is currently true.
+  [Config][flyball.core.config.Config], so it also builds the device.
+- **settings** -- what an operator or program re-sets while it runs, by a
+  command.
+- **state** -- what the device reports now, including any
+  [Condition][flyball.core.device.Condition] currently true.
 
-A **view** joins them at one instant for the wire, nested rather than
-flattened so a client can tell what changes from what does not.
+A **view** joins them at one instant for the wire, nested so a client can tell
+what changes from what does not.
 
-A device declares nothing beyond its ``config``, ``settings`` and ``state``
-properties: their return annotations are read on subclassing, checked to be
-the bases above, and checked to be describable by pydantic. Methods marked
-with :func:`command` are collected the same way, so a server or a program can
-find every action a device offers without a list being kept by hand.
+A device declares only its `config`, `settings` and `state` properties: their
+return annotations are read on subclassing and checked. Methods marked
+[command][flyball.core.device.command] are collected the same way.
 """
 
 from __future__ import annotations
@@ -38,7 +36,7 @@ from .config import Config
 
 
 class Level(IntEnum):
-    """How much a condition or an event matters. ``logging``'s numbers, so they interleave."""
+    """How much a condition or an event matters. `logging`'s numbers, so they interleave."""
 
     DEBUG = 10
     INFO = 20
@@ -50,11 +48,11 @@ class Level(IntEnum):
 class Condition:
     """Something true of a device now: offline, railed, overdriven, waiting.
 
-    Appears in the device's state while it holds and goes when it clears; a
-    late-joining client sees the present, not a log of the past.
+    In the device's state while it holds; a late-joining client sees the
+    present, not a log.
     """
 
-    kind: str  #: stable and machine-readable: "offline", "railed"
+    kind: str  # stable and machine-readable: "offline", "railed"
     level: Level
     message: str
     since_ns: int
@@ -89,7 +87,7 @@ class DeviceView[C: DeviceConfig[Any], T: DeviceSettings, S: DeviceState]:
 
 
 def _schemable(owner: type, attr: str, model: Any, mode: str) -> None:
-    """Fail at class definition if pydantic cannot describe ``model``."""
+    """Fail at class definition if pydantic cannot describe `model`."""
     try:
         TypeAdapter(model).json_schema(mode=mode)
     except PydanticUndefinedAnnotation:
@@ -102,8 +100,7 @@ def _schemable(owner: type, attr: str, model: Any, mode: str) -> None:
 def _check_command_signature(owner: type, spec: CommandSpec) -> None:
     """Every argument and the return of a command must cross the wire.
 
-    Checked here, not on the first request, so a ``*Like`` alias that admits
-    an in-process class fails when the actuator is defined.
+    Checked at class definition, not on the first request.
     """
     try:
         hints = get_type_hints(spec.method)
@@ -121,7 +118,7 @@ def _check_command_signature(owner: type, spec: CommandSpec) -> None:
 
 
 def _declared_return(cls: type, prop: str) -> Any:
-    """The return annotation of ``cls``'s own ``prop`` property; None if not overridden here."""
+    """The return annotation of `cls`'s own `prop` property; None if not overridden here."""
     attr = cls.__dict__.get(prop)
     if not isinstance(attr, property) or attr.fget is None:
         return None
@@ -131,13 +128,13 @@ def _declared_return(cls: type, prop: str) -> Any:
         return None  # a forward reference; the inherited type stands
 
 
-#: Path segments the server uses after an actuator's name; no command may take them.
 RESERVED_NAMES = frozenset({"schema"})
+"""Path segments the server uses after an actuator's name; no command may take them."""
 
 
 @dataclass(frozen=True, slots=True)
 class CommandSpec:
-    """One method an actuator exposes as a command, found by :func:`command`."""
+    """One method exposed as a command, marked by [command][flyball.core.device.command]."""
 
     tag: str
     method: Callable[..., Any]
@@ -152,10 +149,10 @@ def command[F: Callable[..., Any]](fn: F, /) -> F: ...
 @overload
 def command[F: Callable[..., Any]](*, tag: str) -> Callable[[F], F]: ...
 def command(fn: Any = None, /, *, tag: str | None = None) -> Any:
-    """Mark an actuator method as a command, under its name or ``tag``.
+    """Mark an actuator method as a command, under its name or `tag`.
 
-    ``@command`` or ``@command(tag="stop")``. The method's signature is the
-    command's: the server derives the request from it, a program the arguments.
+    `@command` or `@command(tag="stop")`. The method's signature is the
+    command's.
     """
 
     def mark(f: Any) -> Any:
@@ -168,12 +165,10 @@ def command(fn: Any = None, /, *, tag: str | None = None) -> Any:
 class Device:
     """Base for readers and actuators.
 
-    ``config_type``, ``settings_type`` and ``state_type`` are read off the
-    ``config``, ``settings`` and ``state`` properties on subclassing, so a
-    subclass writes each type once, in the annotation. ``commands`` collects
-    every method marked :func:`command`, the parent's included. A device that
-    declares none of the three still answers ``view``: empty config, empty
-    settings, a state with no conditions.
+    `config_type`, `settings_type` and `state_type` are read off the property
+    annotations on subclassing. `commands` collects every method marked
+    [command][flyball.core.device.command], parents' included. A device
+    declaring none still answers `view` with empty models.
     """
 
     name: str
@@ -216,7 +211,7 @@ class Device:
                 cls.commands[tag] = spec
 
     # A subclass narrows these through its own return annotations -- that is
-    # both what the checker sees and what ``__init_subclass__`` reads.
+    # both what the checker sees and what `__init_subclass__` reads.
     @property
     def config(self) -> DeviceConfig[Any]:
         """Default: nothing to say. Override with the config the device was built from."""

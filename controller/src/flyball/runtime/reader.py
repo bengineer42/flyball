@@ -1,8 +1,8 @@
 """Runs readers on their periods and keeps each one's run state.
 
-A reader is a device; what the *runtime* knows about it -- its period, when
-it last delivered, whether it is stopped on an error -- is kept here, beside
-the device's own state, and pushed through ``runs`` for anyone watching.
+What the runtime knows about a reader -- period, last delivery, whether it is
+stopped on an error -- lives here, beside the device's own state, and is
+pushed through `runs`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from flyball.core.device import Condition, DeviceState, Level
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.reading import Channel, Reader
+from flyball.core.reading import Channel, Reader, Sample
 from flyball.core.sink import RESERVED_NAMES
 from flyball.core.topic import Latest
 from flyball.core.utils import PeriodicLoop
@@ -38,18 +38,27 @@ class Readers:
         self.rig = rig
         self.by_name: dict[str, Reader] = {}
         self.periodic: dict[str, PeriodicLoop] = {}
-        #: The newest run of each reader, by name, after every read or failure.
         self.runs: Latest[str, ReaderRun] = Latest()
+        """The newest run of each reader, by name, after every read or failure."""
         self._runs: dict[str, ReaderRun] = {}
 
     def add(self, reader: Reader) -> None:
-        """Make a reader reachable by name. ``start_periodic`` adds its reader."""
+        """Attach a reader: what it emits reaches the rig from now on. `start_periodic` adds too."""
         if reader.name in RESERVED_NAMES:
             raise ConflictError(f"Reader name {reader.name!r} is reserved as a route segment")
         if (existing := self.by_name.get(reader.name)) is not None and existing is not reader:
             raise ConflictError(f"Reader {reader.name!r} is already attached")
+        if reader.name in self.by_name:
+            return
         self.by_name[reader.name] = reader
         self._runs.setdefault(reader.name, ReaderRun(state=reader.state))
+        reader.attach(lambda samples: self.delivered(reader, samples))
+
+    def delivered(self, reader: Reader, samples: Sequence[Sample]) -> None:
+        """Samples from `reader`, pushed or polled: into the rig, then noted as its latest."""
+        with self.rig.lock:
+            self.rig.on_read(samples)
+        self._update(reader, last_read_ns=max(s.time_ns for s in samples), conditions=())
 
     def get(self, name: str) -> Reader:
         try:
@@ -75,16 +84,15 @@ class Readers:
             self._update(self.by_name[name], running=False)
 
     def _read(self, reader: Reader) -> None:
-        """One scheduled read: deliver, then note it -- or note the failure and stop."""
+        """One scheduled poll: emit what it returns -- or note the failure and stop."""
         try:
-            self.rig.read(reader)
+            reader.emit(reader.read(self.rig.clock.now_ns()))
         except Exception as error:
             offline = Condition(
                 "offline", Level.ERROR, f"{type(error).__name__}: {error}", self.rig.clock.now_ns()
             )
             self._update(reader, running=False, conditions=(offline,))
             raise
-        self._update(reader, last_read_ns=self.rig.clock.now_ns(), conditions=())
 
     def _update(self, reader: Reader, **changes: Any) -> None:
         run = replace(self._runs[reader.name], state=reader.state, **changes)

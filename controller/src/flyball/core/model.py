@@ -11,26 +11,17 @@ def creation_model(
     base=None,
     extra: dict[str, Any] | None = None,
 ):
-    """The pydantic model for constructing ``cls``, taken from its signature.
-
-    One field per constructor parameter, keeping its annotation and default, so
-    a class that can be built can also be described, validated and sent over the
-    wire without the fields being written twice.
+    """The pydantic model for constructing `cls`: one field per constructor parameter.
 
     Args:
-        cls: The class whose ``__init__`` defines the fields.
-        name: Model name stem. Defaults to ``cls.__name__``.
-        suffix: Appended to the stem, e.g. ``"Config"``.
-        base: Model to inherit from, for shared behaviour and ``isinstance``.
-        extra: Fields to add beyond the constructor's own, as
-            ``{name: (annotation, default)}``.
-
-    Returns:
-        The generated model.
+        cls: The class whose `__init__` defines the fields.
+        name: Model name stem. Defaults to `cls.__name__`.
+        suffix: Appended to the stem, e.g. `"Config"`.
+        base: Model to inherit from.
+        extra: Fields beyond the constructor's, as `{name: (annotation, default)}`.
 
     Raises:
-        TypeError: If ``cls`` takes ``*args`` or ``**kwargs``, which have no
-            field names to derive.
+        TypeError: If `cls` takes `*args` or `**kwargs`.
     """
     hints = get_type_hints(cls.__init__)
     fields: dict[str, Any] = {}
@@ -48,10 +39,8 @@ def creation_model(
 class ModelOf:
     """A model on the class, an instance of it on the instance.
 
-    Accessed through the owning class the descriptor returns the model itself,
-    so its schema is reachable without constructing anything. Accessed through
-    an instance it reads ``names`` off that instance and returns a populated
-    model.
+    Through the class, the model itself; through an instance, a model
+    populated from that instance's `names`.
     """
 
     def __init__(self, model: type, names: tuple[str, ...]) -> None:

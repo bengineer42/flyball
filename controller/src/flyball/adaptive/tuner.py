@@ -36,11 +36,9 @@ class Retune:
 
 @dataclass(frozen=True, slots=True)
 class Bounds:
-    """What a plausible plant looks like, so a bad fit is refused not applied.
+    """What a plausible plant looks like; a fit outside is refused, not applied.
 
-    A fit outside these is a broken estimate, not a changed plant. Set them from
-    the commissioning step test, generously -- they are a sanity check, not a
-    specification.
+    Set generously from the commissioning step test.
     """
 
     gain: tuple[Positive, Positive] = (1e-3, 1e3)
@@ -55,26 +53,22 @@ class Bounds:
 
 
 class SelfTuner:
-    """Watches a model drift and offers a new tuning when it is worth it.
+    """Watches a model drift and offers a new tuning when warranted.
 
-    The slow half of a self-tuning regulator: the identifier runs every sample,
-    this runs on a much longer clock. Retuning faster than the plant settles
-    makes the two loops interact, which is the usual way adaptive control goes
-    unstable -- so ``settling_periods`` is a floor, not a preference.
-
-    Nothing here applies anything. It returns a plant model and leaves the
-    caller to derive gains and hand them over, so a retune goes through the same
-    bumpless path as any other tuning change and reports its own bump.
+    Runs on a much slower clock than the identifier: retuning faster than the
+    plant settles makes the two loops interact, so `settling_periods` is a
+    floor. Applies nothing; the caller derives gains and hands them over, so a
+    retune takes the same bumpless path as any tuning change.
 
     Args:
         identifier: The estimator to read.
-        rule: Turns a plant into whatever the caller's tuning type is.
+        rule: Turns a plant into the caller's tuning type.
         bounds: What counts as a plausible plant.
         drift: Fractional change in gain or time constant worth retuning for.
         settling_periods: Minimum retune spacing, in time constants of the
             model in force.
-        residual_growth: Ratio of current to best residual above which the model
-            is treated as no longer describing the plant.
+        residual_growth: Ratio of current to best residual above which the
+            model no longer describes the plant.
     """
 
     __slots__ = (
@@ -114,11 +108,7 @@ class SelfTuner:
         return self._applied
 
     def observe(self, residual: float) -> None:
-        """Record a prediction error, for the divergence check.
-
-        Tracked as a floor rather than an average: what matters is whether the
-        model has stopped fitting as well as it once did, not its average error.
-        """
+        """Record a prediction error for the divergence check. Tracked as a floor."""
         magnitude = abs(residual)
         if self._best_residual is None or magnitude < self._best_residual:
             self._best_residual = magnitude
@@ -128,11 +118,7 @@ class SelfTuner:
         self._since += seconds
 
     def consider(self) -> Retune:
-        """Decide whether a retune is warranted, without applying one.
-
-        Returns:
-            The verdict, and the plant it was based on when one was offered.
-        """
+        """The verdict, and the plant it was based on when a retune is offered. Applies nothing."""
         residual = self.identifier.residual
         if not self.identifier.identified:
             return Retune(Verdict.UNIDENTIFIED, residual=residual)
@@ -154,11 +140,7 @@ class SelfTuner:
         return Retune(Verdict.OFFERED, plant, residual)
 
     def accept[T](self, plant: Plant) -> T:
-        """Record ``plant`` as the model in force and return its tuning.
-
-        Call once the caller has committed to the retune, so the spacing clock
-        and the drift baseline move together with what was actually applied.
-        """
+        """Record `plant` as the model in force and return its tuning. Call once committed."""
         self._applied = plant
         self._since = 0.0
         return self.rule(plant)

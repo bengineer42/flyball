@@ -17,18 +17,12 @@ class Sample(NamedTuple):
 
 @dataclass(frozen=True, slots=True)
 class FOPDT:
-    """First order plus dead time: ``G(s) = gain·e^(-θs)/(τs + 1)``.
+    """First order plus dead time: `G(s) = gain·e^(-θs)/(τs + 1)`.
 
-    Three numbers are enough to describe the rig for tuning purposes: how far it
-    moves (``gain``), how fast (``tau``), and how long it waits first
-    (``dead_time``). Every rule in :mod:`flyball.autotune.rules` that takes a
-    plant model takes this one.
-
-    Physically, for a well-mixed chamber ``tau`` is the residence time V/Q and
-    ``dead_time`` is tube transport plus sensor response. Run against the
-    feedforward path the ``gain`` comes out near 1, because
-    the application's blend arithmetic (``calculate_wet_fraction``) has already divided out
-    the ``wet - dry`` span.
+    How far the plant moves (`gain`), how fast (`tau`), and how long it waits
+    first (`dead_time`). The model every rule in
+    [flyball.autotune.rules][] takes. Run through the feedforward path, `gain`
+    comes out near 1 because the actuator arithmetic has already scaled it.
     """
 
     gain: float
@@ -39,24 +33,15 @@ class FOPDT:
 
     @property
     def normalised_dead_time(self) -> float:
-        """``θ/(θ+τ)``: 0 is pure lag, 1 is pure delay.
+        """`θ/(θ+τ)`: 0 is pure lag, 1 is pure delay.
 
-        The single number that says how hard the plant is to control. Below 0.2
-        almost any tuning works; above 0.6 no PID does well and the answer is
-        shorter tubing, not better gains.
+        How hard the plant is to control. Below 0.2 most tunings work; above
+        0.6 no PID does well.
         """
         return self.dead_time / (self.dead_time + self.tau)
 
     def response(self, elapsed: float, size: float) -> float:
-        """The change in reading ``elapsed`` after a step of ``size``, from rest.
-
-        Args:
-            elapsed: Time since the step.
-            size: How far the input moved.
-
-        Returns:
-            How far the reading has moved by then.
-        """
+        """The change in reading `elapsed` after an input step of `size`, from rest."""
         after_delay = elapsed - self.dead_time
         if after_delay <= 0.0:
             return 0.0
@@ -65,45 +50,34 @@ class FOPDT:
 
 @dataclass(frozen=True, slots=True)
 class Ultimate:
-    """The critical point: the gain and period at which the loop just oscillates.
-
-    What a relay test measures directly, without ever fitting a model.
-    """
+    """The critical point: the gain and period at which the loop just oscillates."""
 
     gain: float
-    """``Ku``: the proportional gain at which the loop is marginally stable."""
+    """`Ku`: the proportional gain at which the loop is marginally stable."""
 
     period: float
-    """``Tu``: the period of that oscillation."""
+    """`Tu`: the period of that oscillation."""
 
 
 @dataclass(frozen=True, slots=True)
 class Gains:
-    """Controller gains in the parallel form the laws are written in.
+    """Controller gains in the parallel form the laws use.
 
-    Tuning rules are stated in the ideal form (``Kp``, ``Ti``, ``Td``) in every
-    source worth quoting, so they are written that way here and converted once,
-    by :meth:`of_ideal`, rather than transcribed pre-multiplied.
+    Rules are stated in ideal form (`Kp`, `Ti`, `Td`) and converted once by
+    [of_ideal][flyball.autotune.types.Gains.of_ideal].
     """
 
     kp: float
     ki: float
     kd: float = 0.0
     tt: float = 0.0
-    """Back-calculation tracking constant, for :class:`~flyball.control.laws.IComponent`."""
+    """Back-calculation tracking constant, for [IComponent][flyball.control.laws.IComponent]."""
 
     @classmethod
     def of_ideal(cls, kp: float, ti: float, td: float = 0.0) -> Gains:
-        """Gains for a rule stated as proportional gain and integral/derivative times.
+        """Parallel-form gains from ideal-form `kp`, `ti`, `td` (zero for absent terms).
 
-        Args:
-            kp: Proportional gain.
-            ti: Integral time. Zero for a law with no integral action.
-            td: Derivative time. Zero for PI.
-
-        Returns:
-            The same controller in parallel form, with ``tt`` set to the usual
-            ``√(Ti·Td)``, or to ``Ti`` when there is no derivative term.
+        `tt` is `√(Ti·Td)`, or `Ti` without a derivative term.
         """
         return cls(
             kp=kp,
@@ -114,17 +88,17 @@ class Gains:
 
     @property
     def ti(self) -> float:
-        """Integral time, back out of ``ki``."""
+        """Integral time, back out of `ki`."""
         return self.kp / self.ki if self.ki else 0.0
 
     @property
     def td(self) -> float:
-        """Derivative time, back out of ``kd``."""
+        """Derivative time, back out of `kd`."""
         return self.kd / self.kp if self.kp else 0.0
 
     @property
     def config(self) -> ControlLawConfig:
-        """The law these gains describe: :class:`PID` with derivative action, else :class:`PI`."""
+        """[PID][flyball.control.laws.PID] with derivative action, else [PI][flyball.consts.PI]."""
         if self.kd:
             return cast(
                 "ControlLawConfig", PID.config(kp=self.kp, ki=self.ki, kd=self.kd, tt=self.tt)
@@ -132,12 +106,5 @@ class Gains:
         return cast("ControlLawConfig", PI.config(kp=self.kp, ki=self.ki, tt=self.tt))
 
     def to_tuning(self, tag: str) -> Tuning:
-        """The gains as a named tuning, ready to register or hand to a controller.
-
-        Args:
-            tag: The name to file it under.
-
-        Returns:
-            A tuning wrapping :attr:`config`.
-        """
+        """A tuning named `tag` wrapping [config][flyball.autotune.types.Gains.config]."""
         return self.config.to_tuning(tag)

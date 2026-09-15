@@ -1,9 +1,8 @@
-"""What was recorded: sessions, series to plot, ticks, events, spans, tunings.
+"""What was recorded: sessions, series, ticks, events, spans, tunings.
 
-Reads the store, never the rig, so it works with no hardware attached and on
-a copy of the database taken from another machine. Times in the store are
-integer nanosecond offsets from the session start; the wire carries the same
-integers -- a client converts once, and nothing is rounded on the way out.
+Reads the store, never the rig, so it works without hardware and on a copied
+database. Times are integer nanosecond offsets from the session start, on the
+wire as in the store.
 """
 
 from __future__ import annotations
@@ -93,11 +92,10 @@ async def read_series(
     bucket_ns: int | None = Query(None, ge=1, description="Average each bucket of this size"),
     max_points: int | None = Query(None, ge=2, description="Average into at most this many points"),
 ) -> Series:
-    """One channel over a window, optionally downsampled one of three ways.
+    """One channel over a window, optionally downsampled.
 
-    ``every`` keeps real readings and is cheapest; ``bucket_ns`` and
-    ``max_points`` average, which is what a plot of a given width wants. The
-    response says which was applied and the bucket size actually used.
+    `every` keeps real readings; `bucket_ns` and `max_points` average. The
+    response says which was applied and the bucket size used.
     """
     given = {
         k: v
@@ -132,7 +130,7 @@ async def read_events(
 
 @router.get("/sessions/{session_id}/spans")
 async def read_spans(store: StoreDep, session_id: int) -> list[Span]:
-    """In start order; nest by ``parent_id``."""
+    """In start order; nest by `parent_id`."""
     return store.spans(session_id)
 
 
@@ -169,7 +167,7 @@ async def read_tuning_history(store: StoreDep, name: str) -> list[TuningRow]:
 
 @router.put("/tunings/{name}", status_code=201)
 async def save_tuning(store: StoreDep, name: str, body: SaveTuning) -> TuningRow:
-    """Add a version under ``name``; earlier versions are kept."""
+    """Add a version under `name`; earlier versions are kept."""
     return store.save_tuning(
         name, body.law, body.config, body.created_ns, body.session_id, body.loop, body.notes
     )
