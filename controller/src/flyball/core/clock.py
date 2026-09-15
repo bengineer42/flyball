@@ -65,10 +65,23 @@ class TimeBase:
 
     @classmethod
     def _from_wire(cls, value: Any) -> Self:
+        """``{seconds: 90}``, ``{minutes: 1, seconds: 30}``, ``{hours: 2}``, or a number of seconds.
+
+        Keys are the plural of any :class:`TimeUnit`; they add. Anything else
+        is a ``ValueError`` rather than a ``KeyError`` so a union can move on.
+        """
         if isinstance(value, cls):
             return value
         if isinstance(value, dict):
-            return cls.from_parts(int(value["seconds"]), int(value["nanoseconds"]))
+            unknown = sorted(set(value) - DURATION_KEYS.keys())
+            if unknown or not value:
+                raise ValueError(
+                    f"{cls.__name__} takes {sorted(DURATION_KEYS)}, got {unknown or 'nothing'}"
+                )
+            nanoseconds = sum(
+                round(float(v) * DURATION_KEYS[k].nanoseconds) for k, v in value.items()
+            )
+            return cls.from_nanoseconds(nanoseconds)
         return cls.from_nanoseconds(round(float(value) * 1e9))  # lenient: a bare number too
 
     @classmethod
@@ -82,15 +95,29 @@ class TimeBase:
             "seconds": core_schema.typed_dict_field(core_schema.int_schema()),
             "nanoseconds": core_schema.typed_dict_field(core_schema.int_schema()),
         })
-        return core_schema.json_or_python_schema(
-            json_schema=core_schema.no_info_after_validator_function(
-                lambda d: cls.from_parts(d["seconds"], d["nanoseconds"]), parts
-            ),
-            python_schema=core_schema.no_info_plain_validator_function(cls._from_wire),
+        return core_schema.no_info_plain_validator_function(
+            cls._from_wire,
             serialization=core_schema.plain_serializer_function_ser_schema(
                 cls._to_wire, return_schema=parts, when_used="always"
             ),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: Any, handler: Any) -> dict[str, Any]:
+        number = {"type": "number", "minimum": 0}
+        return {
+            "title": cls.__name__,
+            "description": "A span of time: unit keys that add, or a bare number of seconds.",
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {key: dict(number) for key in DURATION_KEYS},
+                    "additionalProperties": False,
+                    "minProperties": 1,
+                },
+                number,
+            ],
+        }
 
     @property
     def seconds(self) -> float:
@@ -415,10 +442,42 @@ class TimeUnit(Labelled):
                 return 86_400_000_000_000
 
 
+#: Duration keys on the wire: ``{"minutes": 1, "seconds": 30}``.
+DURATION_KEYS: dict[str, TimeUnit] = {unit.value + "s": unit for unit in TimeUnit}
+#: Rate keys on the wire: ``{"per_minute": 2}``.
+RATE_KEYS: dict[str, TimeUnit] = {"per_" + unit.value: unit for unit in TimeUnit}
+
+
 @dataclass(frozen=True, slots=True)
 class Rate:
+    """``value`` per ``per``. On the wire also ``{"per_minute": 2}``: one key naming the unit."""
+
     value: float
     per: TimeUnit = TimeUnit.SECOND
+
+    @classmethod
+    def _from_wire(cls, value: Any) -> Any:
+        if isinstance(value, dict) and len(value) == 1:
+            key, amount = next(iter(value.items()))
+            if key in RATE_KEYS:
+                return {"value": amount, "per": RATE_KEYS[key]}
+        return value
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+        return core_schema.no_info_before_validator_function(cls._from_wire, handler(source))
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: Any, handler: Any) -> dict[str, Any]:
+        full = handler(schema)
+        shorthand = {
+            "type": "object",
+            "properties": {key: {"type": "number"} for key in RATE_KEYS},
+            "additionalProperties": False,
+            "minProperties": 1,
+            "maxProperties": 1,
+        }
+        return {"title": cls.__name__, "anyOf": [full, shorthand]}
 
     @property
     def per_second(self) -> float:

@@ -16,7 +16,7 @@ from flyball.programmer.command import Command, Commands
 from flyball.server.schemas import discriminated_union
 from flyball.server.wire import WIRE_TYPES, wire_fields
 
-__all__ = ["WIRE_TYPES", "CommandBase", "CommandRequest", "CommandsSchema", "request_for"]
+__all__ = ["WIRE_TYPES", "CommandBase", "command_request", "commands_schema", "request_for"]
 
 
 class CommandBase(BaseModel):
@@ -69,8 +69,17 @@ def request_for(command: type[Command]) -> type[CommandBase]:
     return _REQUESTS[command]
 
 
-#: Every registered command, discriminated by its tag.
-CommandRequest = discriminated_union(Commands, "command", request_for)
+def command_request() -> Any:
+    """Every registered command as one request type, discriminated by tag.
 
-#: The same union as a JSON schema, for a client building a command form.
-CommandsSchema = TypeAdapter(CommandRequest).json_schema()
+    Built on demand rather than at import: commands register when their
+    module loads, and a union of none is an error.
+    """
+    if not Commands:
+        raise LookupError("no commands are registered")
+    return discriminated_union(Commands, "command", request_for)
+
+
+def commands_schema() -> dict[str, Any]:
+    """The request union as JSON schema, for a client building a command form."""
+    return TypeAdapter(command_request()).json_schema()

@@ -61,6 +61,10 @@ class SessionWriter(Protocol):
 
     def write_tick(self, tick: Tick) -> None: ...
 
+    def write_ticks(self, ticks: Iterable[Tick]) -> None:
+        """Many ticks in one transaction. Loops must be declared."""
+        ...
+
     def write_event(self, event: Event) -> int:
         """Returns the event's id."""
         ...

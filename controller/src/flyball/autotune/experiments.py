@@ -6,11 +6,11 @@ nothing here has to know how the pumps are reached — which also means both can
 be run against a simulated plant in a test without a single stub.
 
 Run them through the *feedforward* path: the law set to
-:class:`~flyball.controller.OpenLoop` so ``correction`` stays at zero, and the
+:class:`~flyball.control.laws.OpenLoop` so ``correction`` stays at zero, and the
 target moved directly. That is deliberate. The step then travels the same route
-the trim will, through
-:func:`~flyball.controller.calculate_wet_fraction`, which has already divided out
-the ``wet - dry`` span — so the gain that comes back is near 1 and the resulting
+the trim will, through the application's actuator arithmetic (the humidity
+rig's ``calculate_wet_fraction``), which has already divided out the
+``wet - dry`` span -- so the gain that comes back is near 1 and the resulting
 gains stay valid when the supply humidities change.
 """
 

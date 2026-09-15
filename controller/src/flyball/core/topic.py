@@ -56,3 +56,55 @@ class Topic[T]:
             self._subscribers.discard(queue)
             if not self._subscribers:
                 self._loop = None  # so publish is free again until the next subscriber
+
+
+class Latest[K, V]:
+    """The newest value per key, for readers that poll at their own rate.
+
+    The writer (a control thread) does one dict store per update; nothing is
+    queued and nothing is handed to another thread, so a loop at any rate costs
+    the same. A reader asks for what changed since the version it last saw and
+    gets at most one value per key -- the current one. Several readers can
+    watch at once; each keeps its own version.
+    """
+
+    def __init__(self) -> None:
+        self._values: dict[K, tuple[int, V]] = {}
+        self._version = 0
+        self._watchers = 0
+
+    @property
+    def watched(self) -> bool:
+        """Whether anyone is reading -- check before building an expensive value."""
+        return self._watchers > 0
+
+    def set(self, key: K, value: V) -> None:
+        """Record the newest value for ``key``. Never blocks, never raises."""
+        self._version += 1
+        self._values[key] = (self._version, value)
+
+    def discard(self, key: K) -> None:
+        self._values.pop(key, None)
+
+    @property
+    def version(self) -> int:
+        return self._version
+
+    def changed_since(self, version: int) -> tuple[int, dict[K, V]]:
+        """Every key updated after ``version``, and the version to ask from next time.
+
+        Pass 0 for everything. A key stored while this runs may or may not be
+        included; it will be next time, since the returned version predates it.
+        """
+        current = self._version
+        changed = {key: value for key, (at, value) in list(self._values.items()) if at > version}
+        return current, changed
+
+    @contextmanager
+    def watch(self) -> Generator[None]:
+        """Count a reader in, so writers know a value is worth building."""
+        self._watchers += 1
+        try:
+            yield
+        finally:
+            self._watchers -= 1

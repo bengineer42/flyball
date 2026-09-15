@@ -1,13 +1,19 @@
 """Writes deliveries to a session.
 
-Not an observer: it wants the whole delivery, after the loops have ticked, in
-one transaction -- so it sees the demand and expected value each tick
-produced, which no observer can. The rig holds at most one and calls it last.
-Which sources and loops are recorded is decided here, once, at construction.
+Not an observer: it wants the whole delivery, after the loops have ticked --
+so it sees the demand and expected value each tick produced, which no
+observer can. The rig holds at most one and calls it last. Which sources and
+loops are recorded is decided here, once, at construction.
+
+Deliveries are buffered and written in one transaction every ``flush_s``:
+a transaction costs the same whether it holds one row or a hundred, and on
+an SD card that cost is milliseconds. A loop at any rate then pays one list
+append per tick and one write per interval. ``close`` writes what is left.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -34,15 +40,29 @@ def _tick(loop: Loop[Any], reading: Reading, start_ns: int) -> Tick:
 class Recorder:
     """Records the given sources and loops into one session until closed."""
 
-    __slots__ = ("_start_ns", "loops", "sources", "writer")
+    __slots__ = (
+        "_last_flush",
+        "_samples",
+        "_start_ns",
+        "_ticks",
+        "flush_s",
+        "loops",
+        "sources",
+        "writer",
+    )
 
     def __init__(
         self,
         writer: SessionWriter,
         sources: Iterable[Source],
         loops: Iterable[tuple[Channel, Loop[Any]]] = (),
+        flush_s: float = 0.1,
     ) -> None:
         self.writer = writer
+        self.flush_s = flush_s
+        self._samples: list[Sample] = []
+        self._ticks: list[Tick] = []
+        self._last_flush = time.monotonic()
         self.sources = frozenset(sources)
         loops = tuple(loops)
         self.loops = frozenset(loop for _, loop in loops)
@@ -62,11 +82,24 @@ class Recorder:
     def record(
         self, samples: Sequence[Sample], ticked: Sequence[tuple[Loop[Any], Reading]]
     ) -> None:
-        """One delivery. Unrecorded sources and loops are skipped."""
-        self.writer.write_samples(s for s in samples if s.source in self.sources)
-        for loop, reading in ticked:
-            if loop in self.loops:
-                self.writer.write_tick(_tick(loop, reading, self._start_ns))
+        """One delivery, buffered. Unrecorded sources and loops are skipped."""
+        self._samples.extend(s for s in samples if s.source in self.sources)
+        self._ticks.extend(
+            _tick(loop, reading, self._start_ns) for loop, reading in ticked if loop in self.loops
+        )
+        if time.monotonic() - self._last_flush >= self.flush_s:
+            self.flush()
+
+    def flush(self) -> None:
+        """Write everything buffered, in one transaction per table."""
+        self._last_flush = time.monotonic()
+        if self._samples:
+            self.writer.write_samples(self._samples)
+            self._samples = []
+        if self._ticks:
+            self.writer.write_ticks(self._ticks)
+            self._ticks = []
 
     def close(self, end_ns: int) -> None:
+        self.flush()
         self.writer.end(end_ns)

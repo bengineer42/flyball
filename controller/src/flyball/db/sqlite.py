@@ -212,26 +212,34 @@ class SqliteSessionWriter:
             )
 
     def write_tick(self, tick: Tick) -> None:
+        self.write_ticks((tick,))
+
+    def write_ticks(self, ticks: Iterable[Tick]) -> None:
         self._open()
-        if tick.loop not in self._loops:
-            raise NotDeclaredError("loop", tick.loop)
+        rows = []
+        for tick in ticks:
+            if tick.loop not in self._loops:
+                raise NotDeclaredError("loop", tick.loop)
+            rows.append((
+                self._session.id,
+                tick.loop,
+                tick.offset_ns,
+                tick.mode,
+                tick.reading,
+                tick.setpoint,
+                tick.correction,
+                tick.demand,
+                tick.expected,
+                tick.delivered_correction,
+            ))
+        if not rows:
+            return
         with self._store._transaction() as connection:
-            connection.execute(
+            connection.executemany(
                 "INSERT INTO tick (session_id, loop, offset_ns, mode, reading, setpoint,"
                 " correction, demand, expected, delivered_correction)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    self._session.id,
-                    tick.loop,
-                    tick.offset_ns,
-                    tick.mode,
-                    tick.reading,
-                    tick.setpoint,
-                    tick.correction,
-                    tick.demand,
-                    tick.expected,
-                    tick.delivered_correction,
-                ),
+                rows,
             )
 
     def write_event(self, event: Event) -> int:

@@ -4,14 +4,16 @@ from collections.abc import Iterable, Sequence
 from threading import RLock
 from typing import Any, Protocol
 
-from flyball.control import ControlLawLike, Loop, Tunings
+from flyball.control import ControlLawLike, Loop, LoopState, Tunings
 from flyball.core import Clock
 from flyball.core.errors import ConflictError
 from flyball.core.reading import Channel, Reader, Reading, Sample, Source
-from flyball.core.sink import RESERVED_NAMES, Actuator, Observer, Sink
+from flyball.core.sink import RESERVED_NAMES, Actuator, ActuatorState, Observer, Sink
+from flyball.core.topic import Latest
 from flyball.core.typing import OrderedSet
 from flyball.db import Store
 from flyball.runtime.reader import Readers
+from flyball.runtime.signals import Signals
 
 from .loops import Loops
 from .recorder import Recorder
@@ -22,6 +24,16 @@ class Rig(Protocol):
     loops: Loops
     actuators: dict[str, Actuator]
     lock: RLock
+    #: The newest state of each actuator, by name: after a tick applied to it
+    #: or a command ran on it. A snapshot, built only while someone watches,
+    #: so an idle rig pays a bool check per apply and a watched one a dict store.
+    actuator_states: Latest[str, ActuatorState]
+    #: The newest state of each loop, by name, after each tick. Same terms.
+    #: State, not view: the spec (law config, offset) changes only on a
+    #: retune, and a reader joins it on at its own rate.
+    loop_states: Latest[str, LoopState]
+    #: What is being waited on, by name: prompts, settle tests, holds.
+    signals: Signals
     observations: dict[Source | Channel, OrderedSet[Observer]]
     tunings: Tunings
     recorder: Recorder | None
@@ -34,6 +46,9 @@ class Rig(Protocol):
         self.loops = Loops()
         self.actuators = {}
         self.lock = RLock()
+        self.actuator_states = Latest()
+        self.loop_states = Latest()
+        self.signals = Signals(self.clock)
         self.observations = {}
         self.tunings = Tunings()
         self.recorder = None
@@ -45,7 +60,7 @@ class Rig(Protocol):
     def sources(self) -> set[Source]:
         """Every source the rig can hear: from its readers, its loops, and anything already seen."""
         return (
-            {source for reader in self._readers.periodic for source in reader.sources}
+            {source for reader in self._readers.by_name.values() for source in reader.sources}
             | {channel.source for channel, _ in self.loops.entries()}
             | set(self._samples)
         )
@@ -60,7 +75,7 @@ class Rig(Protocol):
             if (observers := self.observations.get(key)) is not None:
                 observers.pop(observer, None)
 
-    def add_actuator(self, actuator: Actuator[Any, Any]) -> None:
+    def add_actuator(self, actuator: Actuator) -> None:
         """Make an actuator reachable by name, for commands. Loops add theirs."""
         if actuator.name in RESERVED_NAMES:
             raise ConflictError(f"Actuator name {actuator.name!r} is reserved as a route segment")
@@ -68,13 +83,23 @@ class Rig(Protocol):
             raise ConflictError(f"Actuator {actuator.name!r} is already attached")
         self.actuators[actuator.name] = actuator
 
+    def apply(self, sink: Sink) -> None:
+        """Commit a sink and, for an actuator, note what it is doing now for anyone watching."""
+        sink.apply()
+        if isinstance(sink, Actuator) and self.actuator_states.watched:
+            self.actuator_states.set(sink.name, sink.state)
+
     def start_reader(self, reader: Reader, period: float, stop_on_error: bool = True) -> None:
         self._readers.start_periodic(reader, period)
+
+    @property
+    def readers(self) -> Readers:
+        return self._readers
 
     def attach_loop(
         self,
         channel: Channel,
-        actuator: Actuator[Any, Any],
+        actuator: Actuator,
         law: ControlLawLike | str | None = None,
         default: bool = False,
     ) -> None:
@@ -146,7 +171,9 @@ class Rig(Protocol):
         for loop, reading in processes:
             loop.tick(reading)
             touched.add(loop.actuator)
+            if self.loop_states.watched:
+                self.loop_states.set(loop.name, loop.state)
         for sink in touched:
-            sink.apply()
+            self.apply(sink)
         if self.recorder is not None:
             self.recorder.record(samples, processes)

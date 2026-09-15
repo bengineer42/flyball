@@ -17,16 +17,14 @@ from pydantic import BaseModel, ConfigDict, create_model
 
 from flyball.control import ControlLaw, ControlLawConfig, ControlLawLike
 from flyball.control.types import ControlLawView, Tuning
-from flyball.core.clock import Duration, Speed
-from flyball.server.schemas import DurationRequest, LawConfig, RateRequest
+from flyball.server.schemas import LawConfig
 
 #: Domain annotation -> how it crosses the wire. A parameter whose annotation is
 #: not a key here keeps its own type. Keys are matched whole, so a union must be
 #: written exactly as the command declares it.
 WIRE_TYPES: dict[Any, Any] = {
-    Duration: DurationRequest,
-    Duration | float: DurationRequest | float,
-    Speed | Duration: RateRequest | DurationRequest,
+    # Durations and rates carry their own wire forms (see ``core.clock``);
+    # only types that cannot -- a running law -- need a stand-in here.
     # A running law cannot cross the wire, so the tuning unions narrow to a
     # config or the name of a stored one.
     ControlLawLike | str | None: LawConfig | str | None,
@@ -41,7 +39,7 @@ def wire_fields(fn: Callable[..., Any], *, skip: int = 0) -> dict[str, Any]:
         fn: The callable whose signature defines the fields.
         skip: Leading parameters to drop -- 1 for an unbound method's ``self``.
     """
-    hints = get_type_hints(fn)
+    hints = get_type_hints(fn, include_extras=True)  # keep Field(...) and UnitRef metadata
     fields: dict[str, Any] = {}
     for name, parameter in list(signature(fn).parameters.items())[skip:]:
         annotation = hints.get(name, Any)

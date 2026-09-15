@@ -40,7 +40,9 @@ class LoopMode(Enum):
 
 
 @dataclass(frozen=True, kw_only=True)
-class LoopSpec:
+class LoopSettings:
+    """What can be re-set while the loop runs: the law in force and its gains."""
+
     name: str
     law: ControlLawConfig | None
     offset_ns: int
@@ -59,15 +61,15 @@ class LoopState:
 
 
 @dataclass(frozen=True, kw_only=True)
-class LoopView(LoopSpec, LoopState):
+class LoopView(LoopSettings, LoopState):
     law: ControlLawView | None
 
     @classmethod
-    def of(cls, spec: LoopSpec, state: LoopState) -> LoopView:
+    def of(cls, settings: LoopSettings, state: LoopState) -> LoopView:
         return cls(
-            name=spec.name,
-            law=spec.law and state.law and ControlLawView.of(spec.law, state.law),
-            offset_ns=spec.offset_ns,
+            name=settings.name,
+            law=settings.law and state.law and ControlLawView.of(settings.law, state.law),
+            offset_ns=settings.offset_ns,
             correction=state.correction,
             reference=state.reference,
             demand=state.demand,
@@ -125,8 +127,8 @@ class Loop[A: Actuator]:
         return self.actuator.name
 
     @property
-    def spec(self) -> LoopSpec:
-        return LoopSpec(
+    def settings(self) -> LoopSettings:
+        return LoopSettings(
             name=self.name,
             law=self.law and self.law.config,
             offset_ns=self.offset_ns,
@@ -147,10 +149,7 @@ class Loop[A: Actuator]:
 
     @property
     def view(self) -> LoopView:
-        return LoopView.of(
-            spec=self.spec,
-            state=self.state,
-        )
+        return LoopView.of(settings=self.settings, state=self.state)
 
     def setpoint_at(self, time_ns: int) -> float:
         if isinstance(self.reference, SetPointGenerator):

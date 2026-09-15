@@ -17,7 +17,7 @@ from flyball.control.errors import TuningNotRegisteredError
 from flyball.core.errors import NotFoundError
 from flyball.core.reading import Channel, Measurand, Source
 from flyball.server.deps import RigDep
-from flyball.server.schemas import ChannelOut, LoopOut, ReaderOut, SourceOut
+from flyball.server.schemas import ChannelOut, ClockOut, LoopOut, SourceOut
 
 router = APIRouter(prefix="/api", tags=["rig"])
 
@@ -38,6 +38,17 @@ def _channel(rig: RigDep, name: str) -> Channel:
     except NotFoundError as e:
         raise NotFoundError(f"Channel {name!r} not found") from e
 
+
+# region Clock
+
+
+@router.get("/clock")
+async def read_clock(rig: RigDep) -> ClockOut:
+    """The rig's timebase now: start, elapsed, and the instant this was answered."""
+    return ClockOut.of(rig.clock)
+
+
+# endregion
 
 # region Sources and readers
 
@@ -61,14 +72,6 @@ async def read_channel_latest(rig: RigDep, name: str, measurand: str) -> dict[st
     if (reading := rig._readings.get(channel)) is None:
         raise NotFoundError(f"No reading yet on {channel.name}")
     return {"channel": ChannelOut.of(channel), "time_ns": reading.time_ns, "value": reading.value}
-
-
-@router.get("/readers")
-async def read_readers(rig: RigDep) -> list[ReaderOut]:
-    return [
-        ReaderOut(sources=[str(s.name) for s in reader.sources], period_s=loop.loop_time)
-        for reader, loop in rig._readers.periodic.items()
-    ]
 
 
 # endregion

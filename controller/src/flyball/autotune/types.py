@@ -27,7 +27,7 @@ class FOPDT:
     Physically, for a well-mixed chamber ``tau`` is the residence time V/Q and
     ``dead_time`` is tube transport plus sensor response. Run against the
     feedforward path the ``gain`` comes out near 1, because
-    :func:`~flyball.controller.calculate_wet_fraction` has already divided out
+    the application's blend arithmetic (``calculate_wet_fraction``) has already divided out
     the ``wet - dry`` span.
     """
 
@@ -90,7 +90,7 @@ class Gains:
     ki: float
     kd: float = 0.0
     tt: float = 0.0
-    """Back-calculation tracking constant, for :class:`~flyball.controller.laws.IComponent`."""
+    """Back-calculation tracking constant, for :class:`~flyball.control.laws.IComponent`."""
 
     @classmethod
     def of_ideal(cls, kp: float, ti: float, td: float = 0.0) -> Gains:

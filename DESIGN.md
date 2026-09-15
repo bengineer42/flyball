@@ -1,4 +1,4 @@
-# HumCtrl Design
+# Flyball Design
 
 The system hardware comes in two main parts sensing and actuation. For this system these parts can be change independently depending on the requirements and constraints of the application.
 

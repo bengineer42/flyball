@@ -17,10 +17,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar
 
 from pydantic_core import core_schema
 
+from .device import Device
 from .errors import ConflictError, NotFoundError
 from .units import Unit
 
@@ -62,10 +63,21 @@ class Measurand:
     name: str
     unit: Unit
     label: str
+    #: The values a reading can plausibly take, for a gauge or an axis; None if unbounded.
+    range: tuple[float, float] | None
+    #: Decimal places worth showing; None if the reader has not said.
+    precision: int | None
 
     _registry: ClassVar[dict[str, Measurand]] = {}
 
-    def __new__(cls, name: str, unit: Unit, label: str = "") -> Measurand:
+    def __new__(
+        cls,
+        name: str,
+        unit: Unit,
+        label: str = "",
+        range: tuple[float, float] | None = None,
+        precision: int | None = None,
+    ) -> Measurand:
         if (existing := cls._registry.get(name)) is not None:
             if existing.unit != unit:
                 raise MeasurandConflictError(existing, unit)
@@ -74,10 +86,19 @@ class Measurand:
         object.__setattr__(instance, "name", name)
         object.__setattr__(instance, "unit", unit)
         object.__setattr__(instance, "label", label or name)
+        object.__setattr__(instance, "range", range)
+        object.__setattr__(instance, "precision", precision)
         cls._registry[name] = instance
         return instance
 
-    def __init__(self, name: str, unit: Unit, label: str = "") -> None:
+    def __init__(
+        self,
+        name: str,
+        unit: Unit,
+        label: str = "",
+        range: tuple[float, float] | None = None,
+        precision: int | None = None,
+    ) -> None:
         """No-op: ``__new__`` owns construction, so an interned measurand is not overwritten."""
 
     def __repr__(self) -> str:
@@ -319,8 +340,8 @@ class Sample:
         return {q: Point(self.time_ns, v) for q, v in self.values.items()}
 
 
-class Reader(Protocol):
-    """Reads one or more sources in one transaction.
+class Reader(Device):
+    """A device that reads one or more sources in one transaction.
 
     Contract: ``read`` returns its readings in non-decreasing ``time_ns``.
     Equal stamps are allowed -- a bank's samples share one -- but never a step
@@ -328,13 +349,20 @@ class Reader(Protocol):
     every observer inherits the guarantee, and ``Channel.latest`` relies on it.
     A reader that assembles history from several sources must sort before
     returning.
+
+    Config, settings, state and commands are the device's: see
+    :mod:`flyball.core.device`.
     """
 
-    name: str
     sources: Iterable[Source]
+
+    def __init__(self, name: str, sources: Iterable[Source] = ()) -> None:
+        super().__init__(name)
+        self.sources = tuple(sources)
 
     @property
     def channels(self) -> set[Channel]:
         return {ch for src in self.sources for ch in src.channels}
 
-    def read(self, time_ns: int) -> Iterable[Sample]: ...
+    def read(self, time_ns: int) -> Iterable[Sample]:
+        raise NotImplementedError

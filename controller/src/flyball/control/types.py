@@ -141,7 +141,7 @@ class ControlLaw:
     - ``view``: both flattened into one model, round-tripping through
       :meth:`ControlLawView.build`.
 
-    Each is a :class:`~flyball.utils.ModelOf`, so ``Law.config`` is the model
+    Each is a :class:`~flyball.core.model.ModelOf`, so ``Law.config`` is the model
     class and ``law.config`` is that law's values. A law that declares any of the
     three itself keeps its own.
 

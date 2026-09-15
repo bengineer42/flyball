@@ -1,0 +1,46 @@
+"""What the rig is waiting on, and answering it.
+
+A program step that waits -- a prompt to the operator, a settle test, a hold
+-- registers a named signal while it waits. These routes list them, and let a
+client fire one (the operator pressed the button; or skip a wait) or
+interrupt one (stop the program at this step).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter
+from pydantic import TypeAdapter
+
+from flyball.runtime.signals import SignalState
+from flyball.server.deps import RigDep
+
+router = APIRouter(prefix="/api/signals", tags=["signals"])
+
+STATE = TypeAdapter(SignalState)
+
+
+@router.get("")
+def read_signals(rig: RigDep) -> dict[str, Any]:
+    """Every registered signal by name: pending, or settled but not yet taken down."""
+    return {
+        name: STATE.dump_python(state, mode="json") for name, state in rig.signals.states().items()
+    }
+
+
+@router.get("/{name}")
+def read_signal(rig: RigDep, name: str) -> Any:
+    return STATE.dump_python(rig.signals.state(name), mode="json")
+
+
+@router.post("/{name}/fire")
+def fire_signal(rig: RigDep, name: str) -> dict[str, Any]:
+    """Settle the wait as met. False if it had already settled."""
+    return {"name": name, "fired": rig.signals.fire(name)}
+
+
+@router.post("/{name}/interrupt")
+def interrupt_signal(rig: RigDep, name: str) -> dict[str, Any]:
+    """Cancel the wait; the program stops at this step."""
+    return {"name": name, "interrupted": rig.signals.interrupt(name)}

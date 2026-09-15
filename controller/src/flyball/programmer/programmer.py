@@ -7,7 +7,7 @@ program" from tangling with "stop the pumps", and gives each its own lock.
 A single command is a program of one step, so there is one execution path, one
 interrupt, and one answer to "what is running".
 
-Ownership of an :class:`~flyball.runners.Activity` is split: the rig *drives*
+Ownership of an :class:`~flyball.programmer.Activity` is split: the rig *drives*
 it, because it owns the clock and the sensors; the programmer owns its
 *lifetime*, because it owns the sequence. So attach and detach bracket the wait
 in :meth:`Programmer._wait_out`, and teardown is a single ``finally`` reached by
@@ -179,7 +179,7 @@ class Programmer:
         step = 0
         try:
             while True:
-                if activity is not None and not self._wait_out(activity):
+                if activity is not None and not self._wait_out(activity, program[step]):
                     break
                 step += 1
                 with self.lock:
@@ -195,8 +195,8 @@ class Programmer:
         finally:
             self._finish(program)
 
-    def _wait_out(self, activity: Activity) -> bool:
-        """Run ``activity`` to its end.
+    def _wait_out(self, activity: Activity, command: Command) -> bool:
+        """Run ``activity`` to its end, registered by name so it can be answered.
 
         Returns:
             False if the program should stop -- the activity was cancelled.
@@ -206,11 +206,14 @@ class Programmer:
                 thread so :meth:`_work` ends the program rather than treating
                 the step as done.
         """
+        name = activity.name or command.tag
+        self.rig.signals.register(name, activity, activity.message, activity.timeout_s)
         activity.attach(self.rig)
         try:
             activity.wait()
         finally:
             activity.detach(self.rig)
+            self.rig.signals.remove(name)
 
         if activity.error is not None:
             raise activity.error

@@ -1,10 +1,14 @@
 """The wait primitive.
 
 One concept: something fires, and says whether it was cancelled. Infrastructure
-rather than an extension point -- user logic belongs in a
-:class:`~flyball.conditions.Condition`, which owns a signal.
+rather than an extension point -- user logic belongs in an
+:class:`~flyball.programmer.Activity`, which is a signal that knows how to hook
+itself into a rig.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable
 from threading import Event, Lock, Thread
 
 from .utils import Labelled
@@ -29,14 +33,18 @@ class Signal:
     settle it.
     """
 
-    __slots__ = ("_event", "_lock", "_timer", "outcome")
+    __slots__ = ("_event", "_lock", "_timer", "on_settle", "outcome")
 
     outcome: Outcome
+    #: Called once, with the signal, right after it settles -- from whichever
+    #: thread settled it. For a registry that wants to publish the outcome.
+    on_settle: Callable[[Signal], None] | None
 
     def __init__(self, timeout: float | None = None) -> None:
         self._event = Event()
         self._lock = Lock()
         self._timer: Thread | None = None
+        self.on_settle = None
         self.outcome = Outcome.PENDING
         if timeout is not None:
             self.set_timeout(timeout)
@@ -64,6 +72,8 @@ class Signal:
                 return False
             self.outcome = outcome
         self._event.set()
+        if self.on_settle is not None:
+            self.on_settle(self)
         return True
 
     def fire(self) -> bool:

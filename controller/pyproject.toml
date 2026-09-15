@@ -27,7 +27,16 @@ serial = ["pyserial>=3.5"]
 # FastAPI won: flyball.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.32"]
-all = ["flyball[serial,web]"]
+# flyball.cli and flyball.client talk to a daemon over HTTP and websockets and
+# import nothing from the rig: they run anywhere.
+cli = ["httpx>=0.27", "websockets>=13"]
+# Adapters in flyball.integrations. Each imports its framework only when used;
+# the extra is what lets you actually run against it.
+bluesky = ["bluesky>=1.13", "ophyd>=1.9"]
+all = ["flyball[cli,serial,web]"]
+
+[project.scripts]
+flyball = "flyball.cli:main"
 
 
 [dependency-groups]
@@ -80,6 +89,10 @@ allowed-confusables = ["α", "γ", "ε", "η", "λ", "µ", "μ", "ν", "ρ", "σ
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests compare against exact literals on purpose; ``pytest.approx`` is used where a value is computed.
+"tests/*" = ["PLR2004", "RUF"]
 
 [tool.mypy]
 python_version = "3.12"

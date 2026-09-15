@@ -6,7 +6,7 @@ from .errors import (
     LastReadingNotAvailableError,
 )
 from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
-from .loop import Loop, LoopSpec, LoopState, LoopView
+from .loop import Loop, LoopSettings, LoopState, LoopView
 from .setpoint import LinearRampSetpoint, SetPointGenerator
 from .types import (
     ApplyResult,
@@ -46,7 +46,7 @@ __all__ = [
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "Loop",
-    "LoopSpec",
+    "LoopSettings",
     "LoopState",
     "LoopView",
     "OpenLoop",

@@ -1,7 +1,7 @@
 from collections.abc import ItemsView, Iterator
 from typing import Any
 
-from flyball.control import Loop, LoopSpec, LoopState, LoopView
+from flyball.control import Loop, LoopSettings, LoopState, LoopView
 from flyball.core import Channel
 from flyball.core.errors import ConflictError, NotFoundError, NotReadyError
 
@@ -91,8 +91,8 @@ class Loops:
         return {name: loop.state for name, loop in self._loops.items()}
 
     @property
-    def specs(self) -> dict[str, LoopSpec]:
-        return {name: loop.spec for name, loop in self._loops.items()}
+    def settings(self) -> dict[str, LoopSettings]:
+        return {name: loop.settings for name, loop in self._loops.items()}
 
     @property
     def views(self) -> dict[str, LoopView]:

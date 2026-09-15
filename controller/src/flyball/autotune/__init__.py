@@ -12,7 +12,7 @@ Three steps, each usable on its own:
    :meth:`~Gains.to_tuning` to register.
 
 Run the experiment through the feedforward path, with the law set to
-:class:`~flyball.controller.OpenLoop`, so the plant gain the tuner sees is the
+:class:`~flyball.control.laws.OpenLoop`, so the plant gain the tuner sees is the
 one the trim loop will see. See :mod:`flyball.autotune.experiments`.
 
 Sketched against a loop that already has a clock and a reader::

@@ -19,7 +19,15 @@ from flyball.core.errors import (
     UnachievableError,
 )
 from flyball.server.deps import current_rig
-from flyball.server.routes import actuators_router, history_router, rig_router, telemetry_router
+from flyball.server.routes import (
+    actuators_router,
+    history_router,
+    readers_router,
+    rig_router,
+    schema_router,
+    signals_router,
+    telemetry_router,
+)
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -39,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         rig = current_rig()
         if rig is not None:
             with contextlib.suppress(Exception):
-                rig._readers.stop_all()
+                rig.readers.stop_all()
 
 
 def create_app() -> FastAPI:
@@ -87,6 +95,9 @@ def create_app() -> FastAPI:
 
     app.include_router(rig_router)
     app.include_router(actuators_router)
+    app.include_router(readers_router)
+    app.include_router(signals_router)
+    app.include_router(schema_router)
     app.include_router(history_router)
     app.include_router(telemetry_router)
     return app

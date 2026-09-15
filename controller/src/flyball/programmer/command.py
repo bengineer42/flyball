@@ -20,13 +20,26 @@ class Activity(Signal):
     interrupted.
     """
 
-    __slots__ = ("error",)
+    __slots__ = ("error", "message", "name", "timeout_s")
 
     error: Exception | None
+    #: How the wait is known to a person: the name it is registered under
+    #: (the command's tag when None) and what it is waiting for.
+    name: str | None
+    message: str | None
+    timeout_s: float | None
 
-    def __init__(self, timeout: float | None = None) -> None:
+    def __init__(
+        self,
+        timeout: float | None = None,
+        name: str | None = None,
+        message: str | None = None,
+    ) -> None:
         super().__init__(timeout)
         self.error = None
+        self.name = name
+        self.message = message
+        self.timeout_s = timeout
 
     def attach(self, rig: Rig) -> None:
         """Hook in. Default: nothing -- a pure wait."""
@@ -39,53 +52,32 @@ class Activity(Signal):
         return self.fire()
 
 
-# class CommandResult[T](NamedTuple):
-#     value: T
-#     activity: Activity | None = None
-
-#     @overload
-#     @classmethod
-#     def parse(
-#         cls, activity: Activity | Signal | None = None, value: T | None = None
-#     ) -> CommandResult[T]: ...
-#     @overload
-#     @classmethod
-#     def parse(
-#         cls, value: T | None = None, activity: Activity | Signal | None = None
-#     ) -> CommandResult[T]: ...
-#     @overload
-#     @classmethod
-#     def parse(cls, result: CommandResult[T] | Activity | Signal | T) -> CommandResult[T]: ...
-#     @classmethod
-#     def parse(cls, *args, **kwargs) -> CommandResult[T]:
-#         value, activity = kwargs.get("value"), kwargs.get("activity")
-#         for arg in args:
-#             if isinstance(arg, CommandResult):
-#                 return arg
-#             elif isinstance(arg, Activity):
-#                 activity = arg
-#             elif isinstance(arg, Signal):
-#                 activity = Activity(arg)
-#             else:
-#                 value = arg
-#         return cls(value=value, activity=activity)  # pyright: ignore[reportArgumentType]
-
-
 class Command:
     """Base for everything a program can run.
 
     Subclassing registers the command under its tag. The wire model is built by
     the server layer, which is the only place that knows how a domain type
     crosses the wire.
+
+    ``primary`` names the field a bare scalar means in the program file
+    dialect, so ``- flag: "loaded"`` can stand for ``- flag: {flag: "loaded"}``.
+    None means the command takes no shorthand.
     """
 
     tag: ClassVar[str] = ""
+    primary: ClassVar[str | None] = None
 
     def __init_subclass__(
-        cls, tag: str | None = None, register: bool = True, **kwargs: Any
+        cls,
+        tag: str | None = None,
+        primary: str | None = None,
+        register: bool = True,
+        **kwargs: Any,
     ) -> None:
         super().__init_subclass__(**kwargs)
         cls.tag = tag or cls.__dict__.get("tag") or to_snake(cls.__name__)
+        if primary is not None:
+            cls.primary = primary
         if not register:
             return
         clash = Commands.get(cls.tag)
