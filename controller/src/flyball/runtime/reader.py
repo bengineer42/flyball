@@ -7,7 +7,6 @@ pushed through `runs`.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -74,7 +73,7 @@ class Readers:
         self.add(reader)
         if (loop := self.periodic.pop(reader.name, None)) is not None:
             loop.stop()
-        loop = PeriodicLoop(self._read, period, False, reader)
+        loop = PeriodicLoop(self._read, period, False, reader, clock=self.rig.clock)
         self.periodic[reader.name] = loop
         self._update(reader, period_s=period, running=True)
         loop.start()
@@ -86,7 +85,7 @@ class Readers:
 
     def _read(self, reader: Reader) -> None:
         """One scheduled poll: emit what it returns -- or note the failure and stop."""
-        started = time.monotonic()
+        started = self.rig.clock.monotonic()  # in the rig's time, as the period is
         try:
             reader.emit(reader.read(self.rig.clock.now_ns()))
         except Exception as error:
@@ -97,7 +96,7 @@ class Readers:
             self.rig.event(Level.ERROR, "reader", reader.name, "offline", offline.message)
             raise
         period = self._runs[reader.name].period_s
-        took = time.monotonic() - started
+        took = self.rig.clock.monotonic() - started
         if period is not None and took > period:
             slow = Condition(
                 "slow",

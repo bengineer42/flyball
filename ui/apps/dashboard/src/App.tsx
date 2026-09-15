@@ -1,31 +1,58 @@
-import { useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, useRigSchema, useActuatorStates, useSources, useSamples, useRecording, useEvents } from "@flyball/react";
+import { LinksProvider, useRigSchema, useActuatorStates, useSources, useSamples, useRecording, useEvents, useQuery, useRig, useSimulation, type YScale } from "@flyball/react";
 import { Actuator } from "./Actuator.js";
 import { Shell } from "./Shell.js";
-import { PAGES, hashFor, hrefFor, useRoute, type Page } from "./router.js";
-import { Status, StreamChip } from "./Status.js";
+import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
+import { Status, StreamChip, SimChip } from "./Status.js";
 import { Overview } from "./pages/Overview.js";
 import { Sources, SourceDetail, ChannelDetail, Crumbs } from "./pages/Sources.js";
 import { ActuatorDetail, ReaderDetail, Readers } from "./pages/Devices.js";
 import { Loops } from "./pages/Loops.js";
 import { Events } from "./pages/Events.js";
 import { Sessions } from "./pages/Sessions.js";
+import { Programs, ProgramDetail } from "./pages/Programs.js";
+import { Simulation } from "./pages/Simulation.js";
+import { readYScale, writeYScale, readEvery, writeEvery } from "./YScaleSelect.js";
+
+// The app re-renders on every sample; the Simulation page has nothing to do with samples and holds form controls.
+const SimulationPage = memo(Simulation);
 
 const PAGE_LABEL: Record<Page, string> = Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>;
 PAGE_LABEL.readers = "Readers";
 
 /** The app: one rig document, the live streams, and a page per section. Nothing here knows what the rig is. */
 export function App() {
-  const [{ page, name, measurand }, navigate] = useRoute();
+  const [{ page, name, measurand, params }, navigate] = useRoute();
   const [windowS, setWindowS] = useState(300);
+  const [yScale, setYScaleState] = useState<YScale>(readYScale);
+  const setYScale = useCallback((s: YScale) => {
+    setYScaleState(s);
+    writeYScale(s);
+  }, []);
+  const [every, setEveryState] = useState<number>(readEvery);
+  const setEvery = useCallback((n: number) => {
+    setEveryState(n);
+    writeEvery(n);
+  }, []);
   const schema = useRigSchema();
   const sources = useSources();
   const recording = useRecording(5000);
   const events = useEvents(500);
+  const rigClient = useRig();
+  const simulation = useSimulation();
+  const [programRunning, setProgramRunning] = useState(false);
+  // Poll the programmer every second while a program runs, every five otherwise.
+  const programmer = useQuery(async () => {
+    const p = await rigClient.programmer();
+    setProgramRunning(p.running);
+    return p;
+  }, [rigClient], { refreshMs: programRunning ? 1000 : 5000 });
   const { states, status: actuatorStream } = useActuatorStates();
   // Hold an hour so a wider window has history to show; charts trim to the selected window.
   const { traces, status: sampleStream } = useSamples(sources.data, 3600);
+  const ready = Boolean(schema.data && sources.data);
+  useScrollMemory(ready);
 
   if (schema.error)
     return (
@@ -46,33 +73,24 @@ export function App() {
     <>
       <StreamChip status={sampleStream} label="samples" />
       <StreamChip status={actuatorStream} label="actuators" />
-      <Status actuators={actuators} states={states} recording={recording} />
+      <Status actuators={actuators} states={states} recording={recording} programmer={programmer} />
+      {simulation.attached && <SimChip speed={simulation.speed} />}
     </>
   );
   const title = name === null ? PAGE_LABEL[page] : measurand ? `${name}.${measurand}` : page === "sessions" ? `Session #${name}` : name;
   const source = name === null ? undefined : sources.data.find((s) => s.name === name);
+  const charts = { windowS, onWindow: setWindowS, yScale, onYScale: setYScale, every, onEvery: setEvery };
 
   return (
     <LinksProvider hrefFor={hrefFor}>
-      <Shell page={page === "readers" ? "overview" : page} onNavigate={navigate} title={title} status={status}>
+      <Shell page={page === "readers" ? "overview" : page} onNavigate={navigate} title={title} status={status} simulated={simulation.attached}>
         {page === "overview" && (
-          <Overview
-            schema={rig}
-            sources={sources.data}
-            traces={traces}
-            states={states}
-            events={events.events}
-            onOpen={navigate}
-            windowS={windowS}
-            onWindow={setWindowS}
-          />
+          <Overview schema={rig} sources={sources.data} traces={traces} states={states} events={events.events} onOpen={navigate} {...charts} />
         )}
-        {page === "sources" && name === null && <Sources sources={sources.data} traces={traces} windowS={windowS} onWindow={setWindowS} />}
-        {page === "sources" && name !== null && measurand === null && (
-          <SourceDetail source={source} traces={traces} windowS={windowS} onWindow={setWindowS} />
-        )}
+        {page === "sources" && name === null && <Sources sources={sources.data} traces={traces} {...charts} />}
+        {page === "sources" && name !== null && measurand === null && <SourceDetail source={source} traces={traces} {...charts} />}
         {page === "sources" && name !== null && measurand !== null && (
-          <ChannelDetail source={source} measurand={measurand} traces={traces} windowS={windowS} onWindow={setWindowS} />
+          <ChannelDetail source={source} measurand={measurand} traces={traces} {...charts} />
         )}
         {page === "actuators" && name === null && (
           <div className="tiles tiles-full">
@@ -88,13 +106,25 @@ export function App() {
         {page === "loops" && (
           <>
             {name !== null && <Crumbs items={[{ label: "loops", href: hashFor("loops") }, { label: name }]} />}
-            <Loops windowS={windowS} onWindow={setWindowS} name={name} />
+            <Loops {...charts} name={name} />
           </>
         )}
-        {page === "events" && <Events events={events.events} error={events.error} />}
+        {page === "programs" && name === null && <Programs programmer={programmer} events={events.events} onOpen={(n) => navigate("programs", n)} />}
+        {page === "programs" && name !== null && (
+          <ProgramDetail
+            key={name}
+            name={name}
+            programmer={programmer}
+            events={events.events}
+            onSaved={(n) => navigate("programs", n)}
+            onDeleted={() => navigate("programs")}
+          />
+        )}
+        {page === "events" && <Events events={events.events} error={events.error} level={params.level} />}
         {page === "sessions" && (
           <Sessions recording={recording} selected={name !== null && /^\d+$/.test(name) ? Number(name) : null} onSelect={(i) => navigate("sessions", i)} />
         )}
+        {page === "simulation" && <SimulationPage />}
       </Shell>
     </LinksProvider>
   );

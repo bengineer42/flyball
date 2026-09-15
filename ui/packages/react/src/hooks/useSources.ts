@@ -45,27 +45,45 @@ export function useSamples(sources: SourceOut[] | undefined, windowS = 300): { t
     if (!sources?.length) return;
     const controller = new AbortController();
     (async () => {
-      const [session] = await rig.sessions(1);
-      if (!session || session.end_ns !== null) return; // nothing open: no history to seed from
-      const startS = session.start_ns / 1e9;
+      // Sessions newest first until the window is covered; a channel is the
+      // same channel in every session it was recorded in, so a restart or a
+      // new recording does not blank the chart. Rig time, not wall time.
+      const [sessions, clock] = await Promise.all([rig.sessions(20), rig.clock()]);
+      const nowS = clock.now_ns / 1e9;
+      const horizonS = nowS - windowS;
+      const parts: Record<string, Array<{ t: number[]; v: number[] }>> = {};
+      let floorS = Number.POSITIVE_INFINITY; // see useLoops: sessions must not overlap on the axis
+      for (const session of sessions) {
+        const startS = session.start_ns / 1e9;
+        const endS = session.end_ns === null ? nowS : session.end_ns / 1e9;
+        if (endS > floorS) continue;
+        floorS = startS;
+        if (endS < horizonS) break;
+        const startOffset = Math.max(0, Math.floor((horizonS - startS) * 1e9));
+        await Promise.all(
+          sources.flatMap((s) =>
+            s.channels.map(async (c) => {
+              const series = await rig
+                .series(session.id, c.source, c.measurand, { start_ns: startOffset, max_points: 2000 })
+                .catch(() => null);
+              if (!series || !series.points.length) return;
+              (parts[channelKey(c)] ??= []).push({
+                t: series.points.map((p) => startS + p.offset_ns / 1e9),
+                v: series.points.map((p) => p.value),
+              });
+            }),
+          ),
+        );
+      }
       const seeded: Traces = {};
-      await Promise.all(
-        sources.flatMap((s) =>
-          s.channels.map(async (c) => {
-            const series = await rig.series(session.id, c.source, c.measurand, {
-              start_ns: Math.max(0, Date.now() * 1e6 - session.start_ns - windowS * 1e9),
-              max_points: 2000,
-            });
-            seeded[channelKey(c)] = {
-              channel: c,
-              t: series.points.map((p) => startS + p.offset_ns / 1e9),
-              v: series.points.map((p) => p.value),
-            };
-          }),
-        ),
-      );
+      for (const s of sources) {
+        for (const c of s.channels) {
+          const chunks = (parts[channelKey(c)] ?? []).sort((a, b) => a.t[0]! - b.t[0]!);
+          seeded[channelKey(c)] = { channel: c, t: chunks.flatMap((k) => k.t), v: chunks.flatMap((k) => k.v) };
+        }
+      }
       if (!controller.signal.aborted) setHistory(seeded);
-    })().catch(() => undefined); // no store, or a closed session: live-only is fine
+    })().catch(() => undefined); // no store: live-only is fine
     return () => controller.abort();
   }, [rig, sources, windowS]);
 

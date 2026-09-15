@@ -169,3 +169,19 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 /* unit charts */
 .fb-unit-chart { margin-bottom: var(--fb-gap); }
 .fb-unit-chart > header h4 { margin: 0; }
+.fb-session-latest { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.85em; margin-top: 0.2rem; }
+.fb-session-heading { display: flex; align-items: center; gap: 0.75rem; }
+.fb-segmented { display: inline-flex; border: 1px solid var(--fb-border); border-radius: var(--fb-radius); overflow: hidden; text-transform: none; letter-spacing: 0; }
+.fb-segmented button { border: 0; background: var(--fb-bg); color: var(--fb-fg); padding: 0.15rem 0.6rem; font: inherit; font-size: 0.85em; cursor: pointer; }
+.fb-segmented button + button { border-left: 1px solid var(--fb-border); }
+.fb-segmented button.active { background: var(--fb-accent); color: #fff; }
+/* chart navigation */
+.fb-toolbar { display: inline-flex; gap: 2px; margin: 0.2rem 0 0; }
+.fb-tb { border: 1px solid var(--fb-border); background: var(--fb-bg); color: var(--fb-muted); font: inherit; font-size: 0.75em; padding: 0.05rem 0.45rem; border-radius: var(--fb-radius); cursor: pointer; }
+.fb-tb:hover { color: var(--fb-fg); border-color: var(--fb-accent); }
+.fb-tb.active { background: var(--fb-accent); color: #fff; border-color: var(--fb-accent); }
+.fb-chart-wrap { position: relative; }
+.fb-chart-wrap .fb-toolbar { position: absolute; top: 2px; right: 6px; opacity: 0.35; transition: opacity 120ms; z-index: 1; }
+.fb-chart-wrap:hover .fb-toolbar, .fb-chart-wrap .fb-toolbar:focus-within { opacity: 1; }
+.fb-loop-charts { display: grid; gap: 0.25rem; }
+.fb-loop-chart-title { margin: 0.4rem 0 0.1rem; font-size: 0.85em; }

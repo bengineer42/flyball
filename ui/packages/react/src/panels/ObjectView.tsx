@@ -1,11 +1,17 @@
 import type { JsonSchema } from "@flyball/client";
-import { fields, formatNumber, formatValue } from "@flyball/client";
+import { fields, formatNumber, formatValue, liveOf, resolveLive } from "@flyball/client";
 
 export interface ObjectViewProps {
   schema: JsonSchema;
   value: Record<string, unknown> | undefined;
   /** Field names to leave out at the top level. */
   omit?: string[];
+  /**
+   * What a field's `live` path resolves against (a device's view, a
+   * simulated plant's description), so a configured value is shown beside
+   * where the quantity is now. Nothing is shown without it.
+   */
+  live?: unknown;
 }
 
 /**
@@ -13,7 +19,7 @@ export interface ObjectViewProps {
  * unit-suffixed by the schema; nested objects indent. Config, settings and
  * state all render through this.
  */
-export function ObjectView({ schema, value, omit = [] }: ObjectViewProps) {
+export function ObjectView({ schema, value, omit = [], live }: ObjectViewProps) {
   if (!value) return <div className="fb-muted">—</div>;
   const rows = fields(schema).filter(([name]) => !omit.includes(name));
   if (rows.length === 0) return <div className="fb-muted">nothing to show</div>;
@@ -22,6 +28,8 @@ export function ObjectView({ schema, value, omit = [] }: ObjectViewProps) {
       {rows.map(([name, field]) => {
         const v = value[name];
         const nested = field.properties && v && typeof v === "object" && !Array.isArray(v);
+        const path = live === undefined ? undefined : liveOf(field);
+        const now = path === undefined ? undefined : liveNow(resolveLive(path, live), field);
         return (
           <div key={name} className="fb-state-row">
             <dt title={field.description}>{field.title ?? name}</dt>
@@ -36,10 +44,28 @@ export function ObjectView({ schema, value, omit = [] }: ObjectViewProps) {
               ) : (
                 formatValue(v, field)
               )}
+              {now && <span className="fb-muted"> (now {now})</span>}
             </dd>
           </div>
         );
       })}
     </dl>
   );
+}
+
+/**
+ * A resolved `live` value as text in the field's unit and precision: one
+ * number, or every port's joined with ` / ` (`604.2 / 609.1 / 601.0`).
+ * Undefined when there is nothing to show.
+ */
+function liveNow(resolved: unknown, field: JsonSchema): string | undefined {
+  const values =
+    resolved && typeof resolved === "object" && !Array.isArray(resolved)
+      ? Object.values(resolved as Record<string, unknown>)
+      : [resolved];
+  const shown = values
+    .filter((x) => x !== undefined && x !== null)
+    .map((x) => (typeof x === "number" ? formatNumber(x, field) : String(x)));
+  if (shown.length === 0) return undefined;
+  return field.unit ? `${shown.join(" / ")} ${field.unit}` : shown.join(" / ");
 }

@@ -49,6 +49,36 @@ def source_schema(source: Source) -> dict[str, Any]:
     }
 
 
+def actuator_schema(actuator: Any) -> dict[str, Any]:
+    """An actuator's device schema, with its demand unit on every field that is a demand.
+
+    The base `demand` command and `state.demand` are declared on the generic
+    `Actuator`, so their schemas cannot name a unit; the instance's
+    `demand_unit` (a class attribute, or given by a rig file) is written onto
+    them here, so a form or a readout shows it beside the number.
+    """
+    unit = actuator.demand_unit  # the instance may narrow the class
+    symbol = None if unit is None else unit.symbol
+    schema = device_schema(actuator, demand_unit=symbol)
+    if symbol is not None:
+        stamp = {"unit": symbol, "dimension": unit.dimension.label}
+        for field in _nullable_field(schema["state"], "demand"):
+            field.update(stamp)
+        if (demand := schema["commands"].get("demand")) is not None:
+            for field in _nullable_field(demand["arguments"], "demand"):
+                field.update(stamp)
+    return schema
+
+
+def _nullable_field(schema: dict[str, Any], name: str) -> list[dict[str, Any]]:
+    """The number branches of a property, whether it is `number` or `anyOf [number, null]`."""
+    prop = schema.get("properties", {}).get(name)
+    if prop is None:
+        return []
+    branches = prop.get("anyOf") or [prop]
+    return [b for b in branches if b.get("type") == "number"]
+
+
 def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
     """Config, settings, state and every command's request as JSON schema."""
     cls = type(device)
@@ -64,6 +94,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
             tag: {
                 "description": spec.doc,
                 "arguments": TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"),
+                "simulation": spec.simulation,
             }
             for tag, spec in cls.commands.items()
         },

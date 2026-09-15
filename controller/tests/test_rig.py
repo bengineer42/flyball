@@ -166,14 +166,12 @@ def test_attach_loop_refuses_an_actuator_that_takes_another_unit(rig, probe, tem
 
 
 def test_a_slow_read_raises_a_warning_condition(rig, probe, temperature, fresh):
-    import time
-
     from flyball.core.device import Level
     from flyball.core.reading import Reader
 
     class Slow(Reader):
         def read(self, time_ns):
-            time.sleep(0.02)
+            rig.clock.sleep(0.02)  # the rig's time is what "slow" is judged in
             return [sample(probe, temperature, 1.0, time_ns)]
 
     reader = Slow(fresh("slow"), (probe,))

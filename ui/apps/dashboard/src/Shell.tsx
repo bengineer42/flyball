@@ -26,16 +26,18 @@ export interface ShellProps {
   onNavigate(page: Page): void;
   title: string;
   status: ReactNode;
+  /** Show the Simulation page in the navigation (`/api/sim` says the rig is simulated). */
+  simulated?: boolean;
   children: ReactNode;
 }
 
 const DRAWER_W = 196;
 const MINI_W = 56;
 
-function Nav({ page, mini, onNavigate }: { page: Page; mini: boolean; onNavigate(p: Page): void }) {
+function Nav({ page, mini, simulated, onNavigate }: { page: Page; mini: boolean; simulated: boolean; onNavigate(p: Page): void }) {
   return (
     <List dense disablePadding sx={{ pt: 1 }}>
-      {PAGES.map((p) => {
+      {PAGES.filter((p) => p.id !== "simulation" || simulated).map((p) => {
         const Icon = PAGE_ICONS[p.id];
         const item = (
           <ListItemButton
@@ -78,7 +80,7 @@ function Nav({ page, mini, onNavigate }: { page: Page; mini: boolean; onNavigate
  * drawer that shrinks to icons on narrow screens and becomes a temporary
  * drawer on phones.
  */
-export function Shell({ page, onNavigate, title, status, children }: ShellProps) {
+export function Shell({ page, onNavigate, title, status, simulated = false, children }: ShellProps) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
@@ -126,7 +128,7 @@ export function Shell({ page, onNavigate, title, status, children }: ShellProps)
       {phone ? (
         <Drawer open={open} onClose={() => setOpen(false)} PaperProps={{ sx: { width: DRAWER_W } }}>
           {brand}
-          <Nav page={page} mini={false} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
+          <Nav page={page} mini={false} simulated={simulated} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
         </Drawer>
       ) : (
         <Drawer
@@ -135,7 +137,7 @@ export function Shell({ page, onNavigate, title, status, children }: ShellProps)
           sx={{ width, flexShrink: 0 }}
         >
           {brand}
-          <Nav page={page} mini={mini} onNavigate={onNavigate} />
+          <Nav page={page} mini={mini} simulated={simulated} onNavigate={onNavigate} />
         </Drawer>
       )}
 

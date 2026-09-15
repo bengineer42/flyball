@@ -7,6 +7,7 @@ The server owns no hardware and no database; whatever builds them calls
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import Depends, HTTPException
@@ -18,7 +19,9 @@ from .dialect import Dialect
 from .telemetry import Telemetry
 
 if TYPE_CHECKING:
+    from flyball.core.device import Device
     from flyball.programmer import ProgrammerState
+    from flyball.runtime.simulation import Simulation
 
 
 class Programmer(Protocol):
@@ -35,6 +38,8 @@ _telemetry: Telemetry | None = None
 _store: Store | None = None
 _programmer: Programmer | None = None
 _dialect: Dialect = Dialect()
+_simulation: Simulation | None = None
+_simulation_device: Device | None = None
 
 
 def set_rig(rig: Rig | None) -> None:
@@ -85,6 +90,51 @@ def get_dialect() -> Dialect:
     return _dialect
 
 
+def set_simulation(simulation: Simulation | None) -> None:
+    """Attach the knobs of a simulated rig; None for a rig with real hardware."""
+    global _simulation
+    _simulation = simulation
+
+
+def get_simulation() -> Simulation:
+    if _simulation is None:
+        raise HTTPException(status_code=409, detail="This rig is not a simulation")
+    return _simulation
+
+
+def current_simulation() -> Simulation | None:
+    return _simulation
+
+
+def set_simulation_device(device: Device | None) -> None:
+    """Attach the device an application puts its simulation-only knobs on: `/api/sim/device`."""
+    global _simulation_device
+    _simulation_device = device
+
+
+def get_simulation_device() -> Device:
+    if _simulation_device is None:
+        raise HTTPException(status_code=404, detail="This simulation has no device of its own")
+    return _simulation_device
+
+
+def current_simulation_device() -> Device | None:
+    return _simulation_device
+
+
+_programs_dir: Path | None = None
+
+
+def set_programs_dir(directory: Path | None) -> None:
+    """Where program files live on disk; the library imports them on start and on request."""
+    global _programs_dir
+    _programs_dir = directory
+
+
+def current_programs_dir() -> Path | None:
+    return _programs_dir
+
+
 def set_store(store: Store | None) -> None:
     global _store
     _store = store
@@ -100,3 +150,5 @@ RigDep = Annotated[Rig, Depends(get_rig)]
 StoreDep = Annotated[Store, Depends(get_store)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
 DialectDep = Annotated[Dialect, Depends(get_dialect)]
+SimulationDep = Annotated["Simulation", Depends(get_simulation)]
+SimulationDeviceDep = Annotated["Device", Depends(get_simulation_device)]

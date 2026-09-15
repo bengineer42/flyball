@@ -14,7 +14,7 @@ from flyball.server.deps import set_programmer, set_store
 YAML = """# a comment that must survive storage
 name: dry-then-hold
 steps:
-  - wait: {seconds: 0.01}
+  - wait: {message: "quick", seconds: 0.01}
 """
 
 
@@ -33,47 +33,80 @@ def client(tmp_path):
 
 
 def test_save_verbatim_versions_and_history(client):
-    r = client.put("/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"})
+    r = client.put(
+        "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
+    )
     assert r.status_code == 201
     first = r.json()
     assert first["format"] == "yaml" and first["body"] == YAML and "# a comment" in first["body"]
 
     r = client.put(
         "/api/programs/library/dry?label=v2",
-        json={"format": "json", "body": '{"name": "dry-then-hold", "steps": []}', "notes": {"why": "trim"}},
+        json={
+            "format": "json",
+            "body": '{"name": "dry-then-hold", "steps": []}',
+            "notes": {"why": "trim"},
+        },
     )
-    assert r.status_code == 201 and r.json()["label"] == "v2" and r.json()["notes"] == {"why": "trim"}
+    assert (
+        r.status_code == 201 and r.json()["label"] == "v2" and r.json()["notes"] == {"why": "trim"}
+    )
 
     newest = client.get("/api/programs/library/dry").json()
     assert newest["format"] == "json" and newest["id"] != first["id"]
-    assert [row["id"] for row in client.get("/api/programs/library/dry/history").json()] == [newest["id"], first["id"]]
+    assert [row["id"] for row in client.get("/api/programs/library/dry/history").json()] == [
+        newest["id"],
+        first["id"],
+    ]
     assert [row["name"] for row in client.get("/api/programs/library").json()] == ["dry"]
 
 
 def test_upload_needs_a_format_and_a_parseable_document(client):
-    assert client.put("/api/programs/library/x", content="a: 1", headers={"content-type": "text/plain"}).status_code == 415
+    assert (
+        client.put(
+            "/api/programs/library/x", content="a: 1", headers={"content-type": "text/plain"}
+        ).status_code
+        == 415
+    )
     # the name's extension can say what it is
-    assert client.put("/api/programs/library/x.toml", content="a = 1\n", headers={"content-type": "text/plain"}).status_code == 201
-    r = client.put("/api/programs/library/bad", content="a: [", headers={"content-type": "application/yaml"})
+    assert (
+        client.put(
+            "/api/programs/library/x.toml",
+            content="a = 1\n",
+            headers={"content-type": "text/plain"},
+        ).status_code
+        == 201
+    )
+    r = client.put(
+        "/api/programs/library/bad", content="a: [", headers={"content-type": "application/yaml"}
+    )
     assert r.status_code == 422 and "not valid yaml" in r.json()["detail"]
 
 
 def test_download_converts_between_formats(client):
-    client.put("/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"})
+    client.put(
+        "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
+    )
     same = client.get("/api/programs/library/dry/download")
     assert same.text == YAML and same.headers["content-type"].startswith("application/yaml")
     assert 'filename="dry.yml"' in same.headers["content-disposition"]
 
     toml = client.get("/api/programs/library/dry/download?format=toml")
-    assert toml.status_code == 200 and 'name = "dry-then-hold"' in toml.text and "[[steps]]" in toml.text
+    assert (
+        toml.status_code == 200
+        and 'name = "dry-then-hold"' in toml.text
+        and "[[steps]]" in toml.text
+    )
     assert "# a comment" not in toml.text  # comments live only in the stored text
 
     js = client.get("/api/programs/library/dry/download?format=json").json()
-    assert js["steps"] == [{"wait": {"seconds": 0.01}}]
+    assert js["steps"] == [{"wait": {"message": "quick", "seconds": 0.01}}]
 
 
 def test_check_and_run_and_delete(client):
-    client.put("/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"})
+    client.put(
+        "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
+    )
     check = client.get("/api/programs/library/dry/check").json()
     assert check["ok"] is True and check["normalised"]["steps"][0]["command"]["command"] == "wait"
 
@@ -85,3 +118,24 @@ def test_check_and_run_and_delete(client):
 
     assert client.delete("/api/programs/library/dry").status_code == 204
     assert client.get("/api/programs/library/dry").status_code == 404
+
+
+def test_import_directory_imports_new_and_changed_files_only(client, tmp_path):
+    from flyball.server.deps import set_programs_dir
+
+    (tmp_path / "firing.yaml").write_text(YAML)
+    (tmp_path / "notes.txt").write_text("not a program")
+    (tmp_path / "broken.yaml").write_text("a: [")
+    set_programs_dir(tmp_path)
+    try:
+        first = client.post("/api/programs/library/import").json()
+        assert [p["name"] for p in first] == ["firing"] and first[0]["notes"]["source"].endswith(
+            "firing.yaml"
+        )
+        assert client.post("/api/programs/library/import").json() == []  # unchanged: nothing new
+        (tmp_path / "firing.yaml").write_text(YAML + "# edited\n")
+        again = client.post("/api/programs/library/import").json()
+        assert len(again) == 1 and again[0]["body"].endswith("# edited\n")
+        assert len(client.get("/api/programs/library/firing/history").json()) == 2
+    finally:
+        set_programs_dir(None)

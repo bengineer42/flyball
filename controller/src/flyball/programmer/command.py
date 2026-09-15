@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 from pydantic.alias_generators import to_snake
 
 from flyball.core import Operator, Signal
+from flyball.core.clock import Clock
 from flyball.runtime.rig import Rig
 
 Commands: dict[str, type[Command]] = {}
@@ -31,8 +32,9 @@ class Activity(Signal):
         timeout: float | None = None,
         name: str | None = None,
         message: str | None = None,
+        clock: Clock | None = None,
     ) -> None:
-        super().__init__(timeout)
+        super().__init__(timeout, clock)
         self.error = None
         self.name = name
         self.message = message

@@ -2,10 +2,9 @@ import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@m
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import { useHealth, useQuery, useRig, type StreamStatus } from "@flyball/react";
 import type { ActuatorSchema, DeviceState } from "@flyball/client";
+import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
 import { PAGE_ICONS, SourceIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
-import type { Recording } from "./pages/Sessions.js";
-import { sessionName } from "./pages/Sessions.js";
 
 type Colour = NonNullable<ChipProps["color"]>;
 /** One tooltip line: a name (a link when the app has a page for it) and its state. */
@@ -68,14 +67,26 @@ export const StreamChip = ({ status, label }: { status: StreamStatus | string; l
   );
 };
 
+/** The simulated clock's speed when it is not real time; a link to the Simulation page. */
+export const SimChip = ({ speed }: { speed: number | undefined }) => {
+  if (speed === undefined || speed === 1) return null;
+  const label = `sim ×${Number.isInteger(speed) ? speed : speed.toFixed(1).replace(/\.0$/, "")}`;
+  return (
+    <Tooltip title={`simulated clock runs at ${label.slice(4)} real time`}>
+      <Chip variant="outlined" color="info" icon={<PAGE_ICONS.simulation fontSize="small" />} label={label} component="a" href={hashFor("simulation")} clickable />
+    </Tooltip>
+  );
+};
+
 export interface StatusProps {
   actuators: ActuatorSchema[];
   states: Record<string, DeviceState>;
   recording: Recording;
+  programmer: Programmer;
 }
 
 /** What is running, at a glance: actuators, readers, recording, loops. All from the library's hooks. */
-export function Status({ actuators, states, recording }: StatusProps) {
+export function Status({ actuators, states, recording, programmer }: StatusProps) {
   const rig = useRig();
   const health = useHealth(5000);
   const loops = useQuery(() => rig.loops(), [rig], { refreshMs: 5000 });
@@ -102,13 +113,14 @@ export function Status({ actuators, states, recording }: StatusProps) {
 
   return (
     <>
-      <StatusChip icon={PAGE_ICONS.actuators} full={`actuators ${okCount}/${actuators.length}`} short={`${okCount}/${actuators.length}`} colour={actuatorColour} lines={actuatorLines} />
+      <StatusChip icon={PAGE_ICONS.actuators} full={`actuators ${okCount}/${actuators.length}`} short={`${okCount}/${actuators.length}`} colour={actuatorColour} lines={actuatorLines} href={hashFor("actuators")} />
       <StatusChip
         icon={SourceIcon}
         full={`readers ${running}/${readers.length} running`}
         short={`${running}/${readers.length}`}
         colour={health.data ? (running === readers.length ? "success" : "error") : "default"}
         lines={readerLines}
+        href={hashFor("readers")}
       />
       <StatusChip
         icon={PAGE_ICONS.sessions}
@@ -118,12 +130,23 @@ export function Status({ actuators, states, recording }: StatusProps) {
         lines={open ? [{ name: sessionName(open), href: hrefFor({ kind: "session", name: String(open.id) }), state: `since ${new Date(open.start_ns / 1e6).toLocaleTimeString()}` }] : []}
         href={hashFor("sessions")}
       />
+      {programmer.data?.running && (
+        <StatusChip
+          icon={PAGE_ICONS.programs}
+          full={`program: ${programmer.data.command ?? "…"} step ${stepOf(programmer.data)}`}
+          short={stepOf(programmer.data)}
+          colour="success"
+          lines={[]}
+          href={hashFor("programs")}
+        />
+      )}
       <StatusChip
         icon={PAGE_ICONS.loops}
         full={`loops ${regulating} regulating`}
         short={`${regulating}`}
         colour={regulating > 0 ? "success" : "default"}
         lines={loopLines.length ? loopLines : [{ name: "no loops", state: loops.data ? "none attached" : "…" }]}
+        href={hashFor("loops")}
       />
     </>
   );

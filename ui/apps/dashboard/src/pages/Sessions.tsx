@@ -4,11 +4,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   IconButton,
   Link,
   Paper,
@@ -26,40 +21,15 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import StopCircleOutlinedIcon from "@mui/icons-material/StopCircleOutlined";
-import { SessionPanel, useQuery, useRecording, useRig, useSession, ValueView } from "@flyball/react";
+import { SessionPanel, useQuery, useRig, useSession } from "@flyball/react";
 import type { SessionRow } from "@flyball/client";
+import { sessionName, type Recording } from "../model.js";
 import { duration, useNow, when } from "../time.js";
 import { hashFor } from "../router.js";
+import { Confirm } from "../Confirm.js";
 
-export type Recording = ReturnType<typeof useRecording>;
-
-/** A session's display name from its free-form details, else its id. */
-export const sessionName = (s: SessionRow) => {
-  const d = s.details as Record<string, unknown> | null | undefined;
-  return d && typeof d.name === "string" && d.name ? d.name : `session #${s.id}`;
-};
 
 const sessionSeconds = (s: SessionRow, nowMs: number) => ((s.end_ns ?? nowMs * 1e6) - s.start_ns) / 1e9;
-
-/** A yes/no dialog. */
-function Confirm({ open, title, text, action, busy, onClose, onConfirm }: { open: boolean; title: string; text: string; action: string; busy: boolean; onClose(): void; onConfirm(): void }) {
-  return (
-    <Dialog open={open} onClose={() => (busy ? undefined : onClose())}>
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
-        <DialogContentText>{text}</DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={busy}>
-          Cancel
-        </Button>
-        <Button color="error" variant="contained" onClick={onConfirm} disabled={busy}>
-          {action}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
 
 /** Start a session, or end the open one. */
 function RecordingControl({ recording, onChange }: { recording: Recording; onChange(): void }) {
@@ -244,17 +214,20 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
               <TableRow>
                 <TableCell>id</TableCell>
                 <TableCell>name</TableCell>
+                <TableCell>rig</TableCell>
                 <TableCell>started</TableCell>
                 <TableCell>ended</TableCell>
                 <TableCell>duration</TableCell>
-                <TableCell>details</TableCell>
                 <TableCell padding="checkbox" />
               </TableRow>
             </TableHead>
             <TableBody>
               {sessions.data.map((s) => {
-                const { id, start_ns, end_ns, details, ...rest } = s;
+                // `config` is the whole rig file as recorded: the drill-in shows it, a row never does.
+                const { id, start_ns, end_ns, details, config, hardware, version } = s as SessionRow & { config?: unknown; hardware?: unknown; version?: unknown };
                 const { name, notes, ...otherDetails } = (details && typeof details === "object" ? details : {}) as Record<string, unknown>;
+                const rigName = config && typeof config === "object" && typeof (config as { name?: unknown }).name === "string" ? (config as { name: string }).name : null;
+                const extra = Object.keys(otherDetails).length;
                 return (
                   <TableRow key={id} hover sx={{ cursor: "pointer" }} onClick={() => onSelect(id)}>
                     <TableCell>{id}</TableCell>
@@ -267,13 +240,31 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                           {notes}
                         </Typography>
                       )}
+                      {extra > 0 && (
+                        <Typography variant="body2" color="text.secondary" component="span" sx={{ ml: 1 }} title={Object.keys(otherDetails).join(", ")}>
+                          {extra} note{extra === 1 ? "" : "s"}
+                        </Typography>
+                      )}
                     </TableCell>
-                    <TableCell>{when(start_ns)}</TableCell>
-                    <TableCell>{end_ns ? when(end_ns) : <Chip label="open" color="success" variant="outlined" />}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                        {rigName && (
+                          <Typography variant="body2" color="text.secondary">
+                            {rigName}
+                          </Typography>
+                        )}
+                        {typeof hardware === "string" && hardware && <Chip label={hardware} variant="outlined" />}
+                        {version != null && version !== "" && <Chip label={`v${String(version)}`} variant="outlined" />}
+                        {!rigName && !hardware && version == null && (
+                          <Typography variant="body2" color="text.disabled">
+                            —
+                          </Typography>
+                        )}
+                      </Stack>
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>{when(start_ns)}</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>{end_ns ? when(end_ns) : <Chip label="open" color="success" variant="outlined" />}</TableCell>
                     <TableCell>{duration(sessionSeconds(s, now))}</TableCell>
-                    <TableCell sx={{ color: "text.secondary" }}>
-                      <ValueView value={{ ...otherDetails, ...rest }} />
-                    </TableCell>
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
                       <Tooltip title={end_ns ? "Delete session" : "Still recording"}>
                         <span>

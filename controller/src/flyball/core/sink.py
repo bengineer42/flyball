@@ -107,6 +107,17 @@ class Actuator(Device, Sink):
         """Take a demand; return the value the loop should expect, if it differs."""
         raise NotImplementedError
 
+    @command(tag="demand")
+    def demand_directly(self, demand: float) -> float | None:
+        """Ask for a value directly, in the actuator's own unit, as a loop would.
+
+        Every actuator has this: it is the one thing an operator can do to an
+        actuator by hand. Refused by the server while a loop is regulating
+        the actuator -- stop the loop first, or it would just be overwritten
+        on the next tick.
+        """
+        return self.set_demand(demand)
+
     @property
     def state(self) -> ActuatorState:
         """Default: just the demand is unknown. Override with what the device knows now."""

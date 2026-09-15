@@ -160,6 +160,9 @@ class CommandSpec:
 
     tag: str
     method: Callable[..., Any]
+    simulation: bool = False
+    """Only meaningful on a simulated device -- a scripted fault, a disturbance. A UI keeps
+    these on its simulation page, not beside the device's real commands."""
 
     @property
     def doc(self) -> str | None:
@@ -169,16 +172,21 @@ class CommandSpec:
 @overload
 def command[F: Callable[..., Any]](fn: F, /) -> F: ...
 @overload
-def command[F: Callable[..., Any]](*, tag: str) -> Callable[[F], F]: ...
-def command(fn: Any = None, /, *, tag: str | None = None) -> Any:
+def command[F: Callable[..., Any]](
+    *, tag: str | None = None, simulation: bool = False
+) -> Callable[[F], F]: ...
+def command(fn: Any = None, /, *, tag: str | None = None, simulation: bool = False) -> Any:
     """Mark an actuator method as a command, under its name or `tag`.
 
     `@command` or `@command(tag="stop")`. The method's signature is the
-    command's.
+    command's. `simulation=True` marks one that only makes sense on a
+    simulated device (a scripted fault, a disturbance): it is served like any
+    other, but the schema says so, so a UI can keep it off the device's page.
     """
 
     def mark(f: Any) -> Any:
         f.__command__ = tag or f.__name__
+        f.__simulation__ = simulation
         return f
 
     return mark(fn) if fn is not None else mark
@@ -233,7 +241,7 @@ class Device:
                     # The CLI, the form and the schema all show it; without it
                     # they show a blank where the help should be.
                     raise TypeError(f"{cls.__name__}.{attr_name}: a command needs a docstring")
-                spec = CommandSpec(tag, value)
+                spec = CommandSpec(tag, value, getattr(value, "__simulation__", False))
                 _check_command_signature(cls, spec)
                 cls.commands[tag] = spec
 

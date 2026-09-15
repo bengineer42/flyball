@@ -11,17 +11,30 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
 from flyball.core.config import Config, resolve
-from flyball.core.device import DeviceConfig, DeviceSettings, DeviceState, command
+from flyball.core.device import (
+    Condition,
+    DeviceConfig,
+    DeviceSettings,
+    DeviceState,
+    Level,
+    command,
+)
+from flyball.core.errors import HardwareError
 from flyball.core.reading import Measurand, Reader, Sample, Source
 from flyball.core.sink import Actuator, ActuatorState
+from flyball.core.units import DIMENSIONLESS, Quantity
 from flyball.core.units.dimension import Unit
 
+from .furnace import Furnace, MultiPlant, Port
 from .plant import Fopdt, Integrator, Lag, Noisy, Plant
+
+# A plant's drive is a fraction of full power: 0 is off, 1 is everything it has.
+Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
 
 
 class PlantConfig(Config[Plant], tag="sim_plant"):
@@ -32,14 +45,22 @@ class PlantConfig(Config[Plant], tag="sim_plant"):
     dead_s: float = Field(default=0.0, ge=0, description="Dead time (fopdt).")
     gain: float = 1.0
     leak: float = Field(default=0.0, ge=0, description="Drain rate (integrator).")
-    ambient: float = Field(default=0.0, description="Where a lag rests with no input (lag, fopdt).")
-    initial: float = 0.0
+    ambient: float = Field(
+        default=0.0,
+        description="Where a lag rests with no input (lag, fopdt).",
+        json_schema_extra={"live": "output"},
+    )
+    initial: float = Field(default=0.0, json_schema_extra={"live": "output"})
     noise: float = Field(
-        default=0.0, ge=0, description="Gaussian noise on what is read, in the output's unit."
+        default=0.0,
+        ge=0,
+        description="Gaussian noise on what is read, in the output's unit.",
+        json_schema_extra={"live": "stats.noise"},
     )
     seed: int | None = None
 
     def build(self) -> Plant:
+        """Always wrapped in [Noisy][flyball.sim.plant.Noisy], so noise can be turned on live."""
         plant: Plant
         match self.kind:
             case "lag":
@@ -50,13 +71,98 @@ class PlantConfig(Config[Plant], tag="sim_plant"):
                 plant = Fopdt(
                     self.tau_s, self.dead_s, self.gain, self.initial, ambient=self.ambient
                 )
-        return Noisy(plant, self.noise, self.seed) if self.noise else plant
+        return Noisy(plant, self.noise, self.seed)
+
+    def retune(self, plant: Plant) -> None:
+        """Apply this config's parameters to a plant already built from one of the same kind.
+
+        The state (output, input) is untouched: a simulation keeps running
+        through the change, as a real plant would. `kind` cannot change.
+
+        Raises:
+            ValueError: If `plant` is not of this config's kind.
+        """
+        noisy = plant if isinstance(plant, Noisy) else None
+        inner: Any = noisy.plant if noisy is not None else plant
+        if noisy is not None:
+            noisy.sigma = self.noise
+        match self.kind, inner:
+            case "lag", Lag():
+                inner.tau_s, inner.gain, inner.ambient = self.tau_s, self.gain, self.ambient
+            case "integrator", Integrator():
+                inner.gain, inner.leak = self.gain, self.leak
+            case "fopdt", Fopdt():
+                inner.dead_s = self.dead_s
+                lag = inner._lag
+                lag.tau_s, lag.gain, lag.ambient = self.tau_s, self.gain, self.ambient
+            case _:
+                raise ValueError(f"plant is a {type(inner).__name__}, not a {self.kind}")
+
+
+class FurnaceConfig(Config[Furnace], tag="sim_furnace"):
+    """A multi-zone furnace ([Furnace][flyball.sim.furnace.Furnace]).
+
+    Ports: inputs `heaterN`, outputs `zoneN` and `sample`.
+    """
+
+    zones: int = Field(default=3, ge=1)
+    power_w: float | list[float] = 2000.0
+    capacity_j_per_k: float | list[float] = 5000.0
+    coupling_w_per_k: float = Field(default=5.0, ge=0)
+    loss_w_per_k: float = Field(default=2.0, ge=0)
+    emissivity: float = Field(default=0.8, ge=0, le=1)
+    area_m2: float = Field(default=0.02, ge=0)
+    ambient_c: float = Field(default=20.0, json_schema_extra={"live": "outputs.*"})
+    sample_capacity_j_per_k: float = Field(default=800.0, gt=0)
+    sample_coupling_w_per_k: float = Field(default=4.0, ge=0)
+    sample_zone: int = Field(default=2, ge=1)
+    sensor_lag_s: float = Field(default=3.0, ge=0)
+    noise: float = Field(default=0.0, ge=0, json_schema_extra={"live": "stats.noise"})
+    seed: int | None = None
+    initial_c: float | None = Field(default=None, json_schema_extra={"live": "outputs.*"})
+
+    def build(self) -> Furnace:
+        return Furnace(**self.model_dump(exclude={"tag"}))
+
+    def retune(self, plant: Any) -> None:
+        """Apply the parameters to a running furnace; its temperatures stay where they are."""
+        if not isinstance(plant, Furnace) or plant.zones != self.zones:
+            raise ValueError("the number of zones cannot change while it runs")
+        fresh = self.build()
+        for attr in (
+            "power",
+            "capacity",
+            "coupling",
+            "loss",
+            "emissivity",
+            "area",
+            "ambient",
+            "sample_capacity",
+            "sample_coupling",
+            "sample_zone",
+            "sensor_lag_s",
+            "noise",
+        ):
+            setattr(plant, attr, getattr(fresh, attr))
+
+
+def _port(link: Any, port: str | None, *, output: bool) -> Any:
+    """The plant a device reads or drives: single-port as is, multi-port through `port`."""
+    plant = resolve(link)
+    if isinstance(plant, MultiPlant):
+        if port is None:
+            raise ValueError(f"a {type(plant).__name__} has several ports; say which with `port`")
+        return Port(plant, output=port) if output else Port(plant, input=port)
+    if port is not None:
+        raise ValueError(f"a {type(plant).__name__} has one port; drop `port`")
+    return plant
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SimReaderState(DeviceState):
     output: float | None = None
-    input: float = 0.0
+    input: Quantity(Drive, ge=0, le=1) | None = 0.0  # type: ignore[valid-type]
+    """The plant's input; None for one port of a multi-port plant, which has many."""
 
 
 class SimReader(Reader):
@@ -81,13 +187,27 @@ class SimReader(Reader):
         super().__init__(name, (self.source,))
         self._last_ns: int | None = None
         self._output: float | None = None
+        self._broken = False
+        self._broken_ns = 0
 
     @property
     def state(self) -> SimReaderState:
-        return SimReaderState(output=self._output, input=self.plant.input)
+        return SimReaderState(
+            output=self._output,
+            input=self.plant.input if not isinstance(self.plant, Port) else None,
+            conditions=(
+                (Condition("broken", Level.ERROR, "sensor failed (simulated)", self._broken_ns),)
+                if self._broken
+                else ()
+            ),
+        )
 
     def read(self, time_ns: int) -> Iterable[Sample]:
-        if self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
+        if self._broken:
+            raise HardwareError(f"{self.name}: thermocouple open circuit (simulated)")
+        if isinstance(self.plant, Port):
+            self.plant.advance(time_ns)  # once per instant, however many ports are read
+        elif self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
             self.plant.step((time_ns - self._last_ns) / 1e9)
         self._last_ns = time_ns
         self._output = self.plant.output
@@ -95,10 +215,24 @@ class SimReader(Reader):
             Sample(self.source, self.source.next_seq(), time_ns, {self.measurand: self._output})
         ]
 
+    @command(simulation=True)
+    def fail(self) -> SimReaderState:
+        """Break the sensor: every read raises until `restore`. What the loop does is the test."""
+        self._broken = True
+        self._broken_ns = self._last_ns or 0
+        return self.state
+
+    @command(simulation=True)
+    def restore(self) -> SimReaderState:
+        """Mend the sensor; the rig restarts the reader on its next poll."""
+        self._broken = False
+        return self.state
+
 
 class SimReaderConfig(DeviceConfig[SimReader], tag="sim_reader"):
     name: str
-    link: PlantConfig | str
+    link: PlantConfig | FurnaceConfig | str
+    port: str | None = Field(default=None, description="Which output of a multi-port plant.")
     measurand: str = Field(
         description="The measurand the plant's output is: 'temperature', 'level'."
     )
@@ -117,7 +251,7 @@ class SimReaderConfig(DeviceConfig[SimReader], tag="sim_reader"):
             raise TypeError(f"link {self.link!r} must be resolved to a plant before building")
         return SimReader(
             self.name,
-            resolve(self.link),
+            _port(self.link, self.port, output=True),
             self.measurand,
             self.unit,
             self.range,
@@ -134,7 +268,7 @@ class SimActuatorSettings(DeviceSettings):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SimActuatorState(ActuatorState):
-    input: float = 0.0
+    input: Quantity(Drive, ge=0, le=1) = 0.0  # type: ignore[valid-type]
     """What the plant is actually being driven with: the demand, clamped."""
 
 
@@ -155,13 +289,26 @@ class SimActuator(Actuator):
         plant: Plant,
         limits: tuple[float, float] = (0.0, 1.0),
         unit: str | None = None,
+        config: SimActuatorConfig | None = None,
     ) -> None:
         super().__init__(name)
         self.plant = plant
         self.limits = limits
         self._demand: float | None = None
+        self._config = config
         if unit:
             self.demand_unit = Unit.get(unit)  # type: ignore[misc]
+
+    @property
+    def config(self) -> SimActuatorConfig:
+        """The config this was built from, or one describing it when built in code.
+
+        `link` is `""`: the plant was bound in place, and only the rig file
+        (`/api/sim/config`) names it.
+        """
+        if self._config is not None:
+            return self._config.model_copy(update={"link": ""})
+        return SimActuatorConfig(name=self.name, link="", limits=self.limits)
 
     @property
     def settings(self) -> SimActuatorSettings:
@@ -172,12 +319,23 @@ class SimActuator(Actuator):
         return SimActuatorState(demand=self._demand, input=self.plant.input)
 
     def set_demand(self, demand: float) -> float | None:
+        """Drive the plant's input for `demand`; report the demand actually deliverable.
+
+        When the drive is clamped to the limits, the returned value is the
+        demand the clamped drive stands for, if the plant can say -- what a
+        law's anti-windup tracks. `None` means "no better than the demand".
+        """
         self._demand = demand
         lo, hi = self.limits
-        self.plant.input = min(hi, max(lo, self.plant.feedforward(demand)))
-        return None  # what the plant will do is the reader's to report
+        wanted = self.plant.feedforward(demand)
+        drive = min(hi, max(lo, wanted))
+        self.plant.input = drive
+        if drive == wanted:
+            return demand
+        inverse = getattr(self.plant, "inverse_feedforward", None)
+        return inverse(drive) if inverse is not None else None
 
-    @command
+    @command(simulation=True)
     def set_limits(self, low: float, high: float) -> SimActuatorSettings:
         """Change what the actuator can deliver: a smaller heater, a stuck valve."""
         if high <= low:
@@ -185,7 +343,7 @@ class SimActuator(Actuator):
         self.limits = (low, high)
         return self.settings
 
-    @command
+    @command(simulation=True)
     def disturb(self, offset: float) -> SimActuatorState:
         """Kick the plant's input by `offset` until the next demand: a door opened, a leak."""
         self.plant.input += offset
@@ -194,11 +352,23 @@ class SimActuator(Actuator):
 
 class SimActuatorConfig(DeviceConfig[SimActuator], tag="sim_actuator"):
     name: str
-    link: PlantConfig | str
-    limits: tuple[float, float] = (0.0, 1.0)
+    link: PlantConfig | FurnaceConfig | str
+    port: str | None = Field(default=None, description="Which input of a multi-port plant.")
+    limits: tuple[float, float] = Field(
+        default=(0.0, 1.0),
+        description="What the drive is clamped to.",
+        json_schema_extra={"live": "state.input"},
+    )
     unit: str | None = None
 
     def build(self) -> SimActuator:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a plant before building")
-        return SimActuator(self.name, resolve(self.link), self.limits, self.unit)
+        return SimActuator(
+            self.name, _port(self.link, self.port, output=False), self.limits, self.unit, self
+        )
+
+
+# The actuator is defined before its config, so `config`'s return annotation
+# could not be resolved at class creation; the schema route reads this.
+SimActuator.config_type = SimActuatorConfig

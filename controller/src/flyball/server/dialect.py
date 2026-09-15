@@ -168,7 +168,7 @@ def program_from_document(document: Any, dialect: Dialect) -> Program:
     normalised = normalise_program(document, dialect)
     adapter = TypeAdapter(command_request())
     commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
-    return Program(commands, name=normalised.get("name"))
+    return Program(commands, name=normalised.get("name"), description=normalised.get("description"))
 
 
 def commands_from_yaml(text: str, dialect: Dialect) -> Program:
@@ -230,7 +230,14 @@ def program_schema(dialect: Dialect, title: str = "program") -> dict[str, Any]:
         "title": title,
         "type": "object",
         "properties": {
-            "name": {"type": "string"},
+            "name": {
+                "type": "string",
+                "description": "What the program is called; the file's stem when absent.",
+            },
+            "description": {
+                "type": "string",
+                "description": "What the program is for, in a sentence or a paragraph; optional.",
+            },
             "steps": {"type": "array", "minItems": 1, "items": {"oneOf": step["oneOf"]}},
         },
         "required": ["steps"],

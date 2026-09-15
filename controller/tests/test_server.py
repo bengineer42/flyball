@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,7 +41,7 @@ def test_schema_lists_every_device(client, duty_heater):
         heater["type"] == "DutyHeater"
         and heater["description"] == "A heater with one command, for device and route tests."
     )
-    assert set(heater["commands"]) == {"set_duty", "off"}
+    assert set(heater["commands"]) == {"demand", "set_duty", "off"}
     assert heater["commands"]["set_duty"]["arguments"]["properties"]["duty"]["type"] == "number"
     (reader,) = schema["readers"].values()
     (source,) = reader["sources"]
@@ -213,3 +214,55 @@ def test_program_with_an_unknown_step_is_refused_before_anything_runs(client, pr
     r = client.post("/api/programs/run", json={"steps": [{"wait": "ok"}, {"bogus": 1}]})
     assert r.status_code == 422
     assert client.get("/api/signals").json() == {}
+
+
+class TestSimRoutes:
+    @pytest.fixture
+    def sim(self, client, tmp_path):
+        from flyball.core.reading import Source
+        from flyball.runtime.config import load_rig_config
+        from flyball.runtime.simulation import Simulation
+        from flyball.server import set_simulation
+
+        path = Path(__file__).resolve().parents[2] / "examples" / "simulated" / "tank.toml"
+        Source.forget("level")
+        config = load_rig_config(path)
+        rig = config.build(start=False)
+        simulation = Simulation(rig, config, None, tmp_path / "tank.toml")
+        set_rig(rig)
+        set_simulation(simulation)
+        yield simulation
+        set_simulation(None)
+        set_rig(None)
+        Source.forget("level")
+
+    def test_a_hardware_rig_says_it_is_not_simulated(self, client):
+        assert client.get("/api/sim").json() == {"simulated": False}
+        assert client.put("/api/sim/clock", json={"speed": 2}).status_code == 409
+
+    def test_clock_plants_and_save(self, client, sim, tmp_path):
+        state = client.get("/api/sim").json()
+        assert state["simulated"] is True and list(state["plants"]) == ["tank"]
+        assert client.put("/api/sim/clock", json={"speed": 20}).json() == {"speed": 20.0}
+        assert client.get("/api/clock").json()["speed"] == 20.0
+        assert client.put("/api/sim/plants/tank", json={"gain": 2.5}).json()["gain"] == 2.5
+        assert client.put("/api/sim/plants/tank", json={"kind": "lag"}).status_code == 422
+        assert client.put("/api/sim/plants/ghost", json={}).status_code == 404
+        reset = client.post("/api/sim/plants/tank/reset", json={"output": 12.0}).json()
+        assert reset["output"] == pytest.approx(12.0, abs=0.5)
+        assert client.get("/api/sim/config").json()["links"]["tank"]["gain"] == 2.5
+        saved = client.post("/api/sim/save").json()["path"]
+        assert Path(saved) == tmp_path / "tank.toml" and (tmp_path / "tank.toml").exists()
+        assert client.get("/api/sim").json()["changed"] == []
+
+    def test_a_device_schema_s_live_links_resolve_against_its_view(self, client, sim):
+        """`live` on a config field rides along in the schema; the path points into the view."""
+        from flyball.runtime.simulation import resolve_live
+
+        schema = client.get("/api/actuators/valve/schema").json()
+        assert schema["config"]["properties"]["limits"]["live"] == "state.input"
+        assert "live" not in schema["config"]["properties"]["port"]
+        sim.rig.actuators["valve"].set_demand(500)  # far past what the valve can pass: clamped
+        view = client.get("/api/actuators/valve").json()
+        assert view["config"]["limits"] == [0.0, 1.0]
+        assert resolve_live("state.input", view) == view["state"]["input"] == 1.0

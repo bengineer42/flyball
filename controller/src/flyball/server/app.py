@@ -23,12 +23,14 @@ from flyball.server.routes import (
     events_router,
     history_router,
     library_router,
+    loops_router,
     program_router,
     readers_router,
     recording_router,
     rig_router,
     schema_router,
     signals_router,
+    sim_router,
     telemetry_router,
 )
 
@@ -90,6 +92,7 @@ def create_app() -> FastAPI:
 
         app.add_exception_handler(error, handler)
 
+    app.include_router(loops_router)  # before rig_router: its /loops/schema must beat /loops/{name}
     app.include_router(rig_router)
     app.include_router(actuators_router)
     app.include_router(readers_router)
@@ -98,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(events_router)
     app.include_router(program_router)
     app.include_router(schema_router)
+    app.include_router(sim_router)
     app.include_router(history_router)
     app.include_router(library_router)
     app.include_router(telemetry_router)

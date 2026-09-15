@@ -11,11 +11,12 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body
 
-from flyball.core.errors import NotFoundError
+from flyball.control.loop import LoopMode
+from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.sink import Actuator
 from flyball.server.deps import RigDep
 
-from .devices import device_schema, run
+from .devices import actuator_schema, run
 
 router = APIRouter(prefix="/api/actuators", tags=["actuators"])
 
@@ -40,9 +41,7 @@ def read_actuator(rig: RigDep, name: str) -> Any:
 
 @router.get("/{name}/schema")
 def read_actuator_schema(rig: RigDep, name: str) -> dict[str, Any]:
-    actuator = _actuator(rig, name)
-    unit = type(actuator).demand_unit
-    return device_schema(actuator, demand_unit=None if unit is None else unit.symbol)
+    return actuator_schema(_actuator(rig, name))
 
 
 # Plain `def`: FastAPI runs it in the threadpool, so a command that touches
@@ -53,6 +52,10 @@ def run_command(
 ) -> Any:
     """Call the marked method with the validated body; respond with whatever it returns."""
     actuator = _actuator(rig, name)
+    if command == "demand" and name in rig.loops and rig.loops[name].mode is LoopMode.REGULATING:
+        raise ConflictError(
+            f"{name!r} is being regulated by its loop; stop the loop to drive it by hand"
+        )
     result = run(actuator, command, body)
     rig.apply(actuator)
     return result

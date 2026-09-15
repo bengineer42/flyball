@@ -1,6 +1,7 @@
 import { Alert, Link, Paper, Typography } from "@mui/material";
-import { useLoops, useStream } from "@flyball/react";
-import type { DeviceState, ReaderRun, RigSchema } from "@flyball/client";
+import { useLoops } from "@flyball/react";
+import type { DeviceState, RigSchema } from "@flyball/client";
+import { useReaderRuns } from "../model.js";
 import { Actuator } from "../Actuator.js";
 import { ReaderCard } from "../cards.js";
 import { hashFor, hrefFor } from "../router.js";
@@ -40,15 +41,6 @@ export function ActuatorDetail({ schema, name, states }: { schema: RigSchema; na
       <Actuator schema={actuator} state={states[name]} />
     </>
   );
-}
-
-/** Live reader runs from `/ws/readers`, keyed by name. */
-export function useReaderRuns() {
-  return useStream("readers", {} as Record<string, ReaderRun>, (held, message) => {
-    const next = { ...held };
-    for (const { name, ...run } of message.readers) next[name] = run;
-    return next;
-  }).state;
 }
 
 /** One reader: run state and its sources as links. */

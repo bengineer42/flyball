@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Box, Link, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { Gauge, Readout, SourcePanel, TimeSeries, UnitCharts, channelKey, useQuery, useRig, type Traces } from "@flyball/react";
 import type { SourceOut } from "@flyball/client";
-import { WindowSelect } from "../WindowSelect.js";
+import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor } from "../router.js";
 import { channelIcon } from "../icons.js";
 
@@ -16,15 +16,14 @@ const readView = (): View => {
   }
 };
 
-export interface SourcesProps {
+export interface SourcesProps extends ChartSettings {
   sources: SourceOut[];
   traces: Traces;
-  windowS: number;
-  onWindow(s: number): void;
 }
 
 /** Every source's charts, grouped by source (one panel each) or by unit (every channel of a unit on one chart). */
-export function Sources({ sources, traces, windowS, onWindow }: SourcesProps) {
+export function Sources({ sources, traces, ...charts }: SourcesProps) {
+  const { windowS, yScale, every } = charts;
   const [view, setView] = useState<View>(readView);
   const choose = (v: View | null) => {
     if (!v) return;
@@ -53,10 +52,12 @@ export function Sources({ sources, traces, windowS, onWindow }: SourcesProps) {
           channels={sources.flatMap((s) => s.channels)}
           traces={traces}
           windowS={windowS}
+          yScale={yScale}
+          every={every}
           controls={
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               {toggle}
-              <WindowSelect value={windowS} onChange={onWindow} />
+              <ChartControls {...charts} unit={sources[0]?.channels[0]?.unit} />
             </Stack>
           }
         />
@@ -67,12 +68,12 @@ export function Sources({ sources, traces, windowS, onWindow }: SourcesProps) {
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
         {toggle}
         <Box sx={{ ml: "auto !important" }}>
-          <WindowSelect value={windowS} onChange={onWindow} />
+          <ChartControls {...charts} unit={sources[0]?.channels[0]?.unit} />
         </Box>
       </Stack>
       <div className="tiles tiles-wide">
         {sources.map((s) => (
-          <SourcePanel key={s.name} source={s} traces={traces} windowS={windowS} />
+          <SourcePanel key={s.name} source={s} traces={traces} windowS={windowS} yScale={yScale} every={every} />
         ))}
       </div>
     </>
@@ -106,7 +107,8 @@ export function Crumbs({ items }: { items: Array<{ label: string; href?: string 
 }
 
 /** One source: its panel full width, and a readout tile per channel. */
-export function SourceDetail({ source, traces, windowS, onWindow }: { source: SourceOut | undefined; traces: Traces; windowS: number; onWindow(s: number): void }) {
+export function SourceDetail({ source, traces, ...charts }: { source: SourceOut | undefined; traces: Traces } & ChartSettings) {
+  const { windowS, yScale, every } = charts;
   if (!source) return <Alert severity="warning">No such source.</Alert>;
   return (
     <>
@@ -123,13 +125,14 @@ export function SourceDetail({ source, traces, windowS, onWindow }: { source: So
           );
         })}
       </div>
-      <SourcePanel source={source} traces={traces} windowS={windowS} controls={<WindowSelect value={windowS} onChange={onWindow} />} />
+      <SourcePanel source={source} traces={traces} windowS={windowS} yScale={yScale} every={every} controls={<ChartControls {...charts} unit={source.channels[0]?.unit} />} />
     </>
   );
 }
 
 /** One channel: gauge, readout, its full-width trace, and the loops that regulate it. */
-export function ChannelDetail({ source, measurand, traces, windowS, onWindow }: { source: SourceOut | undefined; measurand: string; traces: Traces; windowS: number; onWindow(s: number): void }) {
+export function ChannelDetail({ source, measurand, traces, ...charts }: { source: SourceOut | undefined; measurand: string; traces: Traces } & ChartSettings) {
+  const { windowS, yScale, every } = charts;
   const rig = useRig();
   const loops = useQuery(() => rig.loops(), [rig], { refreshMs: 10000 });
   const channel = source?.channels.find((c) => c.measurand === measurand);
@@ -178,10 +181,10 @@ export function ChannelDetail({ source, measurand, traces, windowS, onWindow }: 
             {channel.range && ` · range ${channel.range[0]} – ${channel.range[1]}`}
           </Typography>
           <Box sx={{ ml: "auto !important" }}>
-            <WindowSelect value={windowS} onChange={onWindow} />
+            <ChartControls {...charts} unit={channel.unit} />
           </Box>
         </Stack>
-        <TimeSeries channel={channel} t={trace?.t ?? []} v={trace?.v ?? []} height={280} windowS={windowS} />
+        <TimeSeries channel={channel} t={trace?.t ?? []} v={trace?.v ?? []} height={280} windowS={windowS} yScale={yScale} every={every} />
       </Paper>
     </>
   );

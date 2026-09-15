@@ -273,6 +273,41 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     program_sub.add_parser(
         "schema", help="the program file's JSON schema, for an editor"
     ).set_defaults(fn=cmd_program_schema, local=True)
+    prun = program_sub.add_parser("run", help="start a program file on the rig")
+    prun.add_argument("path", type=Path)
+    prun.add_argument("--interrupt", action="store_true", help="stop whatever is running first")
+    prun.set_defaults(fn=cmd_program_run)
+    program_sub.add_parser("status", help="what the programmer is doing").set_defaults(
+        fn=cmd_program_status
+    )
+    program_sub.add_parser("stop", help="interrupt the running program").set_defaults(
+        fn=cmd_program_stop
+    )
+    sim = sub.add_parser("sim", help="a simulated rig's knobs: clock speed, plants, saving")
+    sim_sub = sim.add_subparsers(dest="sim_action", metavar="<action>")
+    sim.set_defaults(fn=cmd_sim_show)
+    sim_sub.add_parser("show", help="the clock and every plant").set_defaults(fn=cmd_sim_show)
+    speed = sim_sub.add_parser("clock", help="run the rig's time at SPEED times wall time")
+    speed.add_argument("speed", type=float, help="rig seconds per wall second, e.g. 60")
+    speed.set_defaults(fn=cmd_sim_clock)
+    step = sim_sub.add_parser("step", help="advance a stepped clock")
+    step.add_argument("seconds", type=float)
+    step.set_defaults(fn=cmd_sim_step)
+    sset = sim_sub.add_parser("set", help="change a plant's parameters while it runs")
+    sset.add_argument("plant", help="the link's name")
+    sset.add_argument("parameters", nargs="+", metavar="KEY=VALUE", help="e.g. tau_s=30 noise=0.2")
+    sset.set_defaults(fn=cmd_sim_set)
+    reset = sim_sub.add_parser("reset", help="put a plant at an output")
+    reset.add_argument("plant")
+    reset.add_argument("output", type=float)
+    reset.add_argument("--input", type=float)
+    reset.set_defaults(fn=cmd_sim_reset)
+    sim_sub.add_parser("config", help="the rig file as it now stands").set_defaults(
+        fn=cmd_sim_config
+    )
+    save = sim_sub.add_parser("save", help="write the current config to the rig file")
+    save.add_argument("path", nargs="?", help="elsewhere; the suffix picks the format")
+    save.set_defaults(fn=cmd_sim_save)
     new = sub.add_parser("new", help="write a starting point for a device of your own")
     new.add_argument("kind", choices=("actuator", "reader"))
     new.add_argument("name", help="the tag and file name: 'chiller', 'lab-probe'")
@@ -438,10 +473,116 @@ def cmd_program_check(rig: Rig, args: argparse.Namespace) -> None:
         )
 
 
+def _program_state(args: argparse.Namespace, state: dict[str, Any]) -> None:
+    if args.json:
+        _out(args, state)
+    elif state["running"]:
+        print(f"running: step {state['step'] + 1} of {state['steps']} ({state['command']})")
+    else:
+        print("idle")
+
+
+def cmd_program_run(rig: Rig, args: argparse.Namespace) -> None:
+    """Send the file's document; the rig normalises it and applies step one before answering."""
+    from flyball.core.files import load_document
+
+    query = "?interrupt=true" if args.interrupt else ""
+    _program_state(args, rig.post(f"/api/programs/run{query}", load_document(args.path)))
+
+
+def cmd_program_status(rig: Rig, args: argparse.Namespace) -> None:
+    _program_state(args, rig.get("/api/programs/running"))
+
+
+def cmd_program_stop(rig: Rig, args: argparse.Namespace) -> None:
+    _program_state(args, rig.post("/api/programs/interrupt"))
+
+
 def cmd_program_schema(rig: Rig, args: argparse.Namespace) -> None:
     from flyball.server.dialect import Dialect, program_schema
 
     _out(args, program_schema(Dialect()))
+
+
+def _sim(rig: Rig) -> dict[str, Any]:
+    state = rig.get("/api/sim")
+    if not state.get("simulated"):
+        raise SchemaError("this rig is not a simulation; `flyball sim` has nothing to adjust")
+    return state
+
+
+def cmd_sim_show(rig: Rig, args: argparse.Namespace) -> None:
+    state = _sim(rig)
+    if args.json:
+        _out(args, state)
+        return
+    clock = state["clock"]
+    measured = clock.get("measured")
+    print(
+        f"{state['name'] or 'rig'}: clock {clock['speed']:g}x"
+        + (f" (measured {measured:.3g}x)" if measured else "")
+        + f"{' (stepped)' if clock['stepped'] else ''}; file {state['path'] or '-'}"
+    )
+    for name, plant in state["plants"].items():
+        config, live, links = plant["config"], plant.get("live", {}), plant.get("links", {})
+        print(f"  {name} ({config.get('kind') or config.get('tag', 'plant')})")
+        for key, value in config.items():
+            if key in ("kind", "tag", "seed") or value is None:
+                continue
+            beside = live.get(key)
+            if beside is not None:
+                # A statistic is what was observed; anything else is where the quantity is now.
+                word = "observed" if links.get(key, "").startswith("stats.") else "now"
+                values = beside.values() if isinstance(beside, dict) else [beside]
+                beside = f"  ({word} {' / '.join(_g(v) for v in values)})"
+            print(f"    {key:24s} {_g(value)}{beside or ''}")
+        rates = plant.get("stats", {}).get("rate_per_min", {})
+        for port, reading in plant.get("readings", {}).items():
+            rate = rates.get(port)
+            print(
+                f"    reading {port:16s} {_g(reading['value'])} {reading['unit']}"
+                + (f"  {rate:+.3g}/min" if rate is not None else "")
+                + f"  via {reading['reader']}"
+            )
+    if state["changed"]:
+        print(f"unsaved: {', '.join(state['changed'])}  (`flyball sim save`)")
+
+
+def _g(value: Any) -> str:
+    """A number to four significant figures; anything else as is."""
+    return f"{value:.4g}" if isinstance(value, float) else str(value)
+
+
+def cmd_sim_clock(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.put("/api/sim/clock", {"speed": args.speed}))
+
+
+def cmd_sim_step(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.post("/api/sim/clock/step", {"seconds": args.seconds}))
+
+
+def cmd_sim_set(rig: Rig, args: argparse.Namespace) -> None:
+    parameters: dict[str, Any] = {}
+    for item in args.parameters:
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise SchemaError(f"{item!r}: write KEY=VALUE")
+        parameters[key] = _json_or_str(value)
+    _out(args, rig.put(f"/api/sim/plants/{args.plant}", parameters))
+
+
+def cmd_sim_reset(rig: Rig, args: argparse.Namespace) -> None:
+    body = {"output": args.output, **({"input": args.input} if args.input is not None else {})}
+    _out(args, rig.post(f"/api/sim/plants/{args.plant}/reset", body))
+
+
+def cmd_sim_config(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.get("/api/sim/config"))
+
+
+def cmd_sim_save(rig: Rig, args: argparse.Namespace) -> None:
+    result = rig.post("/api/sim/save", {"path": args.path} if args.path else {})
+    print(f"saved {result['path']}")
 
 
 def cmd_new(rig: Rig, args: argparse.Namespace) -> None:

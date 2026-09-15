@@ -536,8 +536,12 @@ class SqliteStore:
             row.values[measurands[r["measurand_id"]].name] = r["value"]
         return list(samples.values())
 
-    def ticks(self, session_id: int, loop: str, window: Window | None = None) -> list[Tick]:
+    def ticks(
+        self, session_id: int, loop: str, window: Window | None = None, every: int | None = None
+    ) -> list[Tick]:
         where, params = _window_clause(window, "offset_ns")
+        # Ticks have no sequence number of their own: number them in order and keep every nth.
+        thin = "" if every is None or every <= 1 else f" AND (rn - 1) % {int(every)} = 0"
         return [
             Tick(
                 loop=r["loop"],
@@ -551,8 +555,11 @@ class SqliteStore:
                 delivered_correction=r["delivered_correction"],
             )
             for r in self._query(
-                "SELECT * FROM tick WHERE session_id = ? AND loop = ?"
+                "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY offset_ns) AS rn"
+                " FROM tick WHERE session_id = ? AND loop = ?"
                 + where
+                + ") WHERE 1 = 1"
+                + thin
                 + " ORDER BY offset_ns",
                 [session_id, loop, *params],
             )

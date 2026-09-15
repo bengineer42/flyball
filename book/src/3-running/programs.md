@@ -106,7 +106,29 @@ Over HTTP the same document goes to `POST /api/programs/run`;
 wait that times out, ends the program and is recorded as an event
 (`/api/events`, `/ws/events`) with the program name and step index.
 
-!!! note "Status"
-    Only `wait` ships as a command. The loop commands (regulate, ramp, hold)
-    are the application's to register until generic ones land; the dialect,
-    schema and routes are complete for whatever is registered.
+## The commands every rig has
+
+| step | arguments | does |
+| --- | --- | --- |
+| `regulate` | `setpoint` (primary), `loop?`, `tuning?` | aim a loop and let its law drive; returns at once |
+| `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `loop?` | walk the setpoint there and wait until it arrives |
+| `hold` | `duration` (primary, `minutes: 10` flat), `message?` | keep everything as it is; the loops go on regulating |
+| `manual` | `loop` (primary) | stop a loop; its actuator keeps its demand |
+| `wait` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/signals/{name}/fire`; a timeout ends the program |
+
+`loop` is a name, a list of names, or absent for the rig's default. A ramp
+over several loops returns when the longest arrives. Durations and rates
+count in the rig's clock: on a simulation at 60× a ten-minute hold takes ten
+seconds, and on a stepped clock it takes no time at all with every poll in
+between still happening.
+
+```yaml
+name: firing
+steps:
+  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
+  - ramp: { loop: [heater1, heater2, heater3], to: 600, per_minute: 10 }
+  - hold: { minutes: 20, message: "soak at 600" }
+  - ramp: { loop: heater2, to: 900, per_minute: 5 }
+  - manual: [heater1, heater2, heater3]
+  - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }
+```

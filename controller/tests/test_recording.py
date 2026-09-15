@@ -37,6 +37,7 @@ def test_start_read_end(client):
 
     ended = c.post("/api/recording/end")
     assert ended.status_code == 200 and ended.json()["id"] == session["id"]
+    assert ended.json()["end_ns"] is not None  # the response reflects the close
     assert c.get("/api/recording").json() is None
     assert store.session(session["id"]).end_ns is not None
 

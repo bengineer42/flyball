@@ -5,6 +5,8 @@ export const duration = (s: number) => {
   return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
 };
 
+export const clock = (ns: number) => new Date(ns / 1e6).toLocaleTimeString();
+
 export const when = (ns: number) => new Date(ns / 1e6).toLocaleString();
 
 /** The current time in ms, re-rendering every `everyMs`; for a running duration. */

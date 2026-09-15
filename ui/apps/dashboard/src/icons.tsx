@@ -5,7 +5,9 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import LoopIcon from "@mui/icons-material/Loop";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
+import PlaylistPlayIcon from "@mui/icons-material/PlaylistPlay";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
 import SpeedIcon from "@mui/icons-material/Speed";
@@ -24,8 +26,10 @@ export const PAGE_ICONS: Record<Page, IconComponent> = {
   sources: ShowChartIcon,
   actuators: TuneIcon,
   loops: LoopIcon,
+  programs: PlaylistPlayIcon,
   events: NotificationsNoneIcon,
   sessions: StorageOutlinedIcon,
+  simulation: ScienceOutlinedIcon,
   readers: SensorsIcon,
 };
 

@@ -97,6 +97,23 @@ A program is a document in the server's [dialect](../3-running/programs.md);
 | `GET` | `/api/programs/running` | `ProgrammerState` |
 | `POST` | `/api/programs/interrupt` | stop whatever is running |
 
+## Simulation
+
+Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answers 409 otherwise.
+
+| | | |
+| --- | --- | --- |
+| `GET` | `/api/sim` | `{simulated, name, path, clock: {speed, measured, stepped, now_ns}, plants: {name: {config, links, live, readings, stats, input, output}}, changed}`; `inputs`/`outputs` for a multi-port plant |
+| `PUT` | `/api/sim/clock` | `{speed}`; the rig's time runs at `speed`× from now on |
+| `POST` | `/api/sim/clock/step` | `{seconds}`; a stepped clock only |
+| `GET` | `/api/sim/plants/{name}` | a plant's config and state |
+| `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live; 422 for `kind` |
+| `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
+| `GET` | `/api/sim/config` | the rig file as it now stands |
+| `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from |
+
+`GET /api/clock` carries `speed` too, so a client can label a time axis.
+
 ## Events
 
 | | | |

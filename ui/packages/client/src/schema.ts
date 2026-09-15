@@ -69,6 +69,48 @@ export function formatValue(value: unknown, schema?: JsonSchema): string {
   return String(value);
 }
 
+/**
+ * The `live` path a config field declares (`Field(json_schema_extra={"live": "state.duty"})`):
+ * where the value the field stands for is now. Absent on a parameter.
+ */
+export function liveOf(field?: JsonSchema): string | undefined {
+  return typeof field?.live === "string" && field.live ? field.live : undefined;
+}
+
+/**
+ * What a `live` path points at in `root`: dot-separated keys walked from the
+ * root (`state.duty`, `stats.noise`); a `*` segment fans out over every key
+ * at that level and yields an object keyed by them (`outputs.*`,
+ * `readings.*.value`). `undefined` when a key is missing; a fan-out drops
+ * the keys the rest of the path misses.
+ */
+export function resolveLive(path: string, root: unknown): unknown {
+  return walk(path ? path.split(".") : [], root);
+}
+
+function walk(segments: string[], node: unknown): unknown {
+  if (segments.length === 0) return node;
+  if (!node || typeof node !== "object" || Array.isArray(node)) return undefined;
+  const [head, ...rest] = segments as [string, ...string[]];
+  const record = node as Record<string, unknown>;
+  if (head === "*") {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      const found = walk(rest, value);
+      if (found !== undefined && found !== null) out[key] = found;
+    }
+    return out;
+  }
+  return walk(rest, record[head]);
+}
+
+/** A loop's current setpoint: the reference when it is a number, else recovered from demand − correction. */
+export function setpointOf(loop: { reference: number | string | null; demand: number | null; correction: number | null }): number | null {
+  if (typeof loop.reference === "number") return loop.reference;
+  if (loop.demand != null && loop.correction != null) return loop.demand - loop.correction;
+  return null;
+}
+
 /** `set_flows` → `Set flows`, `wetFraction` → `Wet fraction`. For headings; the tag stays the identifier. */
 export function humanise(tag: string): string {
   const words = tag.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();

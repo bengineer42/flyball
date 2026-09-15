@@ -8,6 +8,8 @@ format (comments do not survive that; the stored text keeps them).
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
@@ -15,8 +17,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 
 from flyball.db import ProgramFormat, ProgramRow
+from flyball.db.errors import ProgramNotFoundError
+from flyball.db.store import Store
 from flyball.programmer.programmer import ProgrammerState
-from flyball.server.deps import DialectDep, ProgrammerDep, RigDep, StoreDep
+from flyball.server.deps import DialectDep, ProgrammerDep, RigDep, StoreDep, current_programs_dir
 from flyball.server.dialect import StepError, normalise_program, program_from_document
 from flyball.server.formats import MEDIA_TYPES, FormatError, detect, dump, parse
 
@@ -50,10 +54,49 @@ def _check(row: ProgramRow, dialect: Any) -> ProgramCheck:
     return ProgramCheck(ok=True, normalised=normalised)
 
 
+def import_directory(store: Store, directory: Path, now_ns: int) -> list[ProgramRow]:
+    """Bring every program file in `directory` into the library.
+
+    The file's stem is the name. A file whose text matches the newest stored
+    version is left alone; a changed file becomes a new version, so editing on
+    disk and in the UI share one history. Files that are not YAML, TOML or
+    JSON are ignored; one that does not parse is skipped, not fatal.
+    """
+    imported: list[ProgramRow] = []
+    for path in sorted(directory.iterdir()):
+        fmt = detect(None, path.name)
+        if fmt is None or not path.is_file():
+            continue
+        text = path.read_text()
+        try:
+            parse(text, fmt)
+        except FormatError:
+            continue
+        try:
+            newest = store.program(path.stem)
+            if newest.sha256 == hashlib.sha256(text.encode()).hexdigest():
+                continue
+        except ProgramNotFoundError:
+            pass
+        imported.append(
+            store.save_program(path.stem, fmt, text, now_ns, notes={"source": str(path)})
+        )
+    return imported
+
+
 @router.get("")
 async def read_programs(store: StoreDep) -> list[ProgramRow]:
     """Newest version of every name."""
     return store.programs()
+
+
+@router.post("/import")
+def import_programs(store: StoreDep, rig: RigDep) -> list[ProgramRow]:
+    """Rescan the programs directory; returns what was newly imported. Empty when none is set."""
+    directory = current_programs_dir()
+    if directory is None or not directory.is_dir():
+        return []
+    return import_directory(store, directory, rig.clock.now_ns())
 
 
 @router.get("/formats")

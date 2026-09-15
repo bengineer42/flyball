@@ -22,16 +22,21 @@ class Program(Sequence["Command"]):
         ValueError: `commands` is empty.
     """
 
-    __slots__ = ("_commands", "name")
+    __slots__ = ("_commands", "description", "name")
 
     _commands: tuple[Command, ...]
     name: str | None
+    description: str | None
+    """What the program is for, for a listing; optional."""
 
-    def __init__(self, commands: Sequence[Command], name: str | None = None) -> None:
+    def __init__(
+        self, commands: Sequence[Command], name: str | None = None, description: str | None = None
+    ) -> None:
         if not commands:
             raise ValueError("a program needs at least one command")
         self._commands = tuple(commands)
         self.name = name
+        self.description = description
 
     def get(self, index: int, default: None = None, /) -> Command | None:
         with suppress(IndexError):

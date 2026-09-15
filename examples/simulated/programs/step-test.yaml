@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=program.schema.json
+# Identification: settle every zone, then step one zone at a time and hold
+# long enough for the response to flatten. The recorded session is what
+# `fit_fopdt` wants: a known step and the reading after it. Done at 300 and
+# again at 700, because the gain is not the same — that difference is the
+# case for a gain schedule. About 5 h of furnace time.
+name: step-test
+steps:
+  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
+  - ramp: { loop: [heater1, heater2, heater3], to: 300, per_minute: 15 }
+  - hold: { minutes: 40, message: "settle at 300" }
+  - regulate: { loop: heater2, setpoint: 330 }             # a step, not a ramp
+  - hold: { minutes: 40, message: "zone 2 responding at 300" }
+  - regulate: { loop: heater2, setpoint: 300 }
+  - hold: { minutes: 40, message: "back" }
+  - ramp: { loop: [heater1, heater2, heater3], to: 700, per_minute: 15 }
+  - hold: { minutes: 40, message: "settle at 700" }
+  - regulate: { loop: heater2, setpoint: 730 }
+  - hold: { minutes: 40, message: "zone 2 responding at 700: compare the shape" }
+  - regulate: { loop: heater2, setpoint: 700 }
+  - hold: { minutes: 20 }
+  - ramp: { loop: [heater1, heater2, heater3], to: 100, per_minute: 20 }
+  - manual: [heater1, heater2, heater3]

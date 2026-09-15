@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import type { ChannelOut } from "@flyball/client";
+import { yRange, type YScale } from "./yscale.js";
+import { thin } from "./thin.js";
+import { navigation } from "./navigation.js";
+import { ChartToolbar } from "./ChartToolbar.js";
 
 /** Canvas cannot resolve CSS variables, so read the palette off the element and pass real colours. */
 export function chartPalette(el: Element): { accent: string; fg: string; muted: string; border: string } {
@@ -31,8 +35,10 @@ export interface TimeSeriesProps {
   t: number[];
   v: number[];
   height?: number;
-  /** Fix the y axis to the channel's declared range rather than autoscaling. */
+  /** Fix the y axis to the channel's declared range rather than autoscaling. Shorthand for `yScale="range"`. */
   fixedRange?: boolean;
+  /** How to scale the y axis: fit the data, the channel's range, or fixed bounds. */
+  yScale?: YScale;
   /** No axes, no legend: a sparkline. */
   compact?: boolean;
   /**
@@ -41,6 +47,10 @@ export interface TimeSeriesProps {
    * Omit to autoscale over everything held.
    */
   windowS?: number;
+  /** Draw one point in `every`; the newest is always kept. */
+  every?: number;
+  /** Pan/zoom toolbar and wheel/drag navigation; on by default for full charts, never for sparklines. */
+  navigable?: boolean;
 }
 
 /**
@@ -48,7 +58,17 @@ export interface TimeSeriesProps {
  * per channel and fed new data on every render, so a live trace at 10 Hz
  * costs a `setData`, not a rebuild. Axis label and unit come from the channel.
  */
-export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, compact = false, windowS }: TimeSeriesProps) {
+export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, compact = false, windowS, yScale, every, navigable }: TimeSeriesProps) {
+  const nav = useRef(navigation()).current;
+  const [following, setFollowing] = useState(true);
+  nav.onChange = setFollowing;
+  const interactive = navigable ?? !compact;
+  // "fit y" on the toolbar autoscales until the caller's y scale changes again.
+  const [yFit, setYFit] = useState<YScale | null>(null);
+  const wanted: YScale = yScale ?? (fixedRange ? "range" : "auto");
+  const effective = yFit !== null && yFit === wanted ? "auto" : wanted;
+  const y = yRange(effective, channel.range);
+  const yKey = typeof effective === "object" ? `${effective.min}:${effective.max}` : effective;
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
   const theme = useThemeVersion();
@@ -90,17 +110,14 @@ export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, co
           time: true,
           // Scrolling window: anchor the right edge on the newest point once the
           // window has filled; before that, grow from the first point.
-          range: (_u, min, max) => {
-            if (!windowS) return [min, max];
-            const span = max - min;
-            return span < windowS ? [min, min + windowS] : [max - windowS, max];
-          },
+          range: (u, min, max) => nav.xRange(u, min, max, windowS),
         },
-        y: fixedRange && channel.range ? { range: () => channel.range as [number, number] } : {},
+        y: y ? { range: y } : {},
       },
       legend: { show: !compact },
       cursor: compact ? { show: false } : { drag: { x: true, y: false } },
       padding: compact ? [4, 4, 4, 4] : undefined,
+      plugins: interactive ? [nav.plugin()] : [],
     };
     chart.current = new uPlot(options, [[], []], el);
     (el as HTMLDivElement & { uplot?: uPlot }).uplot = chart.current; // for tests and devtools
@@ -112,13 +129,19 @@ export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, co
       chart.current?.destroy();
       chart.current = null;
     };
-  }, [channel, height, fixedRange, compact, windowS, theme]);
+  }, [channel, height, yKey, compact, windowS, theme, interactive]);
 
-  const latest = useRef({ t, v });
-  latest.current = { t, v };
+  const latest = useRef({ t: thin(t, every), v: thin(v, every) });
+  latest.current = { t: thin(t, every), v: thin(v, every) };
   useEffect(() => {
-    chart.current?.setData([t, v]);
-  }, [t, v]);
+    chart.current?.setData([latest.current.t, latest.current.v]);
+  }, [t, v, every]);
 
-  return <div ref={host} className="fb-chart" />;
+  if (!interactive) return <div ref={host} className="fb-chart" />;
+  return (
+    <div className="fb-chart-wrap">
+      <ChartToolbar nav={nav} chart={() => chart.current} following={following} onFitY={effective === "auto" ? undefined : () => setYFit(wanted)} />
+      <div ref={host} className="fb-chart" />
+    </div>
+  );
 }

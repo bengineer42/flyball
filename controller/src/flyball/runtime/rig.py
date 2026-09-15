@@ -22,6 +22,8 @@ from .loops import Loops
 from .recorder import Recorder
 
 log = logging.getLogger("flyball.rig")
+RECENT_READINGS = 60
+"""How many readings the rig keeps per channel, for a stat on request: noise, rate."""
 
 
 class Rig:
@@ -30,6 +32,8 @@ class Rig:
     actuators: dict[str, Actuator]
     name: str | None
     """What the rig file called it, if it came from one."""
+    links: dict[str, Any]
+    """What the rig file's `links` built, by name: buses, sessions, simulated plants."""
     lock: RLock
     actuator_states: Latest[str, ActuatorState]
     """The newest state of each actuator, by name. Built only while someone watches."""
@@ -47,9 +51,11 @@ class Rig:
     _readers: Readers
     _samples: dict[Source, Sample]
     _readings: dict[Channel, Reading]
+    _recent: dict[Channel, deque[Reading]]
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
+        self.links = {}
         self.clock = Clock()
         self.loops = Loops()
         self.actuators = {}
@@ -65,6 +71,19 @@ class Rig:
         self._readers = Readers(self)
         self._samples = {}
         self._readings = {}
+        self._recent = {}
+
+    def reading(self, channel: Channel) -> Reading | None:
+        """The last reading delivered on `channel`, if any."""
+        return self._readings.get(channel)
+
+    def recent_readings(self, channel: Channel, n: int = RECENT_READINGS) -> list[Reading]:
+        """The last `n` readings on `channel`, oldest first: a copy, so compute on it unlocked."""
+        with self.lock:
+            recent = self._recent.get(channel)
+            if recent is None:
+                return []
+            return list(recent)[-n:]
 
     @property
     def sources(self) -> set[Source]:
@@ -210,6 +229,9 @@ class Rig:
                 channel = sample.source[measurand]
                 reading = sample.reading(measurand)
                 self._readings[channel] = reading
+                if (recent := self._recent.get(channel)) is None:
+                    recent = self._recent[channel] = deque(maxlen=RECENT_READINGS)
+                recent.append(reading)  # one append on the delivery path; the maths is on request
                 if channel in self.observations:
                     for observer in self.observations[channel]:
                         observer.observe(reading)

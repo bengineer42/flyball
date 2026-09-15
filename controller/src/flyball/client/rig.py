@@ -139,6 +139,9 @@ class Rig:
     def post(self, path: str, body: Any = None) -> Any:
         return self._request("POST", path, body)
 
+    def put(self, path: str, body: Any = None) -> Any:
+        return self._request("PUT", path, body)
+
     # endregion
     # region Schema
 
@@ -175,8 +178,12 @@ class Rig:
         return bool(self.post(f"/api/signals/{name}/interrupt")["interrupted"])
 
     def clock(self) -> dict[str, Any]:
-        """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`."""
+        """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed`."""
         return self.get("/api/clock")
+
+    def sim(self) -> dict[str, Any]:
+        """A simulated rig's knobs (`/api/sim`); `{"simulated": false}` on hardware."""
+        return self.get("/api/sim")
 
     def sources(self) -> Any:
         return self.get("/api/sources")

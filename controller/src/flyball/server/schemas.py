@@ -31,12 +31,15 @@ class ClockOut(BaseModel):
     now_ns: int
     elapsed_ns: int
     tags: dict[str, int]
+    speed: float = 1.0
+    """How fast the rig's time runs against wall time; only a simulated rig is ever not 1."""
 
     @classmethod
     def of(cls, clock: Clock) -> ClockOut:
         return cls(
             start_time_ns=clock.start_time_ns,
             now_ns=clock.now_ns(),
+            speed=float(getattr(clock, "speed", 1.0)),
             elapsed_ns=clock.elapsed_ns(),
             tags={label: clock.elapsed_ns(label) for label in clock.tags_ns if label is not None},
         )
@@ -53,6 +56,8 @@ class ChannelOut(BaseModel):
     """The band a value is normal inside; outside it, a warning."""
     alarm: tuple[float, float] | None = None
     """The band a value is acceptable inside; outside it, an alarm."""
+    dimension: str | None = None
+    """The unit's dimension, so a client can tell what may drive or be compared with what."""
 
     @classmethod
     def of(cls, channel: Channel) -> ChannelOut:
@@ -60,6 +65,7 @@ class ChannelOut(BaseModel):
             source=str(channel.source.name),
             measurand=channel.measurand.name,
             unit=channel.unit.symbol,
+            dimension=channel.unit.dimension.label,
             label=channel.measurand.label,
             range=channel.measurand.range,
             precision=channel.measurand.precision,

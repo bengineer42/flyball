@@ -1,6 +1,7 @@
 import type { SourceOut } from "@flyball/client";
 import { channelKey, type Traces } from "../hooks/useSources.js";
 import { TimeSeries } from "./TimeSeries.js";
+import type { YScale } from "./yscale.js";
 import { Ref } from "../links.js";
 
 export interface SourcePanelProps {
@@ -11,10 +12,14 @@ export interface SourcePanelProps {
   windowS?: number;
   /** Rendered at the end of the header: a window selector, for instance. */
   controls?: React.ReactNode;
+  /** y axis scaling for every chart in the panel. */
+  yScale?: YScale;
+  /** Draw one point in `every`. */
+  every?: number;
 }
 
 /** One source: a chart per channel, latest value in the heading. Pure; `useSamples` supplies the traces. */
-export function SourcePanel({ source, traces, height, windowS, controls }: SourcePanelProps) {
+export function SourcePanel({ source, traces, height, windowS, controls, yScale, every }: SourcePanelProps) {
   const first = source.channels[0] && traces[channelKey(source.channels[0])];
   const lastT = first && first.t.length ? first.t[first.t.length - 1]! : undefined;
   return (
@@ -38,7 +43,7 @@ export function SourcePanel({ source, traces, height, windowS, controls }: Sourc
                 {last === undefined ? "—" : `${last.toFixed(c.precision ?? 2)} ${c.unit}`}
               </span>
             </h4>
-            <TimeSeries channel={c} t={trace?.t ?? []} v={trace?.v ?? []} height={height} windowS={windowS} />
+            <TimeSeries channel={c} t={trace?.t ?? []} v={trace?.v ?? []} height={height} windowS={windowS} yScale={yScale} every={every} />
           </section>
         );
       })}

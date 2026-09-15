@@ -49,10 +49,10 @@ def start_recording(rig: RigDep, store: StoreDep, body: StartRecording | None = 
 
 
 @router.post("/end")
-def end_recording(rig: RigDep) -> SessionRow:
+def end_recording(rig: RigDep, store: StoreDep) -> SessionRow:
     """Close the open session. 409 when nothing is recording."""
     session = _current(rig)
     if session is None:
         raise ConflictError("not recording")
     rig.stop_recording()
-    return session
+    return store.session(session.id)  # re-read: the row we held was taken before it closed

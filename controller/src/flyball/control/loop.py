@@ -247,6 +247,11 @@ class Loop[A: Actuator]:
             bump = 0.0 if held is None else applied.demand - held
             return RegulateResult(*applied, bump=bump)
 
+    def manual(self) -> None:
+        """Stop regulating: the actuator keeps its last demand and takes commands directly."""
+        with self.lock:
+            self.mode = LoopMode.MANUAL
+
     def set_reference(
         self,
         at: ValueSource | float,

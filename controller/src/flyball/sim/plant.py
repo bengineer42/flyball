@@ -63,6 +63,10 @@ class Lag:
     def feedforward(self, demand: float) -> float:
         return (demand - self.ambient) / self.gain if self.gain else 0.0
 
+    def inverse_feedforward(self, drive: float) -> float:
+        """The output `drive` holds at steady state: what a clamped actuator can deliver."""
+        return self.ambient + self.gain * drive
+
     def drive(self, u: float, dt_s: float) -> float:
         """Set the input to `u` and hold it for `dt_s` seconds; return the new output."""
         self.input = u
@@ -134,6 +138,9 @@ class Fopdt:
 
     def feedforward(self, demand: float) -> float:
         return self._lag.feedforward(demand)
+
+    def inverse_feedforward(self, drive: float) -> float:
+        return self._lag.inverse_feedforward(drive)
 
     def step(self, dt_s: float) -> float:
         self._pipe.append((self._now + self.dead_s, self.input))

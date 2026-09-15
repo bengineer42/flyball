@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=program.schema.json
+# A firing: all three zones up together, soak, a hotter soak in the middle,
+# and cool. About two hours of furnace time; at the file's 60x, two minutes.
+name: firing
+steps:
+  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
+  - ramp: { loop: [heater1, heater2, heater3], to: 600, per_minute: 10 }
+  - hold: { minutes: 20, message: "soak at 600" }
+  - ramp: { loop: heater2, to: 900, per_minute: 5 }       # the middle only: the neighbours fight it
+  - hold: { minutes: 15, message: "soak at 900" }
+  - ramp: { loop: [heater1, heater2, heater3], to: 100, per_minute: 20 }
+  - manual: [heater1, heater2, heater3]
+  - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }

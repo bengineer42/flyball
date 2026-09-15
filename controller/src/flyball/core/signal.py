@@ -8,8 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from threading import Event, Lock, Thread
+from typing import TYPE_CHECKING
 
 from .utils import Labelled
+
+if TYPE_CHECKING:
+    from .clock import Clock
 
 
 class Outcome(Labelled):
@@ -26,16 +30,17 @@ class Outcome(Labelled):
 class Signal:
     """Fires once, and says how it ended. Wraps an `Event`; settled only by an outcome."""
 
-    __slots__ = ("_event", "_lock", "_timer", "on_settle", "outcome")
+    __slots__ = ("_clock", "_event", "_lock", "_timer", "on_settle", "outcome")
 
     outcome: Outcome
     on_settle: Callable[[Signal], None] | None
     """Called once with the signal after it settles, from the settling thread."""
 
-    def __init__(self, timeout: float | None = None) -> None:
+    def __init__(self, timeout: float | None = None, clock: Clock | None = None) -> None:
         self._event = Event()
         self._lock = Lock()
         self._timer: Thread | None = None
+        self._clock = clock  # the timeout counts in this clock's time; None is wall time
         self.on_settle = None
         self.outcome = Outcome.PENDING
         if timeout is not None:
@@ -78,8 +83,10 @@ class Signal:
         return self._settle(Outcome.TIMEOUT)
 
     def wait(self, timeout: float | None = None) -> bool:
-        """Block until settled. False only if `timeout` elapsed first."""
-        return self._event.wait(timeout)
+        """Block until settled. False only if `timeout` elapsed first (in the clock's time)."""
+        if self._clock is None:
+            return self._event.wait(timeout)
+        return self._clock.wait(self._event, timeout)
 
     def wait_outcome(self, timeout: float | None = None) -> Outcome:
         """Block until settled, then say how it ended."""

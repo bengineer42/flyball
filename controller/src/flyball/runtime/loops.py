@@ -58,6 +58,18 @@ class Loops:
         if default or self.default is None:
             self.default = loop.name
 
+    def remove(self, name: str) -> Loop[Any]:
+        """Detach a loop; its channel may be regulated by another. The actuator stays attached."""
+        try:
+            loop = self._loops.pop(name)
+        except KeyError as e:
+            raise LoopNotFoundError(name) from e
+        channel = self._channels.pop(name)
+        self._process.pop(channel, None)
+        if self.default == name:
+            self.default = next(iter(self._loops), None)
+        return loop
+
     def find(self, channel: Channel) -> Loop[Any] | None:
         """The loop regulating `channel`, or None. The hot path: most channels have none."""
         return self._process.get(channel)

@@ -23,6 +23,7 @@ table knows. All of these fail at load with the offending name.
 | `name` | string | optional |
 | `board` | string | a board profile: a name on the board path, or a path relative to the file; its links go under `links`, its pins resolve `pin` on devices ([boards](../3-running/boards.md)) |
 | `recording` | bool | open a session when the daemon starts |
+| `clock` | `{speed?, stepped?}` | run the rig's time faster, or only when stepped; simulated rigs only |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `readers` | `[{device: Reader, period_s?}]` | `period_s` > 0 polls; omit for a pushed reader |
 | `actuators` | `[Actuator]` | |
@@ -41,6 +42,8 @@ from `links` or an inline link.
 | `modbus_rtu` | `port`, `baud` = 9600 | `modbus` | `fake_registers` |
 | `fake_text` | `replies: {command: reply}` | — | |
 | `fake_registers` | `registers: {address: value}` | — | |
+| `sim_plant` | `kind` = lag / integrator / fopdt, `tau_s`, `dead_s`, `gain`, `leak`, `ambient`, `initial`, `noise`, `seed` | — | is one |
+| `sim_furnace` | `zones`, `power_w`, `capacity_j_per_k` (each a number or one per zone), `coupling_w_per_k`, `loss_w_per_k`, `emissivity`, `area_m2`, `ambient_c`, `sample_*`, `sensor_lag_s`, `noise` | — | is one |
 
 ## Devices
 
@@ -50,6 +53,8 @@ from `links` or an inline link.
 | `scpi_actuator` | actuator | `name`, `link`, `command` (with `{value}`), `demand_unit?`, `readback?` |
 | `modbus_reader` | reader, one source | `name`, `link`, `registers: {name: Register}`, `unit_id` = 1, `source?` |
 | `modbus_actuator` | actuator | `name`, `link`, `output: Register`, `unit_id` = 1 |
+| `sim_reader` | reader, one source | `name`, `link`, `port?` (a multi-port plant's output), `measurand`, `unit`, `range?`, `precision?`; commands `fail`, `restore` |
+| `sim_actuator` | actuator | `name`, `link`, `port?` (a multi-port plant's input), `limits`, `unit?`; commands `set_limits`, `disturb` |
 
 The tags `flyball-linux` adds (`i2c`, `gpio`, `sht4x`, `pwm_actuator`, ...)
 are on the [boards page](../3-running/boards.md). Any device entry may say

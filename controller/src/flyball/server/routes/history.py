@@ -136,8 +136,9 @@ async def read_ticks(
     loop: str,
     start_ns: int | None = None,
     end_ns: int | None = None,
+    every: int | None = Query(None, ge=1, description="Keep one tick in every n"),
 ) -> list[Tick]:
-    return store.ticks(session_id, loop, _window(start_ns, end_ns))
+    return store.ticks(session_id, loop, _window(start_ns, end_ns), every)
 
 
 @router.get("/sessions/{session_id}/events")

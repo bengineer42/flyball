@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=program.schema.json
+# A temperature gradient along the tube: 800 / 600 / 400 °C. Conduction pulls
+# the zones towards each other: the hot end's 2.5 kW saturates and it settles
+# short of 800, and the cold end sits at ~450 with its heater off, because a
+# heater cannot cool. Then the gradient is flattened to 600 and the loops
+# re-find their balance. About 4 h of furnace time.
+name: gradient
+steps:
+  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
+  - ramp: { loop: [heater1, heater2, heater3], to: 400, per_minute: 10 }
+  - hold: { minutes: 15, message: "level at 400" }
+  - ramp: { loop: heater2, to: 600, per_minute: 10 }        # the middle first...
+  - ramp: { loop: heater1, to: 800, per_minute: 10 }        # ... then the hot end
+  - hold: { minutes: 30, message: "gradient 800 / 600 / 400: watch heater3 sit at zero" }
+  - ramp: { loop: heater1, to: 600, per_minute: 5 }
+  - ramp: { loop: heater3, to: 600, per_minute: 10 }
+  - hold: { minutes: 30, message: "flat at 600" }
+  - ramp: { loop: [heater1, heater2, heater3], to: 100, per_minute: 20 }
+  - manual: [heater1, heater2, heater3]

@@ -97,3 +97,37 @@ class TestCli:
     def test_required_flags_are_required(self):
         with pytest.raises(SystemExit):
             self.parser().parse_args(["--flow.flow", "8"])
+
+
+class TestProgramCommands:
+    """`flyball program run/status/stop` talk to the programs routes and print the state."""
+
+    def test_run_posts_the_document_and_prints_the_state(self, tmp_path, capsys):
+        import argparse
+
+        from flyball import cli
+
+        path = tmp_path / "p.yaml"
+        path.write_text("name: t\nsteps:\n  - wait: press go\n")
+        calls = []
+
+        class Fake:
+            def post(self, route, body=None):
+                calls.append((route, body))
+                return {"running": True, "step": 0, "steps": 1, "command": "wait"}
+
+            def get(self, route):
+                calls.append((route, None))
+                return {"running": False, "step": 0, "steps": 0, "command": None}
+
+        cli.cmd_program_run(Fake(), argparse.Namespace(json=False, path=path, interrupt=True))
+        cli.cmd_program_status(Fake(), argparse.Namespace(json=False))
+        cli.cmd_program_stop(Fake(), argparse.Namespace(json=False))
+        assert calls[0] == (
+            "/api/programs/run?interrupt=true",
+            {"name": "t", "steps": [{"wait": "press go"}]},
+        )
+        assert calls[1] == ("/api/programs/running", None)
+        assert calls[2] == ("/api/programs/interrupt", None)
+        out = capsys.readouterr().out.splitlines()
+        assert out == ["running: step 1 of 1 (wait)", "idle", "running: step 1 of 1 (wait)"]

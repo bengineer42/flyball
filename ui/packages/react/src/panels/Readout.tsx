@@ -13,10 +13,12 @@ export interface ReadoutProps {
   showSource?: boolean;
   /** Seconds the sparkline spans; scrolls once full. */
   windowS?: number;
+  /** Draw one point in `every` on the sparkline. */
+  every?: number;
 }
 
 /** One channel as a tile: label, current value with unit, position in range, sparkline. */
-export function Readout({ channel, t, v, sparkline = true, showSource = true, windowS }: ReadoutProps) {
+export function Readout({ channel, t, v, sparkline = true, showSource = true, windowS, every }: ReadoutProps) {
   const last = v.length ? v[v.length - 1] : undefined;
   const range = channel.range;
   const precision = channel.precision ?? 2;
@@ -55,7 +57,7 @@ export function Readout({ channel, t, v, sparkline = true, showSource = true, wi
           ))}
         </div>
       )}
-      {sparkline && <TimeSeries channel={channel} t={t} v={v} height={44} compact windowS={windowS} />}
+      {sparkline && <TimeSeries channel={channel} t={t} v={v} height={44} compact windowS={windowS} every={every} />}
     </div>
   );
 }

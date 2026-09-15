@@ -112,6 +112,26 @@ class LoopEntry(BaseModel):
     )
 
 
+class ClockEntry(BaseModel):
+    """How the rig's time runs. Only a rig with nothing real on it may run off wall time."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    speed: float = Field(default=1.0, gt=0, description="Rig seconds per wall second.")
+    stepped: bool = Field(
+        default=False, description="Time moves only when stepped; for a batch run or a test."
+    )
+
+
+def is_simulated(links: dict[str, Any]) -> bool:
+    """Whether every link is a fake or a simulation, so time may be played with."""
+    return all(
+        (tag := getattr(link, "config_tag", None)) is not None
+        and (tag.startswith("sim_") or tag.startswith("fake_"))
+        for link in links.values()
+    )
+
+
 class RigConfig(BaseModel):
     """The whole file.
 
@@ -129,6 +149,9 @@ class RigConfig(BaseModel):
     )
     recording: bool = Field(
         default=False, description="Open a recording session when the daemon starts."
+    )
+    clock: ClockEntry | None = Field(
+        default=None, description="Run the rig's time faster, or stepped; simulated rigs only."
     )
     links: dict[str, Any] = Field(default_factory=dict)
     readers: list[ReaderEntry] = Field(default_factory=list)
@@ -171,17 +194,30 @@ class RigConfig(BaseModel):
                 raise ValueError(f"loop channel {loop.channel!r} must be 'source.measurand'")
         if sum(loop.default for loop in self.loops) > 1:
             raise ValueError("only one loop can be the default")
+        if self.clock is not None and not is_simulated(self.links):
+            raise ValueError("`clock` is only for a rig whose links are all sim_* or fake_*")
         return self
+
+    @property
+    def simulated(self) -> bool:
+        return is_simulated(self.links)
 
     def build(self, clock: Clock | None = None, start: bool = True) -> Rig:
         """Links, then readers, then actuators, then loops.
 
         Args:
-            clock: The rig's timebase; a stepped one for a run with no waiting.
+            clock: The rig's timebase. Default: what the file's `clock` says;
+                a simulated rig with none gets a scaled clock at 1x, so its
+                speed can be changed while it runs.
             start: Poll the readers on their periods. False attaches them
                 without polling, for a caller that will drive reads itself.
         """
         links = {name: config.build() for name, config in self.links.items()}
+        if clock is None and self.simulated:
+            from flyball.sim.clock import ScaledClock, SteppedClock
+
+            entry = self.clock or ClockEntry()
+            clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
 
         def with_link(config: Any) -> Any:
             link = getattr(config, "link", None)
@@ -190,6 +226,7 @@ class RigConfig(BaseModel):
             )
 
         rig = Rig(self.name)
+        rig.links = links
         if clock is not None:
             rig.clock = clock
         for entry in self.readers:
@@ -380,12 +417,14 @@ def rig_schema() -> dict[str, Any]:
 __all__ = [
     "BOARDS_ENV",
     "Board",
+    "ClockEntry",
     "LoopEntry",
     "ReaderEntry",
     "RigConfig",
     "apply_board",
     "board_dirs",
     "find_board",
+    "is_simulated",
     "load_board",
     "load_rig",
     "load_rig_config",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from threading import Event
 from typing import Any, Self, TypeGuard, overload
 
 from pydantic_core import core_schema
@@ -269,6 +270,15 @@ class Duration(TimeBase):
 
 
 class Clock:
+    """Wall time, as nanoseconds since the epoch, anchored to the monotonic clock.
+
+    Everything that stamps a sample or waits for a duration goes through the
+    rig's clock, so a simulated rig can run faster than real time
+    ([ScaledClock][flyball.sim.clock.ScaledClock]) or only when stepped
+    ([SteppedClock][flyball.sim.clock.SteppedClock]) by swapping this one
+    object. Subclasses override `monotonic_ns`, `sleep` and `wait`.
+    """
+
     start_mono_ns: int
     offset_ns: int
     tags_ns: dict[str | None, int]
@@ -286,9 +296,29 @@ class Clock:
             self.start_time_ns = round(seconds * 1e9)
         else:
             self.start_time_ns = time.time_ns()
-        self.start_mono_ns = time.monotonic_ns()
+        self.start_mono_ns = self.monotonic_ns()
         self.offset_ns = self.start_time_ns - self.start_mono_ns
         self.tags_ns = {}
+
+    # region The timebase: what subclasses replace
+
+    def monotonic_ns(self) -> int:
+        """This clock's monotonic time; the one place the real clock is read."""
+        return time.monotonic_ns()
+
+    def monotonic(self) -> float:
+        return self.monotonic_ns() / 1e9
+
+    def sleep(self, seconds: float) -> None:
+        """Block for `seconds` of this clock's time."""
+        if seconds > 0:
+            time.sleep(seconds)
+
+    def wait(self, event: Event, timeout: float | None = None) -> bool:
+        """Block until `event` is set or `timeout` of this clock's time passes; True if set."""
+        return event.wait(timeout)
+
+    # endregion
 
     @classmethod
     def from_time(cls, time: Time) -> Self:
@@ -303,10 +333,10 @@ class Clock:
         return Time.from_nanoseconds(self.start_time_ns)
 
     def tag(self, label: str) -> None:
-        self.tags_ns[label] = time.monotonic_ns()
+        self.tags_ns[label] = self.monotonic_ns()
 
     def elapsed_ns(self, label: str | None = None) -> int:
-        mono = time.monotonic_ns()
+        mono = self.monotonic_ns()
         if label is None:
             return mono - self.start_mono_ns
         return mono - self.tags_ns[label]
@@ -364,7 +394,7 @@ class Clock:
         return None
 
     def now_ns(self) -> int:
-        return time.monotonic_ns() + self.offset_ns
+        return self.monotonic_ns() + self.offset_ns
 
     def now_s(self) -> float:
         return self.now_ns() / 1e9
@@ -377,14 +407,14 @@ class Clock:
         clock = cls.__new__(cls)
         clock.offset_ns = self.offset_ns
         clock.tags_ns = {}
-        mono = time.monotonic_ns()
+        mono = clock.monotonic_ns()
         clock.start_mono_ns = mono
         clock.start_time_ns = mono + self.offset_ns
 
         return clock
 
     def reset(self) -> None:
-        mono = time.monotonic_ns()
+        mono = self.monotonic_ns()
         self.start_mono_ns = mono
         self.start_time_ns = mono + self.offset_ns
         self.tags_ns.clear()

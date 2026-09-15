@@ -4,6 +4,7 @@ import type { Traces } from "../hooks/useSources.js";
 import { channelKey } from "../hooks/useSources.js";
 import { Ref } from "../links.js";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
+import type { YScale } from "./yscale.js";
 
 export interface UnitChartsProps {
   /** Which channels to draw; each lands on the chart for its unit. */
@@ -15,6 +16,16 @@ export interface UnitChartsProps {
   controls?: ReactNode;
   /** Trace label: `source.measurand` by default; `label` gives just the measurand's label. */
   labels?: "qualified" | "label";
+  /** y axis scaling; `"range"` uses the widest declared range among the unit's channels. */
+  yScale?: YScale;
+  /** Draw one point in `every`. */
+  every?: number;
+}
+
+/** The widest declared range among channels, for a shared axis. */
+function widest(channels: ChannelOut[]): [number, number] | null {
+  const ranges = channels.map((c) => c.range).filter((r): r is [number, number] => !!r);
+  return ranges.length ? [Math.min(...ranges.map((r) => r[0])), Math.max(...ranges.map((r) => r[1]))] : null;
 }
 
 /** Channels grouped by unit, in first-seen order. */
@@ -29,7 +40,7 @@ export function groupByUnit(channels: ChannelOut[]): Array<{ unit: string; chann
  * process, dry and wet humidities on one %RH axis, their temperatures on one
  * °C axis. Pure; `useSamples` supplies the traces.
  */
-export function UnitCharts({ channels, traces, height = 220, windowS, controls, labels = "qualified" }: UnitChartsProps) {
+export function UnitCharts({ channels, traces, height = 220, windowS, controls, labels = "qualified", yScale, every }: UnitChartsProps) {
   const groups = groupByUnit(channels);
   return (
     <>
@@ -58,7 +69,7 @@ export function UnitCharts({ channels, traces, height = 220, windowS, controls, 
               </span>
               {i === 0 && controls && <span className="fb-source-controls">{controls}</span>}
             </header>
-            <MultiSeries series={series} unit={unit} height={height} windowS={windowS} />
+            <MultiSeries series={series} unit={unit} height={height} windowS={windowS} yScale={yScale} range={widest(cs)} every={every} />
           </section>
         );
       })}

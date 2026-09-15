@@ -13,7 +13,7 @@ dynamic = ["version"]
 # The controller, the simulated plant and the SQLite store are stdlib-only;
 # pydantic is the one requirement, for configs and the schemas built from
 # them. Everything that talks to hardware or the network is an extra.
-dependencies = ["pydantic>=2.9"]
+dependencies = ["pydantic>=2.9", "tomli-w>=1.0"]  # tomli-w: saving a rig file
 
 classifiers = [
     "Private :: Do Not Upload",

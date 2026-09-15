@@ -1,0 +1,123 @@
+#:schema rig.schema.json
+# A three-zone tube furnace with a sample in the middle zone: the complicated
+# example. The zones conduct heat to each other, so the three loops interact;
+# losses are convective plus radiative, so the plant's gain falls as it gets
+# hot and a tuning found at 200 °C is too soft at 900; the sample lags its
+# zone by minutes and the thermocouples by seconds.
+#
+#   flyball-daemon furnace.toml                       # at 60x: a two-hour firing in two minutes
+#   flyball program check programs/firing.yaml
+#   curl -X POST localhost:8000/api/programs/run --data-binary @programs/firing.yaml ...
+#   flyball sim set tube coupling_w_per_k=20          # couple the zones harder, live
+#   flyball zone3 fail                                # open-circuit a thermocouple mid-run
+#
+# Zone 3 is a smaller mass with a smaller heater (the end of the tube), so
+# one tuning does not fit all three.
+
+name = "furnace"
+clock = { speed = 60 }
+
+[links.tube]
+tag = "sim_furnace"
+zones = 3
+power_w = [2500, 6000, 2000]         # the middle is the hot zone; the end is smaller
+capacity_j_per_k = [3000, 3000, 2200]
+coupling_w_per_k = 5.0
+loss_w_per_k = 1.5
+emissivity = 0.8
+area_m2 = 0.01
+ambient_c = 20.0
+sample_zone = 2
+sample_capacity_j_per_k = 800
+sample_coupling_w_per_k = 4.0
+sensor_lag_s = 3.0
+noise = 0.3
+seed = 7
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone1"
+link = "tube"
+port = "zone1"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1200]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone2"
+link = "tube"
+port = "zone2"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1200]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone3"
+link = "tube"
+port = "zone3"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1200]
+precision = 1
+
+[[readers]]
+period_s = 2.0
+[readers.device]
+tag = "sim_reader"
+name = "sample"
+link = "tube"
+port = "sample"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1200]
+precision = 1
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater1"
+link = "tube"
+port = "heater1"
+unit = "°C"
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater2"
+link = "tube"
+port = "heater2"
+unit = "°C"
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater3"
+link = "tube"
+port = "heater3"
+unit = "°C"
+
+# The actuator's feedforward covers the static losses at the demanded
+# temperature; the law corrects the rest, in °C of demand per °C of error.
+# Tuned at the cold end: watch the middle zone's soak at 900 °C.
+[[loops]]
+channel = "zone1.temperature"
+actuator = "heater1"
+law = { tag = "PI", kp = 3.0, ki = 0.01, tt = 30 }
+
+[[loops]]
+channel = "zone2.temperature"
+actuator = "heater2"
+law = { tag = "PI", kp = 3.0, ki = 0.01, tt = 30 }
+default = true
+
+[[loops]]
+channel = "zone3.temperature"
+actuator = "heater3"
+law = { tag = "PI", kp = 3.5, ki = 0.012, tt = 30 }

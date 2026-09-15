@@ -36,7 +36,8 @@ function Section({ title, open: initial = false, children }: { title: string; op
  * against a mock as readily as a rig.
  */
 export function ActuatorPanel({ schema, state, view, commands, onRun, busy, results, form }: ActuatorPanelProps) {
-  const tags = commands ?? Object.keys(schema.commands);
+  // Simulation-only commands (faults, disturbances) belong on the simulation page, not beside the real ones.
+  const tags = commands ?? Object.keys(schema.commands).filter((t) => !schema.commands[t]?.simulation);
   return (
     <article className="fb-panel fb-actuator">
       <header>
@@ -52,7 +53,7 @@ export function ActuatorPanel({ schema, state, view, commands, onRun, busy, resu
       </Section>
       {view && (
         <Section title="config">
-          <ObjectView schema={schema.config} value={view.config} />
+          <ObjectView schema={schema.config} value={view.config} live={view} />
         </Section>
       )}
       {view && (

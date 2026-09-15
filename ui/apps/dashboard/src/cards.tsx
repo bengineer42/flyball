@@ -1,15 +1,30 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { Box, Chip, Link, Paper, Stack, Table, TableBody, TableCell, TableRow, Typography } from "@mui/material";
 import type { ReaderRun, ReaderSchema } from "@flyball/client";
 import { SourceIcon, type IconComponent } from "./icons.js";
 import { hrefFor } from "./router.js";
+import { clock } from "./time.js";
 
-export const clock = (ns: number) => new Date(ns / 1e6).toLocaleTimeString();
+/** True when the click landed on something interactive of its own: a link, a button, a field. */
+export const onControl = (e: MouseEvent) => Boolean((e.target as Element).closest("a, button, input, select, textarea, [role=button]"));
 
-/** A device card: name (a link to its page), type, a status chip at the end, then the body. */
+/**
+ * Open `href` on a click anywhere in an element that also holds its own
+ * links and buttons (an `<a>` cannot wrap those). Plain click navigates;
+ * modified clicks (new tab) are left to the real link in the header.
+ */
+export const clickThrough = (href: string | undefined) => (e: MouseEvent) => {
+  if (!href || onControl(e) || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  window.location.hash = href;
+};
+
+/** The look of a surface that opens a page when clicked. */
+export const clickableSx = { cursor: "pointer", transition: "border-color 120ms, background-color 120ms", "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" } } as const;
+
+/** A device card: name (a link to its page), type, a status chip at the end, then the body. The whole card opens the page when it has one. */
 export function DeviceCard({ icon: Icon, name, href, type, chip, children, footer }: { icon: IconComponent; name: string; href?: string; type: string; chip: ReactNode; children: ReactNode; footer?: ReactNode }) {
   return (
-    <Paper sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+    <Paper sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
       <Stack direction="row" alignItems="center" spacing={1}>
         <Icon fontSize="small" sx={{ color: "text.disabled" }} />
         <Typography fontWeight={600}>

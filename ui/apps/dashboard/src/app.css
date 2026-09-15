@@ -10,3 +10,5 @@ section + section { margin-top: 1.5rem; }
 @media (max-width: 600px) {
   .tiles-wide { grid-template-columns: 1fr; }
 }
+/* A safety net: any schema-less value dump inside a table cell stays a few lines tall and scrolls. */
+td .fb-state { max-height: 9rem; overflow: auto; }

@@ -9,6 +9,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: { conditions: ["development"] },
   server: {
+    // Poll rather than trust inotify: files rewritten by tools (rename-replace,
+    // git stash) have repeatedly left Vite serving a stale or empty module.
+    watch: { usePolling: true, interval: 300 },
     proxy: {
       "/api": daemon,
       "/ws": { target: daemon, ws: true },

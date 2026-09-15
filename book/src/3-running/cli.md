@@ -22,6 +22,8 @@ flyball --url http://pi:8000 actuators      # or export FLYBALL_URL
 | `flyball schema` | the schema document, for saving or `jq` |
 | `flyball sessions` / `export ID` | recorded sessions; one as Bluesky event-model documents |
 | `flyball program check FILE` | the rig normalises and validates a program file; nothing runs |
+| `flyball program run FILE [--interrupt]` / `program status` / `program stop` | start a program file on the rig, see where it is, stop it |
+| `flyball sim` / `sim clock N` / `sim set PLANT k=v` / `sim reset` / `sim config` / `sim save` | a simulated rig's knobs ([simulation](../4-control/simulation.md)) |
 
 ## Without a rig
 

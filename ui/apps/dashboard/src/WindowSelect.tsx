@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { FormControl, InputLabel, MenuItem, Select } from "@mui/material";
 
 export const WINDOWS: Array<{ s: number; label: string }> = [
@@ -7,8 +8,12 @@ export const WINDOWS: Array<{ s: number; label: string }> = [
   { s: 3600, label: "1 h" },
 ];
 
-/** How many seconds of history the charts show; they scroll once it is full. */
-export function WindowSelect({ value, onChange }: { value: number; onChange(s: number): void }) {
+/**
+ * How many seconds of history the charts show; they scroll once it is full.
+ * Memoised: MUI's FormControl sets state in an effect on every render in
+ * development, and the pages that hold this re-render on every sample.
+ */
+export const WindowSelect = memo(function WindowSelect({ value, onChange }: { value: number; onChange(s: number): void }) {
   return (
     <FormControl size="small" sx={{ minWidth: 104 }}>
       <InputLabel id="window-select-label">window</InputLabel>
@@ -27,4 +32,4 @@ export function WindowSelect({ value, onChange }: { value: number; onChange(s: n
       </Select>
     </FormControl>
   );
-}
+});

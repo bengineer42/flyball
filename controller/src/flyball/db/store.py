@@ -151,7 +151,11 @@ class Store(Protocol):
         """
         ...
 
-    def ticks(self, session_id: int, loop: str, window: Window | None = None) -> list[Tick]: ...
+    def ticks(
+        self, session_id: int, loop: str, window: Window | None = None, every: int | None = None
+    ) -> list[Tick]:
+        """A loop's ticks in order; `every` keeps one tick in `every`, for a plot of a long run."""
+        ...
 
     def samples(
         self, session_id: int, source: str, window: Window | None = None

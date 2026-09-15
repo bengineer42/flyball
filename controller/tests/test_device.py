@@ -50,7 +50,8 @@ def test_unschemable_state_is_refused_at_definition():
 
 
 def test_commands_are_collected_with_their_tags_and_docs():
-    assert list(DutyHeater.commands) == ["set_duty", "off"]
+    # every actuator inherits `demand` from the base; a subclass adds its own after it
+    assert list(DutyHeater.commands) == ["demand", "set_duty", "off"]
     assert DutyHeater.commands["off"].method.__name__ == "switch_off"
     assert DutyHeater.commands["set_duty"].doc == "Drive the element at a fixed duty."
 
@@ -61,7 +62,7 @@ def test_subclass_extends_the_parent_s_commands_without_leaking_back():
         def boost(self) -> None:
             """Stub."""
 
-    assert list(Child.commands) == ["set_duty", "off", "boost"]
+    assert list(Child.commands) == ["demand", "set_duty", "off", "boost"]
     assert "boost" not in DutyHeater.commands
 
 

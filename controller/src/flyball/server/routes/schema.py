@@ -8,7 +8,7 @@ from fastapi import APIRouter
 
 from flyball.server.deps import RigDep
 
-from .devices import device_schema, source_schema
+from .devices import actuator_schema, device_schema, source_schema
 
 router = APIRouter(prefix="/api/schema", tags=["schema"])
 
@@ -18,8 +18,7 @@ def read_schema(rig: RigDep) -> dict[str, Any]:
     """Every actuator's and reader's schema, by name. A CLI or a client builds from this."""
     actuators: dict[str, Any] = {}
     for name, actuator in rig.actuators.items():
-        unit = type(actuator).demand_unit
-        actuators[name] = device_schema(actuator, demand_unit=None if unit is None else unit.symbol)
+        actuators[name] = actuator_schema(actuator)
     return {
         "actuators": actuators,
         "readers": {
