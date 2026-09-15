@@ -1,4 +1,4 @@
-# humctrl
+# flyball
 
 Python control library for a split-range humidity rig: wet and dry air lines
 mixed to a target relative humidity.

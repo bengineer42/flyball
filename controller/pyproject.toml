@@ -3,8 +3,8 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "humctrl"
-description = "Split-range humidity control: PI core, device abstraction, supervised runtime"
+name = "flyball"
+description = "Closed-loop control of a quantity with an actuator: control laws, runtime, telemetry, identification"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Ben Laurence" }]
@@ -24,21 +24,10 @@ classifiers = [
 
 [project.optional-dependencies]
 serial = ["pyserial>=3.5"]
-# FastAPI won: humctrl.server needs its WebSocket support for live telemetry
+# FastAPI won: flyball.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.32"]
-# humctrl.cli is a pure HTTP client for the daemon: no hardware libraries,
-# no domain imports, so it carries its own dependency rather than riding on web.
-cli = ["httpx>=0.27"]
-all = ["humctrl[cli,serial,web]"]
-# linux-pwm is not on PyPI; humctrl.direct drives the sysfs PWM channels
-# through it, so it comes straight from the repo.
-rpi = [
-    "adafruit-blinka>=8.0",
-    "adafruit-circuitpython-sht4x>=1.0",
-    "rpi-hardware-pwm>=0.2",
-    "linux-pwm @ git+https://github.com/bengineer42/linux-pwm.git@main",
-]
+all = ["flyball[serial,web]"]
 
 
 [dependency-groups]
@@ -52,15 +41,11 @@ dev = [
     "ipykernel>=7.3.0",
 ]
 
-# Required for the linux-pwm git direct reference in the rpi extra.
-[tool.hatch.metadata]
-allow-direct-references = true
-
 [tool.hatch.version]
-path = "src/humctrl/__init__.py"
+path = "src/flyball/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/humctrl"]
+packages = ["src/flyball"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -90,13 +75,16 @@ select = [
 # style documents what needs explaining, not every definition.
 ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 
+# Greek quantity and unit symbols (ρ, µ, Ω...) are the SI's, not typos.
+allowed-confusables = ["α", "γ", "ε", "η", "λ", "µ", "μ", "ν", "ρ", "σ", "ω", "Ω", "Φ", "Θ"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.mypy]
 python_version = "3.12"
 mypy_path = "src"
-packages = ["humctrl"]
+packages = ["flyball"]
 strict = true
 warn_unreachable = true
 
@@ -104,15 +92,15 @@ warn_unreachable = true
 # distributions: control/device/store are mutually independent, and nothing
 # below may import anything above. Run with `lint-imports`.
 [tool.importlinter]
-root_packages = ["humctrl"]
+root_packages = ["flyball"]
 
 [[tool.importlinter.contracts]]
 name = "Layers"
 type = "layers"
 layers = [
-    "humctrl.web",
-    "humctrl.runtime",
-    "humctrl.devices",
-    "humctrl.control | humctrl.device | humctrl.store",
-    "humctrl.types",
+    "flyball.web",
+    "flyball.runtime",
+    "flyball.devices",
+    "flyball.control | flyball.device | flyball.store",
+    "flyball.types",
 ]

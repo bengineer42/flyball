@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Configure a fresh Raspberry Pi OS install for humctrl hardware access:
+# Configure a fresh Raspberry Pi OS install for flyball hardware access:
 #   - enable the I2C bus on the GPIO header      (SHT4x humidity/temperature sensor)
 #   - enable the hardware PWM channels           (pump drive)
 #   - grant the target user non-root access to both
@@ -18,7 +18,7 @@ set -euo pipefail
 #   dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
 PWM_OVERLAY="dtoverlay=pwm-2chan"
 UDEV_RULE_PATH="/etc/udev/rules.d/99-pwm.rules"
-MARKER="# added by humctrl setup-pi-hardware.sh"
+MARKER="# added by flyball setup-pi-hardware.sh"
 
 REBOOT_REQUIRED=0
 VERIFY_ONLY=0
@@ -146,7 +146,7 @@ info "Boot config: ${CONFIG_TXT}"
 
 # ---------------------------------------------------------------- backup
 
-BACKUP="${CONFIG_TXT}.humctrl-$(date +%Y%m%d-%H%M%S).bak"
+BACKUP="${CONFIG_TXT}.flyball-$(date +%Y%m%d-%H%M%S).bak"
 cp -a "$CONFIG_TXT" "$BACKUP"
 ok "backed up ${CONFIG_TXT} -> ${BACKUP}"
 
@@ -245,7 +245,7 @@ info "Installing udev rule"
 # The /sys/devices glob covers both Pi 4 (.../platform/soc/...) and Pi 5, whose PWM
 # sits behind the RP1 southbridge at a different path.
 read -r -d '' UDEV_RULE <<'EOF' || true
-# Managed by humctrl setup-pi-hardware.sh - hardware PWM access for the gpio group.
+# Managed by flyball setup-pi-hardware.sh - hardware PWM access for the gpio group.
 SUBSYSTEM=="pwm*", PROGRAM="/bin/sh -c '\
 	chown -R root:gpio /sys/class/pwm && chmod -R 770 /sys/class/pwm;\
 	chown -R root:gpio /sys/devices/platform/*/*.pwm/pwm/pwmchip* && chmod -R 770 /sys/devices/platform/*/*.pwm/pwm/pwmchip*\
