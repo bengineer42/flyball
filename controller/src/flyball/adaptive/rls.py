@@ -70,8 +70,7 @@ class RecursiveLeastSquares:
     def predict(self, regressor: Vector) -> float:
         """What the current parameters say the output will be."""
         return sum(
-            term * parameter
-            for term, parameter in zip(regressor, self._parameters, strict=True)
+            term * parameter for term, parameter in zip(regressor, self._parameters, strict=True)
         )
 
     def update(self, regressor: Vector, output: float) -> float:

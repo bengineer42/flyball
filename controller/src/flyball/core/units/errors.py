@@ -1,26 +1,24 @@
-"""Errors the units package raises.
-
-``flyball.core`` builds on this package, so these cannot inherit the bases in
-:mod:`flyball.core.errors` without a cycle. They are plain ``ValueError`` subclasses.
-"""
+"""Errors the units package raises, classified as in :mod:`flyball.core.errors`."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from flyball.core.errors import FlyballError, UnachievableError
+
 if TYPE_CHECKING:
     from .dimension import Unit
 
 
-class UnitError(ValueError):
-    """Base for everything flyball.units raises."""
+class UnitError(FlyballError):
+    """Base for everything flyball.core.units raises."""
 
 
-class DimensionMismatchError(UnitError):
+class DimensionMismatchError(UnitError, UnachievableError):
     """A conversion between units of different dimensions.
 
     Well formed -- both units exist -- but no factor relates a length to a
-    time.
+    time, so it is unachievable rather than malformed.
     """
 
     def __init__(self, source: Unit, target: Unit) -> None:

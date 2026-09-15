@@ -6,8 +6,9 @@ from typing import Any, Protocol
 
 from flyball.control import ControlLawLike, Loop, Tunings
 from flyball.core import Clock
+from flyball.core.errors import ConflictError
 from flyball.core.reading import Channel, Reader, Reading, Sample, Source
-from flyball.core.sink import Actuator, Observer, Sink
+from flyball.core.sink import RESERVED_NAMES, Actuator, Observer, Sink
 from flyball.core.typing import OrderedSet
 from flyball.db import Store
 from flyball.runtime.reader import Readers
@@ -19,6 +20,7 @@ from .recorder import Recorder
 class Rig(Protocol):
     clock: Clock
     loops: Loops
+    actuators: dict[str, Actuator]
     lock: RLock
     observations: dict[Source | Channel, OrderedSet[Observer]]
     tunings: Tunings
@@ -30,6 +32,7 @@ class Rig(Protocol):
     def __init__(self) -> None:
         self.clock = Clock()
         self.loops = Loops()
+        self.actuators = {}
         self.lock = RLock()
         self.observations = {}
         self.tunings = Tunings()
@@ -57,18 +60,27 @@ class Rig(Protocol):
             if (observers := self.observations.get(key)) is not None:
                 observers.pop(observer, None)
 
+    def add_actuator(self, actuator: Actuator[Any, Any]) -> None:
+        """Make an actuator reachable by name, for commands. Loops add theirs."""
+        if actuator.name in RESERVED_NAMES:
+            raise ConflictError(f"Actuator name {actuator.name!r} is reserved as a route segment")
+        if (existing := self.actuators.get(actuator.name)) is not None and existing is not actuator:
+            raise ConflictError(f"Actuator {actuator.name!r} is already attached")
+        self.actuators[actuator.name] = actuator
+
     def start_reader(self, reader: Reader, period: float, stop_on_error: bool = True) -> None:
         self._readers.start_periodic(reader, period)
 
     def attach_loop(
         self,
         channel: Channel,
-        actuator: Actuator,
+        actuator: Actuator[Any, Any],
         law: ControlLawLike | str | None = None,
         default: bool = False,
     ) -> None:
         if isinstance(law, str):
             law = self.tunings.get(law)
+        self.add_actuator(actuator)
         self.loops.add(channel, Loop(self.clock, actuator, law=law), default=default)
 
     # region Recording

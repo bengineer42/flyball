@@ -19,7 +19,7 @@ from flyball.core.errors import (
     UnachievableError,
 )
 from flyball.server.deps import current_rig
-from flyball.server.routes import history_router, rig_router, telemetry_router
+from flyball.server.routes import actuators_router, history_router, rig_router, telemetry_router
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -86,6 +86,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "rig_attached": current_rig() is not None}
 
     app.include_router(rig_router)
+    app.include_router(actuators_router)
     app.include_router(history_router)
     app.include_router(telemetry_router)
     return app

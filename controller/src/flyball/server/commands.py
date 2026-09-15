@@ -8,34 +8,15 @@ works for anything pydantic can describe.
 
 from __future__ import annotations
 
-from inspect import signature
-from typing import Any, Literal, get_type_hints
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
-from flyball.control import ControlLaw, ControlLawConfig, ControlLawLike
-from flyball.control.types import ControlLawView, Tuning
-from flyball.core.clock import Duration, Speed
 from flyball.programmer.command import Command, Commands
-from flyball.server.schemas import (
-    DurationRequest,
-    LawConfig,
-    RateRequest,
-    discriminated_union,
-)
+from flyball.server.schemas import discriminated_union
+from flyball.server.wire import WIRE_TYPES, wire_fields
 
-#: Domain annotation -> how it crosses the wire. A parameter whose annotation is
-#: not a key here keeps its own type. Keys are matched whole, so a union must be
-#: written exactly as the command declares it.
-WIRE_TYPES: dict[Any, Any] = {
-    Duration: DurationRequest,
-    Duration | float: DurationRequest | float,
-    Speed | Duration: RateRequest | DurationRequest,
-    # A running law cannot cross the wire, so the tuning unions narrow to a
-    # config or the name of a stored one.
-    ControlLawLike | str | None: LawConfig | str | None,
-    Tuning | ControlLaw | ControlLawConfig | ControlLawView | str | None: LawConfig | str | None,
-}
+__all__ = ["WIRE_TYPES", "CommandBase", "CommandRequest", "CommandsSchema", "request_for"]
 
 
 class CommandBase(BaseModel):
@@ -69,14 +50,8 @@ def request_model(command: type[Command]) -> type[CommandBase]:
         A model with one field per constructor parameter, plus the ``command``
         tag as a ``Literal`` so a union can discriminate on it.
     """
-    hints = get_type_hints(command.__init__)
     fields: dict[str, Any] = {"command": (Literal[command.tag], command.tag)}
-    for name, parameter in signature(command).parameters.items():
-        annotation = hints.get(name, Any)
-        fields[name] = (
-            WIRE_TYPES.get(annotation, annotation),
-            ... if parameter.default is parameter.empty else parameter.default,
-        )
+    fields.update(wire_fields(command))
     return create_model(f"{command.__name__}Request", __base__=CommandBase, **fields)
 
 

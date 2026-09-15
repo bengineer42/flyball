@@ -21,8 +21,8 @@ from typing import Any, ClassVar, Protocol
 
 from pydantic_core import core_schema
 
-from ..units import Unit
 from .errors import ConflictError, NotFoundError
+from .units import Unit
 
 
 class MeasurandConflictError(ConflictError):

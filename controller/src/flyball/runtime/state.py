@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from typing import Any
 
 from flyball.control.loop import LoopSpec, LoopState
 from flyball.core.reading import Measurand, Point, Sample, Source
+from flyball.core.sink import ActuatorView
+from flyball.runtime.actuator import ActuatorState
 
 
 @dataclass(slots=True, frozen=True)
@@ -21,5 +22,11 @@ class RigSpec:
 class RigState:
     time_ns: int
     loops: dict[str, LoopState]
-    actuators: dict[str, Any]
+    actuators: dict[str, ActuatorState]
+    sources: dict[Source, SourceState]
+
+
+class RigView:
+    loops: dict[str, LoopState]
+    actuators: dict[str, ActuatorView]
     sources: dict[Source, SourceState]
