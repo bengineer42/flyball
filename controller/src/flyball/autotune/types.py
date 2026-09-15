@@ -98,7 +98,11 @@ class Gains:
 
     @property
     def config(self) -> ControlLawConfig:
-        """[PID][flyball.control.laws.PID] with derivative action, else [PI][flyball.consts.PI]."""
+        """The law these gains are for.
+
+        [PID][flyball.control.laws.PID] with derivative action, else
+        [PI][flyball.control.laws.PI].
+        """
         if self.kd:
             return cast(
                 "ControlLawConfig", PID.config(kp=self.kp, ki=self.ki, kd=self.kd, tt=self.tt)

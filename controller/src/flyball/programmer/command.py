@@ -85,5 +85,5 @@ class Command:
         Commands[cls.tag] = cls
 
     @abstractmethod
-    def run(self, rig: Rig, operator: Operator | None = None) -> Activity | Signal:
-        """Do the work, returning a runner if it has to be waited on."""
+    def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
+        """Do the work; return an activity if the program must wait on it, else None."""

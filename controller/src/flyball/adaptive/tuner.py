@@ -52,7 +52,7 @@ class Bounds:
         return low <= plant.tau <= high
 
 
-class SelfTuner:
+class SelfTuner[T]:
     """Watches a model drift and offers a new tuning when warranted.
 
     Runs on a much slower clock than the identifier: retuning faster than the
@@ -83,7 +83,7 @@ class SelfTuner:
         "settling_periods",
     )
 
-    def __init__[T](
+    def __init__(
         self,
         identifier: Identifier,
         rule: Callable[[Plant], T],
@@ -139,7 +139,7 @@ class SelfTuner:
                 return Retune(Verdict.UNCHANGED, plant, residual)
         return Retune(Verdict.OFFERED, plant, residual)
 
-    def accept[T](self, plant: Plant) -> T:
+    def accept(self, plant: Plant) -> T:
         """Record `plant` as the model in force and return its tuning. Call once committed."""
         self._applied = plant
         self._since = 0.0

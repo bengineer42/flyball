@@ -7,21 +7,25 @@ The server owns no hardware and no database; whatever builds them calls
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Protocol
+from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import Depends, HTTPException
 
 from flyball.db import Store
 from flyball.runtime.rig import Rig
 
+from .dialect import Dialect
 from .telemetry import Telemetry
+
+if TYPE_CHECKING:
+    from flyball.programmer import ProgrammerState
 
 
 class Programmer(Protocol):
     """What the program routes need of `flyball.programmer.Programmer`, without importing it."""
 
     @property
-    def state(self) -> Any: ...
+    def state(self) -> ProgrammerState: ...
     def start(self, work: Any, interrupt: bool = False) -> None: ...
     def interrupt(self) -> None: ...
 
@@ -30,6 +34,7 @@ _rig: Rig | None = None
 _telemetry: Telemetry | None = None
 _store: Store | None = None
 _programmer: Programmer | None = None
+_dialect: Dialect = Dialect()
 
 
 def set_rig(rig: Rig | None) -> None:
@@ -70,6 +75,16 @@ def get_programmer() -> Programmer:
     return _programmer
 
 
+def set_dialect(dialect: Dialect) -> None:
+    """The program-file dialect the server reads and publishes the schema of."""
+    global _dialect
+    _dialect = dialect
+
+
+def get_dialect() -> Dialect:
+    return _dialect
+
+
 def set_store(store: Store | None) -> None:
     global _store
     _store = store
@@ -84,3 +99,4 @@ def get_store() -> Store:
 RigDep = Annotated[Rig, Depends(get_rig)]
 StoreDep = Annotated[Store, Depends(get_store)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
+DialectDep = Annotated[Dialect, Depends(get_dialect)]

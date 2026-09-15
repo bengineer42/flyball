@@ -1,0 +1,50 @@
+# Raspberry Pi 5. The 40-pin header is gpiochip4 on the 6.6 kernel it
+# shipped with and gpiochip0 on 6.12 and later; `flyball-linux probe` says
+# which. Enable buses in /boot/firmware/config.txt:
+#   dtparam=i2c_arm=on
+#   dtparam=spi=on
+#   dtoverlay=pwm-2chan          # GPIO18 -> pwm0 channel 0, GPIO19 -> channel 1
+#   dtoverlay=w1-gpio            # 1-Wire data on GPIO4
+
+name = "Raspberry Pi 5"
+
+[links.i2c1]
+tag = "i2c"
+bus = 1
+
+[links.spi0]
+tag = "spi"
+bus = 0
+device = 0
+
+[links.header]
+tag = "gpio"
+chip = "gpiochip4"
+
+[links.pwm]
+tag = "pwm"
+chip = 0
+
+[links.w1]
+tag = "onewire"
+
+[pins]
+GPIO4  = { link = "header", line = 4 }
+GPIO5  = { link = "header", line = 5 }
+GPIO6  = { link = "header", line = 6 }
+GPIO12 = { link = "header", line = 12 }
+GPIO13 = { link = "header", line = 13 }
+GPIO16 = { link = "header", line = 16 }
+GPIO17 = { link = "header", line = 17 }
+GPIO18 = { link = "header", line = 18 }
+GPIO19 = { link = "header", line = 19 }
+GPIO20 = { link = "header", line = 20 }
+GPIO21 = { link = "header", line = 21 }
+GPIO22 = { link = "header", line = 22 }
+GPIO23 = { link = "header", line = 23 }
+GPIO24 = { link = "header", line = 24 }
+GPIO25 = { link = "header", line = 25 }
+GPIO26 = { link = "header", line = 26 }
+GPIO27 = { link = "header", line = 27 }
+PWM0   = { link = "pwm", channel = 0 }
+PWM1   = { link = "pwm", channel = 1 }

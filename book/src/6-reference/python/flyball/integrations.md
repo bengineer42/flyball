@@ -6,3 +6,7 @@
       show_root_heading: false
 
 ::: flyball.integrations.bluesky
+
+::: flyball.integrations.pymeasure
+
+::: flyball.integrations.qcodes

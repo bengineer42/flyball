@@ -15,8 +15,10 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from flyball.control import Loop
+from flyball.core.device import Event
 from flyball.core.reading import Channel, Reading, Sample, Source
 from flyball.db import SessionWriter, Tick
+from flyball.db.types import Event as StoredEvent
 
 
 def _tick(loop: Loop[Any], reading: Reading, start_ns: int) -> Tick:
@@ -86,6 +88,22 @@ class Recorder:
         )
         if time.monotonic() - self._last_flush >= self.flush_s:
             self.flush()
+
+    def event(self, event: Event) -> None:
+        """Write an event now: they are rare, and a log entry should not lag its cause."""
+        self.writer.write_event(
+            StoredEvent(
+                event.time_ns - self._start_ns,
+                event.kind,
+                event.subject,
+                {
+                    "level": int(event.level),
+                    "scope": event.scope,
+                    "message": event.message,
+                    "details": event.details,
+                },
+            )
+        )
 
     def flush(self) -> None:
         """Write everything buffered, in one transaction per table."""

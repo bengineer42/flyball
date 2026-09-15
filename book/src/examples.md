@@ -6,4 +6,4 @@ procedures for a specific rig.
 
 - **Humidity** — a chamber held at a target relative humidity by blending two
   pumps. Raspberry Pi, TB6612 motor driver, SHT4x sensor.
-  Book: `examples/humidity/book/`.
+  Book: `examples/humidity/book/` (built separately; see its `mkdocs.yml`).

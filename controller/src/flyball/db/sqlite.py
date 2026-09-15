@@ -8,6 +8,7 @@ delivery is one `executemany` per table.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable, Iterator
@@ -16,9 +17,16 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from flyball.core.errors import NotFoundError
 from flyball.core.reading import Channel, Measurand, Sample, Source
 
-from .errors import NotDeclaredError, SessionEndedError, SessionNotFoundError, TuningNotFoundError
+from .errors import (
+    NotDeclaredError,
+    ProgramNotFoundError,
+    SessionEndedError,
+    SessionNotFoundError,
+    TuningNotFoundError,
+)
 from .migrate import migrate
 from .types import (
     ActuatorRow,
@@ -28,6 +36,9 @@ from .types import (
     LoopRow,
     MeasurandRow,
     Point,
+    ProgramFormat,
+    ProgramRow,
+    SampleRow,
     Series,
     SessionRow,
     SourceRow,
@@ -61,6 +72,19 @@ def _window_clause(window: Window | None, column: str) -> tuple[str, list[int]]:
         clauses.append(f"{column} < ?")
         params.append(window.end_ns)
     return "".join(f" AND {c}" for c in clauses), params
+
+
+def _program_row(row: sqlite3.Row) -> ProgramRow:
+    return ProgramRow(
+        id=row["id"],
+        name=row["name"],
+        format=row["format"],
+        body=row["body"],
+        created_ns=row["created_ns"],
+        sha256=row["sha256"],
+        label=row["label"],
+        notes=_loads(row["notes"]),
+    )
 
 
 def _tuning_row(row: sqlite3.Row) -> TuningRow:
@@ -354,6 +378,19 @@ class SqliteStore:
             raise SessionNotFoundError(session_id)
         return _session_row(rows[0])
 
+    def end_session(self, session_id: int, end_ns: int | None = None) -> SessionRow:
+        session = self.session(session_id)
+        if session.end_ns is not None:
+            raise SessionEndedError(session_id)
+        if end_ns is None:
+            last = self._query(
+                "SELECT MAX(offset_ns) AS last FROM sample WHERE session_id = ?", (session_id,)
+            )[0]["last"]
+            end_ns = session.start_ns + (last or 0)
+        with self._transaction() as connection:
+            connection.execute("UPDATE session SET end_ns = ? WHERE id = ?", (end_ns, session_id))
+        return self.session(session_id)
+
     def delete_session(self, session_id: int) -> None:
         with self._transaction() as connection:
             if connection.execute("DELETE FROM session WHERE id = ?", (session_id,)).rowcount == 0:
@@ -474,7 +511,30 @@ class SqliteStore:
                     + " GROUP BY offset_ns / ? ORDER BY t",
                     [bucket_ns, bucket_ns, *key, bucket_ns],
                 )
+            case _:
+                raise ValueError(f"{downsample!r} names none of every, bucket_ns or max_points")
         return Series(channel, tuple(Point(r["t"], r["v"]) for r in rows), downsample)
+
+    def samples(
+        self, session_id: int, source: str, window: Window | None = None
+    ) -> list[SampleRow]:
+        source_row = next((s for s in self.sources(session_id) if s.name == source), None)
+        if source_row is None:
+            raise NotFoundError(f"Source {source!r} not in session {session_id}")
+        measurands = self._measurands(session_id)
+        where, params = _window_clause(window, "offset_ns")
+        rows = self._query(
+            "SELECT seq, offset_ns, measurand_id, value FROM reading"
+            " WHERE session_id = ? AND source_id = ?" + where + " ORDER BY seq",
+            [session_id, source_row.id, *params],
+        )
+        samples: dict[int, SampleRow] = {}
+        for r in rows:
+            row = samples.get(r["seq"])
+            if row is None:
+                row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"], {})
+            row.values[measurands[r["measurand_id"]].name] = r["value"]
+        return list(samples.values())
 
     def ticks(self, session_id: int, loop: str, window: Window | None = None) -> list[Tick]:
         where, params = _window_clause(window, "offset_ns")
@@ -583,5 +643,66 @@ class SqliteStore:
         with self._transaction() as connection:
             if connection.execute("DELETE FROM tuning WHERE name = ?", (name,)).rowcount == 0:
                 raise TuningNotFoundError(name)
+
+    # endregion
+
+    # region Programs
+
+    def save_program(
+        self,
+        name: str,
+        format: ProgramFormat,
+        body: str,
+        created_ns: int,
+        label: str | None = None,
+        notes: Any = None,
+    ) -> ProgramRow:
+        digest = hashlib.sha256(body.encode()).hexdigest()
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO program (name, format, body, created_ns, label, notes, sha256)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, format, body, created_ns, label, _dumps(notes), digest),
+            )
+            program_id = int(cursor.lastrowid or 0)
+        return self.program_version(program_id)
+
+    def program(self, name: str) -> ProgramRow:
+        rows = self._query(
+            "SELECT * FROM program WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1",
+            (name,),
+        )
+        if not rows:
+            raise ProgramNotFoundError(name)
+        return _program_row(rows[0])
+
+    def program_version(self, program_id: int) -> ProgramRow:
+        rows = self._query("SELECT * FROM program WHERE id = ?", (program_id,))
+        if not rows:
+            raise ProgramNotFoundError(f"#{program_id}")
+        return _program_row(rows[0])
+
+    def programs(self) -> list[ProgramRow]:
+        return [
+            _program_row(r)
+            for r in self._query(
+                "SELECT p.* FROM program p JOIN ("
+                " SELECT name, MAX(id) AS id FROM program GROUP BY name"
+                ") newest ON newest.id = p.id ORDER BY p.name"
+            )
+        ]
+
+    def program_history(self, name: str) -> list[ProgramRow]:
+        return [
+            _program_row(r)
+            for r in self._query(
+                "SELECT * FROM program WHERE name = ? ORDER BY created_ns DESC, id DESC", (name,)
+            )
+        ]
+
+    def delete_program(self, name: str) -> None:
+        with self._transaction() as connection:
+            if connection.execute("DELETE FROM program WHERE name = ?", (name,)).rowcount == 0:
+                raise ProgramNotFoundError(name)
 
     # endregion

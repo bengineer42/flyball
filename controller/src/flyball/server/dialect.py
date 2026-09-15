@@ -21,12 +21,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
 import yaml
 from pydantic import TypeAdapter
 
 from flyball.core.clock import DURATION_KEYS, RATE_KEYS, Duration, Rate
+from flyball.core.files import load_document
 from flyball.programmer.command import Command, Commands
 from flyball.programmer.program import Program
 from flyball.server.commands import command_request, request_for
@@ -156,16 +158,26 @@ def normalise_program(document: Any, dialect: Dialect) -> dict[str, Any]:
     return {**{k: v for k, v in document.items() if k != "steps"}, "steps": steps}
 
 
+def program_from_file(path: str | Path, dialect: Dialect) -> Program:
+    """A program from `.yaml`, `.toml` or `.json`; the dialect is the same in each."""
+    return program_from_document(load_document(path), dialect)
+
+
+def program_from_document(document: Any, dialect: Dialect) -> Program:
+    """A loaded program document -> a [Program][flyball.programmer.program.Program] of commands."""
+    normalised = normalise_program(document, dialect)
+    adapter = TypeAdapter(command_request())
+    commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
+    return Program(commands, name=normalised.get("name"))
+
+
 def commands_from_yaml(text: str, dialect: Dialect) -> Program:
     """Parse a program file into a [Program][flyball.programmer.program.Program] of commands.
 
     Modifiers are validated but not attached: wrapping a command in a
     completion or duration is the programmer's job.
     """
-    document = normalise_program(yaml.safe_load(text), dialect)
-    adapter = TypeAdapter(command_request())
-    commands = [adapter.validate_python(step["command"]).parse() for step in document["steps"]]
-    return Program(commands, name=document.get("name"))
+    return program_from_document(yaml.safe_load(text), dialect)
 
 
 def step_schema(dialect: Dialect) -> dict[str, Any]:

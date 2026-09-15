@@ -1,68 +1,105 @@
-"""Commands and programs: what a rig can be told to do, and running a list of it.
+"""Programs: checking a file, running it, and what the programmer is doing.
 
-Not mounted yet: [Programmer][flyball.programmer.Programmer] still calls
-`rig.publish_warning`, which does not exist until the events stream lands.
-Once it runs, add `program_router` to `routes/__init__.py` and `app.py`.
+A file is a document in the server's [Dialect][flyball.server.dialect.Dialect];
+`check` normalises it to the internally tagged form without running anything,
+which is what an editor wants back. `run` does the same and hands the result
+to the programmer.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
-from pydantic import TypeAdapter
+from fastapi import APIRouter, Body, HTTPException
+from pydantic import TypeAdapter, ValidationError
 
 from flyball.programmer import Program
 from flyball.programmer.programmer import ProgrammerState
 from flyball.server.commands import command_request, commands_schema
-from flyball.server.deps import ProgrammerDep
+from flyball.server.deps import DialectDep, ProgrammerDep
+from flyball.server.dialect import (
+    StepError,
+    normalise_program,
+    program_from_document,
+    program_schema,
+)
 
-program_router = APIRouter(prefix="/api/program", tags=["program"])
+router = APIRouter(prefix="/api/programs", tags=["programs"])
 
 
-@program_router.get("/commands/schema")
+@router.get("/schema")
+async def read_program_schema(dialect: DialectDep) -> dict[str, Any]:
+    """JSON schema for a program file in the server's dialect, for an editor."""
+    return program_schema(dialect)
+
+
+@router.get("/commands")
 async def read_command_schema() -> dict[str, Any]:
-    """The JSON schema for every registered command, for building a form."""
+    """The internally tagged request union as JSON schema, for building a form."""
     return commands_schema()
 
 
-@program_router.get("")
-async def read_program(programmer: ProgrammerDep) -> ProgrammerState:
+@router.post("/check")
+async def check_program(body: Annotated[Any, Body()], dialect: DialectDep) -> dict[str, Any]:
+    """Normalise and validate a program document; nothing runs.
+
+    Returns the internally tagged document. 422 names the step that failed.
+    """
+    try:
+        normalised = normalise_program(body, dialect)
+        program_from_document(body, dialect)
+    except (StepError, ValidationError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return normalised
+
+
+@router.get("/running")
+async def read_running(programmer: ProgrammerDep) -> ProgrammerState:
     return programmer.state
 
 
-@program_router.post("/command")
+@router.post("/run")
+def run_program(
+    body: Annotated[Any, Body()],
+    dialect: DialectDep,
+    programmer: ProgrammerDep,
+    interrupt: bool = False,
+) -> ProgrammerState:
+    """Start a program document, in order.
+
+    Not `async`: the first step is applied on this thread, so a command the
+    rig cannot take is refused here. `interrupt` stops whatever is running
+    instead of refusing with a conflict.
+    """
+    try:
+        program = program_from_document(body, dialect)
+    except (StepError, ValidationError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    programmer.start(program, interrupt=interrupt)
+    return programmer.state
+
+
+@router.post("/command")
 def run_command(
     body: dict[str, Any],
     programmer: ProgrammerDep,
     interrupt: bool = False,
 ) -> ProgrammerState:
-    """Apply one command and return; a hold or ramp continues on the programmer's thread.
-
-    Not `async`: applying may write to hardware. `interrupt` stops whatever is
-    running instead of refusing with a conflict; a query parameter, since it
-    means nothing as a stored step.
-    """
+    """Apply one internally tagged command; a hold or ramp continues on the programmer's thread."""
     # Validated here rather than in the signature: the command union exists
     # only once commands have registered, which is after this module loads.
-    request = TypeAdapter(command_request()).validate_python(body)
+    try:
+        request = TypeAdapter(command_request()).validate_python(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     programmer.start(request.parse(), interrupt=interrupt)
     return programmer.state
 
 
-@program_router.post("")
-def run_program(
-    body: list[dict[str, Any]],
-    programmer: ProgrammerDep,
-    interrupt: bool = False,
-) -> ProgrammerState:
-    """Start a list of commands, in order."""
-    requests = TypeAdapter(list[command_request()]).validate_python(body)  # type: ignore[misc]
-    programmer.start(Program([step.parse() for step in requests]), interrupt=interrupt)
-    return programmer.state
-
-
-@program_router.post("/interrupt")
+@router.post("/interrupt")
 def interrupt(programmer: ProgrammerDep) -> ProgrammerState:
     programmer.interrupt()
     return programmer.state
+
+
+_ = Program  # the type `program_from_document` returns; named for the docs

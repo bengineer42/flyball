@@ -5,6 +5,8 @@
       members: false
       show_root_heading: false
 
+::: flyball.runtime.config
+
 ::: flyball.runtime.loops
 
 ::: flyball.runtime.reader

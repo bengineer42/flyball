@@ -146,3 +146,39 @@ def test_a_mixed_reader_delivers_both_paths(rig, probe, temperature, fresh, cloc
     assert rig._readings[probe[temperature]].value == 1.0
     reader.push(probe, {temperature: 2.0}, time_ns=clock.now_ns() + 1)
     assert rig._readings[probe[temperature]].value == 2.0
+
+
+def test_attach_loop_refuses_an_actuator_that_takes_another_unit(rig, probe, temperature, fresh):
+    from flyball.core.errors import ConflictError
+    from flyball.core.units.si import Kelvin, Volt
+
+    class VoltsIn(RecordingActuator):
+        demand_unit = Volt
+
+    with pytest.raises(ConflictError, match="takes demands in V"):
+        rig.attach_loop(probe[temperature], VoltsIn(fresh("psu")), law=PI(kp=1.0))
+
+    class KelvinIn(RecordingActuator):
+        demand_unit = Kelvin
+
+    with pytest.raises(ConflictError, match="takes demands in K"):  # same dimension, different unit
+        rig.attach_loop(probe[temperature], KelvinIn(fresh("k")), law=PI(kp=1.0))
+
+
+def test_a_slow_read_raises_a_warning_condition(rig, probe, temperature, fresh):
+    import time
+
+    from flyball.core.device import Level
+    from flyball.core.reading import Reader
+
+    class Slow(Reader):
+        def read(self, time_ns):
+            time.sleep(0.02)
+            return [sample(probe, temperature, 1.0, time_ns)]
+
+    reader = Slow(fresh("slow"), (probe,))
+    rig.readers.start_periodic(reader, period=0.005)
+    rig.readers.stop_all()
+    rig.readers._read(reader)
+    (condition,) = rig.readers.run(reader.name).conditions
+    assert condition.kind == "slow" and condition.level is Level.WARNING

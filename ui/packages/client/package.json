@@ -1,0 +1,17 @@
+{
+  "name": "@flyball/client",
+  "version": "0.1.0",
+  "description": "Typed client for a flyball rig: HTTP routes, websocket streams, wire types. No framework.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

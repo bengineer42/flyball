@@ -68,6 +68,40 @@ class Config[T](BaseModel, ABC):
         ]
 
 
+def discover(group: str = "flyball.configs") -> list[str]:
+    """Import every installed package's registered configs, so their tags are usable.
+
+    A package declares them in its `pyproject.toml`::
+
+        [project.entry-points."flyball.configs"]
+        keithley = "flyball_keithley.configs"
+
+    Importing the module is what registers its tagged configs. Returns the
+    names loaded. Safe to call more than once.
+    """
+    from importlib.metadata import entry_points
+
+    loaded = []
+    for entry in entry_points(group=group):
+        entry.load()
+        loaded.append(entry.name)
+    return loaded
+
+
+def import_object(dotted: str) -> Any:
+    """`package.module.Name` -> the object. Only from packages already installed.
+
+    How a rig file names a driver class it cannot describe: the wrapped
+    instruments' configs call this with their `driver` field.
+    """
+    import importlib
+
+    module_name, _, attribute = dotted.rpartition(".")
+    if not module_name:
+        raise ValueError(f"{dotted!r} is not a dotted path to a class")
+    return getattr(importlib.import_module(module_name), attribute)
+
+
 type ConfigOr[T] = Config[T] | T
 
 

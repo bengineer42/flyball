@@ -26,7 +26,8 @@ from flyball.db import (
     TuningRow,
     Window,
 )
-from flyball.server.deps import StoreDep
+from flyball.db.documents import documents
+from flyball.server.deps import StoreDep, current_rig
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -49,10 +50,32 @@ async def read_session(store: StoreDep, session_id: int) -> SessionRow:
     return store.session(session_id)
 
 
+@router.post("/sessions/{session_id}/end")
+def end_session(store: StoreDep, session_id: int) -> SessionRow:
+    """Close an open session.
+
+    The one being recorded right now is closed through the rig, so the
+    recorder stops cleanly; one left open by a daemon that died is closed in
+    the store at the time of its last sample. 409 if it is already ended.
+    """
+    rig = current_rig()
+    recorder = rig.recorder if rig is not None else None
+    if recorder is not None and recorder.writer.session.id == session_id:
+        rig.stop_recording()  # type: ignore[union-attr]
+        return store.session(session_id)
+    return store.end_session(session_id)
+
+
 @router.delete("/sessions/{session_id}", status_code=204)
 async def delete_session(store: StoreDep, session_id: int) -> None:
     """Everything the session recorded goes with it. Tunings made in it survive."""
     store.delete_session(session_id)
+
+
+@router.get("/sessions/{session_id}/documents")
+async def read_session_documents(store: StoreDep, session_id: int) -> list[Any]:
+    """The session as Bluesky event-model documents: `[[name, doc], ...]` in order."""
+    return [[name, doc] for name, doc in documents(store, session_id)]
 
 
 @router.get("/sessions/{session_id}/sources")

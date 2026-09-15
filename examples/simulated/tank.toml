@@ -1,0 +1,37 @@
+#:schema rig.schema.json
+# A tank filled by a valve against a drain: an integrating plant. Unlike the
+# oven it has no natural resting point, so a proportional-only law leaves an
+# offset and integral action is what holds level.
+
+name = "tank"
+
+[links.tank]
+tag = "sim_plant"
+kind = "integrator"
+gain = 2.0          # litres per second at full valve
+leak = 0.05         # 5 % of the contents drains per second
+initial = 10.0      # litres to start
+noise = 0.02
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "level"
+link = "tank"
+measurand = "volume"
+unit = "L"
+range = [0, 100]
+precision = 1
+
+[[actuators]]
+tag = "sim_actuator"
+name = "valve"
+link = "tank"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "level.volume"
+actuator = "valve"
+law = { tag = "PI", kp = 0.05, ki = 0.01 }
+default = true

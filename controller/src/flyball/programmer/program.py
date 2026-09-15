@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
     from .command import Command
 
 
-class Program(Sequence["Command[Any]"]):
+class Program(Sequence["Command"]):
     """The steps of a run, in order. `commands` is copied.
 
     Raises:
@@ -24,25 +24,25 @@ class Program(Sequence["Command[Any]"]):
 
     __slots__ = ("_commands", "name")
 
-    _commands: tuple[Command[Any], ...]
+    _commands: tuple[Command, ...]
     name: str | None
 
-    def __init__(self, commands: Sequence[Command[Any]], name: str | None = None) -> None:
+    def __init__(self, commands: Sequence[Command], name: str | None = None) -> None:
         if not commands:
             raise ValueError("a program needs at least one command")
         self._commands = tuple(commands)
         self.name = name
 
-    def get(self, index: int, default: None = None, /) -> Command[Any] | None:
+    def get(self, index: int, default: None = None, /) -> Command | None:
         with suppress(IndexError):
             return self._commands[index]
         return default
 
     @overload
-    def __getitem__(self, index: int) -> Command[Any]: ...
+    def __getitem__(self, index: int) -> Command: ...
     @overload
     def __getitem__(self, index: slice) -> Program: ...
-    def __getitem__(self, index: int | slice) -> Command[Any] | Program:
+    def __getitem__(self, index: int | slice) -> Command | Program:
         if isinstance(index, slice):
             return Program(self._commands[index], self.name)
         return self._commands[index]
@@ -50,7 +50,7 @@ class Program(Sequence["Command[Any]"]):
     def __len__(self) -> int:
         return len(self._commands)
 
-    def __iter__(self) -> Iterator[Command[Any]]:
+    def __iter__(self) -> Iterator[Command]:
         return iter(self._commands)
 
     def __eq__(self, other: object) -> bool:

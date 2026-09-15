@@ -1,0 +1,42 @@
+#:schema rig.schema.json
+# A heated oven: a first-order lag with dead time, the plant every autotuner
+# is designed for. Nothing here is Python; `flyball-daemon oven.toml`
+# runs it, and every route, the CLI and the schema work on it as on hardware.
+
+name = "oven"
+
+[links.chamber]
+tag = "sim_plant"
+kind = "fopdt"
+tau_s = 60.0        # the oven takes about a minute to respond
+dead_s = 5.0        # ... and five seconds before it starts to
+gain = 80.0         # full heater power (input 1.0) adds 80 °C over ambient
+ambient = 20.0      # the room; where it rests with the heater off
+initial = 20.0      # starts at room temperature
+noise = 0.05        # the thermocouple's noise, in °C
+seed = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "thermocouple"
+link = "chamber"
+measurand = "temperature"
+unit = "°C"
+range = [0, 120]
+precision = 2
+warn = [30, 90]     # outside: a warning (EPICS LOW/HIGH)
+alarm = [10, 110]   # outside: an alarm (EPICS LOLO/HIHI)
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater"
+link = "chamber"
+limits = [0.0, 1.0]  # duty: off to full
+
+[[loops]]
+channel = "thermocouple.temperature"
+actuator = "heater"
+law = { tag = "PI", kp = 0.02, ki = 0.0005 }
+default = true

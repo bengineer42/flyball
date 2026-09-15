@@ -58,7 +58,8 @@ def test_commands_are_collected_with_their_tags_and_docs():
 def test_subclass_extends_the_parent_s_commands_without_leaking_back():
     class Child(DutyHeater):
         @command
-        def boost(self) -> None: ...
+        def boost(self) -> None:
+            """Stub."""
 
     assert list(Child.commands) == ["set_duty", "off", "boost"]
     assert "boost" not in DutyHeater.commands
@@ -69,16 +70,19 @@ def test_reserved_and_duplicate_tags_are_refused():
 
         class A(Device):
             @command(tag="schema")
-            def s(self) -> None: ...
+            def s(self) -> None:
+                """Stub."""
 
     with pytest.raises(ValueError, match="already used"):
 
         class B(Device):
             @command(tag="go")
-            def one(self) -> None: ...
+            def one(self) -> None:
+                """Stub."""
 
             @command(tag="go")
-            def two(self) -> None: ...
+            def two(self) -> None:
+                """Stub."""
 
 
 def test_command_signature_must_be_schemable():
@@ -88,15 +92,25 @@ def test_command_signature_must_be_schemable():
 
         class Bad(Device):
             @command
-            def go(self, x: Opaque) -> None: ...
+            def go(self, x: Opaque) -> None:
+                """Stub."""
 
     with pytest.raises(TypeError, match=r"go\(\) ->"):
 
         class BadReturn(Device):
             @command
-            def go(self) -> RLock: ...
+            def go(self) -> RLock:
+                """Stub."""
 
 
 def test_state_schema_carries_conditions_and_demand():
     props = TypeAdapter(DutyState).json_schema()["properties"]
     assert set(props) == {"conditions", "demand", "duty"}
+
+
+def test_a_command_without_a_docstring_is_refused():
+    with pytest.raises(TypeError, match="needs a docstring"):
+
+        class Silent(Device):
+            @command
+            def go(self) -> None: ...

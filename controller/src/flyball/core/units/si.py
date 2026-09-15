@@ -1,8 +1,8 @@
 """SI units: the base units, the named derived units, and the accepted non-SI ones."""
 
-from flyball.consts import PI
+from math import pi as PI
 
-from .dimension import Kilo
+from .dimension import DIMENSIONLESS, Kilo
 from .dimensions import (
     AmountOfSubstance,
     Angle,
@@ -64,6 +64,10 @@ Katal = CatalyticActivity.unit("katal", "kat")
 
 # Absolute scales: same interval as the kelvin, different zero.
 Celsius = Temperature.unit("celsius", "°C", zero=273.15)
+
+# The unit of a count, a ratio, a status word, a duty: what "no unit" means in a table.
+One = DIMENSIONLESS.unit("one", "1")
+Percent = DIMENSIONLESS.unit("percent", "%", 0.01)
 
 
 # Non-SI units accepted for use with the SI.

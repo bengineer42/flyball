@@ -28,6 +28,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.details
   - pymdownx.arithmatex: { generic: true }
+  - pymdownx.snippets:
+      base_path: [!relative $config_dir/src/snippets]
+      check_paths: true
 
 plugins:
   - search
@@ -66,6 +69,8 @@ nav:
       - The CLI: 3-running/cli.md
       - The UI: 3-running/ui.md
       - Writing programs: 3-running/programs.md
+      - Supported equipment: 3-running/equipment.md
+      - Boards and Linux I/O: 3-running/boards.md
       - Autotune: 3-running/autotune.md
   - Control:
       - The loop in detail: 4-control/loop.md
@@ -83,6 +88,7 @@ nav:
       - CLI: 6-reference/cli.md
       - HTTP and websocket API: 6-reference/api.md
       - Program file schema: 6-reference/program-schema.md
+      - Rig file schema: 6-reference/rig-file.md
       - Wire format: 6-reference/wire.md
       - Python API:
           - flyball: 6-reference/python/flyball.md
@@ -93,8 +99,9 @@ nav:
           - flyball.autotune: 6-reference/python/flyball/autotune.md
           - flyball.runtime: 6-reference/python/flyball/runtime.md
           - flyball.programmer: 6-reference/python/flyball/programmer.md
-          - flyball.sim: 6-reference/python/flyball/sim.md
+          - flyball.devices: 6-reference/python/flyball/devices.md
           - flyball.hardware: 6-reference/python/flyball/hardware.md
+          - flyball.sim: 6-reference/python/flyball/sim.md
           - flyball.db: 6-reference/python/flyball/db.md
           - flyball.server: 6-reference/python/flyball/server.md
           - flyball.server.routes: 6-reference/python/flyball/server/routes.md

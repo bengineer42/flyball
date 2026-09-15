@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import textwrap
 from dataclasses import dataclass
 from typing import Any, cast
 
 import pytest
+import yaml
 
 from flyball.core.clock import Duration, Rate, TimeUnit
 from flyball.core.typing import Percent
@@ -155,3 +157,26 @@ def test_program_schema_is_externally_tagged_with_shorthand_and_folds(dialect, c
     ]
     assert "settle" in branches[tags["flag"]]["properties"], "modifiers on every branch"
     assert branches[tags["setpoint"]]["description"] == "Go to this value and hold."
+
+
+def test_a_program_loads_from_toml_json_and_yaml(tmp_path, dialect, commands):
+    tags, classes = commands
+    from flyball.server.dialect import program_from_file
+
+    steps = [
+        {tags["setpoint"]: 50},
+        {tags["ramp"]: {"to": 60, "per_minute": 2}},
+        {tags["flag"]: "done"},
+    ]
+    (tmp_path / "p.json").write_text(json.dumps({"name": "j", "steps": steps}))
+    (tmp_path / "p.yaml").write_text(yaml.safe_dump({"name": "y", "steps": steps}))
+    (tmp_path / "p.toml").write_text(
+        f'name = "t"\n'
+        f"[[steps]]\n{tags['setpoint']} = 50\n"
+        f"[[steps]]\n{tags['ramp']} = {{ to = 60, per_minute = 2 }}\n"
+        f'[[steps]]\n{tags["flag"]} = "done"\n'
+    )
+    for suffix in ("json", "yaml", "toml"):
+        program = program_from_file(tmp_path / f"p.{suffix}", dialect)
+        assert len(program) == 3 and program[0] == classes["Setpoint"](at=50.0)
+        assert cast(Any, program[1]).pace == Rate(2.0, TimeUnit.MINUTE)

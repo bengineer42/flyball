@@ -1,0 +1,45 @@
+#:schema rig.schema.json
+# A greenhouse on a Raspberry Pi 5: an SHT4x for air, a DS18B20 in the soil,
+# a PWM heater and a relay-driven fan on GPIO18. `board = "rpi5"` supplies
+# the buses; the file names pins by their header labels.
+#
+#   flyball-daemon greenhouse.toml
+#
+# The same file with `board = "sim"` runs anywhere: see greenhouse.sim.toml.
+
+name = "greenhouse"
+board = "rpi5"
+
+[[readers]]
+period_s = 2.0
+[readers.device]
+tag = "sht4x"
+name = "air"
+link = "i2c1"
+
+[[readers]]
+period_s = 5.0
+[readers.device]
+tag = "ds18b20"
+name = "soil"
+link = "w1"
+device = "28-0316a279e7ff"   # `ls /sys/bus/w1/devices` for yours
+
+[[actuators]]
+tag = "pwm_actuator"
+name = "heater"
+pin = "PWM0"
+frequency_hz = 1000
+unit = "°C"
+span = [10, 40]               # off holds 10 °C, flat out holds 40: the loop corrects the rest
+
+[[actuators]]
+tag = "gpio_actuator"
+name = "fan"
+pin = "GPIO18"                # `flyball fan on`, `flyball fan off`
+
+[[loops]]
+channel = "air.temperature"
+actuator = "heater"
+law = { tag = "PI", kp = 0.5, ki = 0.01 }
+default = true

@@ -16,7 +16,8 @@ class ProgramAlreadyRunningError(ConflictError):
         self.current = current
         self.new = new
         super().__init__(
-            f"Attempted to start a new program while another is still running. Current: {current}, New: {new}"
+            "Attempted to start a new program while another is still running. "
+            f"Current: {current}, New: {new}"
         )
 
 

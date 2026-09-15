@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncIterator
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,8 +20,12 @@ from flyball.core.errors import (
 from flyball.server.deps import current_rig
 from flyball.server.routes import (
     actuators_router,
+    events_router,
     history_router,
+    library_router,
+    program_router,
     readers_router,
+    recording_router,
     rig_router,
     schema_router,
     signals_router,
@@ -43,6 +46,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if rig is not None:
             with contextlib.suppress(Exception):
                 rig.readers.stop_all()
+            # Close the session so it does not stay "open" forever in the store.
+            with contextlib.suppress(Exception):
+                rig.stop_recording()
 
 
 def create_app() -> FastAPI:
@@ -77,23 +83,23 @@ def create_app() -> FastAPI:
 
     for error, code in codes.items():
 
-        async def handler(request: Request, exc: Exception, code: int = code) -> JSONResponse:
+        def handler(request: Request, exc: Exception, code: int = code) -> JSONResponse:
             # `code` is bound as a default: without it every handler would
             # close over the loop variable and share the last value.
             return JSONResponse(status_code=code, content={"detail": str(exc)})
 
         app.add_exception_handler(error, handler)
 
-    @app.get("/api/health", tags=["rig"])
-    async def health() -> dict[str, Any]:
-        return {"status": "ok", "rig_attached": current_rig() is not None}
-
     app.include_router(rig_router)
     app.include_router(actuators_router)
     app.include_router(readers_router)
+    app.include_router(recording_router)
     app.include_router(signals_router)
+    app.include_router(events_router)
+    app.include_router(program_router)
     app.include_router(schema_router)
     app.include_router(history_router)
+    app.include_router(library_router)
     app.include_router(telemetry_router)
     return app
 

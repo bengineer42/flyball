@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from flyball.core.device import Level
 from flyball.core.resource import Operator
 
 from .errors import CommandRuntimeError, ProgramAlreadyRunningError
@@ -89,7 +90,7 @@ class Programmer:
 
     # region Running
 
-    def start(self, work: Command[Any] | Program, interrupt: bool = False) -> None:
+    def start(self, work: Command | Program, interrupt: bool = False) -> None:
         """Begin `work` without waiting for it to finish.
 
         The first step is applied on the calling thread, so an unapplicable
@@ -106,10 +107,22 @@ class Programmer:
         if interrupt:
             self.interrupt()
         program = self.load(work)
-
-        with self.lock:
+        self.rig.event(
+            Level.INFO,
+            "program",
+            program.name or "program",
+            "started",
+            f"{program.name or 'program'}: {len(program)} step{'s' if len(program) != 1 else ''}",
+            {"steps": len(program), "commands": [c.tag for c in program]},
+        )
+        try:
             activity = self._apply_atomics(program)
-            self.rig.publish_state()
+        except Exception:
+            self._finish(program)
+            raise
+        if activity is None:  # every step applied at once; nothing to wait for
+            self._finish(program)
+            return
 
         thread = Thread(target=self._work, args=(program, activity), daemon=True, name="programmer")
         with self.lock:
@@ -126,7 +139,7 @@ class Programmer:
             self._activity = None
             return self._program
 
-    def run(self, work: Command[Any] | Program, interrupt: bool = False) -> None:
+    def run(self, work: Command | Program, interrupt: bool = False) -> None:
         """Apply `work` and block until it finishes or is interrupted.
 
         For use off the request path; routes want
@@ -157,20 +170,24 @@ class Programmer:
             thread.join()
 
     def _apply_atomics(self, program: Program) -> Activity | None:
-        try:
-            with self.lock:
-                while self.step < len(program) and not self._abort:
-                    if (activity := self._apply(program[self.step])) is not None:
-                        return activity
-                    self.step += 1
-        except Exception as error:
-            self.rig.publish_warning(CommandRuntimeError(program[self.step], self.step, error))
+        """Apply steps from the current one until one has to be waited on.
+
+        Returns:
+            That step's activity, or `None` if the rest of the program applied.
+        """
+        with self.lock:
+            while self._step < len(program) and not self._abort:
+                if (activity := self._apply(program[self._step])) is not None:
+                    return activity
+                self._step += 1
+        return None
 
     # endregion
     # region Internals
     def _work(self, program: Program, activity: Activity | None) -> None:
         """Wait out the current step, then apply the rest in order."""
-        step = 0
+        with self.lock:
+            step = self._step
         try:
             while True:
                 if activity is not None and not self._wait_out(activity, program[step]):
@@ -185,7 +202,7 @@ class Programmer:
             # A step that will not apply, or an activity that failed, ends the
             # program. There is nobody left to raise at, so the rig's watchers
             # hear about it.
-            self.rig.publish_warning(CommandRuntimeError(program[step], step, error))
+            self._failed(program, step, error)
         finally:
             self._finish(program)
 
@@ -193,7 +210,9 @@ class Programmer:
         """Run `activity` to its end, registered by name so it can be answered.
 
         Returns:
-            False if the activity was cancelled and the program should stop.
+            False if the activity was cancelled or timed out, so the program
+            stops here. A timeout is recorded as an event; an interrupt was
+            asked for and is not.
 
         Raises:
             Exception: Whatever the activity failed with, so `_work` ends the
@@ -210,7 +229,18 @@ class Programmer:
 
         if activity.error is not None:
             raise activity.error
-        return not activity.interrupted
+        if activity.timed_out:
+            program = self._program
+            self.rig.event(
+                Level.WARNING,
+                "program",
+                f"{program.name if program is not None and program.name else 'program'}"
+                f"[{self._step}]",
+                "step_timed_out",
+                f"{command.tag} gave up after {activity.timeout_s} s: {activity.message}",
+                {"command": command.tag, "timeout_s": activity.timeout_s},
+            )
+        return activity.fired
 
     def _apply(self, command: Command) -> Activity | None:
         """Apply one step under the rig's lock.
@@ -219,21 +249,53 @@ class Programmer:
             The activity to wait out before the next step, or `None` to move
             straight on.
         """
+        with self.lock:
+            program, step = self._program, self._step
+        self.rig.event(
+            Level.INFO,
+            "program",
+            f"{program.name if program is not None and program.name else 'program'}[{step}]",
+            "step",
+            f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
+            {"step": step, "command": command.tag},
+        )
         with self.rig.lock:
             activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity
         return activity
 
+    def _failed(self, program: Program, step: int, error: Exception) -> None:
+        """A step that will not apply, or an activity that failed, ends the program: say so."""
+        failure = CommandRuntimeError(program[step], step, error)
+        self.rig.event(
+            Level.ERROR,
+            "program",
+            f"{program.name or 'program'}[{step}]",
+            "step_failed",
+            str(failure),
+            {"command": program[step].tag, "error": f"{type(error).__name__}: {error}"},
+        )
+
     def _finish(self, program: Program) -> None:
-        """Clear `program`, unless something else has already replaced it."""
+        """Clear `program`, unless something else has already replaced it, and say how it ended."""
         with self.lock:
-            if self._program is program:
-                self._program = None
-                self._activity = None
-                self._thread = None
-                self._step = 0
-                self._abort = False
+            if self._program is not program:
+                return
+            outcome = "interrupted" if self._abort else "finished"
+            self._program = None
+            self._activity = None
+            self._thread = None
+            self._step = 0
+            self._abort = False
+        self.rig.event(
+            Level.INFO,
+            "program",
+            program.name or "program",
+            outcome,
+            f"{program.name or 'program'} {outcome}",
+            {"steps": len(program)},
+        )
 
     # endregion
 

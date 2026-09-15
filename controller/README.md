@@ -9,6 +9,6 @@ Nothing here has been tested against hardware.
 
 ```sh
 uv sync --all-extras          # dev environment
-uv run pytest
-uv run lint-imports
+make check                    # ruff, import-linter, pyright, pytest
+make test                     # just the suite
 ```

@@ -15,7 +15,7 @@ from flyball.control import ControlLawConfig, ControlLaws, ControlLawView, Tunin
 from flyball.control.errors import TuningNotRegisteredError
 from flyball.core.errors import NotFoundError
 from flyball.core.reading import Channel, Measurand, Source
-from flyball.server.deps import RigDep
+from flyball.server.deps import RigDep, current_rig
 from flyball.server.schemas import ChannelOut, ClockOut, LoopOut, SourceOut
 
 router = APIRouter(prefix="/api", tags=["rig"])
@@ -37,6 +37,41 @@ def _channel(rig: RigDep, name: str) -> Channel:
     except NotFoundError as e:
         raise NotFoundError(f"Channel {name!r} not found") from e
 
+
+# region Health
+
+
+@router.get("/health")
+async def read_health() -> dict[str, Any]:
+    """One look: is anything offline, slow or pending. What a watchdog or a status line polls."""
+    rig = current_rig()
+    if rig is None:
+        return {"ok": False, "rig": None}
+    conditions = [
+        {"device": name, **c.__dict__}
+        for name in rig.readers.by_name
+        for c in rig.readers.run(name).conditions
+    ] + [
+        {"device": name, **c.__dict__}
+        for name, actuator in rig.actuators.items()
+        for c in actuator.state.conditions
+    ]
+    return {
+        "ok": not any(c["level"] >= 40 for c in conditions),
+        "rig": rig.name,
+        "uptime_s": rig.clock.elapsed_s(),
+        "readers": {
+            name: {"running": run.running, "last_read_ns": run.last_read_ns}
+            for name, run in ((n, rig.readers.run(n)) for n in rig.readers.by_name)
+        },
+        "loops": {name: rig.loops[name].mode.value for name in rig.loops},
+        "conditions": conditions,
+        "signals": sorted(rig.signals.states()),
+        "recording": rig.recorder is not None,
+    }
+
+
+# endregion
 
 # region Clock
 

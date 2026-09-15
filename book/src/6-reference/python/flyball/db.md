@@ -5,6 +5,8 @@
       members: false
       show_root_heading: false
 
+::: flyball.db.documents
+
 ::: flyball.db.errors
 
 ::: flyball.db.migrate

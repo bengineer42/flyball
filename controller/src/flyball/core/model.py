@@ -1,7 +1,8 @@
+from collections.abc import Callable, Mapping
 from inspect import signature
-from typing import Any, get_type_hints
+from typing import Annotated, Any, Union, get_type_hints
 
-from pydantic import create_model
+from pydantic import Field, create_model
 
 
 def creation_model(
@@ -56,3 +57,20 @@ class ModelOf:
         if obj is None:
             return self._model
         return self._model(**{name: getattr(obj, name) for name in self._names})
+
+
+def discriminated_union[T](
+    members: Mapping[str, type[T]],
+    discriminator: str,
+    parser: Callable[[type[T]], type[Any]] = lambda x: x,
+) -> Any:
+    """One model per registry entry, discriminated by the tag field.
+
+    `Annotated[A | B | ..., Field(discriminator=...)]` over `parser(member)`,
+    so a union built from a registry admits whatever is registered.
+
+    """
+    return Annotated[
+        Union[tuple(parser(member) for member in members.values())],  # ruff: ignore[non-pep604-annotation-union]
+        Field(discriminator=discriminator),
+    ]

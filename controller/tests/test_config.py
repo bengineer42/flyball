@@ -67,3 +67,25 @@ def test_untagged_config_cannot_join_a_union():
 
     with pytest.raises(TypeError, match="has no tag"):
         Plain.tagged()
+
+
+def test_discover_loads_every_entry_point_in_the_group(monkeypatch):
+    """A package that declares `flyball.configs` has its module imported, which registers tags."""
+    from importlib.metadata import EntryPoint
+
+    from flyball.core import config as module
+
+    imported = []
+
+    class Entry(EntryPoint):
+        def load(self):
+            imported.append(self.value)
+            return object()
+
+    entries = [Entry("acme", "acme.configs", "flyball.configs")]
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points",
+        lambda group: entries if group == "flyball.configs" else [],
+    )
+    assert module.discover() == ["acme"] and imported == ["acme.configs"]
+    assert module.discover("other") == []

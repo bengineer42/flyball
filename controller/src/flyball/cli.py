@@ -6,7 +6,7 @@ code here. Help text comes from the schema:
 
     flyball actuators                       what is attached
     flyball pumps                           config, settings and state
-    flyball pumps set_blend --wet-fraction 0.25 --flow.tag absolute --flow.flow 8
+    flyball pumps set_fraction --wet-fraction 0.25 --flow.tag absolute --flow.flow 8
     flyball pumps set_flows 2 6             a single argument may be positional
     flyball signals                         what a program is waiting on
     flyball signal fire lid                 answer it
@@ -247,6 +247,42 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     watch.add_argument("stream", choices=STREAMS)
     watch.set_defaults(fn=cmd_watch)
     sub.add_parser("clock", help="the rig's timebase").set_defaults(fn=cmd_clock)
+    sub.add_parser("status", help="one screen: readers, loops, actuators, signals").set_defaults(
+        fn=cmd_status
+    )
+    rig_cmd = sub.add_parser("rig", help="rig files: check one, or print their schema")
+    rig_sub = rig_cmd.add_subparsers(dest="rig_action", metavar="<action>")
+    check = rig_sub.add_parser("check", help="validate a rig file without a rig")
+    check.add_argument("path", type=Path)
+    check.set_defaults(fn=cmd_rig_check, local=True)
+    rig_sub.add_parser("schema", help="the rig file's JSON schema, for an editor").set_defaults(
+        fn=cmd_rig_schema, local=True
+    )
+    program = sub.add_parser("program", help="program files")
+    program_sub = program.add_subparsers(dest="program_action", metavar="<action>")
+    pcheck = program_sub.add_parser(
+        "check", help="normalise and validate a program file against the rig's commands"
+    )
+    pcheck.add_argument("path", type=Path)
+    pcheck.add_argument(
+        "--local",
+        action="store_true",
+        help="check against the commands installed here instead of asking the rig",
+    )
+    pcheck.set_defaults(fn=cmd_program_check)
+    program_sub.add_parser(
+        "schema", help="the program file's JSON schema, for an editor"
+    ).set_defaults(fn=cmd_program_schema, local=True)
+    new = sub.add_parser("new", help="write a starting point for a device of your own")
+    new.add_argument("kind", choices=("actuator", "reader"))
+    new.add_argument("name", help="the tag and file name: 'chiller', 'lab-probe'")
+    new.add_argument("--dir", type=Path, default=Path("."), help="where to write it")
+    new.set_defaults(fn=cmd_new, local=True)
+    export = sub.add_parser("export", help="a recorded session as Bluesky event-model documents")
+    export.add_argument("session", type=int, help="the session id (see `flyball sessions`)")
+    export.add_argument("--out", type=Path, help="write JSON lines here instead of stdout")
+    export.set_defaults(fn=cmd_export)
+    sub.add_parser("sessions", help="list recorded sessions").set_defaults(fn=cmd_sessions)
     for kind in ("actuators", "readers", "sources", "loops"):
         sub.add_parser(kind, help=f"list the {kind}").set_defaults(fn=cmd_list, kind=kind)
 
@@ -309,6 +345,134 @@ def cmd_clock(rig: Rig, args: argparse.Namespace) -> None:
     _out(args, rig.clock())
 
 
+def cmd_status(rig: Rig, args: argparse.Namespace) -> None:
+    """Everything at a glance, from the routes a dashboard would use."""
+    health = rig.get("/api/health")
+    if args.json:
+        _out(args, health)
+        return
+    print(
+        f"{'OK' if health['ok'] else 'ATTENTION'}  up {health['uptime_s']:.0f} s"
+        f"  recording={'yes' if health['recording'] else 'no'}"
+    )
+    readers = rig.get("/api/readers")
+    for name, reader in readers.items():
+        run = reader["run"]
+        age = (
+            ""
+            if run["last_read_ns"] is None
+            else f"last read {(rig.clock()['now_ns'] - run['last_read_ns']) / 1e9:.1f} s ago"
+        )
+        flags = ", ".join(c["kind"] for c in run["conditions"]) or "-"
+        print(
+            f"  reader   {name:16s} {'running' if run['running'] else 'stopped':8s} "
+            f"{age:22s} {flags}"
+        )
+    for name, view in rig.get("/api/actuators").items():
+        state = view["state"]
+        print(
+            f"  actuator {name:16s} demand={state.get('demand')!s:10s} "
+            f"{', '.join(c['kind'] for c in state.get('conditions', [])) or '-'}"
+        )
+    for loop in rig.get("/api/loops"):
+        reading = loop.get("reading") or {}
+        print(
+            f"  loop     {loop['name']:16s} {loop['mode']:11s} "
+            f"reading={reading.get('value')!s:10s} "
+            f"setpoint={loop.get('reference')!s:10s} law={(loop.get('law') or {}).get('tag', '-')}"
+        )
+    for name, signal in rig.signals().items():
+        print(f"  waiting  {name:16s} {signal['outcome']:10s} {signal.get('message') or ''}")
+
+
+def cmd_rig_check(rig: Rig, args: argparse.Namespace) -> None:
+    from flyball.core.config import discover
+    from flyball.runtime.config import RigConfig, resolve_document
+
+    try:
+        discover()
+        document, board = resolve_document(args.path)
+        config = RigConfig.model_validate(document)
+    except Exception as e:
+        raise SchemaError(f"{args.path}: {e}") from None
+    print(
+        f"{args.path}: ok -- {config.name or 'unnamed'}: {len(config.links)} links, "
+        f"{len(config.readers)} readers, {len(config.actuators)} actuators, "
+        f"{len(config.loops)} loops"
+        + (f"; board {config.board!r} from {board}" if board is not None else "")
+    )
+
+
+def cmd_rig_schema(rig: Rig, args: argparse.Namespace) -> None:
+    from flyball.runtime.config import rig_schema
+
+    _out(args, rig_schema())
+
+
+def cmd_program_check(rig: Rig, args: argparse.Namespace) -> None:
+    """The rig normalises and validates the file; nothing runs. `--local` does it here."""
+    from flyball.core.files import load_document
+
+    document = load_document(args.path)
+    if args.local:
+        from flyball.server.dialect import Dialect, normalise_program, program_from_document
+
+        try:
+            program_from_document(document, Dialect())
+        except Exception as e:
+            raise SchemaError(f"{args.path}: {e}") from e
+        result = normalise_program(document, Dialect())
+    else:
+        result = rig.post("/api/programs/check", document)
+    if args.json:
+        _out(args, result)
+        return
+    print(f"{args.path}: ok -- {len(result['steps'])} steps")
+    for i, step in enumerate(result["steps"]):
+        command = step["command"]
+        extra = {k: v for k, v in step.items() if k != "command"}
+        print(
+            f"  {i + 1:3d}. {command['command']:12s} "
+            f"{json.dumps({k: v for k, v in command.items() if k != 'command'})}"
+            f"{'  ' + json.dumps(extra) if extra else ''}"
+        )
+
+
+def cmd_program_schema(rig: Rig, args: argparse.Namespace) -> None:
+    from flyball.server.dialect import Dialect, program_schema
+
+    _out(args, program_schema(Dialect()))
+
+
+def cmd_new(rig: Rig, args: argparse.Namespace) -> None:
+    from flyball.scaffold import write
+
+    try:
+        path = write(args.kind, args.name, args.dir)
+    except FileExistsError as e:
+        raise SchemaError(f"{e} exists; not overwriting") from e
+    except ValueError as e:
+        raise SchemaError(str(e)) from e
+    print(f"wrote {path}; add it to the rig's package and declare tag = {path.stem!r} in the file")
+
+
+def cmd_sessions(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.get("/api/sessions"))
+
+
+def cmd_export(rig: Rig, args: argparse.Namespace) -> None:
+    """One `{"name": ..., "doc": ...}` per line: what `bluesky` and databroker consume."""
+    lines = [
+        json.dumps({"name": name, "doc": doc})
+        for name, doc in rig.get(f"/api/sessions/{args.session}/documents")
+    ]
+    if args.out is not None:
+        args.out.write_text("\n".join(lines) + "\n")
+        print(f"wrote {len(lines)} documents to {args.out}")
+    else:
+        print("\n".join(lines))
+
+
 def cmd_signals(rig: Rig, args: argparse.Namespace) -> None:
     _out(args, rig.signals())
 
@@ -368,10 +532,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Two passes: the global flags first, to know which rig's schema to build from.
     pre = argparse.ArgumentParser(add_help=False)
     _global_options(pre)
-    pre_args, _ = pre.parse_known_args(argv)
+    pre_args, rest = pre.parse_known_args(argv)
+    # rig check/schema, program schema, program check --local and new need no rig.
+    local = bool(rest) and (
+        rest[0] in ("rig", "new")
+        or (rest[0] == "program" and "--local" in rest)
+        or rest[:2] == ["program", "schema"]
+    )
     schema: dict[str, Any] | None = None
     try:
-        schema, _ = load_schema(pre_args.url, pre_args.refresh, pre_args.offline)
+        if not local:
+            schema, _ = load_schema(pre_args.url, pre_args.refresh, pre_args.offline)
     except Unreachable as e:
         cache = _cache_path(pre_args.url)
         if cache.exists():
@@ -385,6 +556,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     rig = Rig(args.url, timeout=args.timeout, schema=schema)
     try:
+        if getattr(args, "local", False) and schema is None:
+            schema = {}  # a local command: no rig needed
         args.fn(rig, args)
     except Unreachable as e:
         print(f"flyball: {e}", file=sys.stderr)

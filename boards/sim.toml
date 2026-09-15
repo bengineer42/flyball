@@ -1,0 +1,28 @@
+# No hardware at all: every link is a fake. A rig file written for a real
+# board runs here with `board = "sim"`, its pin labels resolving to fake
+# chips, so a rig can be tried on any machine before it meets its board.
+
+name = "Simulated board"
+
+[links.i2c1]
+tag = "fake_i2c"
+
+[links.spi0]
+tag = "fake_spi"
+
+[links.header]
+tag = "fake_gpio"
+
+[links.pwm]
+tag = "fake_pwm"
+
+[links.w1]
+tag = "fake_onewire"
+
+[pins]
+GPIO4  = { link = "header", line = 4 }
+GPIO17 = { link = "header", line = 17 }
+GPIO18 = { link = "header", line = 18 }
+GPIO27 = { link = "header", line = 27 }
+PWM0   = { link = "pwm", channel = 0 }
+PWM1   = { link = "pwm", channel = 1 }

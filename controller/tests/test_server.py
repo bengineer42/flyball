@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
 from flyball.core.reading import Reader
 from flyball.core.signal import Signal
-from flyball.programmer.activites import Wait
+from flyball.programmer.activities import Wait
 from flyball.server import create_app, set_rig
 from helpers import sample
 
@@ -109,3 +111,105 @@ def test_clock_reports_the_rig_s_timebase(client, rig, clock):
     assert body["start_time_ns"] == rig.clock.start_time_ns
     assert body["now_ns"] == rig.clock.now_ns()
     assert body["elapsed_ns"] >= 0 and "run" in body["tags"]
+
+
+def test_health_is_one_look_at_the_rig(client, rig, duty_heater):
+    body = client.get("/api/health").json()
+    assert body["ok"] is True and body["recording"] is False
+    assert body["loops"] == {} and body["conditions"] == []
+    assert set(body["readers"]) == set(rig.readers.by_name)
+
+
+def test_health_without_a_rig_says_so():
+    set_rig(None)
+    with TestClient(create_app()) as c:
+        assert c.get("/api/health").json() == {"ok": False, "rig": None}
+
+
+def test_events_are_kept_and_streamed(client, rig):
+    from flyball.core.device import Level
+
+    rig.event(Level.WARNING, "reader", "probe", "slow", "took 2 s", {"took_s": 2.0})
+    rig.event(Level.INFO, "rig", "x", "note", "quiet")
+    events = client.get("/api/events").json()
+    assert [e["level"] for e in events] == ["WARNING", "INFO"]
+    assert events[0]["details"] == {"took_s": 2.0} and events[0]["time_ns"] == rig.clock.now_ns()
+    assert [e["kind"] for e in client.get("/api/events?level=warning").json()] == ["slow"]
+    assert len(client.get("/api/events?limit=1").json()) == 1
+    with client.websocket_connect("/ws/events") as ws:
+        assert [e["kind"] for e in ws.receive_json()["events"]] == ["slow", "note"]
+        rig.event(Level.ERROR, "program", "bake[2]", "step_failed", "no such actuator")
+        (event,) = ws.receive_json()["events"]
+        assert event["level"] == "ERROR" and event["subject"] == "bake[2]"
+
+
+@pytest.fixture
+def programmer(client, rig):
+    from flyball.programmer import Programmer
+    from flyball.server import set_programmer
+
+    programmer = Programmer(rig)
+    set_programmer(programmer)
+    yield programmer
+    programmer.interrupt()
+    set_programmer(None)
+
+
+def test_program_check_normalises_without_running(client, programmer):
+    body = {"name": "t", "steps": [{"wait": "press go"}, {"wait": {"message": "m", "name": "n"}}]}
+    checked = client.post("/api/programs/check", json=body).json()
+    assert checked["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
+    assert checked["steps"][1]["command"]["name"] == "n"
+    assert client.get("/api/programs/running").json()["running"] is False
+    bad = client.post("/api/programs/check", json={"steps": [{"nope": 1}]})
+    assert bad.status_code == 422 and "nope" in bad.json()["detail"]
+    extra = client.post("/api/programs/check", json={"steps": [{"wait": {"message": "m", "x": 1}}]})
+    assert extra.status_code == 422 and "x" in extra.json()["detail"]
+    assert (
+        "wait"
+        in client.get("/api/programs/schema").json()["properties"]["steps"]["items"]["oneOf"][0][
+            "properties"
+        ]
+    )
+
+
+def test_program_runs_step_by_step_as_signals_are_answered(client, programmer, rig):
+    body = {"name": "go", "steps": [{"wait": "one"}, {"wait": {"message": "two", "name": "two"}}]}
+    state = client.post("/api/programs/run", json=body).json()
+    assert state == {"running": True, "step": 0, "steps": 2, "command": "wait"}
+    assert list(client.get("/api/signals").json()) == ["wait"]
+    assert client.post("/api/signals/wait/fire").json()["fired"] is True
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and "two" not in rig.signals.states():
+        time.sleep(0.01)
+    assert client.get("/api/programs/running").json()["step"] == 1
+    assert client.post("/api/programs/interrupt").json()["running"] is False
+    programmer.join(2)
+    assert rig.signals.states() == {}
+
+
+def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig):
+    from dataclasses import dataclass
+
+    from flyball.programmer import Command
+
+    seen = []
+
+    @dataclass(frozen=True)
+    class Note(Command, tag="note", primary="text"):
+        """Append to a list."""
+
+        text: str
+
+        def run(self, rig, operator=None):
+            seen.append(self.text)
+            return None
+
+    state = client.post("/api/programs/run", json={"steps": [{"note": "a"}, {"note": "b"}]}).json()
+    assert state["running"] is False and seen == ["a", "b"]
+
+
+def test_program_with_an_unknown_step_is_refused_before_anything_runs(client, programmer):
+    r = client.post("/api/programs/run", json={"steps": [{"wait": "ok"}, {"bogus": 1}]})
+    assert r.status_code == 422
+    assert client.get("/api/signals").json() == {}

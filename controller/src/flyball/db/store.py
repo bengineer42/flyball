@@ -19,6 +19,9 @@ from .types import (
     Downsample,
     Event,
     LoopRow,
+    ProgramFormat,
+    ProgramRow,
+    SampleRow,
     Series,
     SessionRow,
     SourceRow,
@@ -108,6 +111,15 @@ class Store(Protocol):
 
     def session(self, session_id: int) -> SessionRow: ...
 
+    def end_session(self, session_id: int, end_ns: int | None = None) -> SessionRow:
+        """Close a session nothing is writing to any more -- one a crashed daemon left open.
+
+        ``end_ns`` defaults to the time of the last sample it holds, or its
+        start if it holds none. A session that is already ended raises
+        [SessionEndedError][flyball.db.errors.SessionEndedError].
+        """
+        ...
+
     def delete_session(self, session_id: int) -> None:
         """Everything the session owns goes with it."""
         ...
@@ -140,6 +152,12 @@ class Store(Protocol):
         ...
 
     def ticks(self, session_id: int, loop: str, window: Window | None = None) -> list[Tick]: ...
+
+    def samples(
+        self, session_id: int, source: str, window: Window | None = None
+    ) -> list[SampleRow]:
+        """Every sample of one source in order, each with all its measurands."""
+        ...
 
     def events(
         self, session_id: int, window: Window | None = None, kind: str | None = None
@@ -181,6 +199,38 @@ class Store(Protocol):
     def delete_tuning(self, name: str) -> None:
         """Every version."""
         ...
+
+    # region Programs
+
+    def save_program(
+        self,
+        name: str,
+        format: ProgramFormat,
+        body: str,
+        created_ns: int,
+        label: str | None = None,
+        notes: Any = None,
+    ) -> ProgramRow:
+        """Add a version under `name`, verbatim. Earlier versions stay; `program` is the newest."""
+        ...
+
+    def program(self, name: str) -> ProgramRow: ...
+
+    def program_version(self, program_id: int) -> ProgramRow: ...
+
+    def programs(self) -> list[ProgramRow]:
+        """Newest version of every name, by name."""
+        ...
+
+    def program_history(self, name: str) -> list[ProgramRow]:
+        """Every version under `name`, newest first."""
+        ...
+
+    def delete_program(self, name: str) -> None:
+        """Every version."""
+        ...
+
+    # endregion
 
     # endregion
 

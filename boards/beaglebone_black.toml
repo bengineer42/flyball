@@ -1,0 +1,25 @@
+# BeagleBone Black. I2C2 is the cape bus on P9.19/P9.20; GPIO lines are
+# numbered chip*32 + line, so P9_12 (GPIO1_28) is gpiochip1 line 28.
+# PWM needs the ehrpwm overlay; the chip numbers vary by image, so run
+# `flyball-linux probe` and edit.
+
+name = "BeagleBone Black"
+
+[links.i2c2]
+tag = "i2c"
+bus = 2
+
+[links.gpio1]
+tag = "gpio"
+chip = "gpiochip1"
+
+[links.gpio0]
+tag = "gpio"
+chip = "gpiochip0"
+
+[pins]
+P9_12 = { link = "gpio1", line = 28 }
+P9_15 = { link = "gpio1", line = 16 }
+P9_23 = { link = "gpio1", line = 17 }
+P8_7  = { link = "gpio0", line = 2 }
+P8_8  = { link = "gpio0", line = 3 }

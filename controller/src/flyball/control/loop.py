@@ -46,6 +46,8 @@ class LoopSettings:
     name: str
     law: ControlLawConfig | None
     offset_ns: int
+    min_period_s: float | None = None
+    """Step the law at most this often, however fast readings arrive. None: every reading."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -70,6 +72,7 @@ class LoopView(LoopSettings, LoopState):
             name=settings.name,
             law=settings.law and state.law and ControlLawView.of(settings.law, state.law),
             offset_ns=settings.offset_ns,
+            min_period_s=settings.min_period_s,
             correction=state.correction,
             reference=state.reference,
             demand=state.demand,
@@ -101,6 +104,7 @@ class Loop[A: Actuator]:
         clock: Clock,
         actuator: A,
         law: ControlLaw | ControlLawConfig | ControlLawView | Tuning | None = None,
+        min_period_s: float | None = None,
     ) -> None:
         self.clock = clock
         self.actuator = actuator
@@ -108,6 +112,8 @@ class Loop[A: Actuator]:
             self._set_law(law)
         self.lock = RLock()
         self._on_tick = {}
+        self.min_period_s: float | None = min_period_s
+        self._last_step_ns: int | None = None
 
     @property
     def last_value(self) -> float | None:
@@ -132,6 +138,7 @@ class Loop[A: Actuator]:
             name=self.name,
             law=self.law and self.law.config,
             offset_ns=self.offset_ns,
+            min_period_s=self.min_period_s,
         )
 
     @property
@@ -279,9 +286,21 @@ class Loop[A: Actuator]:
             self.reading = reading
         self._run_on_tick(reading)
 
+        # A fast source updates the reading every time but steps the law at
+        # most every ``min_period_s``: the latest value is always there, the
+        # controller integrates at its own rate.
+        if (
+            reading is not None
+            and self.min_period_s is not None
+            and self._last_step_ns is not None
+            and time_ns - self._last_step_ns < self.min_period_s * 1e9
+        ):
+            return
+
         if self.mode.active():
             setpoint = self.setpoint_at(time_ns)
             if reading is not None and self.mode is LoopMode.REGULATING:
+                self._last_step_ns = time_ns
                 self.correction = self.required_law.step(
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )

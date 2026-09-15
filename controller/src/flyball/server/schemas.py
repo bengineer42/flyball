@@ -8,27 +8,14 @@ application.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Annotated, Any, Union
+from typing import Any
 
-from pydantic import BaseModel, Field, SerializeAsAny, TypeAdapter
+from pydantic import BaseModel, SerializeAsAny, TypeAdapter
 
 from flyball.control import ControlLaws, ControlLawView, Loop, LoopView
 from flyball.core.clock import Clock
+from flyball.core.model import discriminated_union
 from flyball.core.reading import Channel, Sample, Source
-
-
-def discriminated_union[T](
-    members: dict[str, type[T]],
-    discriminator: str,
-    parser: Callable[[type[T]], type[Any]] = lambda x: x,
-) -> Any:
-    """One model per registry entry, discriminated by the tag field."""
-    return Annotated[
-        Union[tuple(parser(member) for member in members.values())],  # ruff: ignore[non-pep604-annotation-union]
-        Field(discriminator=discriminator),
-    ]
-
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
 LawsSchema = TypeAdapter(LawConfig).json_schema()
@@ -62,6 +49,10 @@ class ChannelOut(BaseModel):
     label: str
     range: tuple[float, float] | None = None
     precision: int | None = None
+    warn: tuple[float, float] | None = None
+    """The band a value is normal inside; outside it, a warning."""
+    alarm: tuple[float, float] | None = None
+    """The band a value is acceptable inside; outside it, an alarm."""
 
     @classmethod
     def of(cls, channel: Channel) -> ChannelOut:
@@ -72,10 +63,13 @@ class ChannelOut(BaseModel):
             label=channel.measurand.label,
             range=channel.measurand.range,
             precision=channel.measurand.precision,
+            warn=channel.measurand.warn,
+            alarm=channel.measurand.alarm,
         )
 
 
 class SampleOut(BaseModel):
+    source: str
     seq: int
     time_ns: int
     values: dict[str, float]
@@ -83,6 +77,7 @@ class SampleOut(BaseModel):
     @classmethod
     def of(cls, sample: Sample) -> SampleOut:
         return cls(
+            source=sample.source.name,
             seq=sample.seq,
             time_ns=sample.time_ns,
             values={q.name: v for q, v in sample.values.items()},

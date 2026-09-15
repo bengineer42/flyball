@@ -57,7 +57,7 @@ class TestValidate:
     )
     def test_rejects_with_the_schema_s_words(self, body, message):
         with pytest.raises(SchemaError, match=message):
-            validate(FLOW, body, where="set_blend")
+            validate(FLOW, body, where="set_fraction")
 
 
 class TestCli:

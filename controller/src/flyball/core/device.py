@@ -31,6 +31,7 @@ from pydantic.errors import (
     PydanticSchemaGenerationError,
     PydanticUndefinedAnnotation,
 )
+from pydantic.json_schema import JsonSchemaMode
 
 from .config import Config
 
@@ -56,6 +57,27 @@ class Condition:
     level: Level
     message: str
     since_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class Event:
+    """Something that happened, for a log: a step failed, a pump clamped a request, a reader died.
+
+    A [Condition][flyball.core.device.Condition] is what is true now and lives
+    in state; an event is a point in time and lives in a stream and the
+    session store.
+    """
+
+    time_ns: int
+    level: Level
+    scope: str
+    """Which part: `loop`, `actuator`, `reader`, `program`, `rig`."""
+    subject: str
+    """The loop, device or step it concerns."""
+    kind: str
+    """Stable and machine-readable: `step_failed`, `offline`, `clamped`."""
+    message: str
+    details: Any = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -86,7 +108,7 @@ class DeviceView[C: DeviceConfig[Any], T: DeviceSettings, S: DeviceState]:
     state: S
 
 
-def _schemable(owner: type, attr: str, model: Any, mode: str) -> None:
+def _schemable(owner: type, attr: str, model: Any, mode: JsonSchemaMode) -> None:
     """Fail at class definition if pydantic cannot describe `model`."""
     try:
         TypeAdapter(model).json_schema(mode=mode)
@@ -182,11 +204,12 @@ class Device:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        for prop, attr, base, mode in (
+        tiers: tuple[tuple[str, str, type, JsonSchemaMode], ...] = (
             ("config", "config_type", DeviceConfig, "validation"),  # arrives over the wire
             ("settings", "settings_type", DeviceSettings, "validation"),  # set by commands
             ("state", "state_type", DeviceState, "serialization"),  # only ever leaves
-        ):
+        )
+        for prop, attr, base, mode in tiers:
             model = _declared_return(cls, prop)
             if model is None:
                 continue
@@ -206,6 +229,10 @@ class Device:
                     raise ValueError(f"{cls.__name__}: {tag!r} is reserved as a route segment")
                 if tag in cls.commands and cls.commands[tag].method.__name__ != attr_name:
                     raise ValueError(f"{cls.__name__}: command tag {tag!r} is already used")
+                if not (value.__doc__ or "").strip():
+                    # The CLI, the form and the schema all show it; without it
+                    # they show a blank where the help should be.
+                    raise TypeError(f"{cls.__name__}.{attr_name}: a command needs a docstring")
                 spec = CommandSpec(tag, value)
                 _check_command_signature(cls, spec)
                 cls.commands[tag] = spec

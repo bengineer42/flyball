@@ -1,0 +1,15 @@
+# Any Linux machine with one I2C adapter at /dev/i2c-1 and one GPIO chip:
+# a USB bridge (FT232H, CH341) on a laptop, or a board with no profile yet.
+# Copy, rename, and fix the numbers `flyball-linux probe` reports.
+
+name = "Generic Linux"
+
+[links.i2c1]
+tag = "i2c"
+bus = 1
+
+[links.gpio]
+tag = "gpio"
+chip = "gpiochip0"
+
+[pins]

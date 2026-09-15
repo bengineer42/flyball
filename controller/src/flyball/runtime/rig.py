@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import logging
+from collections import deque
 from collections.abc import Iterable, Sequence
 from threading import RLock
 from typing import Any
 
 from flyball.control import ControlLawLike, Loop, LoopState, Tunings
 from flyball.core import Clock
+from flyball.core.device import Event, Level
 from flyball.core.errors import ConflictError
 from flyball.core.reading import Channel, Reader, Reading, Sample, Source
 from flyball.core.sink import RESERVED_NAMES, Actuator, ActuatorState, Observer, Sink
-from flyball.core.topic import Latest
+from flyball.core.topic import Latest, Topic
 from flyball.core.typing import OrderedSet
 from flyball.db import Store
 from flyball.runtime.reader import Readers
@@ -18,11 +21,15 @@ from flyball.runtime.signals import Signals
 from .loops import Loops
 from .recorder import Recorder
 
+log = logging.getLogger("flyball.rig")
+
 
 class Rig:
     clock: Clock
     loops: Loops
     actuators: dict[str, Actuator]
+    name: str | None
+    """What the rig file called it, if it came from one."""
     lock: RLock
     actuator_states: Latest[str, ActuatorState]
     """The newest state of each actuator, by name. Built only while someone watches."""
@@ -30,6 +37,10 @@ class Rig:
     """The newest state of each loop, by name, after each tick. A reader joins the spec itself."""
     signals: Signals
     """What is being waited on, by name: prompts, settle tests, holds."""
+    events: Topic[Event]
+    """Everything that happened, as it happens."""
+    recent: deque[Event]
+    """The last few hundred events, for a late joiner."""
     observations: dict[Source | Channel, OrderedSet[Observer]]
     tunings: Tunings
     recorder: Recorder | None
@@ -37,7 +48,8 @@ class Rig:
     _samples: dict[Source, Sample]
     _readings: dict[Channel, Reading]
 
-    def __init__(self) -> None:
+    def __init__(self, name: str | None = None) -> None:
+        self.name = name
         self.clock = Clock()
         self.loops = Loops()
         self.actuators = {}
@@ -45,6 +57,8 @@ class Rig:
         self.actuator_states = Latest()
         self.loop_states = Latest()
         self.signals = Signals(self.clock)
+        self.events = Topic()
+        self.recent = deque(maxlen=500)
         self.observations = {}
         self.tunings = Tunings()
         self.recorder = None
@@ -79,6 +93,24 @@ class Rig:
             raise ConflictError(f"Actuator {actuator.name!r} is already attached")
         self.actuators[actuator.name] = actuator
 
+    def event(
+        self,
+        level: Level,
+        scope: str,
+        subject: str,
+        kind: str,
+        message: str,
+        details: Any = None,
+    ) -> Event:
+        """Record that something happened: logged, kept, pushed to watchers, recorded."""
+        event = Event(self.clock.now_ns(), level, scope, subject, kind, message, details)
+        log.log(int(level), "%s %s: %s", scope, subject, message)
+        self.recent.append(event)
+        self.events.publish(event)
+        if self.recorder is not None:
+            self.recorder.event(event)
+        return event
+
     def apply(self, sink: Sink) -> None:
         """Commit a sink and, for an actuator, note what it is doing now for anyone watching."""
         sink.apply()
@@ -102,11 +134,24 @@ class Rig:
         actuator: Actuator,
         law: ControlLawLike | str | None = None,
         default: bool = False,
+        min_period_s: float | None = None,
     ) -> None:
         if isinstance(law, str):
             law = self.tunings.get(law)
+        demand_unit = actuator.demand_unit  # an instance may narrow the class's
+        if demand_unit is not None and demand_unit != channel.unit:
+            # The loop hands the actuator demands in the channel's unit; an
+            # actuator that expects another would run happily and do nonsense.
+            raise ConflictError(
+                f"loop on {channel.name} ({channel.unit}) cannot drive {actuator.name!r},"
+                f" which takes demands in {demand_unit}"
+            )
         self.add_actuator(actuator)
-        self.loops.add(channel, Loop(self.clock, actuator, law=law), default=default)
+        self.loops.add(
+            channel,
+            Loop(self.clock, actuator, law=law, min_period_s=min_period_s),
+            default=default,
+        )
 
     # region Recording
 

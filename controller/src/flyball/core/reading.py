@@ -21,9 +21,10 @@ from typing import Any, ClassVar
 
 from pydantic_core import core_schema
 
-from .device import Device
+from .device import Device, DeviceSettings
 from .errors import ConflictError, NotFoundError
 from .units import Unit
+from .utils import Labelled
 
 
 class MeasurandConflictError(ConflictError):
@@ -66,17 +67,26 @@ class Measurand:
     """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
     precision: int | None
     """Decimal places worth showing; None if the reader has not said."""
+    warn: tuple[float, float] | None
+    """The band a value is normal inside (EPICS LOW/HIGH); outside it, a warning."""
+    alarm: tuple[float, float] | None
+    """The band a value is acceptable inside (EPICS LOLO/HIHI); outside it, an alarm."""
 
     _registry: ClassVar[dict[str, Measurand]] = {}
 
     def __new__(
         cls,
         name: str,
-        unit: Unit,
+        unit: Unit | str,
         label: str = "",
         range: tuple[float, float] | None = None,
         precision: int | None = None,
+        *,
+        warn: tuple[float, float] | None = None,
+        alarm: tuple[float, float] | None = None,
     ) -> Measurand:
+        if isinstance(unit, str):  # a symbol, as a file writes it
+            unit = Unit.get(unit)
         if (existing := cls._registry.get(name)) is not None:
             if existing.unit != unit:
                 raise MeasurandConflictError(existing, unit)
@@ -87,16 +97,21 @@ class Measurand:
         object.__setattr__(instance, "label", label or name)
         object.__setattr__(instance, "range", range)
         object.__setattr__(instance, "precision", precision)
+        object.__setattr__(instance, "warn", warn)
+        object.__setattr__(instance, "alarm", alarm)
         cls._registry[name] = instance
         return instance
 
     def __init__(
         self,
         name: str,
-        unit: Unit,
+        unit: Unit | str,
         label: str = "",
         range: tuple[float, float] | None = None,
         precision: int | None = None,
+        *,
+        warn: tuple[float, float] | None = None,
+        alarm: tuple[float, float] | None = None,
     ) -> None:
         """No-op: `__new__` owns construction, so an interned measurand is not overwritten."""
 
@@ -346,23 +361,20 @@ class Sample:
 class Reader(Device):
     """A device that delivers samples for one or more sources.
 
-    Samples reach the rig by one path, :meth:`emit`, fed two ways:
+    Samples reach the rig through [emit][flyball.core.reading.Reader.emit],
+    fed two ways: **polled** -- override
+    [read][flyball.core.reading.Reader.read] and the runtime calls it on the
+    reader's period; **pushed** -- a callback or thread calls `emit` or
+    [push][flyball.core.reading.Reader.push] and the sample reaches the rig
+    at once (held until the reader is attached). A reader may do both.
 
-    - **polled** -- override :meth:`read`; the runtime calls it on the
-      reader's period and emits what it returns.
-    - **pushed** -- whatever produces the values (a callback, another thread,
-      a subscription) calls :meth:`emit` or :meth:`push` itself, and they
-      reach the rig at once. Before the reader is attached to a rig they are
-      held and handed over by the default :meth:`read`.
+    Contract: samples are emitted in non-decreasing `time_ns`; equal stamps
+    are allowed, a step backwards is not. The rig never reorders, so every
+    observer inherits this. A reader that both polls and pushes keeps it true
+    across the two paths itself. `seq` numbers a source's samples: take it
+    from `source.next_seq()`.
 
-    A reader may do both. Contract: samples are emitted in non-decreasing
-    ``time_ns`` -- equal stamps are allowed, a step backwards is not -- and
-    the rig never reorders, so every observer inherits it. A reader that
-    both polls and pushes must keep that true across the two paths itself; a
-    pushed sample stamped "now" always does. ``seq`` numbers a *source's*
-    samples: take it from ``source.next_seq()``.
-
-    Config, settings, state and commands: see :mod:`flyball.core.device`.
+    Config, settings, state and commands: see [flyball.core.device][].
     """
 
     sources: Iterable[Source]
@@ -380,11 +392,7 @@ class Reader(Device):
     # region Delivery
 
     def attach(self, deliver: Callable[[Sequence[Sample]], None]) -> None:
-        """Hand every emitted sample to ``deliver`` from now on -- the rig, in practice.
-
-        Whatever was emitted while unattached goes first, so nothing is lost
-        to the order things were wired up in.
-        """
+        """Hand every emitted sample to `deliver` from now on. Anything held goes first."""
         self._deliver = deliver
         if self._pending:
             held = list(self._pending)
@@ -415,3 +423,85 @@ class Reader(Device):
         samples = list(self._pending)
         self._pending.clear()
         return samples
+
+
+class Deliver(Labelled):
+    """What a streaming reader emits from each block it receives."""
+
+    RAW = "raw", "Every sample"
+    MEAN = "mean", "One sample per block: the mean"
+    LAST = "last", "One sample per block: the last"
+    DECIMATE = "decimate", "Every Nth sample"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BlockSettings(DeviceSettings):
+    deliver: Deliver = Deliver.RAW
+    every: int = 1
+    """With ``decimate``: keep one sample in this many."""
+
+
+class BlockReader(Reader):
+    """A reader for a source that streams: a DAQ card, audio, a fast serial dump.
+
+    The hardware samples on its own clock into a buffer and software drains it
+    in blocks. A subclass runs that drain -- usually on its own thread -- and
+    hands each block to :meth:`emit_block` as rows of values with the block's
+    start time and sample period; ``deliver`` decides what reaches the rig:
+    every row, one summary per block, or one in N. What the record wants and
+    what a loop wants differ, so it is a setting, changeable while running.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        source: Source,
+        measurands: Sequence[Measurand],
+        deliver: Deliver = Deliver.RAW,
+        every: int = 1,
+    ) -> None:
+        super().__init__(name, (source,))
+        self.source = source
+        self.measurands = tuple(measurands)
+        self.deliver = deliver
+        self.every = max(1, every)
+
+    @property
+    def settings(self) -> BlockSettings:
+        return BlockSettings(deliver=self.deliver, every=self.every)
+
+    def set_deliver(self, deliver: Deliver, every: int | None = None) -> BlockSettings:
+        self.deliver = deliver
+        if every is not None:
+            self.every = max(1, every)
+        return self.settings
+
+    def emit_block(self, rows: Sequence[Sequence[float]], start_ns: int, period_ns: int) -> None:
+        """Rows are samples in time order, each one value per measurand."""
+        if not rows:
+            return
+        stamp = [start_ns + i * period_ns for i in range(len(rows))]
+        match self.deliver:
+            case Deliver.MEAN:
+                n = len(rows)
+                mean = [sum(row[j] for row in rows) / n for j in range(len(self.measurands))]
+                chosen = [(stamp[-1], mean)]
+            case Deliver.LAST:
+                chosen = [(stamp[-1], rows[-1])]
+            case Deliver.DECIMATE:
+                chosen = [
+                    (t, r)
+                    for i, (t, r) in enumerate(zip(stamp, rows, strict=True))
+                    if i % self.every == 0
+                ]
+            case _:
+                chosen = list(zip(stamp, rows, strict=True))
+        self.emit(
+            Sample(
+                self.source,
+                self.source.next_seq(),
+                t,
+                dict(zip(self.measurands, row, strict=True)),
+            )
+            for t, row in chosen
+        )

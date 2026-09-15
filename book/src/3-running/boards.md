@@ -1,0 +1,129 @@
+# Boards and Linux I/O
+
+A single-board computer is not special. I²C is `/dev/i2c-N`, SPI is
+`/dev/spidevN.M`, GPIO is `/dev/gpiochipN`, hardware PWM and 1-Wire are
+sysfs. A Raspberry Pi, a BeagleBone, a Jetson, or a laptop with an FT232H
+bridge all present the same files with different numbers. So there is one
+package, `flyball-linux`, for the buses, and the numbers live in a **board
+profile**: a data file, not code.
+
+```
+pip install flyball-linux[i2c,gpio]      # only the buses you use
+flyball-linux probe                      # what this machine has
+```
+
+## Links and devices
+
+`flyball-linux` registers its tags through the `flyball.configs` entry
+point, so `flyball rig check`, `flyball rig schema` and the daemon know them
+once it is installed.
+
+| link tag | device | fake |
+| --- | --- | --- |
+| `i2c` | `/dev/i2c-<bus>` via smbus2 | `fake_i2c` — registers per address, scripted raw replies |
+| `spi` | `/dev/spidev<bus>.<device>` via spidev | `fake_spi` — scripted or computed replies |
+| `gpio` | `/dev/<chip>` via libgpiod v2 | `fake_gpio` — levels per line |
+| `pwm` | `/sys/class/pwm/pwmchip<chip>` | `fake_pwm` — period and duty per channel |
+| `onewire` | `/sys/bus/w1/devices` | `fake_onewire` — `w1_slave` text per device |
+
+| device tag | what | on |
+| --- | --- | --- |
+| `i2c_reader` | a table of registers: `address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit` | `i2c` |
+| `i2c_actuator` | one register written from the demand: a DAC, a setpoint | `i2c` |
+| `sht4x` | Sensirion SHT40/41/45: temperature and humidity | `i2c` |
+| `ads1115` | TI 16-bit ADC, four single-ended channels, PGA gain | `i2c` |
+| `mcp3008` | Microchip 10-bit ADC, eight channels | `spi` |
+| `gpio_reader` | a line as a 0/1 measurand | `gpio` |
+| `gpio_actuator` | a line switched when the demand reaches `threshold`; `on`/`off` commands | `gpio` |
+| `pwm_actuator` | a channel's duty from the demand; `unit` and `span` make it a feedforward | `pwm` |
+| `ds18b20` | the `w1_therm` family, in °C | `onewire` |
+
+The table reader covers most register-mapped sensors (TMP117, MCP9808,
+INA219, LM75) without a driver:
+
+```toml
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "i2c_reader"
+name = "board_temp"
+link = "i2c1"
+address = 0x48
+[readers.device.registers.temperature]
+address = 0
+length = 2
+signed = true
+scale = 0.0078125
+unit = "°C"
+```
+
+A chip with a command sequence rather than registers (SHT4x: write a byte,
+wait, read six) gets its own tag under `flyball_linux.devices.chips`. Each
+is a short module against the link protocol, tested to the byte on the fake.
+
+## Board profiles
+
+A profile declares a machine's links and names its pins:
+
+```toml
+# boards/rpi5.toml
+name = "Raspberry Pi 5"
+
+[links.i2c1]
+tag = "i2c"
+bus = 1
+
+[links.header]
+tag = "gpio"
+chip = "gpiochip4"
+
+[links.pwm]
+tag = "pwm"
+chip = 0
+
+[pins]
+GPIO18 = { link = "header", line = 18 }
+PWM0   = { link = "pwm", channel = 0 }
+```
+
+A rig file names it and then refers to pins by label:
+
+```toml
+board = "rpi5"
+
+[[actuators]]
+tag = "gpio_actuator"
+name = "fan"
+pin = "GPIO18"           # becomes link = "header", line = 18
+```
+
+The profile's links go underneath the file's own (the file wins on a
+clash), and `pin = "LABEL"` becomes the fields the profile gives that label,
+again with the entry's own fields winning. `flyball rig check` says which
+profile file it used.
+
+Profiles are looked up in `$FLYBALL_BOARDS`, then a `boards/` directory
+beside the rig file or in any directory above it, then
+`~/.config/flyball/boards` and `/etc/flyball/boards`. `board = "./mine.toml"`
+is a path relative to the rig file. The repository's [boards/](https://github.com/bengineer42/flyball/tree/main/boards)
+directory has `rpi4`, `rpi5`, `beaglebone_black`, `generic` and `sim`; none
+is loaded until a rig file asks for it, and adding a board is adding a file.
+
+`sim` is every link as a fake. A rig file written for a real board runs on
+any machine with `board = "sim"`, its pin labels resolving to fake chips —
+which is how the example is tested:
+
+```
+cd linux
+flyball rig check examples/greenhouse.sim.toml
+flyball-daemon examples/greenhouse.sim.toml
+```
+
+## What is board-specific
+
+Only values: which `gpiochip` the header is (the Pi 5 moved it), which PWM
+channel a pin has, which overlay lines enable a bus. Those are comments in
+the profile and the board's own documentation, not code. Anything that
+needs microsecond timing — software PWM, DHT22's bit-banged protocol — is
+deliberately absent: it does not work on a non-realtime kernel and belongs
+on a microcontroller behind a `serial` link.

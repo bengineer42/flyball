@@ -4,7 +4,7 @@
 validating arguments against the schema before sending:
 
     rig = Rig("http://pi:8000")
-    rig.actuators.pumps.set_blend(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
+    rig.actuators.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
     rig.readers.sht4x.view()["state"]
     for frame in rig.watch("loops"):
         ...

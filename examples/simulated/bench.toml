@@ -1,0 +1,45 @@
+#:schema rig.schema.json
+# A bench with a scripted SCPI supply and meter: the same file shape you
+# would use for real instruments, with `fake_text` links standing in.
+# Swap the link tag for `visa` and a resource string and it is the real bench.
+
+name = "bench"
+
+[links.psu]
+tag = "fake_text"
+replies = { "MEAS:VOLT?" = "11.98", "*IDN?" = "Fake Instruments,PSU-1,0,1.0" }
+
+[links.dmm]
+tag = "fake_text"
+replies = { "MEAS:VOLT:DC?" = "+1.1980E+01", "MEAS:CURR:DC?" = "0.250", "*IDN?" = "Fake Instruments,DMM-1,0,1.0" }
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "scpi_reader"
+name = "dmm"
+link = "dmm"
+[readers.device.measurands.voltage]
+query = "MEAS:VOLT:DC?"
+unit = "V"
+range = [0, 30]
+precision = 3
+[readers.device.measurands.current]
+query = "MEAS:CURR:DC?"
+unit = "A"
+range = [0, 3]
+precision = 3
+
+[[actuators]]
+tag = "scpi_actuator"
+name = "psu"
+link = "psu"
+command = "SOUR:VOLT {value:.3f}"
+demand_unit = "V"
+readback = "MEAS:VOLT?"
+
+[[loops]]
+channel = "dmm.voltage"
+actuator = "psu"
+law = { tag = "PI", kp = 0.5, ki = 0.1 }
+default = true

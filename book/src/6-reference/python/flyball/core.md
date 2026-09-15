@@ -13,6 +13,8 @@
 
 ::: flyball.core.errors
 
+::: flyball.core.files
+
 ::: flyball.core.model
 
 ::: flyball.core.reading

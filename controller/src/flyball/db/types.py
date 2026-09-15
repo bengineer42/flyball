@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from flyball.core.utils import Labelled
 
@@ -93,6 +93,23 @@ class TuningRow:
     notes: Any = None
 
 
+ProgramFormat = Literal["yaml", "toml", "json"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramRow:
+    """A stored program: the document as written, in the format it was written in."""
+
+    id: int
+    name: str
+    format: ProgramFormat
+    body: str
+    created_ns: int
+    sha256: str
+    label: str | None = None
+    notes: Any = None
+
+
 # endregion
 
 # region Data
@@ -102,6 +119,15 @@ class TuningRow:
 class Point:
     offset_ns: int
     value: float
+
+
+@dataclass(frozen=True, slots=True)
+class SampleRow:
+    """One stored sample of one source: every measurand it carried, by name."""
+
+    seq: int
+    offset_ns: int
+    values: dict[str, float]
 
 
 @dataclass(frozen=True, slots=True)

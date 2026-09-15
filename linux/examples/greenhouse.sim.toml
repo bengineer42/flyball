@@ -1,0 +1,51 @@
+#:schema rig.schema.json
+# greenhouse.toml with no hardware: the `sim` board's links are all fakes,
+# and the I2C bus is scripted so the SHT4x answers 21.5 °C, 55 %RH.
+#
+#   flyball rig check greenhouse.sim.toml
+#   flyball-daemon greenhouse.sim.toml
+
+name = "greenhouse"
+board = "sim"
+
+[links.i2c1]                  # overrides the board's bare fake with a scripted one
+tag = "fake_i2c"
+replies = { 68 = [[0x61, 0x47, 0x8a, 0x7c, 0xed, 0x83]] }   # 0x44 = 68
+
+[links.w1]
+tag = "fake_onewire"
+texts = { "28-0316a279e7ff" = "5e 01 4b 46 7f ff 0c 10 4e : crc=4e YES\n5e 01 4b 46 7f ff 0c 10 4e t=21875" }
+
+[[readers]]
+period_s = 2.0
+[readers.device]
+tag = "sht4x"
+name = "air"
+link = "i2c1"
+
+[[readers]]
+period_s = 5.0
+[readers.device]
+tag = "ds18b20"
+name = "soil"
+link = "w1"
+device = "28-0316a279e7ff"
+
+[[actuators]]
+tag = "pwm_actuator"
+name = "heater"
+pin = "PWM0"
+frequency_hz = 1000
+unit = "°C"
+span = [10, 40]
+
+[[actuators]]
+tag = "gpio_actuator"
+name = "fan"
+pin = "GPIO18"
+
+[[loops]]
+channel = "air.temperature"
+actuator = "heater"
+law = { tag = "PI", kp = 0.5, ki = 0.01 }
+default = true

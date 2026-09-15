@@ -1,0 +1,12 @@
+/* Layout only. Colours, type and controls come from the MUI theme; the library panels from --fb-* (set in theme.tsx). */
+section + section { margin-top: 1.5rem; }
+.tiles { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
+.tiles-wide { grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr)); }
+.tiles-full { grid-template-columns: 1fr; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+.source-group { margin-bottom: 1rem; }
+.tile-with-icon { position: relative; }
+.tile-icon { position: absolute; top: 0.6rem; right: 0.75rem; color: var(--fb-muted); opacity: 0.6; }
+@media (max-width: 600px) {
+  .tiles-wide { grid-template-columns: 1fr; }
+}
