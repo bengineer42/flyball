@@ -4,13 +4,15 @@
 builds a subcommand per device and per command, so a new `@command` needs no
 code here. Help text comes from the schema:
 
-    flyball actuators                       what is attached
+    flyball devices                         what is attached
     flyball pumps                           config, settings and state
     flyball pumps set_fraction --wet-fraction 0.25 --flow.tag absolute --flow.flow 8
     flyball pumps set_flows 2 6             a single argument may be positional
-    flyball signals                         what a program is waiting on
-    flyball signal fire lid                 answer it
-    flyball watch loops                     one JSON line per frame
+    flyball demand heaters.heater1 1200     PUT /api/signals/{address}
+    flyball read furnace.zone1 --fresh      GET /api/read/{address}
+    flyball waits                           what a program is waiting on
+    flyball wait fire lid                   answer it
+    flyball watch controllers               one JSON line per frame
 
 Flags: `--name` per property, dotted for nested objects, `--flag/--no-flag`
 for booleans, choices for enums. Any flag also takes a JSON literal.
@@ -23,7 +25,7 @@ import hashlib
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,7 @@ from flyball.client import Rig, RigError, SchemaError, Unreachable
 DEFAULT_URL = "http://127.0.0.1:8000"
 EXIT_ERROR = 1
 EXIT_UNREACHABLE = 3
-STREAMS = ("samples", "loops", "actuators", "readers", "signals")
+STREAMS = ("samples", "controllers", "writes", "signals")
 
 
 # region Schema cache
@@ -238,18 +240,26 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command_group", metavar="<command>")
 
     sub.add_parser("schema", help="the rig's schema, for saving or jq").set_defaults(fn=cmd_schema)
-    sub.add_parser("signals", help="what the rig is waiting on").set_defaults(fn=cmd_signals)
-    signal = sub.add_parser("signal", help="answer or cancel a wait")
-    signal.add_argument("action", choices=["fire", "interrupt"])
-    signal.add_argument("name")
-    signal.set_defaults(fn=cmd_signal)
+    sub.add_parser("waits", help="what the rig is waiting on").set_defaults(fn=cmd_waits)
+    wait = sub.add_parser("wait", help="answer or cancel a wait")
+    wait.add_argument("action", choices=["fire", "interrupt"])
+    wait.add_argument("name")
+    wait.set_defaults(fn=cmd_wait)
     watch = sub.add_parser("watch", help="follow a live stream as JSON lines")
     watch.add_argument("stream", choices=STREAMS)
     watch.set_defaults(fn=cmd_watch)
     sub.add_parser("clock", help="the rig's timebase").set_defaults(fn=cmd_clock)
-    sub.add_parser("status", help="one screen: readers, loops, actuators, signals").set_defaults(
+    sub.add_parser("status", help="one screen: devices, controllers, waits").set_defaults(
         fn=cmd_status
     )
+    demand = sub.add_parser("demand", help="set a writable signal: PUT /api/signals/{address}")
+    demand.add_argument("address")
+    demand.add_argument("value", type=_json_or_str)
+    demand.set_defaults(fn=cmd_demand)
+    read = sub.add_parser("read", help="a signal, namespace or device: GET /api/read/{address}")
+    read.add_argument("address")
+    read.add_argument("--fresh", action="store_true", help="force a hardware read")
+    read.set_defaults(fn=cmd_read)
     rig_cmd = sub.add_parser("rig", help="rig files: check one, or print their schema")
     rig_sub = rig_cmd.add_subparsers(dest="rig_action", metavar="<action>")
     check = rig_sub.add_parser(
@@ -323,9 +333,8 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     save = sim_sub.add_parser("save", help="write the current config to the rig file")
     save.add_argument("path", nargs="?", help="elsewhere; the suffix picks the format")
     save.set_defaults(fn=cmd_sim_save)
-    new = sub.add_parser("new", help="write a starting point for a device of your own")
-    new.add_argument("kind", choices=("actuator", "reader"))
-    new.add_argument("name", help="the tag and file name: 'chiller', 'lab-probe'")
+    new = sub.add_parser("new", help="write a starting point for a device driver of your own")
+    new.add_argument("name", help="the driver tag and file name: 'chiller', 'lab-probe'")
     new.add_argument("--dir", type=Path, default=Path("."), help="where to write it")
     new.set_defaults(fn=cmd_new, local=True)
     export = sub.add_parser("export", help="a recorded session as Bluesky event-model documents")
@@ -333,21 +342,20 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     export.add_argument("--out", type=Path, help="write JSON lines here instead of stdout")
     export.set_defaults(fn=cmd_export)
     sub.add_parser("sessions", help="list recorded sessions").set_defaults(fn=cmd_sessions)
-    for kind in ("actuators", "readers", "sources", "loops"):
+    for kind in ("devices", "controllers"):
         sub.add_parser(kind, help=f"list the {kind}").set_defaults(fn=cmd_list, kind=kind)
 
     if schema is None:
         return parser
-    for kind in ("actuators", "readers"):
-        for name, device in schema.get(kind, {}).items():
-            _add_device(sub, kind, name, device)
+    for name, device in schema.get("devices", {}).items():
+        _add_device(sub, name, device)
     return parser
 
 
-def _add_device(sub: Any, kind: str, name: str, device: dict[str, Any]) -> None:
+def _add_device(sub: Any, name: str, device: dict[str, Any]) -> None:
     summary = device.get("description") or device["type"]
     parser = sub.add_parser(name, help=f"{device['type']}: {summary}", description=summary)
-    parser.set_defaults(fn=cmd_view, kind=kind, device=name)
+    parser.set_defaults(fn=cmd_view, device=name)
     commands = parser.add_subparsers(dest="command", metavar="<command>")
     commands.add_parser("schema", help="config, settings, state and command schemas").set_defaults(
         fn=cmd_device_schema
@@ -395,6 +403,15 @@ def cmd_clock(rig: Rig, args: argparse.Namespace) -> None:
     _out(args, rig.clock())
 
 
+def _walk_signals(signals: Sequence[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    """Every leaf under a device's `signals` tree, depth-first: a namespace has no `access`."""
+    for entry in signals:
+        if "access" in entry:
+            yield entry
+        else:
+            yield from _walk_signals(entry.get("signals", ()))
+
+
 def cmd_status(rig: Rig, args: argparse.Namespace) -> None:
     """Everything at a glance, from the routes a dashboard would use."""
     health = rig.get("/api/health")
@@ -405,33 +422,24 @@ def cmd_status(rig: Rig, args: argparse.Namespace) -> None:
         f"{'OK' if health['ok'] else 'ATTENTION'}  up {health['uptime_s']:.0f} s"
         f"  recording={'yes' if health['recording'] else 'no'}"
     )
-    readers = rig.get("/api/readers")
-    for name, reader in readers.items():
-        run = reader["run"]
-        age = (
-            ""
-            if run["last_read_ns"] is None
-            else f"last read {(rig.clock()['now_ns'] - run['last_read_ns']) / 1e9:.1f} s ago"
-        )
-        flags = ", ".join(c["kind"] for c in run["conditions"]) or "-"
+    for device in rig.get("/api/devices"):
+        flags = ", ".join(c["kind"] for c in device.get("conditions", ())) or "-"
+        print(f"  device      {device['name']:16s} {device.get('driver', ''):20s} {flags}")
+        for signal in _walk_signals(device.get("signals", ())):
+            latest = signal.get("latest")
+            write = signal.get("write")
+            value = "" if latest is None else f"value={latest['value']!s:<10s}"
+            demand = "" if write is None else f" write={write.get('value')!s}"
+            print(f"    signal    {signal['address']:28s} [{signal['access']:>3s}] {value}{demand}")
+    for controller in rig.get("/api/controllers"):
+        reading = controller.get("reading") or {}
         print(
-            f"  reader   {name:16s} {'running' if run['running'] else 'stopped':8s} "
-            f"{age:22s} {flags}"
-        )
-    for name, view in rig.get("/api/actuators").items():
-        state = view["state"]
-        print(
-            f"  actuator {name:16s} demand={state.get('demand')!s:10s} "
-            f"{', '.join(c['kind'] for c in state.get('conditions', [])) or '-'}"
-        )
-    for loop in rig.get("/api/loops"):
-        reading = loop.get("reading") or {}
-        print(
-            f"  loop     {loop['name']:16s} {loop['mode']:11s} "
+            f"  controller {controller['name']:16s} {controller['mode']:11s} "
             f"reading={reading.get('value')!s:10s} "
-            f"setpoint={loop.get('reference')!s:10s} law={(loop.get('law') or {}).get('tag', '-')}"
+            f"setpoint={controller.get('setpoint')!s:10s} "
+            f"law={(controller.get('law') or {}).get('tag', '-')}"
         )
-    for name, signal in rig.signals().items():
+    for name, signal in rig.waits().items():
         print(f"  waiting  {name:16s} {signal['outcome']:10s} {signal.get('message') or ''}")
 
 
@@ -450,9 +458,7 @@ def cmd_rig_check(rig: Rig, args: argparse.Namespace) -> None:
         raise SchemaError(f"{names}: {e}") from None
     print(
         f"{names}: ok -- {config.name or 'unnamed'}: {len(config.links)} links, "
-        f"{len(config.readers)} readers, {len(config.actuators)} actuators, "
-        f"{len(config.loops)} loops, {len(config.devices)} devices, "
-        f"{len(config.controllers)} controllers"
+        f"{len(config.devices)} devices, {len(config.controllers)} controllers"
         + (f"; from {len(files)} files" if len(files) > 1 else "")
     )
     if args.print:
@@ -610,12 +616,14 @@ def cmd_new(rig: Rig, args: argparse.Namespace) -> None:
     from flyball.scaffold import write
 
     try:
-        path = write(args.kind, args.name, args.dir)
+        path = write(args.name, args.dir)
     except FileExistsError as e:
         raise SchemaError(f"{e} exists; not overwriting") from e
     except ValueError as e:
         raise SchemaError(str(e)) from e
-    print(f"wrote {path}; add it to the rig's package and declare tag = {path.stem!r} in the file")
+    print(
+        f"wrote {path}; add it to the rig's package and declare driver = {path.stem!r} in the file"
+    )
 
 
 def cmd_sessions(rig: Rig, args: argparse.Namespace) -> None:
@@ -635,13 +643,21 @@ def cmd_export(rig: Rig, args: argparse.Namespace) -> None:
         print("\n".join(lines))
 
 
-def cmd_signals(rig: Rig, args: argparse.Namespace) -> None:
-    _out(args, rig.signals())
+def cmd_waits(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.waits())
 
 
-def cmd_signal(rig: Rig, args: argparse.Namespace) -> None:
+def cmd_wait(rig: Rig, args: argparse.Namespace) -> None:
     done = rig.fire(args.name) if args.action == "fire" else rig.interrupt(args.name)
     _out(args, {"name": args.name, args.action: done})
+
+
+def cmd_demand(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.demand(args.address, args.value))
+
+
+def cmd_read(rig: Rig, args: argparse.Namespace) -> None:
+    _out(args, rig.read(args.address, fresh=args.fresh))
 
 
 def cmd_watch(rig: Rig, args: argparse.Namespace) -> None:
@@ -653,8 +669,8 @@ def cmd_watch(rig: Rig, args: argparse.Namespace) -> None:
 
 
 def cmd_list(rig: Rig, args: argparse.Namespace) -> None:
-    if args.kind in ("actuators", "readers"):
-        devices = rig.schema[args.kind]
+    if args.kind == "devices":
+        devices = rig.schema["devices"]
         if args.json:
             _out(args, {n: d["type"] for n, d in devices.items()})
             return
@@ -665,25 +681,25 @@ def cmd_list(rig: Rig, args: argparse.Namespace) -> None:
 
 
 def cmd_view(rig: Rig, args: argparse.Namespace) -> None:
-    _out(args, rig.get(f"/api/{args.kind}/{args.device}"))
+    _out(args, rig.get(f"/api/devices/{args.device}"))
 
 
 def cmd_device_schema(rig: Rig, args: argparse.Namespace) -> None:
-    _out(args, rig.schema[args.kind][args.device])
+    _out(args, rig.schema["devices"][args.device])
 
 
 def cmd_run(rig: Rig, args: argparse.Namespace) -> None:
     body = body_from(args, _META | {"command_group"})
     positional = getattr(args, "positional", None)
     if positional:
-        spec = rig.schema[args.kind][args.device]["commands"][args.command]
+        spec = rig.schema["devices"][args.device]["commands"][args.command]
         (only,) = spec["arguments"]["properties"]
         if only in body:
             raise SchemaError(
                 f"give {only} positionally or as --{only.replace('_', '-')}, not both"
             )
         body[only] = positional[0] if len(positional) == 1 else list(positional)
-    device = getattr(rig, args.kind)[args.device]
+    device = rig.devices[args.device]
     _out(args, device.run(args.command, **body))
 
 

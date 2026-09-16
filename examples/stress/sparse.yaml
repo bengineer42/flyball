@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../simulated/rig.schema.json
+# The opposite of `plant.yaml`: as little as a rig can be and still measure
+# something. One device, one signal, nothing writable, no controllers, no
+# programs -- every list and empty state in the UI (Controllers, Dashboards,
+# Programs) should show its "nothing here" state on this rig.
+
+name: sparse
+
+links:
+  cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 10.0
+    gain: 1.0
+    ambient: 20.0
+    initial: 20.0
+    noise: 0.1
+
+devices:
+  only:
+    driver: sim_daq
+    label: The only channel
+    poll_s: 1.0
+    config:
+      link: cell
+      ports:
+        temperature: { port: output, quantity: temperature, unit: "°C" }
+    signals:
+      temperature: { range: [0, 100], precision: 1 }

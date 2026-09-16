@@ -1,9 +1,11 @@
 """Live push over websockets.
 
-`/ws/samples` forwards every sample as it arrives. `/ws/loops`,
-`/ws/actuators` and `/ws/signals` send everything on connect, then every
-`FLUSH_S` one frame of whatever changed: the rig keeps only the newest value
-per key, so the socket costs at most one frame per flush at any tick rate.
+Every socket sends what the rig knows on connect, then every `FLUSH_S` one
+frame of whatever changed: the rig keeps only the newest value per key in
+a [Latest][flyball.core.topic.Latest] cell -- samples by node address,
+write states by signal address, controller states and device runs by name,
+waits by name -- so a socket costs at most one frame per flush at any tick
+rate, and an idle server builds nothing.
 """
 
 from __future__ import annotations
@@ -16,59 +18,28 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.control import LoopView
+from flyball.core.signal import Sample
 from flyball.core.topic import Latest
-from flyball.runtime.reader import ReaderRun
+from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
 from flyball.runtime.triggers import TriggerState
-from flyball.server.deps import current_rig, current_telemetry
-from flyball.server.schemas import LoopOut
+from flyball.server.deps import current_rig
+from flyball.server.schemas import ControllerOut, SampleOut, WriteOut
 
 router = APIRouter(tags=["telemetry"])
 
 # How long a socket waits for a push before checking whether the rig went away.
 IDLE_POLL_S = 1.0
 FLUSH_S = 0.05
-"""How often the loop and actuator sockets send what changed; a dashboard needs at most ~20/s."""
+"""How often a socket sends what changed; a dashboard needs at most ~20/s."""
 
-SAMPLE = TypeAdapter(dict)
-LOOPS = TypeAdapter(list[LoopOut])
-ANY = TypeAdapter(Any)
+RUN = TypeAdapter(DeviceRun)
+WAIT = TypeAdapter(TriggerState)
 
 
 async def _no_rig(websocket: WebSocket) -> None:
     await websocket.send_json({"error": "no rig attached"})
     await asyncio.sleep(IDLE_POLL_S)
-
-
-@router.websocket("/ws/samples")
-async def samples(websocket: WebSocket) -> None:
-    """Every sample from every source, as published. Oldest dropped if the client lags."""
-    await websocket.accept()
-    with contextlib.suppress(WebSocketDisconnect):
-        while True:
-            telemetry = current_telemetry()
-            if telemetry is None:
-                await _no_rig(websocket)
-                continue
-            closed = asyncio.ensure_future(_closed(websocket))
-            with telemetry.samples.subscribe(maxsize=200) as queue:
-                getter: asyncio.Future[Any] = asyncio.ensure_future(queue.get())
-                try:
-                    while current_telemetry() is telemetry:
-                        done, _ = await asyncio.wait(
-                            {closed, getter},
-                            timeout=IDLE_POLL_S,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if closed in done:
-                            raise WebSocketDisconnect
-                        if getter in done:
-                            await websocket.send_json(getter.result().model_dump(mode="json"))
-                            getter = asyncio.ensure_future(queue.get())
-                finally:
-                    getter.cancel()
-                    closed.cancel()
 
 
 async def _closed(websocket: WebSocket) -> None:
@@ -108,46 +79,52 @@ async def _flush[V](
         closed.cancel()
 
 
-def _loop_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
-    """Join the tick's state to the loop's settings. Under the lock: a retune swaps the law."""
+def _sample_out(rig: Rig, node: str, sample: Any) -> dict[str, Any]:
+    return SampleOut.of(sample).model_dump(mode="json")
+
+
+def _write_out(rig: Rig, address: str, state: Any) -> dict[str, Any]:
+    return {"signal": address, **WriteOut.of(state).model_dump(mode="json")}
+
+
+def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
+    """The tick's state joined to the settings, under the lock: a retune swaps the law."""
     with rig.lock:
-        channel, loop = next((ch, lp) for ch, lp in rig.loops.entries() if lp.name == name)
-        view = LoopView.of(loop.settings, state)
-    return LoopOut.of_view(
-        channel, view, name == rig.loops.default, loop.actuator.label
-    ).model_dump(mode="json")
+        controller = rig.controllers[name]
+        out = ControllerOut.of(controller, name == rig.controllers.default, state)
+    return out.model_dump(mode="json")
 
 
-def _actuator_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
-    return {"name": name, "state": ANY.dump_python(state, mode="json")}
+def _run_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:
+    return {"name": name, **RUN.dump_python(run, mode="json")}
 
 
-SIGNAL = TypeAdapter(TriggerState)
-READER_RUN = TypeAdapter(ReaderRun)
-
-
-def _reader_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:
-    return {"name": name, **READER_RUN.dump_python(run, mode="json")}
-
-
-def _signal_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
-    return SIGNAL.dump_python(state, mode="json")
+def _wait_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
+    return WAIT.dump_python(state, mode="json")
 
 
 def _prime(rig: Rig) -> None:
     """Seed the cells so a new client's first frame has everything, not just what ticks next."""
     with rig.lock:
-        for _, loop in rig.loops.entries():
-            rig.loop_states.set(loop.name, loop.state)
-        for name, actuator in rig.actuators.items():
-            rig.actuator_states.set(name, actuator.state)
-        for name in rig.readers.by_name:
-            rig.readers.runs.set(name, rig.readers.run(name))
+        for name, controller in rig.controllers.items():
+            rig.controller_states.set(name, controller.state)
+        for device in rig.devices.values():
+            for signal, state in device.written.items():
+                rig.write_states.set(signal.address, state)
+            known = rig.read(device.root)
+            for sample in [known] if isinstance(known, Sample) else known:
+                if (published := sample.published()) is not None:
+                    rig.samples.set(published.node.address, published)
+        for name in rig.polling.by_name:
+            rig.polling.runs.set(name, rig.polling.run(name))
 
 
-@router.websocket("/ws/loops")
-async def loops(websocket: WebSocket) -> None:
-    """Every loop on connect, then each loop that ticked, at most every `FLUSH_S`."""
+async def _serve[V](
+    websocket: WebSocket,
+    cell: Callable[[Rig], Latest[str, V]],
+    key: str,
+    encode: Callable[[Rig, str, V], dict[str, Any]],
+) -> None:
     await websocket.accept()
     with contextlib.suppress(WebSocketDisconnect):
         while True:
@@ -156,45 +133,38 @@ async def loops(websocket: WebSocket) -> None:
                 await _no_rig(websocket)
                 continue
             _prime(rig)
-            await _flush(websocket, rig.loop_states, "loops", _loop_out)
+            await _flush(websocket, cell(rig), key, encode)
 
 
-@router.websocket("/ws/actuators")
-async def actuators(websocket: WebSocket) -> None:
-    """Every actuator on connect, then each that changed, at most every `FLUSH_S`."""
-    await websocket.accept()
-    with contextlib.suppress(WebSocketDisconnect):
-        while True:
-            rig = current_rig()
-            if rig is None:
-                await _no_rig(websocket)
-                continue
-            _prime(rig)
-            await _flush(websocket, rig.actuator_states, "actuators", _actuator_out)
+@router.websocket("/ws/samples")
+async def samples(websocket: WebSocket) -> None:
+    """The newest published sample per node on connect, then each node that delivered.
+
+    Only what publishes: a fresh read of a setting is not here. At most one
+    sample per node per flush; a chart at a higher rate reads history.
+    """
+    await _serve(websocket, lambda rig: rig.samples, "samples", _sample_out)
 
 
-@router.websocket("/ws/signals")
-async def signals(websocket: WebSocket) -> None:
-    """Every registered signal on connect, then each as it is registered or settles."""
-    await websocket.accept()
-    with contextlib.suppress(WebSocketDisconnect):
-        while True:
-            rig = current_rig()
-            if rig is None:
-                await _no_rig(websocket)
-                continue
-            await _flush(websocket, rig.triggers.latest, "signals", _signal_out)
+@router.websocket("/ws/writes")
+async def writes(websocket: WebSocket) -> None:
+    """Every write state on connect, then each signal committed, at most every `FLUSH_S`."""
+    await _serve(websocket, lambda rig: rig.write_states, "writes", _write_out)
 
 
-@router.websocket("/ws/readers")
-async def readers(websocket: WebSocket) -> None:
-    """Every reader's run on connect, then each as it reads, fails or is restarted."""
-    await websocket.accept()
-    with contextlib.suppress(WebSocketDisconnect):
-        while True:
-            rig = current_rig()
-            if rig is None:
-                await _no_rig(websocket)
-                continue
-            _prime(rig)
-            await _flush(websocket, rig.readers.runs, "readers", _reader_out)
+@router.websocket("/ws/controllers")
+async def controllers(websocket: WebSocket) -> None:
+    """Every controller on connect, then each that ticked, at most every `FLUSH_S`."""
+    await _serve(websocket, lambda rig: rig.controller_states, "controllers", _controller_out)
+
+
+@router.websocket("/ws/devices")
+async def devices(websocket: WebSocket) -> None:
+    """Every polled device's run on connect, then each as it reads, fails or is restarted."""
+    await _serve(websocket, lambda rig: rig.polling.runs, "devices", _run_out)
+
+
+@router.websocket("/ws/waits")
+async def waits(websocket: WebSocket) -> None:
+    """Every registered wait on connect, then each as it is registered or settles."""
+    await _serve(websocket, lambda rig: rig.triggers.latest, "waits", _wait_out)

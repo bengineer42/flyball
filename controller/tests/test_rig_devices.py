@@ -11,7 +11,6 @@ from flyball.control.laws import P
 from flyball.core.device import Device
 from flyball.core.errors import ConflictError, NotReadyError
 from flyball.core.quantity import Quantity
-from flyball.core.reading import Reader, Source
 from flyball.core.signal import (
     Access,
     Node,
@@ -25,7 +24,6 @@ from flyball.core.signal import (
 from flyball.core.units.si import Celsius, Percent, Watt
 from flyball.runtime.controllers import SourceClaimedError
 from flyball.runtime.rig import AddressNotFoundError
-from flyball.sim import RecordingActuator
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -190,30 +188,18 @@ class TestNames:
         with pytest.raises(ConflictError, match="reserved"):
             rig.add_device(Furnace("schema"))
 
-    def test_a_device_shares_the_namespace_with_legacy_readers_and_actuators(
-        self, rig, furnace, fresh, probe
-    ):
-        """Both ways: a device refuses a legacy name, and a legacy device refuses a device's."""
+    def test_a_device_shares_the_namespace_with_every_other_claim(self, rig, furnace, fresh):
+        """Whatever claimed a name first keeps it, and a failed add claims nothing."""
+        name = fresh("sim")
+        rig.claim(name, "simulation", object())
+        with pytest.raises(ConflictError, match=f"already used by simulation {name!r}"):
+            rig.add_device(Furnace(name))
+        assert name not in rig.devices
         with pytest.raises(ConflictError, match="already used by device"):
-            rig.add_actuator(RecordingActuator(furnace.name))
-        with pytest.raises(ConflictError, match="already used by device"):
-            rig.readers.add(Reader(furnace.name, ()))
-        other = fresh("reader")
-        with pytest.raises(ConflictError, match="already used by device"):
-            rig.readers.add(Reader(other, (Source(furnace.name, ()),)))
-        assert rig.kind_of(other) is None, "a failed add claims nothing"
-
-        heater = RecordingActuator(fresh("heater"))
-        rig.add_actuator(heater)
-        with pytest.raises(ConflictError, match="already used by actuator"):
-            rig.add_device(Furnace(heater.name))
-        reader = Reader(fresh("reader"), (probe,))
-        rig.readers.add(reader)
-        with pytest.raises(ConflictError, match="already used by reader"):
-            rig.add_device(Furnace(reader.name))
-        with pytest.raises(ConflictError, match="already used by source"):
-            rig.add_device(Furnace(probe.name))
-        assert heater.name in rig.devices and reader.name in rig.devices
+            rig.claim(furnace.name, "simulation", object())
+        rig.release(furnace.name)
+        assert rig.kind_of(furnace.name) is None and furnace.name not in rig.devices
+        rig.add_device(Furnace(furnace.name))
 
 
 class TestResolve:
@@ -231,10 +217,6 @@ class TestResolve:
             rig.resolve(f"{sensors.name}.dry.humidty")
         with pytest.raises(AddressNotFoundError, match=f"no 'x' under {sensors.name}.dry.humidity"):
             rig.resolve(f"{sensors.name}.dry.humidity.x")
-        heater = RecordingActuator(fresh("heater"))
-        rig.add_actuator(heater)
-        with pytest.raises(AddressNotFoundError, match=f"no device '{heater.name}'"):
-            rig.resolve(heater.name)  # a legacy device has no tree to walk
 
 
 class TestDelivery:
@@ -306,7 +288,7 @@ class TestDelivery:
         assert rig.samples.changed_since(0)[1] == {
             blender.name: Sample(blender.root, 3, {expected: 49.0})
         }, "cut to what publishes; a sample with nothing left is not set at all"
-        assert rig.recent_signal_readings(flow) == [Reading(flow, 3, 1.5), Reading(flow, 4, 1.6)]
+        assert rig.recent_readings(flow) == [Reading(flow, 3, 1.5), Reading(flow, 4, 1.6)]
         # A fresh read of the setting goes through the same delivery.
         rig.demand(blender.root, {"blend_flow": 2.5})
         clock.advance(1.0)
@@ -324,7 +306,7 @@ class TestDelivery:
         rig.on_samples([Sample(furnace.root, 20, {zone1: 31.0})])
         assert rig.latest[zone1] == Reading(zone1, 20, 31.0)
         assert rig.latest[zone2] == Reading(zone2, 10, 22.0)
-        assert rig.recent_signal_readings(zone1) == [
+        assert rig.recent_readings(zone1) == [
             Reading(zone1, 10, 21.0),
             Reading(zone1, 20, 31.0),
         ]
@@ -374,6 +356,23 @@ class TestRead:
         samples = list(rig.read(sensors.root, fresh=True))
         assert [s.node for s in samples] == [sensors.nodes["chamber"], dry, wet]
         assert rig.read(wet) is samples[2]
+
+    def test_several_targets_read_in_order_with_one_read_per_device(
+        self, rig, sensors, furnace, clock
+    ):
+        dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
+        dry_h, zone1 = sensors.signals["dry.humidity"], furnace.signals["zone1"]
+        results = rig.read([zone1, dry, dry_h], fresh=True)
+        assert sensors.reads == [dry], "one node asked for on the device: read on it"
+        assert furnace.reads == 1
+        assert results[0] == Reading(zone1, clock.now_ns(), 20.0)
+        assert isinstance(results[1], Sample) and results[1].node is dry
+        assert results[2] == Reading(dry_h, clock.now_ns(), 4.1)
+        results = rig.read([wet, dry_h], fresh=True)
+        assert sensors.reads == [dry, None], "two nodes on one device: one read of the root"
+        assert results[0].node is wet and results[1].value == 4.1
+        assert rig.read([zone1, wet]) == [rig.latest[zone1], results[0]], "not fresh: known"
+        assert rig.read([]) == []
 
 
 class TestDemand:
@@ -461,9 +460,12 @@ class TestDemand:
         assert rig.demand(furnace.root, {"heater2": 1.0}) == {
             furnace.signals["heater2"]: WriteState(value=1.0)
         }
-        rig.controllers.remove(controller.name)
+        assert rig.detach_controller(controller.name) is controller
+        assert controller.name not in rig.controllers and controller.mode.value == "manual"
         state = rig.demand(furnace.root, {"heater1": 1.0})[heater1]
         assert state == WriteState(value=1.0, controller=None)
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        assert furnace.written[heater1].value == 1.0, "detached: its demands go nowhere"
 
 
 class TestControllers:

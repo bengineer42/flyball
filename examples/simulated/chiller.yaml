@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=rig.schema.json
+# A reverse-acting loop: the actuator *cools*. A `sim_plant` lag with a
+# negative `gain` rests at `ambient` with the compressor off and falls
+# below it as the compressor drives harder. Nothing in the drive knows
+# which way the plant goes: the controller's feedforward is the plant's
+# static inverse, `(ambient - setpoint) / 30`, and the law's gains are
+# negative, so a reading above the setpoint drives the compressor harder.
+
+name: chiller
+
+links:
+  bath:
+    tag: sim_plant
+    model: lag
+    tau_s: 45.0
+    gain: -30.0        # full compressor pulls 30 °C below ambient
+    ambient: 22.0      # the room; where it rests with the compressor off
+    initial: 22.0
+    noise: 0.05
+    seed: 3
+
+devices:
+  probe:
+    driver: sim_daq
+    label: Bath probe
+    poll_s: 1.0
+    config:
+      link: bath
+      ports:
+        temperature: { port: output, quantity: temperature, unit: "°C" }
+    signals:
+      temperature:
+        range: [-20, 40]
+        precision: 2
+        warn: [0, 30]
+        alarm: [-10, 35]
+  compressor:
+    driver: sim_drive
+    label: Chiller compressor
+    config: { link: bath, ports: { drive: input } }   # compressor.drive [W], 0 to 1 of full
+
+# The old °C-per-°C tuning (0.05, 0.0015) over the plant's gain of -30.
+controllers:
+  compressor.drive:
+    signal: probe.temperature
+    feedforward: { tag: affine, gain: -0.0333333, bias: 0.7333333 }
+    law: { tag: PI, kp: -0.0016667, ki: -0.00005 }
+    default: true

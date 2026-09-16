@@ -1,10 +1,11 @@
-"""A rig as a file: links, readers, actuators and loops, built in that order.
+"""A rig as a file: links, devices and controllers, built in that order.
 
 A tree of tagged configs. Links are declared once and named by the devices
-that use them; readers say how often to poll; loops name a channel as
-`source.measurand`, an actuator by name, and a law by its config. Formats
-are [flyball.core.files][]'s business; which device and link kinds exist is
-the tag registry's.
+that use them; a device entry is flyball's envelope around the driver's own
+config (plan §1.5), keyed by name; a controller is keyed by the address of
+the signal it drives and names its source. Formats are
+[flyball.core.files][]'s business; which driver and link kinds exist is the
+tag registry's.
 
 Every tag resolves to a real constructor, so the file validates against the
 models the code is built from, including configs another package registered
@@ -17,12 +18,13 @@ looked up on the board path; the file's own `links` are added to the
 profile's, and a device's `pin = "GPIO18"` becomes the link and line the
 profile says.
 
+The `readers`, `actuators` and `loops` sections of the legacy model no
+longer parse; `temp-docs/DEVICE-MODEL-PLAN.md` §6 says so.
 """
 
 from __future__ import annotations
 
 import os
-import typing
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -39,44 +41,31 @@ import flyball.sim.devices  # ruff: ignore[unused-import]
 from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock
 from flyball.core.config import Config, discover
-from flyball.core.device import Device, DeviceEntry, DriverConfig
+from flyball.core.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import SUFFIXES, load_document
 from flyball.core.model import discriminated_union
-from flyball.core.reading import Measurand, Reader, Source
 from flyball.core.signal import Signal
-from flyball.core.sink import RESERVED_NAMES, Actuator
 from flyball.runtime.rig import Rig
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
 FeedforwardConfig = discriminated_union(Feedforwards, "tag", lambda ff: ff.config)
 
-Role = Literal["link", "reader", "actuator"]
+Role = Literal["link", "driver"]
+
+LEGACY_SECTIONS = ("readers", "actuators", "loops")
+LEGACY_MESSAGE = (
+    "readers/actuators/loops are no longer rig-file sections; devices and controllers"
+    " replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6"
+)
 
 
 # region Which tag plays which part
 
 
-def _builds(config: type[Config[Any]]) -> Any:
-    """What `config` builds: the `Config[T]` parameter if given, else `build`'s return type."""
-    for base in config.__mro__:
-        metadata = getattr(base, "__pydantic_generic_metadata__", None)
-        if metadata and metadata.get("origin") is not None and metadata.get("args"):
-            return metadata["args"][0]
-    try:
-        return typing.get_type_hints(config.build)["return"]
-    except Exception:  # a forward reference that cannot be resolved: not a device
-        return None
-
-
 def role_of(config: type[Config[Any]]) -> Role:
-    """Reader, actuator or link, from what the config builds."""
-    built = _builds(config)
-    if isinstance(built, type) and issubclass(built, Reader):
-        return "reader"
-    if isinstance(built, type) and issubclass(built, Actuator):
-        return "actuator"
-    return "link"
+    """A device driver or a link: a driver subclasses `DriverConfig`, anything else is a link."""
+    return "driver" if issubclass(config, DriverConfig) else "link"
 
 
 def registered(role: Role) -> tuple[type[Config[Any]], ...]:
@@ -88,36 +77,6 @@ def registered(role: Role) -> tuple[type[Config[Any]], ...]:
 
 # endregion
 # region The models
-
-
-class ReaderEntry(BaseModel):
-    """A reader and how to run it."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    device: Any
-    period_s: float | None = Field(
-        default=None, gt=0, description="Poll period; omit for a pushed reader."
-    )
-
-
-class LoopEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    channel: str = Field(description="`source.measurand` of the controlled variable.")
-    actuator: str = Field(description="The actuator by name.")
-    law: LawConfig | None = None  # type: ignore[valid-type]
-    feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
-        default=None,
-        description="Maps the setpoint to a demand in the actuator's unit; the law adds to it."
-        " Omit for the setpoint itself when the units agree, else none.",
-    )
-    default: bool = False
-    min_period_s: float | None = Field(
-        default=None,
-        gt=0,
-        description="Step the law at most this often; omit to step on every reading.",
-    )
 
 
 class ControllerEntry(BaseModel):
@@ -182,9 +141,6 @@ class RigConfig(BaseModel):
         default=None, description="Run the rig's time faster, or stepped; simulated rigs only."
     )
     links: dict[str, Any] = Field(default_factory=dict)
-    readers: list[ReaderEntry] = Field(default_factory=list)
-    actuators: list[Any] = Field(default_factory=list)
-    loops: list[LoopEntry] = Field(default_factory=list)
     devices: dict[str, DeviceEntry] = Field(default_factory=dict)
     controllers: dict[str, ControllerEntry] = Field(
         default_factory=dict, description="Keyed by the target signal's address."
@@ -209,54 +165,34 @@ class RigConfig(BaseModel):
             return schema
         return super().model_json_schema(**kwargs)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_sections(cls, data: Any) -> Any:
+        """The legacy sections fail with one message that says where the new shape is."""
+        if isinstance(data, dict) and any(section in data for section in LEGACY_SECTIONS):
+            raise ValueError(LEGACY_MESSAGE)
+        return data
+
     @model_validator(mode="after")
     def _consistent(self) -> RigConfig:
         """Everything named in the file is declared in it, once, in one namespace.
 
-        A reader, an actuator and a source (most readers' is just their own
-        name under another hat, but `source` may say otherwise) all draw
-        from the same names: no two may collide, rig-wide, and none may be a
-        reserved route segment. Checked here, before anything is built, so
-        the file fails with one clear message instead of a build-time error
-        part-way through.
+        Device names are the table's keys, so a duplicate is the loader's
+        to refuse; what is checked here is a reserved name, an unknown
+        driver, an undeclared link, and a controller address without a dot.
+        Before anything is built, so the file fails with one clear message
+        instead of a build-time error part-way through.
         """
-        devices = [*(r.device for r in self.readers), *self.actuators]
-        for link in (getattr(d, "link", None) for d in devices):
-            if isinstance(link, str) and link not in self.links:
-                raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
-        claimed: dict[str, str] = {}
-
-        def claim(name: str, kind: str) -> None:
+        for name, entry in self.devices.items():
             if name in RESERVED_NAMES:
                 raise ConflictError(f"Name {name!r} is reserved as a route segment")
-            if (existing := claimed.get(name)) is not None:
-                raise ConflictError(
-                    f"Name {name!r} is already used by {existing} {name!r}"
-                    f" (cannot also be {kind} {name!r})"
-                )
-            claimed[name] = kind
-
-        for entry in self.readers:
-            claim(entry.device.name, "reader")
-            source = getattr(entry.device, "source", None)
-            if source is not None and source != entry.device.name:
-                claim(source, "source")
-        for actuator in self.actuators:
-            claim(actuator.name, "actuator")
-        actuators = {a.name for a in self.actuators}
-        driven: list[str] = []
-        for loop in self.loops:
-            if loop.actuator not in actuators:
+            driver = Config.registry.get(entry.driver)
+            if driver is None:
+                raise ValueError(f"device {name!r}: driver {entry.driver!r} is not registered")
+            if not issubclass(driver, DriverConfig):
                 raise ValueError(
-                    f"loop on {loop.channel!r} names actuator {loop.actuator!r}, not declared"
+                    f"device {name!r}: {entry.driver!r} is a {driver.__name__}, not a device driver"
                 )
-            if loop.actuator in driven:
-                raise ValueError(f"actuator {loop.actuator!r} is driven by two loops")
-            driven.append(loop.actuator)
-            if "." not in loop.channel:
-                raise ValueError(f"loop channel {loop.channel!r} must be 'source.measurand'")
-        for name, entry in self.devices.items():
-            claim(name, "device")
             link = entry.config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
@@ -268,12 +204,8 @@ class RigConfig(BaseModel):
                     f"controller {target!r}: signal {controller.signal!r}"
                     " must be a 'node.signal' address"
                 )
-        if (
-            sum(loop.default for loop in self.loops)
-            + sum(c.default for c in self.controllers.values())
-            > 1
-        ):
-            raise ValueError("only one loop can be the default")
+        if sum(c.default for c in self.controllers.values()) > 1:
+            raise ValueError("only one controller can be the default")
         if self.clock is not None and not is_simulated(self.links):
             raise ValueError("`clock` is only for a rig whose links are all sim_* or fake_*")
         return self
@@ -283,13 +215,13 @@ class RigConfig(BaseModel):
         return is_simulated(self.links)
 
     def build(self, clock: Clock | None = None, start: bool = True) -> Rig:
-        """Links, then readers, then actuators, then loops.
+        """Links, then devices, then their bound inputs, then controllers.
 
         Args:
             clock: The rig's timebase. Default: what the file's `clock` says;
                 a simulated rig with none gets a scaled clock at 1x, so its
                 speed can be changed while it runs.
-            start: Poll the readers on their periods. False attaches them
+            start: Poll the devices on their periods. False adds them
                 without polling, for a caller that will drive reads itself.
         """
         links = {name: config.build() for name, config in self.links.items()}
@@ -299,56 +231,14 @@ class RigConfig(BaseModel):
             entry = self.clock or ClockEntry()
             clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
 
-        def with_link(config: Any) -> Any:
-            link = getattr(config, "link", None)
-            return (
-                config.model_copy(update={"link": links[link]}) if isinstance(link, str) else config
-            )
-
         rig = Rig(self.name)
         rig.links = links
         if clock is not None:
             rig.clock = clock
         # Build everything before anything runs: a failure part-way leaves no
-        # thread polling and no source name registered for a retry to trip on.
-        readers: list[tuple[Reader, float | None]] = []
+        # thread polling and no name claimed for a retry to trip on.
         built_devices: list[Device] = []
         try:
-            for entry in self.readers:
-                reader = with_link(entry.device).build()
-                reader.label = entry.device.label
-                sources = list(reader.sources)
-                if entry.device.label and len(sources) == 1:
-                    sources[0].label = entry.device.label  # one source: the device is it
-                readers.append((reader, entry.period_s if start else None))
-            for reader, _ in readers:
-                rig.start_reader(reader)  # attached, not yet polled
-            for config in self.actuators:
-                actuator = with_link(config).build()
-                actuator.label = config.label
-                # A real actuator that cannot work out its own output_range (a sim one
-                # does, from its limits) may state it in its config; generic by
-                # attribute, since not every actuator config derives from ActuatorConfig.
-                if (output_range := getattr(config, "output_range", None)) is not None:
-                    actuator.output_range = output_range
-                rig.add_actuator(actuator)
-            for loop in self.loops:
-                source_name, _, measurand_name = loop.channel.partition(".")
-                try:
-                    channel = Source.get(source_name)[Measurand.get(measurand_name)]
-                    actuator = rig.actuators[loop.actuator]
-                except (NotFoundError, KeyError) as e:
-                    raise NotFoundError(
-                        f"loop on {loop.channel!r} -> {loop.actuator!r}: {e}"
-                    ) from e
-                rig.attach_loop(
-                    channel,
-                    actuator,
-                    law=loop.law,
-                    default=loop.default,
-                    min_period_s=loop.min_period_s,
-                    feedforward=loop.feedforward,
-                )
             for name, entry in self.devices.items():
                 device = entry.build(name, links)
                 rig.add_device(device)
@@ -375,15 +265,9 @@ class RigConfig(BaseModel):
                     min_period_s=controller.min_period_s,
                 )
         except Exception:
-            for reader, _ in readers:
-                for source in reader.sources:
-                    Source.forget(source.name)
             for device in built_devices:
                 rig.release(device.name)
             raise
-        for reader, period in readers:
-            if period is not None:
-                rig.start_reader(reader, period)
         if start:
             for device in built_devices:
                 rig.start_polling(device)
@@ -402,26 +286,17 @@ def rig_model() -> type[RigConfig]:
     key = tuple(sorted(Config.registry))
     if key not in _models:
         links = Config.union(*registered("link"))
-        readers = Config.union(*registered("reader"))
-        actuators = Config.union(*registered("actuator"))
-        entry = create_model("ReaderEntry", __base__=ReaderEntry, device=(readers, ...))
         _models[key] = create_model(
             "RigConfig",
             __base__=RigConfig,
             links=(dict[str, links], Field(default_factory=dict)),  # type: ignore[valid-type]
-            readers=(list[entry], Field(default_factory=list)),  # type: ignore[valid-type]
-            actuators=(list[actuators], Field(default_factory=list)),  # type: ignore[valid-type]
         )
     return _models[key]
 
 
 def _driver_configs() -> tuple[type[DriverConfig[Any]], ...]:
     """Every registered device driver, in tag order."""
-    return tuple(
-        config
-        for tag, config in sorted(Config.registry.items())
-        if isinstance(config, type) and issubclass(config, DriverConfig)
-    )
+    return tuple(config for config in registered("driver") if issubclass(config, DriverConfig))
 
 
 def _devices_schema() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -542,34 +417,42 @@ def load_board(path: str | Path) -> Board:
 def apply_board(document: dict[str, Any], board: Board) -> dict[str, Any]:
     """The document with the board's links underneath its own and its pins resolved.
 
-    A device entry with `pin = "LABEL"` gets the fields the board gives that
-    label; fields the entry already has win. Unknown labels are an error.
+    A device entry with `pin = "LABEL"` -- flat beside the envelope, or
+    under `config` -- gets the driver-config fields the board gives that
+    label, where the entry keeps its driver config; fields the entry
+    already has win. Unknown labels are an error.
     """
     out = dict(document)
     out["links"] = {**board.links, **document.get("links", {})}
 
-    def resolved(entry: dict[str, Any], where: str) -> dict[str, Any]:
-        label = entry.get("pin")
+    def fields_of(label: Any, where: str) -> dict[str, Any] | None:
         if not isinstance(label, str):
-            return entry
+            return None
         try:
-            fields = board.pins[label]
+            return board.pins[label]
         except KeyError:
             raise NotFoundError(
                 f"{where}: pin {label!r} is not on this board; it has {sorted(board.pins)}"
             ) from None
-        return {**fields, **{k: v for k, v in entry.items() if k != "pin"}}
 
-    out["readers"] = [
-        {**r, "device": resolved(r["device"], f"readers[{i}]")}
-        if isinstance(r, dict) and isinstance(r.get("device"), dict)
-        else r
-        for i, r in enumerate(document.get("readers", []))
-    ]
-    out["actuators"] = [
-        resolved(a, f"actuators[{i}]") if isinstance(a, dict) else a
-        for i, a in enumerate(document.get("actuators", []))
-    ]
+    def resolved(entry: dict[str, Any], where: str) -> dict[str, Any]:
+        config = entry.get("config")
+        if isinstance(config, dict):
+            if (fields := fields_of(config.get("pin"), where)) is not None:
+                config = {**fields, **{k: v for k, v in config.items() if k != "pin"}}
+            if (fields := fields_of(entry.get("pin"), where)) is not None:
+                config = {**fields, **config}
+            return {**{k: v for k, v in entry.items() if k != "pin"}, "config": config}
+        if (fields := fields_of(entry.get("pin"), where)) is not None:
+            return {**fields, **{k: v for k, v in entry.items() if k != "pin"}}
+        return entry
+
+    devices = document.get("devices")
+    if isinstance(devices, dict):
+        out["devices"] = {
+            name: resolved(entry, f"devices.{name}") if isinstance(entry, dict) else entry
+            for name, entry in devices.items()
+        }
     return out
 
 
@@ -647,8 +530,6 @@ __all__ = [
     "Board",
     "ClockEntry",
     "ControllerEntry",
-    "LoopEntry",
-    "ReaderEntry",
     "RigConfig",
     "apply_board",
     "board_dirs",

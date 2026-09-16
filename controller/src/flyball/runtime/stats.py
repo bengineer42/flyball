@@ -1,11 +1,11 @@
-"""Small statistics over a channel's recent readings, computed on request, off the process path."""
+"""Small statistics over a signal's recent readings, computed on request, off the process path."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from math import sqrt
 
-from flyball.core.reading import Reading
+from flyball.core.signal import Reading
 
 __all__ = ["noise", "rate"]
 

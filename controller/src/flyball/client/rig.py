@@ -4,9 +4,10 @@
 validating arguments against the schema before sending:
 
     rig = Rig("http://pi:8000")
-    rig.actuators.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
-    rig.readers.sht4x.view()["state"]
-    for frame in rig.watch("loops"):
+    rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
+    rig.devices.sht4x.view()["state"]
+    rig.demand("heaters.heater1", 1200.0)
+    for frame in rig.watch("controllers"):
         ...
 
 The CLI is this with argparse in front.
@@ -37,11 +38,10 @@ class Unreachable(RigError):
 
 
 class Device:
-    """One actuator or reader: its schema, its view, and a method per command."""
+    """One device: its schema, its view, and a method per command."""
 
-    def __init__(self, rig: Rig, kind: str, name: str, schema: dict[str, Any]) -> None:
+    def __init__(self, rig: Rig, name: str, schema: dict[str, Any]) -> None:
         self._rig = rig
-        self.kind = kind
         self.name = name
         self.schema = schema
 
@@ -50,8 +50,8 @@ class Device:
         return self.schema["commands"]
 
     def view(self) -> dict[str, Any]:
-        """Config, settings and state now."""
-        return self._rig.get(f"/api/{self.kind}/{self.name}")
+        """The device's tree, state and commands now."""
+        return self._rig.get(f"/api/devices/{self.name}")
 
     def run(self, command: str, **arguments: Any) -> Any:
         """Run a command, checking the arguments against its schema first."""
@@ -62,7 +62,7 @@ class Device:
                 f"{self.name} has no command {command!r}; it has {sorted(self.commands)}"
             ) from None
         validate(spec["arguments"], arguments, where=f"{self.name}.{command}")
-        return self._rig.post(f"/api/{self.kind}/{self.name}/{command}", arguments)
+        return self._rig.post(f"/api/devices/{self.name}/{command}", arguments)
 
     def __getattr__(self, command: str) -> Any:
         if command.startswith("_") or command not in self.schema.get("commands", {}):
@@ -77,23 +77,22 @@ class Device:
 
 
 class Devices:
-    """The actuators or the readers, by name and by attribute."""
+    """The rig's devices, by name and by attribute."""
 
-    def __init__(self, rig: Rig, kind: str) -> None:
+    def __init__(self, rig: Rig) -> None:
         self._rig = rig
-        self.kind = kind
 
     def _schemas(self) -> dict[str, dict[str, Any]]:
-        return self._rig.schema[self.kind]
+        return self._rig.schema["devices"]
 
     def names(self) -> list[str]:
         return list(self._schemas())
 
     def __getitem__(self, name: str) -> Device:
         try:
-            return Device(self._rig, self.kind, name, self._schemas()[name])
+            return Device(self._rig, name, self._schemas()[name])
         except KeyError:
-            raise SchemaError(f"no {self.kind[:-1]} {name!r}; the rig has {self.names()}") from None
+            raise SchemaError(f"no device {name!r}; the rig has {self.names()}") from None
 
     def __getattr__(self, name: str) -> Device:
         if name.startswith("_"):
@@ -160,22 +159,31 @@ class Rig:
     # region Surfaces
 
     @property
-    def actuators(self) -> Devices:
-        return Devices(self, "actuators")
+    def devices(self) -> Devices:
+        return Devices(self)
 
-    @property
-    def readers(self) -> Devices:
-        return Devices(self, "readers")
+    def controllers(self) -> Any:
+        """Every controller, by its target address."""
+        return self.get("/api/controllers")
 
-    def signals(self) -> dict[str, Any]:
+    def read(self, address: str, fresh: bool = False) -> Any:
+        """A signal's reading, a namespace's sample, or a device's samples."""
+        query = "?fresh=true" if fresh else ""
+        return self.get(f"/api/read/{address}{query}")
+
+    def demand(self, address: str, value: float) -> Any:
+        """Put `value` on the single writable signal at `address`."""
+        return self.put(f"/api/signals/{address}", value)
+
+    def waits(self) -> dict[str, Any]:
         """What the rig is waiting on, by name."""
-        return self.get("/api/signals")
+        return self.get("/api/waits")
 
     def fire(self, name: str) -> bool:
-        return bool(self.post(f"/api/signals/{name}/fire")["fired"])
+        return bool(self.post(f"/api/waits/{name}/fire")["fired"])
 
     def interrupt(self, name: str) -> bool:
-        return bool(self.post(f"/api/signals/{name}/interrupt")["interrupted"])
+        return bool(self.post(f"/api/waits/{name}/interrupt")["interrupted"])
 
     def clock(self) -> dict[str, Any]:
         """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed`."""
@@ -185,14 +193,8 @@ class Rig:
         """A simulated rig's knobs (`/api/sim`); `{"simulated": false}` on hardware."""
         return self.get("/api/sim")
 
-    def sources(self) -> Any:
-        return self.get("/api/sources")
-
-    def loops(self) -> Any:
-        return self.get("/api/loops")
-
     def watch(self, stream: str) -> Iterator[dict[str, Any]]:
-        """Frames from `/ws/<stream>`: samples, loops, actuators, readers, signals."""
+        """Frames from `/ws/<stream>`: samples, controllers, writes, signals."""
         from websockets.sync.client import connect
 
         ws_url = self.url.replace("http://", "ws://", 1).replace("https://", "wss://", 1)

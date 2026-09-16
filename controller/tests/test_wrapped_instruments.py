@@ -1,11 +1,23 @@
-"""The QCoDeS and PyMeasure wrappers, against fakes that mimic each library's interface."""
+"""The QCoDeS and PyMeasure devices, against fakes that mimic each library's interface."""
 
 from __future__ import annotations
 
-import pytest
+from dataclasses import dataclass
+from typing import Any
 
-from flyball.integrations.pymeasure import PyMeasureActuator, PyMeasureReader, unit_from_doc
-from flyball.integrations.qcodes import QCoDeSActuator, QCoDeSReader, bounds
+import pytest
+from pydantic import ValidationError
+
+from flyball.core.signal import Access, Signal
+from flyball.integrations.pymeasure import (
+    PyMeasure,
+    PyMeasureSignal,
+    properties,
+    unit_from_doc,
+)
+from flyball.integrations.qcodes import QCoDeS, QCoDeSSignal, bounds, unit_for
+
+NS = 1_000_000_000
 
 # region QCoDeS fakes
 
@@ -18,7 +30,9 @@ class Numbers:
 class FakeParameter:
     """The parts of ``qcodes.Parameter`` the wrapper reads."""
 
-    def __init__(self, name, unit="", label="", value=0.0, settable=True, gettable=True, vals=None):
+    def __init__(
+        self, name, unit="", label="", value: Any = 0.0, settable=True, gettable=True, vals=None
+    ):
         self.name, self.unit, self.label, self._value = name, unit, label, value
         self.settable, self.gettable, self.vals = settable, gettable, vals
         self.sets: list[float] = []
@@ -31,55 +45,94 @@ class FakeParameter:
         self.sets.append(value)
 
 
+@dataclass
+class FakeSubmodule:
+    parameters: dict[str, FakeParameter]
+
+
 class FakeInstrument:
     def __init__(self, name):
         self.name = name
-        self.parameters = {
+        self.parameters: dict[str, FakeParameter] = {
             "IDN": FakeParameter("IDN", value={"vendor": "fake"}, settable=False),
             "volt": FakeParameter("volt", "V", "Voltage", 1.25, vals=Numbers(-10, 10)),
             "curr": FakeParameter("curr", "A", "Current", 0.002, settable=False),
-            "mode": FakeParameter("mode", "", "Mode", "VOLT"),
             "temp": FakeParameter("temp", "degC", "Temperature", 21.0, settable=False),
         }
+        self.source: FakeSubmodule | None = None
 
 
 # endregion
 
 
 class TestQCoDeS:
-    def test_reader_takes_every_numeric_gettable_parameter(self, fresh):
-        name = fresh("smu")
-        reader = QCoDeSReader(name, FakeInstrument("smu"), units={"degC": "°C"})
-        assert set(reader.parameters) == {"volt", "curr", "mode", "temp"}, "IDN skipped"
-        m = reader.measurands
-        assert m["volt"].unit.symbol == "V" and m["volt"].range == (-10, 10)
-        assert m["temp"].unit.symbol == "°C", "override applied"
-        assert m["mode"].unit.symbol == "1", "no unit: dimensionless"
-        (sample,) = reader.read(5)
-        by_name = {mm.name: v for mm, v in sample.values.items()}
-        assert by_name == {f"{name}.volt": 1.25, f"{name}.curr": 0.002, f"{name}.temp": 21.0}, (
-            "strings skipped"
-        )
-        assert reader.state.values[f"{name}.volt"] == 1.25
-
-    def test_reader_set_command_and_bounds(self, fresh):
+    def test_a_settable_parameter_is_rw_by_default(self, fresh):
         inst = FakeInstrument("smu")
-        reader = QCoDeSReader(fresh("smu"), inst, ["volt"])
-        assert reader.set("volt", 2.5) == 2.5 and inst.parameters["volt"].sets == [2.5]
-        with pytest.raises(ValueError, match="not settable"):
-            reader.set("curr", 1.0)
-        assert (
-            bounds(FakeParameter("x")) is None
-            and bounds(FakeParameter("x", vals=Numbers())) is None
-        )
+        device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt")})
+        assert device.signals["bias"].access is Access.RW
+        assert list(device.publishing) == [], "not streamed unless flagged"
 
-    def test_actuator_sets_and_reads_back(self, fresh):
+    def test_publish_true_makes_a_settable_parameter_rpw(self, fresh):
         inst = FakeInstrument("smu")
-        bias = QCoDeSActuator(fresh("bias"), inst.parameters["volt"])
-        assert bias.demand_unit is not None and bias.demand_unit.symbol == "V"
-        assert bias.set_demand(3.0) == 3.0 and bias.state.readback == 3.0
-        with pytest.raises(TypeError, match="cannot be set"):
-            QCoDeSActuator(fresh("ro"), inst.parameters["curr"])
+        device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt", publish=True)})
+        assert device.signals["bias"].access is Access.RPW
+
+    def test_a_read_only_parameter_published_is_rp(self, fresh):
+        inst = FakeInstrument("smu")
+        device = QCoDeS(
+            fresh("smu"),
+            inst,
+            {"temperature": QCoDeSSignal(property="temp", unit="°C", publish=True)},
+        )
+        assert device.signals["temperature"].access is Access.RP
+        assert device.signals["temperature"].quantity.unit.symbol == "°C", "override applied"
+
+    def test_publish_without_a_getter_is_refused(self, fresh):
+        inst = FakeInstrument("smu")
+        inst.parameters["write_only"] = FakeParameter("write_only", gettable=False)
+        with pytest.raises(ValueError, match="publish needs a gettable parameter"):
+            QCoDeS(fresh("smu"), inst, {"x": QCoDeSSignal(property="write_only", publish=True)})
+
+    def test_read_yields_only_due_published_signals(self, fresh):
+        inst = FakeInstrument("smu")
+        device = QCoDeS(
+            fresh("smu"),
+            inst,
+            {
+                "volt": QCoDeSSignal(property="volt", publish=True),
+                "curr": QCoDeSSignal(property="curr"),
+            },
+        )
+        samples = list(device.read(5))
+        assert [s.by_name() for s in samples] == [{"volt": 1.25}], "curr is not published"
+
+    def test_write_signal_sets_the_parameter(self, fresh):
+        inst = FakeInstrument("smu")
+        device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt")})
+        bias = device.signals["bias"]
+        device.apply(bias, 1, 3.0)
+        states = device.commit(1)
+        assert inst.parameters["volt"].sets == [3.0]
+        assert states[bias].value == 3.0
+
+    def test_a_dotted_property_reaches_a_submodule_parameter(self, fresh):
+        inst = FakeInstrument("smu")
+        inst.source = FakeSubmodule({"voltage": FakeParameter("voltage", "V", value=0.5)})
+        device = QCoDeS(
+            fresh("smu"), inst, {"v": QCoDeSSignal(property="source.voltage", publish=True)}
+        )
+        (sample,) = device.read(1)
+        assert sample.by_name() == {"v": 0.5}
+
+    def test_bounds_come_from_a_numbers_validator(self):
+        assert bounds(FakeParameter("x")) is None
+        assert bounds(FakeParameter("x", vals=Numbers())) is None
+        assert bounds(FakeParameter("x", vals=Numbers(-10, 10))) == (-10, 10)
+
+    def test_unit_for_overrides_and_falls_back(self):
+        assert unit_for("degC", {"degC": "°C"}).symbol == "°C"
+        assert unit_for(None).symbol == "1"
+        assert unit_for("not-a-unit").symbol == "1"
 
 
 # region PyMeasure fakes
@@ -113,11 +166,6 @@ class FakePyMeasureInstrument:
         self._sv = value
         self.written.append(value)
 
-    @property
-    def mode(self):
-        """A string mode."""
-        return "VOLT"
-
     def _output(self, value):
         self.written.append(value)
 
@@ -144,71 +192,99 @@ class TestPyMeasure:
     def test_units_come_from_the_docstring(self, doc, symbol):
         assert unit_from_doc(doc).symbol == symbol
 
-    def test_reader_reads_the_chosen_properties(self, fresh):
-        name = fresh("smu")
+    def test_properties_walks_the_class_including_bases(self):
         inst = FakePyMeasureInstrument()
-        reader = PyMeasureReader(name, inst, ["voltage", "current", "mode"])
-        assert (
-            reader.measurands["voltage"].unit.symbol == "V"
-            and reader.measurands["current"].unit.symbol == "A"
+        found = properties(inst)
+        assert {"voltage", "current", "source_voltage", "output_enabled"} <= set(found)
+
+    def test_a_gettable_only_property_published_is_rp(self, fresh):
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("smu"), inst, {"voltage": PyMeasureSignal(property="voltage", publish=True)}
         )
-        (sample,) = reader.read(1)
-        assert {m.name: v for m, v in sample.values.items()} == {
-            f"{name}.voltage": 1.5,
-            f"{name}.current": 0.25,
-        }
-        with pytest.raises(ValueError, match="no readable"):
-            PyMeasureReader(fresh("x"), inst, ["output_enabled"])
+        assert device.signals["voltage"].access is Access.RP
+        assert device.signals["voltage"].quantity.unit.symbol == "V"
 
-    def test_actuator_writes_a_control_and_a_setting(self, fresh):
+    def test_a_settable_property_is_rw_and_writable_via_apply_commit(self, fresh):
         inst = FakePyMeasureInstrument()
-        bias = PyMeasureActuator(fresh("bias"), inst, "source_voltage")
-        assert bias.demand_unit is not None and bias.demand_unit.symbol == "V"
-        assert bias.set_demand(2.0) == 2.0 and inst.written == [2.0] and bias.state.readback == 2.0
-        enable = PyMeasureActuator(fresh("out"), inst, "output_enabled")
-        assert enable.set_demand(1) is None and inst.written[-1] == 1
-        with pytest.raises(TypeError, match="not writable"):
-            PyMeasureActuator(fresh("ro"), inst, "voltage")
+        device = PyMeasure(fresh("smu"), inst, {"bias": PyMeasureSignal(property="source_voltage")})
+        assert device.signals["bias"].access is Access.RW
+        bias = device.signals["bias"]
+        device.apply(bias, 1, 2.0)
+        states = device.commit(1)
+        assert inst.written == [2.0] and states[bias].value == 2.0
+
+    def test_a_setter_only_property_is_write_only(self, fresh):
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("out"), inst, {"enable": PyMeasureSignal(property="output_enabled")}
+        )
+        assert device.signals["enable"].access is Access.W
+
+    def test_an_unknown_property_is_refused(self, fresh):
+        inst = FakePyMeasureInstrument()
+        with pytest.raises(ValueError, match="no property 'nope'"):
+            PyMeasure(fresh("x"), inst, {"x": PyMeasureSignal(property="nope")})
+
+    def test_publish_without_a_getter_is_refused(self, fresh):
+        inst = FakePyMeasureInstrument()
+        with pytest.raises(ValueError, match="publish needs a readable property"):
+            PyMeasure(
+                fresh("x"),
+                inst,
+                {"enable": PyMeasureSignal(property="output_enabled", publish=True)},
+            )
+
+    def test_read_yields_only_due_published_signals(self, fresh):
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("smu"),
+            inst,
+            {
+                "voltage": PyMeasureSignal(property="voltage", publish=True),
+                "current": PyMeasureSignal(property="current"),
+            },
+        )
+        samples = list(device.read(1))
+        assert [s.by_name() for s in samples] == [{"voltage": 1.5}]
+
+    def test_blocking_is_true(self, fresh):
+        device = PyMeasure(fresh("x"), FakePyMeasureInstrument(), {})
+        assert device.blocking is True
 
 
-TOML = """
-[links.smu]
-tag = "qcodes"
-driver = "test_wrapped_instruments.FakeInstrument"
-name = "smu"
+class TestSignalValidation:
+    def test_a_signal_needs_extra_forbid(self):
+        with pytest.raises(ValidationError):
+            QCoDeSSignal(property="volt", nope=True)  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            PyMeasureSignal(property="voltage", nope=True)  # type: ignore[call-arg]
 
-[links.k2400]
-tag = "pymeasure"
-driver = "test_wrapped_instruments.FakePyMeasureInstrumentWithAdapter"
-adapter = "GPIB::24"
 
-[[readers]]
-period_s = 1.0
-[readers.device]
-tag = "qcodes_reader"
-name = "READER_A"
-link = "smu"
-parameters = ["volt", "curr"]
+# region A rig file names both drivers
 
-[[readers]]
-[readers.device]
-tag = "pymeasure_reader"
-name = "READER_B"
-link = "k2400"
-measurements = ["voltage"]
 
-[[actuators]]
-tag = "qcodes_actuator"
-name = "ACT_A"
-link = "smu"
-parameter = "volt"
-
-[[actuators]]
-tag = "pymeasure_actuator"
-name = "ACT_B"
-link = "k2400"
-attribute = "source_voltage"
-"""
+def rig_document(qcodes_name: str, pymeasure_name: str) -> dict:
+    return {
+        "devices": {
+            "smu": {
+                "driver": "qcodes",
+                "config": {
+                    "instrument": f"{__name__}.FakeInstrument",
+                    "instrument_name": qcodes_name,
+                    "channels": {"volt": {"property": "volt", "publish": True}},
+                },
+            },
+            "k2400": {
+                "driver": "pymeasure",
+                "config": {
+                    "instrument": f"{__name__}.FakePyMeasureInstrumentWithAdapter",
+                    "adapter": "GPIB::24",
+                    "channels": {"voltage": {"property": "voltage", "publish": True}},
+                },
+            },
+        }
+    }
 
 
 class FakePyMeasureInstrumentWithAdapter(FakePyMeasureInstrument):
@@ -217,28 +293,19 @@ class FakePyMeasureInstrumentWithAdapter(FakePyMeasureInstrument):
         self.adapter = adapter
 
 
-def test_a_rig_file_names_wrapped_drivers(tmp_path, fresh):
-    from flyball.runtime.config import load_rig
+def test_a_rig_file_names_both_wrapped_drivers(fresh):
+    from flyball.runtime.config import RigConfig
 
-    names = {k: fresh(k.lower()) for k in ("READER_A", "READER_B", "ACT_A", "ACT_B")}
-    text = TOML
-    for k, v in names.items():
-        text = text.replace(k, v)
-    path = tmp_path / "rig.toml"
-    path.write_text(text)
-    rig = load_rig(path)
-    try:
-        assert set(rig.readers.by_name) == {names["READER_A"], names["READER_B"]}
-        assert set(rig.actuators) == {names["ACT_A"], names["ACT_B"]}
-        reader = rig.readers.get(names["READER_A"])
-        assert list(reader.parameters) == ["volt", "curr"]
-        assert rig.actuators[names["ACT_A"]].set_demand(4.0) == 4.0
-        assert rig.actuators[names["ACT_B"]].set_demand(1.0) == 1.0
-        # one instrument per link: the reader and the actuator share it
-        assert (
-            reader.instrument is rig.actuators[names["ACT_A"]].parameter.__self__
-            if hasattr(rig.actuators[names["ACT_A"]].parameter, "__self__")
-            else True
-        )
-    finally:
-        rig.readers.stop_all()
+    rig = RigConfig.model_validate(rig_document(fresh("smu_name"), fresh("k2400_name"))).build(
+        start=False
+    )
+    assert isinstance(rig.devices["smu"], QCoDeS)
+    assert isinstance(rig.devices["k2400"], PyMeasure)
+    smu_volt = rig.resolve("smu.volt")
+    k2400_voltage = rig.resolve("k2400.voltage")
+    assert isinstance(smu_volt, Signal) and isinstance(k2400_voltage, Signal)
+    assert smu_volt.access is Access.RPW, "volt is settable too"
+    assert k2400_voltage.access is Access.RP
+
+
+# endregion

@@ -19,22 +19,21 @@ from flyball.core.errors import (
 )
 from flyball.server.deps import current_rig
 from flyball.server.routes import (
-    actuators_router,
+    controllers_router,
     dashboards_router,
     devices_router,
     events_router,
     export_router,
     history_router,
     library_router,
-    loops_router,
     program_router,
-    readers_router,
+    read_router,
     recording_router,
     rig_router,
     schema_router,
-    signals_router,
     sim_router,
     telemetry_router,
+    waits_router,
 )
 
 # The UI is served from its own dev server during development.
@@ -43,14 +42,14 @@ DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Attach telemetry to the rig's topics; on exit stop the pumps and halt the loop."""
+    """On exit stop polling and close the session, so nothing runs on a server that has gone."""
     try:
         yield
     finally:
         rig = current_rig()
         if rig is not None:
             with contextlib.suppress(Exception):
-                rig.readers.stop_all()
+                rig.polling.stop_all()
             # Close the session so it does not stay "open" forever in the store.
             with contextlib.suppress(Exception):
                 rig.stop_recording()
@@ -95,13 +94,12 @@ def create_app() -> FastAPI:
 
         app.add_exception_handler(error, handler)
 
-    app.include_router(loops_router)  # before rig_router: its /loops/schema must beat /loops/{name}
+    app.include_router(controllers_router)
     app.include_router(rig_router)
-    app.include_router(actuators_router)
-    app.include_router(readers_router)
     app.include_router(devices_router)
+    app.include_router(read_router)
     app.include_router(recording_router)
-    app.include_router(signals_router)
+    app.include_router(waits_router)
     app.include_router(events_router)
     app.include_router(program_router)
     app.include_router(schema_router)

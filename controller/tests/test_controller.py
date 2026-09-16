@@ -1,17 +1,26 @@
-"""A controller: a loop keyed by the signal it drives."""
+"""A controller: one P signal regulated through one W signal, named by the latter."""
 
 from __future__ import annotations
 
 import pytest
 
-from flyball.control import Affine, Controller, NoFeedforward, Setpoint, Transfer
+from flyball.control import (
+    PI,
+    Affine,
+    Controller,
+    ControllerMode,
+    NoFeedforward,
+    Setpoint,
+    Transfer,
+)
 from flyball.control.laws import P
 from flyball.core.device import Device
 from flyball.core.errors import ConflictError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Reading, Sample, SignalSpec, WriteState
 from flyball.core.units.si import Celsius, Watt
-from flyball.sim import SteppedClock
+from flyball.sim.clock import SteppedClock
+from flyball.sim.plant import Lag
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -36,10 +45,11 @@ def test_named_by_its_target(furnace):
     assert controller.name == "furnace.heater1"
     assert controller.target is furnace.signals["heater1"]
     assert controller.source is furnace.signals["zone1"]
-    assert controller.demand_unit is Watt
-    assert controller.settings.name == "furnace.heater1"
-    assert controller.settings.demand_unit == "W"
-    assert not hasattr(controller, "actuator")
+    assert controller.demand_unit == "W"
+    settings = controller.settings
+    assert settings.name == "furnace.heater1" and settings.demand_unit == "W"
+    assert settings.target == "furnace.heater1" and settings.source == "furnace.zone1"
+    assert controller.view.target == "furnace.heater1" and controller.view.source == "furnace.zone1"
 
 
 def test_the_target_must_be_writable_and_the_source_publishing(furnace):
@@ -143,3 +153,90 @@ def test_delivered_closes_a_deferred_write(furnace):
 
     controller.delivered(WriteState(value=None))
     assert controller.expected is None and controller.delivered_correction is None
+
+
+def _regulating(furnace: Furnace, clock: SteppedClock, **kwargs) -> tuple[Controller, list[float]]:
+    """A controller on `bath` (the source's unit) whose writes are collected."""
+    writes: list[float] = []
+
+    def write(demand: float) -> float | None:
+        writes.append(demand)
+        return demand
+
+    controller = Controller(
+        clock, furnace.signals["bath"], furnace.signals["zone1"], write=write, **kwargs
+    )
+    return controller, writes
+
+
+def test_pi_settles_on_a_lag_plant(furnace):
+    clock = SteppedClock(0)
+    plant = Lag(tau_s=5.0, value=20.0)
+    controller, writes = _regulating(furnace, clock, law=PI(kp=0.5, ki=0.2))
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, clock.now_ns(), plant.value))
+    controller.regulate(50.0)
+
+    dt = 0.5
+    history = []
+    for _ in range(400):
+        clock.advance(dt)
+        value = plant.drive(writes[-1], dt)  # the plant follows the last demand for one tick
+        controller.on_reading(Reading(zone1, clock.now_ns(), value))
+        history.append(value)
+
+    assert history[-1] == pytest.approx(50.0, abs=0.5)
+    assert max(history) < 60.0, "no gross overshoot"
+    assert controller.state.mode is ControllerMode.REGULATING
+    assert controller.view.mode.value == "regulating"
+
+
+def test_view_joins_settings_and_state(furnace):
+    controller, _ = _regulating(furnace, SteppedClock(0), law=PI(kp=1.0, ki=0.1))
+    view = controller.view
+    assert view.name == "furnace.bath"
+    assert view.law is not None and view.law.tag == "PI"
+    assert controller.settings.law is not None and controller.settings.law.kp == 1.0
+    assert view.feedforward.model_dump() == {"tag": "setpoint"}
+
+
+def test_min_period_caps_how_often_the_law_steps(furnace):
+    clock = SteppedClock(0)
+    controller, writes = _regulating(furnace, clock, law=PI(kp=1.0), min_period_s=0.1)
+    zone1 = furnace.signals["zone1"]
+    assert controller.settings.min_period_s == 0.1
+    controller.regulate(10.0)
+    before = len(writes)
+
+    # ten readings 10 ms apart: the reading always updates, the law steps once
+    for i in range(10):
+        clock.advance(0.01)
+        controller.on_reading(Reading(zone1, clock.now_ns(), float(i)))
+    assert controller.reading is not None and controller.reading.value == 9.0
+    assert len(writes) == before + 1
+
+    clock.advance(0.1)
+    controller.on_reading(Reading(zone1, clock.now_ns(), 5.0))
+    assert len(writes) == before + 2, "a reading past the period steps again"
+
+
+def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
+    clock = SteppedClock(0)
+    controller, writes = _regulating(furnace, clock, law=PI(kp=1.0, ki=0.5))
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 40.0))
+    controller.regulate(50.0, transfer=Transfer.RESET)
+    for i in range(1, 6):
+        controller.on_reading(Reading(zone1, i * 1_000_000_000, 40.0))
+    held = writes[-1]
+    assert held > 50.0, "the integral wound up against a stuck reading"
+
+    controller.manual()
+    controller.on_reading(Reading(zone1, 6_000_000_000, 45.0))
+    assert writes[-1] == held and controller.mode is ControllerMode.MANUAL, "no tick writes"
+
+    result = controller.regulate(50.0, transfer=Transfer.TRACK)
+    assert result.bump == pytest.approx(0.0), "TRACK seeds the law to hold the output"
+    assert writes[-1] == pytest.approx(held)
+    reset = controller.regulate(50.0, transfer=Transfer.RESET)
+    assert reset.demand == 50.0 and reset.bump == pytest.approx(50.0 - held)

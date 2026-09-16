@@ -6,14 +6,14 @@
 # re-find their balance. About 4 h of furnace time.
 name: gradient
 steps:
-  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
-  - ramp: { loop: [heater1, heater2, heater3], to: 400, per_minute: 10 }
+  - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
+  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 400, per_minute: 10 }
   - hold: { minutes: 15, message: "level at 400" }
-  - ramp: { loop: heater2, to: 600, per_minute: 10 }        # the middle first...
-  - ramp: { loop: heater1, to: 800, per_minute: 10 }        # ... then the hot end
-  - hold: { minutes: 30, message: "gradient 800 / 600 / 400: watch heater3 sit at zero" }
-  - ramp: { loop: heater1, to: 600, per_minute: 5 }
-  - ramp: { loop: heater3, to: 600, per_minute: 10 }
+  - ramp: { loop: heaters.heater2, to: 600, per_minute: 10 }        # the middle first...
+  - ramp: { loop: heaters.heater1, to: 800, per_minute: 10 }        # ... then the hot end
+  - hold: { minutes: 30, message: "gradient 800 / 600 / 400: watch heaters.heater3 sit at zero" }
+  - ramp: { loop: heaters.heater1, to: 600, per_minute: 5 }
+  - ramp: { loop: heaters.heater3, to: 600, per_minute: 10 }
   - hold: { minutes: 30, message: "flat at 600" }
-  - ramp: { loop: [heater1, heater2, heater3], to: 100, per_minute: 20 }
-  - manual: [heater1, heater2, heater3]
+  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 100, per_minute: 20 }
+  - manual: [heaters.heater1, heaters.heater2, heaters.heater3]

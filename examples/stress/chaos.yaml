@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=../simulated/rig.schema.json
+# A furnace tuned to misbehave: small zones (fast dynamics), heavy
+# inter-zone coupling, a long thermocouple lag and heavy noise. One zone's
+# law is deliberately too aggressive for this plant and rings; one zone's
+# heater is clamped to 40 % of its rated power (360 W of 900) so a setpoint
+# it cannot reach stays visibly clamped; one zone runs open-loop (a real
+# `ControlLaw`, but `open_loop`'s correction is always zero -- pure
+# feedforward, nothing reacts to the reading). `programs/chaos-run.yaml`
+# then ramps far faster than any of this can follow, and fails a
+# thermocouple and kicks a heater mid-run with `command` steps on the
+# `furnace` and `heaters` devices (`fail`, `restore`, `disturb`).
+
+name: chaos
+clock: { speed: 60 }
+
+links:
+  tube:
+    tag: sim_furnace
+    zones: 6
+    power_w: [800, 1000, 1200, 1000, 900, 700]
+    capacity_j_per_k: [300, 320, 350, 320, 300, 280]
+    coupling_w_per_k: 30.0
+    loss_w_per_k: 2.0
+    emissivity: 0.8
+    area_m2: 0.01
+    ambient_c: 20.0
+    sample_zone: 3
+    sample_capacity_j_per_k: 200
+    sample_coupling_w_per_k: 10.0
+    sensor_lag_s: 15.0
+    noise: 3.0
+    seed: 99
+
+devices:
+  furnace:
+    driver: sim_daq
+    label: Furnace thermocouples
+    poll_s: 1.0
+    config:
+      link: tube
+      ports:
+        zone1: zone1
+        zone2: zone2
+        zone3: zone3
+        zone4: zone4
+        zone5: zone5
+        zone6: zone6
+        sample: sample
+    signals:
+      zone1: { label: Zone 1, range: [0, 1300], precision: 1 }
+      zone2: { label: Zone 2 (bad tuning), range: [0, 1300], precision: 1 }
+      zone3: { label: Zone 3 (sample), range: [0, 1300], precision: 1 }
+      zone4: { label: Zone 4, range: [0, 1300], precision: 1 }
+      zone5: { label: Zone 5 (clamped heater), range: [0, 1300], precision: 1 }
+      zone6: { label: Zone 6 (open loop), range: [0, 1300], precision: 1 }
+      sample: { label: Sample (zone 3), range: [0, 1300], precision: 1, poll_s: 2.0 }
+  heaters:
+    driver: sim_drive
+    label: Zone heaters
+    config:
+      link: tube
+      ports:
+        heater1: heater1
+        heater2: heater2
+        heater3: heater3
+        heater4: heater4
+        heater5: heater5
+        heater6: heater6
+    signals:
+      heater1: { label: Zone 1 heater }
+      heater2: { label: Zone 2 heater }
+      heater3: { label: Zone 3 heater }
+      heater4: { label: Zone 4 heater }
+      heater5: { label: Zone 5 heater (clamped to 40 %), limits: [0.0, 360.0] }
+      heater6: { label: Zone 6 heater }
+
+controllers:
+  heaters.heater1:
+    signal: furnace.zone1
+    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    default: true
+  heaters.heater2:
+    signal: furnace.zone2
+    law: { tag: PID, kp: 800, ki: 5, kd: 0 }
+    feedforward: { tag: none }
+  heaters.heater3:
+    signal: furnace.zone3
+    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+  heaters.heater4:
+    signal: furnace.zone4
+    law: { tag: P, kp: 150 }
+    feedforward: { tag: affine, gain: 2.0, bias: 50 }
+  heaters.heater5:
+    signal: furnace.zone5
+    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { tag: none }
+  heaters.heater6:
+    signal: furnace.zone6
+    law: { tag: open_loop }
+    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }

@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../simulated/rig.schema.json
+# As bare as a rig file can be: a name, nothing else. No links, no devices,
+# no controllers. It does load -- `RigConfig` requires none of these -- so
+# this is here to exercise the UI with truly nothing to show anywhere.
+
+name: bare

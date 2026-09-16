@@ -1,11 +1,13 @@
-"""Hardware writes off the delivery path: one thread per blocking actuator.
+"""Hardware writes off the delivery path: one thread per blocking device.
 
-A loop ticks under the rig lock and must not wait for a bus. For an actuator
-that declares `blocking = True`, the rig routes the loop's demands through a
-[Writer][flyball.runtime.writer.Writer]: the newest demand is kept, the
-writer's thread puts it on the wire, and what the actuator reports back
-(`expected`) is what the loop sees on its next tick. A bus that fails raises
-an event and a condition the rig reports; the loop goes on ticking.
+A delivery runs under the rig lock and must not wait for a bus. For a
+device whose class says `blocking = True`, the rig routes what it would
+have applied and committed through a [Writer][flyball.runtime.writer.Writer]:
+the values are queued (the newest per signal wins), the writer's thread
+applies them and runs the device's `commit`, and the write states it
+reports go back to the rig -- published, delivered to the controllers,
+recorded -- when the write completes. A bus that fails raises an event and
+a condition the writer holds until a write succeeds; deliveries go on.
 """
 
 from __future__ import annotations
@@ -14,8 +16,8 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.core.device import Condition, Level
-from flyball.core.sink import Actuator
+from flyball.core.device import Condition, Device, Level
+from flyball.core.signal import Signal
 
 if TYPE_CHECKING:
     from flyball.runtime.rig import Rig
@@ -23,75 +25,65 @@ if TYPE_CHECKING:
 log = logging.getLogger("flyball.writer")
 
 
-def is_blocking(actuator: Actuator) -> bool:
-    """Whether `set_demand` may wait on a device: the actuator's class says `blocking = True`."""
-    return bool(getattr(actuator, "blocking", False))
-
-
 class Writer:
-    """Carries demands to one actuator on its own thread; newest demand wins."""
+    """Applies and commits to one blocking device on its own thread; the newest value wins."""
 
-    def __init__(self, rig: Rig, actuator: Actuator) -> None:
+    def __init__(self, rig: Rig, device: Device) -> None:
         self.rig = rig
-        self.actuator = actuator
-        self.expected: float | None = None
-        """What the last completed write reported the actuator could deliver."""
+        self.device = device
         self.failed: Condition | None = None
-        """Set while the last write raised; cleared by the next that succeeds."""
+        """Set while the last commit raised; cleared by the next that succeeds."""
         self.writes = 0
-        self._pending: float | None = None
+        self._queued: dict[Signal, tuple[int, float]] = {}
+        self._commit_ns: int | None = None
         self._lock = Lock()
         self._wake = Event()
         self._stop = Event()
-        self._thread = Thread(target=self._run, daemon=True, name=f"writer:{actuator.name}")
+        self._thread = Thread(target=self._run, daemon=True, name=f"writer:{device.name}")
         self._thread.start()
 
-    def request(self, demand: float) -> float | None:
-        """Queue `demand` for the wire; return the last completed write's `expected`.
-
-        Called by the loop under the rig lock: a store and a wake, no I/O.
-        """
+    def apply(self, signal: Signal, time_ns: int, value: float) -> None:
+        """Queue one value for the device's `apply`, replacing any earlier one on `signal`."""
         with self._lock:
-            self._pending = demand
+            self._queued[signal] = (time_ns, value)
+
+    def request(self, time_ns: int) -> None:
+        """Ask for a commit at `time_ns`; a store and a wake, no I/O."""
+        with self._lock:
+            self._commit_ns = time_ns
         self._wake.set()
-        return self.expected
 
     def _run(self) -> None:
         while not self._stop.is_set():
             self._wake.wait()
             with self._lock:
-                demand, self._pending = self._pending, None
+                queued, self._queued = self._queued, {}
+                time_ns, self._commit_ns = self._commit_ns, None
                 self._wake.clear()
-            if demand is None:
+            if time_ns is None:
                 continue
             try:
-                expected = self.actuator.set_demand(demand)
+                for signal, (applied_ns, value) in queued.items():
+                    self.device.apply(signal, applied_ns, value)
+                states = self.device.commit(time_ns)
             except Exception as error:
-                self._failure(demand, error)
+                self._failure(error)
                 continue
-            self.expected = expected
             self.writes += 1
             if self.failed is not None:
                 self.failed = None
                 self.rig.event(
-                    Level.INFO, "actuator", self.actuator.name, "write_recovered", "writes succeed"
+                    Level.INFO, "device", self.device.name, "write_recovered", "writes succeed"
                 )
-            self.rig.apply(self.actuator)  # publish the state the write produced
+            self.rig.written(self.device, states, time_ns)
 
-    def _failure(self, demand: float, error: Exception) -> None:
+    def _failure(self, error: Exception) -> None:
         message = f"{type(error).__name__}: {error}"
         first = self.failed is None
         self.failed = Condition("write_failed", Level.ERROR, message, self.rig.clock.now_ns())
         if first:  # one event per outage, not one per tick
-            log.warning("%s: write of %g failed: %s", self.actuator.name, demand, message)
-            self.rig.event(
-                Level.ERROR,
-                "actuator",
-                self.actuator.name,
-                "write_failed",
-                message,
-                {"demand": demand},
-            )
+            log.warning("%s: write failed: %s", self.device.name, message)
+            self.rig.event(Level.ERROR, "device", self.device.name, "write_failed", message)
 
     def stop(self) -> None:
         self._stop.set()
@@ -99,4 +91,4 @@ class Writer:
         self._thread.join(timeout=1.0)
 
 
-__all__ = ["Writer", "is_blocking"]
+__all__ = ["Writer"]

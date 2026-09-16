@@ -5,8 +5,8 @@
     flyball-daemon furnace.yaml sim.yaml --set clock.speed=60
 
 Builds the rig from the file (any of `.toml`, `.yaml`, `.json`), starts its
-readers, optionally opens a recording session, and serves the HTTP and
-websocket API until stopped. Several files layer, later overlaying earlier
+devices polling, optionally opens a recording session, and serves the HTTP
+and websocket API until stopped. Several files layer, later overlaying earlier
 (see [flyball.runtime.overlay][]); the store and the programs directory then
 default off the first one. An application with hardware the rig file cannot
 describe writes its own daemon around [serve][flyball.daemon.serve].
@@ -39,10 +39,10 @@ def serve(
     store: Store | None = None,
     programs: Path | None = None,
 ) -> None:
-    """Serve `rig` until interrupted. The rig's readers must already be running.
+    """Serve `rig` until interrupted. The rig's devices must already be polling.
 
     Args:
-        rig: The rig, built and with its readers polling.
+        rig: The rig, built and with its devices polling.
         host: Bind address; loopback unless the rig should be reachable.
         port: TCP port.
         log_level: uvicorn's.
@@ -71,7 +71,7 @@ def serve(
         log.info("programs from %s: %d imported", programs, len(imported))
     boards = None if programs is None else programs.parent / "dashboards"
     if store is not None and boards is not None and boards.is_dir():
-        rows = dashboards.import_directory(store, boards, rig.name, rig.clock.now_ns())
+        rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
     try:
         uvicorn.run(create_app(), host=host, port=port, log_level=log_level)

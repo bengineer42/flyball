@@ -129,21 +129,32 @@ class TestResolveDocumentsAndLoadRigConfig:
     def test_load_rig_config_of_a_single_path_still_works(self):
         from flyball.runtime.config import load_rig_config
 
-        config = load_rig_config(EXAMPLES / "oven.toml")
-        assert config.name == "oven" and len(config.readers) == 1
+        config = load_rig_config(EXAMPLES / "oven.yaml")
+        assert config.name == "oven" and set(config.devices) == {"thermocouple", "heater"}
 
     def test_load_rig_config_of_two_files_applies_the_overlay(self, tmp_path):
         from flyball.runtime.config import load_rig_config
 
-        shutil.copy(EXAMPLES / "oven.toml", tmp_path / "oven.toml")
+        shutil.copy(EXAMPLES / "oven.yaml", tmp_path / "oven.yaml")
         (tmp_path / "sim.yaml").write_text("links:\n  chamber:\n    noise: 0.9\n")
-        config = load_rig_config([tmp_path / "oven.toml", tmp_path / "sim.yaml"])
+        config = load_rig_config([tmp_path / "oven.yaml", tmp_path / "sim.yaml"])
         assert config.name == "oven" and config.links["chamber"].noise == 0.9
         assert config.links["chamber"].tau_s == 60.0, "the rest of the base link is untouched"
 
     def test_load_rig_config_applies_a_set_after_the_layers(self, tmp_path):
         from flyball.runtime.config import load_rig_config
 
-        shutil.copy(EXAMPLES / "oven.toml", tmp_path / "oven.toml")
-        config = load_rig_config([tmp_path / "oven.toml"], ["links.chamber.noise=0.9"])
+        shutil.copy(EXAMPLES / "oven.yaml", tmp_path / "oven.yaml")
+        config = load_rig_config([tmp_path / "oven.yaml"], ["links.chamber.noise=0.9"])
         assert config.links["chamber"].noise == 0.9
+
+    def test_a_legacy_section_is_refused_naming_the_plan(self, tmp_path):
+        from flyball.runtime.config import load_rig_config
+
+        (tmp_path / "old.yaml").write_text("readers:\n  - device: {tag: x}\n")
+        with pytest.raises(
+            ValueError,
+            match="readers/actuators/loops are no longer rig-file sections; devices and"
+            r" controllers replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6",
+        ):
+            load_rig_config(tmp_path / "old.yaml")

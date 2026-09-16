@@ -6,19 +6,21 @@ subcommand per device and per device command. Nothing about any particular
 device is written into it.
 
 ```
-flyball --url http://pi:8000 actuators      # or export FLYBALL_URL
+flyball --url http://pi:8000 devices        # or export FLYBALL_URL
 ```
 
 ## Fixed subcommands
 
 | | |
 | --- | --- |
-| `flyball status` | one screen: readers, loops, actuators, signals, recording |
-| `flyball actuators` / `readers` / `sources` / `loops` | list what the rig has |
+| `flyball status` | one screen: devices (signals with their latest values and write states), controllers, waits, recording |
+| `flyball devices` / `controllers` | list what the rig has |
+| `flyball demand ADDRESS VALUE` | put a value on a writable signal (`PUT /api/signals/{address}`) |
+| `flyball read ADDRESS [--fresh]` | a signal's reading, a namespace's sample, or a device's samples (`GET /api/read/{address}`) |
 | `flyball clock` | the rig's timebase |
-| `flyball signals` | what the rig is waiting on |
-| `flyball signal fire NAME` / `interrupt NAME` | answer or cancel a wait |
-| `flyball watch STREAM` | follow `samples`, `loops`, `actuators`, `readers` or `signals` as JSON lines |
+| `flyball waits` | what the rig is waiting on |
+| `flyball wait fire NAME` / `interrupt NAME` | answer or cancel a wait |
+| `flyball watch STREAM` | follow `samples`, `controllers`, `writes` or `signals` as JSON lines |
 | `flyball schema` | the schema document, for saving or `jq` |
 | `flyball sessions` / `export ID` | recorded sessions; one as Bluesky event-model documents |
 | `flyball program check FILE` | the rig normalises and validates a program file; nothing runs |
@@ -31,15 +33,15 @@ These work with no daemon reachable; they use the configs installed here:
 
 | | |
 | --- | --- |
-| `flyball rig check FILE` | validate a rig file: tags, links, names, loops |
+| `flyball rig check FILE` | validate a rig file: drivers, links, names, controllers |
 | `flyball rig schema` | the rig file's JSON Schema, for an editor (`#:schema` in TOML) |
 | `flyball program schema` | the program file's JSON Schema |
 | `flyball program check --local FILE` | validate a program file against the commands installed here |
-| `flyball new actuator NAME` / `new reader NAME` | write `NAME.py`: a complete device with a tag, ready to edit |
+| `flyball new NAME` | write `NAME.py`: a complete device driver with a tag, ready to edit |
 
 ## Device subcommands
 
-Every actuator and reader is a subcommand named after it:
+Every device is a subcommand named after it:
 
 ```
 flyball heater                 config, settings and state
@@ -82,9 +84,10 @@ on its own and imports nothing from the rig:
 from flyball.client import Rig
 
 rig = Rig("http://pi:8000")
-rig.actuators.heater.set_limit(limit=0.5)
-rig.readers.probe_reader.view()["state"]
-for frame in rig.watch("loops"):
+rig.devices.heater.set_limit(limit=0.5)
+rig.devices.probe.view()["state"]
+rig.demand("heaters.heater1", 1200.0)
+for frame in rig.watch("controllers"):
     ...
 ```
 

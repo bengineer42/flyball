@@ -1,176 +1,120 @@
-"""Modbus controllers over a register link: a register per measurand or demand.
+"""Modbus controllers over a register link: one register per signal.
 
-A [Register][flyball.devices.modbus.Register] says where a value lives and
-how to read it: kind (`u16`, `s16`, `u32`, `s32`, `f32`), scale, offset,
-word order. A [ModbusReader][flyball.devices.modbus.ModbusReader] is a table
-of them; a [ModbusActuator][flyball.devices.modbus.ModbusActuator] writes
-one from the loop's demand.
-
+A [Modbus][flyball.devices.modbus.Modbus] device's tree is its own config:
+`registers` maps each signal's name to where it lives and how it converts.
+Block reads where addresses are contiguous would be an optimisation; this
+driver reads and writes one register at a time.
 """
 
 from __future__ import annotations
 
-import struct
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from flyball.core.config import resolve
-from flyball.core.device import DeviceConfig, DeviceState
-from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.sink import Actuator, ActuatorConfig, ActuatorState
-from flyball.core.units.dimension import Unit
-from flyball.core.units.si import One
-from flyball.hardware.links import RegisterLink, RegisterLinkConfig
+from flyball.core.device import Device, DriverConfig
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
+from flyball.hardware.links import FakeRegisterLink, RegisterLink, RegisterLinkConfig
 
-Kind = Literal["u16", "s16", "u32", "s32", "f32"]
-_WORDS: dict[str, int] = {"u16": 1, "s16": 1, "u32": 2, "s32": 2, "f32": 2}
-_FORMAT: dict[str, str] = {"u16": "H", "s16": "h", "u32": "I", "s32": "i", "f32": "f"}
+Kind = Literal["holding", "input", "coil"]
 
 
-class Register(BaseModel):
-    """Where a value lives and how to read it. `value = raw * scale + offset`."""
+class ModbusRegister(BaseModel):
+    """One line of a `modbus` device's tree: where a value lives, and how it converts.
+
+    `value = raw * scale`. Every register is readable and published; `write`
+    also makes it writable. `input` registers are read-only on real hardware,
+    so `write` on one is refused here too.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     address: int
-    kind: Kind = "u16"
+    kind: Kind = "holding"
+    unit: str
     scale: float = 1.0
-    offset: float = 0.0
-    word_order: Literal["big", "little"] = "big"
-    unit: str = ""
-    label: str = ""
-    range: tuple[float, float] | None = None
-    precision: int | None = None
-    warn: tuple[float, float] | None = None
-    alarm: tuple[float, float] | None = None
+    write: bool = False
+
+    @model_validator(mode="after")
+    def _input_is_read_only(self) -> ModbusRegister:
+        if self.kind == "input" and self.write:
+            raise ValueError("an input register cannot be written")
+        return self
 
     @property
-    def words(self) -> int:
-        return _WORDS[self.kind]
-
-    def decode(self, words: list[int]) -> float:
-        if len(words) != self.words:
-            raise ValueError(f"register {self.address} wants {self.words} words, got {len(words)}")
-        if self.word_order == "little":
-            words = list(reversed(words))
-        raw = struct.pack(">" + "H" * len(words), *words)
-        (value,) = struct.unpack(">" + _FORMAT[self.kind], raw)
-        return value * self.scale + self.offset
-
-    def encode(self, value: float) -> list[int]:
-        raw = (value - self.offset) / self.scale
-        packed = struct.pack(">" + _FORMAT[self.kind], raw if self.kind == "f32" else round(raw))
-        words = list(struct.unpack(">" + "H" * self.words, packed))
-        return list(reversed(words)) if self.word_order == "little" else words
+    def access(self) -> Access:
+        return Access.RPW if self.write else Access.RP
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ModbusState(DeviceState):
-    values: dict[str, float] = field(default_factory=dict)
+class Modbus(Device):
+    """Modbus registers as signals: each of `registers` becomes one.
 
-
-class ModbusReader(Reader):
-    """Polls a table of registers as one source."""
+    Args:
+        name: The device's name.
+        link: What to talk over.
+        registers: `{name: ModbusRegister}` -- the tree, and where each signal lives.
+        unit_id: The Modbus device address on a shared bus.
+    """
 
     def __init__(
         self,
         name: str,
         link: RegisterLink,
-        registers: Mapping[str, Register],
+        registers: Mapping[str, ModbusRegister],
         unit_id: int = 1,
-        source: str | None = None,
+        label: str | None = None,
     ) -> None:
+        super().__init__(name, label)
         self.link = link
         self.unit_id = unit_id
-        self.table = dict(registers)
-        self.measurands = {
-            key: Measurand(
-                key,
-                Unit.get(r.unit) if r.unit else One,
-                r.label,
-                r.range,
-                r.precision,
-                warn=r.warn,
-                alarm=r.alarm,
-            )
-            for key, r in registers.items()
-        }
-        self.source = Source(source or name, self.measurands.values())
-        super().__init__(name, (self.source,))
-        self._values: dict[str, float] = {}
+        self.registers = dict(registers)
+        # Device.blocking is a ClassVar; this driver's real bus or fake is only known
+        # per instance, at build.
+        self.blocking = not isinstance(link, FakeRegisterLink)  # pyright: ignore[reportAttributeAccessIssue]
+        self._last_read: dict[Signal, int] = {}
+        self.bind([
+            SignalSpec(name=key, quantity=Quantity(key, reg.unit), access=reg.access)
+            for key, reg in self.registers.items()
+        ])
 
-    @property
-    def state(self) -> ModbusState:
-        return ModbusState(values=dict(self._values))
+    def _due(self, signal: Signal, time_ns: int) -> bool:
+        poll_s = signal.poll_s
+        if poll_s is None:
+            return True
+        last = self._last_read.get(signal)
+        return last is None or (time_ns - last) >= poll_s * 1e9
 
-    def read(self, time_ns: int) -> Iterable[Sample]:
-        values = {
-            self.measurands[key]: r.decode(
-                self.link.read_registers(r.address, r.words, self.unit_id)
-            )
-            for key, r in self.table.items()
-        }
-        self._values = {m.name: v for m, v in values.items()}
-        return [Sample(self.source, self.source.next_seq(), time_ns, values)]
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """One register read per due, publishing signal under `node`: each its own instant."""
+        target = node if node is not None else self.root
+        for signal in target.walk():
+            if Access.P not in signal.access or not self._due(signal, time_ns):
+                continue
+            register = self.registers[signal.name]
+            (word,) = self.link.read_registers(register.address, 1, self.unit_id)
+            value = word * register.scale
+            self._last_read[signal] = time_ns
+            yield Sample(self.root, time_ns, {signal: value})
+
+    def write_signal(self, signal: Signal, value: float) -> None:
+        register = self.registers[signal.name]
+        self.link.write_registers(register.address, [round(value / register.scale)], self.unit_id)
 
 
-class ModbusReaderConfig(DeviceConfig[ModbusReader], tag="modbus_reader"):
-    name: str
+class ModbusConfig(DriverConfig[Modbus], tag="modbus"):
+    """`driver: modbus`. `registers` is the driver's own tree -- see `ModbusRegister`."""
+
     link: RegisterLinkConfig | str  # type: ignore[valid-type]
-    registers: dict[str, Register]
-    unit_id: int = 1
-    source: str | None = None
-
-    def build(self) -> ModbusReader:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to a link before building")
-        return ModbusReader(
-            self.name, resolve(self.link), self.registers, self.unit_id, self.source
-        )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ModbusActuatorState(ActuatorState):
-    written: list[int] = field(default_factory=list)
-    """The words last written, for checking against the controller's own display."""
-
-
-class ModbusActuator(Actuator):
-    """Writes one register from the loop's demand."""
-
-    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
-
-    def __init__(self, name: str, link: RegisterLink, register: Register, unit_id: int = 1) -> None:
-        super().__init__(name)
-        self.link = link
-        self.register = register
-        self.unit_id = unit_id
-        self._demand: float | None = None
-        self._written: list[int] = []
-        if register.unit:
-            self.demand_unit = Unit.get(register.unit)  # type: ignore[misc]
-
-    @property
-    def state(self) -> ModbusActuatorState:
-        return ModbusActuatorState(
-            demand=self._demand, output_range=self.output_range, written=list(self._written)
-        )
-
-    def set_demand(self, demand: float) -> float | None:
-        self._demand = demand
-        self._written = self.register.encode(demand)
-        self.link.write_registers(self.register.address, self._written, self.unit_id)
-        return self.register.decode(self._written)  # what the controller will hold, quantised
-
-
-class ModbusActuatorConfig(ActuatorConfig[ModbusActuator], tag="modbus_actuator"):
-    name: str
-    link: RegisterLinkConfig | str  # type: ignore[valid-type]
-    output: Register  # `register` would shadow ABC.register on the config
+    registers: dict[str, ModbusRegister]
     unit_id: int = 1
 
-    def build(self) -> ModbusActuator:
+    def build(self, name: str, label: str | None = None) -> Modbus:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a link before building")
-        return ModbusActuator(self.name, resolve(self.link), self.output, self.unit_id)
+        return Modbus(name, resolve(self.link), self.registers, self.unit_id, label=label)
+
+
+__all__ = ["Modbus", "ModbusConfig", "ModbusRegister"]

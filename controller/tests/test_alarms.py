@@ -1,4 +1,4 @@
-"""Warn and alarm bands: declared on a measurand, set from a rig file, published on a channel."""
+"""Warn and alarm bands: declared on a signal, set from a rig file, counted when a value strays."""
 
 from __future__ import annotations
 
@@ -6,41 +6,53 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from flyball.core.reading import Measurand, Source
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, SignalSpec
 from flyball.core.units.si import Celsius
 from flyball.runtime.config import load_rig_config
+from flyball.runtime.simulation import Simulation
 from flyball.server import create_app, set_rig
-from flyball.server.schemas import ChannelOut
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
+TEMP = Quantity("temperature", Celsius)
 
 
-def test_measurand_carries_bands_and_defaults_to_none(fresh):
-    plain = Measurand(fresh("temperature"), Celsius, range=(-40.0, 125.0), precision=2)
+def test_a_signal_spec_carries_bands_and_defaults_to_none():
+    plain = SignalSpec(name="t", quantity=TEMP, access=Access.RP, range=(-40.0, 125.0))
     assert plain.warn is None and plain.alarm is None
-    banded = Measurand(fresh("temperature"), Celsius, warn=(30.0, 90.0), alarm=(10.0, 110.0))
+    banded = SignalSpec(
+        name="t", quantity=TEMP, access=Access.RP, warn=(30.0, 90.0), alarm=(10.0, 110.0)
+    )
     assert banded.warn == (30.0, 90.0) and banded.alarm == (10.0, 110.0)
 
 
-def test_channel_out_serialises_bands(fresh):
-    measurand = Measurand(fresh("temperature"), Celsius, warn=(30.0, 90.0), alarm=(10.0, 110.0))
-    source = Source(fresh("probe"), (measurand,))
-    out = ChannelOut.of(source[measurand]).model_dump()
-    assert out["warn"] == (30.0, 90.0) and out["alarm"] == (10.0, 110.0)
-    plain = Measurand(fresh("temperature"), Celsius)
-    assert ChannelOut.of(Source(fresh("probe"), (plain,))[plain]).model_dump()["warn"] is None
-
-
 def test_oven_rig_file_sets_bands_on_the_thermocouple():
-    Measurand.forget("temperature")  # another test may have interned it without bands
-    Source.forget("thermocouple")
-    rig = load_rig_config(EXAMPLES / "oven.toml").build(start=False)
+    config = load_rig_config(EXAMPLES / "oven.yaml")
+    rig = config.build(start=False)
+    signal = rig.resolve("thermocouple.temperature")
+    assert signal.spec.range == (0.0, 120.0) and signal.spec.precision == 2
+    assert signal.spec.warn == (30.0, 90.0) and signal.spec.alarm == (10.0, 110.0)
+    assert signal.spec.quantity == TEMP and str(signal.access) == "rp"
+
+
+def test_the_bands_fire_on_the_oven_s_readings():
+    """Cold (20 °C) is outside `warn`; put the chamber at 5 °C and it is outside `alarm` too."""
+    config = load_rig_config(EXAMPLES / "oven.yaml")
+    rig = config.build(start=False)
+    simulation = Simulation(rig, config)
+    signal = rig.resolve("thermocouple.temperature")
     set_rig(rig)
     try:
         with TestClient(create_app()) as client:
-            (channel,) = client.get("/api/sources/thermocouple").json()["channels"]
+            rig.read(signal, fresh=True)
+            alarms = client.get("/api/health").json()["alarms"]
+            assert alarms == {"warn": 1, "alarm": 0, "max_level": 30}
+            simulation.reset_plant("chamber", output=5.0)
+            rig.read(signal, fresh=True)
+            alarms = client.get("/api/health").json()["alarms"]
+            assert alarms == {"warn": 0, "alarm": 1, "max_level": 40}
+            simulation.reset_plant("chamber", output=50.0)
+            rig.read(signal, fresh=True)
+            assert client.get("/api/health").json()["alarms"]["max_level"] == 0
     finally:
         set_rig(None)
-        Source.forget("thermocouple")
-    assert channel["range"] == [0.0, 120.0] and channel["precision"] == 2
-    assert channel["warn"] == [30.0, 90.0] and channel["alarm"] == [10.0, 110.0]

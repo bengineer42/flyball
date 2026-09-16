@@ -1,33 +1,36 @@
-"""Devices and builders shared by the suite. Not a conftest: imported once, by name."""
+"""Devices shared by the suite. Not a conftest: imported once, by name."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from flyball.core.reading import Measurand, Sample, Source
-from flyball.core.sink import Actuator, ActuatorState, command
+from flyball.core.device import Device, DeviceState, command
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, SignalSpec
+from flyball.core.units.si import Watt
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class DutyState(ActuatorState):
+class DutyState(DeviceState):
     duty: float = 0.0
 
 
-class DutyHeater(Actuator):
-    """A heater with one command, for device and route tests."""
+class DutyHeater(Device):
+    """A heater with one W signal and two commands, for device and route tests."""
 
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
+    TREE = (
+        SignalSpec(
+            name="power", quantity=Quantity("power", Watt), access=Access.W, limits=(0.0, 100.0)
+        ),
+    )
+
+    def __init__(self, name: str, label: str | None = None) -> None:
+        super().__init__(name, label)
         self.duty = 0.0
-        self._demand: float | None = None
-
-    def set_demand(self, demand: float) -> float | None:
-        self._demand = demand
-        return None
 
     @property
     def state(self) -> DutyState:
-        return DutyState(demand=self._demand, duty=self.duty)
+        return DutyState(duty=self.duty)
 
     @command
     def set_duty(self, duty: float, ramp_s: float = 0.0) -> DutyState:
@@ -39,9 +42,3 @@ class DutyHeater(Actuator):
     def switch_off(self) -> None:
         """Stop heating."""
         self.duty = 0.0
-
-
-def sample(
-    source: Source, measurand: Measurand, value: float, time_ns: int, seq: int = 1
-) -> Sample:
-    return Sample(source, seq, time_ns, {measurand: value})

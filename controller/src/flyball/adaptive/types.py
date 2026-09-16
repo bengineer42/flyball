@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import log
 
-from flyball.core import Labelled, NonNegative, Positive
-from flyball.core.reading import Channel
+from flyball.core import Labelled, NonNegative, Positive, Signal
 
 from .errors import ModelRejectedError
 
@@ -21,7 +20,7 @@ class Role(Labelled):
 class Term:
     """One input to a plant model, and what it is."""
 
-    channel: Channel
+    signal: Signal
     role: Role
 
 
@@ -32,16 +31,16 @@ class Schema:
     The order is fixed here so regressors and parameter vectors line up.
     """
 
-    controlled: Channel
-    manipulated: Channel
-    disturbances: tuple[Channel, ...] = ()
+    controlled: Signal
+    manipulated: Signal
+    disturbances: tuple[Signal, ...] = ()
 
     @property
     def terms(self) -> tuple[Term, ...]:
         return (
             Term(self.controlled, Role.CONTROLLED),
             Term(self.manipulated, Role.MANIPULATED),
-            *(Term(channel, Role.DISTURBANCE) for channel in self.disturbances),
+            *(Term(signal, Role.DISTURBANCE) for signal in self.disturbances),
         )
 
     @property

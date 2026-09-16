@@ -1,32 +1,32 @@
-"""Use a QCoDeS instrument as a flyball reader or actuator.
+"""Use a QCoDeS instrument as a flyball device.
 
 A QCoDeS `Instrument` carries `parameters`, each with a `unit`, a `label`,
-`get` and/or `set`, and `vals` bounds -- what a measurand and a command
-need, so one wrapper serves every driver:
+`get` and/or `set` -- what a signal needs, so one wrapper serves every
+driver:
 
-    from qcodes.instrument_drivers.Keithley import Keithley2450
-    smu = Keithley2450("smu", "TCPIP::192.168.1.5::INSTR")
-    rig.start_reader(QCoDeSReader("smu", smu), period=1.0)
-    rig.attach_loop(..., QCoDeSActuator("bias", smu.source.voltage))
+    devices:
+      smu:
+        driver: qcodes
+        instrument: qcodes.instrument_drivers.Keithley.Keithley2450
+        channels:
+          voltage: { property: source.voltage, publish: true }
 
-Nothing here imports qcodes; a fake with the same attributes drives the
-tests. The instrument keeps its own connection; flyball's links are not
-involved.
-
+Nothing here imports qcodes at module load: `QCoDeSConfig.build` does, so the
+`qcodes` extra is only needed where it is actually used. A fake with the
+same attributes drives the tests.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from flyball.core.config import Config, import_object, resolve
-from flyball.core.device import DeviceConfig, DeviceState, command
-from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.sink import Actuator, ActuatorState
+from flyball.core.config import import_object
+from flyball.core.device import Device, DriverConfig
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
 from flyball.core.units.dimension import Unit
 from flyball.core.units.errors import UnitNotFoundError
 from flyball.core.units.si import One
@@ -62,156 +62,128 @@ def _settable(parameter: Any) -> bool:
     return bool(getattr(parameter, "settable", hasattr(parameter, "set")))
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class QCoDeSState(DeviceState):
-    values: dict[str, float] = field(default_factory=dict)
+def _parameter(instrument: Any, dotted: str) -> Any:
+    """The parameter or sub-instrument attribute named by a dotted path: `"source.voltage"`."""
+    target = instrument
+    for part in dotted.split("."):
+        target = (
+            target.parameters[part]
+            if part in getattr(target, "parameters", {})
+            else getattr(target, part)
+        )
+    return target
 
 
-class QCoDeSReader(Reader):
-    """Every numeric, gettable parameter of an instrument as one source.
+class QCoDeSSignal(BaseModel):
+    """One line of a `qcodes` device's tree: one parameter, wrapped as a signal.
+
+    A settable parameter is writable; a gettable one is readable on demand.
+    `publish` also streams it, and needs a getter -- see
+    [QCoDeS][flyball.integrations.qcodes.QCoDeS].
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    property: str = Field(
+        description="The parameter's name, dotted for a submodule: 'source.voltage'."
+    )
+    unit: str | None = Field(default=None, description="Overrides the parameter's own `unit`.")
+    publish: bool = False
+
+
+class QCoDeS(Device):
+    """Chosen parameters of a QCoDeS instrument as one device.
 
     Args:
-        name: The reader's name, and the source's.
+        name: The device's name.
         instrument: A QCoDeS `Instrument` (or anything with `parameters`).
-        parameters: Which to read; default every gettable one except `IDN`.
-        units: Overrides for parameters whose `unit` the table does not know.
+        channels: `{name: QCoDeSSignal}` -- which parameters to expose, and how.
+
+    Raises:
+        ValueError: A channel's parameter is neither gettable nor settable,
+            or `publish` without a getter.
     """
+
+    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
 
     def __init__(
         self,
         name: str,
         instrument: Any,
-        parameters: Iterable[str] | None = None,
-        units: Mapping[str, str] = {},
+        channels: Mapping[str, QCoDeSSignal],
+        label: str | None = None,
     ) -> None:
+        super().__init__(name, label)
         self.instrument = instrument
-        available: dict[str, Any] = dict(instrument.parameters)
-        chosen = (
-            list(parameters)
-            if parameters is not None
-            else [key for key, p in available.items() if key != "IDN" and _gettable(p)]
-        )
-        self.parameters = {key: available[key] for key in chosen}
-        self.measurands = {
-            key: Measurand(
-                f"{name}.{key}",
-                unit_for(getattr(p, "unit", None), units),
-                getattr(p, "label", "") or key,
-                bounds(p),
+        self.channels = dict(channels)
+        self._parameters: dict[str, Any] = {}
+        self._last_read: dict[Signal, int] = {}
+        tree: list[SignalSpec] = []
+        for key, channel in self.channels.items():
+            parameter = _parameter(instrument, channel.property)
+            self._parameters[key] = parameter
+            gettable, settable = _gettable(parameter), _settable(parameter)
+            access = Access(0)
+            if gettable:
+                access |= Access.R
+            if settable:
+                access |= Access.W
+            if channel.publish:
+                if not gettable:
+                    raise ValueError(f"{key!r}: publish needs a gettable parameter")
+                access |= Access.P
+            if not access:
+                raise ValueError(f"{key!r}: {channel.property} is neither gettable nor settable")
+            unit = (
+                Unit.get(channel.unit)
+                if channel.unit
+                else unit_for(getattr(parameter, "unit", None))
             )
-            for key, p in self.parameters.items()
-        }
-        self.source = Source(name, self.measurands.values())
-        super().__init__(name, (self.source,))
-        self._values: dict[str, float] = {}
+            tree.append(SignalSpec(name=key, quantity=Quantity(key, unit), access=access))
+        self.bind(tree)
 
-    @property
-    def state(self) -> QCoDeSState:
-        return QCoDeSState(values=dict(self._values))
+    def _due(self, signal: Signal, time_ns: int) -> bool:
+        poll_s = signal.poll_s
+        if poll_s is None:
+            return True
+        last = self._last_read.get(signal)
+        return last is None or (time_ns - last) >= poll_s * 1e9
 
-    def read(self, time_ns: int) -> Iterable[Sample]:
-        values: dict[Measurand, float] = {}
-        for key, parameter in self.parameters.items():
-            value = parameter.get()
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                values[self.measurands[key]] = float(value)
-        self._values = {m.name: v for m, v in values.items()}
-        return [Sample(self.source, self.source.next_seq(), time_ns, values)]
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        target = node if node is not None else self.root
+        for signal in target.walk():
+            if Access.P not in signal.access or not self._due(signal, time_ns):
+                continue
+            value = self._parameters[signal.name].get()
+            self._last_read[signal] = time_ns
+            yield Sample(self.root, time_ns, {signal: float(value)})
 
-    @command
-    def set(self, parameter: str, value: float) -> float | None:
-        """Set any settable parameter by name; returns its readback if it has one."""
-        target = self.instrument.parameters[parameter]
-        if not _settable(target):
-            raise ValueError(f"{parameter!r} is not settable")
-        target.set(value)
-        return float(target.get()) if _gettable(target) else None
+    def write_signal(self, signal: Signal, value: float) -> None:
+        self._parameters[signal.name].set(value)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class QCoDeSActuatorState(ActuatorState):
-    readback: float | None = None
+class QCoDeSConfig(DriverConfig[QCoDeS], tag="qcodes"):
+    """`driver: qcodes`. `channels` is the driver's own tree -- see `QCoDeSSignal`.
 
-
-class QCoDeSActuator(Actuator):
-    """One settable parameter as the loop's actuator."""
-
-    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
-
-    def __init__(self, name: str, parameter: Any, unit: str | None = None) -> None:
-        super().__init__(name)
-        if not _settable(parameter):
-            raise TypeError(f"{getattr(parameter, 'name', parameter)!r} cannot be set")
-        self.parameter = parameter
-        self._demand: float | None = None
-        self._readback: float | None = None
-        symbol = unit or getattr(parameter, "unit", None)
-        if symbol:
-            self.demand_unit = unit_for(symbol)  # type: ignore[misc]
-
-    @property
-    def state(self) -> QCoDeSActuatorState:
-        return QCoDeSActuatorState(demand=self._demand, readback=self._readback)
-
-    def set_demand(self, demand: float) -> float | None:
-        self._demand = demand
-        self.parameter.set(demand)
-        if _gettable(self.parameter):
-            self._readback = float(self.parameter.get())
-            return self._readback
-        return None
-
-
-# region In a rig file
-
-
-class QCoDeSInstrumentConfig(Config[Any], tag="qcodes"):
-    """A QCoDeS instrument, built once and shared by the devices that name it.
-
-    Goes under `links` in a rig file; readers and actuators refer to it by
-    name. `driver` is the dotted path of the driver class, `args` and
-    `kwargs` whatever its constructor takes beyond its name.
+    Named `channels`, not `signals`: the envelope's `signals:` key is
+    reserved for overrides, the same for every driver.
     """
 
-    driver: str = Field(description="e.g. qcodes.instrument_drivers.Keithley.Keithley2450")
-    name: str
+    instrument: str = Field(
+        description="Dotted class, e.g. qcodes.instrument_drivers.Keithley.Keithley2450"
+    )
+    instrument_name: str | None = Field(
+        default=None, description="The QCoDeS instrument's own `name`; defaults to the device's."
+    )
     args: list[Any] = Field(default_factory=list)
     kwargs: dict[str, Any] = Field(default_factory=dict)
+    channels: dict[str, QCoDeSSignal]
 
-    def build(self) -> Any:
-        return import_object(self.driver)(self.name, *self.args, **self.kwargs)
-
-
-class QCoDeSReaderConfig(DeviceConfig[QCoDeSReader], tag="qcodes_reader"):
-    name: str
-    link: QCoDeSInstrumentConfig | str
-    parameters: list[str] | None = None
-    units: dict[str, str] = Field(default_factory=dict)
-
-    def build(self) -> QCoDeSReader:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to an instrument before building")
-        return QCoDeSReader(self.name, resolve(self.link), self.parameters, self.units)
+    def build(self, name: str, label: str | None = None) -> QCoDeS:
+        instrument = import_object(self.instrument)(
+            self.instrument_name or name, *self.args, **self.kwargs
+        )
+        return QCoDeS(name, instrument, self.channels, label=label)
 
 
-class QCoDeSActuatorConfig(DeviceConfig[QCoDeSActuator], tag="qcodes_actuator"):
-    name: str
-    link: QCoDeSInstrumentConfig | str
-    parameter: str = Field(description="The settable parameter, e.g. 'volt' or 'source.voltage'.")
-    unit: str | None = None
-
-    def build(self) -> QCoDeSActuator:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to an instrument before building")
-        instrument = resolve(self.link)
-        target = instrument
-        for part in self.parameter.split("."):  # submodules: source.voltage
-            target = (
-                target.parameters[part]
-                if part in getattr(target, "parameters", {})
-                else getattr(target, part)
-            )
-        return QCoDeSActuator(self.name, target, self.unit)
-
-
-# endregion
+__all__ = ["QCoDeS", "QCoDeSConfig", "QCoDeSSignal", "bounds", "unit_for"]

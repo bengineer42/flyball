@@ -9,7 +9,6 @@ from threading import Event
 import pytest
 
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.reading import Measurand, Source
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
 from flyball.runtime.simulation import Simulation
 from flyball.sim import ScaledClock, SteppedClock
@@ -66,13 +65,11 @@ class TestSteppedClock:
 
 @pytest.fixture
 def oven():
-    path = EXAMPLES / "oven.toml"
+    path = EXAMPLES / "oven.yaml"
     document, _ = resolve_document(path)
     config = load_rig_config(path)
-    Source.forget("thermocouple")
     rig = config.build(start=False)
-    yield Simulation(rig, config, document, path)
-    Source.forget("thermocouple")
+    return Simulation(rig, config, document, path)
 
 
 class TestSimulation:
@@ -112,8 +109,8 @@ class TestSimulation:
         plant = oven.plants[name]
         plant.step(30)  # one time constant with no input: 63 % of the way to ambient (20)
         assert plant.output == pytest.approx(50 - 30 * (1 - 2.718281828**-1), rel=0.02)
-        with pytest.raises(ValueError, match="kind"):
-            oven.set_plant(name, kind="lag")
+        with pytest.raises(ValueError, match="model"):
+            oven.set_plant(name, model="lag")
         with pytest.raises(ValueError):
             oven.set_plant(name, tau_s=-1)
         with pytest.raises(NotFoundError):
@@ -126,12 +123,31 @@ class TestSimulation:
         for suffix in (".toml", ".yaml", ".json"):
             out = oven.save(tmp_path / f"oven{suffix}")
             assert out.exists() and oven.describe()["changed"] == []
-            Source.forget("thermocouple")
             again = load_rig_config(out)
             assert again.clock is not None and again.clock.speed == 30
             assert again.links[name].gain == 40.0 and again.links[name].dead_s == 5.0
-            assert again.readers[0].device.name == "thermocouple", "untouched entries survive"
+            assert again.links[name].model == "fopdt"
+            assert set(again.devices) == {"thermocouple", "heater"}, "untouched entries survive"
+            assert again.devices["thermocouple"].signals["temperature"].warn == (30.0, 90.0)
+            assert list(again.controllers) == ["heater.drive"]
+            rig = again.build(start=False)
+            assert rig.resolve("thermocouple.temperature").spec.alarm == (10.0, 110.0)
         assert 'tag = "sim_plant"' in (tmp_path / "oven.toml").read_text()
+        assert "model: fopdt" in (tmp_path / "oven.yaml").read_text()
+
+    def test_without_a_document_the_whole_config_is_dumped_in_the_devices_form(self, oven):
+        bare = Simulation(oven.rig, oven.config)
+        document = bare.config_document()
+        assert document["links"]["chamber"]["tag"] == "sim_plant"
+        heater = document["devices"]["heater"]
+        assert heater["driver"] == "sim_drive" and heater["label"] == "Oven heater"
+        assert heater["config"] == {"link": "chamber", "ports": {"drive": "input"}}
+        assert document["controllers"]["heater.drive"]["signal"] == "thermocouple.temperature"
+        assert "readers" not in document and "actuators" not in document
+        assert RigConfig.model_validate(document).build(start=False).devices.keys() == {
+            "thermocouple",
+            "heater",
+        }
 
     def test_stepping_needs_a_stepped_clock(self, oven):
         with pytest.raises(ConflictError, match="not stepped"):
@@ -140,34 +156,34 @@ class TestSimulation:
 
 class TestLiveValues:
     def test_readings_and_live_links_pair_config_with_what_is_read(self):
-        from flyball.runtime.config import RigConfig, resolve_document
-
-        path = EXAMPLES / "furnace.toml"
+        path = EXAMPLES / "furnace.yaml"
         document, _ = resolve_document(path)
         document["clock"] = {"stepped": True}
-        for name in ("zone1", "zone2", "zone3", "sample"):
-            Source.forget(name)
-        # Measurands are interned by name process-wide (flyball.core.reading);
-        # another test may already have registered "temperature" at a
-        # different precision (e.g. oven.toml's is 2, furnace.toml's is 1).
-        # Forget it so this test sees furnace.toml's own declaration.
-        Measurand.forget("temperature")
         config = RigConfig.model_validate(document)
         rig = config.build()
         try:
             sim = Simulation(rig, config, document, path)
-            rig.actuators["heater1"].set_demand(400)
+            rig.detach_controller("heaters.heater1")
+            rig.demand(rig.resolve("heaters"), {"heater1": 400})
             rig.clock.advance(120)
             described = sim.describe()
             plant = described["plants"]["tube"]
             readings = plant["readings"]
-            assert set(readings) == {"zone1", "zone2", "zone3", "sample"}
-            zone1 = readings["zone1"]
-            assert zone1["unit"] == "°C" and zone1["reader"] == "zone1" and zone1["precision"] == 1
+            assert set(readings) == {
+                "furnace.zone1",
+                "furnace.zone2",
+                "furnace.zone3",
+                "furnace.sample",
+            }
+            zone1 = readings["furnace.zone1"]
+            assert zone1["unit"] == "°C" and zone1["precision"] == 1
+            assert zone1["device"] == "furnace" and zone1["port"] == "zone1"
             assert 0 <= zone1["age_s"] < 10
             stats = plant["stats"]
-            assert stats["rate_per_min"]["zone1"] > 5 > stats["rate_per_min"]["zone3"]
-            assert stats["noise"]["zone2"] == pytest.approx(0.3, rel=0.5), "configured 0.3"
+            assert (
+                stats["rate_per_min"]["furnace.zone1"] > 5 > stats["rate_per_min"]["furnace.zone3"]
+            )
+            assert stats["noise"]["furnace.zone2"] == pytest.approx(0.3, rel=0.5), "configured 0.3"
             live = plant["live"]
             assert set(live) == {"ambient_c", "initial_c", "noise"}
             assert live["ambient_c"] == live["initial_c"] == plant["outputs"]
@@ -181,20 +197,25 @@ class TestLiveValues:
             schema = type(config.links["tube"]).model_json_schema()["properties"]
             assert schema["noise"]["live"] == "stats.noise" and "live" not in schema["zones"]
             assert set(described["clock"]) == {"speed", "measured", "stepped", "now_ns"}
+            assert plant["inputs"]["heater1"] == pytest.approx(400 / 2500)
         finally:
-            for name in ("zone1", "zone2", "zone3", "sample"):
-                Source.forget(name)
+            rig.stop()
 
     def test_single_port_plant_links_to_output(self, oven):
         (name,) = oven.plants
-        reader = oven.rig.readers.by_name["thermocouple"]
+        signal = oven.rig.resolve("thermocouple.temperature")
         for _ in range(3):
-            oven.rig.read(reader)
+            oven.rig.read(signal, fresh=True)
         plant = oven.plant_description(name)
         live = plant["live"]
         assert live["ambient"] == live["initial"] == plant["output"]
-        assert set(plant["readings"]["output"]) == {"value", "unit", "precision", "reader", "age_s"}
+        (reading,) = plant["readings"].values()
+        assert set(plant["readings"]) == {"thermocouple.temperature"}
+        assert set(reading) == {"value", "unit", "precision", "device", "port", "age_s"}
+        assert reading["port"] == "output" and reading["device"] == "thermocouple"
         assert "noise" not in live, "too few readings for a statistic: left out, not None"
+        with pytest.raises(NotFoundError):
+            oven.readings("ghost")
 
     def test_a_live_path_walks_the_description_and_fans_out_on_a_star(self):
         from flyball.runtime.simulation import resolve_live

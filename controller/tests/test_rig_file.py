@@ -14,18 +14,10 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, NodeSpec, Sample, Signal, SignalSpec
 from flyball.core.units.si import Celsius, Percent, Watt
 from flyball.runtime.config import RigConfig, canonical, rig_schema
-from flyball.runtime.rig import Rig
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
 HUMIDITY = Quantity("humidity", Percent)
-
-# Every build()-dependent test needs the device-model half of the rig (`Rig.add_device` and
-# friends); step 2a builds it concurrently. Skip rather than stub if it is not there yet.
-needs_rig_devices = pytest.mark.skipif(
-    not hasattr(Rig, "add_device"), reason="Rig's device-model runtime is not landed yet"
-)
-
 
 # region Test-only drivers: a DAQ (RP signals) and a heater bank (W signals), the furnace
 # shape from the plan's §2 example; a namespaced sensor set and a bound blender, the
@@ -241,16 +233,47 @@ class TestParsing:
 
 
 class TestChecks:
-    def test_a_duplicate_name_across_devices_and_readers_is_refused(self, daq_tag):
+    def test_the_legacy_sections_are_refused_naming_the_plan(self, daq_tag):
+        for section in ("readers", "actuators", "loops"):
+            document = {"devices": {"x": {"driver": daq_tag, "zones": 1}}, section: []}
+            with pytest.raises(
+                ValueError,
+                match="readers/actuators/loops are no longer rig-file sections; devices and"
+                r" controllers replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6",
+            ):
+                RigConfig.model_validate(document)
+
+    def test_an_unknown_driver_or_a_link_as_driver_is_refused_before_build(self):
+        with pytest.raises(ValueError, match="device 'x': driver 'nope' is not registered"):
+            RigConfig.model_validate({"devices": {"x": {"driver": "nope"}}})
+        with pytest.raises(ValueError, match="'sim_plant' is a .*, not a device driver"):
+            RigConfig.model_validate({"devices": {"x": {"driver": "sim_plant"}}})
+
+    def test_a_reserved_device_name_is_refused(self, daq_tag):
+        with pytest.raises(ConflictError, match="Name 'schema' is reserved as a route segment"):
+            RigConfig.model_validate({"devices": {"schema": {"driver": daq_tag}}})
+
+    def test_two_default_controllers_are_refused(self, daq_tag, heaters_tag):
         document = {
-            "links": {"bench": {"tag": "fake_text", "replies": {}}},
-            "readers": [
-                {"device": {"tag": "scpi_reader", "name": "x", "link": "bench", "measurands": {}}}
-            ],
-            "devices": {"x": {"driver": daq_tag, "zones": 1}},
+            "devices": {"f": {"driver": daq_tag}, "h": {"driver": heaters_tag}},
+            "controllers": {
+                "h.heater1": {"signal": "f.zone1", "default": True},
+                "h.heater2": {"signal": "f.zone2", "default": True},
+            },
         }
-        with pytest.raises(ConflictError, match="already used by reader 'x'"):
+        with pytest.raises(ValueError, match="only one controller can be the default"):
             RigConfig.model_validate(document)
+
+    def test_a_clock_needs_a_simulated_rig(self, daq_tag):
+        document = {
+            "links": {"bench": {"tag": "visa", "resource": "x"}},
+            "devices": {"f": {"driver": daq_tag}},
+            "clock": {"speed": 2},
+        }
+        with pytest.raises(ValueError, match="`clock` is only for a rig whose links"):
+            RigConfig.model_validate(document)
+        document["links"] = {"p": {"tag": "sim_plant"}}
+        assert RigConfig.model_validate(document).simulated is True
 
     def test_a_device_s_undeclared_link_is_refused(self, daq_tag):
         document = {"devices": {"f": {"driver": daq_tag, "zones": 1, "link": "nowhere"}}}
@@ -297,7 +320,6 @@ class TestChecks:
         assert {daq_tag, heaters_tag} <= tags
 
 
-@needs_rig_devices
 class TestBuild:
     def test_build_wires_devices_bound_inputs_and_controllers(self, sensors_tag, blender_tag):
         document = {

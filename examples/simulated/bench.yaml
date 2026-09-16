@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=rig.schema.json
+# A bench with a scripted SCPI supply and meter: the same file shape you
+# would use for real instruments, with `fake_text` links standing in.
+# Swap the link tag for `visa` and a resource string and it is the real bench.
+
+name: bench
+
+links:
+  psu:
+    tag: fake_text
+    replies: { "MEAS:VOLT?": "11.98", "*IDN?": "Fake Instruments,PSU-1,0,1.0" }
+  dmm:
+    tag: fake_text
+    replies: { "MEAS:VOLT:DC?": "+1.1980E+01", "MEAS:CURR:DC?": "0.250", "*IDN?": "Fake Instruments,DMM-1,0,1.0" }
+
+devices:
+  psu:
+    driver: scpi
+    label: Bench PSU
+    poll_s: 1.0
+    config:
+      link: psu
+      channels:
+        set_voltage: { write: "SOUR:VOLT {value:.3f}", unit: V }   # [W]
+        output_voltage: { query: "MEAS:VOLT?", unit: V }            # [RP]
+    signals:
+      set_voltage: { limits: [0, 30] }
+      output_voltage: { precision: 3 }
+  dmm:
+    driver: scpi
+    label: Bench DMM
+    poll_s: 0.5
+    config:
+      link: dmm
+      channels:
+        voltage: { query: "MEAS:VOLT:DC?", unit: V }
+        current: { query: "MEAS:CURR:DC?", unit: A }
+    signals:
+      voltage: { range: [0, 30], precision: 3 }
+      current: { range: [0, 3], precision: 3 }
+
+controllers:
+  psu.set_voltage:
+    signal: dmm.voltage
+    law: { tag: PI, kp: 0.5, ki: 0.1 }
+    default: true

@@ -102,7 +102,7 @@ def import_programs(store: StoreDep, rig: RigDep) -> list[ProgramRow]:
 @router.get("/formats")
 async def read_formats() -> dict[str, str]:
     """Format name -> media type, for an upload dialog."""
-    return dict(MEDIA_TYPES)
+    return {str(name): media for name, media in MEDIA_TYPES.items()}
 
 
 @router.get("/{name}")

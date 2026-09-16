@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from flyball.core.config import Config
+from flyball.core.device import Device, DriverConfig
 from flyball.core.errors import NotFoundError
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, Sample, SignalSpec
+from flyball.core.units.si import Watt
 from flyball.runtime.config import (
     BOARDS_ENV,
     Board,
@@ -28,6 +34,33 @@ tag = "sim_plant"
 [pins]
 OUT1 = { link = "bus", unit_id = 7 }
 """
+
+
+class Relay(Device):
+    """One W signal, on a bus at a unit id: what a board's pin resolves to."""
+
+    TREE = (SignalSpec(name="power", quantity=Quantity("power", Watt), access=Access.W),)
+
+    def __init__(self, name: str, unit_id: int, label: str | None = None) -> None:
+        super().__init__(name, label)
+        self.unit_id = unit_id
+
+
+class RelayConfig(DriverConfig[Relay]):
+    unit_id: int
+
+    def build(self, name: str, label: str | None = None) -> Relay:
+        return Relay(name, self.unit_id, label)
+
+
+@pytest.fixture
+def relay_tag(fresh) -> str:
+    tag = fresh("relay")
+
+    class Tagged(RelayConfig, tag=tag):
+        pass
+
+    return tag
 
 
 def test_board_dirs_walk_up_from_the_rig_file(tmp_path, monkeypatch):
@@ -55,120 +88,119 @@ def test_find_board_by_name_and_by_path(tmp_path, monkeypatch):
         find_board("nowhere.toml", rig_dir)
 
 
-def test_apply_board_merges_links_and_resolves_pins():
+def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
     board = Board.model_validate(__import__("tomllib").loads(BOARD))
     document = {
         "links": {"bus": {"tag": "fake_registers", "registers": {"1": 5}}},
-        "readers": [
-            {
-                "period_s": 1,
-                "device": {"tag": "modbus_reader", "name": "r", "pin": "OUT1", "registers": {}},
-            }
-        ],
-        "actuators": [
-            {
-                "tag": "modbus_actuator",
-                "name": "a",
-                "pin": "OUT1",
-                "unit_id": 2,
-                "output": {"address": 1},
-            },
-        ],
+        "devices": {
+            "flat": {"driver": "relay", "pin": "OUT1", "label": "Flat"},
+            "own": {"driver": "relay", "pin": "OUT1", "unit_id": 2},
+            "layered": {"driver": "relay", "config": {"pin": "OUT1"}},
+            "beside": {"driver": "relay", "pin": "OUT1", "config": {"unit_id": 3}},
+            "plain": {"driver": "relay", "unit_id": 4},
+        },
     }
     out = apply_board(document, board)
     assert out["links"]["bus"] == {"tag": "fake_registers", "registers": {"1": 5}}, "file wins"
     assert out["links"]["plant"] == {"tag": "sim_plant"}
-    device = out["readers"][0]["device"]
-    assert device["link"] == "bus" and device["unit_id"] == 7 and "pin" not in device
-    assert out["actuators"][0]["unit_id"] == 2, "an entry's own field wins over the pin's"
-    assert document["readers"][0]["device"]["pin"] == "OUT1", "the input is untouched"
-    with pytest.raises(NotFoundError, match="not on this board"):
-        apply_board({"actuators": [{"pin": "NOPE"}]}, board)
+    assert out["devices"]["flat"] == {
+        "driver": "relay",
+        "label": "Flat",
+        "link": "bus",
+        "unit_id": 7,
+    }
+    assert out["devices"]["own"]["unit_id"] == 2, "an entry's own field wins over the pin's"
+    assert out["devices"]["layered"] == {"driver": "relay", "config": {"link": "bus", "unit_id": 7}}
+    assert out["devices"]["beside"] == {
+        "driver": "relay",
+        "config": {"link": "bus", "unit_id": 3},
+    }, "a pin beside `config` resolves into it, so the entry stays layered"
+    assert out["devices"]["plain"] == {"driver": "relay", "unit_id": 4}
+    assert document["devices"]["flat"]["pin"] == "OUT1", "the input is untouched"
+    with pytest.raises(NotFoundError, match="devices.x: pin 'NOPE' is not on this board"):
+        apply_board({"devices": {"x": {"pin": "NOPE"}}}, board)
 
 
-def test_a_rig_file_with_a_board_validates_and_reports_it(tmp_path, monkeypatch):
+def test_a_rig_file_with_a_board_validates_builds_and_reports_it(tmp_path, monkeypatch, relay_tag):
     monkeypatch.setenv(BOARDS_ENV, str(tmp_path / "profiles"))
     (tmp_path / "profiles").mkdir()
     (tmp_path / "profiles" / "test.toml").write_text(BOARD)
-    rig = tmp_path / "rig.toml"
-    rig.write_text(
-        'board = "test"\n'
-        '[[actuators]]\ntag = "modbus_actuator"\nname = "valve"\npin = "OUT1"\n'
-        "[actuators.output]\naddress = 1\n"
-    )
-    document, board_path = resolve_document(rig)
+    rig_file = tmp_path / "rig.toml"
+    rig_file.write_text(f'board = "test"\n[devices.valve]\ndriver = "{relay_tag}"\npin = "OUT1"\n')
+    document, board_path = resolve_document(rig_file)
     assert board_path == tmp_path / "profiles" / "test.toml"
     config = RigConfig.model_validate(document)
     assert config.board == "test" and set(config.links) == {"bus", "plant"}
-    assert config.actuators[0].link == "bus" and config.actuators[0].unit_id == 7
+    assert config.devices["valve"].config == {"link": "bus", "unit_id": 7}
+    rig = config.build(start=False)
+    valve = rig.devices["valve"]
+    assert isinstance(valve, Relay) and valve.unit_id == 7
 
 
-def test_roles_come_from_what_build_returns():
-    assert role_of(Config.registry["scpi_reader"]) == "reader"
-    assert role_of(Config.registry["sim_actuator"]) == "actuator"
+def test_roles_tell_drivers_from_links():
+    assert role_of(Config.registry["sim_daq"]) == "driver"
     assert role_of(Config.registry["visa"]) == "link"
-    assert Config.registry["sim_reader"] in registered("reader")
+    assert Config.registry["sim_drive"] in registered("driver")
+    assert Config.registry["sim_plant"] in registered("link")
+    assert not set(registered("driver")) & set(registered("link"))
 
 
-def test_a_tag_registered_later_is_valid_in_a_file(fresh):
-    from flyball.core.device import DeviceConfig
-    from flyball.core.reading import Reader, Source
-
-    tag = fresh("late_reader")
+def test_a_link_registered_later_is_valid_in_a_file(fresh):
+    tag = fresh("late_bus")
     before = rig_model()
 
-    class Late(Reader):
+    class LateBus(Config[object], tag=tag):
         """Registered after the module was imported."""
 
-        def __init__(self, name):
-            super().__init__(name, (Source(name, ()),))
+        baud: int = 9600
 
-        def read(self, time_ns):
-            return []
+        def build(self) -> object:
+            return object()
 
-    class LateConfig(DeviceConfig[Late], tag=tag):
-        name: str
-
-        def build(self) -> Late:
-            return Late(self.name)
-
-    config = RigConfig.model_validate({"readers": [{"device": {"tag": tag, "name": fresh("x")}}]})
-    assert isinstance(config, RigConfig) and isinstance(config.readers[0].device, LateConfig)
+    config = RigConfig.model_validate({"links": {"b": {"tag": tag, "baud": 115200}}})
+    assert isinstance(config, RigConfig) and isinstance(config.links["b"], LateBus)
+    assert config.links["b"].baud == 115200
     assert rig_model() is not before, "a new tag means a new model"
     assert rig_model() is rig_model(), "... cached until the next one"
     assert tag in str(RigConfig.model_json_schema())
 
 
-def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh):
-    from flyball.core.reading import Source
+class Daq(Device):
+    TREE = (SignalSpec(name="t", quantity=Quantity("temperature", "°C"), access=Access.RP),)
 
-    name = fresh("half_built")
+    def read(self, time_ns: int, node=None) -> Iterator[Sample]:
+        yield Sample(self.root, time_ns, {self.signals["t"]: 20.0})
+
+
+class DaqConfig(DriverConfig[Daq]):
+    def build(self, name: str, label: str | None = None) -> Daq:
+        return Daq(name, label)
+
+
+def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh):
+    daq_tag, relay_tag = fresh("daq"), fresh("relay")
+
+    class TaggedDaq(DaqConfig, tag=daq_tag):
+        pass
+
+    class TaggedRelay(RelayConfig, tag=relay_tag):
+        pass
+
+    name = fresh("probe")
     document = {
-        "links": {"p": {"tag": "sim_plant"}},
-        "readers": [
-            {
-                "period_s": 0.01,
-                "device": {
-                    "tag": "sim_reader",
-                    "name": name,
-                    "link": "p",
-                    "measurand": "t",
-                    "unit": "°C",
-                },
-            }
-        ],
-        "actuators": [{"tag": "sim_actuator", "name": "h", "link": "p"}],
-        "loops": [{"channel": f"{name}.t", "actuator": "h"}],
+        "devices": {
+            name: {"driver": daq_tag, "poll_s": 0.01},
+            "h": {"driver": relay_tag, "unit_id": 1},
+        },
+        "controllers": {"h.power": {"signal": f"{name}.t"}},
     }
     config = RigConfig.model_validate(document)
-    Source.forget(name)
-    document["loops"][0]["channel"] = f"{name}.nope"  # fails at the loop, after the reader is built
+    document["controllers"] = {"h.power": {"signal": f"{name}.nope"}}  # fails after the devices
     broken = RigConfig.model_validate(document)
-    with pytest.raises(NotFoundError):
+    with pytest.raises(NotFoundError, match="nope"):
         broken.build()
-    rig = config.build(start=True)  # the retry: the source name is free, nothing was left polling
+    rig = config.build(start=True)  # the retry: nothing was left polling or claimed
     try:
-        assert rig.readers.run(name).running is True and list(rig.loops) == ["h"]
+        assert rig.polling.run(name).running is True and list(rig.controllers) == ["h.power"]
     finally:
-        rig.readers.stop_all()
-        Source.forget(name)
+        rig.stop()

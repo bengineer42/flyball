@@ -13,15 +13,22 @@ with the library:
 
 | tag | does |
 | --- | --- |
-| `regulate` | aim a loop at a value and hand control to the law |
-| `linear_ramp` | walk the setpoint to a target at a pace |
-| `update_setpoint` | move the setpoint without touching the law |
-| `settle_above` / `settle_below` / `settle_at` | wait until readings hold a test |
+| `regulate` | aim a controller at a setpoint and hand control to the law |
+| `ramp` | walk a controller's setpoint to a target at a pace, and wait until it arrives |
+| `hold` | keep everything as it is for a duration; controllers go on regulating |
+| `arrive` | wait until named controllers have settled within a band of their setpoints |
+| `manual` | stop a controller regulating; its target keeps its last demand |
+| `set` | put values on one device's writable signals, as one demand |
+| `command` | call one of a device's own commands |
 | `wait` | pause until someone fires a named signal |
 
-Applications add their own: a humidity rig has `set_blend`, `set_fraction` and `set_flows`.
-Device commands (`@command` methods on an actuator) are also reachable as
-steps.
+`regulate`/`ramp`/`hold`/`arrive`/`manual` name a **controller** by the
+address of the signal it drives (or a list, or none for the rig's default) --
+not the device itself, since a writable signal has at most one controller.
+Device commands (`@command` methods on a device) are reachable as `command`
+steps; a humidity rig's `set_blend` or `set_fraction` becomes a `set` step on
+the blender's own writable signals instead, once those settings are signals
+rather than commands.
 
 ## Activities and signals
 
@@ -37,7 +44,7 @@ interrupted.
 
 ## Who owns what
 
-The **rig** is what the equipment *is*: readers, actuators, loops, the clock.
+The **rig** is what the equipment *is*: devices, controllers, the clock.
 The **programmer** is what it is *doing*: the current program and the step it
 is on. Keeping them apart means "abort the program" never tangles with "stop
 the pumps", and each has its own lock.
@@ -53,8 +60,8 @@ command's tag as the key and its arguments as the value:
 ```yaml
 name: bake
 steps:
-  - regulate: {loop: heater, at: 100}
-  - linear_ramp: {loop: heater, end: 150, per_minute: 2}
+  - regulate: {loop: heaters.heater1, setpoint: 100}
+  - ramp: {loop: heaters.heater1, to: 150, per_minute: 2}
   - wait: "Open the door and load the sample"
 ```
 
@@ -62,10 +69,3 @@ The file form is translated into the request form before it is validated, and
 the file's JSON schema is generated from the same command registry, so an
 editor validates exactly what the rig accepts. [Writing programs](../3-running/programs.md)
 has the rules.
-
-!!! note "Status"
-    The file dialect and the programmer exist and are tested. The HTTP route
-    that starts a program is written but not mounted: it waits on the events
-    stream the programmer reports through. The loop commands above are
-    defined in `flyball.programmer.commands`, which does not currently import
-    (a class keyword typo at `Sustain`); only `wait` is registered today.

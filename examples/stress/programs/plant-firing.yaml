@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=program.schema.json
-# The 12-zone furnace in `plant.toml`: a gradient across the tube, a long
+# The 12-zone furnace in `plant.yaml`: a gradient across the tube, a long
 # soak, a driven cooldown, and an operator prompt at the end. At the file's
 # 60x clock this runs in a few minutes of wall time.
 name: plant-firing
@@ -9,19 +9,19 @@ description: >-
 steps:
   - regulate:
       loop:
-        [heater1, heater2, heater3, heater4, heater5, heater6, heater7, heater8, heater9, heater10, heater11, heater12]
+        [heaters.heater1, heaters.heater2, heaters.heater3, heaters.heater4, heaters.heater5, heaters.heater6, heaters.heater7, heaters.heater8, heaters.heater9, heaters.heater10, heaters.heater11, heaters.heater12]
       setpoint: 20
-  - ramp: { loop: [heater1, heater2, heater3], to: 300, per_minute: 10, wait: false }
-  - ramp: { loop: [heater4, heater5, heater6], to: 600, per_minute: 10, wait: false }
-  - ramp: { loop: [heater7, heater8, heater9], to: 450, per_minute: 10, wait: false }
-  - ramp: { loop: [heater10, heater11, heater12], to: 300, per_minute: 10 }
+  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 300, per_minute: 10, wait: false }
+  - ramp: { loop: [heaters.heater4, heaters.heater5, heaters.heater6], to: 600, per_minute: 10, wait: false }
+  - ramp: { loop: [heaters.heater7, heaters.heater8, heaters.heater9], to: 450, per_minute: 10, wait: false }
+  - ramp: { loop: [heaters.heater10, heaters.heater11, heaters.heater12], to: 300, per_minute: 10 }
   - hold: { minutes: 20, message: "gradient 300 / 600 / 450 / 300 along the tube" }
   - ramp:
       loop:
-        [heater1, heater2, heater3, heater4, heater5, heater6, heater7, heater8, heater9, heater10, heater11, heater12]
+        [heaters.heater1, heaters.heater2, heaters.heater3, heaters.heater4, heaters.heater5, heaters.heater6, heaters.heater7, heaters.heater8, heaters.heater9, heaters.heater10, heaters.heater11, heaters.heater12]
       to: 60
       per_minute: 15
   - manual:
       loop:
-        [heater1, heater2, heater3, heater4, heater5, heater6, heater7, heater8, heater9, heater10, heater11, heater12]
+        [heaters.heater1, heaters.heater2, heaters.heater3, heaters.heater4, heaters.heater5, heaters.heater6, heaters.heater7, heaters.heater8, heaters.heater9, heaters.heater10, heaters.heater11, heaters.heater12]
   - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }

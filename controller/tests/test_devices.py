@@ -1,343 +1,251 @@
-"""Generic SCPI and Modbus devices over fake links, and a rig built from a file."""
+"""The generic `scpi` and `modbus` devices, and the bench rig from plan §2 built over fakes."""
 
 from __future__ import annotations
-
-import json
 
 import pytest
 from pydantic import ValidationError
 
-from flyball.core.errors import ConflictError
-from flyball.core.files import load_document, loads
-from flyball.devices import (
-    ModbusActuator,
-    ModbusReader,
-    Register,
-    ScpiActuator,
-    ScpiMeasurand,
-    ScpiReader,
-)
+from flyball.core.signal import Access, Reading, Signal
+from flyball.devices.modbus import Modbus, ModbusRegister
+from flyball.devices.scpi import Scpi, ScpiSignal
 from flyball.hardware.links import FakeRegisterLink, FakeTextLink
-from flyball.runtime.config import RigConfig, load_rig, rig_schema
+from flyball.runtime.config import RigConfig, rig_schema
+
+NS = 1_000_000_000  # a second, in the ns the runtime counts time in
+
+
+class TestScpiSignal:
+    def test_query_only_is_rp(self):
+        assert ScpiSignal(query="V?", unit="V").access == Access.RP
+
+    def test_write_only_is_w(self):
+        assert ScpiSignal(write="V {value}", unit="V").access == Access.W
+
+    def test_both_is_rpw(self):
+        assert ScpiSignal(query="V?", write="V {value}", unit="V").access == Access.RPW
+
+    def test_neither_is_refused(self):
+        with pytest.raises(ValidationError, match="needs `query`, `write`, or both"):
+            ScpiSignal(unit="V")
 
 
 class TestScpi:
-    def test_reader_polls_every_query_and_parses_replies(self, fresh):
+    def test_read_yields_one_sample_per_query_and_parses_replies(self):
         link = FakeTextLink({"MEAS:VOLT:DC?": "+1.2345E+01\n", "MEAS:CURR:DC?": "0.5 A"})
-        dmm = ScpiReader(
-            fresh("dmm"),
+        dmm = Scpi(
+            "dmm",
             link,
             {
-                "voltage": ScpiMeasurand(
-                    query="MEAS:VOLT:DC?", unit="V", range=(0, 30), precision=3
-                ),
-                "current": ScpiMeasurand(query="MEAS:CURR:DC?", unit="A"),
+                "voltage": ScpiSignal(query="MEAS:VOLT:DC?", unit="V"),
+                "current": ScpiSignal(query="MEAS:CURR:DC?", unit="A"),
             },
         )
-        (sample,) = dmm.read(100)
-        by_name = {m.name: v for m, v in sample.values.items()}
-        assert by_name == {"voltage": 12.345, "current": 0.5}
-        assert dmm.measurands["voltage"].unit.symbol == "V"
-        assert dmm.measurands["voltage"].range == (0, 30)
-        assert dmm.state.values == {"voltage": 12.345, "current": 0.5}
+        samples = list(dmm.read(100))
+        assert len(samples) == 2, "one query, one instant, one sample -- never batched"
+        assert [s.time_ns for s in samples] == [100, 100]
+        assert [s.by_name() for s in samples] == [{"voltage": 12.345}, {"current": 0.5}]
         assert link.queried == ["MEAS:VOLT:DC?", "MEAS:CURR:DC?"]
 
-    def test_reader_commands(self, fresh):
-        link = FakeTextLink({"*IDN?": "Keysight,34465A,MY123,1.0", "SYST:ERR?": '+0,"No error"'})
-        dmm = ScpiReader(fresh("dmm"), link, {})
-        assert set(type(dmm).commands) == {"identify", "query"}
-        assert dmm.identify().startswith("Keysight") and dmm.state.identity is not None
-        assert dmm.query("SYST:ERR?") == '+0,"No error"'
-
-    def test_actuator_formats_the_demand_and_reads_back(self, fresh):
-        link = FakeTextLink(lambda q: "11.98" if q == "MEAS:VOLT?" else "")
-        psu = ScpiActuator(
-            fresh("psu"), link, "SOUR:VOLT {value:.3f}", demand_unit="V", readback="MEAS:VOLT?"
+    def test_scale_applies_on_read_and_write(self):
+        link = FakeTextLink(lambda q: "1200" if q == "R?" else "")
+        dev = Scpi(
+            "d", link, {"x": ScpiSignal(query="R?", write="W {value}", unit="V", scale=0.01)}
         )
-        assert psu.set_demand(12.0) == 11.98
-        assert link.written == ["SOUR:VOLT 12.000"]
-        assert psu.state.readback == 11.98 and psu.state.demand == 12.0
-        assert psu.demand_unit is not None and psu.demand_unit.symbol == "V"
+        (sample,) = dev.read(0)
+        assert sample.by_name() == {"x": 12.0}, "1200 raw * 0.01 scale"
+        x = dev.signals["x"]
+        dev.apply(x, 1, 12.0)
+        dev.commit(1)
+        assert link.written == ["W 1200.0"], "12.0 / 0.01 scale, formatted raw"
 
-    def test_a_dead_instrument_raises_so_the_reader_goes_offline(self, fresh):
-        dmm = ScpiReader(fresh("dmm"), FakeTextLink({}), {"v": ScpiMeasurand(query="X?", unit="V")})
+    def test_only_due_signals_are_read(self):
+        link = FakeTextLink({"A?": "1", "B?": "2"})
+        dev = Scpi(
+            "d",
+            link,
+            {"a": ScpiSignal(query="A?", unit="V"), "b": ScpiSignal(query="B?", unit="V")},
+        )
+        dev.signals["a"].override(poll_s=10.0)
+        dev.signals["b"].override(poll_s=1.0)
+        first = list(dev.read(0))
+        assert [s.by_name() for s in first] == [{"a": 1.0}, {"b": 2.0}]
+        second = list(dev.read(2 * NS))
+        assert [s.by_name() for s in second] == [{"b": 2.0}], "only b is due again at 2s"
+        third = list(dev.read(11 * NS))
+        assert {k for s in third for k in s.by_name()} == {"a", "b"}, "both due by 11s"
+
+    def test_a_write_only_signal_has_no_query(self):
+        link = FakeTextLink({})
+        psu = Scpi(
+            "psu", link, {"set_voltage": ScpiSignal(write="SOUR:VOLT {value:.3f}", unit="V")}
+        )
+        assert list(psu.read(0)) == [], "nothing publishes"
+        assert psu.signals["set_voltage"].access is Access.W
+
+    def test_a_dead_instrument_raises_so_the_device_goes_offline(self):
+        dmm = Scpi("dmm", FakeTextLink({}), {"v": ScpiSignal(query="X?", unit="V")})
         with pytest.raises(OSError):
-            dmm.read(0)
+            list(dmm.read(0))
 
-    def test_config_accepts_output_range(self, fresh):
-        document = {
-            "links": {"bench": {"tag": "fake_text", "replies": {}}},
-            "actuators": [
-                {
-                    "tag": "scpi_actuator",
-                    "name": fresh("psu"),
-                    "link": "bench",
-                    "command": "SOUR:VOLT {value}",
-                    "output_range": [0, 30],
-                }
-            ],
-        }
-        rig = RigConfig.model_validate(document).build(start=False)
-        (psu,) = rig.actuators.values()
-        assert psu.state.output_range == (0, 30)
+    def test_write_and_query_commands_are_a_raw_passthrough(self):
+        link = FakeTextLink({"*IDN?": "Keysight,34465A,MY123,1.0"})
+        dmm = Scpi("dmm", link, {"v": ScpiSignal(query="V?", unit="V")})
+        assert set(type(dmm).commands) == {"write", "query"}
+        assert dmm.query("*IDN?") == "Keysight,34465A,MY123,1.0"
+        dmm.write("SYST:BEEP")
+        assert link.written == ["SYST:BEEP"]
+
+    def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
+        fake = Scpi("d", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})
+        assert fake.blocking is False
+
+
+class TestModbusRegister:
+    def test_a_holding_register_defaults_to_read_publish(self):
+        assert ModbusRegister(address=1, unit="°C").access == Access.RP
+
+    def test_write_true_adds_w(self):
+        assert ModbusRegister(address=1, unit="°C", write=True).access == Access.RPW
+
+    def test_an_input_register_cannot_be_written(self):
+        with pytest.raises(ValidationError, match="input register cannot be written"):
+            ModbusRegister(address=1, kind="input", unit="°C", write=True)
 
 
 class TestModbus:
-    @pytest.mark.parametrize(
-        ("kind", "words", "value"),
-        [
-            ("u16", [1234], 1234.0),
-            ("s16", [0xFFFE], -2.0),
-            ("u32", [0x0001, 0x0000], 65536.0),
-            ("s32", [0xFFFF, 0xFFFF], -1.0),
-            ("f32", [0x4048, 0xF5C3], pytest.approx(3.14, abs=1e-5)),
-        ],
-    )
-    def test_register_kinds_decode_and_encode(self, kind, words, value):
-        register = Register(address=0, kind=kind)
-        assert register.decode(words) == value
-        if kind != "f32":
-            assert register.encode(value) == words
-
-    def test_scale_offset_and_word_order(self):
-        tenths = Register(address=100, scale=0.1, unit="°C")
-        assert tenths.decode([215]) == pytest.approx(21.5)
-        assert tenths.encode(21.5) == [215]
-        little = Register(address=0, kind="u32", word_order="little")
-        assert little.decode([0x0000, 0x0001]) == 65536.0
-
-    def test_reader_and_actuator_over_a_fake_link(self, fresh):
-        link = FakeRegisterLink({100: 215, 102: 0x4048, 103: 0xF5C3})
-        bath = ModbusReader(
-            fresh("bath"),
-            link,
-            {
-                "temperature": Register(address=100, scale=0.1, unit="°C", precision=1),
-                "flow": Register(address=102, kind="f32", unit="L/min"),
-            },
+    def test_read_scales_a_register_and_decode_write_round_trips(self):
+        link = FakeRegisterLink({100: 215})
+        bath = Modbus(
+            "bath", link, {"temperature": ModbusRegister(address=100, unit="°C", scale=0.1)}
         )
         (sample,) = bath.read(1)
-        by_name = {m.name: v for m, v in sample.values.items()}
-        assert by_name["temperature"] == pytest.approx(21.5)
-        assert by_name["flow"] == pytest.approx(3.14, abs=1e-5)
-        assert bath.measurands["flow"].unit.symbol == "L/min"
+        assert sample.by_name() == {"temperature": pytest.approx(21.5)}
 
-        setpoint = ModbusActuator(
-            fresh("bath_sp"), link, Register(address=200, scale=0.1, unit="°C")
+    def test_write_quantises_through_scale(self):
+        link = FakeRegisterLink({200: 0})
+        valve = Modbus(
+            "valve",
+            link,
+            {"setpoint": ModbusRegister(address=200, unit="°C", scale=0.1, write=True)},
         )
-        assert setpoint.set_demand(25.04) == pytest.approx(25.0), "quantised to the register"
-        assert link.registers[200] == 250 and setpoint.state.written == [250]
+        setpoint = valve.signals["setpoint"]
+        valve.apply(setpoint, 1, 25.04)
+        states = valve.commit(1)
+        assert link.registers[200] == 250
+        assert states[setpoint].value == 25.04
 
-    def test_config_accepts_output_range(self, fresh):
-        document = {
-            "links": {"chiller": {"tag": "fake_registers", "registers": {}}},
-            "actuators": [
-                {
-                    "tag": "modbus_actuator",
-                    "name": fresh("valve"),
-                    "link": "chiller",
-                    "output": {"address": 200, "scale": 0.1, "unit": "°C"},
-                    "output_range": [0, 100],
-                }
-            ],
-        }
-        rig = RigConfig.model_validate(document).build(start=False)
-        (valve,) = rig.actuators.values()
-        assert valve.state.output_range == (0, 100)
-
-
-TOML = """
-name = "bench"
-
-[links.bench]
-tag = "fake_text"
-replies = { "MEAS:VOLT:DC?" = "12.5", "MEAS:VOLT?" = "12.5" }
-
-[links.chiller]
-tag = "fake_registers"
-registers = { 100 = 215 }
-
-[[readers]]
-period_s = 0.5
-[readers.device]
-tag = "scpi_reader"
-name = "dmm"
-link = "bench"
-[readers.device.measurands.voltage]
-query = "MEAS:VOLT:DC?"
-unit = "V"
-
-[[readers]]
-[readers.device]
-tag = "modbus_reader"
-name = "bath"
-link = "chiller"
-registers = { temperature = { address = 100, scale = 0.1, unit = "°C" } }
-
-[[actuators]]
-tag = "scpi_actuator"
-name = "psu"
-link = "bench"
-command = "SOUR:VOLT {value}"
-demand_unit = "V"
-readback = "MEAS:VOLT?"
-
-[[loops]]
-channel = "dmm.voltage"
-actuator = "psu"
-law = { tag = "PI", kp = 0.2, ki = 0.05 }
-default = true
-"""
-
-
-class TestRigFile:
-    def test_a_rig_builds_from_toml_with_fake_links(self, tmp_path, fresh):
-        text = TOML.replace('"dmm"', f'"{fresh("dmm")}"').replace('"bath"', f'"{fresh("bath")}"')
-        text = text.replace('"psu"', f'"{fresh("psu")}"').replace(
-            "dmm.voltage", f"{text.split('name = "')[2].split('"')[0]}.voltage"
+    def test_only_due_signals_are_read(self):
+        link = FakeRegisterLink({1: 10, 2: 20})
+        dev = Modbus(
+            "d",
+            link,
+            {"a": ModbusRegister(address=1, unit="1"), "b": ModbusRegister(address=2, unit="1")},
         )
-        path = tmp_path / "rig.toml"
-        path.write_text(text)
-        rig = load_rig(path)
-        try:
-            names = list(rig.readers.by_name)
-            assert len(names) == 2 and len(rig.actuators) == 1
-            (psu_name,) = rig.actuators
-            loop = rig.loops[psu_name]
-            assert loop.settings.law is not None and loop.settings.law.tag == "PI"
-            assert rig.loops.default == psu_name
-            dmm_run = rig.readers.run(names[0])
-            assert dmm_run.period_s == 0.5 and dmm_run.running
-            assert rig.readers.run(names[1]).period_s is None, "no period: push only"
-            assert rig.actuators[psu_name].set_demand(12.5) == 12.5
-        finally:
-            rig.readers.stop_all()
+        dev.signals["a"].override(poll_s=10.0)
+        dev.signals["b"].override(poll_s=1.0)
+        assert [s.by_name() for s in dev.read(0)] == [{"a": 10.0}, {"b": 20.0}]
+        assert [s.by_name() for s in dev.read(2 * NS)] == [{"b": 20.0}]
 
-    def test_devices_route_lists_readers_and_actuators_with_their_link(self, fresh):
-        """`GET /api/devices` names the link a real (non-simulated) device was built from."""
-        from fastapi.testclient import TestClient
+    def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
+        dev = Modbus("d", FakeRegisterLink({}), {"a": ModbusRegister(address=1, unit="1")})
+        assert dev.blocking is False
 
-        from flyball.server import create_app, set_rig
 
-        document = {
-            "links": {"bench": {"tag": "fake_text", "replies": {"MEAS:VOLT?": "1.0"}}},
-            "readers": [
-                {
-                    "device": {
-                        "tag": "scpi_reader",
-                        "name": fresh("dmm"),
-                        "link": "bench",
-                        "measurands": {"voltage": {"query": "MEAS:VOLT?", "unit": "V"}},
-                    }
-                }
-            ],
-            "actuators": [
-                {
-                    "tag": "scpi_actuator",
-                    "name": fresh("psu"),
-                    "link": "bench",
-                    "command": "SOUR:VOLT {value}",
-                }
-            ],
-        }
-        rig = RigConfig.model_validate(document).build(start=False)
-        (reader_name,) = rig.readers.by_name
-        (actuator_name,) = rig.actuators
-        set_rig(rig)
-        try:
-            with TestClient(create_app()) as client:
-                devices = client.get("/api/devices").json()
-                assert devices[reader_name] == {
-                    "name": reader_name,
-                    "label": None,
-                    "kind": "reader",
-                    "type": "ScpiReader",
-                    "link": "bench",
-                }
-                assert devices[actuator_name]["kind"] == "actuator"
-                assert devices[actuator_name]["link"] == "bench"
-                assert client.get(f"/api/devices/{actuator_name}").json() == devices[actuator_name]
-        finally:
-            set_rig(None)
+# region The bench rig, plan §2, over fake_text links
 
-    def test_the_same_document_in_json_and_yaml(self, tmp_path):
-        import yaml
 
-        document = loads(TOML, ".toml")
-        (tmp_path / "rig.json").write_text(json.dumps(document))
-        (tmp_path / "rig.yaml").write_text(yaml.safe_dump(document))
-        assert load_document(tmp_path / "rig.json") == document
-        assert load_document(tmp_path / "rig.yaml") == document
-        assert RigConfig.model_validate(document).name == "bench"
+def bench_document() -> dict:
+    return {
+        "links": {
+            "psu": {"tag": "fake_text", "replies": {"MEAS:VOLT?": "11.98"}},
+            "dmm": {"tag": "fake_text", "replies": {"MEAS:VOLT:DC?": "+1.1980E+01"}},
+        },
+        "devices": {
+            "psu": {
+                "driver": "scpi",
+                "label": "Bench PSU",
+                "config": {
+                    "link": "psu",
+                    "channels": {
+                        "set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"},
+                        "output_voltage": {"query": "MEAS:VOLT?", "unit": "V"},
+                    },
+                },
+                "signals": {
+                    "set_voltage": {"limits": [0, 30]},
+                    "output_voltage": {"precision": 3},
+                },
+            },
+            "dmm": {
+                "driver": "scpi",
+                "label": "Bench DMM",
+                "poll_s": 0.5,
+                "config": {
+                    "link": "dmm",
+                    "channels": {"voltage": {"query": "MEAS:VOLT:DC?", "unit": "V"}},
+                },
+            },
+        },
+    }
 
-    def test_unknown_link_name_and_unknown_tag_are_refused(self):
-        document = loads(TOML, ".toml")
-        document["actuators"][0]["link"] = "nowhere"
-        with pytest.raises(ValidationError, match="not declared"):
-            RigConfig.model_validate(document)
-        document = loads(TOML, ".toml")
-        document["links"]["bench"]["tag"] = "telepathy"
-        with pytest.raises(ValidationError):
+
+def _psu(rig) -> Scpi:
+    psu = rig.devices["psu"]
+    assert isinstance(psu, Scpi)
+    return psu
+
+
+def _signal(rig, address: str) -> Signal:
+    target = rig.resolve(address)
+    assert isinstance(target, Signal)
+    return target
+
+
+class TestBenchRig:
+    def test_it_parses_and_builds(self, fresh):
+        rig = RigConfig.model_validate(bench_document()).build(start=False)
+        assert isinstance(rig.devices["psu"], Scpi)
+        psu_out = _signal(rig, "psu.output_voltage")
+        assert psu_out.spec.precision == 3
+        assert _signal(rig, "psu.set_voltage").limits == (0.0, 30.0)
+
+    def test_fresh_read_queries_the_instrument(self):
+        rig = RigConfig.model_validate(bench_document()).build(start=False)
+        target = _signal(rig, "psu.output_voltage")
+        reading = rig.read(target, fresh=True)
+        assert isinstance(reading, Reading)
+        assert reading.value == pytest.approx(11.98)
+
+    def test_demand_writes_the_formatted_scpi_command(self):
+        rig = RigConfig.model_validate(bench_document()).build(start=False)
+        psu = _psu(rig)
+        assert isinstance(psu.link, FakeTextLink)
+        states = rig.demand(psu.root, {"set_voltage": 12.0})
+        assert psu.link.written == ["SOUR:VOLT 12.000"]
+        assert states[_signal(rig, "psu.set_voltage")].value == 12.0
+
+    def test_demand_is_clamped_to_the_envelope_s_limits(self):
+        rig = RigConfig.model_validate(bench_document()).build(start=False)
+        psu = _psu(rig)
+        states = rig.demand(psu.root, {"set_voltage": 99.0})
+        signal = _signal(rig, "psu.set_voltage")
+        assert states[signal].value == 30.0 and states[signal].at_limit == "high"
+
+    def test_an_undeclared_link_is_refused(self):
+        document = bench_document()
+        document["devices"]["psu"]["config"]["link"] = "nowhere"
+        with pytest.raises(ValueError, match="link 'nowhere' is not declared"):
             RigConfig.model_validate(document)
 
-    def test_schema_is_a_discriminated_tree(self):
+    def test_schema_is_still_a_discriminated_tree_with_scpi_and_modbus(self):
         schema = rig_schema()
-        links = schema["properties"]["links"]["additionalProperties"]
-        assert links["discriminator"]["propertyName"] == "tag"
-        assert (
-            "ScpiReaderConfigTagged" in schema["$defs"]
-            and "ModbusTcpConfigTagged" in schema["$defs"]
-        )
-
-    def test_unknown_format_is_refused(self, tmp_path):
-        with pytest.raises(ValueError, match="use one of"):
-            load_document(tmp_path / "rig.ini")
+        by_driver = schema["properties"]["devices"]["additionalProperties"]
+        tags = {
+            shape["properties"]["driver"]["const"]
+            for variant in by_driver["oneOf"]
+            for shape in variant["oneOf"]
+        }
+        assert {"scpi", "modbus"} <= tags
 
 
-class TestRigFileChecks:
-    @pytest.mark.parametrize(
-        ("mutate", "message"),
-        [
-            (lambda d: d["actuators"].append(dict(d["actuators"][0])), "already used by actuator"),
-            (
-                lambda d: d["loops"].__setitem__(0, {**d["loops"][0], "actuator": "ghost"}),
-                "not declared",
-            ),
-            (
-                lambda d: d["loops"].append(dict(d["loops"][0], default=False)),
-                "driven by two loops",
-            ),
-            (
-                lambda d: d["loops"].__setitem__(0, {**d["loops"][0], "channel": "dmmvoltage"}),
-                "source.measurand",
-            ),
-            (
-                lambda d: (
-                    d["loops"].append({**d["loops"][0], "actuator": "psu2"})
-                    or d["actuators"].append({**d["actuators"][0], "name": "psu2"})
-                ),
-                "only one loop can be the default",
-            ),
-        ],
-    )
-    def test_inconsistent_files_are_refused_with_their_own_names(self, mutate, message):
-        document = loads(TOML, ".toml")
-        mutate(document)
-        # A name collision is a ConflictError -- a well-formed file that conflicts with
-        # itself, not malformed input; everything else here is a plain validation error.
-        with pytest.raises((ValidationError, ConflictError), match=message):
-            RigConfig.model_validate(document)
-
-    def test_a_reader_and_an_actuator_cannot_share_a_name(self):
-        """Every device in a rig has one name, whichever kind it is."""
-        document = loads(TOML, ".toml")
-        document["readers"][0]["device"]["name"] = "x"
-        document["actuators"][0]["name"] = "x"
-        with pytest.raises(ConflictError, match="Name 'x' is already used by reader 'x'"):
-            RigConfig.model_validate(document)
-
-    def test_a_device_cannot_use_a_reserved_name(self):
-        document = loads(TOML, ".toml")
-        document["actuators"][0]["name"] = "schema"
-        with pytest.raises(ConflictError, match="reserved"):
-            RigConfig.model_validate(document)
+# endregion

@@ -14,24 +14,15 @@ EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
 @pytest.fixture
 def oven():
-    """The oven config; its sources are forgotten after, so it can be built again."""
-    from flyball.core.reading import Source
-
-    config = load_rig_config(EXAMPLES / "oven.toml")
-    names = [entry.device.name for entry in config.readers]
-    for name in names:  # another test may have built it already
-        Source.forget(name)
-    yield config
-    for name in names:
-        Source.forget(name)
+    return load_rig_config(EXAMPLES / "oven.yaml")
 
 
 def test_start_builds_the_rig_and_records_only_when_asked(tmp_path, oven):
     rig = daemon.start(oven)
     try:
-        assert rig.name == "oven" and rig.recorder is None and list(rig.loops)
+        assert rig.name == "oven" and rig.recorder is None and list(rig.controllers)
     finally:
-        rig.readers.stop_all()
+        rig.polling.stop_all()
 
 
 def test_start_records_when_asked(tmp_path, oven):
@@ -40,7 +31,7 @@ def test_start_records_when_asked(tmp_path, oven):
         assert rig.recorder is not None and (tmp_path / "s.sqlite").exists()
     finally:
         rig.stop_recording()
-        rig.readers.stop_all()
+        rig.polling.stop_all()
 
 
 def test_the_file_s_recording_flag_is_the_default(tmp_path, oven):
@@ -50,7 +41,7 @@ def test_the_file_s_recording_flag_is_the_default(tmp_path, oven):
         assert rig.recorder is not None
     finally:
         rig.stop_recording()
-        rig.readers.stop_all()
+        rig.polling.stop_all()
 
 
 def test_an_explicit_no_beats_the_file(tmp_path, oven):
@@ -59,12 +50,12 @@ def test_an_explicit_no_beats_the_file(tmp_path, oven):
     try:
         assert rig.recorder is None
     finally:
-        rig.readers.stop_all()
+        rig.polling.stop_all()
 
 
 def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
-    bad = tmp_path / "bad.toml"
-    bad.write_text('name = "x"\n[[actuators]]\ntag = "nope"\n')
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("name: x\nlinks:\n  p: { tag: nope }\n")
     assert daemon.main([str(bad)]) == 2
     assert "nope" in capsys.readouterr().err
 
@@ -101,5 +92,5 @@ def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, ove
         assert sessions[orphan.id].end_ns is not None, "the orphan was closed"
         assert rig.recorder is not None and sum(s.open for s in sessions.values()) == 1
     finally:
-        rig.readers.stop_all()
+        rig.polling.stop_all()
         rig.stop_recording()

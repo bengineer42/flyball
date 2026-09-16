@@ -13,6 +13,7 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import (
     Access,
     NodeSpec,
+    Path,
     Reading,
     Sample,
     Signal,
@@ -112,7 +113,7 @@ class Blender(Device):
 class TestBinding:
     def test_a_static_tree_is_bound_on_construction(self):
         sensors = HumSensors("hum")
-        assert sensors.root.address == "hum" and sensors.root.path == ""
+        assert sensors.root.address == "hum" and sensors.root.path == Path()
         assert sensors.root.spec is None and sensors.root.device is sensors
         assert list(sensors.nodes) == ["chamber", "dry", "wet"]
         assert list(sensors.signals) == [
@@ -176,7 +177,7 @@ class TestBinding:
         assert list(stage.nodes) == ["left", "left.dry"]
         assert stage.nodes["left.dry"].address == "stage.left.dry"
         assert stage.signals["left.dry.humidity"].address == "stage.left.dry.humidity"
-        assert stage.signals["left.dry.humidity"].path == "left.dry.humidity"
+        assert stage.signals["left.dry.humidity"].path == Path.parse("left.dry.humidity")
         assert list(stage.root.walk()) == [stage.signals["left.dry.humidity"]]
 
     def test_duplicate_names_are_refused(self):
@@ -189,11 +190,12 @@ class TestBinding:
         with pytest.raises(ValueError, match="'d.x' is declared twice"):
             Twice("d")
 
-    def test_a_bare_device_has_no_tree(self):
+    def test_a_bare_device_has_an_empty_tree(self):
         bare = Device("bare")
         assert bare.TREE == () and bare.pending == {} and bare.bound == {}
         assert bare.poll_s is None and bare.label is None
-        assert not hasattr(bare, "root")
+        assert bare.root.address == "bare" and bare.signals == {} and bare.nodes == {}
+        assert list(bare.root.walk()) == [] and bare.publishing == {}
 
 
 class TestPollPeriod:
@@ -496,19 +498,18 @@ class TestDeviceEntry:
                 "signals": {"zone1": {"access": "pw"}},
             })
 
-    def test_build_refuses_an_unknown_or_legacy_driver(self, fresh):
+    def test_build_refuses_an_unknown_driver_or_a_link(self, fresh):
         with pytest.raises(ValueError, match="driver 'no_such' is not registered"):
             DeviceEntry(driver="no_such").build("x")
 
-        from flyball.core.device import DeviceConfig
+        tag = fresh("bus")
 
-        tag = fresh("legacy")
+        class Bus(Config[object], tag=tag):
+            def build(self) -> object:
+                return object()
 
-        class Legacy(DeviceConfig[SimFurnace], tag=tag):
-            pass
-
-        assert Config.registry[tag] is Legacy
-        with pytest.raises(ValueError, match=f"driver '{tag}' is a Legacy, not a device driver"):
+        assert Config.registry[tag] is Bus
+        with pytest.raises(ValueError, match=f"driver '{tag}' is a Bus, not a device driver"):
             DeviceEntry(driver=tag).build("x")
 
     def test_the_driver_config_is_validated(self, furnace_tag):
@@ -521,3 +522,6 @@ def test_a_device_binds_once(fresh):
     furnace = SimFurnace(fresh("furnace"), zones=1, power_w=(100.0,))
     with pytest.raises(ValueError, match="already bound; a device's tree is static"):
         furnace.bind(())
+    bare = Device(fresh("bare"))
+    bare.bind((SignalSpec(name="x", quantity=TEMP, access=Access.R),))
+    assert list(bare.signals) == ["x"], "an empty tree is bound over; a driver computes its own"

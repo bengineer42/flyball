@@ -2,7 +2,7 @@
 
 `Store` is the interface; `SqliteStore` the one implementation. A rig opens
 a session and holds its `SessionWriter`; a server holds a `Store` and asks
-it for series, ticks, events and spans to draw.
+it for series, write states, ticks, events and spans to draw.
 """
 
 from .errors import (
@@ -16,45 +16,45 @@ from .errors import (
 from .sqlite import SqliteSessionWriter, SqliteStore
 from .store import SessionWriter, Store
 from .types import (
-    ActuatorRow,
-    ChannelRow,
+    ControllerRow,
     DashboardRow,
+    DeviceRow,
     Downsample,
     Event,
-    LoopRow,
-    MeasurandRow,
     Point,
     ProgramFormat,
     ProgramRow,
+    SampleRow,
     Series,
     SessionRow,
-    SourceRow,
+    SignalRow,
     Span,
     SpanKind,
     Tick,
     TuningRow,
     Window,
+    WriteRow,
+    WriteStateRow,
 )
 
 __all__ = [
-    "ActuatorRow",
-    "ChannelRow",
+    "ControllerRow",
     "DashboardRow",
+    "DeviceRow",
     "Downsample",
     "Event",
-    "LoopRow",
-    "MeasurandRow",
     "NotDeclaredError",
     "Point",
     "ProgramFormat",
     "ProgramRow",
+    "SampleRow",
     "SchemaError",
     "Series",
     "SessionEndedError",
     "SessionNotFoundError",
     "SessionRow",
     "SessionWriter",
-    "SourceRow",
+    "SignalRow",
     "Span",
     "SpanKind",
     "SqliteSessionWriter",
@@ -65,4 +65,6 @@ __all__ = [
     "TuningNotFoundError",
     "TuningRow",
     "Window",
+    "WriteRow",
+    "WriteStateRow",
 ]

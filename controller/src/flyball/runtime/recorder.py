@@ -1,7 +1,13 @@
 """Writes deliveries to a session.
 
-Not an observer: it sees the whole delivery after the loops have ticked, so it
-records what each tick produced. The rig holds at most one and calls it last.
+Not an observer: it sees the whole delivery after the controllers have
+ticked and the touched devices have committed, so it records what each tick
+produced and what each write set. The rig holds at most one and calls it last.
+
+What is recorded follows a signal's access: readings on publishing signals
+(`P` is recorded; a fresh read of a setting is for whoever asked for it),
+write states on writable ones (a write to a setting is in the history as
+what was set), and a controller's ticks with its source always included.
 
 Deliveries are buffered and written in one transaction every `flush_s`, since
 a transaction costs milliseconds on an SD card regardless of size. The
@@ -14,30 +20,32 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from threading import Event as StopEvent
 from threading import Lock, Thread, current_thread
-from typing import Any
+from typing import TYPE_CHECKING
 
-from flyball.control import Loop
 from flyball.core.device import Event
-from flyball.core.reading import Channel, Reading, Sample, Source
+from flyball.core.signal import Access, Reading, Sample, Signal, WriteState
 from flyball.db import SessionWriter, Tick
 from flyball.db.types import Event as StoredEvent
 
+if TYPE_CHECKING:
+    from flyball.control import Controller
 
-def _tick(loop: Loop[Any], reading: Reading, start_ns: int) -> Tick:
-    """The loop's state after ticking on `reading`, as a row."""
+
+def _tick(controller: Controller, reading: Reading, start_ns: int) -> Tick:
+    """The controller's state after ticking on `reading`, as a row."""
     return Tick(
-        loop=loop.name,
+        controller=controller.name,
         offset_ns=reading.time_ns - start_ns,
-        mode=loop.mode.value,
-        correction=loop.correction,
+        mode=controller.mode.value,
+        correction=controller.correction,
         reading=reading.value,
-        setpoint=None if loop.reference is None else loop.setpoint_at(reading.time_ns),
-        demand=loop.demand,
-        expected=loop.expected,
-        delivered_correction=loop.delivered_correction,
+        setpoint=None if controller.reference is None else controller.setpoint_at(reading.time_ns),
+        demand=controller.demand,
+        expected=controller.expected,
+        delivered_correction=controller.delivered_correction,
     )
 
 
@@ -45,12 +53,14 @@ log = logging.getLogger("flyball.recorder")
 
 
 class Recorder:
-    """Records the given sources and loops into one session until closed.
+    """Records the given signals and controllers into one session until closed.
 
     Args:
         writer: The open session.
-        sources: What to record; a loop's channel is always included.
-        loops: The loops whose ticks to record.
+        signals: What to record: readings of the publishing ones, write
+            states of the writable ones. A controller's source and target
+            are always included.
+        controllers: The controllers whose ticks to record.
         flush_s: How often the writer thread writes what has accumulated.
         on_failure: Called, once, from the writer thread if a write fails;
             the recorder has stopped by then and drops what it is given.
@@ -60,24 +70,28 @@ class Recorder:
         "_buffer",
         "_events",
         "_last_flush",
+        "_last_time_ns",
         "_samples",
         "_start_ns",
+        "_states",
         "_stop",
         "_thread",
         "_ticks",
+        "controllers",
         "failed",
         "flush_s",
-        "loops",
         "on_failure",
-        "sources",
+        "published",
+        "signals",
         "writer",
+        "writes",
     )
 
     def __init__(
         self,
         writer: SessionWriter,
-        sources: Iterable[Source],
-        loops: Iterable[tuple[Channel, Loop[Any]]] = (),
+        signals: Iterable[Signal],
+        controllers: Iterable[Controller] = (),
         flush_s: float = 0.1,
         on_failure: Callable[[Exception], None] | None = None,
     ) -> None:
@@ -87,31 +101,25 @@ class Recorder:
         self.failed: Exception | None = None
         self._samples: list[Sample] = []
         self._ticks: list[Tick] = []
+        self._states: list[tuple[int, Mapping[Signal, WriteState]]] = []
         self._events: list[StoredEvent] = []
-        self._buffer = Lock()  # guards the three lists; held for appends and swaps only
+        self._buffer = Lock()  # guards the four lists; held for appends and swaps only
         self._last_flush = time.monotonic()
         self._stop = StopEvent()
         self._thread = Thread(target=self._run, daemon=True, name="recorder")
-        self.sources = frozenset(sources)
-        loops = tuple(loops)
-        self.loops = frozenset(loop for _, loop in loops)
         self._start_ns = writer.session.start_ns
-        # A loop's controlled variable is always recorded, asked for or not.
-        self.sources |= {channel.source for channel, _ in loops}
-        for source in self.sources:
-            writer.declare_source(source)
-        for channel, loop in loops:
-            writer.declare_actuator(
-                loop.actuator.name,
-                type(loop.actuator).__name__,
-                loop.actuator.config.model_dump(mode="json"),
-            )
-            writer.declare_loop(
-                loop.name,
-                channel,
-                None if loop.law is None else loop.law.config.model_dump(mode="json"),
-                loop.feedforward.config.model_dump(mode="json"),
-            )
+        self._last_time_ns = self._start_ns
+        controllers = tuple(controllers)
+        self.controllers = frozenset(controllers)
+        # A controller's variables are always recorded, asked for or not.
+        self.signals = frozenset(signals).union(*((c.source, c.target) for c in controllers))
+        self.published = frozenset(s for s in self.signals if Access.P in s.access)
+        self.writes = frozenset(s for s in self.signals if Access.W in s.access)
+        for signal in sorted(self.signals, key=lambda s: s.address):
+            writer.declare_device(signal.device)
+            writer.declare_signal(signal)
+        for controller in sorted(controllers, key=lambda c: c.name):
+            writer.declare_controller(controller)
         self._thread.start()
 
     @property
@@ -119,18 +127,41 @@ class Recorder:
         return self._thread.is_alive() and self.failed is None
 
     def record(
-        self, samples: Sequence[Sample], ticked: Sequence[tuple[Loop[Any], Reading]]
+        self,
+        samples: Sequence[Sample],
+        ticks: Sequence[tuple[Controller, Reading]],
+        states: Mapping[Signal, WriteState],
+        *,
+        time_ns: int | None = None,
     ) -> None:
-        """One delivery, buffered: a list append on the delivery path, nothing more."""
+        """One delivery, buffered: list appends on the delivery path, nothing more.
+
+        `time_ns` stamps the write states: the commit's time. Without it
+        they take the latest sample's, then the last time this recorder saw
+        -- right inside a delivery, stale after a manual demand.
+        """
         if self.failed is not None:
             return
-        kept = [s for s in samples if s.source in self.sources]
-        ticks = [
-            _tick(loop, reading, self._start_ns) for loop, reading in ticked if loop in self.loops
+        kept: list[Sample] = []
+        for sample in samples:
+            if all(signal in self.published for signal in sample.values):
+                kept.append(sample)
+            elif values := {s: v for s, v in sample.values.items() if s in self.published}:
+                kept.append(Sample(sample.node, sample.time_ns, values))
+        rows = [
+            _tick(controller, reading, self._start_ns)
+            for controller, reading in ticks
+            if controller in self.controllers
         ]
+        recorded = {s: st for s, st in states.items() if s in self.writes}
+        if time_ns is None:
+            time_ns = max((s.time_ns for s in samples), default=self._last_time_ns)
+        self._last_time_ns = max(self._last_time_ns, time_ns)
         with self._buffer:
             self._samples.extend(kept)
-            self._ticks.extend(ticks)
+            self._ticks.extend(rows)
+            if recorded:
+                self._states.append((time_ns - self._start_ns, recorded))
 
     def event(self, event: Event) -> None:
         """Buffer an event; it is written with the next flush, within `flush_s`."""
@@ -159,12 +190,15 @@ class Recorder:
         with self._buffer:
             samples, self._samples = self._samples, []
             ticks, self._ticks = self._ticks, []
+            states, self._states = self._states, []
             events, self._events = self._events, []
         self._last_flush = time.monotonic()
         if samples:
             self.writer.write_samples(samples)
         if ticks:
             self.writer.write_ticks(ticks)
+        for offset_ns, committed in states:
+            self.writer.write_states(offset_ns, committed)
         for row in events:
             self.writer.write_event(row)
 
@@ -177,7 +211,7 @@ class Recorder:
                 log.exception("recording stopped: the store failed")
                 self.failed = error
                 with self._buffer:
-                    self._samples, self._ticks, self._events = [], [], []
+                    self._samples, self._ticks, self._states, self._events = [], [], [], []
                 if self.on_failure is not None:
                     self.on_failure(error)
                 return

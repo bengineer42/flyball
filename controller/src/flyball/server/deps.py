@@ -16,7 +16,6 @@ from flyball.db import Store
 from flyball.runtime.rig import Rig
 
 from .dialect import Dialect
-from .telemetry import Telemetry
 
 if TYPE_CHECKING:
     from flyball.core.device import Device
@@ -34,7 +33,6 @@ class Programmer(Protocol):
 
 
 _rig: Rig | None = None
-_telemetry: Telemetry | None = None
 _store: Store | None = None
 _programmer: Programmer | None = None
 _dialect: Dialect = Dialect()
@@ -43,18 +41,9 @@ _simulation_device: Device | None = None
 
 
 def set_rig(rig: Rig | None) -> None:
-    """Attach a rig, and with it the observer that feeds the websockets."""
-    global _rig, _telemetry
-    if _rig is not None and _telemetry is not None:
-        _rig.detach_observer(_telemetry)
-    _rig, _telemetry = rig, None
-    if rig is not None:
-        _telemetry = Telemetry(rig)
-        rig.attach_observer(_telemetry)
-
-
-def current_telemetry() -> Telemetry | None:
-    return _telemetry
+    """Attach a rig; the websockets watch its `Latest` cells, so nothing else is wired."""
+    global _rig
+    _rig = rig
 
 
 def current_rig() -> Rig | None:
@@ -110,8 +99,8 @@ def set_simulation_device(device: Device | None) -> None:
     """Attach the device an application puts its simulation-only knobs on: `/api/sim/device`.
 
     Claims its name in the attached rig's device namespace too -- it shows up
-    in `GET /api/devices` beside the readers and actuators, and cannot share
-    a name with one. ConflictError if it does.
+    in `GET /api/devices` beside the rig's own devices, and cannot share a
+    name with one. ConflictError if it does.
     """
     global _simulation_device
     if _simulation_device is not None and _rig is not None:

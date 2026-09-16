@@ -5,10 +5,10 @@
 name: load-sample
 description: A short run with two operator waits, for trying the go button.
 steps:
-  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
+  - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
   - wait: { message: "Load the sample into zone 2, close the door, then press go", timeout: { minutes: 30 } }
-  - ramp: { loop: [heater1, heater2, heater3], to: 300, per_minute: 20 }
+  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 300, per_minute: 20 }
   - hold: { minutes: 5, message: "soak at 300" }
-  - ramp: { loop: [heater1, heater2, heater3], to: 60, per_minute: 20 }
-  - manual: [heater1, heater2, heater3]
+  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 60, per_minute: 20 }
+  - manual: [heaters.heater1, heaters.heater2, heaters.heater3]
   - wait: { message: "Unload the sample, then press go", timeout: { minutes: 30 } }

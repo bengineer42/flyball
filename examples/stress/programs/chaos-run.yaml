@@ -1,31 +1,71 @@
 # yaml-language-server: $schema=program.schema.json
-# Runs `chaos.toml` straight into trouble: a ramp far faster than any of
-# these zones can follow, so every loop's demand saturates at once; a spell
-# of `command` steps that fail zone3's thermocouple, kick heater5's plant
-# input and restore zone3 again (the same routes `scripts/chaos-disturb.sh`
-# drives from outside, now timed against the program itself); a `hold` whose
-# own `timeout` gives up long before its `duration`, to exercise the "timed
-# out" outcome; then a normal prompt, for reference (never reached in this
-# run: the hold above ends the program first, same as the wait it replaces
-# would have).
+# Runs `chaos.yaml` straight into trouble: a ramp far faster than any of
+# these zones can follow, so every controller's demand saturates at once; a
+# spell of `command` steps that fail zone3's thermocouple, kick heater5's
+# plant input and restore zone3 again (the same routes
+# `scripts/chaos-disturb.sh` drives from outside, now timed against the
+# program itself); a `hold` whose own `timeout` gives up long before its
+# `duration`, to exercise the "timed out" outcome; then a normal prompt, for
+# reference (never reached in this run: the hold above ends the program
+# first, same as the wait it replaces would have).
 name: chaos-run
 description: A ramp too fast to follow, mid-run disturbances, a hold that gives up.
 steps:
-  - regulate: { loop: [heater1, heater2, heater3, heater4, heater5, heater6], setpoint: 20 }
+  - regulate:
+      loop:
+        [
+          heaters.heater1,
+          heaters.heater2,
+          heaters.heater3,
+          heaters.heater4,
+          heaters.heater5,
+          heaters.heater6,
+        ]
+      setpoint: 20
   - ramp:
-      loop: [heater1, heater2, heater3, heater4, heater5, heater6]
+      loop:
+        [
+          heaters.heater1,
+          heaters.heater2,
+          heaters.heater3,
+          heaters.heater4,
+          heaters.heater5,
+          heaters.heater6,
+        ]
       to: 900
-      per_minute: 2000   # absurd: every loop's demand saturates within one reading
+      per_minute: 2000   # absurd: every controller's demand saturates within one reading
   - hold: { seconds: 90, message: "saturating" }   # 1.5 s of wall time at this rig's 60x
-  - command: { device_command: fail, actuator: zone3 }
+  - command: { device_command: fail, device: furnace, args: { signal: zone3 } }
   - hold: { seconds: 60, message: "zone3's thermocouple is dead" }
-  - command: { device_command: disturb, actuator: heater5, args: { offset: -0.3 } }
+  - command:
+      device_command: disturb
+      device: heaters
+      args: { signal: heater5, offset: -270 }
   - hold: { seconds: 60, message: "heater5 kicked: a door opened, a leak" }
-  - command: { device_command: restore, actuator: zone3 }
+  - command: { device_command: restore, device: furnace, args: { signal: zone3 } }
   - hold:
       minutes: 5
       timeout: 5   # hold's timeout is plain seconds, not a Duration: see the programs chapter
       message: "saturated; zone2 should be ringing, zone5 clamped at 40 %"
-  - ramp: { loop: [heater1, heater2, heater3, heater4, heater5, heater6], to: 50, per_minute: 500 }
-  - manual: [heater1, heater2, heater3, heater4, heater5, heater6]
+  - ramp:
+      loop:
+        [
+          heaters.heater1,
+          heaters.heater2,
+          heaters.heater3,
+          heaters.heater4,
+          heaters.heater5,
+          heaters.heater6,
+        ]
+      to: 50
+      per_minute: 500
+  - manual:
+      [
+        heaters.heater1,
+        heaters.heater2,
+        heaters.heater3,
+        heaters.heater4,
+        heaters.heater5,
+        heaters.heater6,
+      ]
   - wait: { message: "unload, then press go", timeout: { minutes: 10 } }

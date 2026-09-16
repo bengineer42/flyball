@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=rig.schema.json
+# Two independent loops of different units in one rig: an oven (°C) and a
+# tank (L), sharing nothing but the process. Nothing here says a rig file
+# is one plant -- `controllers` just lists them, and each names its own
+# source signal and target.
+
+name: dual
+
+links:
+  chamber:
+    tag: sim_plant
+    model: fopdt
+    tau_s: 60.0
+    dead_s: 5.0
+    gain: 80.0
+    ambient: 20.0
+    initial: 20.0
+    noise: 0.05
+    seed: 1
+  tank:
+    tag: sim_plant
+    model: integrator
+    gain: 2.0
+    leak: 0.05
+    initial: 10.0
+    noise: 0.02
+
+devices:
+  dual_temp:
+    driver: sim_daq
+    label: Oven thermocouple
+    poll_s: 1.0
+    config:
+      link: chamber
+      ports:
+        temperature: { port: output, quantity: temperature, unit: "°C" }
+    signals:
+      temperature: { range: [0, 120], precision: 2 }
+  heater:
+    driver: sim_drive
+    label: Oven heater
+    config: { link: chamber, ports: { drive: input } }
+  dual_level:
+    driver: sim_daq
+    label: Tank level
+    poll_s: 0.5
+    config:
+      link: tank
+      ports:
+        volume: { port: output, quantity: volume, unit: L }
+    signals:
+      volume: { range: [0, 100], precision: 1 }
+  valve:
+    driver: sim_drive
+    label: Inlet valve
+    config: { link: tank, ports: { drive: input } }
+
+# Each feedforward is its plant's static inverse; the law's gains are the
+# old tunings in the plant's output unit over its gain (see oven.yaml and
+# tank.yaml).
+controllers:
+  heater.drive:
+    signal: dual_temp.temperature
+    feedforward: { tag: affine, gain: 0.0125, bias: -0.25 }
+    law: { tag: PI, kp: 0.00025, ki: 0.00000625 }
+    default: true
+  valve.drive:
+    signal: dual_level.volume
+    feedforward: { tag: affine, gain: 0.025 }
+    law: { tag: PI, kp: 0.025, ki: 0.005 }

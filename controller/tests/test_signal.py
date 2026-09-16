@@ -9,7 +9,15 @@ import pytest
 from flyball.core.device import Device
 from flyball.core.errors import NotFoundError
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, NodeSpec, Reading, Sample, SignalSpec, WriteState
+from flyball.core.signal import (
+    Access,
+    NodeSpec,
+    Path,
+    Reading,
+    Sample,
+    SignalSpec,
+    WriteState,
+)
 from flyball.core.units.si import Celsius, Watt
 
 TEMP = Quantity("temperature", Celsius)
@@ -172,6 +180,44 @@ def test_find_resolves_a_dotted_path_under_a_node():
         NotFoundError, match="'hum_sensors.dry.nope' not found: no 'nope' under hum_sensors.dry"
     ):
         probe.nodes["dry"].find("nope")
+
+
+class TestPath:
+    def test_parse_str_and_join(self):
+        path = Path.parse("dry.humidity")
+        assert path == ("dry", "humidity") and str(path) == "dry.humidity"
+        assert repr(path) == "Path('dry.humidity')"
+        assert Path() == () and str(Path()) == "" and Path.parse("") == Path()
+        assert Path() / "dry" == Path.parse("dry")
+        assert Path.parse("dry") / "humidity" == path
+        assert hash(path) == hash(("dry", "humidity")) and {path: 1}[Path.parse("dry.humidity")]
+
+    def test_parent_name_and_is_under(self):
+        path = Path.parse("left.dry.humidity")
+        assert path.name == "humidity" and path.parent == Path.parse("left.dry")
+        assert Path().name == "" and Path().parent == Path()
+        assert path.is_under(Path()) and path.is_under(Path.parse("left"))
+        assert path.is_under(path) and not path.is_under(Path.parse("left.wet"))
+        assert not Path.parse("left").is_under(path)
+
+    def test_an_empty_segment_or_a_dot_is_refused(self):
+        for text in (".", "dry.", ".dry", "dry..humidity"):
+            with pytest.raises(ValueError, match="an empty segment"):
+                Path.parse(text)
+        with pytest.raises(ValueError, match="not an address segment"):
+            Path() / "dry.humidity"
+        with pytest.raises(ValueError, match="not an address segment"):
+            Path() / ""
+
+    def test_bound_objects_carry_paths_made_once(self):
+        probe = Probe("hum")
+        dry, humidity = probe.nodes["dry"], probe.signals["dry.humidity"]
+        assert probe.root.path == Path() and dry.path == Path.parse("dry")
+        assert humidity.path == Path.parse("dry.humidity")
+        assert humidity.path is probe.root.find("dry.humidity").path, "the same object"
+        assert humidity.address == "hum.dry.humidity" and dry.address == "hum.dry"
+        assert list(probe.signals) == ["heater", "dry.humidity", "dry.temperature"]
+        assert list(probe.nodes) == ["dry"], "keyed by str(path) for the boundary"
 
 
 def test_a_reading_names_its_signal_by_address():

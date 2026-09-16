@@ -1,0 +1,110 @@
+# yaml-language-server: $schema=rig.schema.json
+# A three-zone tube furnace with a sample in the middle zone: the complicated
+# example. The zones conduct heat to each other, so the three controllers
+# interact; losses are convective plus radiative, so the plant's gain falls
+# as it gets hot and a tuning found at 200 °C is too soft at 900; the sample
+# lags its zone by minutes and the thermocouples by seconds.
+#
+#   flyball-daemon furnace.yaml                       # at 60x: a two-hour firing in two minutes
+#   flyball program check programs/firing.yaml
+#   curl -X POST localhost:8000/api/programs/run --data-binary @programs/firing.yaml ...
+#   flyball sim set tube coupling_w_per_k=20          # couple the zones harder, live
+#   flyball furnace fail --signal zone3               # open-circuit a thermocouple mid-run
+#
+# One plant link (`tube`), one `sim_daq` reading its thermocouples under
+# the name `furnace`, one `sim_drive` driving its heaters under the name
+# `heaters`. Those two names, and every address under them, are what a real
+# furnace's file would declare with a thermocouple DAQ and an SSR bank
+# (`temp-docs/DEVICE-MODEL-PLAN.md` §2); when such drivers exist this file
+# splits into that real rig plus a `sim.yaml` overlay that swaps only the
+# drivers, and every program, dashboard and session stays the same.
+#
+# Zone 3 is a smaller mass with a smaller heater (the end of the tube), so
+# one tuning does not fit all three.
+
+name: furnace
+clock: { speed: 60 }
+
+links:
+  tube:
+    tag: sim_furnace
+    zones: 3
+    power_w: [2500, 6000, 2000]         # the middle is the hot zone; the end is smaller
+    capacity_j_per_k: [3000, 3000, 2200]
+    coupling_w_per_k: 5.0
+    loss_w_per_k: 1.5
+    emissivity: 0.8
+    area_m2: 0.01
+    ambient_c: 20.0
+    sample_zone: 2
+    sample_capacity_j_per_k: 800
+    sample_coupling_w_per_k: 4.0
+    sensor_lag_s: 3.0
+    noise: 0.3
+    seed: 7
+
+devices:
+  furnace:                               # the thermocouples: furnace.zone1..3, furnace.sample [RP] °C
+    driver: sim_daq
+    label: Tube furnace
+    poll_s: 1.0
+    config: { link: tube, ports: { zone1: zone1, zone2: zone2, zone3: zone3, sample: sample } }
+    signals:
+      zone1:  { label: Zone 1 (entry),  range: [0, 1200], precision: 1 }
+      zone2:  { label: Zone 2 (centre), range: [0, 1200], precision: 1 }
+      zone3:  { label: Zone 3 (exit),   range: [0, 1200], precision: 1 }
+      sample: { label: Sample,          range: [0, 1200], precision: 1, poll_s: 2.0 }
+  heaters:                               # plain heaters: heaters.heater1..3 [W] in watts, limits 0..power_w
+    driver: sim_drive
+    label: Zone heaters
+    config: { link: tube, ports: { heater1: heater1, heater2: heater2, heater3: heater3 } }
+    signals:
+      heater1: { label: Zone 1 heater }
+      heater2: { label: Zone 2 heater }
+      heater3: { label: Zone 3 heater }
+
+# Plain PI in watts per °C of error: the standard controller, its integral
+# finding the hold power on its own. Tuned on a 15 °C/min ramp to 700 and a
+# hold: 2-4 °C overshoot, settled in 10-20 min. The losses steepen with
+# temperature (radiation), so it is softer at 900 than at 200. A `feedforward`
+# (`{ tag: table, points: [[20, 0], [200, 289], [400, 660], ...] }`, the
+# single-zone losses curve) *without* a rate term measures *worse* than plain
+# PI on a ramp -- it only adds hold power on top of an already wound-up
+# integral (measured on zone 2, 15 °C/min to 700 + 20 min hold: 4.0 °C
+# overshoot plain PI, 7.6 °C with the static table). `rate_gain` fixes that:
+# the extra power to charge the zone's own thermal mass (`capacity_j_per_k`)
+# at the ramp's rate. Since the controller hands a feedforward the setpoint's
+# rate in the source's unit *per second* (not per minute -- see
+# `control/controller.py`'s `rate_at`), `rate_gain` is `capacity_j_per_k`
+# unchanged: 3000 J/K is 3000 W per °C/s, not the 50 W-per-°C/min you would
+# get by naively dividing by 60. With it, zone 2 measured 2.2 °C overshoot,
+# clearly better than plain PI, so it is on there; zones 1 and 3 are untested
+# with it (different capacities and, for zone 3, a smaller mass) and stay on
+# plain PI.
+controllers:
+  heaters.heater1:
+    signal: furnace.zone1
+    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+  heaters.heater2:
+    signal: furnace.zone2
+    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward:
+      tag: table
+      rate_gain: 3000
+      points:
+        - [20, 0]
+        - [100, 125.4]
+        - [200, 289.4]
+        - [300, 465.6]
+        - [400, 659.8]
+        - [500, 878.7]
+        - [600, 1130.3]
+        - [700, 1423.5]
+        - [800, 1768.3]
+        - [900, 2175.9]
+        - [1000, 2658.5]
+        - [1100, 3229.4]
+    default: true
+  heaters.heater3:
+    signal: furnace.zone3
+    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }

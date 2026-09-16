@@ -206,33 +206,6 @@ class ControlLaw:
         return 0.0
 
 
-@dataclass(slots=True, frozen=True)
-class ControllerState:
-    setpoint: float | None
-    correction: float
-    last_value: float | None
-    law: ControlLawState | Exception
-
-
-@dataclass(slots=True, frozen=True)
-class ControllerView(ControllerState):
-    law: ControlLawView | Exception
-
-    # @classmethod
-    # def of(cls, config: ControlLawConfig, state: ControllerState) -> Self:
-    #     return cls(
-    #         generator=state.generator,
-    #         setpoint=state.setpoint,
-    #         correction=state.correction,
-    #         last_value=state.last_value,
-    #         law=(
-    #             ControlLawView.of(config, state.law)
-    #             if config.law is not None and state.law is not None
-    #             else None
-    #         ),
-    #     )
-
-
 type ControlLawLike = ControlLaw | ControlLawConfig | ControlLawView | Tuning
 
 type ControlLawBuilder = ControlLawConfig | ControlLawView

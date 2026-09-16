@@ -152,6 +152,57 @@ def _check_segment(name: str) -> None:
         raise ValueError(f"{name!r} is not an address segment: non-empty, no dots")
 
 
+class Path(tuple[str, ...]):
+    """A path inside a device: the segments of an address after the device's name.
+
+    A value: hashable, made once at bind and owned by the bound object.
+    `str()` joins the segments with dots (`"dry.humidity"`); `Path()` is
+    the root, whose `str` is `""`. Strings exist only at the wire and in
+    the rig file; [parse][flyball.core.signal.Path.parse] is the one way
+    in.
+    """
+
+    __slots__ = ()
+
+    @classmethod
+    def parse(cls, text: str) -> Path:
+        """`"dry.humidity"` as a path; `""` is the root.
+
+        Raises:
+            ValueError: An empty segment -- a leading, trailing or doubled dot.
+        """
+        if not text:
+            return cls()
+        segments = text.split(".")
+        if "" in segments:
+            raise ValueError(f"{text!r} is not a path: an empty segment")
+        return cls(segments)
+
+    def __truediv__(self, segment: str) -> Path:
+        _check_segment(segment)
+        return Path((*self, segment))
+
+    @property
+    def parent(self) -> Path:
+        """The path above; the root's parent is the root."""
+        return Path(self[:-1])
+
+    @property
+    def name(self) -> str:
+        """The last segment; `""` for the root."""
+        return self[-1] if self else ""
+
+    def is_under(self, other: Path) -> bool:
+        """Whether `other` is this path or above it."""
+        return self[: len(other)] == other
+
+    def __str__(self) -> str:
+        return ".".join(self)
+
+    def __repr__(self) -> str:
+        return f"Path({str(self)!r})"
+
+
 class AddressNotFoundError(NotFoundError):
     """An address did not resolve: which segment failed, and under what."""
 
@@ -174,8 +225,8 @@ class Node:
     parent: Node | None
     address: str
     """`"hum_sensors.dry"`; the device name for the root."""
-    path: str
-    """The address relative to the device: `"dry"`; `""` for the root."""
+    path: Path
+    """The address relative to the device: `dry`; the root's is empty."""
     signals: dict[str, Signal] = field(default_factory=dict)
     children: dict[str, Node] = field(default_factory=dict)
 
@@ -228,9 +279,10 @@ class Node:
             return self
         address = f"{self.address}.{relative}"
         node = self
-        path = relative.split(".")
-        if "" in path:  # a trailing or doubled dot names nothing
-            raise AddressNotFoundError(address, "", node.address)
+        try:
+            path = Path.parse(relative)
+        except ValueError:  # a trailing or doubled dot names nothing
+            raise AddressNotFoundError(address, "", node.address) from None
         for i, segment in enumerate(path):
             if (signal := node.signals.get(segment)) is not None:
                 if i + 1 < len(path):
@@ -261,7 +313,7 @@ class Node:
         """
         if not self.contains(signal):
             raise ValueError(f"'{signal.address}' is not under '{self.address}'")
-        return signal.path[len(self.path) + 1 :] if self.path else signal.path
+        return str(Path(signal.path[len(self.path) :]))
 
     def override(self, **changes: Any) -> None:
         """Replace fields of the spec in place; the bound object keeps its identity."""
@@ -283,8 +335,8 @@ class Signal:
     node: Node
     address: str
     """`"hum_sensors.dry.humidity"`."""
-    path: str
-    """The address relative to the device: `"dry.humidity"`."""
+    path: Path
+    """The address relative to the device: `dry.humidity`."""
     access: Access
 
     def __repr__(self) -> str:

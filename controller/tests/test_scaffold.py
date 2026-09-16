@@ -19,35 +19,27 @@ def load(path):
     return module
 
 
-def test_actuator_template_builds_and_takes_a_demand(tmp_path, fresh):
-    name = fresh("scaffold_heater")
-    module = load(write("actuator", name, tmp_path))
+def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
+    name = fresh("scaffold_probe")
+    module = load(write(name, tmp_path))
     config = Config.registry[name]()
-    device = config.build()
-    device.set_demand(150.0)
-    assert device.state.demand == 150.0 and device.state.output == 1.0
-    assert device.set_limits(0.0, 200.0).limits == (0.0, 200.0)
-    assert "set_limits" in type(device).commands
+    device = config.build(name)
+    (sample,) = device.read(5)
+    assert sample.time_ns == 5 and sample.node is device.root
+    assert sample.values == {device.signals["value"]: 0.0}
+    assert device.state.last == 0.0
+    state = device.reset()
+    assert state.last is None and device.state.last is None
     assert type(device).__name__ == "".join(p.capitalize() for p in name.split("_"))
     assert module.__doc__.startswith(type(device).__name__)
-
-
-def test_reader_template_builds_and_reads(tmp_path, fresh):
-    name = fresh("scaffold_probe")
-    load(write("reader", name, tmp_path))
-    device = Config.registry[name]().build()
-    (sample,) = device.read(5)
-    assert sample.time_ns == 5 and sample.source.name == name
-    assert device.state.last == 0.0
+    assert "reset" in type(device).commands
 
 
 def test_names_are_made_safe_and_files_are_not_overwritten(tmp_path):
-    assert 'tag="lab_probe"' in render("reader", "Lab-Probe 2".replace(" 2", ""))
+    assert 'tag="lab_probe"' in render("Lab-Probe 2".replace(" 2", ""))
     for bad in ("", "2fast", "class"):
         with pytest.raises(ValueError):
-            render("actuator", bad)
-    with pytest.raises(ValueError, match="no template"):
-        render("loop", "x")
+            render(bad)
     (tmp_path / "taken.py").write_text("")
     with pytest.raises(FileExistsError):
-        write("actuator", "taken", tmp_path)
+        write("taken", tmp_path)

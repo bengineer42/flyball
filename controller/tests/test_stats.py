@@ -6,15 +6,15 @@ import random
 
 import pytest
 
-from flyball.core.reading import Reading
+from flyball.core.signal import Reading, Sample
 from flyball.runtime.rig import RECENT_READINGS
 from flyball.runtime.stats import noise, rate
-from helpers import sample
+from test_rig_devices import Furnace
 
 
 def readings(values, period_s=1.0):
-    """Readings on no channel: the stats look only at time and value."""
-    return [Reading(None, None, round(i * period_s * 1e9), v) for i, v in enumerate(values)]  # type: ignore[arg-type]
+    """Readings on no signal: the stats look only at time and value."""
+    return [Reading(None, round(i * period_s * 1e9), v) for i, v in enumerate(values)]  # type: ignore[arg-type]
 
 
 def test_noise_is_the_sigma_about_a_moving_mean():
@@ -33,13 +33,15 @@ def test_rate_is_the_slope_per_minute():
     assert rate(readings([1.0, 2.0, 3.0], period_s=0)) is None
 
 
-def test_the_rig_keeps_the_recent_readings_per_channel(rig, probe, temperature, clock):
-    channel = probe[temperature]
-    assert rig.recent_readings(channel) == [] and rig.reading(channel) is None
+def test_the_rig_keeps_the_recent_readings_per_signal(rig, clock, fresh):
+    furnace = Furnace(fresh("furnace"))
+    rig.add_device(furnace)
+    zone1 = furnace.signals["zone1"]
+    assert rig.recent_readings(zone1) == [] and zone1 not in rig.latest
     for i in range(RECENT_READINGS + 10):
-        rig.on_read([sample(probe, temperature, float(i), clock.advance(1.0), seq=i + 1)])
-    recent = rig.recent_readings(channel)
+        rig.on_samples([Sample(furnace.root, clock.advance(1.0), {zone1: float(i)})])
+    recent = rig.recent_readings(zone1)
     assert len(recent) == RECENT_READINGS and recent[-1].value == RECENT_READINGS + 9
     assert recent[0].value == 10.0, "the oldest fell off"
-    assert [r.value for r in rig.recent_readings(channel, 3)] == [67.0, 68.0, 69.0]
-    assert rig.reading(channel) is recent[-1]
+    assert [r.value for r in rig.recent_readings(zone1, 3)] == [67.0, 68.0, 69.0]
+    assert rig.latest[zone1] is recent[-1]

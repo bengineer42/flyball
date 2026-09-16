@@ -1,16 +1,18 @@
 """Run flyball devices inside a Bluesky plan.
 
-Wraps a [Source][flyball.core.reading.Source], the rig, or an actuator
-command in Bluesky's duck-typed *Readable* and *Movable* shapes without
-importing bluesky, so the `bluesky` extra is only needed to run a plan:
+Wraps a node's readings or one writable signal in Bluesky's duck-typed
+*Readable* and *Movable* shapes without importing bluesky, so the `bluesky`
+extra is only needed to run a plan:
 
     from bluesky import RunEngine
     from bluesky.plans import count
     RE = RunEngine()
-    RE(count([SourceReadable(rig, chamber)], num=10))
+    RE(count([NodeReadable(rig, rig.resolve("hum_sensors.dry"))], num=10))
 
-Each channel is one data key named `<source>.<measurand>`, described with the
-dtype, shape, units and precision the Measurand carries.
+Each publishing (`P`) signal under the node is one data key, named by its
+address and described with the unit, shape and precision its spec carries. A
+writable (`W`) signal is a *Movable* through
+[SignalMovable][flyball.integrations.bluesky.SignalMovable].
 """
 
 from __future__ import annotations
@@ -19,8 +21,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from flyball.core.reading import Channel, Reading, Sample, Source
-from flyball.core.sink import Actuator
+from flyball.core.signal import Access, Node, Signal
 from flyball.core.trigger import Trigger
 from flyball.runtime.rig import Rig
 
@@ -28,46 +29,42 @@ DataKey = dict[str, Any]
 Value = dict[str, dict[str, Any]]
 
 
-def _key(channel: Channel) -> str:
-    return f"{channel.source.name}.{channel.measurand.name}"
+def _publishing(node: Node) -> list[Signal]:
+    return [signal for signal in node.walk() if Access.P in signal.access]
 
 
-def _describe(channel: Channel) -> DataKey:
-    m = channel.measurand
+def _describe(signal: Signal) -> DataKey:
     key: DataKey = {
-        "source": f"flyball:{_key(channel)}",
+        "source": f"flyball:{signal.address}",
         "dtype": "number",
         "shape": [],
-        "units": m.unit.symbol,
+        "units": signal.unit.symbol,
     }
-    if m.precision is not None:
-        key["precision"] = m.precision
-    if m.range is not None:
-        key["lower_ctrl_limit"], key["upper_ctrl_limit"] = m.range
+    if signal.spec.precision is not None:
+        key["precision"] = signal.spec.precision
+    if signal.spec.range is not None:
+        key["lower_ctrl_limit"], key["upper_ctrl_limit"] = signal.spec.range
     return key
 
 
-def _value(reading: Reading) -> dict[str, Any]:
-    return {"value": reading.value, "timestamp": reading.time_ns / 1e9}
+class NodeReadable:
+    """A device or namespace as a Bluesky *Readable*: one data key per publishing signal."""
 
-
-class SourceReadable:
-    """One source as a Bluesky *Readable*: its latest sample, one data key per channel."""
-
-    def __init__(self, rig: Rig, source: Source, name: str | None = None) -> None:
+    def __init__(self, rig: Rig, node: Node, name: str | None = None) -> None:
         self._rig = rig
-        self._source = source
-        self.name = name or str(source.name)
+        self._node = node
+        self.name = name or node.address
         self.parent = None
 
     def describe(self) -> dict[str, DataKey]:
-        return {_key(ch): _describe(ch) for ch in self._source.channels}
+        return {signal.address: _describe(signal) for signal in _publishing(self._node)}
 
     def read(self) -> Value:
-        sample: Sample | None = self._rig._samples.get(self._source)
-        if sample is None:
-            return {}
-        return {_key(self._source[m]): _value(sample.reading(m)) for m in sample.values}
+        values: Value = {}
+        for signal in _publishing(self._node):
+            if (reading := self._rig.latest.get(signal)) is not None:
+                values[signal.address] = {"value": reading.value, "timestamp": reading.seconds}
+        return values
 
     def describe_configuration(self) -> dict[str, DataKey]:
         return {}
@@ -131,43 +128,40 @@ class Status:
             raise error
 
 
-class DemandMovable:
-    """An actuator's demand as a Bluesky *Movable*. `set` is immediate: its status is done."""
+class SignalMovable:
+    """One writable signal as a Bluesky *Movable*. `set` is immediate: its status is done."""
 
-    def __init__(self, rig: Rig, actuator: Actuator, name: str | None = None) -> None:
+    def __init__(self, rig: Rig, signal: Signal, name: str | None = None) -> None:
         self._rig = rig
-        self._actuator = actuator
-        self.name = name or actuator.name
+        self._signal = signal
+        self.name = name or signal.address
         self.parent = None
         self._last: float | None = None
 
     def set(self, value: float) -> Status:
-        self._actuator.set_demand(value)
-        self._rig.apply(self._actuator)
+        self._rig.demand(self._signal.node, {self._signal: value})
         self._last = value
         signal = Trigger()
         signal.fire()
         return Status(signal)
 
     def describe(self) -> dict[str, DataKey]:
-        unit = type(self._actuator).demand_unit
         return {
-            f"{self.name}.demand": {
-                "source": f"flyball:{self.name}.demand",
+            self.name: {
+                "source": f"flyball:{self.name}",
                 "dtype": "number",
                 "shape": [],
-                "units": "" if unit is None else unit.symbol,
+                "units": self._signal.unit.symbol,
             }
         }
 
     def read(self) -> Value:
-        demand = self._actuator.state.demand
-        if demand is None:
-            demand = self._last
+        state = self._signal.device.written.get(self._signal)
+        value = self._last if state is None else state.value
         return (
             {}
-            if demand is None
-            else {f"{self.name}.demand": {"value": demand, "timestamp": self._rig.clock.now_s()}}
+            if value is None
+            else {self.name: {"value": value, "timestamp": self._rig.clock.now_s()}}
         )
 
     def describe_configuration(self) -> dict[str, DataKey]:

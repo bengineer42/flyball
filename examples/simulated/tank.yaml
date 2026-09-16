@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=rig.schema.json
+# A tank filled by a valve against a drain: an integrating plant. Unlike the
+# oven it has no natural resting point, so a proportional-only law leaves an
+# offset and integral action is what holds level.
+
+name: tank
+
+links:
+  tank:
+    tag: sim_plant
+    model: integrator
+    gain: 2.0          # litres per second at full valve
+    leak: 0.05         # 5 % of the contents drains per second
+    initial: 10.0      # litres to start
+    noise: 0.02
+
+devices:
+  level:
+    driver: sim_daq
+    label: Tank level
+    poll_s: 0.5
+    config:
+      link: tank
+      ports:
+        volume: { port: output, quantity: volume, unit: L }
+    signals:
+      volume: { range: [0, 100], precision: 1 }
+  valve:
+    driver: sim_drive
+    label: Inlet valve
+    config: { link: tank, ports: { drive: input } }   # valve.drive [W], 0 to 1 of full
+
+# Holding a level against the drain takes `leak / gain` of full per litre;
+# the law's gains are the old L-per-L tuning (0.05, 0.01) over the plant's
+# gain of 2.
+controllers:
+  valve.drive:
+    signal: level.volume
+    feedforward: { tag: affine, gain: 0.025 }
+    law: { tag: PI, kp: 0.025, ki: 0.005 }
+    default: true

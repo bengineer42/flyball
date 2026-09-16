@@ -11,14 +11,15 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from flyball.core.device import Device
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.reading import Channel, Measurand, Sample, Source
+from flyball.core.signal import Access, Band, Sample, Signal, WriteState
 
 from .errors import (
     DashboardNotFoundError,
@@ -30,26 +31,29 @@ from .errors import (
 )
 from .migrate import migrate
 from .types import (
-    ActuatorRow,
-    ChannelRow,
+    ControllerRow,
     DashboardRow,
+    DeviceRow,
     Downsample,
     Event,
-    LoopRow,
-    MeasurandRow,
     Point,
     ProgramFormat,
     ProgramRow,
     SampleRow,
     Series,
     SessionRow,
-    SourceRow,
+    SignalRow,
     Span,
     SpanKind,
     Tick,
     TuningRow,
     Window,
+    WriteRow,
+    WriteStateRow,
 )
+
+if TYPE_CHECKING:
+    from flyball.control import Controller
 
 # region Helpers
 
@@ -60,6 +64,44 @@ def _dumps(value: Any) -> str | None:
 
 def _loads(text: str | None) -> Any:
     return None if text is None else json.loads(text)
+
+
+def _band(text: str | None) -> Band | None:
+    if text is None:
+        return None
+    lo, hi = json.loads(text)
+    return (lo, hi)
+
+
+def _config_json(device: Device) -> Any:
+    """The driver config as JSON; a built link inside it is named, not serialised."""
+    config = device.config
+    return config.model_dump(
+        mode="json", fallback=lambda value: getattr(value, "name", type(value).__name__)
+    )
+
+
+def _device_row(row: sqlite3.Row) -> DeviceRow:
+    return DeviceRow(row["id"], row["address"], row["driver"], _loads(row["config"]), row["label"])
+
+
+def _signal_row(row: sqlite3.Row) -> SignalRow:
+    return SignalRow(
+        id=row["id"],
+        device_id=row["device_id"],
+        address=row["address"],
+        quantity=row["quantity"],
+        unit=row["unit"],
+        access=row["access"],
+        dtype=row["dtype"],
+        shape=_loads(row["shape"]),
+        label=row["label"],
+        range=_band(row["range"]),
+        precision=row["precision"],
+        warn=_band(row["warn"]),
+        alarm=_band(row["alarm"]),
+        limits=_band(row["limits"]),
+    )
 
 
 def _window_clause(window: Window | None, column: str) -> tuple[str, list[int]]:
@@ -108,7 +150,7 @@ def _tuning_row(row: sqlite3.Row) -> TuningRow:
         config=_loads(row["config"]),
         created_ns=row["created_ns"],
         session_id=row["session_id"],
-        loop=row["loop"],
+        controller=row["controller"],
         notes=_loads(row["notes"]),
     )
 
@@ -131,15 +173,25 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
 class SqliteSessionWriter:
     """Appends to one session. Not thread-safe on its own; the store's lock covers it."""
 
-    __slots__ = ("_actuators", "_ended", "_loops", "_measurands", "_session", "_sources", "_store")
+    __slots__ = (
+        "_controllers",
+        "_devices",
+        "_ended",
+        "_seq",
+        "_session",
+        "_signals",
+        "_store",
+        "_writes",
+    )
 
     def __init__(self, store: SqliteStore, session: SessionRow) -> None:
         self._store = store
         self._session = session
-        self._sources: dict[Source, int] = {}
-        self._measurands: dict[Measurand, int] = {}
-        self._actuators: set[str] = set()
-        self._loops: set[str] = set()
+        self._devices: dict[Device, int] = {}
+        self._signals: dict[Signal, int] = {}
+        self._writes: set[Signal] = set()
+        self._controllers: set[str] = set()
+        self._seq: dict[int, int] = {}  # the last seq written, per device id
         self._ended = False
 
     @property
@@ -152,71 +204,95 @@ class SqliteSessionWriter:
 
     # region Declarations
 
-    def _measurand_id(self, measurand: Measurand, connection: sqlite3.Connection) -> int:
-        if (qid := self._measurands.get(measurand)) is None:
-            qid = len(self._measurands) + 1
-            connection.execute(
-                "INSERT INTO measurand (session_id, id, name, unit, label) VALUES (?, ?, ?, ?, ?)",
-                (self._session.id, qid, measurand.name, measurand.unit.symbol, measurand.label),
-            )
-            self._measurands[measurand] = qid
-        return qid
-
-    def declare_source(self, source: Source, kind: str | None = None) -> None:
+    def declare_device(self, device: Device) -> None:
         self._open()
-        if source in self._sources:
+        if device in self._devices:
             return
+        config = device.config
         with self._store._transaction() as connection:
-            sid = len(self._sources) + 1
+            did = len(self._devices) + 1
             connection.execute(
-                "INSERT INTO source (session_id, id, name, kind, label) VALUES (?, ?, ?, ?, ?)",
-                (self._session.id, sid, str(source.name), kind, source.label),
-            )
-            connection.executemany(
-                "INSERT INTO channel (session_id, source_id, measurand_id) VALUES (?, ?, ?)",
-                [
-                    (self._session.id, sid, self._measurand_id(channel.measurand, connection))
-                    for channel in source.channels
-                ],
-            )
-            self._sources[source] = sid
-
-    def declare_actuator(self, name: str, kind: str, config: Any = None) -> None:
-        self._open()
-        if name in self._actuators:
-            return
-        with self._store._transaction() as connection:
-            connection.execute(
-                "INSERT INTO actuator (session_id, name, kind, config) VALUES (?, ?, ?, ?)",
-                (self._session.id, name, kind, _dumps(config)),
-            )
-            self._actuators.add(name)
-
-    def declare_loop(
-        self, name: str, channel: Channel, config: Any = None, feedforward: Any = None
-    ) -> None:
-        self._open()
-        if name in self._loops:
-            return
-        if name not in self._actuators:
-            raise NotDeclaredError("actuator", name)
-        sid = self._sources.get(channel.source)
-        if sid is None:
-            raise NotDeclaredError("source", str(channel.source.name))
-        with self._store._transaction() as connection:
-            connection.execute(
-                "INSERT INTO loop (session_id, name, source_id, measurand_id, config, feedforward)"
+                "INSERT INTO device (session_id, id, address, driver, config, label)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     self._session.id,
-                    name,
+                    did,
+                    device.name,
+                    config.config_tag or type(device).__name__,
+                    _dumps(_config_json(device)),
+                    device.label,
+                ),
+            )
+            self._devices[device] = did
+
+    def declare_signal(self, signal: Signal) -> None:
+        self._open()
+        if signal in self._signals:
+            return
+        if (did := self._devices.get(signal.device)) is None:
+            raise NotDeclaredError("device", signal.device.name)
+        spec = signal.spec
+        with self._store._transaction() as connection:
+            sid = len(self._signals) + 1
+            connection.execute(
+                "INSERT INTO signal (session_id, id, device_id, address, quantity, unit, access,"
+                " dtype, shape, label, range, precision, warn, alarm, limits)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    self._session.id,
                     sid,
-                    self._measurand_id(channel.measurand, connection),
-                    _dumps(config),
+                    did,
+                    signal.address,
+                    spec.quantity.name,
+                    spec.quantity.unit.symbol,
+                    str(signal.access),
+                    spec.dtype,
+                    _dumps(list(spec.shape)),
+                    spec.label or None,
+                    _dumps(spec.range),
+                    spec.precision,
+                    _dumps(spec.warn),
+                    _dumps(spec.alarm),
+                    _dumps(spec.limits),
+                ),
+            )
+            if Access.W in signal.access:
+                connection.execute(
+                    "INSERT INTO write (session_id, signal_id, driver, limits) VALUES (?, ?, ?, ?)",
+                    (
+                        self._session.id,
+                        sid,
+                        signal.device.config.config_tag or type(signal.device).__name__,
+                        _dumps(spec.limits),
+                    ),
+                )
+                self._writes.add(signal)
+            self._signals[signal] = sid
+
+    def declare_controller(self, controller: Controller) -> None:
+        self._open()
+        name = controller.name
+        if name in self._controllers:
+            return
+        if controller.target not in self._writes:
+            raise NotDeclaredError("write", controller.target.address)
+        if controller.source not in self._signals:
+            raise NotDeclaredError("signal", controller.source.address)
+        law = None if controller.law is None else controller.law.config.model_dump(mode="json")
+        feedforward = controller.feedforward.config.model_dump(mode="json")
+        with self._store._transaction() as connection:
+            connection.execute(
+                "INSERT INTO controller (session_id, name, source, law, feedforward)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    self._session.id,
+                    name,
+                    controller.source.address,
+                    _dumps(law),
                     _dumps(feedforward),
                 ),
             )
-            self._loops.add(name)
+            self._controllers.add(name)
 
     # endregion
 
@@ -225,29 +301,61 @@ class SqliteSessionWriter:
     def write_samples(self, samples: Iterable[Sample]) -> None:
         self._open()
         session_id = self._session.id
-        sample_rows: list[tuple[int, int, int, int]] = []
+        sample_rows: list[tuple[int, int, int, str, int]] = []
         reading_rows: list[tuple[int, int, int, int, int, float]] = []
+        seqs = dict(self._seq)
         for sample in samples:
-            if (sid := self._sources.get(sample.source)) is None:
-                raise NotDeclaredError("source", str(sample.source.name))
+            node = sample.node
+            if (did := self._devices.get(node.device)) is None:
+                raise NotDeclaredError("device", node.device.name)
             offset = sample.time_ns - self._session.start_ns
-            sample_rows.append((session_id, sid, sample.seq, offset))
-            for measurand, value in sample.values.items():
-                if (qid := self._measurands.get(measurand)) is None:
-                    raise NotDeclaredError("measurand", measurand.name)
+            seq = seqs[did] = seqs.get(did, 0) + 1
+            sample_rows.append((session_id, did, seq, node.address, offset))
+            for signal, value in sample.values.items():
+                if (sid := self._signals.get(signal)) is None:
+                    raise NotDeclaredError("signal", signal.address)
                 if value == value:  # NaN is a fault, not a reading; the writer routes those
-                    reading_rows.append((session_id, sid, sample.seq, qid, offset, value))
+                    reading_rows.append((session_id, did, seq, sid, offset, value))
         if not sample_rows:
             return
         with self._store._transaction() as connection:
             connection.executemany(
-                "INSERT INTO sample (session_id, source_id, seq, offset_ns) VALUES (?, ?, ?, ?)",
+                "INSERT INTO sample (session_id, device_id, seq, node, offset_ns)"
+                " VALUES (?, ?, ?, ?, ?)",
                 sample_rows,
             )
             connection.executemany(
-                "INSERT INTO reading (session_id, source_id, seq, measurand_id, offset_ns, value)"
+                "INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 reading_rows,
+            )
+        self._seq = seqs
+
+    def write_states(self, offset_ns: int, states: Mapping[Signal, WriteState]) -> None:
+        self._open()
+        rows = []
+        for signal, state in states.items():
+            if signal not in self._writes:
+                raise NotDeclaredError("write", signal.address)
+            rows.append((
+                self._session.id,
+                self._signals[signal],
+                offset_ns,
+                state.value,
+                state.requested,
+                state.at_limit,
+                state.controller,
+            ))
+        if not rows:
+            return
+        with self._store._transaction() as connection:
+            # Two commits at one instant -- a manual demand and the delivery
+            # that follows on a coarse clock -- keep the later state.
+            connection.executemany(
+                "INSERT OR REPLACE INTO write_state"
+                " (session_id, signal_id, offset_ns, value, requested, at_limit, controller)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
             )
 
     def write_tick(self, tick: Tick) -> None:
@@ -257,11 +365,11 @@ class SqliteSessionWriter:
         self._open()
         rows = []
         for tick in ticks:
-            if tick.loop not in self._loops:
-                raise NotDeclaredError("loop", tick.loop)
+            if tick.controller not in self._controllers:
+                raise NotDeclaredError("controller", tick.controller)
             rows.append((
                 self._session.id,
-                tick.loop,
+                tick.controller,
                 tick.offset_ns,
                 tick.mode,
                 tick.reading,
@@ -275,7 +383,7 @@ class SqliteSessionWriter:
             return
         with self._store._transaction() as connection:
             connection.executemany(
-                "INSERT INTO tick (session_id, loop, offset_ns, mode, reading, setpoint,"
+                "INSERT INTO tick (session_id, controller, offset_ns, mode, reading, setpoint,"
                 " correction, demand, expected, delivered_correction)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
@@ -416,87 +524,60 @@ class SqliteStore:
 
     # region What a session recorded
 
-    def _measurands(self, session_id: int) -> dict[int, MeasurandRow]:
-        return {
-            r["id"]: MeasurandRow(r["id"], r["name"], r["unit"], r["label"])
-            for r in self._query("SELECT * FROM measurand WHERE session_id = ?", (session_id,))
-        }
-
-    def sources(self, session_id: int) -> list[SourceRow]:
+    def devices(self, session_id: int) -> list[DeviceRow]:
         return [
-            SourceRow(r["id"], r["name"], r["kind"], r["label"])
+            _device_row(r)
             for r in self._query(
-                "SELECT * FROM source WHERE session_id = ? ORDER BY id", (session_id,)
+                "SELECT * FROM device WHERE session_id = ? ORDER BY id", (session_id,)
             )
         ]
 
-    def channels(self, session_id: int) -> list[ChannelRow]:
-        measurands = self._measurands(session_id)
-        sources = {s.id: s for s in self.sources(session_id)}
+    def signals(self, session_id: int) -> list[SignalRow]:
         return [
-            ChannelRow(sources[r["source_id"]], measurands[r["measurand_id"]])
+            _signal_row(r)
             for r in self._query(
-                "SELECT source_id, measurand_id FROM channel WHERE session_id = ?"
-                " ORDER BY source_id, measurand_id",
-                (session_id,),
+                "SELECT * FROM signal WHERE session_id = ? ORDER BY device_id, id", (session_id,)
             )
         ]
 
-    def _channel(self, session_id: int, source: str, measurand: str) -> ChannelRow:
+    def _signal(self, session_id: int, address: str) -> SignalRow:
         rows = self._query(
-            "SELECT s.id AS sid, s.name AS sname, s.kind, s.label AS slabel, q.id AS qid,"
-            " q.name AS qname, q.unit, q.label FROM channel c"
-            " JOIN source s ON s.session_id = c.session_id AND s.id = c.source_id"
-            " JOIN measurand q ON q.session_id = c.session_id AND q.id = c.measurand_id"
-            " WHERE c.session_id = ? AND s.name = ? AND q.name = ?",
-            (session_id, source, measurand),
+            "SELECT * FROM signal WHERE session_id = ? AND address = ?", (session_id, address)
         )
         if not rows:
-            raise NotDeclaredError("channel", f"{source}.{measurand}")
-        r = rows[0]
-        return ChannelRow(
-            SourceRow(r["sid"], r["sname"], r["kind"], r["slabel"]),
-            MeasurandRow(r["qid"], r["qname"], r["unit"], r["label"]),
-        )
+            raise NotDeclaredError("signal", address)
+        return _signal_row(rows[0])
 
-    def actuators(self, session_id: int) -> list[ActuatorRow]:
+    def writes(self, session_id: int) -> list[WriteRow]:
+        signals = {s.id: s for s in self.signals(session_id)}
         return [
-            ActuatorRow(r["name"], r["kind"], _loads(r["config"]))
+            WriteRow(signals[r["signal_id"]], r["driver"], _band(r["limits"]))
             for r in self._query(
-                "SELECT * FROM actuator WHERE session_id = ? ORDER BY name", (session_id,)
+                "SELECT * FROM write WHERE session_id = ? ORDER BY signal_id", (session_id,)
             )
         ]
 
-    def loops(self, session_id: int) -> list[LoopRow]:
-        measurands = self._measurands(session_id)
-        sources = {s.id: s for s in self.sources(session_id)}
-        actuators = {a.name: a for a in self.actuators(session_id)}
+    def controllers(self, session_id: int) -> list[ControllerRow]:
         return [
-            LoopRow(
-                actuators[r["name"]],
-                ChannelRow(sources[r["source_id"]], measurands[r["measurand_id"]]),
-                _loads(r["config"]),
-                _loads(r["feedforward"]),
-            )
+            ControllerRow(r["name"], r["source"], _loads(r["law"]), _loads(r["feedforward"]))
             for r in self._query(
-                "SELECT * FROM loop WHERE session_id = ? ORDER BY name", (session_id,)
+                "SELECT * FROM controller WHERE session_id = ? ORDER BY name", (session_id,)
             )
         ]
 
     def series(
         self,
         session_id: int,
-        source: str,
-        measurand: str,
+        address: str,
         window: Window | None = None,
         downsample: Downsample | None = None,
     ) -> Series:
-        channel = self._channel(session_id, source, measurand)
+        signal = self._signal(session_id, address)
         where, params = _window_clause(window, "offset_ns")
-        # Every form below is one range scan of reading_by_channel: the index
+        # Every form below is one range scan of reading_by_signal: the index
         # carries offset_ns and value, so neither the table nor sample is read.
-        base = " FROM reading WHERE session_id = ? AND source_id = ? AND measurand_id = ?" + where
-        key = [session_id, channel.source.id, channel.measurand.id, *params]
+        base = " FROM reading WHERE session_id = ? AND signal_id = ?" + where
+        key = [session_id, signal.id, *params]
 
         match downsample:
             case None:
@@ -516,11 +597,9 @@ class SqliteStore:
                 )
                 lo, hi = bounds[0]["lo"], bounds[0]["hi"]
                 if lo is None:
-                    return Series(channel, (), downsample)
+                    return Series(signal, (), downsample)
                 bucket_ns = max(1, (hi - lo) // max_points + 1)
-                return self.series(
-                    session_id, source, measurand, window, Downsample(bucket_ns=bucket_ns)
-                )
+                return self.series(session_id, address, window, Downsample(bucket_ns=bucket_ns))
             case Downsample(bucket_ns=int(bucket_ns)):
                 rows = self._query(
                     "SELECT (offset_ns / ?) * ? AS t, AVG(value) AS v"
@@ -530,38 +609,66 @@ class SqliteStore:
                 )
             case _:
                 raise ValueError(f"{downsample!r} names none of every, bucket_ns or max_points")
-        return Series(channel, tuple(Point(r["t"], r["v"]) for r in rows), downsample)
+        return Series(signal, tuple(Point(r["t"], r["v"]) for r in rows), downsample)
 
     def samples(
-        self, session_id: int, source: str, window: Window | None = None
+        self, session_id: int, address: str, window: Window | None = None
     ) -> list[SampleRow]:
-        source_row = next((s for s in self.sources(session_id) if s.name == source), None)
-        if source_row is None:
-            raise NotFoundError(f"Source {source!r} not in session {session_id}")
-        measurands = self._measurands(session_id)
-        where, params = _window_clause(window, "offset_ns")
+        name = address.partition(".")[0]
+        device = next((d for d in self.devices(session_id) if d.address == name), None)
+        if device is None:
+            raise NotFoundError(f"Device {name!r} not in session {session_id}")
+        signals = {s.id: s.address for s in self.signals(session_id)}
+        where, params = _window_clause(window, "s.offset_ns")
+        # A namespace's address selects the samples on it and under it.
+        under = "" if address == name else " AND (node = ? OR node LIKE ?)"
         rows = self._query(
-            "SELECT seq, offset_ns, measurand_id, value FROM reading"
-            " WHERE session_id = ? AND source_id = ?" + where + " ORDER BY seq",
-            [session_id, source_row.id, *params],
+            "SELECT s.seq, s.node, r.signal_id, r.offset_ns, r.value FROM sample s"
+            " JOIN reading r ON r.session_id = s.session_id AND r.device_id = s.device_id"
+            " AND r.seq = s.seq WHERE s.session_id = ? AND s.device_id = ?"
+            + under
+            + where
+            + " ORDER BY s.seq",
+            [session_id, device.id, *([address, address + ".%"] if under else []), *params],
         )
         samples: dict[int, SampleRow] = {}
         for r in rows:
             row = samples.get(r["seq"])
             if row is None:
-                row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"], {})
-            row.values[measurands[r["measurand_id"]].name] = r["value"]
+                row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"], r["node"], {})
+            row.values[signals[r["signal_id"]]] = r["value"]
         return list(samples.values())
 
+    def write_states(
+        self, session_id: int, address: str, window: Window | None = None
+    ) -> list[WriteStateRow]:
+        signal = self._signal(session_id, address)
+        where, params = _window_clause(window, "offset_ns")
+        return [
+            WriteStateRow(
+                r["offset_ns"], r["value"], r["requested"], r["at_limit"], r["controller"]
+            )
+            for r in self._query(
+                "SELECT * FROM write_state WHERE session_id = ? AND signal_id = ?"
+                + where
+                + " ORDER BY offset_ns",
+                [session_id, signal.id, *params],
+            )
+        ]
+
     def ticks(
-        self, session_id: int, loop: str, window: Window | None = None, every: int | None = None
+        self,
+        session_id: int,
+        controller: str,
+        window: Window | None = None,
+        every: int | None = None,
     ) -> list[Tick]:
         where, params = _window_clause(window, "offset_ns")
         # Ticks have no sequence number of their own: number them in order and keep every nth.
         thin = "" if every is None or every <= 1 else f" AND (rn - 1) % {int(every)} = 0"
         return [
             Tick(
-                loop=r["loop"],
+                controller=r["controller"],
                 offset_ns=r["offset_ns"],
                 mode=r["mode"],
                 correction=r["correction"],
@@ -573,12 +680,12 @@ class SqliteStore:
             )
             for r in self._query(
                 "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY offset_ns) AS rn"
-                " FROM tick WHERE session_id = ? AND loop = ?"
+                " FROM tick WHERE session_id = ? AND controller = ?"
                 + where
                 + ") WHERE 1 = 1"
                 + thin
                 + " ORDER BY offset_ns",
-                [session_id, loop, *params],
+                [session_id, controller, *params],
             )
         ]
 
@@ -624,14 +731,14 @@ class SqliteStore:
         config: dict[str, Any],
         created_ns: int,
         session_id: int | None = None,
-        loop: str | None = None,
+        controller: str | None = None,
         notes: Any = None,
     ) -> TuningRow:
         with self._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO tuning (name, law, config, created_ns, session_id, loop, notes)"
+                "INSERT INTO tuning (name, law, config, created_ns, session_id, controller, notes)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (name, law, _dumps(config), created_ns, session_id, loop, _dumps(notes)),
+                (name, law, _dumps(config), created_ns, session_id, controller, _dumps(notes)),
             )
             tuning_id = int(cursor.lastrowid or 0)
         return _tuning_row(self._query("SELECT * FROM tuning WHERE id = ?", (tuning_id,))[0])
@@ -750,7 +857,7 @@ class SqliteStore:
     # region Dashboards
 
     def save_dashboard(self, name: str, rig: str, body: Any, created_ns: int) -> DashboardRow:
-        text = _dumps(body)
+        text = json.dumps(body, separators=(",", ":"))  # a null body is still a document
         digest = hashlib.sha256(text.encode()).hexdigest()
         with self._transaction() as connection:
             cursor = connection.execute(

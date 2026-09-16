@@ -1,318 +1,281 @@
-"""The rig: attaching devices, a delivery, telemetry cells, reader runs."""
+"""The rig around a delivery: events, recording, and blocking devices on writer threads."""
 
 from __future__ import annotations
 
+import sys
+import threading
+import time
+import types
+from collections.abc import Iterator, Mapping
+
 import pytest
 
-from flyball.control import PI
+from flyball.control import Transfer
+from flyball.control.laws import P
 from flyball.core.device import Level
-from flyball.core.errors import ConflictError
-from flyball.core.reading import Reader, Source
-from flyball.sim import FunctionReader, RecordingActuator
-from helpers import sample
+from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec, WriteState
+from test_rig_devices import TEMP, Furnace
 
 
-def test_attach_loop_registers_the_actuator_by_name(rig, probe, temperature, heater):
-    rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
-    assert rig.actuators[heater.name] is heater
-    assert probe in rig.sources
+class FakeWriter:
+    def __init__(self) -> None:
+        self.ended: list[int] = []
+
+    def end(self, end_ns: int) -> None:
+        self.ended.append(end_ns)
 
 
-def test_add_actuator_refuses_clashes_and_reserved_names(rig, fresh):
-    a = RecordingActuator(fresh("a"))
-    rig.add_actuator(a)
-    rig.add_actuator(a)  # the same object again is fine
-    with pytest.raises(ConflictError, match="already used by actuator"):
-        rig.add_actuator(RecordingActuator(a.name))
-    with pytest.raises(ConflictError, match="reserved"):
-        rig.add_actuator(RecordingActuator("schema"))
+class FakeStore:
+    def __init__(self) -> None:
+        self.sessions: list[tuple[int, dict]] = []
+
+    def open_session(self, start_ns: int, **session) -> FakeWriter:
+        self.sessions.append((start_ns, session))
+        return FakeWriter()
 
 
-def test_every_device_shares_one_namespace_rig_wide(rig, fresh):
-    """No reader, actuator or source may share a name with another, whatever the mix."""
-    a = RecordingActuator(fresh("shared"))
-    rig.add_actuator(a)
-    assert rig.devices[a.name] is a
+class FakeRecorder:
+    """The recorder contract, as the rig calls it; records every call."""
 
-    # A reader named after an actuator that already exists.
-    with pytest.raises(ConflictError, match="already used by actuator"):
-        rig.readers.add(Reader(a.name, ()))
+    made: list[FakeRecorder] = []
 
-    # A reader whose *source* (not its own name) collides with an actuator.
-    clashing_source = Source(a.name, ())
-    other = fresh("probe_reader")
-    with pytest.raises(ConflictError, match="already used by actuator"):
-        rig.readers.add(Reader(other, (clashing_source,)))
-    assert other not in rig.devices, "the reader was never attached"
-    assert rig.kind_of(other) is None, "a failed add claims nothing, not even its own name"
+    def __init__(self, writer, signals, controllers, flush_s=0.1, on_failure=None) -> None:
+        self.writer = writer
+        self.signals = list(signals)
+        self.controllers = list(controllers)
+        self.on_failure = on_failure
+        self.records: list[tuple[list, list, dict, int | None]] = []
+        self.events: list = []
+        self.closed: list[int] = []
+        FakeRecorder.made.append(self)
 
-    # An actuator named after an already-attached reader.
-    reader_name = fresh("reader")
-    rig.readers.add(Reader(reader_name, (Source(fresh("src"), ()),)))
-    assert rig.devices[reader_name].name == reader_name
-    with pytest.raises(ConflictError, match="already used by reader"):
-        rig.add_actuator(RecordingActuator(reader_name))
+    def record(self, samples, ticks, states, *, time_ns=None) -> None:
+        self.records.append((list(samples), list(ticks), dict(states), time_ns))
 
+    def event(self, event) -> None:
+        self.events.append(event)
 
-def test_a_delivery_ticks_the_loop_and_applies_the_actuator(rig, probe, temperature, heater, clock):
-    rig.attach_loop(probe[temperature], heater, law=PI(kp=2.0))
-    loop = rig.loops[heater.name]
-    loop.regulate(50.0)
-    rig.on_read([sample(probe, temperature, 40.0, clock.now_ns())])
-    assert loop.reading is not None and loop.reading.value == 40.0
-    assert heater.demands[-1] == pytest.approx(50.0 + 2.0 * 10.0)
-    assert heater.applied == 1
+    def close(self, end_ns: int) -> None:
+        self.closed.append(end_ns)
 
 
-def test_cells_are_filled_only_while_watched(rig, probe, temperature, heater, clock):
-    rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
-    rig.loops[heater.name].regulate(5.0)
-    rig.on_read([sample(probe, temperature, 1.0, clock.now_ns())])
-    assert rig.loop_states.changed_since(0)[1] == {}
-    assert rig.actuator_states.changed_since(0)[1] == {}
-    with rig.loop_states.watch(), rig.actuator_states.watch():
-        rig.on_read([sample(probe, temperature, 2.0, clock.now_ns(), seq=2)])
-    states = rig.loop_states.changed_since(0)[1]
-    assert states[heater.name].reading.value == 2.0
-    assert rig.actuator_states.changed_since(0)[1][heater.name].demand == heater.demands[-1]
+@pytest.fixture
+def recorder_module(monkeypatch) -> type[FakeRecorder]:
+    """`flyball.runtime.recorder` as the rig imports it, replaced by the fake."""
+    module = types.ModuleType("flyball.runtime.recorder")
+    module.Recorder = FakeRecorder  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "flyball.runtime.recorder", module)
+    FakeRecorder.made.clear()
+    return FakeRecorder
 
 
-def test_apply_publishes_actuator_state_after_a_command(rig, duty_heater):
-    rig.add_actuator(duty_heater)
-    with rig.actuator_states.watch():
-        duty_heater.set_duty(0.7)
-        rig.apply(duty_heater)
-    assert rig.actuator_states.changed_since(0)[1][duty_heater.name].duty == 0.7
+@pytest.fixture
+def furnace(rig, fresh) -> Furnace:
+    furnace = Furnace(fresh("furnace"))
+    rig.add_device(furnace)
+    return furnace
 
 
-def test_reader_run_records_reads_and_goes_offline_on_error(rig, probe, temperature, clock, fresh):
-    class Flaky(Reader):
-        fail = False
-
-        def __init__(self):
-            super().__init__(fresh("flaky"), (probe,))
-
-        def read(self, time_ns):
-            if self.fail:
-                raise OSError("I2C timeout")
-            return [sample(probe, temperature, 20.0, time_ns)]
-
-    reader = Flaky()
-    rig.readers.add(reader)
-    rig.readers._read(reader)
-    run = rig.readers.run(reader.name)
-    assert run.last_read_ns == clock.now_ns() and run.conditions == ()
-    reader.fail = True
-    rig.readers._read(reader)  # the poll swallows it: the run says so, and an event is raised
-    run = rig.readers.run(reader.name)
-    assert run.running is False
-    assert run.conditions[0].kind == "offline" and run.conditions[0].level is Level.ERROR
-    assert "I2C timeout" in run.conditions[0].message
-    assert rig.recent[-1].kind == "offline" and rig.recent[-1].subject == reader.name
-    reader.fail = False
-    assert rig.readers.restart(reader.name).conditions == ()
-    assert rig.recent[-1].kind == "restarted"
+def test_an_event_is_kept_and_recorded(rig, clock, recorder_module):
+    clock.advance(2.0)
+    event = rig.event(Level.WARNING, "device", "x", "slow", "read took 3 s", {"took": 3})
+    assert rig.recent[-1] is event and event.time_ns == clock.now_ns()
+    assert event.level is Level.WARNING and event.kind == "slow" and event.details == {"took": 3}
+    rig.start_recording(FakeStore())
+    other = rig.event(Level.INFO, "rig", "x", "restarted", "polling again")
+    assert recorder_module.made[-1].events == [other]
 
 
-def test_a_failure_downstream_of_a_read_is_not_the_reader_s(rig, probe, temperature, fresh):
-    from flyball.core.reading import Reader
-    from flyball.core.sink import Observer
+class TestRecording:
+    def test_start_records_every_p_or_w_signal_and_every_controller_by_default(
+        self, rig, fresh, clock, recorder_module
+    ):
+        class WithSerial(Furnace):
+            TREE = (*Furnace.TREE, SignalSpec(name="serial", quantity=TEMP, access=Access.R))
 
-    class Broken(Observer):
-        observes = frozenset({probe})
-        touches = frozenset()
-
-        def observe(self, sample):
-            raise ValueError("a bug in an observer")
-
-    class Fine(Reader):
-        def read(self, time_ns):
-            return [sample(probe, temperature, 1.0, time_ns)]
-
-    rig.attach_observer(Broken())
-    reader = Fine(fresh("fine"), (probe,))
-    rig.readers.add(reader)
-    rig.readers._read(reader)
-    run = rig.readers.run(reader.name)
-    assert run.conditions == () and run.last_read_ns is not None, "the reader read fine"
-    event = rig.recent[-1]
-    assert event.kind == "delivery_failed" and event.scope == "rig"
-    assert "a bug in an observer" in event.message
-
-
-def test_function_reader_stamps_every_source_with_one_instant(fresh, temperature):
-    a, b = Source(fresh("a"), (temperature,)), Source(fresh("b"), (temperature,))
-    reader = FunctionReader(
-        fresh("sim"), {a: lambda t: {temperature: 1.0}, b: lambda t: {temperature: 2.0}}
-    )
-    samples = list(reader.read(123))
-    assert [s.time_ns for s in samples] == [123, 123]
-    assert {s.source: s.values[temperature] for s in samples} == {a: 1.0, b: 2.0}
-    assert reader.channels == {a[temperature], b[temperature]}
-
-
-def test_a_pushed_sample_reaches_the_rig_at_once(rig, probe, temperature, fresh):
-    from flyball.core.reading import Reader
-
-    reader = Reader(fresh("mqtt"), (probe,))
-    rig.start_reader(reader)  # no period: push only
-    reader.push(probe, {temperature: 3.0}, time_ns=50)
-    assert rig._readings[probe[temperature]].value == 3.0, "delivered without waiting for a poll"
-    assert rig.readers.run(reader.name).last_read_ns == 50
-
-
-def test_samples_pushed_before_attaching_are_delivered_on_attach(rig, probe, temperature, fresh):
-    from flyball.core.reading import Reader
-
-    reader = Reader(fresh("early"), (probe,))
-    reader.push(probe, {temperature: 1.0}, time_ns=10)
-    reader.push(probe, {temperature: 2.0}, time_ns=20)
-    assert probe[temperature] not in rig._readings
-    rig.start_reader(reader)
-    assert rig._readings[probe[temperature]].value == 2.0
-    assert [s.seq for s in [rig._samples[probe]]] == [2], "seq is the source's, in order"
-
-
-def test_a_polled_reader_still_polls_and_records_its_run(rig, probe, temperature, fresh, clock):
-    from flyball.core.reading import Reader, Sample
-
-    class Polled(Reader):
-        def read(self, time_ns):
-            return [Sample(probe, probe.next_seq(), time_ns, {temperature: 7.0})]
-
-    reader = Polled(fresh("polled"), (probe,))
-    rig.readers.add(reader)
-    clock.advance(1.0)
-    rig.readers._read(reader)
-    assert rig._readings[probe[temperature]].value == 7.0
-    assert rig.readers.run(reader.name).last_read_ns == clock.now_ns()
-
-
-def test_a_mixed_reader_delivers_both_paths(rig, probe, temperature, fresh, clock):
-    from flyball.core.reading import Reader, Sample
-
-    class Mixed(Reader):
-        def read(self, time_ns):
-            return [Sample(probe, probe.next_seq(), time_ns, {temperature: 1.0})]
-
-    reader = Mixed(fresh("mixed"), (probe,))
-    rig.start_reader(reader)
-    rig.read(reader)
-    assert rig._readings[probe[temperature]].value == 1.0
-    reader.push(probe, {temperature: 2.0}, time_ns=clock.now_ns() + 1)
-    assert rig._readings[probe[temperature]].value == 2.0
-
-
-def test_attach_loop_picks_the_feedforward_by_unit(rig, probe, temperature, fresh):
-    from flyball.control import NoFeedforward, Setpoint
-    from flyball.core.errors import ConflictError
-    from flyball.core.units.si import Kelvin, Volt
-
-    class VoltsIn(RecordingActuator):
-        demand_unit = Volt
-
-    class KelvinIn(RecordingActuator):
-        demand_unit = Kelvin
-
-    same, psu = RecordingActuator(fresh("same")), VoltsIn(fresh("psu"))
-    rig.attach_loop(probe[temperature], same, law=PI(kp=1.0))
-    assert isinstance(rig.loops.resolve(same.name).feedforward, Setpoint)
-    rig.loops.remove(same.name)
-    rig.attach_loop(probe[temperature], psu, law=PI(kp=1.0))
-    assert isinstance(rig.loops.resolve(psu.name).feedforward, NoFeedforward)
-    rig.loops.remove(psu.name)
-    # Passing the setpoint straight to an actuator that takes another unit is nonsense,
-    # even the same dimension in a different unit.
-    with pytest.raises(ConflictError, match="takes demands in K"):
-        rig.attach_loop(
-            probe[temperature], KelvinIn(fresh("k")), law=PI(kp=1.0), feedforward="setpoint"
+        furnace = WithSerial(fresh("furnace"))
+        rig.add_device(furnace)
+        heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+        store = FakeStore()
+        clock.advance(1.0)
+        recorder = rig.start_recording(store, name="run 1")
+        assert rig.recorder is recorder and store.sessions == [(clock.now_ns(), {"name": "run 1"})]
+        assert recorder.signals == [s for s in furnace.signals.values() if s.name != "serial"], (
+            "what publishes or is written; an R-only signal is neither"
         )
-    rig.attach_loop(probe[temperature], KelvinIn(fresh("k2")), law=PI(kp=1.0), feedforward="none")
+        assert recorder.controllers == [controller]
+        assert recorder.on_failure == rig._recording_failed
+
+        chosen = rig.start_recording(store, signals=[zone1], controllers=[])
+        assert recorder.closed == [clock.now_ns()], "replaced: the first session is closed"
+        assert chosen.signals == [zone1] and chosen.controllers == []
+        rig.stop_recording()
+        assert rig.recorder is None and chosen.closed == [clock.now_ns()]
+        rig.stop_recording()  # nothing running: nothing to do
+
+    def test_a_delivery_records_what_published_the_ticks_and_the_states(
+        self, rig, furnace, recorder_module
+    ):
+        heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
+        setting = furnace.signals["setpoint"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+        recorder = rig.start_recording(FakeStore())
+        rig.on_samples([Sample(furnace.root, 5, {zone1: 40.0, setting: 1.0})])
+        assert recorder.records == [
+            ([Sample(furnace.root, 5, {zone1: 40.0})], [(controller, rig.latest[zone1])], {}, 5)
+        ], "manual: the tick wrote nothing; the setting is not published"
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        rig.on_samples([Sample(furnace.root, 6, {zone1: 40.0})])
+        samples, ticks, states, time_ns = recorder.records[-1]
+        assert time_ns == 6 and [c for c, _ in ticks] == [controller]
+        assert states == {
+            heater1: WriteState(value=100.0, controller=controller.name),
+        }
+        rig.on_samples([Sample(furnace.root, 7, {setting: 2.0})])
+        assert recorder.records[-1] == ([], [], {}, 7), "nothing published, nothing written"
+
+    def test_a_manual_demand_records_its_states_at_once(self, rig, furnace, clock, recorder_module):
+        heater2 = furnace.signals["heater2"]
+        recorder = rig.start_recording(FakeStore())
+        clock.advance(3.0)
+        rig.demand(furnace.root, {"heater2": 7000.0})
+        assert recorder.records == [
+            (
+                [],
+                [],
+                {heater2: WriteState(value=6000.0, requested=7000.0, at_limit="high")},
+                3_000_000_000,
+            )
+        ]
+
+    def test_a_failed_recorder_is_detached_and_reported(self, rig, clock, recorder_module):
+        recorder = rig.start_recording(FakeStore())
+        recorder.on_failure(OSError("disk full"))
+        assert rig.recorder is None
+        assert rig.recent[-1].kind == "recording_failed" and "disk full" in rig.recent[-1].message
+        assert recorder.writer.ended == [clock.now_ns()] and recorder.closed == []
+        assert recorder.events == [], "the event did not go back to the failed recorder"
 
 
-def test_a_slow_read_raises_a_warning_condition(rig, probe, temperature, fresh):
-    from flyball.core.device import Level
-    from flyball.core.reading import Reader
+class Slow(Furnace):
+    """A furnace whose commit waits on a gate, as a bus with a long timeout would."""
 
-    class Slow(Reader):
-        def read(self, time_ns):
-            rig.clock.sleep(0.02)  # the rig's time is what "slow" is judged in
-            return [sample(probe, temperature, 1.0, time_ns)]
+    blocking = True
 
-    reader = Slow(fresh("slow"), (probe,))
-    rig.readers.start_periodic(reader, period=0.005)
-    rig.readers.stop_all()
-    rig.readers._read(reader)
-    (condition,) = rig.readers.run(reader.name).conditions
-    assert condition.kind == "slow" and condition.level is Level.WARNING
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.gate = threading.Event()
+        self.fail = False
+        self.attempts = 0
+        self.committed: list[dict[str, float]] = []
+
+    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+        self.gate.wait(2)  # a 2 s bus timeout, unless released
+        self.attempts += 1
+        if self.fail:
+            raise OSError("bus timeout")
+        self.committed.append({s.name: v for s, v in self.pending.items()})
+        return super().commit(time_ns)
 
 
-class TestWriters:
-    """A blocking actuator's writes happen on its own thread; a failing bus is a condition."""
+def _wait_until(condition, timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.005)
 
-    def test_the_loop_never_waits_for_a_blocking_actuator(self, rig, probe, temperature, fresh):
-        import threading
-        import time
 
-        gate = threading.Event()
-        written = []
+class TestBlockingDevices:
+    """A blocking device's applies and commits happen on its own thread.
 
-        class Slow(RecordingActuator):
-            blocking = True
+    A failing bus is a condition and an event; the write states arrive
+    when the write completes.
+    """
 
-            def set_demand(self, demand):
-                gate.wait(2)  # a 2 s bus timeout, unless released
-                written.append(demand)
-                return demand
-
-        heater = Slow(fresh("slow"))
-        rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
-        rig.loops[heater.name].regulate(50.0)
-        t = time.monotonic()
-        rig.on_read([sample(probe, temperature, 40.0, rig.clock.now_ns())])
-        assert time.monotonic() - t < 0.2, "the delivery did not wait on the bus"
-        assert written == [], "the write is queued"
-        gate.set()
-        deadline = time.monotonic() + 2
-        while len(written) < 2 and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert written and written[-1] == pytest.approx(60.0)
-        assert rig.writers[heater.name].expected == pytest.approx(60.0)
+    def test_a_delivery_never_waits_and_the_states_arrive_later(self, rig, fresh, clock):
+        slow = Slow(fresh("slow"))
+        rig.add_device(slow)
+        heater1, zone1 = slow.signals["heater1"], slow.signals["zone1"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+        rig.on_samples([Sample(slow.root, 0, {zone1: 40.0})])
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        assert controller.expected is None, "the write is queued, not done"
+        started = time.monotonic()
+        with rig.write_states.watch(), rig.controller_states.watch():
+            rig.on_samples([Sample(slow.root, 1_000_000_000, {zone1: 40.0})])
+            assert time.monotonic() - started < 0.2, "the delivery did not wait on the bus"
+            assert slow.commits == 0 and slow.committed == []
+            slow.gate.set()
+            _wait_until(lambda: heater1 in slow.written)
+        assert slow.committed == [{"heater1": 100.0}], "the newest pending value, once"
+        expected = WriteState(value=100.0, controller=controller.name)
+        assert slow.written[heater1] == expected and controller.expected == 100.0
+        assert controller.delivered_correction == 100.0, "delivered() closed the tick"
+        assert rig.write_states.changed_since(0)[1] == {heater1.address: expected}
+        assert rig.controller_states.changed_since(0)[1][controller.name].expected == 100.0
+        assert rig.write_conditions() == []
         rig.stop()
 
-    def test_newest_demand_wins_and_a_failing_bus_is_reported(self, rig, probe, temperature, fresh):
-        import time
-
-        class Flaky(RecordingActuator):
-            blocking = True
-            fail = True
-
-            def set_demand(self, demand):
-                if self.fail:
-                    raise OSError("bus timeout")
-                return super().set_demand(demand)
-
-        heater = Flaky(fresh("flaky"))
-        rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
-        rig.loops[heater.name].regulate(50.0)
-        rig.on_read([sample(probe, temperature, 40.0, rig.clock.now_ns())])
-        writer = rig.writers[heater.name]
-        deadline = time.monotonic() + 2
-        while writer.failed is None and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert writer.failed is not None and writer.failed.kind == "write_failed"
-        assert [(n, c.kind) for n, c in rig.write_conditions()] == [(heater.name, "write_failed")]
-        assert rig.recent[-1].kind == "write_failed" and rig.recent[-1].subject == heater.name
-        heater.fail = False
-        rig.on_read([sample(probe, temperature, 41.0, rig.clock.now_ns(), seq=2)])
-        deadline = time.monotonic() + 2
-        while writer.failed is not None and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert writer.failed is None and rig.recent[-1].kind == "write_recovered"
+    def test_a_manual_demand_returns_nothing_and_the_state_follows(self, rig, fresh, clock):
+        slow = Slow(fresh("slow"))
+        rig.add_device(slow)
+        heater2 = slow.signals["heater2"]
+        assert rig.demand(slow.root, {"heater2": 7000.0}) == {}
+        assert rig.demand(slow.root, {"heater2": 100.0}) == {}
+        slow.gate.set()
+        _wait_until(lambda: heater2 in slow.written)
+        assert slow.committed == [{"heater2": 100.0}], "the newest value wins"
+        assert slow.written[heater2] == WriteState(value=100.0)
         rig.stop()
 
-    def test_a_synchronous_actuator_is_written_in_the_tick(self, rig, probe, temperature, heater):
-        rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
-        rig.loops[heater.name].regulate(50.0)
-        rig.on_read([sample(probe, temperature, 40.0, rig.clock.now_ns())])
-        assert heater.demands[-1] == pytest.approx(60.0) and rig.writers == {}
+    def test_a_failing_bus_is_a_condition_and_an_event_until_a_write_succeeds(
+        self, rig, fresh, clock
+    ):
+        slow = Slow(fresh("flaky"))
+        slow.fail = True
+        slow.gate.set()
+        rig.add_device(slow)
+        heater1 = slow.signals["heater1"]
+        rig.demand(slow.root, {"heater1": 1.0})
+        _wait_until(lambda: rig.write_conditions() != [])
+        [(name, condition)] = rig.write_conditions()
+        assert name == slow.name and condition.kind == "write_failed"
+        assert condition.level is Level.ERROR and "bus timeout" in condition.message
+        assert rig.recent[-1].kind == "write_failed" and rig.recent[-1].subject == slow.name
+        rig.demand(slow.root, {"heater1": 2.0})
+        _wait_until(lambda: slow.attempts == 2)
+        assert len(rig.recent) == 1, "one event per outage, not one per write"
+        slow.fail = False
+        rig.demand(slow.root, {"heater1": 3.0})
+        _wait_until(lambda: rig.write_conditions() == [])
+        assert rig.recent[-1].kind == "write_recovered" and slow.written[heater1].value == 3.0
+        rig.stop()
+
+    def test_a_synchronous_device_is_written_in_the_delivery(self, rig, furnace):
+        heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+        rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        rig.on_samples([Sample(furnace.root, 1, {zone1: 40.0})])
+        assert furnace.inputs == {"heater1": 100.0} and rig._writers == {}
+
+
+def test_stop_ends_polling_writers_and_recording(rig, fresh, recorder_module):
+    class Polled(Furnace):
+        def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+            yield from super().read(time_ns, node)
+
+    polled = Polled(fresh("polled"))
+    polled.poll_s = 1.0
+    rig.add_device(polled)
+    rig.start_polling(polled)
+    slow = Slow(fresh("slow"))
+    slow.gate.set()
+    rig.add_device(slow)
+    rig.demand(slow.root, {"heater1": 1.0})
+    recorder = rig.start_recording(FakeStore())
+    assert rig.polling.run(polled.name).running is True
+    rig.stop()
+    assert rig.polling.run(polled.name).running is False
+    assert rig.recorder is None and recorder.closed
+    assert not rig._writers[slow]._thread.is_alive()

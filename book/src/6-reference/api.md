@@ -3,102 +3,130 @@
 All routes are under `/api`; websockets under `/ws`. Bodies and responses
 are JSON. OpenAPI is served at `/docs`.
 
+Everything on the wire is named by **address**: a signal's
+(`furnace.zone1`), a namespace's (`hum_sensors.dry`), a device's
+(`furnace`), or a controller's, which is the address of the writable
+signal it drives (`heaters.heater1`). Addresses are dotted paths with no
+slashes, so they sit in one path segment.
+
 ## Errors
 
 `{"detail": "<message>"}` with the status from the error's base:
-404 `NotFoundError`, 409 `ConflictError`, 422 `UnachievableError` or
-`ValueError`, 503 `NotReadyError` or `HardwareError`.
+404 `NotFoundError` (an address, a device, a command, a tuning), 409
+`ConflictError` (a demand the rig refuses, a signal already spoken for,
+a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
+`NotReadyError` (no rig, nothing read yet, no default controller) or
+`HardwareError`.
 
 ## Rig
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, readers, loops, conditions, alarms, signals, recording}`; `conditions` includes readers' (`offline`, `slow`), actuators' own, and writers' `write_failed`; `alarms` is `{warn, alarm, max_level}`: every source's latest sample, channels outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus device conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `{ok: false, rig: null}` with no rig |
-| `GET` | `/api/schema` | `{actuators: {name: DeviceSchema}, readers: {name: DeviceSchema}}` |
-| `GET` | `/api/clock` | `ClockOut` |
-| `GET` | `/api/sources` | `[SourceOut]` |
-| `GET` | `/api/sources/{name}` | `SourceOut` |
-| `GET` | `/api/sources/{name}/{measurand}` | `{channel, time_ns, value}`; 404 until the first delivery |
-| `GET` | `/api/loops` | `[LoopOut]` |
-| `GET` | `/api/loops/default` | `LoopOut` |
-| `GET` | `/api/loops/{name}` | `LoopOut` |
-| `GET` | `/api/loops/schema` | what a form needs to make a loop: `channels` (with `dimension`), `actuators` (`demand_unit`, which channels each may drive), `laws` and `feedforwards` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` |
-| `POST` | `/api/loops` | `{channel, actuator, law?, feedforward?, default?, min_period_s?}`; 201 `LoopOut`; 409 if the actuator already drives a loop, or `feedforward: "setpoint"` across units |
-| `DELETE` | `/api/loops/{name}` | 204; put in manual first, so the actuator holds its last demand |
-| `POST` | `/api/loops/{name}/regulate` | `{at, tuning?, transfer?}`; `at` a value or `process`/`setpoint`/`demand`; `demand` is converted back to the channel's unit through the feedforward's inverse, 422 if it has none |
-| `POST` | `/api/loops/{name}/manual` | stop regulating; the actuator keeps its last demand |
-| `PUT` | `/api/loops/{name}/reference` | `{at}`; move the setpoint without touching the mode |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `{ok: false, rig: null}` with no rig |
+| `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
+| `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
 | `GET` | `/api/tunings/{tag}` | `LawConfig` |
 | `PUT` | `/api/tunings/{tag}` | body `LawConfig`; replaces the tuning on the live rig |
 
-A `DeviceSchema` is `{name, label, type, description, config, settings, state,
-commands: {tag: {description, arguments, simulation}}}`, each schema a JSON
-Schema; actuators add `demand_unit`, readers add `sources`. `label` is the
-display name from the rig file, or null.
-
-A `SourceOut` is `{name, label, channels: [ChannelOut], latest}`; `label` is
-the source's display name from the rig file, or null (show `name`). A
-`ChannelOut` is `{source, measurand, unit, label, range, precision, warn,
-alarm, dimension}`; `label` here is the measurand's own display label, always
-present.
-
-Every actuator's `state` carries `output_range`: `[min, max]` in
-`demand_unit`, or null if not known. A sim actuator works it out from its
-drive `limits` (null in "smart" mode, where the actuator models the plant
-and the range is not a fixed scale); a real one states it in its config, or
-it is null.
-
-A `LoopOut` is `{name, label, channel, default, mode, law, feedforward,
-demand_unit, reference, setpoint, correction, demand, expected,
-delivered_correction, reading}`: `reference` is a number or the name of the
-trajectory being followed, `setpoint` the value it resolved to at the last
-tick, and `demand`, `expected` and `correction` are in `demand_unit` -- the
-actuator's unit, which the `feedforward` (`{tag: setpoint | none | affine |
-table, ...}`, `affine`/`table` taking an optional `rate_gain` for a ramp's
-rate of change) maps the setpoint into.
-
 A `LawConfig` is `{tag, ...gains}`, e.g. `{"tag": "PI", "kp": 0.5, "ki": 0.05, "tt": 0}`.
-A `SignalState` is `{name, message, outcome, since_ns, timeout_s, prompt}` with
-`prompt` true for a wait only a person answers (a program's `wait`), false for a hold
-or an arrival that settles by itself, and
-`outcome` one of `pending`, `fired`, `timeout`, `interrupted`.
 
 ## Devices
 
-The same shape under `/api/actuators` and `/api/readers`.
+Every device has one name rig-wide, whatever its driver; `/api/devices`
+lists them all with their signal trees.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/actuators` | `{name: {name, type, description}}` |
-| `GET` | `/api/actuators/{name}` | `{config, settings, state}`; `state.output_range` is `[min, max]` in `demand_unit`, or null |
-| `GET` | `/api/actuators/{name}/schema` | the `DeviceSchema` |
-| `POST` | `/api/actuators/{name}/{command}` | body: the command's arguments; returns what the method returns |
-| `POST` | `/api/readers/{name}/restart` | poll an offline reader again on its period; a command that succeeds on an offline reader (`restore`, a reset) restarts it the same way |
+| `GET` | `/api/devices` | `[DeviceOut]` |
+| `GET` | `/api/devices/{name}` | `DeviceOut`; 404 if no device has that name |
+| `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
+| `POST` | `/api/devices/{name}/commands/{tag}` | body: the command's arguments; returns what the method returns; a command that succeeds on an offline device restarts its polling |
+| `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut` |
+| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, a `together` group set in part, or a signal that is not writable; 404 for a name not under the device |
+| `PUT` | `/api/signals/{address}` | body a number: the single-signal demand; returns `{address: WriteOut}`; 409 if the address is a namespace |
 
-A reader's view also carries its `run`: `{period_s, running, last_read_ns,
-conditions}`.
+A `DeviceOut` is `{name, label, kind, driver, type, link, poll_s, signals,
+commands, state, conditions, run}`: `kind` is `device`, or `simulation`
+for an application's own simulation device (see [Simulation](#simulation)),
+`driver` the rig file's tag (null for a device built in code), `type` the
+class, `link` the rig file's name
+for the link it was built on (or null), `signals` the tree, `commands`
+`[{name, description, simulation}]`, `state` what the device reports of
+itself, `conditions` its own plus the runtime's (`offline`, `slow`), and
+`run` `{period_s, running, last_read_ns}` for a polled device (null
+otherwise).
 
-Every reader, actuator and application device (see [Simulation](#simulation))
-has one name rig-wide; `/api/devices` lists them together instead of by kind.
+A signal in the tree is `{name, address, access, label, quantity, unit,
+dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits,
+together, latest, write}`: `access` is the set in force as letters (`rp`,
+`w`, `rw`, `rpw`), `latest` `{time_ns, value}` once it has been read (null
+before), `write` a `WriteOut` for a writable signal once it has been set. A
+namespace is `{name, address, atomic, label, poll_s, signals: [...]}`,
+nesting the same shapes.
+
+A `WriteOut` is `{value, requested, at_limit, controller}`: what was last
+set after limits, what was asked for when the clamp changed it, `low` /
+`high` when the value sits on a limit, and the controller driving the
+signal (it refuses manual demands; set its reference or detach it).
+
+A `DeviceSchema` is `{name, label, type, driver, description, config,
+settings, state, signals, commands: {tag: {description, arguments,
+simulation}}}`, each of `config`/`settings`/`state`/`arguments` a JSON
+Schema; `signals` is `{path: {address, access, label, quantity, unit,
+dimension, range, precision, limits}}` by path relative to the device.
+
+## Reading
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/devices` | `{name: {name, label, kind, type, link}}`; `kind` is `reader`, `actuator`, `simulation` (an application's own device) or another an application registers; `link` is the rig file's link name, or null when the device has none (a sim device, e.g.) |
-| `GET` | `/api/devices/{name}` | the same shape for one device, whichever kind it is; 404 if no device has that name |
+| `GET` | `/api/read/{address}?fresh=` | what the address names: a signal → `{reading: {signal, time_ns, value}}`; an atomic namespace → `{sample: {node, time_ns, values}}`, `values` keyed relative to the node; a device or a namespace read over several transactions → `{samples: [...]}`; `fresh=true` reads the hardware first, which is how a setting (`rw`, never published) is read; 503 until the first read, 404 for an unknown address |
+| `GET` | `/api/read?at=a,b,c&fresh=` | several addresses at once, a list in the order given; a fresh read costs each device one read |
 
-A name collision -- two devices declared with the same name -- is a 409
-naming both of them; a rig file with one fails to load in the first place
-(see [Rig file schema](rig-file.md)).
+## Controllers
 
-## Signals
+A controller binds one publishing signal (`source`) to one writable
+signal (`target`) through a law and a feedforward, and is named by its
+target's address.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/signals` | `{name: SignalState}` |
-| `GET` | `/api/signals/{name}` | `SignalState` |
-| `POST` | `/api/signals/{name}/fire` | `{name, fired: bool}`; false if already settled |
-| `POST` | `/api/signals/{name}/interrupt` | `{name, interrupted: bool}` |
+| `GET` | `/api/controllers` | `[ControllerOut]` |
+| `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
+| `GET` | `/api/controllers/{address}` | `ControllerOut` |
+| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `sources` and `targets` (`[{address, device, label, unit, dimension, range, limits}]`: every publishing signal, every writable one), `laws` and `feedforwards` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{source: controller}`), `driven` (`{target: controller}`) |
+| `POST` | `/api/controllers` | `{target, source, law?, feedforward?, default?, min_period_s?}`; 201 `ControllerOut`; 409 if the target is already driven or the source already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
+| `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the target holds its last demand; manual demands may drive it again |
+| `POST` | `/api/controllers/{address}/regulate` | `{at, tuning?, transfer?}`; `at` a value or `process`/`setpoint`/`demand`; `demand` is converted back to the source's unit through the feedforward's inverse, 422 if it has none; the handover's demand is committed at once |
+| `POST` | `/api/controllers/{address}/manual` | stop regulating; the target keeps its last demand |
+| `PUT` | `/api/controllers/{address}/reference` | `{at}`; move the setpoint without touching the mode |
+
+A `ControllerOut` is `{name, label, target, source, default, mode, law,
+feedforward, demand_unit, reference, setpoint, correction, demand,
+expected, delivered_correction, reading}`: `name` is `target`; `label` the
+target signal's; `reference` is a number or the name of the trajectory
+being followed, `setpoint` the value it resolved to at the last tick (in
+the source's unit), and `demand`, `expected` and `correction` are in
+`demand_unit` -- the target's unit, which the `feedforward` (`{tag:
+setpoint | none | affine | table, ...}`, `affine`/`table` taking an
+optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
+`reading` is `{signal, time_ns, value}` on the source at the last tick.
+
+## Waits
+
+What the rig is waiting on: a program step's prompt, a settle test, a hold.
+
+| | | |
+| --- | --- | --- |
+| `GET` | `/api/waits` | `{name: WaitState}` |
+| `GET` | `/api/waits/{name}` | `WaitState` |
+| `POST` | `/api/waits/{name}/fire` | `{name, fired: bool}`; false if already settled |
+| `POST` | `/api/waits/{name}/interrupt` | `{name, interrupted: bool}` |
+
+A `WaitState` is `{name, message, outcome, since_ns, timeout_s, prompt}`
+with `prompt` true for a wait only a person answers (a program's `wait`),
+false for a hold or an arrival that settles by itself, and `outcome` one
+of `pending`, `fired`, `timeout`, `interrupted`.
 
 ## History
 
@@ -109,22 +137,24 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions?limit=` | `[SessionRow]`, newest first |
 | `GET` | `/api/history/sessions/{id}` | `SessionRow` |
 | `DELETE` | `/api/history/sessions/{id}` | 204; everything the session recorded goes; tunings survive |
-| `GET` | `/api/history/sessions/{id}/sources` | `[SourceRow]`; `label` is the source's display name, or null |
-| `GET` | `/api/history/sessions/{id}/channels` | `[ChannelRow]` |
-| `GET` | `/api/history/sessions/{id}/actuators` | `[ActuatorRow]`; `config` is the actuator's config as built, or null |
-| `GET` | `/api/history/sessions/{id}/loops` | `[LoopRow]` |
-| `GET` | `/api/history/sessions/{id}/series/{source}/{measurand}` | `Series`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
-| `GET` | `/api/history/sessions/{id}/ticks/{loop}` | `[Tick]`; query `start_ns`, `end_ns` |
+| `GET` | `/api/history/sessions/{id}/devices` | `[DeviceRow {id, address, driver, config, label}]` |
+| `GET` | `/api/history/sessions/{id}/signals` | `[SignalRow {id, device_id, address, quantity, unit, access, dtype, shape, label, range, precision, warn, alarm, limits}]` |
+| `GET` | `/api/history/sessions/{id}/writes` | `[WriteRow {signal: SignalRow, driver, limits}]` |
+| `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, source, law, feedforward}]` |
+| `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
+| `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
+| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick]`; query `start_ns`, `end_ns` |
 | `GET` | `/api/history/sessions/{id}/events` | `[Event]`; query `start_ns`, `end_ns` |
 | `GET` | `/api/history/sessions/{id}/spans` | `[Span]`, in start order; nest by `parent_id` |
-| `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per channel (each row holds every channel's last value; `step_s` resamples onto a grid), `long` one row per value, `zip` both plus each loop's ticks, the events and `session.json` |
-| `GET` | `/api/history/sessions/{id}/series/{source}/{measurand}/export?format=` | one channel as csv/json |
-| `GET` | `/api/history/sessions/{id}/ticks/{loop}/export?format=` | one loop's ticks as csv/json |
+| `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per signal (each row holds every signal's last value; `step_s` resamples onto a grid), `long` one row per value (`device, signal, unit, value`), `zip` both (`signals-wide.csv`, `signals-long.csv`) plus each controller's ticks (`controller-{name}.csv`), each write's states (`write-{address}.csv`), `events.csv` and `session.json` (`devices`, `signals`, `controllers`) |
+| `GET` | `/api/history/sessions/{id}/series/{address}/export?format=` | one signal as csv/json |
+| `GET` | `/api/history/sessions/{id}/writes/{address}/export?format=` | one signal's write states as csv/json |
+| `GET` | `/api/history/sessions/{id}/ticks/{controller}/export?format=` | one controller's ticks as csv/json |
 | `GET` | `/api/history/sessions/{id}/events/export?format=` | the events as csv/json |
 | `GET` | `/api/history/tunings` | `[TuningRow]`, newest version of every name |
 | `GET` | `/api/history/tunings/{name}` | `TuningRow` |
 | `GET` | `/api/history/tunings/{name}/history` | `[TuningRow]`, newest first |
-| `PUT` | `/api/history/tunings/{name}` | body `{law, config, created_ns, session_id?, loop?, notes?}`; 201; adds a version |
+| `PUT` | `/api/history/tunings/{name}` | body `{law, config, created_ns, session_id?, controller?, notes?}`; 201; adds a version |
 | `DELETE` | `/api/history/tunings/{name}` | 204; every version |
 
 Times in history are integer nanosecond offsets from the session's start.
@@ -132,7 +162,8 @@ Times in history are integer nanosecond offsets from the session's start.
 ## Programs
 
 A program is a document in the server's [dialect](../3-running/programs.md);
-`check` and `run` take it as the body.
+`check` and `run` take it as the body. Steps name a controller by its
+target address (or none for the rig's default), a device by name.
 
 | | | |
 | --- | --- | --- |
@@ -164,11 +195,20 @@ config}` on a `grid` of `cols` (12 or 24) × `row_height`). A rig can ship
 
 A `DashboardRow` is `{id, name, rig, body, created_ns, sha256}`; a
 `DashboardWithProblems` is the same plus `problems: [{widget_id, ref,
-reason}]` — every widget whose binding (a `readout`/`gauge`'s `channel`, a
-`chart`'s `channels`, a `loop`'s `loop`, an `actuator`'s `actuator`, all
+reason}]` — every widget whose binding (a `readout`/`gauge`'s `address`, a
+`chart`'s `addresses`, a `loop`'s `controller`, a `device`'s `device`, all
 inside the widget's own `config`) names something this rig does not
-currently have. The document is saved and returned as given; nothing is
-refused for this.
+currently have; a readout wants a signal that publishes. The document is
+saved and returned as given; nothing is refused for this.
+
+Documents carry `schema_version: 2`. A version-1 document (bindings to
+channels, loops and actuators) is migrated on read, never refused, and
+what is stored stays as saved: `channel` (`"source.measurand"` or
+`{source, measurand}`) becomes `address`, `channels` become `addresses`,
+a `loop` widget's `loop` becomes `controller`, and an `actuator` widget
+becomes a `device` widget bound by `device`. A loop was named by its
+actuator and a controller by its target's address, so a migrated `loop`
+binding may show as a problem until it is rebound.
 
 ## Simulation
 
@@ -176,14 +216,17 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/sim` | `{simulated, device, name, path, clock: {speed, measured, stepped, now_ns}, plants: {name: {config, links, live, readings, stats, input, output}}, changed}`; `inputs`/`outputs` for a multi-port plant; `device` says whether `/api/sim/device` exists (an application's own simulation device, e.g. a `disturb`), so a client need not probe it and 404 on a rig without one |
-| `PUT` | `/api/sim/clock` | `{speed}`; the rig's time runs at `speed`× from now on |
+| `GET` | `/api/sim` | `{simulated, device, name, path, clock: {speed, measured, stepped, now_ns}, plants: {name: {config, links, live, readings, stats, input, output}}, changed}`; `inputs`/`outputs` for a multi-port plant; `readings` keyed by signal address; `device` says whether `/api/sim/device` exists (an application's own simulation device, e.g. a `disturb`), so a client need not probe it and 404 on a rig without one |
+| `PUT` | `/api/sim/clock` | `{speed}`; the rig's time runs at `speed`× from now on; 409 on a stepped clock |
 | `POST` | `/api/sim/clock/step` | `{seconds}`; a stepped clock only |
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |
-| `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live; 422 for `kind` |
+| `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
 | `GET` | `/api/sim/config` | the rig file as it now stands |
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from |
+| `GET` | `/api/sim/device` | the application's simulation device: `{config, settings, state}`; 404 without one |
+| `GET` | `/api/sim/device/schema` | its `DeviceSchema` |
+| `POST` | `/api/sim/device/{command}` | one of its commands |
 
 `GET /api/clock` carries `speed` too, so a client can label a time axis.
 
@@ -198,13 +241,16 @@ An `Event` is `{time_ns, level, scope, subject, kind, message, details}`;
 
 ## Websockets
 
+Every socket sends what the rig knows on connect, then every 50 ms one
+frame of whatever changed: the rig keeps only the newest value per key,
+so a socket costs at most one frame per flush at any tick rate. An empty
+flush sends nothing.
+
 | socket | on connect | then |
 | --- | --- | --- |
-| `/ws/samples` | — | every sample as a `SampleOut`, as published; oldest dropped if the client lags |
-| `/ws/loops` | every loop | every 50 ms, `{loops: [LoopOut]}` of those that ticked |
-| `/ws/actuators` | every actuator | `{actuators: [{name, state}]}` of those that changed |
-| `/ws/readers` | every reader | `{readers: [{name, ...ReaderRun}]}` as each reads, fails or restarts |
-| `/ws/signals` | every registered signal | `{signals: [SignalState]}` as each registers or settles |
+| `/ws/samples` | the newest published sample per node | `{samples: [{node, time_ns, values}]}` of the nodes that delivered; only publishing signals, `values` keyed relative to `node`; at most one sample per node per flush |
+| `/ws/writes` | every write state | `{writes: [{signal, value, requested, at_limit, controller}]}` of the signals committed |
+| `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
+| `/ws/devices` | every polled device | `{devices: [{name, period_s, running, last_read_ns, conditions, state}]}` as each reads, fails or is restarted |
+| `/ws/waits` | every registered wait | `{waits: [WaitState]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |
-
-An empty flush sends nothing.

@@ -31,7 +31,7 @@ class SessionEndedError(StoreError, ConflictError):
 
 
 class NotDeclaredError(StoreError, ConflictError):
-    """A row named a source, measurand or loop the session never declared."""
+    """A row named a device, signal or controller the session never declared."""
 
     def __init__(self, kind: str, name: str) -> None:
         super().__init__(f"{kind} {name!r} was not declared in this session")

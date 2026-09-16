@@ -10,31 +10,31 @@ from flyball.runtime.config import load_rig_config
 from flyball.sim import Fopdt, Integrator, Lag, Noisy, SteppedClock
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
+STRESS = Path(__file__).resolve().parents[2] / "examples" / "stress"
 
 
 def run(name: str, setpoint: float, seconds: float) -> tuple[float, list[float]]:
-    """Regulate the example's only loop on a stepped clock: the final reading and the trace."""
+    """Regulate the example's only controller on a stepped clock: the final reading, the trace."""
     config = load_rig_config(EXAMPLES / name)
     clock = SteppedClock(0)
     rig = config.build(clock=clock, start=False)
-    (reader,) = rig.readers.by_name.values()
-    (loop_name,) = rig.loops
-    loop = rig.loops[loop_name]
-    period = config.readers[0].period_s or 1.0
-    rig.read(reader)
-    loop.regulate(setpoint)
+    ((_, controller),) = rig.controllers.items()
+    source = controller.source
+    period = source.poll_s or 1.0
+    rig.read(source, fresh=True)
+    controller.regulate(setpoint)
     trace = []
     for _ in range(int(seconds / period)):
         clock.advance(period)
-        rig.read(reader)
-        assert loop.reading is not None
-        trace.append(loop.reading.value)
+        rig.read(source, fresh=True)
+        assert controller.state.reading is not None
+        trace.append(controller.state.reading.value)
     return trace[-1], trace
 
 
 @pytest.mark.parametrize(
     ("name", "setpoint", "seconds", "tolerance"),
-    [("oven.toml", 50.0, 600, 0.5), ("tank.toml", 40.0, 300, 1.0), ("bench.toml", 12.0, 5, 0.1)],
+    [("oven.yaml", 50.0, 600, 0.5), ("tank.yaml", 40.0, 300, 1.0), ("bench.yaml", 12.0, 5, 0.1)],
 )
 def test_example_rigs_settle_at_their_setpoints(name, setpoint, seconds, tolerance):
     final, trace = run(name, setpoint, seconds)
@@ -48,36 +48,58 @@ def test_chiller_settles_while_cooling():
     "No overshoot" means not undershooting past it, the mirror of the heating
     examples above.
     """
-    final, trace = run("chiller.toml", 5.0, 900)
+    final, trace = run("chiller.yaml", 5.0, 900)
     assert final == pytest.approx(5.0, abs=0.5)
     assert min(trace) > 5.0 - 2.0, "no gross undershoot"
 
 
-def test_dual_settles_both_loops():
-    """`dual.toml` has two independent loops, so the single-reader `run()` helper does not fit.
+def test_dual_settles_both_controllers():
+    """`dual.yaml` has two independent controllers, so the single-source `run()` does not fit.
 
     Drive both directly and check each settles in its own unit.
     """
-    config = load_rig_config(EXAMPLES / "dual.toml")
+    config = load_rig_config(EXAMPLES / "dual.yaml")
     clock = SteppedClock(0)
     rig = config.build(clock=clock, start=False)
-    readers = list(rig.readers.by_name.values())
-    for reader in readers:
-        rig.read(reader)
-    rig.loops["heater"].regulate(50.0)
-    rig.loops["valve"].regulate(40.0)
+    sources = [rig.resolve("dual_temp.temperature"), rig.resolve("dual_level.volume")]
+    rig.read(sources, fresh=True)
+    heater, valve = rig.controllers["heater.drive"], rig.controllers["valve.drive"]
+    heater.regulate(50.0)
+    valve.regulate(40.0)
     for _ in range(1200):
         clock.advance(0.5)
-        for reader in readers:
-            rig.read(reader)
-    assert rig.loops["heater"].reading.value == pytest.approx(50.0, abs=0.5)
-    assert rig.loops["valve"].reading.value == pytest.approx(40.0, abs=1.0)
+        rig.read(sources, fresh=True)
+    assert heater.state.reading is not None and valve.state.reading is not None
+    assert heater.state.reading.value == pytest.approx(50.0, abs=0.5)
+    assert valve.state.reading.value == pytest.approx(40.0, abs=1.0)
 
 
-def test_every_example_validates_and_names_a_default_loop():
-    for path in EXAMPLES.glob("*.toml"):
+def test_every_example_validates_builds_and_names_a_default_controller():
+    for path in sorted(EXAMPLES.glob("*.yaml")):
         config = load_rig_config(path)
-        assert config.name and any(loop.default for loop in config.loops), path.name
+        assert config.name and any(c.default for c in config.controllers.values()), path.name
+        rig = config.build(start=False)
+        assert set(rig.devices) == set(config.devices), path.name
+        assert set(rig.controllers) == set(config.controllers), path.name
+
+
+def test_every_stress_rig_validates_and_builds():
+    """The stress rigs are exercised in `test_stress.py`; here only that the files are whole."""
+    for path in sorted(STRESS.glob("*.yaml")):
+        config = load_rig_config(path)
+        assert config.name, path.name
+        rig = config.build(start=False)
+        assert set(rig.devices) == set(config.devices), path.name
+
+
+def test_no_example_is_left_in_the_old_format():
+    """Every example rig is YAML in the `devices:`/`controllers:` shape; no `.toml` remains."""
+    for directory in (EXAMPLES, STRESS):
+        assert not list(directory.glob("*.toml")), directory
+        for path in directory.glob("*.yaml"):
+            text = path.read_text()
+            assert text.startswith("# yaml-language-server: $schema="), path.name
+            assert "readers:" not in text and "actuators:" not in text and "loops:" not in text
 
 
 class TestPlants:

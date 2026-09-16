@@ -18,12 +18,13 @@ from typing import Any
 from flyball.core.config import Config
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import SUFFIXES
-from flyball.core.reading import Channel, Reader
+from flyball.core.signal import Signal
 from flyball.runtime.config import ClockEntry, RigConfig, is_simulated
 from flyball.runtime.rig import Rig
 from flyball.runtime.stats import noise, rate
 from flyball.sim.clock import ScaledClock, SteppedClock
-from flyball.sim.furnace import MultiPlant, Port
+from flyball.sim.devices import SimDaq
+from flyball.sim.furnace import MultiPlant
 from flyball.sim.plant import Fopdt, Integrator, Lag, Noisy
 
 __all__ = ["Simulation", "resolve_live"]
@@ -131,11 +132,11 @@ class Simulation:
         Raises:
             NotFoundError: No such plant.
             ValueError: A parameter the plant does not have, an invalid value,
-                or a change of `kind`.
+                or a change of `model`.
         """
         current = self.plant_config(name)
-        if "kind" in parameters and parameters["kind"] != getattr(current, "kind", None):
-            raise ValueError("a plant's kind cannot change while it runs; edit the file")
+        if "model" in parameters and parameters["model"] != getattr(current, "model", None):
+            raise ValueError("a plant's model cannot change while it runs; edit the file")
         # The tagged form, as the file's union holds, so the config still dumps as its tag.
         model = Config.registry[current.config_tag].tagged()
         updated = model.model_validate({**current.model_dump(), **parameters})
@@ -179,62 +180,57 @@ class Simulation:
     # region What you set, as a file
 
     def readings(self, name: str) -> dict[str, dict[str, Any]]:
-        """What the rig last delivered from each of a plant's output ports.
+        """What the rig last delivered on each signal read off a plant, by the signal's address.
 
-        Keyed by port (`output` for a single-port plant): the delivered value
-        (noise and all, not the model's state), its unit and precision, which
-        reader read it, and how old it is in rig seconds. Only ports some
-        reader reads appear.
+        The delivered value (noise and all, not the model's state), its unit
+        and precision, which device and port it came off, and how old it is
+        in rig seconds. Only signals some `sim_daq` reads appear.
         """
         out: dict[str, dict[str, Any]] = {}
         now_ns = self.rig.clock.now_ns()
-        for port, reader, channel in self._read_ports(name):
-            reading = self.rig.reading(channel)
+        for device, signal, port in self._read_ports(name):
+            reading = self.rig.latest.get(signal)
             if reading is None:
                 continue
-            out[port] = {
+            out[signal.address] = {
                 "value": reading.value,
-                "unit": channel.unit.symbol,
-                "precision": channel.measurand.precision,
-                "reader": reader.name,
+                "unit": signal.unit.symbol,
+                "precision": signal.spec.precision,
+                "device": device.name,
+                "port": port,
                 "age_s": (now_ns - reading.time_ns) / 1e9,
             }
         return out
 
     def stats(self, name: str) -> dict[str, dict[str, float]]:
-        """What the recent readings show, per output port.
+        """What the recent readings show, per signal read off the plant, by address.
 
         `noise`: σ about a short moving mean over the last readings, in the
-        port's unit; `rate_per_min`: the slope of the last minute of them.
-        A port is left out of a statistic there are too few readings for.
+        signal's unit; `rate_per_min`: the slope of the last minute of them.
+        A signal is left out of a statistic there are too few readings for.
         """
         out: dict[str, dict[str, float]] = {"noise": {}, "rate_per_min": {}}
         now_ns = self.rig.clock.now_ns()
-        for port, _, channel in self._read_ports(name):
-            recent = self.rig.recent_readings(channel)
+        for _, signal, _ in self._read_ports(name):
+            recent = self.rig.recent_readings(signal)
             if (sigma := noise(recent)) is not None:
-                out["noise"][port] = sigma
+                out["noise"][signal.address] = sigma
             last_minute = [r for r in recent if now_ns - r.time_ns <= 60_000_000_000]
             if (slope := rate(last_minute)) is not None:
-                out["rate_per_min"][port] = slope
+                out["rate_per_min"][signal.address] = slope
         return out
 
-    def _read_ports(self, name: str) -> list[tuple[str, Reader, Channel]]:
-        """Each (port, reader, channel) some reader reads off the plant `name`."""
+    def _read_ports(self, name: str) -> list[tuple[SimDaq, Signal, str]]:
+        """Each (device, signal, port) some `sim_daq` reads off the plant `name`."""
         plant = self.plants.get(name)
         if plant is None:
             raise NotFoundError(f"no simulated plant {name!r}; there are {sorted(self.plants)}")
-        out: list[tuple[str, Reader, Channel]] = []
-        for reader in self.rig.readers.by_name.values():
-            bound = getattr(reader, "plant", None)
-            if isinstance(bound, Port) and bound.plant is plant:
-                port = bound.output_name or ""
-            elif bound is plant:
-                port = "output"
-            else:
-                continue
-            out.extend((port, reader, channel) for channel in reader.channels)
-        return out
+        return [
+            (device, device.signals[signal_name], port)
+            for device in self.rig.devices.values()
+            if isinstance(device, SimDaq) and device.plant is plant
+            for signal_name, port in device.ports.items()
+        ]
 
     def links(self, name: str) -> dict[str, str]:
         """Each config field with a `live` link, to the path it points at (see `resolve_live`)."""
@@ -309,11 +305,6 @@ class Simulation:
         if self.document is None:
             dumped = self.config.model_dump(mode="json", exclude_none=True)
             dumped["links"] = {name: _tagged(c) for name, c in self.config.links.items()}
-            dumped["readers"] = [
-                {**entry, "device": _tagged(r.device)}
-                for entry, r in zip(dumped.get("readers", []), self.config.readers, strict=True)
-            ]
-            dumped["actuators"] = [_tagged(a) for a in self.config.actuators]
             return dumped
         out = dict(self.document)
         if "clock" in self._changed:
@@ -376,12 +367,8 @@ def _resolve(segments: list[str], node: Any) -> Any:
 
 
 def _tagged(config: Any) -> dict[str, Any]:
-    """A config as its file form: `tag` first, then its fields; a resolved link back to its name."""
-    fields = config.model_dump(mode="json", exclude_none=True)
-    link = getattr(config, "link", None)
-    if link is not None and not isinstance(link, str):
-        fields.pop("link", None)  # built in place; the file form cannot name it
-    return {"tag": config.config_tag, **fields}
+    """A link config as its file form: `tag` first, then its fields."""
+    return {"tag": config.config_tag, **config.model_dump(mode="json", exclude_none=True)}
 
 
 def dumps(document: dict[str, Any], suffix: str) -> str:

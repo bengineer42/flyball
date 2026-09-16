@@ -1,29 +1,36 @@
-"""What every device route shares: argument models, the schema, running a command.
+"""Devices: the tree with live values, the schema, commands, and demands.
 
-Also `GET /api/devices`: every reader, actuator and application device listed
-once, since a rig gives them all one name rig-wide. `/api/readers` and
-`/api/actuators` keep their own shapes; this is for a client that wants to
-resolve a name without knowing what kind of device it names first.
+Every device in a rig has one name rig-wide, whatever its driver; this is the
+one list. Routes resolve against the live rig at request time, since the app
+exists before the rig is set. OpenAPI therefore lists one generic command
+route; `/{name}/schema` carries each command's real request schema.
+
+A demand is the write side: `PUT /api/devices/{name}/demand` puts values on
+W signals under the device as one demand, and `PUT /api/signals/{address}`
+is the single-signal shorthand. Both answer with the write states by
+address, and refuse -- 409 -- what the rig refuses: a signal a controller
+drives, a `together` group set in part, a signal that is not writable.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 from pydantic import TypeAdapter
 
 from flyball.core.device import CommandSpec, Device
-from flyball.core.errors import NotFoundError
-from flyball.core.reading import Measurand, Source
+from flyball.core.errors import ConflictError, NotFoundError
+from flyball.core.signal import Node, Signal
+from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep
-from flyball.server.schemas import DeviceOut
+from flyball.server.schemas import DeviceOut, WriteOut, writes_out
 from flyball.server.wire import ArgumentsBase, arguments_model
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
-router = APIRouter(prefix="/api/devices", tags=["devices"])
+router = APIRouter(prefix="/api", tags=["devices"])
 
 
 def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[ArgumentsBase]:
@@ -43,67 +50,35 @@ def command_for(device: Device, tag: str) -> CommandSpec:
         raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
 
 
-def measurand_schema(measurand: Measurand) -> dict[str, Any]:
-    """A measurand for a gauge or an axis: unit, dimension, range, precision."""
+def _signal_schema(signal: Signal) -> dict[str, Any]:
+    """A signal for a gauge, an axis or a target entry: unit, dimension, range, limits."""
     return {
-        "label": measurand.label,
-        "unit": measurand.unit.symbol,
-        "dimension": measurand.unit.dimension.label,
-        "range": measurand.range,
-        "precision": measurand.precision,
+        "address": signal.address,
+        "access": str(signal.access),
+        "label": signal.label,
+        "quantity": signal.quantity.name,
+        "unit": signal.unit.symbol,
+        "dimension": signal.unit.dimension.label,
+        "range": signal.spec.range,
+        "precision": signal.spec.precision,
+        "limits": signal.limits,
     }
-
-
-def source_schema(source: Source) -> dict[str, Any]:
-    return {
-        "name": str(source.name),
-        "label": source.label,
-        "measurands": {ch.measurand.name: measurand_schema(ch.measurand) for ch in source.channels},
-    }
-
-
-def actuator_schema(actuator: Any) -> dict[str, Any]:
-    """An actuator's device schema, with its demand unit on every field that is a demand.
-
-    The base `demand` command and `state.demand` are declared on the generic
-    `Actuator`, so their schemas cannot name a unit; the instance's
-    `demand_unit` (a class attribute, or given by a rig file) is written onto
-    them here, so a form or a readout shows it beside the number.
-    """
-    unit = actuator.demand_unit  # the instance may narrow the class
-    symbol = None if unit is None else unit.symbol
-    schema = device_schema(actuator, demand_unit=symbol)
-    if symbol is not None:
-        stamp = {"unit": symbol, "dimension": unit.dimension.label}
-        for field in _nullable_field(schema["state"], "demand"):
-            field.update(stamp)
-        if (demand := schema["commands"].get("demand")) is not None:
-            for field in _nullable_field(demand["arguments"], "demand"):
-                field.update(stamp)
-    return schema
-
-
-def _nullable_field(schema: dict[str, Any], name: str) -> list[dict[str, Any]]:
-    """The number branches of a property, whether it is `number` or `anyOf [number, null]`."""
-    prop = schema.get("properties", {}).get(name)
-    if prop is None:
-        return []
-    branches = prop.get("anyOf") or [prop]
-    return [b for b in branches if b.get("type") == "number"]
 
 
 def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
-    """Config, settings, state and every command's request as JSON schema."""
+    """Config, settings, state, every signal and every command's request as JSON schema."""
     cls = type(device)
     return {
         "name": device.name,
         "label": device.label,
         "type": cls.__name__,
+        "driver": type(device.config).config_tag,
         "description": cls.__doc__.strip().splitlines()[0] if cls.__doc__ else None,
         **extra,
         "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
         "settings": TypeAdapter(cls.settings_type).json_schema(mode="validation"),
         "state": TypeAdapter(cls.state_type).json_schema(mode="serialization"),
+        "signals": {path: _signal_schema(s) for path, s in device.signals.items()},
         "commands": {
             tag: {
                 "description": spec.doc,
@@ -122,40 +97,103 @@ def run(device: Device, tag: str, body: dict[str, Any] | None) -> Any:
     return spec.method(device, **arguments)
 
 
-def _link_name(rig: Rig, device: Device) -> str | None:
-    """The rig file's name for `device`'s link, if it has one built from a link."""
-    link = getattr(device, "link", None)
-    if link is None:
-        return None
-    return next((name for name, built in rig.links.items() if built is link), None)
-
-
-def _device_out(rig: Rig, name: str, device: Device) -> DeviceOut:
-    return DeviceOut(
-        name=name,
-        label=device.label,
-        kind=rig.kind_of(name) or "device",
-        type=type(device).__name__,
-        link=_link_name(rig, device),
-    )
-
-
-@router.get("")
-def read_devices(rig: RigDep) -> dict[str, DeviceOut]:
-    """Every reader, actuator and application device, once, by name.
-
-    `/api/readers` and `/api/actuators` still carry their own full views;
-    this is the one list that names everything the rig has, regardless of
-    kind, since no two of them may share a name.
-    """
-    return {name: _device_out(rig, name, device) for name, device in rig.devices.items()}
-
-
-@router.get("/{name}")
-def read_device(rig: RigDep, name: str) -> DeviceOut:
-    """Resolve `name` to whichever kind of device it is."""
+def device_of(rig: Rig, name: str) -> Device:
     try:
-        device = rig.devices[name]
+        return rig.devices[name]
     except KeyError as e:
         raise NotFoundError(f"Device {name!r} not found") from e
-    return _device_out(rig, name, device)
+
+
+def link_name(rig: Rig, device: Device) -> str | None:
+    """The rig file's name for `device`'s link, if it was built on one.
+
+    A driver keeps the built link under whatever attribute suits it (`link`,
+    `plant`), so the device is searched for the object itself; the config's
+    `link` is the built object too, unless the driver blanked it.
+    """
+    held = [*vars(device).values(), getattr(device.config, "link", None)]
+    return next((name for name, built in rig.links.items() if any(h is built for h in held)), None)
+
+
+def run_of(rig: Rig, name: str) -> DeviceRun | None:
+    """How the runtime is polling `name`; None when nothing on it is polled."""
+    return rig.polling.run(name) if name in rig.polling.by_name else None
+
+
+def device_out(rig: Rig, device: Device) -> DeviceOut:
+    with rig.lock:
+        return DeviceOut.of(
+            device,
+            kind=rig.kind_of(device.name) or "device",
+            latest=rig.latest,
+            link=link_name(rig, device),
+            run=run_of(rig, device.name),
+        )
+
+
+@router.get("/devices")
+def read_devices(rig: RigDep) -> list[DeviceOut]:
+    """Every device: its tree with the latest values and write states, commands, state."""
+    return [device_out(rig, device) for device in rig.devices.values()]
+
+
+@router.get("/devices/{name}")
+def read_device(rig: RigDep, name: str) -> DeviceOut:
+    return device_out(rig, device_of(rig, name))
+
+
+@router.get("/devices/{name}/schema")
+def read_device_schema(rig: RigDep, name: str) -> dict[str, Any]:
+    return device_schema(device_of(rig, name))
+
+
+@router.post("/devices/{name}/restart")
+def restart_device(rig: RigDep, name: str) -> DeviceOut:
+    """Poll an offline device again on its period, after whatever was wrong has been put right."""
+    device = device_of(rig, name)
+    rig.polling.restart(name)
+    return device_out(rig, device)
+
+
+@router.put("/devices/{name}/demand")
+def demand(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
+    """Put values on W signals under the device, as one demand; keys are relative names.
+
+    Dotted for a signal under a namespace (`position.x`). Committed at
+    once; the response is the write state of each signal set, by address.
+    409 for a signal a controller drives, a `together` group set in part,
+    or a signal that is not writable; 404 for a name that is not under the
+    device.
+    """
+    device = device_of(rig, name)
+    values: dict[str | Signal, float] = {name: value for name, value in body.items()}
+    return writes_out(rig.demand(device.root, values))
+
+
+@router.put("/signals/{address}")
+def set_signal(rig: RigDep, address: str, body: Annotated[float, Body()]) -> dict[str, WriteOut]:
+    """The single-signal demand: the body is the value, in the signal's unit."""
+    target = rig.resolve(address)
+    if isinstance(target, Node):
+        raise ConflictError(f"'{address}' is a namespace, not a signal: demand on its device")
+    return writes_out(rig.demand(target.node, {target: body}))
+
+
+# Plain `def`: FastAPI runs it in the threadpool, so a command that touches
+# hardware never blocks the event loop.
+@router.post("/devices/{name}/commands/{tag}")
+def run_command(
+    rig: RigDep, name: str, tag: str, body: Annotated[dict[str, Any] | None, Body()] = None
+) -> Any:
+    """Call the marked method with the validated body; respond with whatever it returns.
+
+    A command that succeeds on an offline device is taken as the fix
+    (`restore`, a reset, a reconnect): polling starts again, and a device
+    still broken simply goes offline again with a fresh event.
+    """
+    device = device_of(rig, name)
+    result = run(device, tag, body)
+    run_ = run_of(rig, name)
+    if run_ is not None and not run_.running and run_.period_s is not None:
+        rig.polling.restart(name)
+    return result

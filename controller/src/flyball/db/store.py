@@ -8,30 +8,35 @@ another, and either can be replaced without the other noticing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any, Protocol
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Protocol
 
-from flyball.core.reading import Channel, Sample, Source
+from flyball.core.device import Device
+from flyball.core.signal import Sample, Signal, WriteState
 
 from .types import (
-    ActuatorRow,
-    ChannelRow,
+    ControllerRow,
     DashboardRow,
+    DeviceRow,
     Downsample,
     Event,
-    LoopRow,
     ProgramFormat,
     ProgramRow,
     SampleRow,
     Series,
     SessionRow,
-    SourceRow,
+    SignalRow,
     Span,
     SpanKind,
     Tick,
     TuningRow,
     Window,
+    WriteRow,
+    WriteStateRow,
 )
+
+if TYPE_CHECKING:
+    from flyball.control import Controller
 
 
 class SessionWriter(Protocol):
@@ -42,18 +47,19 @@ class SessionWriter(Protocol):
 
     # region Declarations
 
-    def declare_source(self, source: Source, kind: str | None = None) -> None:
-        """Register a source, its display label and every measurand it carries. Idempotent."""
+    def declare_device(self, device: Device) -> None:
+        """Register a device: its name, driver, config and label. Idempotent."""
         ...
 
-    def declare_actuator(self, name: str, kind: str, config: Any = None) -> None:
-        """Idempotent."""
+    def declare_signal(self, signal: Signal) -> None:
+        """Register a signal with its metadata; a writable one also as a `write`. Idempotent.
+
+        Its device must already be declared.
+        """
         ...
 
-    def declare_loop(
-        self, name: str, channel: Channel, config: Any = None, feedforward: Any = None
-    ) -> None:
-        """`name` is the actuator's, which must already be declared."""
+    def declare_controller(self, controller: Controller) -> None:
+        """`controller.target` and `.source` must already be declared."""
         ...
 
     # endregion
@@ -61,13 +67,20 @@ class SessionWriter(Protocol):
     # region Data
 
     def write_samples(self, samples: Iterable[Sample]) -> None:
-        """One delivery's worth, in one transaction. Sources must be declared."""
+        """One delivery's worth, in one transaction; `seq` is assigned here, per device.
+
+        Every signal a sample carries must be declared.
+        """
+        ...
+
+    def write_states(self, offset_ns: int, states: Mapping[Signal, WriteState]) -> None:
+        """What a commit set each signal to, at `offset_ns`. Signals must be declared writable."""
         ...
 
     def write_tick(self, tick: Tick) -> None: ...
 
     def write_ticks(self, ticks: Iterable[Tick]) -> None:
-        """Many ticks in one transaction. Loops must be declared."""
+        """Many ticks in one transaction. Controllers must be declared."""
         ...
 
     def write_event(self, event: Event) -> int:
@@ -131,23 +144,24 @@ class Store(Protocol):
 
     # region What a session recorded
 
-    def sources(self, session_id: int) -> list[SourceRow]: ...
+    def devices(self, session_id: int) -> list[DeviceRow]: ...
 
-    def channels(self, session_id: int) -> list[ChannelRow]: ...
+    def signals(self, session_id: int) -> list[SignalRow]:
+        """Every signal declared, by device then address."""
+        ...
 
-    def actuators(self, session_id: int) -> list[ActuatorRow]: ...
+    def writes(self, session_id: int) -> list[WriteRow]: ...
 
-    def loops(self, session_id: int) -> list[LoopRow]: ...
+    def controllers(self, session_id: int) -> list[ControllerRow]: ...
 
     def series(
         self,
         session_id: int,
-        source: str,
-        measurand: str,
+        address: str,
         window: Window | None = None,
         downsample: Downsample | None = None,
     ) -> Series:
-        """One channel over a window.
+        """One signal over a window.
 
         `downsample` is a [Downsample][flyball.db.types.Downsample], or `None`
         for every reading.
@@ -155,15 +169,25 @@ class Store(Protocol):
         ...
 
     def ticks(
-        self, session_id: int, loop: str, window: Window | None = None, every: int | None = None
+        self,
+        session_id: int,
+        controller: str,
+        window: Window | None = None,
+        every: int | None = None,
     ) -> list[Tick]:
-        """A loop's ticks in order; `every` keeps one tick in `every`, for a plot of a long run."""
+        """A controller's ticks in order; `every` keeps one in `every`, for a plot of a long run."""
         ...
 
     def samples(
-        self, session_id: int, source: str, window: Window | None = None
+        self, session_id: int, address: str, window: Window | None = None
     ) -> list[SampleRow]:
-        """Every sample of one source in order, each with all its measurands."""
+        """Every sample on a device, or on one node of it, in order, values by signal address."""
+        ...
+
+    def write_states(
+        self, session_id: int, address: str, window: Window | None = None
+    ) -> list[WriteStateRow]:
+        """What one writable signal was set to, in order."""
         ...
 
     def events(
@@ -185,7 +209,7 @@ class Store(Protocol):
         config: dict[str, Any],
         created_ns: int,
         session_id: int | None = None,
-        loop: str | None = None,
+        controller: str | None = None,
         notes: Any = None,
     ) -> TuningRow:
         """Add a version under `name`. Earlier versions stay; `tuning` returns the newest."""

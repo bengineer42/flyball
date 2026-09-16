@@ -1,31 +1,35 @@
-"""Use a PyMeasure instrument as a flyball reader or actuator.
+"""Use a PyMeasure instrument as a flyball device.
 
 A PyMeasure driver's interface is `Instrument.measurement`, `.control` and
 `.setting` properties whose docstrings usually name the unit in words. This
 wrapper walks them, so one class serves every driver:
 
-    from pymeasure.instruments.keithley import Keithley2400
-    smu = Keithley2400("GPIB::24")
-    rig.start_reader(PyMeasureReader("smu", smu, ["voltage", "current"]), period=1.0)
-    rig.attach_loop(..., PyMeasureActuator("bias", smu, "source_voltage"))
+    devices:
+      smu:
+        driver: pymeasure
+        instrument: pymeasure.instruments.keithley.Keithley2400
+        adapter: "GPIB::24"
+        channels:
+          voltage: { property: voltage, publish: true }
+          bias: { property: source_voltage }
 
 Units come from the docstring by a word table (`volts` -> V), overridable
-per attribute. Nothing here imports pymeasure.
+per channel. Nothing here imports pymeasure at module load: `PyMeasureConfig.build`
+does, so the `pymeasure` extra is only needed where it is actually used.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from flyball.core.config import Config, import_object, resolve
-from flyball.core.device import DeviceConfig, DeviceState
-from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.sink import Actuator, ActuatorState
+from flyball.core.config import import_object
+from flyball.core.device import Device, DriverConfig
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
 from flyball.core.units.dimension import Unit
 from flyball.core.units.errors import UnitNotFoundError
 from flyball.core.units.si import One
@@ -98,135 +102,114 @@ def properties(instrument: Any) -> dict[str, property]:
     return found
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class PyMeasureState(DeviceState):
-    values: dict[str, float] = field(default_factory=dict)
+class PyMeasureSignal(BaseModel):
+    """One line of a `pymeasure` device's tree: one property, wrapped as a signal.
+
+    A property with a setter is writable; one with a getter is readable on
+    demand. `publish` also streams it, and needs a getter -- see
+    [PyMeasure][flyball.integrations.pymeasure.PyMeasure].
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    property: str = Field(description="The instrument's attribute name.")
+    unit: str | None = Field(default=None, description="Overrides the docstring's unit.")
+    publish: bool = False
 
 
-class PyMeasureReader(Reader):
-    """Chosen readable properties of an instrument as one source.
+class PyMeasure(Device):
+    """Chosen properties of a PyMeasure instrument as one device.
 
     Args:
-        name: The reader's name, and the source's.
+        name: The device's name.
         instrument: A PyMeasure `Instrument`.
-        measurements: Which properties to read. Required: reading every
-            property would be slow and side-effecting.
+        channels: `{name: PyMeasureSignal}` -- which properties to expose, and how.
 
-        units: Overrides where the docstring does not say, keyed by property.
+    Raises:
+        ValueError: A channel's property does not exist on `instrument`, or
+            is neither readable nor writable, or `publish` without a getter.
     """
+
+    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
 
     def __init__(
         self,
         name: str,
         instrument: Any,
-        measurements: Iterable[str],
-        units: Mapping[str, str] = {},
+        channels: Mapping[str, PyMeasureSignal],
+        label: str | None = None,
     ) -> None:
+        super().__init__(name, label)
         self.instrument = instrument
+        self.channels = dict(channels)
+        self._last_read: dict[Signal, int] = {}
         available = properties(instrument)
-        self.attributes = list(measurements)
-        missing = [a for a in self.attributes if a not in available or available[a].fget is None]
-        if missing:
-            raise ValueError(f"{type(instrument).__name__} has no readable {missing}")
-        self.measurands = {
-            key: Measurand(
-                f"{name}.{key}",
-                Unit.get(units[key]) if key in units else unit_from_doc(available[key].__doc__),
-                key.replace("_", " "),
-            )
-            for key in self.attributes
-        }
-        self.source = Source(name, self.measurands.values())
-        super().__init__(name, (self.source,))
-        self._values: dict[str, float] = {}
+        tree: list[SignalSpec] = []
+        for key, channel in self.channels.items():
+            prop = available.get(channel.property)
+            if prop is None:
+                raise ValueError(
+                    f"{type(instrument).__name__} has no property {channel.property!r}"
+                )
+            gettable, settable = prop.fget is not None, prop.fset is not None
+            access = Access(0)
+            if gettable:
+                access |= Access.R
+            if settable:
+                access |= Access.W
+            if channel.publish:
+                if not gettable:
+                    raise ValueError(f"{key!r}: publish needs a readable property")
+                access |= Access.P
+            if not access:
+                raise ValueError(f"{key!r}: {channel.property} is neither readable nor writable")
+            unit = Unit.get(channel.unit) if channel.unit else unit_from_doc(prop.__doc__)
+            tree.append(SignalSpec(name=key, quantity=Quantity(key, unit), access=access))
+        self.bind(tree)
 
-    @property
-    def state(self) -> PyMeasureState:
-        return PyMeasureState(values=dict(self._values))
+    def _due(self, signal: Signal, time_ns: int) -> bool:
+        poll_s = signal.poll_s
+        if poll_s is None:
+            return True
+        last = self._last_read.get(signal)
+        return last is None or (time_ns - last) >= poll_s * 1e9
 
-    def read(self, time_ns: int) -> Iterable[Sample]:
-        values: dict[Measurand, float] = {}
-        for key in self.attributes:
-            value = getattr(self.instrument, key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                values[self.measurands[key]] = float(value)
-        self._values = {m.name: v for m, v in values.items()}
-        return [Sample(self.source, self.source.next_seq(), time_ns, values)]
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        target = node if node is not None else self.root
+        for signal in target.walk():
+            if Access.P not in signal.access or not self._due(signal, time_ns):
+                continue
+            value = getattr(self.instrument, self.channels[signal.name].property)
+            self._last_read[signal] = time_ns
+            yield Sample(self.root, time_ns, {signal: float(value)})
 
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class PyMeasureActuatorState(ActuatorState):
-    readback: float | None = None
-
-
-class PyMeasureActuator(Actuator):
-    """One writable property (a `control` or `setting`) as the loop's actuator."""
-
-    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
-
-    def __init__(self, name: str, instrument: Any, attribute: str, unit: str | None = None) -> None:
-        super().__init__(name)
-        prop = properties(instrument).get(attribute)
-        if prop is None or prop.fset is None:
-            raise TypeError(f"{type(instrument).__name__}.{attribute} is not writable")
-        self.instrument = instrument
-        self.attribute = attribute
-        self._readable = prop.fget is not None
-        self._demand: float | None = None
-        self._readback: float | None = None
-        found = Unit.get(unit) if unit else unit_from_doc(prop.__doc__)
-        if found is not One:
-            self.demand_unit = found  # type: ignore[misc]
-
-    @property
-    def state(self) -> PyMeasureActuatorState:
-        return PyMeasureActuatorState(demand=self._demand, readback=self._readback)
-
-    def set_demand(self, demand: float) -> float | None:
-        self._demand = demand
-        setattr(self.instrument, self.attribute, demand)
-        if self._readable:
-            self._readback = float(getattr(self.instrument, self.attribute))
-            return self._readback
-        return None
+    def write_signal(self, signal: Signal, value: float) -> None:
+        setattr(self.instrument, self.channels[signal.name].property, value)
 
 
-# region In a rig file
+class PyMeasureConfig(DriverConfig[PyMeasure], tag="pymeasure"):
+    """`driver: pymeasure`. `channels` is the driver's own tree -- see `PyMeasureSignal`.
 
+    Named `channels`, not `signals`: the envelope's `signals:` key is
+    reserved for overrides, the same for every driver.
+    """
 
-class PyMeasureInstrumentConfig(Config[Any], tag="pymeasure"):
-    """A PyMeasure instrument, built once and shared. `driver` is the class's dotted path."""
-
-    driver: str = Field(description="e.g. pymeasure.instruments.keithley.Keithley2400")
+    instrument: str = Field(
+        description="Dotted class, e.g. pymeasure.instruments.keithley.Keithley2400"
+    )
     adapter: str = Field(description="The resource: 'GPIB::24', 'ASRL/dev/ttyUSB0', a VISA string.")
     kwargs: dict[str, Any] = Field(default_factory=dict)
+    channels: dict[str, PyMeasureSignal]
 
-    def build(self) -> Any:
-        return import_object(self.driver)(self.adapter, **self.kwargs)
-
-
-class PyMeasureReaderConfig(DeviceConfig[PyMeasureReader], tag="pymeasure_reader"):
-    name: str
-    link: PyMeasureInstrumentConfig | str
-    measurements: list[str]
-    units: dict[str, str] = Field(default_factory=dict)
-
-    def build(self) -> PyMeasureReader:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to an instrument before building")
-        return PyMeasureReader(self.name, resolve(self.link), self.measurements, self.units)
+    def build(self, name: str, label: str | None = None) -> PyMeasure:
+        instrument = import_object(self.instrument)(self.adapter, **self.kwargs)
+        return PyMeasure(name, instrument, self.channels, label=label)
 
 
-class PyMeasureActuatorConfig(DeviceConfig[PyMeasureActuator], tag="pymeasure_actuator"):
-    name: str
-    link: PyMeasureInstrumentConfig | str
-    attribute: str
-    unit: str | None = None
-
-    def build(self) -> PyMeasureActuator:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to an instrument before building")
-        return PyMeasureActuator(self.name, resolve(self.link), self.attribute, self.unit)
-
-
-# endregion
+__all__ = [
+    "PyMeasure",
+    "PyMeasureConfig",
+    "PyMeasureSignal",
+    "properties",
+    "unit_from_doc",
+]

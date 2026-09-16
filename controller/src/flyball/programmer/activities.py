@@ -3,12 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Thread
-from typing import Any
 
-from flyball.core import Operator, Positive
+from flyball.control import Controller
+from flyball.core import Operator, Positive, Reading
 from flyball.core.clock import Clock, Duration
-from flyball.core.reading import Channel, Reading
-from flyball.core.sink import Observer
 from flyball.runtime.rig import Rig
 
 from .command import Activity, Command
@@ -37,16 +35,16 @@ class Wait(Command, tag="wait", primary="message"):
         return Prompt(timeout, name=self.name, message=self.message, clock=rig.clock)
 
 
-class Sustained(Activity, Observer[Reading]):
-    """Fires when a test on one channel's readings passes."""
+class Sustained(Activity):
+    """Fires when a test on one controller's readings passes."""
 
-    __slots__ = ("channel", "test")
+    __slots__ = ("controller", "test")
 
-    name: str  # pyright: ignore[reportIncompatibleVariableOverride]  an observer is always named
+    name: str  # pyright: ignore[reportIncompatibleVariableOverride]  an activity registered under this
 
     def __init__(
         self,
-        channel: Channel,
+        controller: Controller,
         test: Callable[[Reading], bool],
         timeout: Positive | None = None,
         name: str | None = None,
@@ -55,41 +53,41 @@ class Sustained(Activity, Observer[Reading]):
     ) -> None:
         super().__init__(
             timeout,
-            name=name or f"sustained:{channel.name}",
-            message=message or f"{channel.name} to pass {test.__name__}",
+            name=name or f"sustained:{controller.name}",
+            message=message or f"{controller.name} to pass {test.__name__}",
             clock=clock,
         )
-        self.channel = channel
+        self.controller = controller
         self.test = test
-        self.observes = frozenset((channel,))
 
-    def observe(self, sample: Reading) -> None:
-        if self.test(sample):
+    def _on_tick(self, controller: Controller, reading: Reading | None) -> None:
+        if reading is not None and self.test(reading):
             self.fire()
 
     def attach(self, rig: Rig) -> None:
-        rig.attach_observer(self)
+        self.controller.attach_on_tick(self._on_tick)
 
     def detach(self, rig: Rig) -> None:
-        rig.detach_observer(self)
+        self.controller.detach_on_tick(self._on_tick)
 
 
-class Arrived(Activity, Observer[Reading]):
-    """Fires once every loop has read within `within` of its setpoint `readings` times running.
+class Arrived(Activity):
+    """Fires once every controller has read within `within` of its setpoint, `readings` times.
 
-    Each loop is judged against *its own* setpoint at the reading's instant,
-    so a loop still on a ramp is measured against where the ramp is now. A
-    reading outside the band resets that loop's count; the loops are
-    independent, and the activity fires when the last of them arrives.
+    Each controller is judged against *its own* setpoint at the reading's
+    instant, so one still on a ramp is measured against where the ramp is
+    now. A reading outside the band resets that controller's count; the
+    controllers are independent, and the activity fires when the last of
+    them arrives.
     """
 
-    __slots__ = ("_counts", "_loops", "readings", "within")
+    __slots__ = ("_controllers", "_counts", "readings", "within")
 
     name: str  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(
         self,
-        loops: list[tuple[Channel, Any]],
+        controllers: list[Controller],
         within: float,
         readings: int = 3,
         timeout: Positive | None = None,
@@ -97,34 +95,35 @@ class Arrived(Activity, Observer[Reading]):
         message: str | None = None,
         clock: Clock | None = None,
     ) -> None:
-        names = ",".join(loop.name for _, loop in loops)
+        names = ",".join(controller.name for controller in controllers)
         super().__init__(
             timeout,
             name=name or f"arrive:{names}",
             message=message or f"{names} within {within:g} of setpoint for {readings} readings",
             clock=clock,
         )
-        self._loops = dict(loops)
-        self._counts = dict.fromkeys(self._loops, 0)
+        self._controllers = list(controllers)
+        self._counts = dict.fromkeys(self._controllers, 0)
         self.within = within
         self.readings = readings
-        self.observes = frozenset(self._loops)
 
-    def observe(self, sample: Reading) -> None:
-        channel = sample.channel
-        loop = self._loops[channel]
-        setpoint = loop.setpoint_at(sample.time_ns)
-        self._counts[channel] = (
-            self._counts[channel] + 1 if abs(sample.value - setpoint) <= self.within else 0
+    def _on_tick(self, controller: Controller, reading: Reading | None) -> None:
+        if reading is None:
+            return
+        setpoint = controller.setpoint_at(reading.time_ns)
+        self._counts[controller] = (
+            self._counts[controller] + 1 if abs(reading.value - setpoint) <= self.within else 0
         )
         if all(count >= self.readings for count in self._counts.values()):
             self.fire()
 
     def attach(self, rig: Rig) -> None:
-        rig.attach_observer(self)
+        for controller in self._controllers:
+            controller.attach_on_tick(self._on_tick)
 
     def detach(self, rig: Rig) -> None:
-        rig.detach_observer(self)
+        for controller in self._controllers:
+            controller.detach_on_tick(self._on_tick)
 
 
 class Timed(Activity):

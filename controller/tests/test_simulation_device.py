@@ -10,15 +10,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flyball.core.device import Device, DeviceSettings, DeviceState, command
-from flyball.core.reading import Measurand, Source
 from flyball.core.typing import Positive
-from flyball.core.units.si import Celsius
 from flyball.runtime.config import RigConfig
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
 from flyball.server import create_app, set_rig, set_simulation
 from flyball.server.deps import set_simulation_device
-from flyball.sim import FunctionReader, ScaledClock
+from flyball.sim import DaqPort, PlantConfig, ScaledClock, SimDaq, SimDaqConfig
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -54,22 +52,33 @@ class OvenSim(Device):
         return self.settings
 
 
+class CountingDaq(SimDaq):
+    """A `sim_daq` that keeps the stamp of every poll, so a test can count them."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.reads: list[int] = []
+
+    def read(self, time_ns: int, node=None):
+        self.reads.append(time_ns)
+        return super().read(time_ns, node)
+
+
 @pytest.fixture
-def scaled_rig(fresh) -> Iterator[tuple[Rig, list[int]]]:
-    """A rig on a ScaledClock, one reader polled every 50 ms of rig time; `reads` are its stamps."""
+def scaled_rig() -> Iterator[tuple[Rig, list[int]]]:
+    """A rig on a ScaledClock, one daq polled every 50 ms of rig time; `reads` are its stamps."""
     rig = Rig()
     rig.clock = ScaledClock(1.0)
-    reads: list[int] = []
-    measurand = Measurand(fresh("t"), Celsius)
-    source = Source(fresh("sensor"), (measurand,))
-
-    def model(time_ns: int):
-        reads.append(time_ns)
-        return {measurand: 20.0}
-
-    rig.start_reader(FunctionReader(fresh("reader"), {source: model}), 0.05)
-    yield rig, reads
-    rig.readers.stop_all()
+    config = SimDaqConfig(
+        link=PlantConfig(initial=20.0),
+        ports={"t": DaqPort(port="output", quantity="temperature", unit="°C")},
+    )
+    daq = CountingDaq("sensor", config.link.build(), config.ports, config=config)  # type: ignore[union-attr]
+    daq.poll_s = 0.05
+    rig.add_device(daq)
+    rig.start_polling(daq)
+    yield rig, daq.reads
+    rig.polling.stop_all()
 
 
 @pytest.fixture
@@ -123,7 +132,7 @@ def test_schema_view_and_commands_go_through_the_device_routes(client):
 def test_speed_on_the_simulation_speeds_up_the_periodic_reader(client, scaled_rig):
     """The reader's period is in rig seconds: at 4x it polls four times as often in real ones."""
     rig, reads = scaled_rig
-    (loop,) = rig.readers.periodic.values()
+    (loop,) = rig.polling.periodic.values()
     base_period = loop.loop_time
     time.sleep(0.5)
     at_one = len(reads)

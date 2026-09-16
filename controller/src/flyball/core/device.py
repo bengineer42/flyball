@@ -41,7 +41,18 @@ from pydantic.json_schema import JsonSchemaMode
 
 from .config import Config
 from .errors import NotFoundError
-from .signal import Access, Band, Node, NodeSpec, Reading, Sample, Signal, SignalSpec, WriteState
+from .signal import (
+    Access,
+    Band,
+    Node,
+    NodeSpec,
+    Path,
+    Reading,
+    Sample,
+    Signal,
+    SignalSpec,
+    WriteState,
+)
 
 
 class Level(IntEnum):
@@ -100,24 +111,8 @@ class DeviceSettings:
     """What can be re-set while a device runs. A bare device has nothing."""
 
 
-class DeviceConfig[D: "Device"](Config[D]):
-    """What a device is built from, and what builds it.
-
-    `label` is for people; `name` stays the identifier routes, programs and
-    sessions use, so renaming what a heater is called on screen changes
-    nothing that refers to it.
-    """
-
-    label: str | None = Field(
-        default=None, description="A display name, e.g. 'Zone 1 heater'; `name` is the identifier."
-    )
-
-    def build(self) -> D:
-        raise NotImplementedError(f"{type(self).__name__} cannot build a device")
-
-
 @dataclass(frozen=True, slots=True)
-class DeviceView[C: DeviceConfig[Any], T: DeviceSettings, S: DeviceState]:
+class DeviceView[C: "DriverConfig[Any]", T: DeviceSettings, S: DeviceState]:
     """A device at one instant: how it was built, how it is set, and what it reports."""
 
     config: C
@@ -168,7 +163,7 @@ def _declared_return(cls: type, prop: str) -> Any:
 
 
 RESERVED_NAMES = frozenset({"schema"})
-"""Path segments the server uses after an actuator's name; no command may take them."""
+"""Route segments the server uses after a device's name; no device or command may take them."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +188,7 @@ def command[F: Callable[..., Any]](
     *, tag: str | None = None, simulation: bool = False
 ) -> Callable[[F], F]: ...
 def command(fn: Any = None, /, *, tag: str | None = None, simulation: bool = False) -> Any:
-    """Mark an actuator method as a command, under its name or `tag`.
+    """Mark a device method as a command, under its name or `tag`.
 
     `@command` or `@command(tag="stop")`. The method's signature is the
     command's. `simulation=True` marks one that only makes sense on a
@@ -226,7 +221,11 @@ class Device:
     """
 
     TREE: ClassVar[tuple[NodeSpec | SignalSpec, ...]] = ()
-    """The driver's declared tree; bound on construction when non-empty."""
+    """The driver's declared tree; bound on construction. Empty: a device with no signals, or
+    one whose driver computes the tree and binds it itself."""
+    blocking: ClassVar[bool] = False
+    """Whether `commit` may wait on a bus. The rig then runs it on a thread of its own, so a
+    delivery never waits: the write states arrive when the write completes."""
 
     name: str
     label: str | None = None
@@ -246,7 +245,7 @@ class Device:
     """What `apply` recorded since the last `commit`."""
     written: dict[Signal, WriteState]
     """The last state each W signal was committed to, for the wire."""
-    config_type: ClassVar[type[DeviceConfig[Any]]] = DeviceConfig
+    config_type: ClassVar[type[DriverConfig[Any]]]
     settings_type: ClassVar[type[DeviceSettings]] = DeviceSettings
     state_type: ClassVar[type[DeviceState]] = DeviceState
     commands: ClassVar[dict[str, CommandSpec]] = {}
@@ -257,8 +256,7 @@ class Device:
         self.bound = {}
         self.pending = {}
         self.written = {}
-        if self.TREE:
-            self.bind(self.TREE)
+        self.bind(self.TREE)
 
     # region Tree
 
@@ -268,22 +266,23 @@ class Device:
         Once, at build: readings, samples and demands hold these objects by
         identity, and the rig file's overrides are applied onto them. The
         tree is static for the life of the device; a device whose signals
-        change is replaced, not rebound.
+        change is replaced, not rebound. Only an empty tree -- the base
+        class's, before a driver computes its own -- may be bound over.
 
         Raises:
-            ValueError: The device is already bound.
+            ValueError: The device already has signals bound.
         """
-        if hasattr(self, "root"):
+        if hasattr(self, "root") and (self.signals or self.nodes):
             raise ValueError(f"{self.name!r} is already bound; a device's tree is static")
-        self.root = Node(spec=None, device=self, parent=None, address=self.name, path="")
+        self.root = Node(spec=None, device=self, parent=None, address=self.name, path=Path())
         self._bind_under(self.root, tree)
-        self.signals = {signal.path: signal for signal in self.root.walk()}
-        self.nodes = {node.path: node for node in self.root.descendants()}
+        self.signals = {str(signal.path): signal for signal in self.root.walk()}
+        self.nodes = {str(node.path): node for node in self.root.descendants()}
 
     def _bind_under(self, node: Node, specs: Iterable[NodeSpec | SignalSpec]) -> None:
         for spec in specs:
-            address = f"{node.address}.{spec.name}"
-            path = f"{node.path}.{spec.name}" if node.path else spec.name
+            path = node.path / spec.name
+            address = f"{self.name}.{path}"
             if spec.name in node.signals or spec.name in node.children:
                 raise ValueError(f"'{address}' is declared twice")
             if isinstance(spec, SignalSpec):
@@ -391,7 +390,7 @@ class Device:
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         tiers: tuple[tuple[str, str, type, JsonSchemaMode], ...] = (
-            ("config", "config_type", DeviceConfig, "validation"),  # arrives over the wire
+            ("config", "config_type", DriverConfig, "validation"),  # arrives over the wire
             ("settings", "settings_type", DeviceSettings, "validation"),  # set by commands
             ("state", "state_type", DeviceState, "serialization"),  # only ever leaves
         )
@@ -426,9 +425,9 @@ class Device:
     # A subclass narrows these through its own return annotations -- that is
     # both what the checker sees and what `__init_subclass__` reads.
     @property
-    def config(self) -> DeviceConfig[Any]:
+    def config(self) -> DriverConfig[Any]:
         """Default: nothing to say. Override with the config the device was built from."""
-        return DeviceConfig()
+        return DriverConfig()
 
     @property
     def settings(self) -> DeviceSettings:
@@ -457,8 +456,7 @@ class DriverConfig[D: Device](Config[D]):
     The tagged model `driver:` selects (the tag is the driver name). It may
     not declare a field named like an envelope key, so flat and layered
     entries always mean the same thing; that is checked at import, like tag
-    clashes. [DeviceConfig][flyball.core.device.DeviceConfig] is the legacy
-    base and stays until the drivers move over.
+    clashes.
     """
 
     link: str | None = Field(
@@ -476,6 +474,9 @@ class DriverConfig[D: Device](Config[D]):
 
     def build(self, name: str, label: str | None = None) -> D:  # pyright: ignore[reportIncompatibleMethodOverride]  the envelope supplies the name
         raise NotImplementedError(f"{type(self).__name__} cannot build a device")
+
+
+Device.config_type = DriverConfig  # declared above it; the bare device's tier
 
 
 class SignalOverride(BaseModel):
@@ -576,9 +577,8 @@ class DeviceEntry(BaseModel):
         bound objects in place, so nothing holds a stale reference. Unknown
         names and added access are errors that name the address. When the
         driver config's `link` names a key in `links`, it is substituted with
-        the built object first -- exactly as `with_link` does for a legacy
-        config; an undeclared name is a `NotFoundError` naming the device
-        and the link.
+        the built object first; an undeclared name is a `NotFoundError`
+        naming the device and the link.
         """
         driver = Config.registry.get(self.driver)
         if driver is None:

@@ -1,47 +1,77 @@
 """Simulated devices, declarable in a rig file.
 
-A `sim_plant` under `links` is one plant model shared by a `sim_reader`, which
-reads its output as a measurand and advances it by the time since the last
-read, and a `sim_actuator`, which sets its input from the loop's demand. A
+A `sim_plant` or `sim_furnace` under `links` is one plant model shared by
+the devices that use it: a `sim_daq` reads chosen plant outputs as its
+signals and advances the plant by the time since the last read; a
+`sim_drive` sets chosen plant inputs from demands on its signals. Several
+of each may share one plant, so a furnace's zones interact through it. A
 rig of these runs on a laptop, ticks like a real one, records, tunes and
-serves the same API -- with nothing plugged in.
+serves the same API -- with nothing plugged in -- and, laid over a real
+rig's file, stands in for its hardware under the same names (plan §1.6).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from flyball.core.config import Config, resolve
 from flyball.core.device import (
     Condition,
-    DeviceConfig,
-    DeviceSettings,
+    Device,
     DeviceState,
+    DriverConfig,
     Level,
     command,
 )
-from flyball.core.errors import HardwareError
-from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.sink import Actuator, ActuatorState
+from flyball.core.errors import HardwareError, NotFoundError
+from flyball.core.quantity import Quantity
+from flyball.core.signal import (
+    Access,
+    Band,
+    Node,
+    NodeSpec,
+    Sample,
+    Signal,
+    SignalSpec,
+    WriteState,
+)
 from flyball.core.units import DIMENSIONLESS, Measured
-from flyball.core.units.dimension import Unit
-from flyball.core.units.dimensions import Power
+from flyball.core.units.si import Celsius, Watt
 
-from .furnace import Furnace, MultiPlant, Port
+from .furnace import Furnace, MultiPlant
 from .plant import Fopdt, Integrator, Lag, Noisy, Plant
 
 # A plant's drive is a fraction of full power: 0 is off, 1 is everything it has.
 Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
 
+TEMPERATURE_C = Quantity("temperature", Celsius)
+POWER_W = Quantity("power", Watt)
+DRIVE = Quantity("drive", Drive)
+
+OUTPUT = "output"
+"""The one output port of a bare `sim_plant`."""
+INPUT = "input"
+"""The one input port of a bare `sim_plant`."""
+
+# region The plants
+
 
 class PlantConfig(Config[Plant], tag="sim_plant"):
-    """A plant model, built once and shared between its reader and actuator."""
+    """A plant model with one input and one output, shared by the devices that use it.
 
-    kind: Literal["lag", "integrator", "fopdt"] = "lag"
+    Its ports are `input` (a drive, 0 to 1 of full) and `output`, whose
+    quantity the `sim_daq` reading it says, since a lag may be an oven or a
+    pressure vessel. An unknown key is refused, so the old `kind` does not
+    silently mean the default model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: Literal["lag", "integrator", "fopdt"] = "lag"
     tau_s: float = Field(default=10.0, gt=0, description="Time constant (lag, fopdt).")
     dead_s: float = Field(default=0.0, ge=0, description="Dead time (fopdt).")
     gain: float = 1.0
@@ -63,7 +93,7 @@ class PlantConfig(Config[Plant], tag="sim_plant"):
     def build(self) -> Plant:
         """Always wrapped in [Noisy][flyball.sim.plant.Noisy], so noise can be turned on live."""
         plant: Plant
-        match self.kind:
+        match self.model:
             case "lag":
                 plant = Lag(self.tau_s, self.initial, self.gain, ambient=self.ambient)
             case "integrator":
@@ -75,19 +105,19 @@ class PlantConfig(Config[Plant], tag="sim_plant"):
         return Noisy(plant, self.noise, self.seed)
 
     def retune(self, plant: Plant) -> None:
-        """Apply this config's parameters to a plant already built from one of the same kind.
+        """Apply this config's parameters to a plant already built from one of the same model.
 
         The state (output, input) is untouched: a simulation keeps running
-        through the change, as a real plant would. `kind` cannot change.
+        through the change, as a real plant would. `model` cannot change.
 
         Raises:
-            ValueError: If `plant` is not of this config's kind.
+            ValueError: If `plant` is not of this config's model.
         """
         noisy = plant if isinstance(plant, Noisy) else None
         inner: Any = noisy.plant if noisy is not None else plant
         if noisy is not None:
             noisy.sigma = self.noise
-        match self.kind, inner:
+        match self.model, inner:
             case "lag", Lag():
                 inner.tau_s, inner.gain, inner.ambient = self.tau_s, self.gain, self.ambient
             case "integrator", Integrator():
@@ -97,14 +127,17 @@ class PlantConfig(Config[Plant], tag="sim_plant"):
                 lag = inner._lag
                 lag.tau_s, lag.gain, lag.ambient = self.tau_s, self.gain, self.ambient
             case _:
-                raise ValueError(f"plant is a {type(inner).__name__}, not a {self.kind}")
+                raise ValueError(f"plant is a {type(inner).__name__}, not a {self.model}")
 
 
 class FurnaceConfig(Config[Furnace], tag="sim_furnace"):
     """A multi-zone furnace ([Furnace][flyball.sim.furnace.Furnace]).
 
-    Ports: inputs `heaterN`, outputs `zoneN` and `sample`.
+    Ports: inputs `heaterN` (a power in W, full drive being `power_w`),
+    outputs `zoneN` and `sample` (temperatures in °C).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     zones: int = Field(default=3, ge=1)
     power_w: float | list[float] = 2000.0
@@ -147,269 +180,428 @@ class FurnaceConfig(Config[Furnace], tag="sim_furnace"):
             setattr(plant, attr, getattr(fresh, attr))
 
 
-def _port(link: Any, port: str | None, *, output: bool) -> Any:
-    """The plant a device reads or drives: single-port as is, multi-port through `port`."""
+type AnyPlant = Plant | MultiPlant
+type PlantLink = PlantConfig | FurnaceConfig | str
+
+
+def _plant(link: Any) -> AnyPlant:
+    """The plant behind a device's link: built from a config, or the shared object itself."""
+    if isinstance(link, str):
+        raise TypeError(f"link {link!r} must be resolved to a plant before building")
     plant = resolve(link)
-    if isinstance(plant, MultiPlant):
-        if port is None:
-            raise ValueError(f"a {type(plant).__name__} has several ports; say which with `port`")
-        return Port(plant, output=port) if output else Port(plant, input=port)
-    if port is not None:
-        raise ValueError(f"a {type(plant).__name__} has one port; drop `port`")
+    if not isinstance(plant, (MultiPlant, Plant)):
+        raise TypeError(f"link is a {type(plant).__name__}, not a simulated plant")
     return plant
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SimReaderState(DeviceState):
-    output: float | None = None
-    input: Measured(Drive, ge=0, le=1) | None = 0.0  # type: ignore[valid-type]
-    """The plant's input; None for one port of a multi-port plant, which has many."""
+# A plant is one of three shapes: a `Furnace`, which knows what its ports are
+# (temperatures out, a power in per zone); any other `MultiPlant`, with named
+# ports whose outputs the file must describe and whose inputs are a fraction
+# of full; or a bare `Plant`, whose one output and one input are `output` and
+# `input`.
 
 
-class SimReader(Reader):
-    """Reads a plant's output as one measurand, advancing it by the time since the last read."""
+def _output_ports(plant: AnyPlant) -> tuple[str, ...]:
+    return plant.output_names if isinstance(plant, MultiPlant) else (OUTPUT,)
 
-    def __init__(
-        self,
-        name: str,
-        plant: Plant,
-        measurand: str,
-        unit: str,
-        range: tuple[float, float] | None = None,
-        precision: int | None = None,
-        warn: tuple[float, float] | None = None,
-        alarm: tuple[float, float] | None = None,
-    ) -> None:
-        self.plant = plant
-        self.measurand = Measurand(
-            measurand, Unit.get(unit), range=range, precision=precision, warn=warn, alarm=alarm
+
+def _input_ports(plant: AnyPlant) -> tuple[str, ...]:
+    return tuple(plant.inputs) if isinstance(plant, MultiPlant) else (INPUT,)
+
+
+def _output_quantity(plant: AnyPlant, port: str) -> Quantity | None:
+    """What a plant's output port measures, if the plant knows: a furnace's are temperatures."""
+    if port not in _output_ports(plant):
+        raise ValueError(f"no output port {port!r}; there are {_output_ports(plant)}")
+    return TEMPERATURE_C if isinstance(plant, Furnace) else None
+
+
+def _input_quantity(plant: AnyPlant, port: str) -> tuple[Quantity, Band]:
+    """What a plant's input port takes and its range: watts for a heater, a fraction otherwise."""
+    if port not in _input_ports(plant):
+        raise ValueError(f"no input port {port!r}; there are {_input_ports(plant)}")
+    if isinstance(plant, Furnace):
+        return POWER_W, (0.0, plant.power[int(port.removeprefix("heater")) - 1])
+    return DRIVE, (0.0, 1.0)
+
+
+def _read_output(plant: AnyPlant, port: str) -> float:
+    return plant.output(port) if isinstance(plant, MultiPlant) else plant.output
+
+
+def _set_drive(plant: AnyPlant, port: str, fraction: float) -> None:
+    """Put `fraction` of full drive on the plant's `port`."""
+    if isinstance(plant, MultiPlant):
+        plant.inputs[port] = fraction
+    else:
+        plant.input = fraction
+
+
+def _get_input(plant: AnyPlant, port: str) -> float:
+    """The plant's drive on `port`, as a fraction of full."""
+    return plant.inputs[port] if isinstance(plant, MultiPlant) else plant.input
+
+
+def _tree(device: str, leaves: Mapping[str, SignalSpec]) -> tuple[NodeSpec | SignalSpec, ...]:
+    """The tree for signals keyed by dotted path: one atomic namespace per path prefix.
+
+    `{"dry.humidity": …, "dry.temperature": …, "wet.humidity": …}` becomes
+    namespaces `dry` and `wet`, each read whole -- one plant advance yields
+    everything at one instant -- so a sim overlay can mirror a namespaced
+    real device address for address (plan §1.6). A flat key is a leaf on
+    the root, as before.
+
+    Raises:
+        ValueError: A path is empty, has an empty segment, or names both a
+            namespace and a signal.
+    """
+    branches: dict[str, Any] = {}  # a nested dict per namespace, a SignalSpec per leaf
+    for path, spec in leaves.items():
+        segments = path.split(".")
+        if not path or "" in segments:
+            raise ValueError(f"{device}: {path!r} is not a signal path")
+        node: dict[str, Any] = branches
+        for segment in segments[:-1]:
+            child = node.setdefault(segment, {})
+            if not isinstance(child, dict):
+                raise ValueError(f"{device}.{segment}: both a namespace and a signal")
+            node = child
+        if segments[-1] in node:
+            raise ValueError(f"{device}.{path}: both a namespace and a signal")
+        node[segments[-1]] = spec
+
+    def specs(branch: Mapping[str, Any]) -> tuple[NodeSpec | SignalSpec, ...]:
+        return tuple(
+            NodeSpec(name=name, atomic=True, children=specs(child))
+            if isinstance(child, dict)
+            else child
+            for name, child in branch.items()
         )
-        self.source = Source(name, (self.measurand,))
-        super().__init__(name, (self.source,))
-        self._last_ns: int | None = None
-        self._output: float | None = None
-        self._broken = False
-        self._broken_ns = 0
 
-    @property
-    def state(self) -> SimReaderState:
-        return SimReaderState(
-            output=self._output,
-            input=self.plant.input if not isinstance(self.plant, Port) else None,
-            conditions=(
-                (Condition("broken", Level.ERROR, "sensor failed (simulated)", self._broken_ns),)
-                if self._broken
-                else ()
-            ),
-        )
-
-    def read(self, time_ns: int) -> Iterable[Sample]:
-        if self._broken:
-            raise HardwareError(f"{self.name}: thermocouple open circuit (simulated)")
-        if isinstance(self.plant, Port):
-            self.plant.advance(time_ns)  # once per instant, however many ports are read
-        elif self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
-            self.plant.step((time_ns - self._last_ns) / 1e9)
-        self._last_ns = time_ns
-        self._output = self.plant.output
-        return [
-            Sample(self.source, self.source.next_seq(), time_ns, {self.measurand: self._output})
-        ]
-
-    @command(simulation=True)
-    def fail(self) -> SimReaderState:
-        """Break the sensor: every read raises until `restore`. What the loop does is the test."""
-        self._broken = True
-        self._broken_ns = self._last_ns or 0
-        return self.state
-
-    @command(simulation=True)
-    def restore(self) -> SimReaderState:
-        """Mend the sensor; a command on an offline reader makes the rig poll it again."""
-        self._broken = False
-        return self.state
+    return specs(branches)
 
 
-class SimReaderConfig(DeviceConfig[SimReader], tag="sim_reader"):
-    name: str
-    link: PlantConfig | FurnaceConfig | str
-    port: str | None = Field(default=None, description="Which output of a multi-port plant.")
-    measurand: str = Field(
-        description="The measurand the plant's output is: 'temperature', 'level'."
+# endregion
+# region sim_daq
+
+
+class DaqPort(BaseModel):
+    """A `sim_daq` signal spelled out: which port, and what it measures if the plant cannot say."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    port: str
+    quantity: str | None = Field(
+        default=None, description="What the output is: 'temperature', 'level'."
     )
-    unit: str
-    range: tuple[float, float] | None = None
+    unit: str | None = None
+    range: Band | None = None
     precision: int | None = None
-    warn: tuple[float, float] | None = Field(
+    warn: Band | None = Field(
         default=None, description="The band a value is normal inside; outside it, a warning."
     )
-    alarm: tuple[float, float] | None = Field(
+    alarm: Band | None = Field(
         default=None, description="The band a value is acceptable inside; outside it, an alarm."
     )
 
-    def build(self) -> SimReader:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to a plant before building")
-        return SimReader(
-            self.name,
-            _port(self.link, self.port, output=True),
-            self.measurand,
-            self.unit,
-            self.range,
-            self.precision,
-            warn=self.warn,
-            alarm=self.alarm,
-        )
-
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SimActuatorSettings(DeviceSettings):
-    limits: tuple[float, float] = (0.0, 1.0)
+class SimDaqState(DeviceState):
+    outputs: dict[str, float]
+    """What was last read on each signal, by name; a signal not yet read is absent."""
+    broken: tuple[str, ...] = ()
+    """Signals failed by `fail`, until `restore`."""
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SimActuatorState(ActuatorState):
-    input: Measured(Drive, ge=0, le=1) = 0.0  # type: ignore[valid-type]
-    """What the plant is actually being driven with: the demand, clamped."""
+class SimDaq(Device):
+    """Reads a plant's outputs as its signals, advancing the plant by the time since the last read.
 
-
-class SimActuator(Actuator):
-    """Drives a plant's input from the loop's demand.
-
-    Two kinds of actuator, told apart by `unit`:
-
-    - A *smart* one takes the demand in the output's unit -- "hold 50 °C" --
-      and turns it into an input through the plant's static feedforward,
-      clamped to its limits; the loop's correction covers what the
-      feedforward gets wrong. That is what a packaged controller does, and
-      here it is exact by construction, which is why `disturb` exists. This
-      is the default, and any unit that is not a drive.
-    - A *plain* one takes the drive itself: a fraction of full (`of full`)
-      or a power (`W`, with `power_w` saying what full is). The loop's
-      feedforward, not the actuator, knows the plant.
+    Every signal is `[RP]`. Each is read when its own `poll_s` is due, so a
+    slow sample thermocouple beside fast zone ones costs one device; what
+    is due at an instant goes out as one sample.
     """
 
     def __init__(
         self,
         name: str,
-        plant: Plant,
-        limits: tuple[float, float] = (0.0, 1.0),
-        unit: str | None = None,
-        config: SimActuatorConfig | None = None,
-        power_w: float | None = None,
+        plant: AnyPlant,
+        ports: Mapping[str, str | DaqPort],
+        label: str | None = None,
+        config: SimDaqConfig | None = None,
     ) -> None:
-        super().__init__(name)
+        super().__init__(name, label)
         self.plant = plant
-        self.limits = limits
-        self._demand: float | None = None
         self._config = config
-        if unit:
-            self.demand_unit = Unit.get(unit)  # type: ignore[misc]
-        # In drive units a demand is the plant's input, scaled: the actuator does no modelling.
-        dimension = None if self.demand_unit is None else self.demand_unit.dimension
-        self.scale: float | None = None
-        if dimension == DIMENSIONLESS:
-            self.scale = 1.0
-        elif dimension == Power:
-            if power_w is None:
-                raise ValueError(f"{name}: a demand in {unit} needs `power_w`, what full drive is")
-            self.scale = power_w * self.demand_unit.factor  # type: ignore[union-attr]
+        leaves: dict[str, SignalSpec] = {}
+        self.ports: dict[str, str] = {}
+        """The plant port behind each signal, by the signal's path (`"dry.humidity"`)."""
+        for path, spec in ports.items():
+            spec = DaqPort(port=spec) if isinstance(spec, str) else spec
+            quantity = _output_quantity(plant, spec.port)
+            if spec.quantity is not None or spec.unit is not None:
+                if spec.quantity is None or spec.unit is None:
+                    raise ValueError(f"{name}.{path}: say both `quantity` and `unit`, or neither")
+                quantity = Quantity(spec.quantity, spec.unit)
+            if quantity is None:
+                raise ValueError(
+                    f"{name}.{path}: the plant's {spec.port!r} has no quantity of its own;"
+                    " say `{port, quantity, unit}`"
+                )
+            leaves[path] = SignalSpec(
+                name=path.rpartition(".")[2],
+                quantity=quantity,
+                access=Access.RP,
+                range=spec.range,
+                precision=spec.precision,
+                warn=spec.warn,
+                alarm=spec.alarm,
+            )
+            self.ports[path] = spec.port
+        if not leaves:
+            raise ValueError(f"{name}: a sim_daq reads at least one port")
+        self.bind(_tree(name, leaves))
+        self._last_ns: int | None = None
+        self._last_read: dict[Signal, int] = {}
+        self._outputs: dict[Signal, float] = {}
+        self._broken: dict[Signal, int] = {}
 
     @property
-    def config(self) -> SimActuatorConfig:
+    def config(self) -> SimDaqConfig:
         """The config this was built from, or one describing it when built in code.
 
         `link` is `""`: the plant was bound in place, and only the rig file
-        (`/api/sim/config`) names it.
+        names it.
         """
         if self._config is not None:
             return self._config.model_copy(update={"link": ""})
-        return SimActuatorConfig(name=self.name, link="", limits=self.limits)
+        return SimDaqConfig(link="", ports=dict(self.ports))
 
     @property
-    def settings(self) -> SimActuatorSettings:
-        return SimActuatorSettings(limits=self.limits)
-
-    @property
-    def state(self) -> SimActuatorState:
-        return SimActuatorState(
-            demand=self._demand, input=self.plant.input, output_range=self._output_range()
+    def state(self) -> SimDaqState:
+        return SimDaqState(
+            outputs={str(s.path): v for s, v in self._outputs.items()},
+            broken=tuple(str(s.path) for s in self._broken),
+            conditions=tuple(
+                Condition("broken", Level.ERROR, f"{s.path}: sensor failed (simulated)", since)
+                for s, since in self._broken.items()
+            ),
         )
 
-    def _output_range(self) -> tuple[float, float] | None:
-        """`limits`, scaled to the demand unit; None in smart mode (no fixed scale)."""
-        if self.scale is None:
-            return None
-        lo, hi = self.limits
-        return (lo * self.scale, hi * self.scale)
+    def _advance(self, time_ns: int) -> None:
+        """Step the plant to `time_ns`; a multi-port plant steps once per instant, whoever asks."""
+        if isinstance(self.plant, MultiPlant):
+            self.plant.advance(time_ns)
+        elif self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
+            self.plant.step((time_ns - self._last_ns) / 1e9)
+        self._last_ns = time_ns
 
-    def set_demand(self, demand: float) -> float | None:
-        """Drive the plant's input for `demand`; report the demand actually deliverable.
+    def _due(self, signal: Signal, time_ns: int) -> bool:
+        """Whether `signal`'s own period has passed since it was last read.
 
-        When the drive is clamped to the limits, the returned value is the
-        demand the clamped drive stands for, if the plant can say -- what a
-        law's anti-windup tracks. `None` means "no better than the demand".
+        A tenth of the period short still counts: a 2 s signal on a device
+        polled every second is read on the second poll, not the third, when
+        a scaled clock's threads arrive a little early.
         """
-        self._demand = demand
-        lo, hi = self.limits
-        if self.scale is not None:
-            drive = min(hi, max(lo, demand / self.scale))
-            self.plant.input = drive
-            return drive * self.scale
-        wanted = self.plant.feedforward(demand)
-        drive = min(hi, max(lo, wanted))
-        self.plant.input = drive
-        if drive == wanted:
-            return demand
-        inverse = getattr(self.plant, "inverse_feedforward", None)
-        return inverse(drive) if inverse is not None else None
+        if (period := signal.poll_s) is None or (last := self._last_read.get(signal)) is None:
+            return True
+        return time_ns - last >= 0.9 * period * 1e9
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """The poll (no `node`) reads what is due by its own period; a node asked for is read whole.
+
+        A fresh read names the node it wants and expects a value now, so
+        the per-signal gate applies only to the runtime's own polling. One
+        sample per namespace read (each is atomic) and one for the leaves
+        on the node itself, all at the one instant the plant was advanced
+        to.
+        """
+        asked = node is not None
+        node = self.root if node is None else node
+        if broken := [s.path for s in node.walk() if s in self._broken]:
+            raise HardwareError(f"{self.name}.{broken[0]}: thermocouple open circuit (simulated)")
+        self._advance(time_ns)
+        by_node: dict[Node, dict[Signal, float]] = {}
+        for signal in node.walk():
+            if asked or self._due(signal, time_ns):
+                value = _read_output(self.plant, self.ports[str(signal.path)])
+                by_node.setdefault(signal.node, {})[signal] = self._outputs[signal] = value
+                self._last_read[signal] = time_ns
+        for read_node, values in by_node.items():
+            yield Sample(read_node, time_ns, values)
+
+    def _signal(self, name: str) -> Signal:
+        try:
+            return self.signals[name]
+        except KeyError:
+            raise NotFoundError(f"{self.name} has no signal {name!r}") from None
 
     @command(simulation=True)
-    def set_limits(self, low: float, high: float) -> SimActuatorSettings:
-        """Change what the actuator can deliver: a smaller heater, a stuck valve."""
-        if high <= low:
-            raise ValueError("high must exceed low")
-        self.limits = (low, high)
-        return self.settings
+    def fail(self, signal: str) -> SimDaqState:
+        """Break one sensor: reads raise until `restore`; what the controller does is the test."""
+        self._broken.setdefault(self._signal(signal), self._last_ns or 0)
+        return self.state
 
     @command(simulation=True)
-    def disturb(self, offset: float) -> SimActuatorState:
-        """Kick the plant's input by `offset` until the next demand: a door opened, a leak."""
-        self.plant.input += offset
+    def restore(self, signal: str) -> SimDaqState:
+        """Mend the sensor; a command on an offline device makes the rig poll it again."""
+        self._broken.pop(self._signal(signal), None)
         return self.state
 
 
-class SimActuatorConfig(DeviceConfig[SimActuator], tag="sim_actuator"):
-    name: str
-    link: PlantConfig | FurnaceConfig | str
-    port: str | None = Field(default=None, description="Which input of a multi-port plant.")
-    limits: tuple[float, float] = Field(
-        default=(0.0, 1.0),
-        description="What the drive is clamped to.",
-        json_schema_extra={"live": "state.input"},
-    )
-    unit: str | None = Field(
-        default=None,
-        description="What demands arrive in: the output's unit (the actuator models the plant),"
-        " `of full` (the drive itself) or a power (`W`, with `power_w`).",
-    )
-    power_w: float | None = Field(
-        default=None, gt=0, description="What full drive is, when demands are a power."
+class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
+    """Read chosen outputs of a simulated plant as this device's `[RP]` signals."""
+
+    link: PlantLink = Field(description="The `sim_plant` or `sim_furnace` link read.")  # pyright: ignore[reportIncompatibleVariableOverride]
+    ports: dict[str, str | DaqPort] = Field(
+        description="Signal path -> the plant's output port; spelled out with `quantity` and"
+        " `unit` when the plant does not say what a port measures (a bare `sim_plant`)."
+        " A dotted path (`dry.humidity`) puts the signal in a namespace, so the device"
+        " can mirror a real one's addresses."
     )
 
-    def build(self) -> SimActuator:
-        if isinstance(self.link, str):
-            raise TypeError(f"link {self.link!r} must be resolved to a plant before building")
-        return SimActuator(
-            self.name,
-            _port(self.link, self.port, output=False),
-            self.limits,
-            self.unit,
-            self,
-            self.power_w,
+    def build(self, name: str, label: str | None = None) -> SimDaq:
+        return SimDaq(name, _plant(self.link), self.ports, label, self)
+
+
+SimDaq.config_type = SimDaqConfig  # the config is declared after the device it builds
+
+
+# endregion
+# region sim_drive
+
+
+class DrivePort(BaseModel):
+    """A `sim_drive` signal spelled out: which port, and the unit and limits it is set in.
+
+    The signal is declared in that unit with those limits, so an overlay
+    can mirror a real device's writable signal unit for unit (`blender.humidity
+    [W] %RH 0..100`); a demand is mapped linearly over `limits` onto the
+    port's 0..1 drive.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    port: str
+    quantity: str = Field(description="What is set: 'humidity', 'power'.")
+    unit: str
+    limits: Band = Field(
+        description="What maps onto the port's drive: `limits[0]` is off, `limits[1]` full."
+    )
+
+    @model_validator(mode="after")
+    def _limits_span(self) -> DrivePort:
+        if self.limits[1] <= self.limits[0]:
+            raise ValueError("limits must be a rising span")
+        return self
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SimDriveState(DeviceState):
+    inputs: dict[str, Measured(Drive, ge=0, le=1)]  # type: ignore[valid-type]
+    """What the plant is actually being driven with on each signal's port, as a fraction of full."""
+
+
+class SimDrive(Device):
+    """Drives a plant's inputs from demands on its signals.
+
+    Every signal is `[W]` in the port's own unit -- watts for a furnace
+    heater, a fraction of full for a bare plant -- or, spelled out as a
+    [DrivePort][flyball.sim.devices.DrivePort], in whatever unit the real
+    device it stands in for takes. Either way `limits` is what maps onto
+    the port's 0..1 drive, and the rig clamps a demand to them before it
+    gets here. The drive knows nothing of the plant's dynamics: a
+    controller's feedforward does.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        plant: AnyPlant,
+        ports: Mapping[str, str | DrivePort],
+        label: str | None = None,
+        config: SimDriveConfig | None = None,
+    ) -> None:
+        super().__init__(name, label)
+        self.plant = plant
+        self._config = config
+        self.ports: dict[str, str] = {}
+        """The plant port behind each signal, by the signal's path (`"dry.flow"`)."""
+        self._spans: dict[str, Band] = {}
+        """What each signal's `limits` were declared as: the span its values map over."""
+        leaves: dict[str, SignalSpec] = {}
+        for path, spec in ports.items():
+            if isinstance(spec, str):
+                quantity, limits = _input_quantity(plant, spec)
+                port = spec
+            else:
+                _input_quantity(plant, spec.port)  # the port exists
+                quantity, limits, port = Quantity(spec.quantity, spec.unit), spec.limits, spec.port
+            leaves[path] = SignalSpec(
+                name=path.rpartition(".")[2], quantity=quantity, access=Access.W, limits=limits
+            )
+            self.ports[path] = port
+            self._spans[path] = limits
+        if not leaves:
+            raise ValueError(f"{name}: a sim_drive drives at least one port")
+        self.bind(_tree(name, leaves))
+
+    def _fraction(self, path: str, value: float) -> float:
+        """`value` in the signal's unit as a fraction of full drive: linear over its span."""
+        low, high = self._spans[path]
+        return (value - low) / (high - low)
+
+    @property
+    def config(self) -> SimDriveConfig:
+        """The config this was built from, or one describing it when built in code."""
+        if self._config is not None:
+            return self._config.model_copy(update={"link": ""})
+        return SimDriveConfig(link="", ports=dict(self.ports))  # the short form, as bound
+
+    @property
+    def state(self) -> SimDriveState:
+        return SimDriveState(
+            inputs={name: _get_input(self.plant, port) for name, port in self.ports.items()}
         )
 
+    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+        for signal, value in self.pending.items():
+            path = str(signal.path)
+            _set_drive(self.plant, self.ports[path], self._fraction(path, value))
+        return self.flush_pending()
 
-# The actuator is defined before its config, so `config`'s return annotation
-# could not be resolved at class creation; the schema route reads this.
-SimActuator.config_type = SimActuatorConfig
+    @command(simulation=True)
+    def disturb(self, signal: str, offset: float) -> SimDriveState:
+        """Kick the plant's drive on `signal`'s port by `offset` in the signal's unit, until re-set.
+
+        A door opened, a leak: the plant sees it, the controller does not
+        until the reading moves. `offset` is watts on a furnace heater, a
+        fraction of full on a bare plant, the declared unit on a spelled-out
+        port.
+        """
+        try:
+            port = self.ports[signal]
+        except KeyError:
+            raise NotFoundError(f"{self.name} has no signal {signal!r}") from None
+        low, high = self._spans[signal]
+        _set_drive(self.plant, port, _get_input(self.plant, port) + offset / (high - low))
+        return self.state
+
+
+class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
+    """Drive chosen inputs of a simulated plant from this device's `[W]` signals."""
+
+    link: PlantLink = Field(description="The `sim_plant` or `sim_furnace` link driven.")  # pyright: ignore[reportIncompatibleVariableOverride]
+    ports: dict[str, str | DrivePort] = Field(
+        description="Signal path -> the plant's input port, or spelled out with the `quantity`,"
+        " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive)."
+        " A dotted path is a namespace."
+    )
+
+    def build(self, name: str, label: str | None = None) -> SimDrive:
+        return SimDrive(name, _plant(self.link), self.ports, label, self)
+
+
+SimDrive.config_type = SimDriveConfig
+
+
+# endregion

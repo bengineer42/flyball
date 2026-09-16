@@ -6,15 +6,14 @@ from threading import RLock
 import pytest
 from pydantic import TypeAdapter
 
-from flyball.core.device import Device, DeviceConfig, DeviceSettings, DeviceState, command
-from flyball.core.sink import Actuator, ActuatorConfig, ActuatorSettings, ActuatorState
+from flyball.core.device import Device, DeviceSettings, DeviceState, DriverConfig, command
 from helpers import DutyHeater, DutyState
 
 
 def test_tiers_are_inferred_from_property_annotations():
     assert DutyHeater.state_type is DutyState
-    assert DutyHeater.config_type is ActuatorConfig
-    assert DutyHeater.settings_type is ActuatorSettings
+    assert DutyHeater.config_type is DriverConfig
+    assert DutyHeater.settings_type is DeviceSettings
 
 
 def test_bare_device_answers_view_with_empty_tiers():
@@ -22,9 +21,9 @@ def test_bare_device_answers_view_with_empty_tiers():
         pass
 
     view = Bare("b").view
-    assert view.config == DeviceConfig() and view.settings == DeviceSettings()
+    assert view.config == DriverConfig() and view.settings == DeviceSettings()
     assert view.state == DeviceState()
-    assert Actuator("a").view.state == ActuatorState()
+    assert Bare.blocking is False
 
 
 def test_wrong_base_is_refused_at_definition():
@@ -50,8 +49,7 @@ def test_unschemable_state_is_refused_at_definition():
 
 
 def test_commands_are_collected_with_their_tags_and_docs():
-    # every actuator inherits `demand` from the base; a subclass adds its own after it
-    assert list(DutyHeater.commands) == ["demand", "set_duty", "off"]
+    assert list(DutyHeater.commands) == ["set_duty", "off"]
     assert DutyHeater.commands["off"].method.__name__ == "switch_off"
     assert DutyHeater.commands["set_duty"].doc == "Drive the element at a fixed duty."
 
@@ -62,7 +60,7 @@ def test_subclass_extends_the_parent_s_commands_without_leaking_back():
         def boost(self) -> None:
             """Stub."""
 
-    assert list(Child.commands) == ["demand", "set_duty", "off", "boost"]
+    assert list(Child.commands) == ["set_duty", "off", "boost"]
     assert "boost" not in DutyHeater.commands
 
 
@@ -104,9 +102,9 @@ def test_command_signature_must_be_schemable():
                 """Stub."""
 
 
-def test_state_schema_carries_conditions_and_demand():
+def test_state_schema_carries_conditions():
     props = TypeAdapter(DutyState).json_schema()["properties"]
-    assert set(props) == {"conditions", "demand", "duty", "output_range"}
+    assert set(props) == {"conditions", "duty"}
 
 
 def test_a_command_without_a_docstring_is_refused():

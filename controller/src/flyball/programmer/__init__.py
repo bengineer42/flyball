@@ -1,6 +1,6 @@
 from .activities import Prompt, Sustained, Timed, Wait
 from .command import Activity, Command, Commands
-from .devices import RunCommand
+from .devices import RunCommand, Set
 from .loops import Hold, Manual, Ramp, Regulate
 from .program import Program
 from .programmer import Programmer, ProgrammerState
@@ -18,6 +18,7 @@ __all__ = [
     "Ramp",
     "Regulate",
     "RunCommand",
+    "Set",
     "Sustained",
     "Timed",
     "Wait",

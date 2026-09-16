@@ -1,22 +1,19 @@
 """Generic devices for common lab equipment, configured with tables rather than code.
 
-A SCPI meter, a Modbus controller: a reader or actuator whose behaviour is a
-table of queries or registers, so it can be declared in a rig file. Vendor
-packages subclass these with the table filled in.
+A SCPI meter, a Modbus controller: a device whose signal tree is a table of
+queries or registers declared in its own config, so it can be named in a rig
+file without a bespoke driver. Vendor packages subclass these, or wrap an
+instrument library directly (`integrations.pymeasure`, `integrations.qcodes`).
 """
 
-from .modbus import ModbusActuator, ModbusActuatorConfig, ModbusReader, ModbusReaderConfig, Register
-from .scpi import ScpiActuator, ScpiActuatorConfig, ScpiMeasurand, ScpiReader, ScpiReaderConfig
+from .modbus import Modbus, ModbusConfig, ModbusRegister
+from .scpi import Scpi, ScpiConfig, ScpiSignal
 
 __all__ = [
-    "ModbusActuator",
-    "ModbusActuatorConfig",
-    "ModbusReader",
-    "ModbusReaderConfig",
-    "Register",
-    "ScpiActuator",
-    "ScpiActuatorConfig",
-    "ScpiMeasurand",
-    "ScpiReader",
-    "ScpiReaderConfig",
+    "Modbus",
+    "ModbusConfig",
+    "ModbusRegister",
+    "Scpi",
+    "ScpiConfig",
+    "ScpiSignal",
 ]

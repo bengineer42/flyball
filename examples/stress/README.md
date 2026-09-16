@@ -8,33 +8,43 @@ exactly as a real bench would be.
 
 | file | what it stresses | scale |
 | --- | --- | --- |
-| `plant.toml` | "the works": everything at once | 41 channels, 20 units, 17 loops (P/PI/PID × none/setpoint/affine/table), 3 unlooped actuators, readers spread 0.2–5 s |
-| `torrent.toml` | throughput | 8 channels at 0.02–0.05 s, clock ×40 → **~11,600 samples/s measured** (§ below) |
-| `zoo.toml` | breadth of unit | 21 channels, one per unit the registry renders, 4 with a loop |
-| `sparse.toml` | the empty states | 1 reader, 1 channel, no actuators, no loops, no programs |
-| `bare.toml` | the *really* empty state | loads with nothing declared at all (see note below) |
-| `chaos.toml` | bad control | small/fast/coupled/laggy/noisy furnace; one law that winds up into the millions of watts, one heater clamped to 40 % of its power, one open-loop zone |
-| `longrun.toml` | history at scale | clock ×600: ten hours of rig time in about a minute of wall time |
+| `plant.yaml` | "the works": everything at once | 41 published signals, 20 units, 17 controllers (P/PI/PID × none/affine/table), 3 writable devices with no controller, poll periods spread 0.2–5 s |
+| `torrent.yaml` | throughput | 8 signals at 0.02–0.05 s, clock ×40 → **~11,600 samples/s measured** (§ below) |
+| `zoo.yaml` | breadth of unit | 21 signals, one per unit the registry renders, 4 with a controller |
+| `sparse.yaml` | the empty states | 1 device, 1 signal, nothing writable, no controllers, no programs |
+| `bare.yaml` | the *really* empty state | loads with nothing declared at all (see note below) |
+| `chaos.yaml` | bad control | small/fast/coupled/laggy/noisy furnace; one law that winds up into the millions of watts, one heater clamped to 40 % of its power, one open-loop zone |
+| `longrun.yaml` | history at scale | clock ×600: ten hours of rig time in about a minute of wall time |
 
 Two ordinary examples live in `../simulated/` instead and are documented in
-that README: `chiller.toml` (reverse-acting: negative plant gain) and
-`dual.toml` (two independent loops, two units, one rig).
+that README: `chiller.yaml` (reverse-acting: negative plant gain) and
+`dual.yaml` (two independent controllers, two units, one rig).
+
+Every file is `links:` (the `sim_*`/`fake_*` plants and transports),
+`devices:` (`sim_daq` reading plant ports as `[RP]` signals, `sim_drive`
+driving them from `[W]` signals, `scpi`/`modbus` over the fakes) and
+`controllers:` keyed by the target signal's address -- the shape
+`../simulated/README.md` describes. A furnace is one `furnace` daq and one
+`heaters` drive on the `tube` link, so its addresses are `furnace.zoneN`
+and `heaters.heaterN`; a bare plant's drive is `<name>.drive`, a fraction
+of full, and its controller carries the plant's static inverse as an
+`affine` feedforward.
 
 ## Running one
 
 ```bash
 cd controller
-uv run flyball-daemon ../examples/stress/plant.toml --record
+uv run flyball-daemon ../examples/stress/plant.yaml --record
 uv run flyball program run ../examples/stress/programs/plant-firing.yaml
-uv run flyball rig check ../examples/stress/chaos.toml
+uv run flyball rig check ../examples/stress/chaos.yaml
 ```
 
-Every stress rig has at least one program in `programs/`, except `sparse.toml`
-and `bare.toml`, which deliberately have none. `chaos.toml`'s mid-run
-disturbance (failing a reader, kicking an actuator) is expressed directly in
-`chaos-run.yaml` with `command` steps (`{device_command: fail, actuator:
-zone3}`, `{device_command: disturb, actuator: heater5, args: {offset: -0.3}}`,
-...) and a `hold` whose own `timeout` gives up before its `duration`, to
+Every stress rig has at least one program in `programs/`, except `sparse.yaml`
+and `bare.yaml`, which deliberately have none. `chaos.yaml`'s mid-run
+disturbance (failing a thermocouple, kicking a heater) is expressed directly
+in `chaos-run.yaml` with `command` steps on the `furnace` and `heaters`
+devices (`fail`/`restore` with a `signal`, `disturb` with a `signal` and an
+`offset`) and a `hold` whose own `timeout` gives up before its `duration`, to
 exercise the "timed out" outcome — see
 [`programs.md`](../../book/src/3-running/programs.md#the-commands-every-rig-has)
 for both. Run it on its own:
@@ -47,14 +57,14 @@ uv run flyball program run ../examples/stress/programs/chaos-run.yaml
 routes from outside the program instead; kept for reference, but
 `chaos-run.yaml` no longer needs it run alongside.
 
-## `bare.toml`
+## `bare.yaml`
 
-It loads. `RigConfig` requires no `links`, `readers`, `actuators` or `loops`
-— a rig file can be just a name — so `bare.toml` is kept rather than dropped:
-it is the one file that puts every list in the UI (Sources, Actuators, Loops,
+It loads. `RigConfig` requires no `links`, `devices` or `controllers` — a
+rig file can be just a name — so `bare.yaml` is kept rather than dropped: it
+is the one file that puts every list in the UI (Inputs, Controllers,
 Dashboards, Programs) into its empty state simultaneously.
 
-## `torrent.toml`: measured sample rate
+## `torrent.yaml`: measured sample rate
 
 Measured on this machine on 16 Sep 2026, by starting the daemon with
 `--record` and reading the recorder's `reading` row count from the SQLite

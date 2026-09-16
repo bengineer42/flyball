@@ -171,14 +171,3 @@ class TestUnitLookup:
         with pytest.raises(ValueError, match="already"):
             Unit("bogus metre", "m", Time)
         Unit("metre again", "m", Length)  # the same unit under the same symbol is fine
-
-
-def test_a_measurand_takes_a_unit_by_symbol(fresh):
-    from flyball.core.reading import Measurand
-    from flyball.core.units import Unit
-    from flyball.core.units.errors import UnitNotFoundError
-
-    assert Measurand(fresh("t"), "°C").unit is Unit.get("°C")
-    assert Measurand(fresh("p"), "kPa").unit.factor == 1000.0
-    with pytest.raises(UnitNotFoundError):
-        Measurand(fresh("q"), "furlongs")

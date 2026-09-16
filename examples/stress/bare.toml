@@ -1,7 +1,0 @@
-#:schema ../simulated/rig.schema.json
-# As bare as a rig file can be: a name, nothing else. No links, no readers,
-# no actuators, no loops. It does load -- `RigConfig` requires none of
-# these -- so this is here to exercise the UI with truly nothing to show
-# anywhere: Overview, Sources, Loops and Dashboards all empty at once.
-
-name = "bare"

@@ -1,28 +1,51 @@
-"""A loop's demand is feedforward(setpoint) + correction, in the actuator's unit."""
+"""A controller's demand is feedforward(setpoint) + correction, in the target's unit."""
 
 import pytest
 
-from flyball.control import Affine, Feedforwards, Loop, NoFeedforward, Setpoint, Table, Transfer
+from flyball.control import (
+    Affine,
+    Controller,
+    Feedforwards,
+    NoFeedforward,
+    Setpoint,
+    Table,
+    Transfer,
+)
 from flyball.control.errors import FeedforwardNotInvertibleError
 from flyball.control.laws import P
 from flyball.control.types import ValueSource
-from flyball.core.reading import Measurand, Reading, Source
-from flyball.core.sink import Actuator
+from flyball.core.device import Device
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, Reading, SignalSpec
 from flyball.core.units.si import Celsius, Watt
-from flyball.sim import SteppedClock
-from helpers import sample
+from flyball.sim.clock import SteppedClock
 
 
-class Heater(Actuator):
-    demand_unit = Watt
+class Oven(Device):
+    """A °C zone regulated through a 100 W heater."""
 
-    def __init__(self, name: str = "heater") -> None:
-        super().__init__(name)
+    TREE = (
+        SignalSpec(name="zone", quantity=Quantity("temperature", Celsius), access=Access.RP),
+        SignalSpec(name="heater", quantity=Quantity("power", Watt), access=Access.W),
+    )
+
+
+class Heater:
+    """Collects demands and reports what a 100 W heater delivers."""
+
+    def __init__(self) -> None:
         self.demands: list[float] = []
 
-    def set_demand(self, demand: float) -> float | None:
+    def write(self, demand: float) -> float | None:
         self.demands.append(demand)
-        return min(demand, 100.0)  # a 100 W heater
+        return min(demand, 100.0)
+
+
+def controller(clock: SteppedClock, heater: Heater, **kwargs) -> Controller:
+    oven = Oven("oven")
+    return Controller(
+        clock, oven.signals["heater"], oven.signals["zone"], write=heater.write, **kwargs
+    )
 
 
 class TestFeedforwards:
@@ -82,19 +105,15 @@ class TestInvert:
             bumpy.invert(20.0)
 
 
-TEMPERATURE = Measurand("ff_temperature", Celsius)
-PROBE = Source("ff_probe", [TEMPERATURE])
-
-
 def reading(value: float, time_ns: int = 0) -> Reading:
-    return Reading(sample(PROBE, TEMPERATURE, value, time_ns), TEMPERATURE, time_ns, value)
+    return Reading(Oven("probe").signals["zone"], time_ns, value)
 
 
-class TestLoop:
-    def test_demand_is_feedforward_plus_correction_in_the_actuator_unit(self):
+class TestController:
+    def test_demand_is_feedforward_plus_correction_in_the_target_unit(self):
         clock = SteppedClock()
         heater = Heater()
-        loop = Loop(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=1.0, bias=10.0))
+        loop = controller(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=1.0, bias=10.0))
         loop.tick(reading(40.0, clock.now_ns()))
         loop.regulate(50.0, transfer=Transfer.RESET)
         loop.tick(reading(45.0, clock.now_ns()))
@@ -112,7 +131,7 @@ class TestLoop:
     def test_delivered_correction_is_measured_from_the_feedforward(self):
         clock = SteppedClock()
         heater = Heater()
-        loop = Loop(clock, heater, law=P(kp=10.0), feedforward=Affine(gain=1.0))
+        loop = controller(clock, heater, law=P(kp=10.0), feedforward=Affine(gain=1.0))
         loop.regulate(90.0, transfer=Transfer.RESET)
         loop.tick(reading(80.0, clock.now_ns()))
         assert loop.demand == pytest.approx(190.0)  # 90 + 10 * 10
@@ -122,9 +141,8 @@ class TestLoop:
     def test_bumpless_seed_subtracts_the_feedforward(self):
         clock = SteppedClock()
         heater = Heater()
-        loop = Loop(clock, heater, law=P(kp=1.0), feedforward=Affine(gain=1.0, bias=5.0))
+        loop = controller(clock, heater, law=P(kp=1.0), feedforward=Affine(gain=1.0, bias=5.0))
         loop.tick(reading(20.0, clock.now_ns()))
-        heater.set_demand(30.0)
         loop.demand = loop.expected = 30.0  # what a manual demand left the heater at
         result = loop.regulate(20.0, transfer=Transfer.TRACK)
         # Held at 30 W; feedforward(20) = 25 W, so the seed must be 5 W to hold the output.
@@ -132,20 +150,25 @@ class TestLoop:
         assert result.bump == pytest.approx(-5.0)
         assert loop.feedforward(20.0) == 25.0
 
-    def test_default_is_the_setpoint(self):
-        loop = Loop(SteppedClock(), Heater(), law=P(kp=1.0))
-        assert isinstance(loop.feedforward, Setpoint)
-        assert loop.settings.feedforward.model_dump() == {"tag": "setpoint"}
+    def test_default_follows_the_units(self):
+        loop = controller(SteppedClock(), Heater(), law=P(kp=1.0))
+        assert isinstance(loop.feedforward, NoFeedforward), "°C to W: nothing to pass through"
+        assert loop.settings.feedforward.model_dump() == {"tag": "none"}
+        bath = Oven("bath")
+        bath.signals["heater"].override(quantity=Quantity("temperature", Celsius))
+        same = Controller(SteppedClock(), bath.signals["heater"], bath.signals["zone"])
+        assert isinstance(same.feedforward, Setpoint)
+        assert same.settings.feedforward.model_dump() == {"tag": "setpoint"}
 
     def test_regulate_at_demand_aims_at_the_setpoint_behind_it(self):
-        """`at=DEMAND` must land back in the channel's unit, not the actuator's."""
+        """`at=DEMAND` must land back in the source's unit, not the target's."""
         clock = SteppedClock()
         heater = Heater()
-        loop = Loop(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=2.0, bias=10.0))
+        loop = controller(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=2.0, bias=10.0))
         loop.regulate(50.0, transfer=Transfer.RESET)
         loop.tick(reading(45.0, clock.now_ns()))
         # demand = feedforward(50) + kp*(50-45) = 110 + 10 = 120 W; the setpoint
-        # behind that demand is invert(120) = 55, in the channel's unit (°C).
+        # behind that demand is invert(120) = 55, in the source's unit (°C).
         assert loop.demand == pytest.approx(120.0)
         assert loop.resolve_value(ValueSource.DEMAND) == pytest.approx(55.0)
 
@@ -157,7 +180,7 @@ class TestLoop:
     def test_regulate_at_demand_without_an_invertible_feedforward_is_a_clear_error(self):
         clock = SteppedClock()
         heater = Heater()
-        loop = Loop(clock, heater, law=P(kp=2.0), feedforward=NoFeedforward())
+        loop = controller(clock, heater, law=P(kp=2.0), feedforward=NoFeedforward())
         loop.regulate(50.0, transfer=Transfer.RESET)
         loop.tick(reading(45.0, clock.now_ns()))
         with pytest.raises(FeedforwardNotInvertibleError, match="'none'"):

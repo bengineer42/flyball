@@ -12,7 +12,7 @@ from flyball.runtime.controllers import (
     NoDefaultControllerError,
     SourceClaimedError,
 )
-from flyball.sim import SteppedClock
+from flyball.sim.clock import SteppedClock
 from test_rig_devices import Furnace
 
 

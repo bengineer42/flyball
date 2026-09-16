@@ -1,0 +1,430 @@
+# yaml-language-server: $schema=../simulated/rig.schema.json
+# One signal per unit the units registry knows how to display, so every
+# gauge kind and one unit-chart per unit gets exercised: temperatures on two
+# different scales, a percentage, volumes, electrical units, pressure in two
+# different prefixes of the same unit, a frequency, a speed, a mass, a
+# length, a bare drive fraction, resistance, energy, charge, an amount of
+# substance, an angle, a volume flow and a rotational rate. Most are a lag
+# with nothing driving it (a gauge with a value and a band); four have a
+# controller, so the UI's "has a controller" and "does not" both show up per
+# unit. Each is a `sim_plant` link read by one `sim_daq`; the four that are
+# driven have a `sim_drive` on the same link, its `drive` a fraction of full.
+
+name: zoo
+
+links:
+  celsius_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 5.0
+    gain: 1.0
+    ambient: 20.0
+    initial: 20.0
+    noise: 0.2
+  kelvin_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 5.0
+    gain: 1.0
+    ambient: 293.15
+    initial: 293.15
+    noise: 0.2
+  percent_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 4.0
+    gain: 1.0
+    ambient: 50.0
+    initial: 50.0
+    noise: 1.0
+  volume_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 6.0
+    gain: 1.0
+    ambient: 10.0
+    initial: 10.0
+    noise: 0.3
+  voltage_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 2.0
+    gain: 30.0
+    ambient: 12.0
+    initial: 12.0
+    noise: 0.05
+  current_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 2.0
+    gain: 1.0
+    ambient: 1.0
+    initial: 1.0
+    noise: 0.02
+  power_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 3.0
+    gain: 1000.0
+    ambient: 100.0
+    initial: 100.0
+    noise: 2.0
+  pressure_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 4.0
+    gain: 1.0
+    ambient: 101325.0
+    initial: 101325.0
+    noise: 20.0
+  pressure_kpa_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 4.0
+    gain: 1.0
+    ambient: 101.325
+    initial: 101.325
+    noise: 0.02
+  frequency_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 2.0
+    gain: 1.0
+    ambient: 50.0
+    initial: 50.0
+    noise: 0.5
+  speed_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 3.0
+    gain: 1.0
+    ambient: 0.0
+    initial: 0.0
+    noise: 0.05
+  mass_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 8.0
+    gain: 1.0
+    ambient: 5.0
+    initial: 5.0
+    noise: 0.1
+  length_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 3.0
+    gain: 5.0
+    ambient: 0.0
+    initial: 1.0
+    noise: 0.01
+  fraction_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 1.0
+    gain: 1.0
+    ambient: 0.0
+    initial: 0.5
+    noise: 0.005
+  resistance_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 4.0
+    gain: 1.0
+    ambient: 100.0
+    initial: 100.0
+    noise: 1.0
+  energy_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 3.0
+    gain: 1.0
+    ambient: 500.0
+    initial: 500.0
+    noise: 5.0
+  charge_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 2.0
+    gain: 1.0
+    ambient: 0.0
+    initial: 0.0
+    noise: 0.01
+  amount_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 5.0
+    gain: 1.0
+    ambient: 1.0
+    initial: 1.0
+    noise: 0.01
+  angle_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 1.0
+    gain: 1.0
+    ambient: 0.0
+    initial: 0.0
+    noise: 0.02
+  flow_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 3.0
+    gain: 40.0
+    ambient: 0.0
+    initial: 5.0
+    noise: 0.2
+  speed_rpm_cell:
+    tag: sim_plant
+    model: lag
+    tau_s: 4.0
+    gain: 1.0
+    ambient: 0.0
+    initial: 1000.0
+    noise: 10.0
+
+devices:
+  celsius:
+    driver: sim_daq
+    label: "Temperature (°C)"
+    poll_s: 1.0
+    config:
+      link: celsius_cell
+      ports:
+        temperature: { port: output, quantity: temperature, unit: "°C" }
+    signals:
+      temperature: { range: [-20, 150], precision: 1, warn: [0, 100], alarm: [-10, 120] }
+  kelvin:
+    driver: sim_daq
+    label: Temperature (K)
+    poll_s: 1.0
+    config:
+      link: kelvin_cell
+      ports:
+        temperature: { port: output, quantity: temperature, unit: K }
+    signals:
+      temperature: { range: [250, 400], precision: 2 }
+  percent:
+    driver: sim_daq
+    label: Humidity (%)
+    poll_s: 1.0
+    config:
+      link: percent_cell
+      ports:
+        humidity: { port: output, quantity: humidity, unit: "%" }
+    signals:
+      humidity: { range: [0, 100], precision: 1, warn: [10, 90] }
+  volume:
+    driver: sim_daq
+    label: Volume (L)
+    poll_s: 1.0
+    config:
+      link: volume_cell
+      ports:
+        volume: { port: output, quantity: volume, unit: L }
+    signals:
+      volume: { range: [0, 50], precision: 2 }
+  voltage:
+    driver: sim_daq
+    label: Voltage (V)
+    poll_s: 0.5
+    config:
+      link: voltage_cell
+      ports:
+        voltage: { port: output, quantity: voltage, unit: V }
+    signals:
+      voltage: { range: [0, 30], precision: 3 }
+  current:
+    driver: sim_daq
+    label: Current (A)
+    poll_s: 0.5
+    config:
+      link: current_cell
+      ports:
+        current: { port: output, quantity: current, unit: A }
+    signals:
+      current: { range: [0, 10], precision: 3 }
+  power:
+    driver: sim_daq
+    label: Power (W)
+    poll_s: 1.0
+    config:
+      link: power_cell
+      ports:
+        power: { port: output, quantity: power, unit: W }
+    signals:
+      power: { range: [0, 1000], precision: 0 }
+  pressure_pa:
+    driver: sim_daq
+    label: Pressure (Pa)
+    poll_s: 1.0
+    config:
+      link: pressure_cell
+      ports:
+        pressure: { port: output, quantity: pressure, unit: Pa }
+    signals:
+      pressure: { range: [90000, 110000], precision: 0 }
+  pressure_kpa:
+    driver: sim_daq
+    label: Pressure (kPa)
+    poll_s: 1.0
+    config:
+      link: pressure_kpa_cell
+      ports:
+        pressure: { port: output, quantity: pressure, unit: kPa }
+    signals:
+      pressure: { range: [90, 110], precision: 2 }
+  frequency:
+    driver: sim_daq
+    label: Frequency (Hz)
+    poll_s: 0.5
+    config:
+      link: frequency_cell
+      ports:
+        frequency: { port: output, quantity: frequency, unit: Hz }
+    signals:
+      frequency: { range: [0, 100], precision: 1 }
+  speed:
+    driver: sim_daq
+    label: Speed (m/s)
+    poll_s: 0.5
+    config:
+      link: speed_cell
+      ports:
+        speed: { port: output, quantity: speed, unit: m/s }
+    signals:
+      speed: { range: [-5, 5], precision: 3 }
+  mass:
+    driver: sim_daq
+    label: Mass (kg)
+    poll_s: 2.0
+    config:
+      link: mass_cell
+      ports:
+        mass: { port: output, quantity: mass, unit: kg }
+    signals:
+      mass: { range: [0, 50], precision: 2 }
+  length:
+    driver: sim_daq
+    label: Length (m)
+    poll_s: 0.5
+    config:
+      link: length_cell
+      ports:
+        length: { port: output, quantity: length, unit: m }
+    signals:
+      length: { range: [0, 10], precision: 3 }
+  fraction:
+    driver: sim_daq
+    label: Drive fraction
+    poll_s: 1.0
+    config:
+      link: fraction_cell
+      ports:
+        drive: { port: output, quantity: drive, unit: of full }
+    signals:
+      drive: { range: [0, 1], precision: 3 }
+  resistance:
+    driver: sim_daq
+    label: Resistance (Ω)
+    poll_s: 1.0
+    config:
+      link: resistance_cell
+      ports:
+        resistance: { port: output, quantity: resistance, unit: Ω }
+    signals:
+      resistance: { range: [0, 1000], precision: 1 }
+  energy:
+    driver: sim_daq
+    label: Energy (J)
+    poll_s: 1.0
+    config:
+      link: energy_cell
+      ports:
+        energy: { port: output, quantity: energy, unit: J }
+    signals:
+      energy: { range: [0, 5000], precision: 0 }
+  charge:
+    driver: sim_daq
+    label: Charge (C)
+    poll_s: 1.0
+    config:
+      link: charge_cell
+      ports:
+        charge: { port: output, quantity: charge, unit: C }
+    signals:
+      charge: { range: [-1, 1], precision: 4 }
+  amount:
+    driver: sim_daq
+    label: Amount of substance (mol)
+    poll_s: 2.0
+    config:
+      link: amount_cell
+      ports:
+        amount: { port: output, quantity: amount, unit: mol }
+    signals:
+      amount: { range: [0, 5], precision: 3 }
+  angle:
+    driver: sim_daq
+    label: Angle (rad)
+    poll_s: 0.5
+    config:
+      link: angle_cell
+      ports:
+        angle: { port: output, quantity: angle, unit: rad }
+    signals:
+      angle: { range: [-3.2, 3.2], precision: 3 }
+  flow:
+    driver: sim_daq
+    label: Flow (L/min)
+    poll_s: 1.0
+    config:
+      link: flow_cell
+      ports:
+        flow: { port: output, quantity: flow, unit: L/min }
+    signals:
+      flow: { range: [0, 50], precision: 2 }
+  rotation:
+    driver: sim_daq
+    label: Rotational rate (1/min)
+    poll_s: 1.0
+    config:
+      link: speed_rpm_cell
+      ports:
+        rotation: { port: output, quantity: rotation, unit: "1/min" }
+    signals:
+      rotation: { range: [0, 3000], precision: 0 }
+  celsius_heater:
+    driver: sim_drive
+    label: Temperature heater
+    config: { link: celsius_cell, ports: { drive: input } }
+  voltage_source:
+    driver: sim_drive
+    label: Voltage source
+    config: { link: voltage_cell, ports: { drive: input } }
+  length_motor:
+    driver: sim_drive
+    label: Length motor
+    config: { link: length_cell, ports: { drive: input } }
+  flow_pump:
+    driver: sim_drive
+    label: Flow pump
+    config: { link: flow_cell, ports: { drive: input } }
+
+controllers:
+  celsius_heater.drive:
+    signal: celsius.temperature
+    law: { tag: PI, kp: 0.05, ki: 0.002 }
+    feedforward: { tag: affine, gain: 1.0, bias: -20.0 }
+    default: true
+  voltage_source.drive:
+    signal: voltage.voltage
+    law: { tag: PI, kp: 0.001, ki: 0.00033333333 }
+    feedforward: { tag: affine, gain: 0.033333333, bias: -0.4 }
+  length_motor.drive:
+    signal: length.length
+    law: { tag: P, kp: 0.1 }
+    feedforward: { tag: affine, gain: 0.2, bias: 0.0 }
+  flow_pump.drive:
+    signal: flow.flow
+    law: { tag: PI, kp: 0.0005, ki: 0.000125 }
+    feedforward: { tag: affine, gain: 0.025, bias: 0.0 }

@@ -5,16 +5,25 @@ own simulator. `runtime` must never import this package.
 """
 
 from .clock import ScaledClock, SteppedClock
-from .devices import PlantConfig, SimActuator, SimActuatorConfig, SimReader, SimReaderConfig
+from .devices import (
+    DaqPort,
+    DrivePort,
+    FurnaceConfig,
+    PlantConfig,
+    SimDaq,
+    SimDaqConfig,
+    SimDrive,
+    SimDriveConfig,
+)
 from .furnace import Furnace, MultiPlant, Port
 from .plant import Fopdt, Integrator, Lag, Noisy, Plant
-from .reader import FunctionReader
-from .sink import RecordingActuator
 
 __all__ = [
+    "DaqPort",
+    "DrivePort",
     "Fopdt",
-    "FunctionReader",
     "Furnace",
+    "FurnaceConfig",
     "Integrator",
     "Lag",
     "MultiPlant",
@@ -22,11 +31,10 @@ __all__ = [
     "Plant",
     "PlantConfig",
     "Port",
-    "RecordingActuator",
     "ScaledClock",
-    "SimActuator",
-    "SimActuatorConfig",
-    "SimReader",
-    "SimReaderConfig",
+    "SimDaq",
+    "SimDaqConfig",
+    "SimDrive",
+    "SimDriveConfig",
     "SteppedClock",
 ]

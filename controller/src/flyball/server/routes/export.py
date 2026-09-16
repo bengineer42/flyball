@@ -1,4 +1,4 @@
-"""Downloads: a session, one channel, one loop or the events as a file.
+"""Downloads: a session, one signal, one controller or the events as a file.
 
 Every export is a plain table with the same two leading time columns --
 ``time_s`` (seconds since the session started) and ``time`` (ISO 8601, UTC) --
@@ -6,9 +6,10 @@ so files from one session line up in a spreadsheet. ``format`` is ``csv`` or
 ``json``; a whole session can also come as a ``zip`` of every table plus the
 session's metadata.
 
-A ``wide`` session table has one column per channel and one row per instant
-(or per ``step_s``), each channel holding its last value; ``long`` has one row
-per raw value (``source, measurand, unit, value``).
+A ``wide`` session table has one column per signal (headed by its address and
+unit) and one row per instant (or per ``step_s``), each signal holding its
+last value; ``long`` has one row per raw value (``device, signal, unit,
+value``).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
-from flyball.db import Store
+from flyball.db import SignalRow, Store
 from flyball.server.deps import StoreDep
 
 router = APIRouter(prefix="/api/history/sessions/{session_id}", tags=["history"])
@@ -60,8 +61,8 @@ def _attachment(body: bytes, media: str, name: str) -> Response:
     )
 
 
-def _column(channel: Any) -> str:
-    return f"{channel.name} ({channel.measurand.unit})"
+def _column(signal: SignalRow) -> str:
+    return f"{signal.address} ({signal.unit})"
 
 
 # region Tables
@@ -71,33 +72,31 @@ def session_table(
     store: Store, session_id: int, layout: Layout, step_s: float | None = None
 ) -> tuple[list[str], list[list]]:
     session = store.session(session_id)
-    channels = store.channels(session_id)
+    signals = store.signals(session_id)
     if layout == "long":
         rows: list[list] = []
-        for source in store.sources(session_id):
-            units = {
-                c.measurand.name: c.measurand.unit for c in channels if c.source.id == source.id
-            }
-            for sample in store.samples(session_id, source.name):
+        units = {s.address: s.unit for s in signals}
+        for device in store.devices(session_id):
+            for sample in store.samples(session_id, device.address):
                 stamp = _stamp(session.start_ns, sample.offset_ns)
-                for measurand, value in sample.values.items():
-                    rows.append([*stamp, source.name, measurand, units.get(measurand, ""), value])
+                for address, value in sample.values.items():
+                    rows.append([*stamp, device.address, address, units.get(address, ""), value])
         rows.sort(key=lambda r: r[0])
-        return [*TIME_COLUMNS, "source", "measurand", "unit", "value"], rows
+        return [*TIME_COLUMNS, "device", "signal", "unit", "value"], rows
 
-    order = {c.name: i for i, c in enumerate(channels)}
+    order = {s.address: i for i, s in enumerate(signals)}
     by_instant: dict[int, list] = {}
-    for source in store.sources(session_id):
-        for sample in store.samples(session_id, source.name):
-            row = by_instant.setdefault(sample.offset_ns, [None] * len(channels))
-            for measurand, value in sample.values.items():
-                index = order.get(f"{source.name}.{measurand}")
+    for device in store.devices(session_id):
+        for sample in store.samples(session_id, device.address):
+            row = by_instant.setdefault(sample.offset_ns, [None] * len(signals))
+            for address, value in sample.values.items():
+                index = order.get(address)
                 if index is not None:
                     row[index] = value
-    # Sources sample on their own clocks, milliseconds apart, so a row per raw
+    # Devices sample on their own clocks, milliseconds apart, so a row per raw
     # instant would be mostly blank: each row carries the last value of every
-    # channel instead, and `step_s` resamples that onto a regular grid.
-    held: list = [None] * len(channels)
+    # signal instead, and `step_s` resamples that onto a regular grid.
+    held: list = [None] * len(signals)
     rows: list[list] = []
     instants = sorted(by_instant)
     if step_s is None:
@@ -115,16 +114,26 @@ def session_table(
                 ]
                 i += 1
             rows.append([*_stamp(session.start_ns, at), *held])
-    return [*TIME_COLUMNS, *(_column(c) for c in channels)], rows
+    return [*TIME_COLUMNS, *(_column(s) for s in signals)], rows
 
 
-def series_table(
-    store: Store, session_id: int, source: str, measurand: str
-) -> tuple[list[str], list[list]]:
+def series_table(store: Store, session_id: int, address: str) -> tuple[list[str], list[list]]:
     session = store.session(session_id)
-    series = store.series(session_id, source, measurand)
+    series = store.series(session_id, address)
     rows = [[*_stamp(session.start_ns, p.offset_ns), p.value] for p in series.points]
-    return [*TIME_COLUMNS, _column(series.channel)], rows
+    return [*TIME_COLUMNS, _column(series.signal)], rows
+
+
+WRITE_FIELDS = ("value", "requested", "at_limit", "controller")
+
+
+def writes_table(store: Store, session_id: int, address: str) -> tuple[list[str], list[list]]:
+    session = store.session(session_id)
+    rows = [
+        [*_stamp(session.start_ns, w.offset_ns), *(getattr(w, f) for f in WRITE_FIELDS)]
+        for w in store.write_states(session_id, address)
+    ]
+    return [*TIME_COLUMNS, *WRITE_FIELDS], rows
 
 
 TICK_FIELDS = (
@@ -138,11 +147,11 @@ TICK_FIELDS = (
 )
 
 
-def ticks_table(store: Store, session_id: int, loop: str) -> tuple[list[str], list[list]]:
+def ticks_table(store: Store, session_id: int, controller: str) -> tuple[list[str], list[list]]:
     session = store.session(session_id)
     rows = [
         [*_stamp(session.start_ns, t.offset_ns), *(getattr(t, f) for f in TICK_FIELDS)]
-        for t in store.ticks(session_id, loop)
+        for t in store.ticks(session_id, controller)
     ]
     return [*TIME_COLUMNS, *TICK_FIELDS], rows
 
@@ -174,9 +183,9 @@ def export_session(
     layout: Layout = "wide",
     step_s: float | None = Query(None, gt=0, description="Resample a wide table onto this grid"),
 ) -> Response:
-    """Every channel as one table; ``zip`` adds each loop's ticks, the events and the metadata.
+    """Every signal as one table; ``zip`` adds each controller's ticks, every write, the events.
 
-    ``wide`` holds each channel's last value on every row (one row per sample
+    ``wide`` holds each signal's last value on every row (one row per sample
     instant, or per ``step_s``); ``long`` is the raw samples, one per value.
     """
     if format != "zip":
@@ -188,14 +197,17 @@ def export_session(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, (columns, rows) in {
-            "channels-wide.csv": session_table(store, session_id, "wide"),
-            "channels-long.csv": session_table(store, session_id, "long"),
+            "signals-wide.csv": session_table(store, session_id, "wide"),
+            "signals-long.csv": session_table(store, session_id, "long"),
             "events.csv": events_table(store, session_id),
         }.items():
             archive.writestr(name, _table(columns, rows, "csv")[0])
-        for loop in store.loops(session_id):
-            columns, rows = ticks_table(store, session_id, loop.name)
-            archive.writestr(f"loop-{loop.name}.csv", _table(columns, rows, "csv")[0])
+        for controller in store.controllers(session_id):
+            columns, rows = ticks_table(store, session_id, controller.name)
+            archive.writestr(f"controller-{controller.name}.csv", _table(columns, rows, "csv")[0])
+        for write in store.writes(session_id):
+            columns, rows = writes_table(store, session_id, write.address)
+            archive.writestr(f"write-{write.address}.csv", _table(columns, rows, "csv")[0])
         archive.writestr(
             "session.json",
             json.dumps(
@@ -207,18 +219,33 @@ def export_session(
                     "config": session.config,
                     "hardware": session.hardware,
                     "details": session.details,
-                    "channels": [
-                        {"name": c.name, "unit": c.measurand.unit, "label": c.measurand.label}
-                        for c in store.channels(session_id)
-                    ],
-                    "loops": [
+                    "devices": [
                         {
-                            "name": loop.name,
-                            "channel": loop.channel.name,
-                            "law": loop.config,
-                            "feedforward": loop.feedforward,
+                            "address": d.address,
+                            "driver": d.driver,
+                            "config": d.config,
+                            "label": d.label,
                         }
-                        for loop in store.loops(session_id)
+                        for d in store.devices(session_id)
+                    ],
+                    "signals": [
+                        {
+                            "address": s.address,
+                            "quantity": s.quantity,
+                            "unit": s.unit,
+                            "access": s.access,
+                            "label": s.label,
+                        }
+                        for s in store.signals(session_id)
+                    ],
+                    "controllers": [
+                        {
+                            "name": c.name,
+                            "source": c.source,
+                            "law": c.law,
+                            "feedforward": c.feedforward,
+                        }
+                        for c in store.controllers(session_id)
                     ],
                 },
                 indent=2,
@@ -227,20 +254,31 @@ def export_session(
     return _attachment(buffer.getvalue(), "application/zip", f"session-{session_id}.zip")
 
 
-@router.get("/series/{source}/{measurand}/export")
+@router.get("/series/{address}/export")
 def export_series(
-    store: StoreDep, session_id: int, source: str, measurand: str, format: Format = "csv"
+    store: StoreDep, session_id: int, address: str, format: Format = "csv"
 ) -> Response:
-    columns, rows = series_table(store, session_id, source, measurand)
+    columns, rows = series_table(store, session_id, address)
     body, media = _table(columns, rows, format)
-    return _attachment(body, media, f"session-{session_id}-{source}.{measurand}.{format}")
+    return _attachment(body, media, f"session-{session_id}-{address}.{format}")
 
 
-@router.get("/ticks/{loop}/export")
-def export_ticks(store: StoreDep, session_id: int, loop: str, format: Format = "csv") -> Response:
-    columns, rows = ticks_table(store, session_id, loop)
+@router.get("/writes/{address}/export")
+def export_writes(
+    store: StoreDep, session_id: int, address: str, format: Format = "csv"
+) -> Response:
+    columns, rows = writes_table(store, session_id, address)
     body, media = _table(columns, rows, format)
-    return _attachment(body, media, f"session-{session_id}-loop-{loop}.{format}")
+    return _attachment(body, media, f"session-{session_id}-write-{address}.{format}")
+
+
+@router.get("/ticks/{controller}/export")
+def export_ticks(
+    store: StoreDep, session_id: int, controller: str, format: Format = "csv"
+) -> Response:
+    columns, rows = ticks_table(store, session_id, controller)
+    body, media = _table(columns, rows, format)
+    return _attachment(body, media, f"session-{session_id}-controller-{controller}.{format}")
 
 
 @router.get("/events/export")

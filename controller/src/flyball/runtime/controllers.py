@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import ItemsView, Iterator
 
-from flyball.control import Controller, LoopSettings, LoopState, LoopView
+from flyball.control import Controller, ControllerSettings, ControllerState, ControllerView
 from flyball.core.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.core.signal import Signal
 
@@ -120,13 +120,13 @@ class Controllers:
         return ((controller.source, controller) for controller in self._controllers.values())
 
     @property
-    def states(self) -> dict[str, LoopState]:
+    def states(self) -> dict[str, ControllerState]:
         return {name: c.state for name, c in self._controllers.items()}
 
     @property
-    def settings(self) -> dict[str, LoopSettings]:
+    def settings(self) -> dict[str, ControllerSettings]:
         return {name: c.settings for name, c in self._controllers.items()}
 
     @property
-    def views(self) -> dict[str, LoopView]:
+    def views(self) -> dict[str, ControllerView]:
         return {name: c.view for name, c in self._controllers.items()}

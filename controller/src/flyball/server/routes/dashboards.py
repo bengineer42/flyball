@@ -1,11 +1,15 @@
 """Dashboards: what the UI shows and how, saved per rig.
 
 A dashboard is a document the UI owns -- a grid of widgets, each bound to a
-channel, loop, actuator or nothing -- validated here only in outline, so the
-widget catalogue can grow without a server release. The server keeps every
-version under a name, like programs; the newest is what `GET` returns. A rig
-can ship dashboards as ``dashboards/*.json`` beside its file: they are
-imported on start, and an edited file becomes a new version.
+signal address, a controller, a device or nothing -- validated here only in
+outline, so the widget catalogue can grow without a server release. The
+server keeps every version under a name, like programs; the newest is what
+`GET` returns. A rig can ship dashboards as ``dashboards/*.json`` beside its
+file: they are imported on start, and an edited file becomes a new version.
+
+Documents carry a `schema_version`; an older one is migrated on read (see
+[migrate][flyball.server.routes.dashboards.migrate]), never refused, and
+what is stored is left as saved.
 """
 
 from __future__ import annotations
@@ -13,12 +17,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from flyball.core.signal import Access
 from flyball.db import DashboardRow
 from flyball.db.errors import DashboardNotFoundError
 from flyball.db.store import Store
@@ -29,6 +35,9 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
+SCHEMA_VERSION = 2
+"""The document shape this server writes: bindings are addresses and controller names."""
+
 
 class Widget(BaseModel):
     """One tile on the grid. `config` is the widget kind's own business."""
@@ -36,7 +45,7 @@ class Widget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    kind: str = Field(description="Which widget: `readout`, `chart`, `loop`, ...")
+    kind: str = Field(description="Which widget: `readout`, `chart`, `loop`, `device`, ...")
     title: str | None = None
     x: int = Field(ge=0)
     y: int = Field(ge=0)
@@ -59,7 +68,7 @@ class Dashboard(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = 1
+    schema_version: int = SCHEMA_VERSION
     name: str = Field(min_length=1)
     rig: str
     description: str | None = None
@@ -72,7 +81,7 @@ class Rename(BaseModel):
 
 
 class Problem(BaseModel):
-    """A widget naming a channel, loop or actuator the live rig does not have.
+    """A widget naming a signal, controller or device the live rig does not have.
 
     Returned alongside the document rather than refusing it (DESIGN-SPEC.md §4.8): a rig with
     one renamed sensor should not lose a 20-widget dashboard. The widget renders the "unbound"
@@ -102,23 +111,24 @@ class DashboardWithProblems(BaseModel):
 
     @classmethod
     def of(cls, row: DashboardRow, rig: Rig) -> DashboardWithProblems:
-        body = row.body if isinstance(row.body, dict) else {}
+        body = migrate(row.body) if isinstance(row.body, dict) else row.body
         return cls(
             id=row.id,
             name=row.name,
             rig=row.rig,
-            body=row.body,
+            body=body,
             created_ns=row.created_ns,
             sha256=row.sha256,
-            problems=problems_for(body, rig),
+            problems=problems_for(body if isinstance(body, dict) else {}, rig),
         )
 
 
-def _ref_of(value: Any) -> str | None:
-    """A binding value as `source.measurand`.
+def _address_of(value: Any) -> str | None:
+    """A version-1 channel binding as an address.
 
-    Either the string the UI already uses, or the `{source, measurand}` shape the layout
-    schema (DESIGN-SPEC.md §5) describes.
+    Either the `source.measurand` string the UI used, or the `{source,
+    measurand}` shape the layout schema described; a source was a device and
+    a measurand its signal, so the address is the same dotted path.
     """
     if isinstance(value, str) and value:
         return value
@@ -127,18 +137,60 @@ def _ref_of(value: Any) -> str | None:
     return None
 
 
-def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
-    """Every widget whose binding names a channel, loop or actuator `rig` lacks.
+def migrate(document: dict[str, Any]) -> dict[str, Any]:
+    """A document at any schema version, brought to the current one; a copy.
 
-    Bindings live in each widget kind's own `config` (there is no separate `bind` field in this
-    build -- see the dashboards-engine report); only the kinds that reference the rig by name are
-    checked, matching the widget catalogue (readout/gauge: one channel; chart: several; loop;
-    actuator).
+    Version 1 bound widgets to channels, loops and actuators: a `readout`'s
+    or `gauge`'s `channel` becomes `address`, a `chart`'s `channels`
+    become `addresses`, a `loop`'s `loop` becomes `controller`, and the
+    `actuator` widget becomes a `device` widget bound by `device`. A loop
+    was named by its actuator and a controller is named by its target's
+    address, so the name is carried as it was; `problems` says if it no
+    longer resolves.
     """
-    channels = {
-        f"{source.name}.{channel.measurand.name}"
-        for source in rig.sources
-        for channel in source.channels
+    version = document.get("schema_version", 1)
+    if not isinstance(version, int) or version >= SCHEMA_VERSION:
+        return document
+    widgets: list[Any] = []
+    for widget in document.get("widgets") or []:
+        if not isinstance(widget, dict) or not isinstance(widget.get("config"), dict):
+            widgets.append(widget)
+            continue
+        kind = widget.get("kind")
+        config = dict(widget["config"])
+        if kind in ("readout", "gauge") and "channel" in config:
+            if (address := _address_of(config.pop("channel"))) is not None:
+                config["address"] = address
+        elif kind == "chart" and "channels" in config:
+            channels = config.pop("channels")
+            config["addresses"] = (
+                [a for c in channels if (a := _address_of(c)) is not None]
+                if isinstance(channels, list)
+                else []
+            )
+        elif kind == "loop" and "loop" in config:
+            config["controller"] = config.pop("loop")
+        elif kind == "actuator":
+            kind = "device"
+            if "actuator" in config:
+                config["device"] = config.pop("actuator")
+        widgets.append({**widget, "kind": kind, "config": config})
+    return {**document, "schema_version": SCHEMA_VERSION, "widgets": widgets}
+
+
+def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
+    """Every widget whose binding names a signal, controller or device `rig` lacks.
+
+    Bindings live in each widget kind's own `config`; only the kinds that
+    reference the rig by name are checked, matching the widget catalogue
+    (readout/gauge: one address; chart: several; loop: a controller;
+    device: a device). A readout binds to what publishes.
+    """
+    published = {
+        signal.address
+        for device in rig.devices.values()
+        for signal in device.signals.values()
+        if Access.P in signal.access
     }
     problems: list[Problem] = []
 
@@ -155,24 +207,23 @@ def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
             continue
         refs: list[str] = []
         if kind in ("readout", "gauge"):
-            ref = _ref_of(config.get("channel"))
-            if ref is not None:
-                refs.append(ref)
+            if isinstance(address := config.get("address"), str) and address:
+                refs.append(address)
         elif kind == "chart":
-            candidates = config.get("channels") or []
-            refs.extend(ref for c in candidates if (ref := _ref_of(c)) is not None)
+            candidates = config.get("addresses") or []
+            refs.extend(a for a in candidates if isinstance(a, str) and a)
         for ref in refs:
-            if ref not in channels:
+            if ref not in published:
                 flag(widget_id, ref)
-        if kind == "loop" and isinstance(config.get("loop"), str) and config["loop"]:
-            name = config["loop"]
-            if name not in rig.loops:
-                flag(widget_id, name)
-        if kind == "actuator" and isinstance(config.get("actuator"), str) and config["actuator"]:
-            name = config["actuator"]
-            if name not in rig.actuators:
-                flag(widget_id, name)
+        name = config.get("controller") if kind == "loop" else config.get("device")
+        known = rig.controllers if kind == "loop" else rig.devices
+        if isinstance(name, str) and name and name not in known:
+            flag(widget_id, name)
     return problems
+
+
+def _migrated(row: DashboardRow) -> DashboardRow:
+    return replace(row, body=migrate(row.body)) if isinstance(row.body, dict) else row
 
 
 def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> list[DashboardRow]:
@@ -218,7 +269,7 @@ async def list_dashboards(
     every: bool = Query(False, description="Every rig's, not only this one's."),
 ) -> list[DashboardRow]:
     """The newest version of each dashboard, by name; this rig's unless ``every``."""
-    return store.dashboards(None if every else rig.name)
+    return [_migrated(row) for row in store.dashboards(None if every else rig.name)]
 
 
 @router.get("/{name}")
@@ -229,7 +280,7 @@ async def read_dashboard(store: StoreDep, rig: RigDep, name: str) -> DashboardWi
 @router.get("/{name}/history")
 async def read_dashboard_history(store: StoreDep, name: str) -> list[DashboardRow]:
     """Every version, newest first."""
-    return store.dashboard_history(name)
+    return [_migrated(row) for row in store.dashboard_history(name)]
 
 
 @router.put("/{name}", status_code=201)

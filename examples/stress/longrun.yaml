@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=../simulated/rig.schema.json
+# A slow rig at a very high clock speed: one minute of wall time is ten
+# hours of rig time. `programs/longrun-soak.yaml`'s single ten-hour hold
+# takes about a minute to run, and `--record` fills a session with that
+# much history in the same minute -- for exercising history seeding, big
+# sessions, and a chart asked to show days of data.
+
+name: longrun
+clock: { speed: 600 }
+
+links:
+  drum:
+    tag: sim_plant
+    model: fopdt
+    tau_s: 1800.0
+    dead_s: 60.0
+    gain: 80.0
+    ambient: 15.0
+    initial: 15.0
+    noise: 0.1
+    seed: 5
+  cistern:
+    tag: sim_plant
+    model: integrator
+    gain: 1.0
+    leak: 0.01
+    initial: 200.0
+    noise: 0.05
+
+devices:
+  temp:
+    driver: sim_daq
+    label: Drum temperature
+    poll_s: 30.0
+    config:
+      link: drum
+      ports:
+        temperature: { port: output, quantity: temperature, unit: "°C" }
+    signals:
+      temperature: { range: [0, 120], precision: 2 }
+  cistern_level:
+    driver: sim_daq
+    label: Cistern level
+    poll_s: 60.0
+    config:
+      link: cistern
+      ports:
+        volume: { port: output, quantity: volume, unit: L }
+    signals:
+      volume: { range: [0, 1000], precision: 1 }
+  heater:
+    driver: sim_drive
+    label: Drum heater
+    config: { link: drum, ports: { drive: input } }
+  pump:
+    driver: sim_drive
+    label: Cistern pump
+    config: { link: cistern, ports: { drive: input } }
+
+controllers:
+  heater.drive:
+    signal: temp.temperature
+    law: { tag: PI, kp: 0.000125, ki: 2.5e-06 }
+    feedforward: { tag: affine, gain: 0.0125, bias: -0.1875 }
+    default: true
+  pump.drive:
+    signal: cistern_level.volume
+    law: { tag: PI, kp: 0.02, ki: 0.005 }
+    feedforward: { tag: affine, gain: 0.01 }

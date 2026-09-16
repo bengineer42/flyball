@@ -6,10 +6,11 @@ them directly. Times inside a session are `offset_ns` from its `start_ns`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
+from flyball.core.signal import Band
 from flyball.core.utils import Labelled
 
 # region Declarations
@@ -35,51 +36,64 @@ class SessionRow:
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurandRow:
+class DeviceRow:
+    """A device as declared for the session: its name, and what built it."""
+
     id: int
-    name: str
-    unit: str
+    address: str
+    driver: str | None
+    config: Any
     label: str | None
 
 
-@dataclass(frozen=True, slots=True)
-class SourceRow:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SignalRow:
+    """One signal as declared for the session; `address` is the key everything else uses."""
+
     id: int
-    name: str
-    kind: str | None
+    device_id: int
+    address: str
+    quantity: str
+    unit: str
+    access: str
+    """The wire form: `"rp"`, `"w"`, `"rpw"`."""
+    dtype: str = "float"
+    shape: list[int] = field(default_factory=list)
     label: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ChannelRow:
-    source: SourceRow
-    measurand: MeasurandRow
+    range: Band | None = None
+    precision: int | None = None
+    warn: Band | None = None
+    alarm: Band | None = None
+    limits: Band | None = None
 
     @property
-    def name(self) -> str:
-        return f"{self.source.name}.{self.measurand.name}"
+    def device(self) -> str:
+        """The device's name: the first segment of the address."""
+        return self.address.partition(".")[0]
 
 
 @dataclass(frozen=True, slots=True)
-class ActuatorRow:
+class WriteRow:
+    """A writable signal whose writes the session recorded."""
+
+    signal: SignalRow
+    driver: str | None
+    limits: Band | None
+
+    @property
+    def address(self) -> str:
+        return self.signal.address
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerRow:
+    """A controller is named by the signal it drives; `source` is the one it regulates."""
+
     name: str
-    kind: str
-    config: Any
-
-
-@dataclass(frozen=True, slots=True)
-class LoopRow:
-    """A loop is named by the actuator it drives."""
-
-    actuator: ActuatorRow
-    channel: ChannelRow
-    config: Any
+    source: str
+    law: Any
     feedforward: Any = None
     """The feedforward's config; None in sessions recorded before there was one."""
-
-    @property
-    def name(self) -> str:
-        return self.actuator.name
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +106,8 @@ class TuningRow:
     config: dict[str, Any]
     created_ns: int
     session_id: int | None = None
-    loop: str | None = None
+    controller: str | None = None
+    """The controller it was made for or on, if any."""
     notes: Any = None
 
 
@@ -138,10 +153,11 @@ class Point:
 
 @dataclass(frozen=True, slots=True)
 class SampleRow:
-    """One stored sample of one source: every measurand it carried, by name."""
+    """One stored sample: the values under `node` at one instant, by signal address."""
 
     seq: int
     offset_ns: int
+    node: str
     values: dict[str, float]
 
 
@@ -165,15 +181,15 @@ class Downsample:
 
 @dataclass(frozen=True, slots=True)
 class Series:
-    """One channel over a window. `downsample` is what was applied, `max_points` resolved."""
+    """One signal over a window. `downsample` is what was applied, `max_points` resolved."""
 
-    channel: ChannelRow
+    signal: SignalRow
     points: tuple[Point, ...]
     downsample: Downsample | None = None
 
     @property
     def unit(self) -> str:
-        return self.channel.measurand.unit
+        return self.signal.unit
 
     def __len__(self) -> int:
         return len(self.points)
@@ -181,9 +197,9 @@ class Series:
 
 @dataclass(frozen=True, slots=True)
 class Tick:
-    """One loop step. Written by the loop's recorder, read back for control plots."""
+    """One controller step. Written by the recorder, read back for control plots."""
 
-    loop: str
+    controller: str
     offset_ns: int
     mode: str
     correction: float
@@ -192,6 +208,17 @@ class Tick:
     demand: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WriteStateRow:
+    """What one writable signal was set to at one instant; a `WriteState` with its time."""
+
+    offset_ns: int
+    value: float | None
+    requested: float | None = None
+    at_limit: Literal["low", "high"] | None = None
+    controller: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

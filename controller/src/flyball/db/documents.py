@@ -4,8 +4,8 @@ The event model is what the synchrotron world's analysis tools read:
 a `start` (the run and its metadata), one `descriptor` per stream (its
 data keys, with dtype, shape, units, precision), an `event` per point, a
 `stop`. A recorded session maps onto it directly -- the session is the
-run, each source is a stream, each sample an event, each loop a second
-stream of ticks -- so this module walks the store and yields `(name, doc)`
+run, each device is a stream, each sample an event, each controller a
+second stream of ticks -- so this module walks the store and yields `(name, doc)`
 pairs, the shape `bluesky.callbacks` and databroker consume, and can write
 them as JSON lines.
 """
@@ -30,9 +30,9 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
     session = store.session(session_id)
     start_uid = str(uuid.uuid4())
     start_s = session.start_ns / 1e9
-    sources = store.sources(session_id)
-    channels = store.channels(session_id)
-    loops = store.loops(session_id)
+    devices = store.devices(session_id)
+    signals = store.signals(session_id)
+    controllers = store.controllers(session_id)
 
     yield (
         "start",
@@ -40,7 +40,7 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
             "uid": start_uid,
             "time": start_s,
             "plan_name": "flyball",
-            "detectors": [s.name for s in sources],
+            "detectors": [d.address for d in devices],
             "flyball": {
                 "session": session.id,
                 "version": session.version,
@@ -52,16 +52,16 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
     )
 
     counts: dict[str, int] = {}
-    for source in sources:
+    for device in devices:
         keys = {
-            c.name: {
-                "source": f"flyball:{c.name}",
+            s.address: {
+                "source": f"flyball:{s.address}",
                 "dtype": "number",
-                "shape": [],
-                "units": c.measurand.unit,
+                "shape": s.shape,
+                "units": s.unit,
             }
-            for c in channels
-            if c.source.name == source.name
+            for s in signals
+            if s.device_id == device.id
         }
         descriptor_uid = str(uuid.uuid4())
         yield (
@@ -70,16 +70,16 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
                 "uid": descriptor_uid,
                 "run_start": start_uid,
                 "time": start_s,
-                "name": source.name,
+                "name": device.address,
                 "data_keys": keys,
-                "object_keys": {source.name: list(keys)},
+                "object_keys": {device.address: list(keys)},
             },
         )
         n = 0
-        for sample in store.samples(session_id, source.name):
+        for sample in store.samples(session_id, device.address):
             n += 1
             time_s = (session.start_ns + sample.offset_ns) / 1e9
-            data = {f"{source.name}.{m}": v for m, v in sample.values.items()}
+            data = dict(sample.values)
             yield (
                 "event",
                 {
@@ -91,11 +91,12 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
                     "timestamps": dict.fromkeys(data, time_s),
                 },
             )
-        counts[source.name] = n
+        counts[device.address] = n
 
-    for loop in loops:
-        stream = f"loop:{loop.name}"
-        unit = loop.channel.measurand.unit
+    units = {s.address: s.unit for s in signals}
+    for controller in controllers:
+        stream = f"controller:{controller.name}"
+        unit = units.get(controller.source, "")
         keys = {
             f"{stream}.{key}": {
                 "source": f"flyball:{stream}.{key}",
@@ -116,12 +117,12 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
                 "data_keys": keys,
                 "object_keys": {stream: list(keys)},
                 "configuration": {
-                    stream: {"data": {"law": loop.config}, "data_keys": {}, "timestamps": {}}
+                    stream: {"data": {"law": controller.law}, "data_keys": {}, "timestamps": {}}
                 },
             },
         )
         n = 0
-        for tick in store.ticks(session_id, loop.name):
+        for tick in store.ticks(session_id, controller.name):
             n += 1
             time_s = (session.start_ns + tick.offset_ns) / 1e9
             data = {
