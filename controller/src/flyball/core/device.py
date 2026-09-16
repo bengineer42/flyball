@@ -169,6 +169,7 @@ class Param:
 
     @property
     def required(self) -> bool:
+        """Whether a request must give it: no default, and no demand to take the value from."""
         return self.default is inspect.Parameter.empty and self.link is None
 
 
@@ -283,24 +284,31 @@ class Namespace:
 
     @property
     def path(self) -> str:
+        """The dotted path relative to the device: `"flows"`, `"bank_a.ch1"`."""
         return self.name if self.parent is None else f"{self.parent.path}.{self.name}"
 
     def namespace(self, name: str, label: str = "", **options: Any) -> Namespace:
+        """A namespace under this one; `atomic` and `poll_s` as for the top level."""
         return Namespace(name, label, parent=self, **options)
 
     def demand(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Demand:
+        """A settable signal under this namespace, with a readback; what a controller drives."""
         return Demand(name, label, *args, parent=self, **meta)
 
     def output(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Output:
+        """A produced signal under this namespace: a measurement, a derived value, a mode."""
         return Output(name, label, *args, parent=self, **meta)
 
     def setting(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Setting:
+        """A signal under this namespace that a command re-sets; shown, not driven."""
         return Setting(name, label, *args, parent=self, **meta)
 
     def config(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> ConfigSignal:
+        """A signal under this namespace effective at build: the driver pushes it once."""
         return ConfigSignal(name, label, *args, parent=self, **meta)
 
     def input(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Input:
+        """An input grouped under this namespace for the schema; not in the tree (rig-bound)."""
         return Input(name, label, *args, parent=self, **meta)
 
     def spec(self) -> NodeSpec | None:
@@ -377,9 +385,11 @@ class Descriptor[B]:
 
     @property
     def path(self) -> str:
+        """The dotted path relative to the device: `"humidity"`, `"flows.dry"`."""
         return self.name if self.parent is None else f"{self.parent.path}.{self.name}"
 
     def spec(self) -> SignalSpec:
+        """The signal as a spec, a descriptor limit resolved to a reference by path."""
         meta = dict(self.meta)
         if (limits := meta.get("limits")) is not None:
             meta["limits"] = tuple(_bound(b) for b in limits)
@@ -506,6 +516,7 @@ class Input(Descriptor[BoundInput]):
         self.default = default
 
     def on(self, device: Device) -> BoundInput:
+        """What this input is on an instance: the bound source and its current value."""
         return BoundInput(device, self)
 
 
@@ -752,18 +763,22 @@ class Device:
 
     @property
     def readables(self) -> dict[str, Signal]:
+        """Every signal with `R`, by path."""
         return self._having(Access.R)
 
     @property
     def publishing(self) -> dict[str, Signal]:
+        """Every signal with `P`, by path: what polling samples and the recorder keeps."""
         return self._having(Access.P)
 
     @property
     def writables(self) -> dict[str, Signal]:
+        """Every signal with `W`, by path."""
         return self._having(Access.W)
 
     @property
     def demands(self) -> dict[str, Signal]:
+        """Every demand, by path."""
         return {path: s for path, s in self.signals.items() if s.role is Role.DEMAND}
 
     # endregion
