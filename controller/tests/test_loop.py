@@ -94,7 +94,12 @@ def test_a_generator_builds_from_its_config_and_views_itself_with_or_without_an_
     """A ramp lands, so it has an end time; a trajectory that only approaches its point has none."""
     import math
 
-    from flyball.control.setpoint import LinearRampSetpoint, SetPointGenerator
+    from flyball.control.setpoint import (
+        LinearRampSetpoint,
+        SetPointGenerator,
+        TrajectorySpec,
+        TrajectoryState,
+    )
 
     class Approach(SetPointGenerator, tag="approach", register=False):
         """Closes the gap to `to` with time constant `tau`: never quite arrives."""
@@ -113,19 +118,25 @@ def test_a_generator_builds_from_its_config_and_views_itself_with_or_without_an_
         def rate(self, time: float) -> float:
             return self.span / self.tau * math.exp(-(time - self.origin) / self.tau)
 
-        def destination(self) -> float:
-            return self.to
+        def spec(self, origin_ns: int) -> TrajectorySpec:
+            return super().spec(origin_ns).model_copy(update={"to": self.to})  # fixed; no landing
+
+        def state(self, time: float) -> TrajectoryState:
+            return TrajectoryState(rate=self.rate(time))  # what decays
 
     ramp = LinearRampSetpoint.config(tag="ramp", to=80.0, pace={"minutes": 3}).build()
     ramp.start(100.0, 20.0)
     view = ramp.trajectory(100.0, origin_ns=0).model_dump()
     assert view == {
-        "tag": "ramp",
-        "start": 20.0,
-        "start_time_ns": 100 * 10**9,
-        "to": 80.0,
-        "end_time_ns": 280 * 10**9,
-        "rate": 60 / 180,
+        "spec": {
+            "tag": "ramp",
+            "start": 20.0,
+            "start_time_ns": 100 * 10**9,
+            "to": 80.0,
+            "end_time_ns": 280 * 10**9,
+            "rate": 60 / 180,
+        },
+        "state": {"to": None, "end_time_ns": None, "rate": None},
     }
     assert ramp.config.model_dump()["to"] == 80.0  # the running one still says how it was built
 
@@ -133,8 +144,13 @@ def test_a_generator_builds_from_its_config_and_views_itself_with_or_without_an_
     approach.start(100.0, 20.0)
     assert approach.generate(130.0) == pytest.approx(80.0 - 60.0 * math.exp(-1))
     view = approach.trajectory(130.0, origin_ns=0).model_dump()
-    assert (
-        view["to"] == 80.0
-        and view["end_time_ns"] is None
-        and view["rate"] == pytest.approx(2 * math.exp(-1))
-    )
+    assert view["spec"] == {
+        "tag": "approach",
+        "start": 20.0,
+        "start_time_ns": 100 * 10**9,
+        "to": 80.0,
+        "end_time_ns": None,
+        "rate": None,
+    }
+    assert view["state"]["rate"] == pytest.approx(2 * math.exp(-1))
+    assert view["state"]["to"] is None and view["state"]["end_time_ns"] is None

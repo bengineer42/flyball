@@ -22,6 +22,8 @@ from .setpoint import (
     SetPointGenerator,
     SetPointGenerators,
     Trajectory,
+    TrajectorySpec,
+    TrajectoryState,
 )
 from .types import (
     ApplyResult,
@@ -79,6 +81,8 @@ __all__ = [
     "Setpoint",
     "Table",
     "Trajectory",
+    "TrajectorySpec",
+    "TrajectoryState",
     "Transfer",
     "Tuning",
     "Tunings",

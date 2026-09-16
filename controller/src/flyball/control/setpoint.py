@@ -32,13 +32,14 @@ class GeneratorConfig(BaseModel):
         return self.generator(**{name: getattr(self, name) for name in self.init_names})
 
 
-class Trajectory(BaseModel):
-    """A running generator as a client sees it: where it set off, where it heads, when it lands.
+class TrajectorySpec(BaseModel):
+    """What a running generator fixed when it started, good until it is replaced.
 
-    `to` is None for a trajectory with no destination (a sine, say);
-    `end_time_ns` for one that never lands -- no destination, or one it
-    only ever approaches. The start is always known: it is where the loop
-    was when the generator was started, and nothing else on the wire keeps it.
+    The start is always here: it is where the loop was when the generator
+    was started, and nothing else on the wire keeps it. The rest a
+    generator fills in when it can settle them up front -- a ramp knows its
+    destination, its landing time and its rate from the outset -- and leaves
+    None when it cannot, or when the value moves (see `TrajectoryState`).
     """
 
     tag: str
@@ -47,11 +48,32 @@ class Trajectory(BaseModel):
     start_time_ns: int
     """When it set off, on the rig's clock."""
     to: float | None = None
-    """Where the setpoint is heading, in the channel's unit."""
+    """Where the setpoint is heading, if that is fixed."""
     end_time_ns: int | None = None
-    """When it gets there, on the rig's clock."""
-    rate: float = 0.0
-    """How fast the setpoint is moving now, per second."""
+    """When it gets there, on the rig's clock, if that is fixed."""
+    rate: float | None = None
+    """How fast it moves, per second, if that is constant."""
+
+
+class TrajectoryState(BaseModel):
+    """What a running generator has to keep re-evaluating: whatever its spec could not fix.
+
+    A trajectory that only ever approaches its point has a fixed `to` but a
+    rate that decays, so `rate` lives here; one chasing a moving target
+    would put `to` here too. Everything is None for a generator whose spec
+    says it all.
+    """
+
+    to: float | None = None
+    end_time_ns: int | None = None
+    rate: float | None = None
+
+
+class Trajectory(BaseModel):
+    """A running generator as a client sees it: what it fixed at the start, and what moves."""
+
+    spec: TrajectorySpec
+    state: TrajectoryState
 
 
 class SetPointGenerator:
@@ -59,8 +81,8 @@ class SetPointGenerator:
 
     `Sub.config` is the model that builds one from the wire; `sub.config`
     its values. `start` records where and when it set off (seconds from
-    the clock's origin); `destination` and `landing` are what a subclass
-    knows of where it is going once started, and either may be None.
+    the clock's origin); `spec` and `state` are what a subclass says of
+    where it is going -- fixed at the start, and moving, respectively.
     """
 
     tag: ClassVar[str] = ""
@@ -128,25 +150,24 @@ class SetPointGenerator:
         """
         return 0.0
 
-    def destination(self) -> float | None:
-        """Where the set point is heading; None for a trajectory with no destination."""
-        return None
+    def spec(self, origin_ns: int) -> TrajectorySpec:
+        """What was fixed at the start; `origin_ns` is the clock's origin, to put times on the wire.
 
-    def landing(self) -> float | None:
-        """When it gets there, seconds from the clock's origin; None if it never does."""
-        return None
-
-    def trajectory(self, time: float, origin_ns: int) -> Trajectory:
-        """The view at `time`; `origin_ns` is the clock's origin, to put the times on the wire."""
-        landing = self.landing()
-        return Trajectory(
+        The base knows the start; a subclass extends with what it fixed.
+        """
+        return TrajectorySpec(
             tag=self.tag,
             start=self.start_value,
             start_time_ns=origin_ns + round(self.start_time * 1e9),
-            to=self.destination(),
-            end_time_ns=None if landing is None else origin_ns + round(landing * 1e9),
-            rate=self.rate(time),
         )
+
+    def state(self, time: float) -> TrajectoryState:
+        """What moves, evaluated at `time`. Default: nothing the spec did not fix."""
+        return TrajectoryState()
+
+    def trajectory(self, time: float, origin_ns: int) -> Trajectory:
+        """The view at `time`: the spec and the state together."""
+        return Trajectory(spec=self.spec(origin_ns), state=self.state(time))
 
 
 class LinearRampSetpoint(SetPointGenerator, tag="ramp"):
@@ -183,8 +204,16 @@ class LinearRampSetpoint(SetPointGenerator, tag="ramp"):
     def rate(self, time: float) -> float:
         return 0.0 if time >= self.end_time else self.per_second
 
-    def destination(self) -> float:
-        return self.to
-
-    def landing(self) -> float:
-        return self.end_time
+    def spec(self, origin_ns: int) -> TrajectorySpec:
+        # A ramp settles everything when it starts; nothing is left to the state.
+        return (
+            super()
+            .spec(origin_ns)
+            .model_copy(
+                update={
+                    "to": self.to,
+                    "end_time_ns": origin_ns + round(self.end_time * 1e9),
+                    "rate": self.per_second,
+                }
+            )
+        )
