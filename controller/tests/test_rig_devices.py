@@ -257,7 +257,9 @@ class TestDelivery:
             ValueError, match=f"Sample on '{furnace.name}' carries 'nowhere', not a bound signal"
         ):
             rig.on_samples([Sample(furnace.root, 0, {"nowhere": 1.0})])  # type: ignore[dict-item]
-        assert rig.latest == {}, "refused before any of it was applied"
+        assert set(rig.latest) == {furnace.signals["conditions"]}, (
+            "refused before any of it was applied; conditions is pushed when the device is added"
+        )
 
     def test_a_key_must_be_a_signal_under_the_node(self, rig, sensors, furnace):
         hum, dry = sensors.name, sensors.nodes["dry"]
@@ -278,7 +280,7 @@ class TestDelivery:
             match=f"Sample on '{hum}.dry' carries '{furnace.name}.zone1', which is not under it",
         ):
             rig.on_samples([Sample(dry, 0, {dry_h: 1.0, zone1: 1.0})])
-        assert rig.latest == {}
+        assert set(rig.latest) == {sensors.signals["conditions"], furnace.signals["conditions"]}
 
     def test_a_sample_on_the_root_carries_its_subtree(self, rig, sensors):
         dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
@@ -287,7 +289,12 @@ class TestDelivery:
         whole = Sample(sensors.root, 7, {dry_h: 4.0, wet_h: 96.0})
         with rig.samples.watch():
             rig.on_samples([whole])
-        assert rig.latest == {dry_h: Reading(dry_h, 7, 4.0), wet_h: Reading(wet_h, 7, 96.0)}
+        conditions = sensors.signals["conditions"]
+        assert rig.latest == {
+            conditions: rig.latest[conditions],
+            dry_h: Reading(dry_h, 7, 4.0),
+            wet_h: Reading(wet_h, 7, 96.0),
+        }
         assert rig.samples.changed_since(0)[1] == {sensors.name: whole}, "flat, as delivered"
         assert rig.read(rig.resolve(f"{sensors.name}.dry")) == Sample(dry, 7, {dry_h: 4.0})
         assert rig.read(wet) == Sample(wet, 7, {wet_h: 96.0})
@@ -305,7 +312,12 @@ class TestDelivery:
         with rig.samples.watch():
             rig.on_samples([Sample(blender.root, 3, {flow: 1.5, expected: 49.0})])
             rig.on_samples([Sample(blender.root, 4, {flow: 1.6})])
-        assert rig.latest == {flow: Reading(flow, 4, 1.6), expected: Reading(expected, 3, 49.0)}
+        conditions = blender.signals["conditions"]
+        assert rig.latest == {
+            conditions: rig.latest[conditions],
+            flow: Reading(flow, 4, 1.6),
+            expected: Reading(expected, 3, 49.0),
+        }
         assert rig.samples.changed_since(0)[1] == {
             blender.name: Sample(blender.root, 3, {expected: 49.0})
         }, "cut to what publishes; a sample with nothing left is not set at all"
@@ -375,10 +387,11 @@ class TestRead:
         assert sample.values == {dry.signals["humidity"]: 4.1, dry.signals["temperature"]: 21.9}
         assert sensors.reads == [dry], "the bound node reaches the driver"
         assert rig.latest[sensors.signals["dry.humidity"]].value == 4.1
-        assert list(rig.read(sensors.root)) == [sample], "not fresh: what is known"
+        initial = rig.router.samples[sensors.root]  # conditions, pushed when the device was added
+        assert list(rig.read(sensors.root)) == [initial, sample], "not fresh: what is known"
         samples = list(rig.read(sensors.root, fresh=True))
-        assert [s.node for s in samples] == [sensors.nodes["chamber"], dry, wet]
-        assert rig.read(wet) is samples[2]
+        assert [s.node for s in samples] == [sensors.root, sensors.nodes["chamber"], dry, wet]
+        assert rig.read(wet) is samples[3]
 
     def test_several_targets_read_in_order_with_one_read_per_device(
         self, rig, sensors, furnace, clock

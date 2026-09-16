@@ -109,6 +109,7 @@ class TestBinding:
         assert sensors.root.spec is None and sensors.root.device is sensors
         assert list(sensors.nodes) == ["chamber", "dry", "wet"]
         assert list(sensors.signals) == [
+            "conditions",
             "chamber.humidity",
             "chamber.temperature",
             "dry.humidity",
@@ -121,7 +122,8 @@ class TestBinding:
         assert sensors.signals["dry.humidity"].address == "hum.dry.humidity"
         assert sensors.signals["dry.humidity"].node is dry
         assert dry.signals["humidity"] is sensors.signals["dry.humidity"]
-        assert sensors.root.children["dry"] is dry and sensors.root.signals == {}
+        assert sensors.root.children["dry"] is dry
+        assert list(sensors.root.signals) == ["conditions"], "a literal TREE adds to the base"
 
     def test_a_dynamic_tree_is_bound_by_the_driver(self):
         furnace = SimFurnace("furnace", zones=3, power_w=(2500.0, 6000.0, 2000.0))
@@ -147,11 +149,11 @@ class TestBinding:
         assert list(furnace.writables) == ["heater1", "heater2"]
         blender = Blender("b")
         assert list(blender.writables) == ["humidity", "dry_flow", "wet_flow", "blend_flow"]
-        assert list(blender.readables) == ["blend_flow", "expected_humidity"]
-        assert list(blender.publishing) == ["expected_humidity"]
+        assert list(blender.readables) == ["conditions", "blend_flow", "expected_humidity"]
+        assert list(blender.publishing) == ["conditions", "expected_humidity"]
 
     def test_a_namespace_two_deep(self):
-        class Stage(HumSensors):
+        class Stage(Device):
             TREE = (
                 NodeSpec(
                     name="left",
@@ -171,7 +173,10 @@ class TestBinding:
         assert stage.nodes["left.dry"].address == "stage.left.dry"
         assert stage.signals["left.dry.humidity"].address == "stage.left.dry.humidity"
         assert stage.signals["left.dry.humidity"].path == Path.parse("left.dry.humidity")
-        assert list(stage.root.walk()) == [stage.signals["left.dry.humidity"]]
+        assert list(stage.root.walk()) == [
+            stage.signals["conditions"],
+            stage.signals["left.dry.humidity"],
+        ]
 
     def test_duplicate_names_are_refused(self):
         class Twice(Device):

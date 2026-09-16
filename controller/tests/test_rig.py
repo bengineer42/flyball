@@ -91,7 +91,8 @@ class TestRecording:
         self, rig, fresh, clock, recorder_module
     ):
         class WithSerial(Furnace):
-            TREE = (*Furnace.TREE, SignalSpec(name="serial", quantity=TEMP, access=Access.R))
+            # A literal TREE now adds to the parent's; no need to splice `*Furnace.TREE` in.
+            TREE = (SignalSpec(name="serial", quantity=TEMP, access=Access.R),)
 
         furnace = WithSerial(fresh("furnace"))
         rig.add_device(furnace)

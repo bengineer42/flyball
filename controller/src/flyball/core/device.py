@@ -303,13 +303,17 @@ class Namespace:
     def input(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Input:
         return Input(name, label, *args, parent=self, **meta)
 
-    def spec(self) -> NodeSpec:
+    def spec(self) -> NodeSpec | None:
+        """The namespace as a spec; None for one holding only inputs (they are not in the tree)."""
+        children = [c.spec() for c in self.children if not isinstance(c, Input)]
+        if self.children and not children:
+            return None
         return NodeSpec(
             name=self.name,
             label=self.label,
             atomic=self.atomic,
             poll_s=self.poll_s,
-            children=tuple(c.spec() for c in self.children if not isinstance(c, Input)),
+            children=tuple(c for c in children if c is not None),
         )
 
     def __set_name__(self, owner: type, attr: str) -> None:
@@ -712,6 +716,7 @@ class Device:
         specs = [
             item.spec() if isinstance(item, (Namespace, Descriptor)) else item for item in tree
         ]
+        specs = [spec for spec in specs if spec is not None]
         if not hasattr(self, "root"):
             self.root = Node(spec=None, device=self, parent=None, address=self.name, path=Path())
         elif self._extended:
@@ -772,10 +777,15 @@ class Device:
             cls.config_type = model
             _schemable(cls, "config_type", model, "validation")
 
-        # The class's own descriptors, after its parents'; `last` is rebuilt below.
+        # The parents' tree, then a literal `TREE` of the class's own, then its
+        # descriptors; `last` is rebuilt below. A literal `TREE` adds to the
+        # base's `conditions`, it does not replace it.
         own = cls.__dict__.get("_declared", ())
-        inherited = (spec for spec in cls.TREE if spec.name != "last")
-        cls.TREE = (*inherited, *(item.spec() for item in own if not isinstance(item, Input)))
+        literal = cls.__dict__.get("TREE", ())
+        parent = next((b.TREE for b in cls.__mro__[1:] if "TREE" in vars(b)), ())
+        inherited = (spec for spec in parent if spec.name != "last")
+        declared = (item.spec() for item in own if not isinstance(item, Input))
+        cls.TREE = (*inherited, *literal, *(spec for spec in declared if spec is not None))
         cls.INPUTS = {**cls.INPUTS, **{i.name: i for i in _inputs(own)}}
         cls.DESCRIPTORS = _descriptors(cls)
         cls.readable = callable(getattr(cls, "read", None))

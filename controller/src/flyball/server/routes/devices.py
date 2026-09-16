@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, create_model
 
 from flyball.core.device import CommandSpec, Device
 from flyball.core.errors import ConflictError, NotFoundError
@@ -26,7 +26,7 @@ from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep
 from flyball.server.schemas import DeviceOut, WriteOut, writes_out
-from flyball.server.wire import ArgumentsBase, arguments_model
+from flyball.server.wire import ArgumentsBase, wire_fields
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
@@ -34,11 +34,22 @@ router = APIRouter(prefix="/api", tags=["devices"])
 
 
 def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[ArgumentsBase]:
-    """The request model for one device command, built once per class and tag."""
+    """The request model for one device command, built once per class and tag.
+
+    An argument that is a value for a demand may be left out: the rig fills
+    it from the demand's current value, so the request does not require it.
+    """
     key = (device_type, spec.tag)
     if key not in _ARGUMENTS:
-        _ARGUMENTS[key] = arguments_model(
-            spec.method, f"{device_type.__name__}{spec.tag.title().replace('_', '')}Arguments"
+        fields = wire_fields(spec.method, skip=1)
+        for name, param in spec.params.items():
+            if param.link is not None and name in fields:
+                annotation, default = fields[name]
+                fields[name] = (annotation | None, None if default is ... else default)
+        _ARGUMENTS[key] = create_model(
+            f"{device_type.__name__}{spec.tag.title().replace('_', '')}Arguments",
+            __base__=ArgumentsBase,
+            **fields,
         )
     return _ARGUMENTS[key]
 
@@ -169,6 +180,9 @@ def run(rig: Rig, device: Device, tag: str, body: dict[str, Any] | None) -> Any:
     """Run the command with the validated body, through the rig; return whatever it returns."""
     spec = command_for(device, tag)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
+    left_out = [n for n, p in spec.params.items() if p.link is not None and arguments[n] is None]
+    for name in left_out:
+        del arguments[name]  # the rig fills it from the demand's current value
     return rig.run_command(device, tag, arguments)
 
 

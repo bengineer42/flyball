@@ -227,7 +227,7 @@ class TestPath:
         assert humidity.path == Path.parse("dry.humidity")
         assert humidity.path is probe.root.find("dry.humidity").path, "the same object"
         assert humidity.address == "hum.dry.humidity" and dry.address == "hum.dry"
-        assert list(probe.signals) == ["heater", "dry.humidity", "dry.temperature"]
+        assert list(probe.signals) == ["conditions", "heater", "dry.humidity", "dry.temperature"]
         assert list(probe.nodes) == ["dry"], "keyed by str(path) for the boundary"
 
 

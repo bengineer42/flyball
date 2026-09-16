@@ -53,7 +53,7 @@ def test_node_readable_describes_signals_and_reads_the_latest_sample(rig, fresh,
     assert described["units"] == "°C" and described["precision"] == 2
     assert (described["lower_ctrl_limit"], described["upper_ctrl_limit"]) == (-40.0, 125.0)
     assert described["dtype"] == "number"
-    assert readable.read() == {}
+    assert key not in readable.read(), "nothing has been read on temperature yet"
     rig.on_samples([Sample(probe.root, clock.now_ns(), {probe.signals["temperature"]: 21.5})])
     value = readable.read()[key]
     assert value["value"] == 21.5 and value["timestamp"] == clock.now_ns() / 1e9

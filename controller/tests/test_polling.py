@@ -37,6 +37,7 @@ def test_the_period_is_the_smallest_in_the_tree(fresh):
     furnace.signals["setpoint"].override(poll_s=0.1)
     assert poll_period(furnace) == 0.5, "a non-publishing signal's period means nothing"
     heaters = Heaters(fresh("heaters"))
+    heaters.signals["conditions"].restrict(Access.R)  # genuinely nothing publishing here
     heaters.poll_s = 1.0
     assert poll_period(heaters) is None
 

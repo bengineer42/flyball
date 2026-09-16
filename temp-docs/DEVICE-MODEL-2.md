@@ -1,7 +1,9 @@
 # Device model 2 — one store, descriptors, demands and commands
 
-Outline, 16 Sep 2026. Follows the discussion after HANDOVER.md §5 and
-supersedes its "alternative". Python first; the UI follows.
+Design of 16 Sep 2026, then built the same day on branch `device-model-2`
+(Python: controller, linux, humidity; the UI is next). Sections marked
+**as built** say where the code settled; the code is the truth where they
+differ.
 
 ## 1. Words
 
@@ -133,6 +135,20 @@ A device with inputs and demands and no poll (the blender) is normal.
 
 ## 5. Commands
 
+**As built.** Commands do their own I/O at once (`set_flows` writes the
+pumps); `commit=True` is opt-in for one that only records. `@command(tag,
+simulation, commit, mode, interrupts)`. A linked argument is
+`Annotated[<type>, <descriptor>]` (`For[...]` was dropped: a checker
+cannot type it) or a parameter named like a descriptor. A command with a
+`mode` or a linked argument is refused while a controller is active
+unless `interrupts=True`, in which case the controller is put in manual
+first with an `interrupted` event; a command with neither (maintenance)
+runs regardless. `owner_exempt` does not exist. `WriteState` and
+`device.written` remain as the write record for the wire and the store;
+the readback reading is what the driver pushed, else the committed value.
+Every scalar demand no command links to gets `set_<path>`; on the wire a
+linked argument is optional (the rig fills it from the readback).
+
 ```python
     @command(commit=True, mode=Mode.FLOWS)
     def set_flows(self, dry: For[dry_flow], wet: For[wet_flow]) -> None:
@@ -204,6 +220,15 @@ can skip work; the blender doesn't need it.
 
 ## 7. Wire
 
+**As built.** `/ws/samples` carries typed values; `/ws/writes`,
+`/ws/devices` and `/ws/controllers` still exist (fold `writes` and
+`devices` with the UI). `DeviceOut`: `inputs`, `readable`, `writable`,
+`conditions`, no `state`. `SignalOut`: `role`, `tags`, `initial`,
+effective `limits`, no `together`. `CommandOut`: `commit`, `mode`,
+`interrupts`, `demand_of`, `links`. The schema route: `x-signal`, `unit`,
+effective `minimum`/`maximum` per linked argument, `required: []` for
+them. `POST .../commands/{tag}` returns the method's return value.
+
 One stream of signal updates, newest per key, ≤20 Hz, grouped by sample;
 `/ws/writes` and `/ws/devices` fold into it (`offline`/`slow` are pushed by
 the runtime onto the base class's `conditions` output). `/ws/controllers`
@@ -226,6 +251,15 @@ the instance's effective variables; `SignalOut` gains `dtype`, `role`,
 
 ## 9. Order of work (Python first)
 
+**As built:** steps 1–6 are done (commits b9f0b47 … on `device-model-2`);
+step 7 (the book) is in progress. Also: `Role.SETTING`; `conditions` is an
+`RP` json output on every device, the runtime's `offline`/`slow` stay on
+`DeviceRun`; `last.<tag>` is an `RP` json output per command; a device's
+initial values (pushed in `__init__`) are adopted when the rig adds it;
+input-only namespaces are not in the tree; a literal `TREE` adds to the
+base tree. The blender starts `STOPPED`; a humidity demand puts it in
+`BLEND`.
+
 1. **core/signal**: typed `Reading` (+ `requested`, `at_limit`, `controller`), `dtype` beyond float, `Section`/tags, `Readings` protocol.
 2. **core/device**: descriptor factories (`Node`, `Section`, `Demand`, `Output`, `Input`, `Config`, `For`), class-body collection, variables merge with references, `readable`/`writable`, base `Device` without `read`/`commit`/`observe`, `CommandSpec` with params, synthesised `set_`; `together`, `settings`, `state` removed.
 3. **runtime**: store as the truth, inputs delivered by touching, command path (§5), live-limit clamp, program `group`, writer snapshot, `conditions` pushed by polling.
@@ -238,7 +272,13 @@ Each step green: `make lint imports test` + pyright in `controller/`; linux and 
 
 ## 10. Open
 
-- Clamp-and-report vs reject (422) for a command past a limit (clamp, for consistency with `set`).
-- `For[...]` vs by-name only, for the docs.
-- Whether `last.<tag>` is recorded (P) or live only (R).
+- Fold `/ws/writes` and `/ws/devices` into the samples stream, and
+  `WriteState` into a demand's reading, when the UI moves.
+- Synthesised `set_<path>` commands exist only for demands declared at
+  class level; a computed tree (sim_drive, i2c_table) has none — the
+  demand path still serves them. Decide whether to synthesise per instance.
+- `rig.demand` refuses a manual demand under a controller even in manual
+  mode (pre-existing); commands only refuse an active one. Align.
 - Whether the killed UI edits (U4 value-or-generator) survive the wire change.
+- The UI: render by dtype, pivot by section, one card per command with
+  the linked arguments prefilled, mode highlighted; Devices tab, set step.
