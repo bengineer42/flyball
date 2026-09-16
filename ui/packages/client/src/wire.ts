@@ -59,24 +59,41 @@ export type Access = string;
 
 // region Values
 
+/**
+ * What a reading carries: a number for a float/int signal, a boolean, a
+ * string (an enum's value), or a JSON structure (a mode's config, a list of
+ * conditions). The signal's `dtype` says which.
+ */
+export type Value = number | boolean | string | null | Value[] | { [key: string]: Value };
+
+/** The wire's name for a signal's value type. */
+export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
+
+/**
+ * What a signal is to its device: `demand` (settable, with a readback; what
+ * a controller drives), `output` (produced), `setting` (re-set by a command),
+ * `config` (effective at build). Inputs are bound roles, not signals.
+ */
+export type Role = "demand" | "output" | "setting" | "config";
+
 /** One value on one signal at one instant. */
 export interface ReadingOut {
   signal: Address;
   time_ns: Nanoseconds;
-  value: number;
+  value: Value;
 }
 
 /** Signals under one node at one instant; `values` keyed by name relative to `node`. */
 export interface SampleOut {
   node: Address;
   time_ns: Nanoseconds;
-  values: Record<string, number>;
+  values: Record<string, Value>;
 }
 
 /** The last reading on a signal, without repeating its address. */
 export interface LatestOut {
   time_ns: Nanoseconds;
-  value: number;
+  value: Value;
 }
 
 /** What a writable signal was last set to, after limits, and by whom. */
@@ -109,12 +126,6 @@ export interface Condition {
   since_ns: Nanoseconds;
 }
 
-/** Every device state carries `conditions`; the rest is the device's own, described by its schema. */
-export interface DeviceState {
-  conditions: Condition[];
-  [field: string]: unknown;
-}
-
 /** One signal of a device's tree, with its metadata as in force and its latest values. */
 export interface SignalOut {
   /** The last segment of `address`. */
@@ -128,9 +139,14 @@ export interface SignalOut {
   unit: string;
   /** The unit's dimension (`Temperature`), so a client can tell what may drive or be compared with what. */
   dimension: string | null;
-  dtype: string;
+  dtype: Dtype;
   shape: number[];
-  /** The values a reading can plausibly take, for a gauge or an axis. */
+  role: Role;
+  /** The section, as `{axis: name}`: `{"line": "dry"}`; a second grouping across the tree. Empty without one. */
+  tags: Record<string, string>;
+  /** The value the signal has before anything reads or sets it (a mode's starting state), or null. */
+  initial: Value;
+  /** What a gauge or axis spans: the signal's own range, else its limits, else the unit's scale. */
   range: Band | null;
   precision: number | null;
   /** The band a value is normal inside; outside it, a warning. */
@@ -139,10 +155,8 @@ export interface SignalOut {
   alarm: Band | null;
   /** The signal's own poll period; null: the enclosing node's. */
   poll_s: number | null;
-  /** What a demand is clamped to, in the signal's unit; a writable signal only. */
+  /** What a demand is clamped to, in the signal's unit, as effective now; a demand only. */
   limits: Band | null;
-  /** Sibling signals that must be set in the same demand as this one. */
-  together: string[];
   /** The last reading, once there has been one. */
   latest: LatestOut | null;
   /** The last committed state of a writable signal, once it has been set. */
@@ -173,6 +187,26 @@ export interface CommandOut {
   description: string | null;
   /** Only meaningful on a simulated device (a scripted fault, a disturbance); shown on the simulation page. */
   simulation: boolean;
+  /** The method only records; the rig commits the device after it. */
+  commit: boolean;
+  /** What the device's `mode` output becomes when this runs, if it has one. */
+  mode: Value;
+  /** Puts a controller driving the device into manual and runs; without it the command is refused while one is active. */
+  interrupts: boolean;
+  /** A synthesised `set_<name>`: the path of the demand it sets. */
+  demand_of: string | null;
+  /** Argument name -> the path (relative to the device) of the demand or setting it is a value for. */
+  links: Record<string, string>;
+}
+
+/** An input a device declares: what it follows, and what the rig bound to that role. */
+export interface InputOut {
+  name: string;
+  label: string;
+  quantity: string;
+  unit: string;
+  /** The address bound to this role, or null. */
+  bound: Address | null;
 }
 
 /** How the runtime is polling a device; null on a `DeviceOut` when nothing on it is polled. */
@@ -202,8 +236,13 @@ export interface DeviceOut {
   poll_s: number | null;
   signals: TreeNode[];
   commands: CommandOut[];
-  state: DeviceState;
-  /** What the device reports of itself, then what the runtime knows of polling it (`offline`, `slow`). */
+  /** What the device follows, by role. */
+  inputs: Record<string, InputOut>;
+  /** Implements `read`: polled on a period. */
+  readable: boolean;
+  /** Implements `commit`: has demands. */
+  writable: boolean;
+  /** What the device says of itself (its `conditions` signal), then what the runtime knows of polling it (`offline`, `slow`). */
   conditions: Condition[];
   run: RunOut | null;
 }
@@ -211,42 +250,66 @@ export interface DeviceOut {
 /** One entry of a `/ws/devices` frame: a polled device's run as it reads, fails or is restarted. */
 export interface DeviceRunOut extends RunOut {
   name: string;
-  /** The runtime's conditions on polling it (`offline`, `slow`); the device's own are in `state`. */
+  /** The runtime's conditions on polling it (`offline`, `slow`); the device's own are on its `conditions` signal. */
   conditions: Condition[];
-  state: DeviceState;
 }
 
+/**
+ * A command's request schema. An argument that is a value for a demand or
+ * setting carries `x-signal` (its address), `unit`, and the effective
+ * `minimum`/`maximum`; it is not required, since the rig fills it from the
+ * signal's current value.
+ */
 export interface CommandSchema {
   description: string | null;
   arguments: JsonSchema;
   simulation: boolean;
+  commit: boolean;
+  mode: Value;
+  interrupts: boolean;
+  demand_of: string | null;
 }
 
-/** A signal as a `DeviceSchema` lists it: what a gauge, an axis or a target entry needs. */
+/** A signal as a `DeviceSchema` lists it: what a gauge, an axis, a form or a target entry needs. */
 export interface SignalSchema {
   address: Address;
   access: Access;
+  role: Role;
+  tags: Record<string, string>;
   label: string;
   quantity: string;
   unit: string;
   dimension: string | null;
+  dtype: Dtype;
+  /** The JSON schema of one value: a number, an enum's members, a structure. */
+  value: JsonSchema;
   range: Band | null;
   precision: number | null;
   limits: Band | null;
 }
 
-/** `GET /api/devices/{name}/schema`: how a device is configured, set, what it reports, and its commands. */
+/** An input as a `DeviceSchema` lists it. */
+export interface InputSchema {
+  label: string;
+  quantity: string;
+  unit: string;
+  bound: Address | null;
+}
+
+/** `GET /api/devices/{name}/schema`: how a device is configured, its signals, inputs and commands. */
 export interface DeviceSchema {
   name: string;
   label: string | null;
   type: string;
   driver: string | null;
   description: string | null;
+  readable: boolean;
+  writable: boolean;
   config: JsonSchema;
-  settings: JsonSchema;
-  state: JsonSchema;
   /** By path relative to the device (`zone1`, `position.x`). */
   signals: Record<string, SignalSchema>;
+  /** By role. */
+  inputs: Record<string, InputSchema>;
   commands: Record<string, CommandSchema>;
 }
 
@@ -255,11 +318,10 @@ export interface RigSchema {
   devices: Record<string, DeviceSchema>;
 }
 
-/** `GET /api/sim/device`: the application's own simulation device. */
+/** `GET /api/sim/device`: the application's own simulation device: its config and its signals' current values by path. */
 export interface DeviceView {
   config: Record<string, unknown>;
-  settings: Record<string, unknown>;
-  state: DeviceState;
+  values: Record<string, Value>;
 }
 
 // endregion
