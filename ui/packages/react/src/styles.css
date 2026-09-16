@@ -264,6 +264,17 @@
 .fb-loop-row > .fb-range { grid-column: 3; margin: 0; }
 .fb-loop-row > .fb-loop-sp-controls { grid-column: 3; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
 .fb-loop-row > .fb-loop-caption { grid-column: 2 / -1; font-size: 0.75em; line-height: 1.3; color: var(--fb-fg-2); min-height: 1.3em; }
+/* A generator's config form inline in the faceplate's Target row (the Controllers page's target control): MUI-RJSF's
+   stacked grid flows as one wrapping row of fields, a union's picker beside its branch, the submit at the end. */
+.fb-generator .fb-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.4rem 0.8rem; }
+.fb-generator .fb-form > .form-group { flex: 1 1 auto; min-width: 0; }
+.fb-generator .fb-form .MuiGrid-container { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.4rem 0.8rem; width: auto; margin: 0; }
+.fb-generator .fb-form .MuiGrid-item { flex: 0 1 auto; max-width: none; width: auto; padding: 0; }
+.fb-generator .fb-form .panel { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.4rem 0.8rem; }
+.fb-generator .fb-form .MuiFormControl-fullWidth { width: auto; }
+.fb-generator .fb-form .fb-field { margin: 0; }
+.fb-generator .fb-form .fb-stepper input { width: 4.5rem; }
+.fb-generator .fb-form > .MuiBox-root { margin-top: 0; margin-bottom: 10px; }
 .fb-loop-sp-notch { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--fb-series-setpoint); }
 /* An output (or an actuator's demand) pinned to a limit: the bar's fill turns to the alarm tint and
    the rail it is pinned against gets a 2px alarm end-cap -- colour on the bar itself, not a text badge
@@ -328,6 +339,27 @@
 .fb-slider { display: flex; gap: 0.5rem; }
 .fb-slider-track { flex: 1 1 6rem; min-width: 4rem; accent-color: var(--fb-accent); margin: 0; }
 .fb-slider input[type="number"] { width: 5.5rem; }
+/* A demand's entry (`WritePanel`, `DeviceSignals`): with limits, the schema form's slider look with the limits at its
+   ends; the row keeps the set value beside the entry, wrapping as one line of flex at a narrow width. */
+.fb-demand { flex-wrap: wrap; }
+.fb-demand-bounded { flex: 1 1 12rem; max-width: 26rem; min-width: 0; }
+.fb-demand-bounded .fb-slider-track { flex: 1 1 5rem; min-width: 4rem; }
+.fb-demand-limit { font-size: 0.75em; color: var(--fb-fg-3); font-variant-numeric: tabular-nums; }
+.fb-demand input[type="number"] { width: 5.5rem; }
+.fb-write-compact, .fb-write-group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; min-width: 0; }
+.fb-write-compact .fb-write-entry { display: inline-flex; flex-wrap: wrap; flex: 1 1 14rem; min-width: 0; }
+.fb-write-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fb-write-value .fb-badge { margin-left: 0.3rem; }
+.fb-write-error { flex-basis: 100%; }
+/* The cell a write row sits in: the `fb-state` grid's `1fr` column may shrink below the row's min-content, so the row wraps rather than overflowing. */
+.fb-state dd.fb-write-cell { min-width: 0; }
+/* A `together` group: a member per line, label, set value and its own slider; one Set for the lot. */
+.fb-write-group { column-gap: 0.8rem; }
+.fb-write-member { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; flex: 1 1 100%; min-width: 0; }
+.fb-write-hint { flex-basis: 100%; font-size: 0.85em; color: var(--fb-fg-2); }
+/* An `rw` setting: the value as last read and the entry, one line. */
+.fb-setting { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; min-width: 0; }
+.fb-setting-value { display: inline; }
 label.fb-toggle { display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 1em; color: var(--fb-fg); }
 .fb-toggle input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
 .fb-toggle-track { position: relative; width: 2.2rem; height: 1.2rem; border-radius: 0.6rem; background: var(--fb-border-1); transition: background var(--fb-dur-2) var(--fb-ease); flex: none; }
