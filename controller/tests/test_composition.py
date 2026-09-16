@@ -196,3 +196,25 @@ class TestRoutes:
         assert (
             client.post("/api/rig/save", json={"path": str(tmp_path / "x.txt")}).status_code == 422
         )
+
+
+class TestHardwareGate:
+    def test_a_hardware_rig_composes_only_with_the_flag(self, client: TestClient, rig: Rig) -> None:
+        from flyball.hardware.links import VisaLinkConfig
+        from flyball.server.deps import set_compose
+
+        # A bare rig may always be built up, even with a real link: that is what it is for.
+        rig.link_entries["dmm"] = VisaLinkConfig(resource="GPIB::1")
+        rig.links["dmm"] = object()
+        off = {"detail": "Composition is off on a hardware rig: start the daemon with --compose"}
+        assert client.post("/api/links", json=PLANT).json() == off
+        assert client.post("/api/devices", json=DAQ).status_code == 409
+        assert client.delete("/api/links/dmm").status_code == 409
+        assert client.post("/api/rig", json={"links": {"t1": entry(PLANT)}}).status_code == 409
+        assert client.get("/api/rig/document").status_code == 200, "reading is always allowed"
+        set_compose(True)
+        try:
+            assert client.post("/api/links", json=PLANT).status_code == 201
+            assert client.post("/api/devices", json=DAQ).status_code == 201
+        finally:
+            set_compose(False)

@@ -764,23 +764,24 @@ class Rig:
             )
             for name, c in self.controllers.items()
         }
-        config = RigConfig.model_validate({
-            "name": self.name,
-            **self.header,
-            "links": dict(self.link_entries),
-            "devices": dict(self.entries),
-            "controllers": controllers,
-        })
-        # Defaults left out, as a hand-written file leaves them: a saved rig
-        # says what was chosen, not everything a driver could take.
-        document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
-        document["links"] = {
+        links = {
             name: {
                 "tag": link.config_tag,
                 **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
             }
             for name, link in self.link_entries.items()
         }
+        config = RigConfig.model_validate({
+            "name": self.name,
+            **self.header,
+            "links": links,
+            "devices": dict(self.entries),
+            "controllers": controllers,
+        })
+        # Defaults left out, as a hand-written file leaves them: a saved rig
+        # says what was chosen, not everything a driver could take.
+        document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+        document["links"] = links
         for key in ("devices", "controllers"):
             document.setdefault(key, {})
         for name, entry in controllers.items():  # a tag is a default too; the file needs it

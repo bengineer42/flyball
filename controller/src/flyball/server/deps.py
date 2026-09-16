@@ -152,6 +152,17 @@ def set_store(store: Store | None) -> None:
 
 
 _drivers_dir: Path | None = None
+_compose: bool = False
+
+
+def set_compose(allowed: bool) -> None:
+    """Whether a hardware rig may be built up over the API (`flyball-daemon --compose`)."""
+    global _compose
+    _compose = allowed
+
+
+def compose_allowed() -> bool:
+    return _compose
 
 
 def set_drivers_dir(path: Path | None) -> None:
