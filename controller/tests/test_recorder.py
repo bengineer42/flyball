@@ -294,7 +294,7 @@ class TestNonFloatReadings:
             config.address: {"kp": 1.0, "tags": ["a", "b"]},
         }
 
-    def test_downsample_on_a_non_float_series_raises(self, fresh):
+    def test_a_downsample_does_not_apply_to_a_non_float_series(self, fresh):
         recipe = Recipe(fresh("recipe"))
         mode = recipe.signals["mode"]
         store = SqliteStore(":memory:")
@@ -302,8 +302,9 @@ class TestNonFloatReadings:
         writer.declare_device(recipe)
         writer.declare_signal(mode)
         writer.write_samples([Sample(recipe.root, 2_000, {mode: Mode.IDLE})])
-        with pytest.raises(ValueError, match="downsample"):
-            store.series(writer.session.id, mode.address, downsample=Downsample(every=2))
+        series = store.series(writer.session.id, mode.address, downsample=Downsample(every=2))
+        assert [p.value for p in series.points] == ["idle"], "every change, as it was"
+        assert series.downsample is None
 
 
 # endregion

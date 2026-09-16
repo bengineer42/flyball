@@ -646,11 +646,9 @@ class SqliteStore:
         key = [session_id, signal.id, *params]
 
         if signal.dtype != "float":
-            if downsample is not None:
-                raise ValueError(
-                    f"signal {address!r} is {signal.dtype!r}: downsample only applies to float"
-                    " signals"
-                )
+            # A mode, a record: every change, as it was. A downsample asked for
+            # is not an error -- a page asks for every signal the same way --
+            # it just does not apply; the series says so with `downsample` None.
             rows = self._query(
                 "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
             )
