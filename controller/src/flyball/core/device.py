@@ -1,7 +1,13 @@
 """Devices: the things a rig is made of, and how they describe themselves.
 
-A device -- a reader or an actuator -- has three tiers, told apart by who
-changes them:
+A device has a tree of [signals][flyball.core.signal.Signal] (namespaces
+group them), each readable, publishing or writable; a driver declares the
+tree as `TREE` or binds one it computes, and implements `read` for the
+publishing side and `commit` for the writable one. The rig file wraps every
+device in the same [envelope][flyball.core.device.DeviceEntry] around the
+driver's own [config][flyball.core.device.DriverConfig].
+
+A device also has three tiers, told apart by who changes them:
 
 - **config** -- what it was built from; changed only by rebuilding. A
   [Config][flyball.core.config.Config], so it also builds the device.
@@ -20,12 +26,12 @@ return annotations are read on subclassing and checked. Methods marked
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, ClassVar, get_type_hints, overload
 
-from pydantic import Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 from pydantic.errors import (
     PydanticInvalidForJsonSchema,
     PydanticSchemaGenerationError,
@@ -34,6 +40,7 @@ from pydantic.errors import (
 from pydantic.json_schema import JsonSchemaMode
 
 from .config import Config
+from .signal import Access, Band, Node, NodeSpec, Reading, Sample, Signal, SignalSpec, WriteState
 
 
 class Level(IntEnum):
@@ -202,7 +209,14 @@ def command(fn: Any = None, /, *, tag: str | None = None, simulation: bool = Fal
 
 
 class Device:
-    """Base for readers and actuators.
+    """Something with a name, signals (each readable / publishing / writable), commands and state.
+
+    Subclasses declare `TREE` (the driver's defaults, with each signal's
+    access) and implement [read][flyball.core.device.Device.read] for R/P
+    signals and/or [commit][flyball.core.device.Device.commit] for W ones. A
+    bare sensor has only RP signals, a heater relay only W, a PSU has RPW
+    ones. A driver whose tree depends on its config builds it in `__init__`
+    and calls [bind][flyball.core.device.Device.bind] itself.
 
     `config_type`, `settings_type` and `state_type` are read off the property
     annotations on subclassing. `commands` collects every method marked
@@ -210,16 +224,153 @@ class Device:
     declaring none still answers `view` with empty models.
     """
 
+    TREE: ClassVar[tuple[NodeSpec | SignalSpec, ...]] = ()
+    """The driver's declared tree; bound on construction when non-empty."""
+
     name: str
     label: str | None = None
     """A display name, from the rig file; None: show `name`."""
+    poll_s: float | None = None
+    """How often the runtime calls `read`, inherited down the tree; None: never polled."""
+    root: Node
+    """The device itself as a node; its address is the device name."""
+    signals: dict[str, Signal]
+    """Every leaf, by address relative to the device: `"dry.humidity"`."""
+    nodes: dict[str, Node]
+    """Every namespace, likewise: `"dry"`."""
+    bound: dict[str, Signal]
+    """Inputs this device follows on other devices, by role (`"dry"`); the rig resolves them."""
+    pending: dict[Signal, float]
+    """What `apply` recorded since the last `commit`."""
+    written: dict[Signal, WriteState]
+    """The last state each W signal was committed to, for the wire."""
     config_type: ClassVar[type[DeviceConfig[Any]]] = DeviceConfig
     settings_type: ClassVar[type[DeviceSettings]] = DeviceSettings
     state_type: ClassVar[type[DeviceState]] = DeviceState
     commands: ClassVar[dict[str, CommandSpec]] = {}
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, label: str | None = None) -> None:
         self.name = name
+        self.label = label
+        self.bound = {}
+        self.pending = {}
+        self.written = {}
+        if self.TREE:
+            self.bind(self.TREE)
+
+    # region Tree
+
+    def bind(self, tree: Iterable[NodeSpec | SignalSpec]) -> None:
+        """Make the bound tree from `tree`: `root`, `signals` and `nodes`.
+
+        Once, at build: readings, samples and demands hold these objects by
+        identity, and the rig file's overrides are applied onto them.
+        """
+        self.root = Node(spec=None, device=self, parent=None, address=self.name, path="")
+        self._bind_under(self.root, tree)
+        self.signals = {signal.path: signal for signal in self.root.walk()}
+        self.nodes = {node.path: node for node in self.root.descendants()}
+
+    def _bind_under(self, node: Node, specs: Iterable[NodeSpec | SignalSpec]) -> None:
+        for spec in specs:
+            address = f"{node.address}.{spec.name}"
+            path = f"{node.path}.{spec.name}" if node.path else spec.name
+            if spec.name in node.signals or spec.name in node.children:
+                raise ValueError(f"'{address}' is declared twice")
+            if isinstance(spec, SignalSpec):
+                node.signals[spec.name] = Signal(
+                    spec=spec, node=node, address=address, path=path, access=spec.access
+                )
+            else:
+                child = Node(spec=spec, device=self, parent=node, address=address, path=path)
+                node.children[spec.name] = child
+                self._bind_under(child, spec.children)
+
+    def _having(self, flag: Access) -> dict[str, Signal]:
+        return {path: s for path, s in self.signals.items() if flag in s.access}
+
+    @property
+    def readable(self) -> dict[str, Signal]:
+        return self._having(Access.R)
+
+    @property
+    def publishing(self) -> dict[str, Signal]:
+        return self._having(Access.P)
+
+    @property
+    def writable(self) -> dict[str, Signal]:
+        return self._having(Access.W)
+
+    # endregion
+
+    # region Read side
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """Poll the due signals under `node` (None: the whole device); one Sample per instant read.
+
+        Strings never reach a driver: the rig resolves an address once and
+        passes the bound object. Usually one Sample carrying every publishing
+        signal, but a slow bus may yield them at different instants, a
+        buffered instrument a backlog, and per-signal `poll_s` means only
+        some are due at a given call. Yield nothing if none are. Raise
+        HardwareError to go offline; the runtime records the condition and
+        retries on the next poll.
+        """
+        raise NotImplementedError(f"{type(self).__name__} has nothing to read")
+
+    # endregion
+
+    # region Write side: two phases, as today's set_demand()/apply() split
+
+    def apply(self, signal: Signal, time_ns: int, value: float) -> None:
+        """Record one W value; no hardware I/O here.
+
+        The mirror of `observe`: one signal, one instant, one value. The rig
+        has already validated the whole demand this came from -- W signals
+        under one node, in their own units, `together` groups complete,
+        controller ownership, clamped to `limits` -- and fans it out one
+        signal at a time, noting that this device was touched. The default
+        stores into `pending`; most drivers need not override.
+        """
+        self.pending[signal] = value
+
+    def observe(self, reading: Reading) -> None:
+        """A bound input changed: a signal of another device this one follows. Record it.
+
+        Only called on a device with something in `bound`; the default has
+        none.
+        """
+        raise NotImplementedError(f"{type(self).__name__} follows no bound input")
+
+    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+        """Push everything recorded since the last commit to the hardware, once, and report it.
+
+        The rig calls it once per delivery for every device it touched, and
+        immediately after a manual demand. There is no dirty flag in the
+        driver contract: the rig keeps the touched set. The default writes
+        `pending` straight through [write_signal][flyball.core.device.Device.write_signal];
+        a composite device (a blender) recomputes from all its inputs here,
+        and may skip I/O when nothing changed value.
+        """
+        for signal, value in self.pending.items():
+            self.write_signal(signal, value)
+        return self.flush_pending()
+
+    def write_signal(self, signal: Signal, value: float) -> None:
+        """Put one committed value on the hardware. Default: nothing -- the device just holds it."""
+
+    def flush_pending(self) -> dict[Signal, WriteState]:
+        """A [WriteState][flyball.core.signal.WriteState] per pending signal; clears `pending`.
+
+        `at_limit` when the value sits on a limit: the rig clamped it before
+        `apply`. The states stay in `written` for the wire.
+        """
+        states = {signal: signal.write_state(value) for signal, value in self.pending.items()}
+        self.written.update(states)
+        self.pending.clear()
+        return states
+
+    # endregion
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -276,3 +427,196 @@ class Device:
     @property
     def view(self) -> DeviceView[Any, Any, Any]:
         return DeviceView(self.config, self.settings, self.state)
+
+
+# region The rig-file envelope
+
+ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "bound", "config"})
+"""The keys of a device entry that are flyball's, the same for every driver."""
+
+
+class DriverConfig[D: Device](Config[D]):
+    """A driver's own settings: what sits flat beside the envelope, or under `config`.
+
+    The tagged model `driver:` selects (the tag is the driver name). It may
+    not declare a field named like an envelope key, so flat and layered
+    entries always mean the same thing; that is checked at import, like tag
+    clashes. [DeviceConfig][flyball.core.device.DeviceConfig] is the legacy
+    base and stays until the drivers move over.
+    """
+
+    link: str | None = Field(
+        default=None, description="A transport (or a simulated plant), by name."
+    )
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+        if clash := ENVELOPE_KEYS.intersection(cls.model_fields):
+            raise TypeError(
+                f"{cls.__name__}: {', '.join(sorted(clash))} is an envelope key,"
+                " reserved for the rig file"
+            )
+        super().__pydantic_init_subclass__(tag=tag, **kwargs)
+
+    def build(self, name: str, label: str | None = None) -> D:  # pyright: ignore[reportIncompatibleMethodOverride]  the envelope supplies the name
+        raise NotImplementedError(f"{type(self).__name__} cannot build a device")
+
+
+class SignalOverride(BaseModel):
+    """The envelope's per-signal keys: metadata to override, access to remove.
+
+    `access` names the set to keep (`"r"`); `readable`, `publishing` and
+    `writable` drop one flag each and take only `false` -- the driver
+    declares what it can honour, the file cannot add to it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    range: Band | None = None
+    precision: int | None = None
+    warn: Band | None = None
+    alarm: Band | None = None
+    poll_s: float | None = None
+    limits: Band | None = None
+    together: frozenset[str] | None = None
+    access: str | None = None
+    readable: bool | None = None
+    publishing: bool | None = None
+    writable: bool | None = None
+
+    @field_validator("access")
+    @classmethod
+    def _wire_form(cls, value: str | None) -> str | None:
+        return None if value is None else str(Access.parse(value))
+
+    @field_validator("readable", "publishing", "writable")
+    @classmethod
+    def _only_removes(cls, value: bool | None) -> bool | None:
+        if value:
+            raise ValueError(
+                "only `false` is allowed: the driver declares the access it can honour"
+            )
+        return value
+
+
+class NamespaceOverride(BaseModel):
+    """The envelope of a namespace: the same keys again, and its own driver config."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = None
+    poll_s: float | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    """The namespace's own driver settings (an I²C address); the driver reads them at build."""
+    signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
+
+
+NamespaceOverride.model_rebuild()
+
+
+class DeviceEntry(BaseModel):
+    """The envelope of one device in the rig file: flyball's keys, the same for every driver.
+
+    `driver:` picks the driver's config model by tag; the driver's own
+    settings sit flat beside these keys or under `config`, and both parse to
+    the same thing. If `config` is present it is the whole of the driver
+    config and any other leftover key is an error.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    driver: str
+    label: str | None = None
+    poll_s: float | None = None
+    signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
+    bound: dict[str, str] = Field(default_factory=dict)
+    """Role -> address on another device; the rig resolves it."""
+    config: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flat_or_layered(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping):
+            return data
+        leftover = {key: value for key, value in data.items() if key not in ENVELOPE_KEYS}
+        if not leftover:
+            return data
+        if "config" in data:
+            raise ValueError(
+                f"{', '.join(sorted(leftover))} beside `config`: the driver's settings go"
+                " under `config` or flat beside the envelope, not both"
+            )
+        envelope = {key: value for key, value in data.items() if key in ENVELOPE_KEYS}
+        return {**envelope, "config": leftover}
+
+    def build(self, name: str) -> Device:
+        """Build the device `driver` describes and apply this envelope to it.
+
+        The driver binds its tree; the overrides are then applied onto the
+        bound objects in place, so nothing holds a stale reference. Unknown
+        names and added access are errors that name the address.
+        """
+        driver = Config.registry.get(self.driver)
+        if driver is None:
+            raise ValueError(f"driver {self.driver!r} is not registered")
+        if not issubclass(driver, DriverConfig):
+            raise ValueError(f"driver {self.driver!r} is a {driver.__name__}, not a device driver")
+        device = driver.model_validate(self.config).build(name, self.label)
+        if self.label is not None:
+            device.label = self.label
+        if self.poll_s is not None:
+            device.poll_s = self.poll_s
+        _override_under(device.root, self.signals)
+        return device
+
+
+_SIGNAL_FIELDS = ("label", "range", "precision", "warn", "alarm", "poll_s", "limits", "together")
+_NODE_FIELDS = ("label", "poll_s")
+
+
+def _override_under(
+    node: Node, overrides: Mapping[str, SignalOverride | NamespaceOverride]
+) -> None:
+    for name, override in overrides.items():
+        address = f"{node.address}.{name}"
+        if (signal := node.signals.get(name)) is not None:
+            if isinstance(override, NamespaceOverride):
+                raise ValueError(f"'{address}' is a signal, not a namespace")
+            _override_signal(signal, override)
+        elif (child := node.children.get(name)) is not None:
+            if isinstance(override, SignalOverride):
+                # `{poll_s: 5}` alone parses as a signal's override; on a
+                # namespace it means the same thing.
+                if extra := override.model_fields_set - set(_NODE_FIELDS):
+                    raise ValueError(
+                        f"'{address}' is a namespace: {', '.join(sorted(extra))} is a signal's"
+                    )
+                override = NamespaceOverride(label=override.label, poll_s=override.poll_s)
+            changes = {f: v for f in _NODE_FIELDS if (v := getattr(override, f)) is not None}
+            if changes:
+                child.override(**changes)
+            _override_under(child, override.signals)
+        else:
+            raise ValueError(f"'{address}' is not a signal or namespace of {node.device.name!r}")
+
+
+def _override_signal(signal: Signal, override: SignalOverride) -> None:
+    changes = {f: v for f in _SIGNAL_FIELDS if (v := getattr(override, f)) is not None}
+    if changes:
+        signal.override(**changes)
+    value = signal.access.value if override.access is None else Access.parse(override.access).value
+    for flag, keep in (
+        (Access.R, override.readable),
+        (Access.P, override.publishing),
+        (Access.W, override.writable),
+    ):
+        if keep is False:
+            value &= ~flag.value
+    if value & Access.P.value and not value & Access.R.value:
+        raise ValueError(f"Signal '{signal.address}': readable: false leaves it publishing")
+    if value != signal.access.value:
+        signal.restrict(Access(value))
+
+
+# endregion

@@ -7,7 +7,9 @@ from threading import RLock
 
 from flyball.core import Clock, Reading, require
 
+from ..core.reading import Reading as LegacyReading  # legacy: goes in step 3
 from ..core.sink import Actuator
+from ..core.units import Unit
 from .errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
@@ -28,7 +30,9 @@ from .types import (
     ValueSource,
 )
 
-type LoopTickCallback = Callable[[Loop, Reading | None], None]
+type LoopReading = Reading | LegacyReading
+"""What a loop is ticked with: a reading on its source signal (or, until step 3, its channel)."""
+type LoopTickCallback = Callable[[Loop, LoopReading | None], None]
 
 
 class LoopMode(Enum):
@@ -66,7 +70,7 @@ class LoopState:
     expected: float | None = None
     delivered_correction: float | None = None
     mode: LoopMode = LoopMode.MANUAL
-    reading: Reading | None = None
+    reading: LoopReading | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -94,8 +98,16 @@ class LoopView(LoopSettings, LoopState):
 
 
 class Loop[A: Actuator]:
+    """Regulates one reading through a law and a feedforward, writing demands somewhere.
+
+    Named by what it drives. Built on an `actuator` (legacy: its name, unit
+    and `set_demand`), or on a `name`, a `demand_unit` and a `write` --
+    what [Controller][flyball.control.controller.Controller] does.
+    """
+
     clock: Clock
     actuator: A
+    """The device driven; unset on a loop built without one."""
     law: ControlLaw | None
     feedforward: Feedforward
     correction: float = 0.0
@@ -104,29 +116,43 @@ class Loop[A: Actuator]:
     setpoint: float | None = None
     demand: float | None = None
     expected: float | None = None
-    reading: Reading | None = None
+    reading: LoopReading | None = None
     delivered_correction: float | None = None
     mode: LoopMode = LoopMode.MANUAL
     _on_tick: dict[LoopTickCallback, None]
     lock: RLock
     units: str | None = None
+    _base: float | None = None
+    """The feedforward's part of the last demand, so a deferred delivery can split the rest."""
 
     def __init__(
         self,
         clock: Clock,
-        actuator: A,
+        actuator: A | None = None,
         law: ControlLaw | ControlLawConfig | ControlLawView | Tuning | None = None,
         min_period_s: float | None = None,
         write: Callable[[float], float | None] | None = None,
         feedforward: Feedforward | FeedforwardConfig | None = None,
+        *,
+        name: str | None = None,
+        demand_unit: Unit | None = None,
     ) -> None:
         self.clock = clock
-        self.actuator = actuator
+        if actuator is not None:
+            self.actuator = actuator
+            name = actuator.name if name is None else name
+            demand_unit = actuator.demand_unit if demand_unit is None else demand_unit
+            write = actuator.set_demand if write is None else write
+        if name is None or write is None:
+            raise TypeError("a loop needs an actuator, or a name and a write")
+        self._name = name
+        self._demand_unit = demand_unit
         if isinstance(feedforward, FeedforwardConfig):
             feedforward = feedforward.build()
         self.feedforward = Setpoint() if feedforward is None else feedforward
-        self.write: Callable[[float], float | None] = write or actuator.set_demand
-        """How a demand reaches the actuator: its `set_demand`, or a queue in front of a bus."""
+        self.write: Callable[[float], float | None] = write
+        """How a demand reaches the hardware: the actuator's `set_demand`, a queue in front
+        of a bus, or the rig's `demand`."""
         self.law = None
         if law is not None:
             self._set_law(law)
@@ -150,7 +176,12 @@ class Loop[A: Actuator]:
     @property
     def name(self) -> str:
         """A loop is known by what it drives."""
-        return self.actuator.name
+        return self._name
+
+    @property
+    def demand_unit(self) -> Unit | None:
+        """What `write` takes; None when it takes the reading's unit."""
+        return self._demand_unit
 
     @property
     def settings(self) -> LoopSettings:
@@ -158,7 +189,7 @@ class Loop[A: Actuator]:
             name=self.name,
             law=self.law and self.law.config,
             feedforward=self.feedforward.config,
-            demand_unit=None if (u := self.actuator.demand_unit) is None else u.symbol,
+            demand_unit=None if (u := self._demand_unit) is None else u.symbol,
             offset_ns=self.offset_ns,
             min_period_s=self.min_period_s,
         )
@@ -320,11 +351,11 @@ class Loop[A: Actuator]:
             if callback is not None:
                 self._on_tick.pop(callback)
 
-    def _run_on_tick(self, reading: Reading | None) -> None:
+    def _run_on_tick(self, reading: LoopReading | None) -> None:
         for callback in self._on_tick:
             callback(self, reading)
 
-    def tick(self, reading: Reading | None) -> None:
+    def tick(self, reading: LoopReading | None) -> None:
         time_ns = self.get_time_ns(reading and reading.time_ns)
         if reading is not None:
             self.reading = reading
@@ -352,7 +383,7 @@ class Loop[A: Actuator]:
 
     def _apply_demand(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
         self.setpoint = setpoint
-        base = self.feedforward(setpoint, rate)
+        self._base = base = self.feedforward(setpoint, rate)
         self.demand = base + self.correction
         self.expected = self.write(self.demand)
         self.delivered_correction = None if self.expected is None else self.expected - base

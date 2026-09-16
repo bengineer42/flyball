@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from threading import Thread
 from typing import Any
 
-from flyball.core import Channel, Operator, Positive, Reading
+from flyball.core import Operator, Positive
 from flyball.core.clock import Clock, Duration
+from flyball.core.reading import Channel, Reading
 from flyball.core.sink import Observer
 from flyball.runtime.rig import Rig
 

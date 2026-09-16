@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 import typing
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -450,19 +450,48 @@ def resolve_document(path: str | Path) -> tuple[dict[str, Any], Path | None]:
     return apply_board(document, load_board(board_path)), board_path
 
 
-def load_rig_config(path: str | Path) -> RigConfig:
-    """Read and validate a rig file: `.toml`, `.yaml` or `.json`.
+def resolve_documents(
+    paths: str | Path | Sequence[str | Path], sets: Sequence[str] = ()
+) -> tuple[dict[str, Any], list[Path]]:
+    """`resolve_document`, generalised to a rig laid out as several files.
+
+    `paths` is one file or several, later overlaying earlier (see
+    [resolve_layers][flyball.runtime.overlay.resolve_layers]); each file's
+    own `extends` is resolved first. A `board` is looked up relative to the
+    *first* file, exactly as `resolve_document` looks one up relative to its
+    one file, and applied to the merged document.
+
+    Returns:
+        The merged, board-applied document, and every file that
+        contributed: the layers, in the order first read, then the board
+        file, if one was used.
+    """
+    from flyball.runtime.overlay import resolve_layers
+
+    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
+    document, files = resolve_layers(path_list, sets)
+    board_name = document.get("board")
+    if not isinstance(board_name, str):
+        return document, files
+    board_path = find_board(board_name, path_list[0].parent)
+    return apply_board(document, load_board(board_path)), [*files, board_path]
+
+
+def load_rig_config(
+    path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[str] = ()
+) -> RigConfig:
+    """Read and validate a rig file, or a layered rig of several, `.toml`, `.yaml` or `.json`.
 
     Installed packages' configs are discovered first, so their tags are valid
     in the file; a `board` is applied before validation.
     """
     discover()
-    document, _ = resolve_document(path)
+    document, _ = resolve_documents(path_or_paths, sets)
     return RigConfig.model_validate(document)
 
 
-def load_rig(path: str | Path) -> Rig:
-    return load_rig_config(path).build()
+def load_rig(path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[str] = ()) -> Rig:
+    return load_rig_config(path_or_paths, sets).build()
 
 
 def rig_schema() -> dict[str, Any]:
@@ -489,6 +518,7 @@ __all__ = [
     "load_rig_config",
     "registered",
     "resolve_document",
+    "resolve_documents",
     "rig_model",
     "rig_schema",
     "role_of",

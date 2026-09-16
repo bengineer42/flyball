@@ -122,6 +122,10 @@ class Actuator(Device, Sink):
     def __init__(self, name: str) -> None:
         Device.__init__(self, name)
 
+    def apply(self) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]  # legacy: goes in step 3
+        """Commit whatever was handed over since the last apply; `Sink`'s, not `Device`'s."""
+        Sink.apply(self)
+
     def set_demand(self, demand: float) -> float | None:
         """Take a demand; return the value the loop should expect, if it differs."""
         raise NotImplementedError

@@ -252,8 +252,23 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     )
     rig_cmd = sub.add_parser("rig", help="rig files: check one, or print their schema")
     rig_sub = rig_cmd.add_subparsers(dest="rig_action", metavar="<action>")
-    check = rig_sub.add_parser("check", help="validate a rig file without a rig")
-    check.add_argument("path", type=Path)
+    check = rig_sub.add_parser(
+        "check", help="validate one or more rig files, layered, without a rig"
+    )
+    check.add_argument("paths", type=Path, nargs="+", metavar="PATH")
+    check.add_argument(
+        "--set",
+        dest="sets",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override a value after loading, e.g. devices.furnace.config.noise=0.3; repeatable",
+    )
+    check.add_argument(
+        "--print",
+        action="store_true",
+        help="print the merged document, in the first file's format",
+    )
     check.set_defaults(fn=cmd_rig_check, local=True)
     rig_sub.add_parser("schema", help="the rig file's JSON schema, for an editor").set_defaults(
         fn=cmd_rig_schema, local=True
@@ -421,21 +436,25 @@ def cmd_status(rig: Rig, args: argparse.Namespace) -> None:
 
 
 def cmd_rig_check(rig: Rig, args: argparse.Namespace) -> None:
+    """Validate one or more layered rig files. `--print` shows the merge, `--set` a change to it."""
     from flyball.core.config import discover
-    from flyball.runtime.config import RigConfig, resolve_document
+    from flyball.core.files import dumps
+    from flyball.runtime.config import RigConfig, resolve_documents
 
+    names = ", ".join(str(p) for p in args.paths)
     try:
         discover()
-        document, board = resolve_document(args.path)
+        document, files = resolve_documents(args.paths, args.sets)
         config = RigConfig.model_validate(document)
     except Exception as e:
-        raise SchemaError(f"{args.path}: {e}") from None
+        raise SchemaError(f"{names}: {e}") from None
     print(
-        f"{args.path}: ok -- {config.name or 'unnamed'}: {len(config.links)} links, "
+        f"{names}: ok -- {config.name or 'unnamed'}: {len(config.links)} links, "
         f"{len(config.readers)} readers, {len(config.actuators)} actuators, "
-        f"{len(config.loops)} loops"
-        + (f"; board {config.board!r} from {board}" if board is not None else "")
+        f"{len(config.loops)} loops" + (f"; from {len(files)} files" if len(files) > 1 else "")
     )
+    if args.print:
+        print(dumps(document, args.paths[0].suffix), end="")
 
 
 def cmd_rig_schema(rig: Rig, args: argparse.Namespace) -> None:

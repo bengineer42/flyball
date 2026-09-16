@@ -59,9 +59,9 @@ def test_a_config_can_state_output_range_for_an_actuator_that_cannot_work_it_out
             return FakeActuator(self.name)
 
     name = fresh("fake")
-    config = RigConfig.model_validate(
-        {"actuators": [{"tag": tag, "name": name, "output_range": [-10.0, 10.0]}]}
-    )
+    config = RigConfig.model_validate({
+        "actuators": [{"tag": tag, "name": name, "output_range": [-10.0, 10.0]}]
+    })
     rig = config.build(start=False)
     assert rig.actuators[name].output_range == (-10.0, 10.0)
 

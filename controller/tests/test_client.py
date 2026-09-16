@@ -164,13 +164,13 @@ class TestRigCheck:
         path = tmp_path / "rig.toml"
         path.write_text(_rig_toml("x", "x"))
         with pytest.raises(SchemaError, match="already used by reader 'x'"):
-            cli.cmd_rig_check(None, argparse.Namespace(path=path))
+            cli.cmd_rig_check(None, argparse.Namespace(paths=[path], sets=[], print=False))
 
     def test_a_consistent_file_prints_a_summary(self, tmp_path, capsys):
         from flyball import cli
 
         path = tmp_path / "rig.toml"
         path.write_text(_rig_toml("x", "y"))
-        cli.cmd_rig_check(None, argparse.Namespace(path=path))
+        cli.cmd_rig_check(None, argparse.Namespace(paths=[path], sets=[], print=False))
         out = capsys.readouterr().out
         assert "ok" in out and "1 readers, 1 actuators" in out

@@ -1,4 +1,5 @@
 from ..core.sink import Actuator
+from .controller import Controller
 from .errors import (
     ControlLawNotRegisteredError,
     ControlLawNotSetError,
@@ -50,6 +51,7 @@ __all__ = [
     "ControlLawState",
     "ControlLawView",
     "ControlLaws",
+    "Controller",
     "ControllerState",
     "ControllerSuspendedError",
     "ControllerView",

@@ -6,8 +6,7 @@ from flyball.control import Affine, Feedforwards, Loop, NoFeedforward, Setpoint,
 from flyball.control.errors import FeedforwardNotInvertibleError
 from flyball.control.laws import P
 from flyball.control.types import ValueSource
-from flyball.core import Reading
-from flyball.core.reading import Measurand, Source
+from flyball.core.reading import Measurand, Reading, Source
 from flyball.core.sink import Actuator
 from flyball.core.units.si import Celsius, Watt
 from flyball.sim import SteppedClock

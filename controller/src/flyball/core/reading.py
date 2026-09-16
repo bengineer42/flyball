@@ -423,7 +423,7 @@ class Reader(Device):
 
     # endregion
 
-    def read(self, time_ns: int) -> Iterable[Sample]:
+    def read(self, time_ns: int) -> Iterable[Sample]:  # pyright: ignore[reportIncompatibleMethodOverride]  # legacy: goes in step 3
         """Polled readers override this. Default: whatever was emitted while unattached."""
         samples = list(self._pending)
         self._pending.clear()

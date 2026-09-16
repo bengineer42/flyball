@@ -1,5 +1,6 @@
 from .clock import Clock, Duration, Rate, Speed, Time, TimeUnit
 from .config import Config, ConfigOr, resolve
+from .device import DeviceEntry, DriverConfig
 from .errors import (
     ConflictError,
     FlyballError,
@@ -10,9 +11,19 @@ from .errors import (
     RecorderNotSetError,
     UnachievableError,
 )
-from .reading import Channel, Measurand, Point, Reading, Sample, Source
+from .quantity import Quantity
 from .resource import Arbiter, Operator, Resource
-from .sink import Actuator, Observer, Sink
+from .signal import (
+    Access,
+    Demand,
+    Node,
+    NodeSpec,
+    Reading,
+    Sample,
+    Signal,
+    SignalSpec,
+    WriteState,
+)
 from .topic import Topic
 from .trigger import Trigger
 from .typing import (
@@ -35,40 +46,42 @@ from .utils import (
 )
 
 __all__ = [
-    "Actuator",
+    "Access",
     "Arbiter",
-    "Channel",
     "Clock",
     "Config",
     "ConfigOr",
     "ConflictError",
+    "Demand",
+    "DeviceEntry",
+    "DriverConfig",
     "Duration",
     "FlyballError",
     "HardwareError",
     "Labelled",
-    "Measurand",
+    "Node",
+    "NodeSpec",
     "NonNegative",
     "NonZero",
     "Normalised",
     "NormalisedPositive",
     "NotFoundError",
     "NotReadyError",
-    "Observer",
     "Operator",
     "OrderedSet",
     "Percent",
     "PeriodicLoop",
-    "Point",
     "Positive",
     "PositiveInt",
+    "Quantity",
     "Rate",
     "ReadersNotSetError",
     "Reading",
     "RecorderNotSetError",
     "Resource",
     "Sample",
-    "Sink",
-    "Source",
+    "Signal",
+    "SignalSpec",
     "Speed",
     "Time",
     "TimeUnit",
@@ -78,6 +91,7 @@ __all__ = [
     "UnclampedPercent",
     "Unset",
     "UnsetType",
+    "WriteState",
     "require",
     "resolve",
 ]

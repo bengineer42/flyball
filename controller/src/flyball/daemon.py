@@ -2,11 +2,14 @@
 
     flyball-daemon rig.toml
     flyball-daemon rig.toml --host 0.0.0.0 --port 8000 --record
+    flyball-daemon furnace.yaml sim.yaml --set clock.speed=60
 
 Builds the rig from the file (any of `.toml`, `.yaml`, `.json`), starts its
 readers, optionally opens a recording session, and serves the HTTP and
-websocket API until stopped. An application with hardware the rig file
-cannot describe writes its own daemon around [serve][flyball.daemon.serve].
+websocket API until stopped. Several files layer, later overlaying earlier
+(see [flyball.runtime.overlay][]); the store and the programs directory then
+default off the first one. An application with hardware the rig file cannot
+describe writes its own daemon around [serve][flyball.daemon.serve].
 """
 
 from __future__ import annotations
@@ -18,9 +21,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from flyball.core.config import discover
-from flyball.core.files import load_document
 from flyball.db.store import Store
-from flyball.runtime.config import RigConfig, resolve_document
+from flyball.runtime.config import RigConfig, resolve_documents
+from flyball.runtime.overlay import resolve_layers
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
 
@@ -118,7 +121,12 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="flyball-daemon", description="Serve a rig described by a file."
     )
-    p.add_argument("rig", type=Path, help="rig file: .toml, .yaml or .json")
+    p.add_argument(
+        "rig",
+        type=Path,
+        nargs="+",
+        help="rig file(s): .toml, .yaml or .json; later overlay earlier",
+    )
     p.add_argument("--host", default="127.0.0.1", help="bind address (default: loopback only)")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--log-level", default="info")
@@ -127,13 +135,21 @@ def parser() -> argparse.ArgumentParser:
         "--store",
         type=Path,
         default=None,
-        help="where sessions are kept (default: '<rig>.sqlite' beside the rig file)",
+        help="where sessions are kept (default: '<rig>.sqlite' beside the first rig file)",
     )
     p.add_argument(
         "--programs",
         type=Path,
         default=None,
-        help="directory of program files to import (default: 'programs' beside the rig file)",
+        help="directory of program files to import (default: 'programs' beside the first rig file)",
+    )
+    p.add_argument(
+        "--set",
+        dest="sets",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override a value after loading, e.g. devices.furnace.config.noise=0.3; repeatable",
     )
     return p
 
@@ -141,24 +157,29 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     logging.basicConfig(level=args.log_level.upper())
+    first = args.rig[0]
     try:
         discover()
-        document, _ = resolve_document(args.rig)
+        document, _ = resolve_documents(args.rig, args.sets)
         config = RigConfig.model_validate(document)
     except Exception as e:  # a bad file is the user's problem, not a traceback
-        print(f"flyball-daemon: {args.rig}: {e}", file=sys.stderr)
+        names = ", ".join(str(p) for p in args.rig)
+        print(f"flyball-daemon: {names}: {e}", file=sys.stderr)
         return 2
     rig, store = start_with_store(
         config,
         record=True if args.record else None,
-        store_path=args.store if args.store is not None else args.rig.with_suffix(".sqlite"),
+        store_path=args.store if args.store is not None else first.with_suffix(".sqlite"),
     )
     simulation = None
     if config.simulated:
-        simulation = Simulation(rig, config, load_document(args.rig), args.rig)
+        # What `sim save` writes back: the layers merged, but before the board
+        # was applied, so a board's links are not inlined into the rig file.
+        layered, _ = resolve_layers([Path(p) for p in args.rig], args.sets)
+        simulation = Simulation(rig, config, layered, first)
         log.info("a simulation: %s plants, clock at %gx", len(simulation.plants), simulation.speed)
-    log.info("serving %s on %s:%d", config.name or args.rig.name, args.host, args.port)
-    programs = args.programs if args.programs is not None else args.rig.parent / "programs"
+    log.info("serving %s on %s:%d", config.name or first.name, args.host, args.port)
+    programs = args.programs if args.programs is not None else first.parent / "programs"
     serve(rig, args.host, args.port, args.log_level, simulation, store, programs)
     return 0
 

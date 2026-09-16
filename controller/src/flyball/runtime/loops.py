@@ -2,8 +2,8 @@ from collections.abc import ItemsView, Iterator
 from typing import Any
 
 from flyball.control import Loop, LoopSettings, LoopState, LoopView
-from flyball.core import Channel
 from flyball.core.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.core.reading import Channel
 
 
 class LoopNotFoundError(NotFoundError):

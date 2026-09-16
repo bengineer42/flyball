@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from flyball.core.config import Config, resolve
+
+EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
 
 @pytest.fixture
@@ -89,3 +94,56 @@ def test_discover_loads_every_entry_point_in_the_group(monkeypatch):
     )
     assert module.discover() == ["acme"] and imported == ["acme.configs"]
     assert module.discover("other") == []
+
+
+class TestResolveDocumentsAndLoadRigConfig:
+    """`flyball.runtime.config`'s multi-file entry points: layer, then apply the board once."""
+
+    def test_resolve_documents_merges_two_files_in_command_line_order(self, tmp_path):
+        from flyball.runtime.config import resolve_documents
+
+        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {tag: sim_plant}}\n")
+        (tmp_path / "b.yaml").write_text("name: b\n")
+        document, files = resolve_documents([tmp_path / "a.yaml", tmp_path / "b.yaml"])
+        assert document == {"name": "b", "links": {"l1": {"tag": "sim_plant"}}}
+        assert files == [tmp_path / "a.yaml", tmp_path / "b.yaml"]
+
+    def test_board_is_looked_up_relative_to_the_first_file(self, tmp_path, monkeypatch):
+        from flyball.runtime.config import BOARDS_ENV, resolve_documents
+
+        monkeypatch.setenv(BOARDS_ENV, str(tmp_path / "profiles"))
+        (tmp_path / "profiles").mkdir()
+        (tmp_path / "profiles" / "test.toml").write_text(
+            'name = "Test board"\n[links.bus]\ntag = "fake_registers"\n'
+        )
+        (tmp_path / "rig").mkdir()
+        (tmp_path / "rig" / "a.yaml").write_text("board: test\nname: a\n")
+        (tmp_path / "overlay.yaml").write_text("name: b\n")
+        document, files = resolve_documents([
+            tmp_path / "rig" / "a.yaml",
+            tmp_path / "overlay.yaml",
+        ])
+        assert document["name"] == "b" and document["links"] == {"bus": {"tag": "fake_registers"}}
+        assert tmp_path / "profiles" / "test.toml" in files
+
+    def test_load_rig_config_of_a_single_path_still_works(self):
+        from flyball.runtime.config import load_rig_config
+
+        config = load_rig_config(EXAMPLES / "oven.toml")
+        assert config.name == "oven" and len(config.readers) == 1
+
+    def test_load_rig_config_of_two_files_applies_the_overlay(self, tmp_path):
+        from flyball.runtime.config import load_rig_config
+
+        shutil.copy(EXAMPLES / "oven.toml", tmp_path / "oven.toml")
+        (tmp_path / "sim.yaml").write_text("links:\n  chamber:\n    noise: 0.9\n")
+        config = load_rig_config([tmp_path / "oven.toml", tmp_path / "sim.yaml"])
+        assert config.name == "oven" and config.links["chamber"].noise == 0.9
+        assert config.links["chamber"].tau_s == 60.0, "the rest of the base link is untouched"
+
+    def test_load_rig_config_applies_a_set_after_the_layers(self, tmp_path):
+        from flyball.runtime.config import load_rig_config
+
+        shutil.copy(EXAMPLES / "oven.toml", tmp_path / "oven.toml")
+        config = load_rig_config([tmp_path / "oven.toml"], ["links.chamber.noise=0.9"])
+        assert config.links["chamber"].noise == 0.9

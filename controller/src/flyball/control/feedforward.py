@@ -149,9 +149,7 @@ class Table(Feedforward, tag="table"):
     as [Affine][flyball.control.feedforward.Affine]'s, on top of the curve.
     """
 
-    def __init__(
-        self, points: list[tuple[float, float]], rate_gain: float | None = None
-    ) -> None:
+    def __init__(self, points: list[tuple[float, float]], rate_gain: float | None = None) -> None:
         if not points:
             raise ValueError("at least one point")
         self.points = sorted(points)
