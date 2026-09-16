@@ -23,7 +23,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   };
 
   // Sizes below follow the widget catalogue's defaults (DESIGN-SPEC.md §3) on a 24-column grid:
-  // health 24×2, readout 6×5, chart 12×8, loop 8×8, actuator 6×5, program 8×6, events 12×6.
+  // health 24×2, readout 6×5, chart 12×8, loop 8×8, actuator 6×4, program 8×6, events 12×6.
   row([{ id: "health", kind: "health", title: null, config: { tiles: ["rig", "recording", "readers", "loops", "conditions"] } }], cols, 2);
 
   const channels = bindings.channels;
@@ -62,7 +62,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   row(
     bindings.actuators.map((a) => ({ id: `actuator-${a.name}`, kind: "actuator", title: null, config: { actuator: a.name, commands: [], showConfig: false } })),
     6,
-    5,
+    4,
   );
 
   const programY = y;

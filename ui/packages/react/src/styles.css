@@ -426,7 +426,10 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-chart-fill { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 /* What stays in the tile while its chart is shown full-size. */
 .fb-chart-placeholder { display: flex; align-items: center; justify-content: center; border: 1px dashed var(--fb-border-1); border-radius: var(--fb-radius); box-sizing: border-box; cursor: zoom-out; }
-.fb-chart-wrap .fb-toolbar { position: absolute; top: 2px; right: 6px; opacity: 0.35; transition: opacity var(--fb-dur-1) var(--fb-ease); z-index: 1; }
+/* In its own row above the chart (not overlaid on it): at the chart's own width, the toolbar's
+   several buttons can be wider than the plot is tall, so absolutely positioning it over the
+   chart's top-right corner ran it into the y axis' own tick labels there. */
+.fb-chart-wrap .fb-toolbar { display: flex; justify-content: flex-end; margin: 0 0 2px; opacity: 0.35; transition: opacity var(--fb-dur-1) var(--fb-ease); }
 .fb-chart-wrap:hover .fb-toolbar, .fb-chart-wrap .fb-toolbar:focus-within { opacity: 1; }
 /*
  * A loop as a faceplate: the header (name + mode, Stop pinned top-right) then

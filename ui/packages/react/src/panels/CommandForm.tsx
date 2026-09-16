@@ -34,13 +34,19 @@ export function CommandForm({ tag, command, onRun, busy, result, form }: Command
   const args = only
     ? { ...command.arguments, properties: { ...command.arguments.properties, [only]: { ...command.arguments.properties![only]!, title: "" } } }
     : command.arguments;
+  const label = humanise(tag);
+  // The raw tag beside the heading is only worth showing when it carries something the
+  // heading doesn't: `demand` -> "Demand" is a bare recapitalisation, so the chip would just
+  // repeat the heading in lowercase; `set_flows` -> "Set flows" hides the underscore a caller
+  // scripting against the API would need, so the chip earns its place there.
+  const showTag = label.toLowerCase() !== tag.toLowerCase();
   return (
     <section className="fb-command">
       <header>
         <h4 title={command.description || undefined}>
-          {humanise(tag)} <code className="fb-tag">{tag}</code>
+          {label} {showTag && <code className="fb-tag">{tag}</code>}
           {command.description && (
-            <span className="fb-info" title={command.description} aria-label={`${humanise(tag)}: ${command.description}`}>
+            <span className="fb-info" title={command.description} aria-label={`${label}: ${command.description}`}>
               ⓘ
             </span>
           )}
@@ -48,10 +54,10 @@ export function CommandForm({ tag, command, onRun, busy, result, form }: Command
       </header>
       {isEmpty(command.arguments) ? (
         <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void onRun({})}>
-          {humanise(tag)}
+          {label}
         </button>
       ) : (
-        <SchemaForm schema={args} onSubmit={onRun} submitLabel={only ? "Set" : humanise(tag)} disabled={busy ?? false} form={form} />
+        <SchemaForm schema={args} onSubmit={onRun} submitLabel={only ? "Set" : label} disabled={busy ?? false} form={form} />
       )}
       {result?.error && <div className="fb-error">{result.error.message}</div>}
       {result && !result.error && (

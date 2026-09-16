@@ -72,7 +72,7 @@ export const actuator: WidgetKind = {
   label: "Actuator",
   description: "An actuator's live state and a form per command; pick which commands, or show them all.",
   category: "control",
-  defaultSize: { w: 6, h: 5 },
+  defaultSize: { w: 6, h: 4 },
   minSize: { w: 4, h: 3 },
   cost: "cheap",
   configSchema: (bindings, config) => {

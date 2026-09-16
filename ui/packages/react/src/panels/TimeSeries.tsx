@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import type { ChannelOut } from "@flyball/client";
-import { yRange, type YScale } from "./yscale.js";
+import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
 import { ChartToolbar } from "./ChartToolbar.js";
@@ -148,7 +148,7 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
             axis({ label: "time" }),
             axis({
               label: `${channel.label} (${channel.unit})`,
-              size: 64,
+              size: axisSize,
               values: (_u, ticks) => ticks.map((x) => x.toFixed(channel.precision != null ? Math.min(channel.precision, 2) : 1)),
             }),
           ],

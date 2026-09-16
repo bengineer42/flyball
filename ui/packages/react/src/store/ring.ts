@@ -146,12 +146,20 @@ export class Ring {
    * Copy rows from `fromS` on into `out`, one in `every` with the newest always
    * kept; `maxPoints` raises `every` so no more than that many land. The arrays
    * in `out` are reused: their lengths are set, not their identities.
+   *
+   * `every`/`maxPoints` are a floor, not a fixed stride to obey no matter what:
+   * a short window (few rows since `fromS`) is never thinned down to just its
+   * first and last row -- a straight line with no shape -- merely because the
+   * caller asked for a stride meant for a much longer series. The effective
+   * step is capped so a window with at least a handful of rows keeps a
+   * handful of them; a window twice `step`'s length or longer is unaffected.
    */
   read(out: RingView, { fromS = Number.NEGATIVE_INFINITY, every = 1, maxPoints = Number.POSITIVE_INFINITY }: { fromS?: number; every?: number; maxPoints?: number } = {}): RingView {
     const start = fromS === Number.NEGATIVE_INFINITY ? 0 : this.indexAtOrAfter(fromS);
     const n = this.count - start;
     let step = Math.max(1, Math.floor(every) || 1);
     if (n / step > maxPoints) step = Math.ceil(n / maxPoints);
+    step = Math.min(step, Math.max(1, Math.floor((n - 1) / 2)));
     const { t, cols } = out;
     let k = 0;
     if (n > 0) {

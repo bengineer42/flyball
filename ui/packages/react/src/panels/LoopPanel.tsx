@@ -57,7 +57,7 @@ function settledBand(center: number, warn: [number, number] | null | undefined, 
   return [Math.min(center - half, ...xs), Math.max(center + half, ...xs)];
 }
 
-function MiniTrend({ series, height, every, yScale, range, settledBand: settled }: { series: MiniTrace[]; height: number; every?: number; yScale?: YScale; range?: [number, number] | null; settledBand?: [number, number] | null }) {
+function MiniTrend({ series, height, every, yScale, range, windowS, settledBand: settled }: { series: MiniTrace[]; height: number; every?: number; yScale?: YScale; range?: [number, number] | null; windowS?: number; settledBand?: [number, number] | null }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
   const shape = JSON.stringify(series.map((s) => [s.color ?? null, s.dash ?? null, s.width ?? null]));
@@ -85,7 +85,14 @@ function MiniTrend({ series, height, every, yScale, range, settledBand: settled 
           spanGaps: true,
         })),
       ],
-      scales: { x: { time: true }, y: y ? { range: y } : {} },
+      scales: {
+        // Scrolls once the window is full, the newest point staying at the right edge -- the same
+        // "follow live" behaviour `TimeSeries`/`MultiSeries` get from `navigation.ts`'s `xRange`. A
+        // mini trend has no pan/zoom (no toolbar, no drag), so there is no "held" state to honour:
+        // it always tracks `windowS` seconds ending at the newest point it has.
+        x: { time: true, range: windowS ? (_u, min, max) => (max - min < windowS ? [min, min + windowS] : [max - windowS, max]) : undefined },
+        y: y ? { range: y } : {},
+      },
       // A minimal axis pair, not a bare chart: 2-3 sparse time labels (no title), 3-4 y ticks at
       // the series' own precision -- a totally axis-free trend read as broken, not "at a glance".
       axes: [
@@ -111,7 +118,7 @@ function MiniTrend({ series, height, every, yScale, range, settledBand: settled 
     };
     // `shape`/`yKey`/`precision` stand in for `series`/`y`: only their structure rebuilds the chart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape, height, yKey, precision]);
+  }, [shape, height, yKey, precision, windowS]);
 
   useEffect(() => {
     const t = series[0] ? thin(series[0].t, every) : [];
@@ -316,8 +323,8 @@ export function LoopPanel({
         ]
       : []),
   ];
-  const law = loop.law as Record<string, unknown>;
-  const { tag, ...rest } = law;
+  const law = loop.law as Record<string, unknown> | null;
+  const { tag, ...rest } = law ?? {};
   const following = typeof loop.reference === "string" ? humanise(loop.reference) : null;
   // A ramp names its generator; the setpoint is then recovered through the feedforward, or failing that read off the
   // latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
@@ -410,14 +417,14 @@ export function LoopPanel({
             <h4 className="fb-loop-chart-title" title="What the loop measures against where it is aiming">
               Process <span className="fb-muted">{unit}</span>
             </h4>
-            <MiniTrend series={process} height={trendHeight} every={every} yScale={yScale} range={channel.range} settledBand={setpoint != null ? settledBand(setpoint, channel.warn, channel.range, history.reading) : null} />
+            <MiniTrend series={process} height={trendHeight} every={every} yScale={yScale} range={channel.range} windowS={windowS} settledBand={setpoint != null ? settledBand(setpoint, channel.warn, channel.range, history.reading) : null} />
           </div>
           <div>
             <h4 className="fb-loop-chart-title" title={`What the loop asks of ${loop.name}, and what it can give back`}>
               Drive <span className="fb-muted">{loop.name} · {dUnit}</span>
             </h4>
             {/* The port limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
-            <MiniTrend series={drive} height={trendHeight} every={every} yScale={outputRange ? "range" : undefined} range={outputRange} />
+            <MiniTrend series={drive} height={trendHeight} every={every} yScale={outputRange ? "range" : undefined} range={outputRange} windowS={windowS} />
           </div>
         </div>
       )}
@@ -426,15 +433,21 @@ export function LoopPanel({
           hover hint (`describeStateKey`) rather than spelling it out and crowding the line. */}
       {detail && (
         <section className="fb-loop-law">
-          <p className="fb-loop-law-line">
-            <span className="fb-tag">{typeof tag === "string" ? tag : "?"}</span>
-            {fieldsLine(rest, { tt: "s", last_raw: dUnit, last_elapsed: "s" }).map((f) => (
-              <span key={f.key} title={f.title}>
-                {" "}
-                · {f.text}
-              </span>
-            ))}
-          </p>
+          {law ? (
+            <p className="fb-loop-law-line">
+              <span className="fb-tag">{typeof tag === "string" ? tag : "?"}</span>
+              {fieldsLine(rest, { tt: "s", last_raw: dUnit, last_elapsed: "s" }).map((f) => (
+                <span key={f.key} title={f.title}>
+                  {" "}
+                  · {f.text}
+                </span>
+              ))}
+            </p>
+          ) : (
+            <p className="fb-loop-law-line fb-muted" title="No law is fitted; the actuator is driven by demand alone.">
+              manual · no law
+            </p>
+          )}
           {ffTag && (
             <p className="fb-loop-law-line fb-loop-feedforward" title="What the loop asks for before the law corrects: the setpoint mapped into the actuator's unit">
               <span className="fb-tag">{ffTag}</span>

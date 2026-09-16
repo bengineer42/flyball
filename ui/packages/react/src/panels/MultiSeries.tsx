@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { yRange, type YScale } from "./yscale.js";
+import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
 import { ChartToolbar } from "./ChartToolbar.js";
@@ -199,7 +199,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
     };
     const axes: uPlot.Axis[] = [
       { label: "time", stroke: fg },
-      { label: unit ? `(${unit})` : undefined, size: 64, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
+      { label: unit ? `(${unit})` : undefined, size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
     ];
     const plotted: uPlot.Series[] = [{}];
     // Extra axes alternate right/left (side 1, 3, 1, 3, …), three a side, six on screen with the primary.
@@ -215,7 +215,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         if (scale !== "y" && extraAxesShown < MAX_EXTRA_AXES) {
           const side = extraAxesShown % 2 === 0 ? 1 : 3;
           extraAxesShown++;
-          axes.push({ label: `(${s.unit})`, size: 64, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
+          axes.push({ label: `(${s.unit})`, size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
         }
       }
       const line: uPlot.Series = {
