@@ -11,8 +11,11 @@ import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
 import type { JsonSchema } from "@flyball/client";
 import { type ComponentType, useMemo, useState } from "react";
+import { TaggedUnionField } from "./tagged.js";
 import { impliedUiSchema, simplifyNullables } from "./uiSchema.js";
 import { widgets } from "./widgets.js";
+
+const fields = { taggedUnion: TaggedUnionField };
 
 export interface SchemaFormProps {
   schema: JsonSchema;
@@ -52,6 +55,7 @@ export function SchemaForm({ schema, value, onSubmit, onChange, submitLabel = "R
       uiSchema={ui}
       validator={validator}
       widgets={widgets}
+      fields={fields}
       formData={formData}
       idPrefix={idPrefix}
       disabled={disabled}

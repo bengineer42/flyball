@@ -2,9 +2,15 @@ import { useMemo } from "react";
 import type { Address, CommandSchema, JsonSchema, Value } from "@flyball/client";
 import { formatValue, humanise, isEmpty, linkedSignal } from "@flyball/client";
 import { SchemaForm, type SchemaFormProps } from "../form/SchemaForm.js";
+import { formatTagged } from "../form/tagged.js";
 import { useTelemetry } from "../provider.js";
 import { useLatestValue } from "../store/hooks.js";
 import { ValueView } from "./ValueView.js";
+
+/** A value by its field's schema: a tagged union (`BlendFlow`) as `Absolute · 1 L/min · clamp`, else `formatValue`. */
+function describeValue(value: unknown, field: JsonSchema | undefined, root: JsonSchema): string {
+  return (field && formatTagged(value, field, root)) ?? formatValue(value, field);
+}
 
 export interface CommandFormProps {
   tag: string;
@@ -40,24 +46,29 @@ export function linkedArguments(schema: JsonSchema): Array<{ name: string; field
 }
 
 /** One linked argument's live readback, beside the form: `Flow · now 12.3 L/min`. */
-function LinkedReadback({ name, field, address }: { name: string; field: JsonSchema; address: Address }) {
+function LinkedReadback({ name, field, address, root }: { name: string; field: JsonSchema; address: Address; root: JsonSchema }) {
   const live = useLatestValue(address);
   if (!live) return null;
   return (
     <span className="fb-muted fb-command-link" title={address}>
-      {field.title || humanise(name)} · now {formatValue(live.value, field)}
+      {field.title || humanise(name)} · now {describeValue(live.value, field, root)}
     </span>
   );
 }
 
 /** `last.<tag>` (`{args, at}`), live: when the command last ran and with what. */
-function LastRan({ device, tag, label }: { device: string; tag: string; label: string }) {
+function LastRan({ device, tag, label, schema }: { device: string; tag: string; label: string; schema: JsonSchema }) {
   const live = useLatestValue(`${device}.last.${tag}`);
   const value = live?.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const { args, at } = value as { args?: Record<string, unknown>; at?: number };
   if (typeof at !== "number") return null;
-  const argsText = args && Object.keys(args).length ? Object.entries(args).map(([k, v]) => `${k}=${formatValue(v)}`).join(", ") : "no arguments";
+  const argsText =
+    args && Object.keys(args).length
+      ? Object.entries(args)
+          .map(([k, v]) => `${k}=${describeValue(v, schema.properties?.[k] as JsonSchema | undefined, schema)}`)
+          .join(", ")
+      : "no arguments";
   return (
     <p className="fb-muted fb-command-last">
       {label} ran at {new Date(at / 1e6).toLocaleTimeString()} with {argsText}
@@ -130,13 +141,13 @@ export function CommandForm({ tag, command, onRun, busy, result, form, device, c
           {linked.length > 0 && (
             <div className="fb-command-links">
               {linked.map((a) => (
-                <LinkedReadback key={a.name} {...a} />
+                <LinkedReadback key={a.name} {...a} root={command.arguments} />
               ))}
             </div>
           )}
         </>
       )}
-      {device && <LastRan device={device} tag={tag} label={label} />}
+      {device && <LastRan device={device} tag={tag} label={label} schema={command.arguments} />}
       {result?.error && <div className="fb-error">{result.error.message}</div>}
       {result && !result.error && (
         <div className="fb-result">

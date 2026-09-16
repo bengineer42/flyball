@@ -26,8 +26,9 @@ first; convert the small result second.
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
 | `role` | `"demand"`, `"output"`, `"setting"` or `"config"` |
 | `Reading` | `{"signal": address, "time_ns": int, "value": float}` |
-| `Sample` | `{"node": address, "time_ns": int, "values": {relative-name: float}}` — keys are dotted paths relative to `node`, never nested |
-| `WriteOut` | `{value, requested, at_limit: "low" \| "high" \| null, controller}` |
+| `Sample` | `{"node": address, "time_ns": int, "values": {relative-name: float}, "writes": {relative-name: WriteMetaOut}}` — `values` keyed by dotted paths relative to `node`, never nested; `writes` likewise, present only for the demands the sample includes |
+| `WriteMetaOut` | `{requested, at_limit: "low" \| "high" \| null, controller}` — a demand's write record, riding with its reading in a `Sample`; no `value`, already in `values` |
+| `WriteOut` | `{value, requested, at_limit: "low" \| "high" \| null, controller}` — `WriteMetaOut` plus the committed value; a signal's `write` (`GET /api/devices`) only, now |
 
 An address that does not resolve on the running rig is a 404, named in the
 error's message; there is no separate decode-by-registry step the way a

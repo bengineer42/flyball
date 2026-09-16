@@ -148,8 +148,9 @@ flyball heater
 flyball heater set_limit 0.5
 ```
 
-and one frame per change on `/ws/writes` for its writable signals, plus
-`/ws/samples` for anything it also publishes.
+and, on `/ws/samples`, a sample per commit carrying each demand's readback
+with its write record (`requested`, `at_limit`, `controller`) beside it,
+as well as anything it publishes.
 
 ## Checklist
 

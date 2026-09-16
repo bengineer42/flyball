@@ -329,6 +329,10 @@
 .fb-field { margin: 0.4rem 0; min-width: 0; }
 .fb-field-label { display: block; font-size: 0.85em; color: var(--fb-fg-2); }
 .fb-required { color: var(--fb-alarm); margin-left: 0.15rem; }
+/* A tagged union (`TaggedUnionField`): the segmented variant control, then its fields in a row. */
+.fb-tagged .fb-segmented { margin: 0.3rem 0; }
+.fb-tagged-fields { display: flex; flex-wrap: wrap; gap: 0 0.75rem; align-items: flex-end; }
+.fb-tagged-fields > .fb-field { margin: 0.2rem 0; }
 .fb-form input[type="number"] { font-variant-numeric: tabular-nums; padding: 0.2rem 0.4rem; border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); background: var(--fb-bg-2); color: var(--fb-fg); }
 .fb-form input[type="number"][aria-invalid="true"], .fb-form [role="radiogroup"][aria-invalid="true"] { border-color: var(--fb-alarm); }
 /* The text widget's box, drawn like the number one (a `.fb-text` frame keeps a theme's own text inputs out of it). */

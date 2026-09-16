@@ -322,6 +322,7 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
             "node": f"{sensors.name}.dry",
             "time_ns": rig.clock.now_ns(),
             "values": {"humidity": 45.0, "temperature": 21.9},
+            "writes": {},
         }
     }
     whole = client.get(f"/api/read/{sensors.name}?fresh=true").json()
@@ -402,6 +403,7 @@ def test_read_by_address(client, rig, daq, clock):
                 "node": daq.name,
                 "time_ns": sample.time_ns,
                 "values": {"zone1": 21.5, "zone2": 22.0, "setpoint": 0.0},
+                "writes": {},
             }
         ]
     }
@@ -576,11 +578,15 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
         with client.websocket_connect("/ws/samples") as ws:
             first = ws.receive_json()
             assert first == {
-                "samples": [{"node": device.name, "time_ns": 1, "values": {"zone": 21.5}}]
+                "samples": [
+                    {"node": device.name, "time_ns": 1, "values": {"zone": 21.5}, "writes": {}}
+                ]
             }
             rig.on_samples([Sample(device.root, 2, {zone: 22.0, static: 4.0})])
             assert ws.receive_json() == {
-                "samples": [{"node": device.name, "time_ns": 2, "values": {"zone": 22.0}}]
+                "samples": [
+                    {"node": device.name, "time_ns": 2, "values": {"zone": 22.0}, "writes": {}}
+                ]
             }
             rig.on_samples([Sample(device.root, 3, {static: 5.0})])
             rig.on_samples([Sample(device.root, 4, {zone: 23.0})])
@@ -606,37 +612,36 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
         assert entry["values"] == {"mode": "running", "config": {"gain": 2, "offset": 1}}
 
 
-def test_writes_stream_sends_a_snapshot_then_changes(client, rig, drive):
+def _sample_of(frame: dict, node: str) -> dict:
+    return next(s for s in frame["samples"] if s["node"] == node)
+
+
+def test_writes_ride_the_samples_stream(client, rig, drive):
+    """`/ws/writes` is gone: a demand's write record rides with its reading on `/ws/samples`."""
     rig.demand(drive.root, {"heater1": 10.0})
-    with client.websocket_connect("/ws/writes") as ws:
-        first = ws.receive_json()
-        assert first == {
-            "writes": [
-                {
-                    "signal": f"{drive.name}.heater1",
-                    "value": 10.0,
-                    "requested": None,
-                    "at_limit": None,
-                    "controller": None,
-                }
-            ]
+    with client.websocket_connect("/ws/samples") as ws:
+        first = _sample_of(ws.receive_json(), drive.name)
+        assert first["values"]["heater1"] == 10.0
+        assert first["writes"] == {
+            "heater1": {"requested": None, "at_limit": None, "controller": None}
         }
         rig.demand(drive.root, {"heater2": 9000.0})
-        (state,) = ws.receive_json()["writes"]
-        assert state["signal"] == f"{drive.name}.heater2" and state["at_limit"] == "high"
+        frame = _sample_of(ws.receive_json(), drive.name)
+        assert frame["writes"]["heater2"]["at_limit"] == "high"
 
 
-def test_devices_stream_sends_each_run(client, rig, daq):
+def test_device_runs_ride_the_samples_stream(client, rig, daq):
+    """`/ws/devices` is gone: a device's run rides beside its samples on `/ws/samples`."""
     daq.poll_s = 0.5
     rig.start_polling(daq)
     rig.polling.stop_all()
-    with client.websocket_connect("/ws/devices") as ws:
-        (first,) = ws.receive_json()["devices"]
+    with client.websocket_connect("/ws/samples") as ws:
+        (first,) = ws.receive_json()["runs"]
         assert first["name"] == daq.name and first["running"] is False
         assert first["period_s"] == 0.5 and first["conditions"] == []
         daq.broken = True
         rig.polling._read(daq)
-        (run,) = ws.receive_json()["devices"]
+        (run,) = ws.receive_json()["runs"]
         assert run["conditions"][0]["kind"] == "offline"
 
 

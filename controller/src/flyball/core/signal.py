@@ -582,11 +582,21 @@ class Signal:
 
 @dataclass(frozen=True, slots=True)
 class Reading:
-    """One value on one signal at one instant. On a demand, the newest is its readback."""
+    """One value on one signal at one instant. On a demand, the newest is its readback.
+
+    `requested`, `at_limit` and `controller` are the write record folded in: set only on a
+    demand's reading, by the rig, when this is what a commit just produced -- the old
+    `WriteState`, riding along instead of a stream of its own.
+    """
 
     signal: Signal
     time_ns: int
     value: Value
+    requested: float | None = None
+    """What was asked for, when the clamp changed it."""
+    at_limit: Limit | None = None
+    controller: str | None = None
+    """The controller driving the signal, if any."""
 
     @property
     def seconds(self) -> float:

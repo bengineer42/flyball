@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { JsonSchema } from "@flyball/client";
 import { SchemaForm } from "../src/form/SchemaForm.js";
-import { impliedUiSchema, simplifyNullables } from "../src/form/uiSchema.js";
+import { formatTagged } from "../src/form/tagged.js";
+import { impliedUiSchema, isTaggedUnion, simplifyNullables } from "../src/form/uiSchema.js";
 
 // The shape `sim_drive`'s config takes (DEVICE-MODEL-2, `GET /api/rig/schema`): a dict
 // (`additionalProperties`) of ports, each an `anyOf` of a bare string or a `DrivePort` object
@@ -81,5 +82,88 @@ describe("SchemaForm with a Band (bounded tuple) field", () => {
     expect(html).toContain("fb-band");
     expect(html).toContain('value="0"');
     expect(html).toContain('value="100"');
+  });
+});
+
+// `BlendFlow` (DEVICE-MODEL-2 §6, the humidity example's blender): a structurally discriminated
+// union of three dataclasses, no tag on the wire -- unlike a `Labelled` enum, whose branches are
+// titled `const`s (`OnOverdrive`, nested inside `Absolute` here, the ordinary way). Shaped as the
+// server actually sends it (`GET /api/devices/blender/schema`'s `set_blend`): `$defs`, `blend_flow`
+// itself a bare `$ref` with siblings (`x-signal`, `default`, ...), `BlendFlow` an `anyOf` of `$ref`s.
+const $defs: Record<string, JsonSchema> = {
+  OnOverdrive: {
+    title: "OnOverdrive",
+    description: "How to handle a requested flow change that exceeds the maximum.",
+    type: "string",
+    oneOf: [
+      { const: "raise", title: "Refuse the request" },
+      { const: "clamp", title: "Clamp to the maximum" },
+    ],
+  },
+  Absolute: {
+    type: "object",
+    title: "Absolute",
+    properties: { flow: { type: "number", title: "Flow", unit: "L/min" }, on_overdrive: { $ref: "#/$defs/OnOverdrive", default: "raise" } },
+    required: ["flow"],
+  },
+  OfBlendMax: { type: "object", title: "OfBlendMax", properties: { blend_fraction: { type: "number", title: "Blend Fraction", default: 1.0 } } },
+  OfGuaranteedMax: { type: "object", title: "OfGuaranteedMax", properties: { guaranteed_max_fraction: { type: "number", title: "Guaranteed Max Fraction", default: 1.0 } } },
+  BlendFlow: { anyOf: [{ $ref: "#/$defs/Absolute" }, { $ref: "#/$defs/OfBlendMax" }, { $ref: "#/$defs/OfGuaranteedMax" }] },
+};
+// `set_blend`'s own argument: linked (`x-signal`) and so not required, a bare `$ref`.
+const blendFlowArg: JsonSchema = { $ref: "#/$defs/BlendFlow", default: null, "x-signal": "blender.blend.flow", unit: "", title: "Blend flow" };
+// `set_humidity`'s: the same, but `BlendFlow | None` too (an `anyOf` with a null branch, wrapping the ref).
+const blendFlowArgOptional: JsonSchema = { anyOf: [{ $ref: "#/$defs/BlendFlow" }, { type: "null" }], default: null, "x-signal": "blender.blend.flow", unit: "", title: "Blend flow" };
+const schemaRoot: JsonSchema = { $defs, type: "object", properties: { blend_flow: blendFlowArg } };
+
+describe("isTaggedUnion", () => {
+  it("is true for a `BlendFlow`-shaped union, whether given directly or as a bare `$ref`", () => {
+    expect(isTaggedUnion($defs.BlendFlow!, schemaRoot)).toBe(true);
+    expect(isTaggedUnion(blendFlowArg, schemaRoot)).toBe(true); // the `$ref` itself, with siblings
+  });
+
+  it("is false for the nullable-object pattern (a null branch) and for a titled-enum oneOf", () => {
+    expect(isTaggedUnion(blendFlowArgOptional, schemaRoot)).toBe(false);
+    expect(isTaggedUnion($defs.OnOverdrive!, schemaRoot)).toBe(false);
+  });
+});
+
+describe("SchemaForm with a BlendFlow-shaped tagged union field", () => {
+  it("renders a segmented variant control (branch titles, not a raw nested-field title) and the matched branch's fields inline", () => {
+    const html = renderToStaticMarkup(<SchemaForm schema={schemaRoot} value={{ blend_flow: { flow: 1, on_overdrive: "clamp" } }} onSubmit={() => undefined} />);
+    expect(html).toContain("fb-tagged");
+    expect(html).toContain("Absolute");
+    expect(html).toContain("Of blend max");
+    expect(html).toContain('value="1"'); // flow, inline
+    // No JSON dump of the value, and no raw class-name title leaking through for the nested enum
+    // (`on_overdrive`'s `$ref` is inlined by `simplifyNullables` before this ever renders, carrying
+    // `OnOverdrive`'s own title with it unless the field is titled from its property name instead).
+    expect(html).not.toContain("&quot;flow&quot;");
+    expect(html).not.toContain(">OnOverdrive<");
+    expect(html).toContain(">On overdrive<");
+  });
+
+  it("shows no asterisk on a branch field when the union itself is optional, but does when it is required", () => {
+    const optional = renderToStaticMarkup(<SchemaForm schema={schemaRoot} value={{ blend_flow: { flow: 1 } }} onSubmit={() => undefined} />);
+    expect(optional).not.toContain("fb-required");
+    const required = renderToStaticMarkup(<SchemaForm schema={{ ...schemaRoot, required: ["blend_flow"] }} value={{ blend_flow: { flow: 1 } }} onSubmit={() => undefined} />);
+    expect(required).toContain("fb-required");
+  });
+});
+
+describe("formatTagged", () => {
+  it("formats a tagged union's value as 'title · field · field', unit-suffixed where the field has one", () => {
+    expect(formatTagged({ flow: 1, on_overdrive: "clamp" }, blendFlowArg, schemaRoot)).toBe("Absolute · 1.00 L/min · clamp");
+    expect(formatTagged({ blend_fraction: 0.5 }, blendFlowArg, schemaRoot)).toBe("Of blend max · 0.50");
+  });
+
+  it("sees through an `X | None` wrapper (a linked, optional argument often is one) to the union inside", () => {
+    expect(formatTagged({ flow: 1, on_overdrive: "clamp" }, blendFlowArgOptional, schemaRoot)).toBe("Absolute · 1.00 L/min · clamp");
+  });
+
+  it("falls back to null (so the caller uses JSON) off a tagged union or a non-object value", () => {
+    expect(formatTagged({ flow: 1 }, { type: "number" }, schemaRoot)).toBeNull();
+    expect(formatTagged(3, blendFlowArg, schemaRoot)).toBeNull();
+    expect(formatTagged(null, blendFlowArg, schemaRoot)).toBeNull();
   });
 });

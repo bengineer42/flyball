@@ -23,7 +23,7 @@ nothing is attached.
 | `controllers.py` | `/api/controllers*`: wiring, regulate/manual, reference |
 | `waits.py` | `/api/waits*` |
 | `events.py` | `/api/events` |
-| `telemetry.py` | the websockets: `/ws/samples`, `/ws/writes`, `/ws/controllers`, `/ws/devices`, `/ws/waits`, `/ws/events` |
+| `telemetry.py` | the websockets: `/ws/samples` (a demand's write record and a device's run ride along with it), `/ws/controllers`, `/ws/waits`, `/ws/events` |
 | `recording.py` | starting and stopping recording on the live rig — the one place the rig and the store meet |
 | `history.py` | reads the store: sessions, devices, signals, writes, controllers, series, ticks, events, spans, exports |
 | `export.py` | the file forms `history.py`'s export endpoints share |
@@ -52,8 +52,9 @@ independently.
 | --- | --- | --- |
 | `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits, initial, latest, write}` |
 | `NamespaceOut` | a `Node` | `{name, address, atomic, label, poll_s, signals: [...]}`, nesting `SignalOut`/`NamespaceOut` |
-| `WriteOut` | a `WriteState` | `{value, requested, at_limit, controller}` |
-| `SampleOut` | a `Sample` | `{node, time_ns, values}`, `values` keyed relative to `node` |
+| `WriteOut` | a `WriteState` | `{value, requested, at_limit, controller}` -- a signal's `write` (`GET /api/devices`) only, now |
+| `WriteMetaOut` | a demand's `Reading` | `{requested, at_limit, controller}` -- `WriteOut` without `value`, already in `SampleOut.values` |
+| `SampleOut` | a `Sample`, plus `rig.latest` for each demand's write record | `{node, time_ns, values, writes}`, both keyed relative to `node`; `writes` only for the demands the sample includes |
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
 | `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
 | `DeviceOut` | a `Device` | `{name, label, kind, driver, type, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
@@ -78,21 +79,28 @@ do the same from their dataclass constructor.
 ## Telemetry
 
 The rig publishes nothing itself; it only fills `Latest` cells (samples by
-node address, write states by signal address, controller states and device
-runs by name, waits by name) and a `Topic` of published samples, each built
-only while something is watching. `telemetry.py`'s sockets read those cells
-directly — no separate observer is attached for them.
+node address, write states by signal address -- kept for the recorder and
+`device.written`, not streamed on its own any more -- controller states and
+device runs by name, waits by name) and a `Topic` of published samples,
+each built only while something is watching. `telemetry.py`'s sockets read
+those cells directly — no separate observer is attached for them.
 
-| socket | cell | frame |
+| socket | cell(s) | frame |
 | --- | --- | --- |
-| `/ws/samples` | `rig.samples` (newest published sample per node) | `{samples: [SampleOut]}`; at most one sample per node per flush |
-| `/ws/writes` | `rig.write_states` | `{writes: [WriteOut with signal]}` of the signals committed |
+| `/ws/samples` | `rig.samples` (newest published sample per node), `rig.latest` (for `writes`), `rig.polling.runs` (for `runs`) | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`; either key present only when something in it changed, at most one sample per node and one run per device per flush |
 | `/ws/controllers` | `rig.controller_states` joined to controller settings | `{controllers: [ControllerOut]}` of those that ticked |
-| `/ws/devices` | `rig.polling.runs` | `{devices: [{name, period_s, running, last_read_ns, conditions}]}` as each reads, fails or is restarted |
 | `/ws/waits` | `rig.triggers.latest` | `{waits: [WaitState]}` as each registers or settles |
 | `/ws/events` | `rig.recent` | `{events: [Event]}` as each happens |
 
-Each cell socket sends everything on connect, then every 50 ms (`FLUSH_S`)
+`/ws/samples` folds in what `/ws/writes` and `/ws/devices` used to carry
+separately: `Rig._states` (the write path, `runtime/rig.py`) folds a
+demand's clamp/controller into the `Reading` it leaves in `rig.latest`
+(`replace`d in place, after the ordinary push), so `SampleOut.of` can read
+it back off `rig.latest` for any demand a sample includes, with no extra
+cell of its own to watch; `_flush_samples` merges `rig.samples` and
+`rig.polling.runs` into one frame instead of `_flush`'s one-cell loop.
+
+Each socket sends everything on connect, then every 50 ms (`FLUSH_S`)
 one frame of whatever changed; an empty flush sends nothing. Nothing is
 sent to a quiet socket, so only receiving notices a disconnect; a reader
 task runs beside the push loop for that.

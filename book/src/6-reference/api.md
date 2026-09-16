@@ -320,9 +320,15 @@ flush sends nothing.
 
 | socket | on connect | then |
 | --- | --- | --- |
-| `/ws/samples` | the newest published sample per node | `{samples: [{node, time_ns, values}]}` of the nodes that delivered; only publishing signals, `values` keyed relative to `node`; at most one sample per node per flush |
-| `/ws/writes` | every write state | `{writes: [{signal, value, requested, at_limit, controller}]}` of the signals committed |
+| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
-| `/ws/devices` | every polled device | `{devices: [{name, period_s, running, last_read_ns, conditions}]}` as each reads, fails or is restarted |
 | `/ws/waits` | every registered wait | `{waits: [WaitState]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |
+
+A `SampleOut` is `{node, time_ns, values, writes}`: only publishing signals,
+`values` keyed relative to `node`; `writes` carries `{requested, at_limit,
+controller}` for each demand the sample includes, keyed the same way as
+`values` -- a demand's write record rides with its reading now, so
+`/ws/writes` no longer exists (`GET /api/devices`' `SignalOut.write` still
+carries the last committed value too). `/ws/devices` is likewise gone: a
+device's run rides beside its samples, under `runs`, on `/ws/samples`.

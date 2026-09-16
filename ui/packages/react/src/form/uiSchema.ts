@@ -71,6 +71,22 @@ export function enumCount(schema: JsonSchema): number {
   return 0;
 }
 
+/**
+ * A `oneOf`/`anyOf` of a few plain objects, structurally discriminated (no
+ * tag on the wire, unlike a `Labelled` enum's titled `const`s): `BlendFlow`
+ * (`Absolute | OfBlendMax | OfGuaranteedMax`), say. Distinct from the
+ * nullable-object pattern above, whose first branch is `{type: "null"}`.
+ */
+export function isTaggedUnion(schema: JsonSchema, root: JsonSchema): boolean {
+  const resolved = deref(schema, root);
+  const branches = resolved.oneOf ?? resolved.anyOf;
+  if (!branches || branches.length < 2 || branches.length > SEGMENTED_MAX) return false;
+  return branches.every((b) => {
+    const d = deref(b, root);
+    return d.type !== "null" && (d.type === "object" || Boolean(d.properties));
+  });
+}
+
 export function isBounded(schema: JsonSchema): boolean {
   return (schema.minimum ?? schema.exclusiveMinimum) !== undefined && (schema.maximum ?? schema.exclusiveMaximum) !== undefined;
 }
@@ -113,6 +129,9 @@ function fieldUiSchema(field: JsonSchema, root: JsonSchema): UiSchema {
   const widget = widgetFor(fieldSchema);
   const union = fieldSchema.anyOf ? "anyOf" : fieldSchema.oneOf ? "oneOf" : undefined;
   if (widget) return { "ui:widget": widget, "ui:options": { label: false } };
+  if (isTaggedUnion(fieldSchema, root)) {
+    return { "ui:field": "taggedUnion", "ui:fieldReplacesAnyOrOneOf": true, "ui:options": { label: false } };
+  }
   if (union) return { [union]: fieldSchema[union]!.map((b) => ({ ...fieldUiSchema(b, root), "ui:options": { label: false } })) };
   if (fieldSchema.properties) return impliedUiSchema(fieldSchema, root);
   if (fieldSchema.additionalProperties && typeof fieldSchema.additionalProperties === "object") {

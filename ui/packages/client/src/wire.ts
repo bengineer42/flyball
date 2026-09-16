@@ -83,11 +83,27 @@ export interface ReadingOut {
   value: Value;
 }
 
-/** Signals under one node at one instant; `values` keyed by name relative to `node`. */
+/** A demand's write record, riding along with its reading in a `SampleOut`: no `value` -- that
+ * is already in `values`, keyed the same way. What `/ws/writes` used to carry, per signal. */
+export interface WriteMetaOut {
+  /** What was asked for, when the clamp changed it. */
+  requested: number | null;
+  at_limit: "low" | "high" | null;
+  /** The controller driving it (it refuses manual demands), or null. */
+  controller: Address | null;
+}
+
+/** Signals under one node at one instant; `values` keyed by name relative to `node`.
+ *
+ * `writes` carries the write record for each demand the sample includes (present only for
+ * those, keyed the same way as `values`): a demand's reading and its write record arrive
+ * together now, so `/ws/writes` no longer exists.
+ */
 export interface SampleOut {
   node: Address;
   time_ns: Nanoseconds;
   values: Record<string, Value>;
+  writes?: Record<string, WriteMetaOut>;
 }
 
 /** The last reading on a signal, without repeating its address. */
@@ -104,11 +120,6 @@ export interface WriteOut {
   at_limit: "low" | "high" | null;
   /** The controller driving it (it refuses manual demands), or null. */
   controller: Address | null;
-}
-
-/** One entry of a `/ws/writes` frame: a `WriteOut` with the signal it belongs to. */
-export interface WriteStateOut extends WriteOut {
-  signal: Address;
 }
 
 // endregion
@@ -247,7 +258,7 @@ export interface DeviceOut {
   run: RunOut | null;
 }
 
-/** One entry of a `/ws/devices` frame: a polled device's run as it reads, fails or is restarted. */
+/** One entry of `/ws/samples`'s `runs`: a polled device's run as it reads, fails or is restarted. */
 export interface DeviceRunOut extends RunOut {
   name: string;
   /** The runtime's conditions on polling it (`offline`, `slow`); the device's own are on its `conditions` signal. */
@@ -649,13 +660,14 @@ export interface SaveResult {
 /**
  * Messages on the websockets, by stream. Every socket sends what the rig
  * knows on connect, then every 50 ms one frame of whatever changed (the
- * newest value per key, so at most one sample per node per frame).
+ * newest value per key, so at most one sample per node per frame). `/ws/writes`
+ * and `/ws/devices` are gone: a demand's write record rides with its reading
+ * in `SampleOut.writes`, and a device's run rides beside the samples, under
+ * `runs`, on `/ws/samples` -- either key present only when it changed.
  */
 export interface Streams {
-  samples: { samples: SampleOut[] };
-  writes: { writes: WriteStateOut[] };
+  samples: { samples?: SampleOut[]; runs?: DeviceRunOut[] };
   controllers: { controllers: ControllerOut[] };
-  devices: { devices: DeviceRunOut[] };
   waits: { waits: WaitState[] };
   events: { events: Event[] };
 }

@@ -3,9 +3,11 @@
 Every socket sends what the rig knows on connect, then every `FLUSH_S` one
 frame of whatever changed: the rig keeps only the newest value per key in
 a [Latest][flyball.core.topic.Latest] cell -- samples by node address,
-write states by signal address, controller states and device runs by name,
-waits by name -- so a socket costs at most one frame per flush at any tick
-rate, and an idle server builds nothing.
+controller states and device runs by name, waits by name -- so a socket
+costs at most one frame per flush at any tick rate, and an idle server
+builds nothing. `/ws/samples` carries a demand's write record with its
+reading (`SampleOut.writes`) and a device's run beside its samples
+(`{"runs": [...]}`): `/ws/writes` and `/ws/devices` no longer exist.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
 from flyball.runtime.triggers import TriggerState
 from flyball.server.deps import current_rig
-from flyball.server.schemas import ControllerOut, SampleOut, WriteOut
+from flyball.server.schemas import ControllerOut, SampleOut
 
 router = APIRouter(tags=["telemetry"])
 
@@ -80,11 +82,7 @@ async def _flush[V](
 
 
 def _sample_out(rig: Rig, node: str, sample: Any) -> dict[str, Any]:
-    return SampleOut.of(sample).model_dump(mode="json")
-
-
-def _write_out(rig: Rig, address: str, state: Any) -> dict[str, Any]:
-    return {"signal": address, **WriteOut.of(state).model_dump(mode="json")}
+    return SampleOut.of(sample, rig.latest).model_dump(mode="json")
 
 
 def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
@@ -136,32 +134,60 @@ async def _serve[V](
             await _flush(websocket, cell(rig), key, encode)
 
 
+async def _flush_samples(websocket: WebSocket, rig: Rig) -> None:
+    """As `_flush`, but for two cells at once: `{"samples": [...], "runs": [...]}`.
+
+    Either key is present only when something in it changed; an empty flush
+    sends nothing. This is how a device's run (`/ws/devices`, once) rides
+    beside its samples now.
+    """
+    closed = asyncio.ensure_future(_closed(websocket))
+    sample_version = 0
+    run_version = 0
+    try:
+        with rig.samples.watch(), rig.polling.runs.watch():
+            while current_rig() is rig:
+                sample_version, sample_changed = rig.samples.changed_since(sample_version)
+                run_version, run_changed = rig.polling.runs.changed_since(run_version)
+                frame: dict[str, Any] = {}
+                if sample_changed:
+                    frame["samples"] = [_sample_out(rig, k, v) for k, v in sample_changed.items()]
+                if run_changed:
+                    frame["runs"] = [_run_out(rig, k, v) for k, v in run_changed.items()]
+                if frame:
+                    await websocket.send_json(frame)
+                done, _ = await asyncio.wait({closed}, timeout=FLUSH_S)
+                if closed in done:
+                    raise WebSocketDisconnect
+    finally:
+        closed.cancel()
+
+
 @router.websocket("/ws/samples")
 async def samples(websocket: WebSocket) -> None:
-    """The newest published sample per node on connect, then each node that delivered.
+    """The newest published sample per node, and each polled device's run, live.
 
     Only what publishes: a fresh read of a setting is not here. At most one
-    sample per node per flush; a chart at a higher rate reads history.
+    sample per node per flush; a chart at a higher rate reads history. A
+    demand's sample carries its write record (`writes`); `runs` is each
+    device's `period_s`/`running`/`last_read_ns` (`/ws/writes` and
+    `/ws/devices` are folded in here; neither exists any more).
     """
-    await _serve(websocket, lambda rig: rig.samples, "samples", _sample_out)
-
-
-@router.websocket("/ws/writes")
-async def writes(websocket: WebSocket) -> None:
-    """Every write state on connect, then each signal committed, at most every `FLUSH_S`."""
-    await _serve(websocket, lambda rig: rig.write_states, "writes", _write_out)
+    await websocket.accept()
+    with contextlib.suppress(WebSocketDisconnect):
+        while True:
+            rig = current_rig()
+            if rig is None:
+                await _no_rig(websocket)
+                continue
+            _prime(rig)
+            await _flush_samples(websocket, rig)
 
 
 @router.websocket("/ws/controllers")
 async def controllers(websocket: WebSocket) -> None:
     """Every controller on connect, then each that ticked, at most every `FLUSH_S`."""
     await _serve(websocket, lambda rig: rig.controller_states, "controllers", _controller_out)
-
-
-@router.websocket("/ws/devices")
-async def devices(websocket: WebSocket) -> None:
-    """Every polled device's run on connect, then each as it reads, fails or is restarted."""
-    await _serve(websocket, lambda rig: rig.polling.runs, "devices", _run_out)
 
 
 @router.websocket("/ws/waits")

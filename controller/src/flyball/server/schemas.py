@@ -11,6 +11,7 @@ controller's (its target's). The rig resolves them once at the boundary.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, TypeAdapter
@@ -27,7 +28,7 @@ from flyball.control import (
 from flyball.core.clock import Clock
 from flyball.core.device import CommandSpec, Condition, Device, Input
 from flyball.core.model import discriminated_union
-from flyball.core.signal import Limit, Node, Reading, Sample, Signal, WriteState
+from flyball.core.signal import Limit, Node, Reading, Role, Sample, Signal, WriteState
 from flyball.runtime.polling import DeviceRun
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
@@ -77,16 +78,48 @@ class ReadingOut(BaseModel):
         return cls(signal=reading.signal.address, time_ns=reading.time_ns, value=reading.value)
 
 
+class WriteMetaOut(BaseModel):
+    """A demand's write record, riding along with its reading in a `SampleOut`.
+
+    No `value`: that is already in `values`, keyed the same way.
+    """
+
+    requested: float | None = None
+    """What was asked for, when the clamp changed it."""
+    at_limit: Limit | None = None
+    controller: str | None = None
+    """The controller driving it; it refuses manual demands."""
+
+
 class SampleOut(BaseModel):
-    """Signals under one node at one instant; `values` keyed relative to `node`."""
+    """Signals under one node at one instant; `values` keyed relative to `node`.
+
+    `writes` carries the write record (`requested`, `at_limit`, `controller`) for each demand
+    the sample includes, keyed the same way as `values` -- `/ws/writes` folded in here.
+    """
 
     node: str
     time_ns: int
     values: dict[str, Any]
+    writes: dict[str, WriteMetaOut] = {}
 
     @classmethod
-    def of(cls, sample: Sample) -> SampleOut:
-        return cls(node=sample.node.address, time_ns=sample.time_ns, values=sample.by_name())
+    def of(cls, sample: Sample, latest: Mapping[Signal, Reading] | None = None) -> SampleOut:
+        writes: dict[str, WriteMetaOut] = {}
+        if latest is not None:
+            for signal in sample.values:
+                if signal.role is Role.DEMAND and (reading := latest.get(signal)) is not None:
+                    writes[sample.node.relative(signal)] = WriteMetaOut(
+                        requested=reading.requested,
+                        at_limit=reading.at_limit,
+                        controller=reading.controller,
+                    )
+        return cls(
+            node=sample.node.address,
+            time_ns=sample.time_ns,
+            values=sample.by_name(),
+            writes=writes,
+        )
 
 
 class LatestOut(BaseModel):

@@ -192,15 +192,19 @@ describe("TelemetryStore", () => {
     expect(store.read("furnace.zone1", emptyTrace())).toEqual({ t: [100, 101, 104], v: [10, 11, 20] });
   });
 
-  it("keeps write states by signal address", () => {
+  it("keeps write states by signal address, joined from a sample's `writes` and its value", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     const one = vi.fn();
     const any = vi.fn();
     store.subscribeWrites("heaters.heater1", one, 0);
     store.subscribeWrites(null, any, 0);
-    send("writes", { writes: [{ signal: "heaters.heater1", value: 500, requested: null, at_limit: null, controller: "heaters.heater1" }] });
-    send("writes", { writes: [{ signal: "heaters.heater2", value: 1000, requested: 1200, at_limit: "high", controller: null }] });
+    send("samples", {
+      samples: [{ node: "heaters", time_ns: 0, values: { heater1: 500 }, writes: { heater1: { requested: null, at_limit: null, controller: "heaters.heater1" } } }],
+    });
+    send("samples", {
+      samples: [{ node: "heaters", time_ns: 0, values: { heater2: 1000 }, writes: { heater2: { requested: 1200, at_limit: "high", controller: null } } }],
+    });
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1);
     expect(any).toHaveBeenCalledTimes(1);
@@ -260,9 +264,10 @@ describe("TelemetryStore", () => {
     const store = new TelemetryStore(rig);
     const one = vi.fn();
     store.subscribeDevices("furnace", one, 0);
-    // A `/ws/devices` frame carries no `state` any more: just the run and the runtime's own conditions.
+    // A run carries no `state` any more: just the run and the runtime's own conditions. `/ws/devices`
+    // is gone: a run rides on `/ws/samples`, under `runs`, beside whatever samples also changed.
     const run = (name: string, period_s: number, last: number) => ({ name, period_s, running: true, last_read_ns: last, conditions: [] });
-    send("devices", { devices: [run("furnace", 0.5, 1), run("heaters", 2, 1)] });
+    send("samples", { runs: [run("furnace", 0.5, 1), run("heaters", 2, 1)] });
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1);
     expect(store.deviceRun("furnace")?.period_s).toBe(0.5);
@@ -271,7 +276,7 @@ describe("TelemetryStore", () => {
     expect(store.periodOf("nothing.here")).toBeUndefined();
     expect(store.devicePeriodsKey()).toBe("furnace=0.5,heaters=2");
     const key = store.devicePeriodsKey();
-    send("devices", { devices: [run("heaters", 2, 3)] });
+    send("samples", { runs: [run("heaters", 2, 3)] });
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1); // another device's read does not wake furnace's subscriber
     expect(store.devicePeriodsKey()).toBe(key);
@@ -310,21 +315,23 @@ describe("TelemetryStore", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     store.subscribeLatest("a.x", () => undefined);
-    store.subscribeWrites(null, () => undefined);
+    store.subscribeWrites(null, () => undefined); // rides the same "samples" socket
+    store.subscribeWaits(() => undefined);
     expect(() => send("samples", { error: "no rig attached" })).not.toThrow();
-    expect(() => send("writes", { error: "no rig attached" })).not.toThrow();
+    expect(() => send("waits", { error: "no rig attached" })).not.toThrow();
     expect(store.signalKeys()).toEqual([]);
   });
 
-  it("reports stream status for opened streams only", () => {
+  it("reports stream status for opened streams only, `writes`/`devices` under `samples`'s", () => {
     const { rig, open } = fakeRig();
     const store = new TelemetryStore(rig);
     expect(store.openStatuses()).toEqual([]);
     store.subscribeWrites(null, () => undefined);
+    expect([...open.keys()]).toEqual(["samples"]);
     expect(store.openStatuses()).toEqual(["connecting"]);
-    open.get("writes")!.onOpen?.();
-    expect(store.status().writes).toBe("open");
-    open.get("writes")!.onClose?.("error");
+    open.get("samples")!.onOpen?.();
+    expect(store.status().samples).toBe("open");
+    open.get("samples")!.onClose?.("error");
     expect(store.openStatuses()).toEqual(["closed"]);
   });
 });

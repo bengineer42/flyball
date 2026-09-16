@@ -14,6 +14,7 @@ import logging
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, overload
@@ -590,6 +591,15 @@ class Rig:
             signal.at_limit = None
             if seq.get(signal, 0) == before.get(signal, 0):  # no readback: the value stands
                 signal.push(value, time_ns)
+            # Fold the write record into the reading itself, so it rides the samples stream
+            # with the value instead of a separate `/ws/writes` cell.
+            if (reading := self.router.latest.get(signal)) is not None:
+                self.router.latest[signal] = replace(
+                    reading,
+                    requested=state.requested,
+                    at_limit=state.at_limit,
+                    controller=state.controller,
+                )
         device.pending.clear()
         return states
 

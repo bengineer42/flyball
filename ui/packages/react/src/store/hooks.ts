@@ -161,12 +161,13 @@ export function useEventsFeed(filter?: (event: Event) => boolean, limit = 500): 
   }, [store, version, filter, limit]);
 }
 
-/** One stream's socket state; `connecting` until someone opens it. */
+/** One stream's socket state; `connecting` until someone opens it. `writes`/`devices` share `samples`'s socket. */
 export function useStoreStatus(stream: StoreStream): StreamStatus {
   const store = useTelemetry();
   const subscribe = useCallback((cb: () => void) => store.subscribeStatus(cb), [store]);
   useSyncExternalStore(subscribe, () => store.statusVersionNow());
-  const status = store.status()[stream];
+  const socket = stream === "writes" || stream === "devices" ? "samples" : stream;
+  const status = store.status()[socket];
   return status === "idle" ? "connecting" : status;
 }
 

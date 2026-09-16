@@ -1,13 +1,22 @@
-import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut, WriteStateOut } from "@flyball/client";
+import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
 import { addressOf, deviceOf, setpointOf } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
 
 export type StreamStatus = "connecting" | "open" | "closed";
 
-/** The streams the store owns (one socket each, shared by every subscriber). */
+/**
+ * The subscription buckets the store fans updates out to. `writes` and
+ * `devices` are not sockets of their own any more -- a demand's write
+ * record and a device's run both ride on the `samples` socket now -- but
+ * they stay separate buckets here, so a `useWriteState`/`useDeviceRun`
+ * subscriber still wakes only on the update it asked for.
+ */
 export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "waits" | "events";
-const STREAMS: StoreStream[] = ["samples", "writes", "controllers", "devices", "waits", "events"];
+/** The streams that actually open a socket; `writes` and `devices` share `samples`'s. */
+type SocketStream = "samples" | "controllers" | "waits" | "events";
+const STREAMS: SocketStream[] = ["samples", "controllers", "waits", "events"];
+const socketOf = (stream: StoreStream): SocketStream => (stream === "writes" || stream === "devices" ? "samples" : stream);
 
 /** Plain arrays a chart reuses between refreshes: time in seconds since the epoch, value. */
 export interface TraceView {
@@ -69,14 +78,15 @@ export const historyPoints = (): number => Math.min(4000, 2 * Math.max(300, type
  * Every live value the rig publishes, held once and fanned out, keyed by
  * address: samples as a ring buffer per signal (`/ws/samples`, each node's
  * sample expanded to `node.name` addresses), the latest write state per
- * writable signal (`/ws/writes`), the latest state and a ring of ticks per
+ * writable signal (a demand's `writes` entry, riding with its reading in
+ * the same `/ws/samples` frame), the latest state and a ring of ticks per
  * controller (`/ws/controllers`, keyed by target address), each polled
- * device's run (`/ws/devices`), the waits (`/ws/waits`), a capped ring of
- * events. Subscribers are told once per animation frame at most, each at
- * its own cadence, and read what they need from the rings (no arrays are
- * built per message). Sockets open on the first subscriber to a stream and
- * close a few seconds after the last one leaves, so a Strict Mode double
- * mount opens each once.
+ * device's run (`/ws/samples`'s `runs`), the waits (`/ws/waits`), a capped
+ * ring of events. Subscribers are told once per animation frame at most,
+ * each at its own cadence, and read what they need from the rings (no
+ * arrays are built per message). A socket opens on the first subscriber to
+ * whatever it carries and closes a few seconds after the last one leaves,
+ * so a Strict Mode double mount opens each once.
  */
 export class TelemetryStore {
   readonly windowS: number;
@@ -116,8 +126,8 @@ export class TelemetryStore {
   private frame: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  private sockets = new Map<StoreStream, { subscription: Subscription; count: number; closer: ReturnType<typeof setTimeout> | null }>();
-  private statuses: Record<StoreStream, StreamStatus | "idle"> = { samples: "idle", writes: "idle", controllers: "idle", devices: "idle", waits: "idle", events: "idle" };
+  private sockets = new Map<SocketStream, { subscription: Subscription; count: number; closer: ReturnType<typeof setTimeout> | null }>();
+  private statuses: Record<SocketStream, StreamStatus | "idle"> = { samples: "idle", controllers: "idle", waits: "idle", events: "idle" };
   private statusVersion = 0;
 
   private seededSignals = new Set<Address>();
@@ -202,8 +212,8 @@ export class TelemetryStore {
   }
 
   /**
-   * The poll period of the device an address is under, from `/ws/devices`;
-   * undefined until the device has reported, or for one that is not polled.
+   * The poll period of the device an address is under, from `/ws/samples`'s
+   * `runs`; undefined until the device has reported, or for one that is not polled.
    * The input to a stale threshold (`staleAfterS`).
    */
   periodOf(address: Address): number | null | undefined {
@@ -219,6 +229,7 @@ export class TelemetryStore {
     if (!samples.length) return;
     const row = [0];
     const next = { ...this.nodeLatest };
+    let nextWrites: Record<Address, WriteOut> | null = null;
     for (const sample of samples) {
       const time = sample.time_ns / 1e9;
       if (time > this.newestS) this.newestS = time;
@@ -233,11 +244,26 @@ export class TelemetryStore {
         }
         this.bumpSignal(address);
       }
+      // A demand's write record: `sample.values` already has the committed value, so it is
+      // joined back in here, into the same `WriteOut` shape `/ws/writes` used to send.
+      for (const name in sample.writes) {
+        const address = addressOf(sample.node, name);
+        const meta = sample.writes[name]!;
+        const value = sample.values[name];
+        nextWrites ??= { ...this.writeList };
+        nextWrites[address] = { value: typeof value === "number" ? value : null, ...meta };
+        this.writeVersions.set(address, (this.writeVersions.get(address) ?? 0) + 1);
+        this.mark("writes", address);
+      }
       next[sample.node] = sample;
       this.nodeVersions.set(sample.node, (this.nodeVersions.get(sample.node) ?? 0) + 1);
       this.mark("samples", sample.node);
     }
     this.nodeLatest = next;
+    if (nextWrites) {
+      this.writeList = nextWrites;
+      this.writesVersion++;
+    }
   }
 
   /** Called once per animation frame for any of `addresses` that gained points (`everyMs` apart at least). */
@@ -335,18 +361,6 @@ export class TelemetryStore {
   /** Bumps when the signal is committed, or any signal when `address` is omitted. */
   writeVersion(address?: Address): number {
     return address === undefined ? this.writesVersion : (this.writeVersions.get(address) ?? 0);
-  }
-
-  private onWrites(writes: WriteStateOut[]): void {
-    if (!writes.length) return;
-    const next = { ...this.writeList };
-    for (const { signal, ...state } of writes) {
-      next[signal] = state;
-      this.writeVersions.set(signal, (this.writeVersions.get(signal) ?? 0) + 1);
-      this.mark("writes", signal);
-    }
-    this.writeList = next;
-    this.writesVersion++;
   }
 
   /** Called when the signal is committed (any signal when `address` is null), at most every `everyMs`. */
@@ -621,8 +635,8 @@ export class TelemetryStore {
 
   // region Status
 
-  /** Per stream: `idle` until someone subscribes, then the socket's state. */
-  status(): Readonly<Record<StoreStream, StreamStatus | "idle">> {
+  /** Per socket: `idle` until someone subscribes, then its state. `writes`/`devices` share `samples`'s. */
+  status(): Readonly<Record<SocketStream, StreamStatus | "idle">> {
     return this.statuses;
   }
 
@@ -646,7 +660,7 @@ export class TelemetryStore {
     };
   }
 
-  private setStatus(stream: StoreStream, status: StreamStatus | "idle"): void {
+  private setStatus(stream: SocketStream, status: StreamStatus | "idle"): void {
     if (this.statuses[stream] === status) return;
     this.statuses = { ...this.statuses, [stream]: status };
     this.statusVersion++;
@@ -666,7 +680,7 @@ export class TelemetryStore {
     const index = (k: string) => `${stream}:${k}`;
     for (const k of keys ?? []) (this.byKey.get(index(k)) ?? this.byKey.set(index(k), new Set()).get(index(k))!).add(sub);
     if (keys === null) this.anyKey[stream].add(sub);
-    this.acquire(stream);
+    this.acquire(socketOf(stream));
     return () => {
       this.subs[stream].delete(sub);
       this.anyKey[stream].delete(sub);
@@ -676,7 +690,7 @@ export class TelemetryStore {
         if (set && !set.size) this.byKey.delete(index(k));
       }
       this.dirty.delete(sub);
-      this.release(stream);
+      this.release(socketOf(stream));
     };
   }
 
@@ -735,7 +749,7 @@ export class TelemetryStore {
 
   // region Sockets
 
-  private acquire(stream: StoreStream): void {
+  private acquire(stream: SocketStream): void {
     const held = this.sockets.get(stream);
     if (held) {
       held.count++;
@@ -750,17 +764,16 @@ export class TelemetryStore {
     const onMessage = (message: unknown) => {
       counters.messages[stream] = (counters.messages[stream] ?? 0) + 1;
       switch (stream) {
-        case "samples":
-          this.onSamples((message as { samples: SampleOut[] }).samples ?? []);
+        case "samples": {
+          // `writes` and `devices` used to be their own frames; a demand's write record and a
+          // device's run now ride in this one, under `samples.writes` and the frame's `runs`.
+          const frame = message as { samples?: SampleOut[]; runs?: DeviceRunOut[] };
+          this.onSamples(frame.samples ?? []);
+          if (frame.runs?.length) this.onDevices(frame.runs);
           break;
-        case "writes":
-          this.onWrites((message as { writes: WriteStateOut[] }).writes ?? []);
-          break;
+        }
         case "controllers":
           this.onControllers((message as { controllers: ControllerOut[] }).controllers ?? []);
-          break;
-        case "devices":
-          this.onDevices((message as { devices: DeviceRunOut[] }).devices ?? []);
           break;
         case "waits":
           this.onWaits((message as { waits: WaitState[] }).waits ?? []);
@@ -779,7 +792,7 @@ export class TelemetryStore {
     this.sockets.set(stream, { subscription, count: 1, closer: null });
   }
 
-  private release(stream: StoreStream): void {
+  private release(stream: SocketStream): void {
     const held = this.sockets.get(stream);
     if (!held) return;
     held.count--;

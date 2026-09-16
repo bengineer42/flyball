@@ -131,8 +131,8 @@ loopback, not on `--host 0.0.0.0`, and not on a rig a model can drive.
 | `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.json` beside the rig file are imported on start |
 | `/api/events`, `/ws/events` | what has happened: a step failed, a device went offline |
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
-| `/ws/samples` | every sample as it arrives |
-| `/ws/controllers`, `/ws/writes`, `/ws/devices`, `/ws/waits` | a snapshot on connect, then what changed |
+| `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
+| `/ws/controllers`, `/ws/waits` | a snapshot on connect, then what changed |
 | `/docs` | OpenAPI, from FastAPI |
 
 Full list: [HTTP and websocket API](../6-reference/api.md).
