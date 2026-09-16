@@ -101,12 +101,15 @@ devices:
 file this became).
 
 A `SignalOverride` is `{label, range, precision, warn, alarm, poll_s,
-limits, access, readable, publishing, writable}`: the first
-group replaces metadata the driver declared; `access` names the set to
-keep (`"r"`), and `readable`/`publishing`/`writable` drop one flag each and
-take only `false` — the driver declares what it can honour, the file
-cannot add to it. A `NamespaceOverride` is `{label, poll_s, signals}`,
-recursing the same way into a namespace's own children.
+limits, tags, access, readable, publishing, writable}`: the first
+group replaces metadata the driver declared (`tags` are added to the
+driver's: `{line: dry}`, a grouping across the tree the UI titles and
+filters by); `access` names the set to keep (`"r"`), and
+`readable`/`publishing`/`writable` drop one flag each and take only
+`false` — the driver declares what it can honour, the file cannot add to
+it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
+the same way into a namespace's own children; its `tags` apply to every
+signal under it, a signal's own winning.
 
 ## Links
 

@@ -342,6 +342,10 @@ class DaqPort(BaseModel):
         default=None, description="What the output is: 'temperature', 'level'."
     )
     unit: str | None = None
+    label: str | None = Field(default=None, description="Display text: 'Dry line humidity'.")
+    tags: dict[str, str] | None = Field(
+        default=None, description="Groupings across the tree, `{axis: name}`: `{line: dry}`."
+    )
     range: Band | None = None
     precision: int | None = None
     warn: Band | None = Field(
@@ -391,6 +395,8 @@ class SimDaq(Readable):
                 name=path.rpartition(".")[2],
                 quantity=quantity,
                 access=Access.RP,
+                label=spec.label or "",
+                tags=dict(spec.tags or {}),
                 range=spec.range,
                 precision=spec.precision,
                 warn=spec.warn,
@@ -536,6 +542,10 @@ class DrivePort(BaseModel):
 
     port: str
     demand: Literal["input", "output"] = "input"
+    label: str | None = Field(default=None, description="Display text: 'Zone 1 heater'.")
+    tags: dict[str, str] | None = Field(
+        default=None, description="Groupings across the tree, `{axis: name}`: `{zone: 1}`."
+    )
     quantity: str | None = Field(
         default=None,
         description="What is set: 'humidity', 'power' -- or, in output mode, what the plant's"
@@ -606,11 +616,14 @@ class SimDrive(Committable):
                     raise ValueError(f"{name}.{path}: say `quantity`, `unit` and `limits`")
                 _input_quantity(plant, spec.port)  # the port exists
                 quantity, limits, port = Quantity(spec.quantity, spec.unit), spec.limits, spec.port
+            spelled = None if isinstance(spec, str) else spec
             leaves[path] = SignalSpec(
                 name=path.rpartition(".")[2],
                 quantity=quantity,
                 access=Access.RPW,
                 role=Role.DEMAND,
+                label=(spelled and spelled.label) or "",
+                tags=dict((spelled and spelled.tags) or {}),
                 limits=limits,
             )
             self.ports[path] = port

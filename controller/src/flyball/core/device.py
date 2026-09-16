@@ -30,7 +30,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from typing import Annotated, Any, ClassVar, Self, get_args, get_origin, get_type_hints, overload
 
@@ -765,7 +765,10 @@ class Device:
             if signal.spec.initial is not None and signal.router.reading(signal) is None:
                 signal.push(signal.spec.initial, 0)
 
-    def _bind_under(self, node: Node, specs: Iterable[NodeSpec | SignalSpec]) -> None:
+    def _bind_under(
+        self, node: Node, specs: Iterable[NodeSpec | SignalSpec], tags: dict[str, str] | None = None
+    ) -> None:
+        above = tags or {}
         for spec in specs:
             path = node.path / spec.name
             address = f"{self.name}.{path}"
@@ -774,13 +777,15 @@ class Device:
             if isinstance(spec, SignalSpec):
                 if spec.role is Role.INPUT:
                     raise ValueError(f"'{address}' is an input: bound by the rig, not in the tree")
+                if above:  # a namespace's tags, under the signal's own
+                    spec = replace(spec, tags={**above, **spec.tags})
                 node.signals[spec.name] = Signal(
                     spec=spec, node=node, address=address, path=path, access=spec.access
                 )
             else:
                 child = Node(spec=spec, device=self, parent=node, address=address, path=path)
                 node.children[spec.name] = child
-                self._bind_under(child, spec.children)
+                self._bind_under(child, spec.children, {**above, **spec.tags})
 
     def _having(self, flag: Access) -> dict[str, Signal]:
         return {path: s for path, s in self.signals.items() if flag in s.access}
@@ -1031,6 +1036,8 @@ class SignalOverride(BaseModel):
     alarm: Band | None = None
     poll_s: float | None = None
     limits: Band | None = None
+    tags: dict[str, str] | None = None
+    """Groupings across the tree, `{axis: name}`, added to the driver's."""
     access: str | None = None
     readable: bool | None = None
     publishing: bool | None = None
@@ -1063,6 +1070,8 @@ class NamespaceOverride(BaseModel):
 
     label: str | None = None
     poll_s: float | None = None
+    tags: dict[str, str] | None = None
+    """Applied to every signal under the namespace; a signal's own win."""
     signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
 
 
@@ -1134,7 +1143,7 @@ class DeviceEntry(BaseModel):
 
 
 _SIGNAL_FIELDS = ("label", "range", "precision", "warn", "alarm", "poll_s", "limits")
-_NODE_FIELDS = ("label", "poll_s")
+_NODE_FIELDS = ("label", "poll_s", "tags")
 
 
 def _override_under(
@@ -1154,10 +1163,15 @@ def _override_under(
                     raise ValueError(
                         f"'{address}' is a namespace: {', '.join(sorted(extra))} is a signal's"
                     )
-                override = NamespaceOverride(label=override.label, poll_s=override.poll_s)
+                override = NamespaceOverride(
+                    label=override.label, poll_s=override.poll_s, tags=override.tags
+                )
             changes = {f: v for f in _NODE_FIELDS if (v := getattr(override, f)) is not None}
             if changes:
                 child.override(**changes)
+            if override.tags:
+                for signal in child.walk():
+                    signal.override(tags={**override.tags, **signal.spec.tags})
             _override_under(child, override.signals)
         else:
             raise ValueError(f"'{address}' is not a signal or namespace of {node.device.name!r}")
@@ -1165,6 +1179,8 @@ def _override_under(
 
 def _override_signal(signal: Signal, override: SignalOverride) -> None:
     changes = {f: v for f in _SIGNAL_FIELDS if (v := getattr(override, f)) is not None}
+    if override.tags:
+        changes["tags"] = {**signal.spec.tags, **override.tags}
     if changes:
         signal.override(**changes)
     value = signal.access.value if override.access is None else Access.parse(override.access).value

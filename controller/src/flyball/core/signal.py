@@ -207,6 +207,9 @@ class SignalSpec:
     access: Access
     role: Role = Role.OUTPUT
     section: Section | None = None
+    tags: dict[str, str] = field(default_factory=dict)
+    """Groupings across the tree, `{axis: name}`: the section's, plus any a driver or the rig
+    file adds (`signals: {dry: {tags: {line: dry}}}`); a namespace's apply to all under it."""
     initial: Any = None
     """A value the signal has before anything reads or sets it: a mode's starting state."""
     vtype: Any = float
@@ -237,11 +240,8 @@ class SignalSpec:
         Access.check(self.access)
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
-
-    @property
-    def tags(self) -> dict[str, str]:
-        """The section as a tag: `{"line": "dry"}`; empty without one."""
-        return {} if self.section is None else {self.section.axis: self.section.name}
+        if self.section is not None and self.section.axis not in self.tags:
+            object.__setattr__(self, "tags", {self.section.axis: self.section.name, **self.tags})
 
     @property
     def dtype(self) -> str:
@@ -260,6 +260,8 @@ class NodeSpec:
     label: str = ""
     poll_s: float | None = None
     """Inherited downwards; a child may override."""
+    tags: dict[str, str] = field(default_factory=dict)
+    """Applied to every signal under it at bind; a signal's own win."""
 
     def __post_init__(self) -> None:
         _check_segment(self.name)

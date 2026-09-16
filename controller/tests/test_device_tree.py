@@ -423,6 +423,23 @@ class TestDeviceEntry:
         assert sensors.signals["dry.temperature"].poll_s == 10.0
         assert sensors.signals["wet.humidity"].poll_s == 5.0, "a bare poll_s on a namespace"
 
+    def test_tags_apply_down_a_namespace_and_a_signal_s_own_win(self, sensors_tag):
+        entry = DeviceEntry.model_validate({
+            "driver": sensors_tag,
+            "signals": {
+                "dry": {"tags": {"line": "dry"}},
+                "wet": {
+                    "tags": {"line": "wet"},
+                    "signals": {"temperature": {"tags": {"line": "wet-probe", "kind": "t"}}},
+                },
+            },
+        })
+        sensors = entry.build("hum")
+        assert sensors.signals["dry.humidity"].tags == {"line": "dry"}
+        assert sensors.signals["wet.humidity"].tags == {"line": "wet"}
+        assert sensors.signals["wet.temperature"].tags == {"line": "wet-probe", "kind": "t"}
+        assert sensors.signals["chamber.humidity"].tags == {}, "untouched"
+
     def test_unknown_names_error_with_the_address(self, furnace_tag, sensors_tag):
         entry = DeviceEntry.model_validate({
             "driver": furnace_tag,

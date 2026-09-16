@@ -260,6 +260,27 @@ class TestNamespaces:
 class TestAnyMultiPlant:
     """Any `MultiPlant` with named ports will do, not only the furnace: a sim overlay's plant."""
 
+    def test_a_port_may_carry_its_label_and_tags(self):
+        chamber = Chamber()
+        rh = {"quantity": "humidity", "unit": "%"}
+        daq = _built(
+            SimDaqConfig(
+                link="c",
+                ports={
+                    "dry.humidity": {
+                        "port": "dry",
+                        "label": "Dry line humidity",
+                        "tags": {"line": "dry"},
+                        **rh,
+                    }
+                },
+            ),
+            "hum",
+            chamber,
+        )
+        signal = daq.signals["dry.humidity"]
+        assert signal.label == "Dry line humidity" and signal.tags == {"line": "dry"}
+
     def test_a_daq_reads_named_ports_with_the_quantity_spelled_out(self):
         chamber = Chamber()
         assert isinstance(chamber, MultiPlant)
