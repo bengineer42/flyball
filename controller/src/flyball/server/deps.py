@@ -151,6 +151,19 @@ def set_store(store: Store | None) -> None:
     _store = store
 
 
+_drivers_dir: Path | None = None
+
+
+def set_drivers_dir(path: Path | None) -> None:
+    """The directory `/api/drivers/reload` re-imports; None when the daemon was given none."""
+    global _drivers_dir
+    _drivers_dir = path
+
+
+def current_drivers_dir() -> Path | None:
+    return _drivers_dir
+
+
 def get_store() -> Store:
     if _store is None:
         raise HTTPException(status_code=503, detail="No store attached to this server")

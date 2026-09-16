@@ -23,6 +23,7 @@ from pathlib import Path
 from flyball.core.config import discover
 from flyball.db.store import Store
 from flyball.runtime.config import RigConfig, resolve_documents
+from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
@@ -40,6 +41,7 @@ def serve(
     programs: Path | None = None,
     tunings: Path | None = None,
     config: RigConfig | None = None,
+    drivers: Path | None = None,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -56,6 +58,8 @@ def serve(
         tunings: A directory of control-law config files, stored on `rig.tunings`
             under each file's stem before serving. A missing directory is fine.
         config: What the rig was built from, for `/api/rig/config`.
+        drivers: A directory of driver files, imported before serving and
+            again on `/api/drivers/reload`. A missing directory is fine.
     """
     import uvicorn
 
@@ -63,7 +67,7 @@ def serve(
     from flyball.mcp.http import mount
     from flyball.programmer import Programmer
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
-    from flyball.server.deps import set_programs_dir, set_rig_config, set_store
+    from flyball.server.deps import set_drivers_dir, set_programs_dir, set_rig_config, set_store
     from flyball.server.routes import dashboards
     from flyball.server.routes.library import import_directory, load_tunings
 
@@ -74,6 +78,7 @@ def serve(
     set_store(store)
     set_programs_dir(programs)
     set_rig_config(config)
+    set_drivers_dir(drivers)
     if store is not None and programs is not None and programs.is_dir():
         imported = import_directory(store, programs, rig.clock.now_ns())
         log.info("programs from %s: %d imported", programs, len(imported))
@@ -91,6 +96,7 @@ def serve(
     finally:
         programmer.interrupt()
         set_rig_config(None)
+        set_drivers_dir(None)
         set_programs_dir(None)
         set_store(None)
         set_simulation(None)
@@ -224,6 +230,13 @@ def parser() -> argparse.ArgumentParser:
         " file)",
     )
     p.add_argument(
+        "--drivers",
+        type=Path,
+        default=None,
+        help="directory of driver .py files to import at start and on /api/drivers/reload"
+        " (default: 'drivers' beside the first rig file)",
+    )
+    p.add_argument(
         "--set",
         dest="sets",
         action="append",
@@ -239,8 +252,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=args.log_level.upper())
     first = args.rig[0] if args.rig else Path("rig")
     store_path = args.store if args.store is not None else first.with_suffix(".sqlite")
+    drivers = args.drivers if args.drivers is not None else first.parent / "drivers"
     try:
         discover()
+        report = load_drivers(drivers)
+        for stem, error in report.errors.items():
+            log.warning("drivers/%s.py: %s", stem, error)
         if args.resume:
             config = resumed(store_path)
         elif args.rig:
@@ -266,7 +283,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     log.info("serving %s on %s:%d", config.name or first.name, args.host, args.port)
     programs = args.programs if args.programs is not None else first.parent / "programs"
     tunings = args.tunings if args.tunings is not None else first.parent / "tunings"
-    serve(rig, args.host, args.port, args.log_level, simulation, store, programs, tunings, config)
+    serve(
+        rig,
+        args.host,
+        args.port,
+        args.log_level,
+        simulation,
+        store,
+        programs,
+        tunings,
+        config,
+        drivers,
+    )
     return 0
 
 

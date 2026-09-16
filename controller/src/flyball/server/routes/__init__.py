@@ -4,6 +4,7 @@ from .composition import router as composition_router
 from .controllers import router as controllers_router
 from .dashboards import router as dashboards_router
 from .devices import router as devices_router
+from .drivers import router as drivers_router
 from .events import router as events_router
 from .export import router as export_router
 from .history import router as history_router
@@ -22,6 +23,7 @@ __all__ = [
     "controllers_router",
     "dashboards_router",
     "devices_router",
+    "drivers_router",
     "events_router",
     "export_router",
     "history_router",

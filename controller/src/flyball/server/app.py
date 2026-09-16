@@ -23,6 +23,7 @@ from flyball.server.routes import (
     controllers_router,
     dashboards_router,
     devices_router,
+    drivers_router,
     events_router,
     export_router,
     history_router,
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(rig_router)
     app.include_router(devices_router)
     app.include_router(composition_router)
+    app.include_router(drivers_router)
     app.include_router(read_router)
     app.include_router(recording_router)
     app.include_router(waits_router)
