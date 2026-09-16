@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from flyball.core.reading import Source
 from flyball.runtime.config import RigConfig
+from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
 from flyball.server import create_app, set_rig, set_simulation
 from flyball.server.deps import set_simulation_device
@@ -107,3 +108,28 @@ def test_the_device_is_served_at_api_sim_device(sim):
         set_simulation_device(None)
         set_simulation(None)
         set_rig(None)
+
+
+def test_tunings_load_from_files_and_the_loop_attaches_under_one(sim, tmp_path):
+    from humidity.sim import load_tunings
+
+    (tmp_path / "gentle.yaml").write_text("tag: P\nkp: 0.5\n")
+    (tmp_path / "brisk.yaml").write_text("tag: PID\nkp: 0.8\nki: 0.08\nkd: 1.0\ntt: 5\n")
+    (tmp_path / "notes.txt").write_text("ignored")
+    rig = sim.rig
+    assert load_tunings(rig, tmp_path) == ["brisk", "gentle"]
+    assert rig.tunings.get("brisk").kd == 1.0 and rig.tunings.get("gentle").kp == 0.5
+    rig.attach_loop(
+        Source.get("process")[Humidity], rig.actuators["pumps"], law="gentle", default=True
+    )
+    assert rig.loops.default == "pumps" and rig.loops["pumps"].law.kp == 0.5
+
+
+def test_the_repo_tunings_are_what_the_demo_program_names():
+    from pathlib import Path
+
+    from humidity.sim import load_tunings
+
+    rig = Rig()
+    names = load_tunings(rig, Path(__file__).parent.parent / "tunings")
+    assert set(names) >= {"gentle", "brisk"}

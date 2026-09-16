@@ -4,6 +4,7 @@ Two pumps that remember their effort, a chamber whose humidity chases their
 blend, and one SHT4x-shaped sensor:
 
     python -m humidity.sim            # serve on :8000, recording to sim.db
+    python -m humidity.sim --tunings tunings --loop gentle --programs programs   # the demo
 """
 
 from __future__ import annotations
@@ -17,9 +18,11 @@ from typing import Any
 
 from flyball.core.clock import Clock
 from flyball.core.device import Device, DeviceSettings, DeviceState, command
+from flyball.core.reading import Source
 from flyball.core.typing import NonNegative, Normalised, Percent, Positive
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
+from flyball.server.schemas import LawConfig
 from flyball.sim import FunctionReader, Lag, ScaledClock
 
 from humidity.blender import DualPumpsBlender, expected_humidity_from_flows
@@ -331,6 +334,20 @@ def build_simulated_rig(
     return rig, HumiditySimulation(rig, chamber, supplies)
 
 
+def load_tunings(rig: Rig, directory: Path) -> list[str]:
+    """Store every `*.yaml` law config in `directory` on the rig under the file's stem."""
+    from flyball.server.formats import parse
+    from pydantic import TypeAdapter
+
+    adapter = TypeAdapter(LawConfig)
+    names = []
+    for path in sorted(directory.glob("*.yaml")):
+        config = adapter.validate_python(parse(path.read_text(), "yaml"))
+        rig.tunings.add(config.to_tuning(path.stem))
+        names.append(path.stem)
+    return names
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="humidity-sim", description=__doc__)
     p.add_argument("--host", default="127.0.0.1")
@@ -342,6 +359,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--speed", type=float, default=1.0, help="rig seconds per wall second")
     p.add_argument("--no-record", action="store_true")
+    p.add_argument(
+        "--tunings", type=Path, help="store each *.yaml law config in this directory as a tuning"
+    )
+    p.add_argument(
+        "--loop",
+        metavar="TUNING",
+        help="attach the default loop, process.humidity through the pumps, under this tuning",
+    )
+    p.add_argument(
+        "--programs", type=Path, help="import every program file in this directory into the library"
+    )
     p.add_argument("--log-level", default="info")
     args = p.parse_args(argv)
     logging.basicConfig(level=args.log_level.upper())
@@ -351,13 +379,29 @@ def main(argv: list[str] | None = None) -> int:
     from flyball.programmer.programmer import Programmer
     from flyball.runtime.config import RigConfig
     from flyball.server import create_app, set_rig, set_simulation
-    from flyball.server.deps import set_programmer, set_simulation_device, set_store
+    from flyball.server.deps import (
+        set_programmer,
+        set_programs_dir,
+        set_simulation_device,
+        set_store,
+    )
+    from flyball.server.routes.library import import_directory
 
     rig, simulation = build_simulated_rig(
         period_s=args.period, noise_rh=args.noise, speed=args.speed
     )
+    if args.tunings is not None:
+        log.info("tunings: %s", ", ".join(load_tunings(rig, args.tunings)))
+    if args.loop is not None:
+        rig.attach_loop(
+            Source.get("process")[Humidity], rig.actuators["pumps"], law=args.loop, default=True
+        )
     store = SqliteStore(args.db)
     set_store(store)  # history routes read it whether or not a session is open
+    if args.programs is not None:
+        set_programs_dir(args.programs)  # so the library's import button rescans it too
+        imported = import_directory(store, args.programs, rig.clock.now_ns())
+        log.info("programs: %s", ", ".join(row.name for row in imported) or "library up to date")
     if not args.no_record:
         rig.start_recording(store, hardware="simulated")
     set_rig(rig)
