@@ -419,7 +419,7 @@ type PaceKey = (typeof PACES)[number]["key"];
  * Stop, which the faceplate places in the header regardless of where it sits
  * in the DOM.
  */
-const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: LoopOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
+const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode, tag, hasSetpoint, onEvent }: { name: string; unit: string; mode: LoopOut["mode"]; tag: string | null; hasSetpoint: boolean; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
   const [ramp, setRamp] = useState(false);
@@ -452,8 +452,10 @@ const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode
     Number.isFinite(value) &&
     (!ramp || (paceValue !== null && Number.isFinite(paceValue) && paceValue > 0 && (from !== "value" || (startValue !== null && Number.isFinite(startValue)))));
   // A ramp sets off from the current setpoint unless told otherwise: the reading, or a value typed in.
+  // With no setpoint yet (never regulated) the reading stands in, and the setpoint choice is greyed out.
+  const effectiveFrom = from === "setpoint" && !hasSetpoint ? "process" : from;
   const generator: GeneratorConfig | null = ramp && paceValue !== null ? { tag: "ramp", to: value!, pace: { [paceKey]: paceValue } } : null;
-  const at = from === "value" ? startValue! : from;
+  const at = effectiveFrom === "value" ? startValue! : effectiveFrom;
   const start = () => (generator ? rig.regulate(name, { at, generator }) : rig.regulate(name, { at: value! }));
   const move = () => (generator ? rig.setReference(name, at, generator) : rig.setReference(name, value!));
 
@@ -488,13 +490,15 @@ const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode
         <TextField
           select
           label="from"
-          value={from}
+          value={effectiveFrom}
           onChange={(e) => setFrom(e.target.value as typeof from)}
           SelectProps={{ native: true }}
           inputProps={{ "aria-label": `ramp from ${name}`, "data-testid": `ramp-from-${name}` }}
           sx={{ flexShrink: 0, "& .MuiInputBase-input": { py: 0.75 } }}
         >
-          <option value="setpoint">setpoint</option>
+          <option value="setpoint" disabled={!hasSetpoint}>
+            setpoint{hasSetpoint ? "" : " (none yet)"}
+          </option>
           <option value="process">reading</option>
           <option value="value">value…</option>
         </TextField>
@@ -850,7 +854,7 @@ export function Controllers({ name = null, ...charts }: ControllersProps) {
                   every={every}
                   exportHref={stored.ticks(l.name)}
                   outputRange={state?.output_range ?? null}
-                  controls={<LoopSetpointControl name={l.name} unit={l.channel.unit} mode={l.mode} tag={tag} onEvent={onEvent} />}
+                  controls={<LoopSetpointControl name={l.name} unit={l.channel.unit} mode={l.mode} tag={tag} hasSetpoint={l.reference !== null} onEvent={onEvent} />}
                   headerControls={<LoopStopControl name={l.name} mode={l.mode} onEvent={onEvent} />}
                   extra={<ActuatorExtra schema={a} state={state} />}
                 />
