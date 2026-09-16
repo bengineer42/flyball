@@ -1,10 +1,10 @@
-import type { ActuatorRow, ChannelRow, LoopRow, SessionEvent, SessionRow, Span, Tick } from "@flyball/client";
+import type { Address, ControllerRow, DeviceRow, SessionEvent, SessionRow, SignalRow, Span, Tick, WriteRow } from "@flyball/client";
 import { useRig } from "../provider.js";
 import { useQuery, type QueryState } from "./useQuery.js";
 
-/** One channel's series over a session, in seconds since the epoch. */
+/** One signal's series over a session, in seconds since the epoch. */
 export interface SessionTrace {
-  channel: ChannelRow;
+  signal: SignalRow;
   unit: string;
   t: number[];
   v: number[];
@@ -12,57 +12,58 @@ export interface SessionTrace {
 
 export interface SessionDetail {
   session: SessionRow;
-  channels: ChannelRow[];
-  actuators: ActuatorRow[];
-  loops: LoopRow[];
+  devices: DeviceRow[];
+  signals: SignalRow[];
+  writes: WriteRow[];
+  controllers: ControllerRow[];
   events: SessionEvent[];
   spans: Span[];
-  /** Keyed `source.measurand`, downsampled to `maxPoints`. */
-  traces: Record<string, SessionTrace>;
-  /** Ticks per loop, keyed by loop name. */
-  ticks: Record<string, Tick[]>;
+  /** Keyed by signal address, downsampled to `maxPoints`. */
+  traces: Record<Address, SessionTrace>;
+  /** Ticks per controller, keyed by its name (the target's address). */
+  ticks: Record<Address, Tick[]>;
   /** Wall-clock seconds of the session's start; add `offset_ns / 1e9` to get a point's time. */
   startS: number;
 }
 
 /**
  * Everything the store holds about one session, fetched together: rows,
- * every channel's series (downsampled), every loop's ticks, events, spans.
+ * every signal's series (downsampled), every controller's ticks, events, spans.
  */
 export function useSession(id: number | null, maxPoints = 1500): QueryState<SessionDetail> {
   const rig = useRig();
   return useQuery(
     async () => {
       if (id === null) throw new Error("no session selected");
-      const [session, channels, actuators, loops, events, spans] = await Promise.all([
+      const [session, devices, signals, writes, controllers, events, spans] = await Promise.all([
         rig.session(id),
-        rig.sessionChannels(id),
-        rig.sessionActuators(id),
-        rig.sessionLoops(id),
+        rig.sessionDevices(id),
+        rig.sessionSignals(id),
+        rig.sessionWrites(id),
+        rig.sessionControllers(id),
         rig.sessionEvents(id),
         rig.spans(id),
       ]);
       const startS = session.start_ns / 1e9;
-      const traces: Record<string, SessionTrace> = {};
+      const traces: Record<Address, SessionTrace> = {};
       await Promise.all(
-        channels.map(async (c) => {
-          const series = await rig.series(id, c.source.name, c.measurand.name, { max_points: maxPoints });
-          traces[`${c.source.name}.${c.measurand.name}`] = {
-            channel: c,
-            unit: c.measurand.unit,
+        signals.map(async (signal) => {
+          const series = await rig.series(id, signal.address, { max_points: maxPoints });
+          traces[signal.address] = {
+            signal,
+            unit: signal.unit,
             t: series.points.map((p) => startS + p.offset_ns / 1e9),
             v: series.points.map((p) => p.value),
           };
         }),
       );
-      const ticks: Record<string, Tick[]> = {};
+      const ticks: Record<Address, Tick[]> = {};
       await Promise.all(
-        loops.map(async (l, i) => {
-          const name = l.name ?? l.actuator.name ?? String(i);
-          ticks[name] = await rig.ticks(id, name).catch(() => []);
+        controllers.map(async (c) => {
+          ticks[c.name] = await rig.ticks(id, c.name).catch(() => []);
         }),
       );
-      return { session, channels, actuators, loops, events, spans, traces, ticks, startS };
+      return { session, devices, signals, writes, controllers, events, spans, traces, ticks, startS };
     },
     [rig, id, maxPoints],
   );

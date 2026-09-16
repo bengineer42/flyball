@@ -1,9 +1,9 @@
-import { alarmLevel, staleAfterS, type AlarmLevel, type ChannelOut, type Freshness } from "@flyball/client";
+import { alarmLevel, staleAfterS, type AlarmLevel, type Freshness, type SignalOut } from "@flyball/client";
 
 export type GaugeKind = "thermometer" | "tank" | "dial" | "bar";
 
 export interface GaugeProps {
-  channel: ChannelOut;
+  signal: Bands & Pick<SignalOut, "unit" | "precision">;
   /** The current reading; undefined draws an empty gauge. */
   value: number | undefined;
   /** Default by unit: temperatures a thermometer, percentages a tank, else a dial. */
@@ -36,12 +36,13 @@ export function gaugeKindFor(unit: string): GaugeKind {
   return "dial";
 }
 
-type Bands = Pick<ChannelOut, "range" | "warn" | "alarm">;
+/** What a gauge needs of a signal: its plausible range and its bands. */
+export type Bands = Pick<SignalOut, "range" | "warn" | "alarm">;
 
-/** The channel's range, else the widest band padded a tenth, else 0–100. */
-export function gaugeRange(channel: Bands): [number, number] {
-  if (channel.range) return channel.range;
-  const band = channel.alarm ?? channel.warn;
+/** The signal's range, else the widest band padded a tenth, else 0–100. */
+export function gaugeRange(signal: Bands): [number, number] {
+  if (signal.range) return signal.range;
+  const band = signal.alarm ?? signal.warn;
   if (!band) return [0, 100];
   const pad = (band[1] - band[0]) / 10 || 1;
   return [band[0] - pad, band[1] + pad];
@@ -50,22 +51,22 @@ export function gaugeRange(channel: Bands): [number, number] {
 export interface GaugeZone {
   from: number;
   to: number;
-  /** null when the channel has no bands: one neutral zone. */
+  /** null when the signal has no bands: one neutral zone. */
   level: AlarmLevel | null;
 }
 
 /** The range cut at every band edge, each piece labelled with the level a value inside it has. */
-export function gaugeZones(channel: Bands): GaugeZone[] {
-  const [lo, hi] = gaugeRange(channel);
-  if (!channel.warn && !channel.alarm) return [{ from: lo, to: hi, level: null }];
+export function gaugeZones(signal: Bands): GaugeZone[] {
+  const [lo, hi] = gaugeRange(signal);
+  if (!signal.warn && !signal.alarm) return [{ from: lo, to: hi, level: null }];
   const edges = new Set([lo, hi]);
-  for (const band of [channel.warn, channel.alarm]) {
+  for (const band of [signal.warn, signal.alarm]) {
     if (band) for (const edge of band) if (edge > lo && edge < hi) edges.add(edge);
   }
   const sorted = [...edges].sort((a, b) => a - b);
   return sorted.slice(1).map((to, i) => {
     const from = sorted[i]!;
-    return { from, to, level: alarmLevel((from + to) / 2, channel) };
+    return { from, to, level: alarmLevel((from + to) / 2, signal) };
   });
 }
 
@@ -77,22 +78,22 @@ export function numberWidth(range: [number, number] | null, precision: number): 
 
 const zoneColour = (zone: GaugeZone) => (zone.level === null ? NEUTRAL : COLOUR[zone.level]);
 
-/** One channel as a picture: its range with the warn/alarm zones, the value as a fill or needle, the number under it. */
-export function Gauge({ channel, value, kind = gaugeKindFor(channel.unit), height, fresh }: GaugeProps) {
-  const range = gaugeRange(channel);
-  const zones = gaugeZones(channel);
-  const level = alarmLevel(value, channel, fresh);
+/** One signal as a picture: its range with the warn/alarm zones, the value as a fill or needle, the number under it. */
+export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height, fresh }: GaugeProps) {
+  const range = gaugeRange(signal);
+  const zones = gaugeZones(signal);
+  const level = alarmLevel(value, signal, fresh);
   const stale = level === "stale";
   const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
-  const hasBands = !!(channel.warn || channel.alarm);
+  const hasBands = !!(signal.warn || signal.alarm);
   const fill = hasBands ? COLOUR[level] : ACCENT;
   const fraction = value === undefined ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
-  const precision = channel.precision ?? 2;
+  const precision = signal.precision ?? 2;
   const drawing = { range, zones, fraction, fill, height };
   return (
     <div
       className={`fb-gauge fb-gauge-${kind} fb-alarm-${level}`}
-      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : `${range[0]} – ${range[1]} ${channel.unit}`}
+      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : `${range[0]} – ${range[1]} ${signal.unit}`}
     >
       {kind === "thermometer" && <Thermometer {...drawing} />}
       {kind === "tank" && <Tank {...drawing} />}
@@ -102,7 +103,7 @@ export function Gauge({ channel, value, kind = gaugeKindFor(channel.unit), heigh
         <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }}>
           {value === undefined ? "—" : value.toFixed(precision)}
         </span>
-        <span className="fb-gauge-unit">{channel.unit}</span>
+        <span className="fb-gauge-unit">{signal.unit}</span>
       </div>
       {stale && <div className="fb-gauge-footer">last sample {ageS} s ago</div>}
     </div>

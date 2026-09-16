@@ -32,12 +32,12 @@ type Choice = "auto" | "range" | "custom";
 export interface YScaleSelectProps {
   value: YScale;
   onChange(s: YScale): void;
-  /** Shown after the min/max boxes as a hint, e.g. the first channel's unit. */
+  /** Shown after the min/max boxes as a hint, e.g. the first signal's unit. */
   unit?: string;
 }
 
 /**
- * How the charts' y axes are scaled: fit the data, the channel's declared
+ * How the charts' y axes are scaled: fit the data, the signal's declared
  * range, or bounds typed here. Custom bounds apply once both are numbers
  * and min < max; until then the previous scale stays.
  */
@@ -71,7 +71,7 @@ export const YScaleSelect = memo(function YScaleSelect({ value, onChange, unit }
       <Labelled label="y">
         <ToggleButtonGroup exclusive size="small" value={choice} onChange={(_e, v: Choice | null) => v && choose(v)} aria-label="y axis scale" sx={segmentSx}>
           <ToggleButton value="auto" title="Fit the y axis to the data">auto</ToggleButton>
-          <ToggleButton value="range" title="The channel's declared range">range</ToggleButton>
+          <ToggleButton value="range" title="The signal's declared range">range</ToggleButton>
           <ToggleButton value="custom" title="Bounds typed here">custom</ToggleButton>
         </ToggleButtonGroup>
       </Labelled>

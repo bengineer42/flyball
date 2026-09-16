@@ -4,6 +4,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import LoopIcon from "@mui/icons-material/Loop";
+import MemoryIcon from "@mui/icons-material/Memory";
 import MultilineChartIcon from "@mui/icons-material/MultilineChart";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import PlaylistPlayIcon from "@mui/icons-material/PlaylistPlay";
@@ -18,7 +19,7 @@ import ThermostatIcon from "@mui/icons-material/Thermostat";
 import TuneIcon from "@mui/icons-material/Tune";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import WaterDropOutlinedIcon from "@mui/icons-material/WaterDropOutlined";
-import type { ChannelOut } from "@flyball/client";
+import type { SignalOut } from "@flyball/client";
 import type { Page } from "./router.js";
 
 export type IconComponent = typeof SvgIcon;
@@ -26,34 +27,31 @@ export type IconComponent = typeof SvgIcon;
 export const PAGE_ICONS: Record<Page, IconComponent> = {
   overview: SpaceDashboardOutlinedIcon,
   dashboards: DashboardOutlinedIcon,
-  sources: ShowChartIcon,
+  inputs: ShowChartIcon,
   graph: MultilineChartIcon,
   controllers: LoopIcon,
-  // Legacy page ids kept only so `Record<Page, IconComponent>` stays total; `#/actuators`/`#/loops`
-  // redirect to `#/controllers` before either icon would be shown (see `legacyControllerRedirect`).
-  actuators: TuneIcon,
-  loops: LoopIcon,
+  devices: MemoryIcon,
   programs: PlaylistPlayIcon,
   events: NotificationsNoneIcon,
   sessions: StorageOutlinedIcon,
   simulation: ScienceOutlinedIcon,
-  readers: SensorsIcon,
 };
 
-/** An icon for a channel from what its schema says — the dimension first, then the unit as a fallback. */
-export function channelIcon(channel: ChannelOut): IconComponent {
-  const u = channel.unit.toLowerCase();
-  const m = channel.measurand.toLowerCase();
-  if (u.includes("rh") || m.includes("humid")) return WaterDropOutlinedIcon;
-  if (u.includes("°") || u === "k" || m.includes("temp")) return ThermostatIcon;
-  if (u.includes("/min") || u.includes("/s") || m.includes("flow")) return AirIcon;
-  if (u === "v" || u === "a" || u === "w") return BoltIcon;
+/** An icon for a signal from what it measures — the quantity first, then the unit as a fallback. */
+export function signalIcon(signal: Pick<SignalOut, "unit" | "quantity">): IconComponent {
+  const u = signal.unit.toLowerCase();
+  const q = signal.quantity.toLowerCase();
+  if (u.includes("rh") || q.includes("humid")) return WaterDropOutlinedIcon;
+  if (u.includes("°") || u === "k" || q.includes("temp")) return ThermostatIcon;
+  if (u.includes("/min") || u.includes("/s") || q.includes("flow")) return AirIcon;
+  if (u === "v" || u === "a" || u === "w" || q === "power") return BoltIcon;
   return SpeedIcon;
 }
 
 export {
   CheckCircleOutlineIcon as OkIcon,
   RadioButtonUncheckedIcon as CircleIcon,
-  SensorsIcon as SourceIcon,
+  SensorsIcon as SignalIcon,
+  TuneIcon as WriteIcon,
   WarningAmberIcon as WarnIcon,
 };

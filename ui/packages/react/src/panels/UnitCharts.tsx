@@ -1,7 +1,6 @@
 import { memo, type ReactNode } from "react";
-import type { ChannelOut } from "@flyball/client";
-import type { Traces } from "../hooks/useSources.js";
-import { channelKey } from "../hooks/useSources.js";
+import { describeSignal, deviceOf, type SignalOut } from "@flyball/client";
+import type { Traces } from "../hooks/useTraces.js";
 import { Ref } from "../links.js";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { PanelFrame } from "./PanelFrame.js";
@@ -9,78 +8,79 @@ import type { YScale } from "./yscale.js";
 import type { TraceRef } from "../store/hooks.js";
 
 export interface UnitChartsProps {
-  /** Which channels to draw; each lands on the chart for its unit. */
-  channels: ChannelOut[];
+  /** Which signals to draw; each lands on the chart for its unit. */
+  signals: SignalOut[];
   /** The points, when the charts are fed by props; omit with `source`. */
   traces?: Traces;
-  /** Draw from the telemetry store instead (`useTraceRef(channels)`): no re-render per sample. */
+  /** Draw from the telemetry store instead (`useTraceRef(addresses)`): no re-render per sample. */
   source?: TraceRef;
   /** Plot height, or `"auto"` to follow the width. */
   height?: number | "auto";
   windowS?: number;
   /** Rendered at the end of the header of the first chart (a window selector, say). */
   controls?: ReactNode;
-  /** Trace label: `source.measurand` by default (the source's label when `sources` gives one); `label` gives just the measurand's label. */
+  /** Trace label: `device.signal` by default (the device's label when `devices` gives one); `label` gives just the signal's label. */
   labels?: "qualified" | "label";
-  /** The sources the channels belong to, for their labels; a source not here is named by its `name`. */
-  sources?: ReadonlyArray<{ name: string; label?: string | null }>;
-  /** y axis scaling; `"range"` uses the widest declared range among the unit's channels. */
+  /** The devices the signals belong to, for their labels; a device not here is named by its `name`. */
+  devices?: ReadonlyArray<{ name: string; label?: string | null }>;
+  /** y axis scaling; `"range"` uses the widest declared range among the unit's signals. */
   yScale?: YScale;
   /** Draw one point in `every`. */
   every?: number;
-  /** Where the store holds a chart's channels, as an export URL; the chart's download menu offers it. */
-  exportHref?(channels: ChannelOut[]): string | undefined;
+  /** Where the store holds a chart's signals, as an export URL; the chart's download menu offers it. */
+  exportHref?(signals: SignalOut[]): string | undefined;
 }
 
-/** The widest declared range among channels, for a shared axis. */
-function widest(channels: ChannelOut[]): [number, number] | null {
-  const ranges = channels.map((c) => c.range).filter((r): r is [number, number] => !!r);
+/** The widest declared range among signals, for a shared axis. */
+function widest(signals: SignalOut[]): [number, number] | null {
+  const ranges = signals.map((s) => s.range).filter((r): r is [number, number] => !!r);
   return ranges.length ? [Math.min(...ranges.map((r) => r[0])), Math.max(...ranges.map((r) => r[1]))] : null;
 }
 
-/** Channels grouped by unit, in first-seen order. */
-export function groupByUnit(channels: ChannelOut[]): Array<{ unit: string; channels: ChannelOut[] }> {
-  const groups = new Map<string, ChannelOut[]>();
-  for (const c of channels) (groups.get(c.unit) ?? groups.set(c.unit, []).get(c.unit)!).push(c);
-  return [...groups].map(([unit, cs]) => ({ unit, channels: cs }));
+/** Signals grouped by unit, in first-seen order. */
+export function groupByUnit(signals: SignalOut[]): Array<{ unit: string; signals: SignalOut[] }> {
+  const groups = new Map<string, SignalOut[]>();
+  for (const s of signals) (groups.get(s.unit) ?? groups.set(s.unit, []).get(s.unit)!).push(s);
+  return [...groups].map(([unit, ss]) => ({ unit, signals: ss }));
 }
 
 /**
- * One chart per unit, every channel in that unit as a trace on it — the
+ * One chart per unit, every signal in that unit as a trace on it — the
  * process, dry and wet humidities on one %RH axis, their temperatures on one
- * °C axis. Pure; `useSamples` supplies the traces, or `useTraceRef` a `source`.
+ * °C axis. Pure; `useTraces` supplies the traces, or `useTraceRef` a `source`.
  */
-export function UnitCharts({ channels, traces, source, height = 220, windowS, controls, labels = "qualified", sources, yScale, every, exportHref }: UnitChartsProps) {
-  const groups = groupByUnit(channels);
+export function UnitCharts({ signals, traces, source, height = 220, windowS, controls, labels = "qualified", devices, yScale, every, exportHref }: UnitChartsProps) {
+  const groups = groupByUnit(signals);
   return (
     <>
-      {groups.map(({ unit, channels: cs }, i) => (
-        <UnitChart key={unit} unit={unit} channels={cs} traces={traces} source={source} height={height} windowS={windowS} controls={i === 0 ? controls : undefined} labels={labels} sources={sources} yScale={yScale} every={every} exportHref={exportHref} />
+      {groups.map(({ unit, signals: ss }, i) => (
+        <UnitChart key={unit} unit={unit} signals={ss} traces={traces} source={source} height={height} windowS={windowS} controls={i === 0 ? controls : undefined} labels={labels} devices={devices} yScale={yScale} every={every} exportHref={exportHref} />
       ))}
     </>
   );
 }
 
-type UnitChartProps = Omit<UnitChartsProps, "channels"> & { unit: string; channels: ChannelOut[] };
+type UnitChartProps = Omit<UnitChartsProps, "signals"> & { unit: string; signals: SignalOut[] };
 
-const sameChannels = (a: ChannelOut[], b: ChannelOut[]) => a.length === b.length && a.every((c, i) => c === b[i]);
+const sameSignals = (a: SignalOut[], b: SignalOut[]) => a.length === b.length && a.every((s, i) => s === b[i]);
 
 /**
  * One unit's chart. Memoised so the page above re-rendering (a poll landing)
- * does not re-render twenty charts; the channel arrays are compared by their
+ * does not re-render twenty charts; the signal arrays are compared by their
  * members, since `groupByUnit` builds new ones each time.
  */
 const UnitChart = memo(
-  function UnitChart({ unit, channels: cs, traces, source, height, windowS, controls, labels, sources, yScale, every, exportHref }: UnitChartProps) {
-    const sourceLabel = (name: string) => sources?.find((s) => s.name === name)?.label ?? name;
-    const series: MultiSeriesTrace[] = cs.map((c) => {
-      const trace = traces?.[channelKey(c)];
+  function UnitChart({ unit, signals: ss, traces, source, height, windowS, controls, labels, devices, yScale, every, exportHref }: UnitChartProps) {
+    const deviceLabel = (name: string) => devices?.find((d) => d.name === name)?.label ?? name;
+    const series: MultiSeriesTrace[] = ss.map((s) => {
+      const trace = traces?.[s.address];
+      const device = deviceOf(s.address);
       return {
-        label: labels === "label" ? c.label : `${sourceLabel(c.source)}.${c.label || c.measurand}`,
+        label: labels === "label" ? describeSignal(s) : `${deviceLabel(device)}.${s.address.slice(device.length + 1) || s.name}`,
         unit,
-        key: channelKey(c),
+        key: s.address,
         ...(source ? {} : { t: trace?.t ?? [], v: trace?.v ?? [] }),
-        precision: c.precision ?? undefined,
+        precision: s.precision ?? undefined,
       };
     });
     return (
@@ -89,30 +89,30 @@ const UnitChart = memo(
         title={unit}
         subtitle={
           <span className="fb-unit-chart-channels">
-            {cs.map((c, j) => (
-              <span key={channelKey(c)}>
+            {ss.map((s, j) => (
+              <span key={s.address}>
                 {j > 0 && ", "}
-                <Ref kind="channel" name={c.source} measurand={c.measurand} />
+                <Ref kind="signal" name={s.address} />
               </span>
             ))}
           </span>
         }
         actions={controls}
       >
-        <MultiSeries series={series} source={source} id={`unit:${unit}`} unit={unit} title={unit} height={height} windowS={windowS} yScale={yScale} range={widest(cs)} every={every} exportHref={exportHref?.(cs)} />
+        <MultiSeries series={series} source={source} id={`unit:${unit}`} unit={unit} title={unit} height={height} windowS={windowS} yScale={yScale} range={widest(ss)} every={every} exportHref={exportHref?.(ss)} />
       </PanelFrame>
     );
   },
   (a, b) =>
     a.unit === b.unit &&
-    sameChannels(a.channels, b.channels) &&
+    sameSignals(a.signals, b.signals) &&
     a.traces === b.traces &&
     a.source === b.source &&
     a.height === b.height &&
     a.windowS === b.windowS &&
     a.controls === b.controls &&
     a.labels === b.labels &&
-    a.sources === b.sources &&
+    a.devices === b.devices &&
     a.yScale === b.yScale &&
     a.every === b.every &&
     a.exportHref === b.exportHref,

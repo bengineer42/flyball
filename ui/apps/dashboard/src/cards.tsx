@@ -1,9 +1,9 @@
 import type { MouseEvent, ReactNode } from "react";
 import { Box, Button, Chip, Link, Paper, Stack, Table, TableBody, TableCell, TableRow, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import type { ReaderRun, ReaderSchema } from "@flyball/client";
-import { describeDevice } from "@flyball/client";
-import { SourceIcon, type IconComponent } from "./icons.js";
+import type { DeviceOut, RunOut } from "@flyball/client";
+import { describeDevice, describeSignal, isNamespace, publishes, signalsOf, writable, type TreeNode } from "@flyball/client";
+import { PAGE_ICONS, type IconComponent } from "./icons.js";
 import { hrefFor } from "./router.js";
 import { clock } from "./time.js";
 
@@ -137,60 +137,93 @@ export function DeviceCard({ icon: Icon, name, label, href, type, chip, children
   );
 }
 
-/** A reader: run state, one row per source it declares with its measurands as chips, read period and last read. */
-export function ReaderCard({ reader, run, link = true, className }: { reader: ReaderSchema; run: Partial<ReaderRun> | undefined; link?: boolean; className?: string }) {
-  const footer = run
-    ? [run.period_s != null && `every ${run.period_s} s`, run.last_read_ns != null && `last read ${clock(run.last_read_ns)}`].filter(Boolean).join(" · ")
-    : null;
+/** The worst of a device's conditions as a dot tone: red at ERROR, amber at WARNING, grey otherwise. */
+export function conditionTone(conditions: ReadonlyArray<{ level: number }>): "ok" | "warn" | "alarm" {
+  const worst = Math.max(0, ...conditions.map((c) => c.level));
+  return worst >= 40 ? "alarm" : worst >= 30 ? "warn" : "ok";
+}
+
+/** `[RP]`-style access flags for a hover hint: what a signal supports, after the address. */
+export const accessFlags = (access: string) => `[${access.toUpperCase()}]`;
+
+/** A signal as a chip: its label and unit, linking to its page; the hint carries the address, access and quantity. */
+function SignalChip({ signal }: { signal: Extract<TreeNode, { access: string }> }) {
+  return (
+    <Chip
+      variant="outlined"
+      clickable
+      component="a"
+      href={hrefFor({ kind: "signal", name: signal.address })}
+      label={`${describeSignal(signal)} ${signal.unit}`}
+      title={`${signal.address} ${accessFlags(signal.access)}: ${signal.quantity}${signal.dimension ? ` (${signal.dimension})` : ""}`}
+      sx={writable(signal) && !publishes(signal) ? { borderStyle: "dashed" } : undefined}
+    />
+  );
+}
+
+/** One row of the tree per top-level entry: a signal alone, or a namespace with its signals as chips. */
+function TreeRows({ device }: { device: DeviceOut }) {
+  const rows: Array<{ key: string; label: ReactNode; signals: ReturnType<typeof signalsOf> }> = [];
+  const loose = device.signals.filter((n) => !isNamespace(n));
+  if (loose.length) rows.push({ key: "", label: null, signals: signalsOf(loose) });
+  for (const node of device.signals) {
+    if (!isNamespace(node)) continue;
+    rows.push({ key: node.address, label: node.label || node.name, signals: signalsOf(node.signals) });
+  }
+  return (
+    <Table size="small" sx={{ "& td": { border: 0, px: 0, py: 0.75 } }}>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.key}>
+            {row.label !== null && (
+              <TableCell sx={{ width: "1%", whiteSpace: "nowrap", pr: "12px !important", fontWeight: 500 }} title={row.key}>
+                {row.label}
+              </TableCell>
+            )}
+            <TableCell colSpan={row.label === null ? 2 : 1}>
+              <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.5}>
+                {row.signals.map((signal) => (
+                  <SignalChip key={signal.address} signal={signal} />
+                ))}
+              </Stack>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/**
+ * A device: its run state as a dot (stopped or a condition in colour), one
+ * row per namespace with the signals as chips (a dashed chip is write-only),
+ * the poll period and the last read. `run` is the live one from `/ws/devices`
+ * when the caller has it, else what `GET /api/devices` said.
+ */
+export function DeviceSummaryCard({ device, run, link = true, className }: { device: DeviceOut; run?: (Partial<RunOut> & { conditions?: ReadonlyArray<{ kind: string; level: number; message: string }> }) | null; link?: boolean; className?: string }) {
+  const live = run ?? device.run;
+  const conditions = run?.conditions ?? device.conditions;
+  const polled = live !== null && live !== undefined;
+  const stopped = polled && live.running === false;
+  const tone = stopped ? "warn" : conditionTone(conditions);
+  const footer = polled ? [live.period_s != null && `every ${live.period_s} s`, live.last_read_ns != null && `last read ${clock(live.last_read_ns)}`].filter(Boolean).join(" · ") : null;
+  const named = conditions.map((c) => c.kind).join(", ");
   return (
     <DeviceCard
       className={className}
-      icon={SourceIcon}
-      name={reader.name}
-      label={reader.label}
-      href={link ? hrefFor({ kind: "reader", name: reader.name }) : undefined}
-      type={describeDevice(reader.type)}
-      chip={run ? <StatusDot tone={run.running ? "ok" : "warn"} label={run.running ? undefined : "stopped"} title={run.running ? "running" : "stopped"} /> : <StatusDot label="…" />}
+      icon={PAGE_ICONS.devices}
+      name={device.name}
+      label={device.label}
+      href={link ? hrefFor({ kind: "device", name: device.name }) : undefined}
+      type={describeDevice(device.driver ?? device.type)}
+      chip={<StatusDot tone={tone} label={stopped ? "stopped" : named || undefined} title={stopped ? "polling stopped" : conditions.map((c) => `${c.kind}: ${c.message}`).join("\n") || (polled ? "running" : "not polled")} />}
       footer={footer || undefined}
     >
-      {reader.sources.length > 0 ? (
-        <Table size="small" sx={{ "& td": { border: 0, px: 0, py: 0.75 } }}>
-          <TableBody>
-            {reader.sources.map((src) => (
-              <TableRow key={src.name}>
-                <TableCell sx={{ width: "1%", whiteSpace: "nowrap", pr: "12px !important", fontWeight: 500 }}>
-                  <Link href={hrefFor({ kind: "source", name: src.name })} underline="hover" color="inherit" title={src.label ? src.name : undefined}>
-                    {src.label ?? src.name}
-                  </Link>
-                  {src.label && (
-                    <Typography component="span" variant="body2" color="text.secondary">
-                      {" "}
-                      {src.name}
-                    </Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.5}>
-                    {Object.entries(src.measurands).map(([key, m]) => (
-                      <Chip
-                        key={key}
-                        variant="outlined"
-                        clickable
-                        component="a"
-                        href={hrefFor({ kind: "channel", name: src.name, measurand: key })}
-                        label={`${m.label || key} ${m.unit}`}
-                        title={`${key}: ${m.dimension}`}
-                      />
-                    ))}
-                  </Stack>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      {device.signals.length > 0 ? (
+        <TreeRows device={device} />
       ) : (
         <Typography variant="body2" color="text.secondary">
-          declares no sources
+          declares no signals
         </Typography>
       )}
     </DeviceCard>

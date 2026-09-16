@@ -4,7 +4,7 @@ import { PanelFrame, type PanelSeverity } from "./PanelFrame.js";
 export interface TileProps {
   /** The heading; without one (and without a menu) the tile has no header row. */
   title?: ReactNode;
-  /** After the title, muted: a unit, a name, a channel. */
+  /** After the title, muted: a unit, a name, an address. */
   subtitle?: ReactNode;
   /** Before the menu: a badge, a chip, a dot. */
   status?: ReactNode;

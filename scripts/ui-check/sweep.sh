@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full page sweep for one rig. Usage: sweep.sh <rig.toml> <api-port> <ui-port> [--record]
+# Full page sweep for one rig. Usage: sweep.sh <rig file> <api-port> <ui-port> [--record]
 set -u
 S=${FLYBALL_CHECK_DIR:-/tmp/flyball-check}; mkdir -p "$S/logs" "$S/stores" "$S/shots"
 TOOLS="$(cd "$(dirname "$0")" && pwd)"

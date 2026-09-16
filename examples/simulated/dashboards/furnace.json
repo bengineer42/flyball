@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
@@ -19,8 +19,8 @@
         "tiles": [
           "rig",
           "recording",
-          "readers",
-          "loops",
+          "devices",
+          "controllers",
           "conditions"
         ]
       }
@@ -34,14 +34,14 @@
       "w": 18,
       "h": 8,
       "config": {
-        "channels": [
-          "zone1.temperature",
-          "zone2.temperature",
-          "zone3.temperature"
-        ],
         "window_s": 300,
         "every": 0,
-        "y": "auto"
+        "y": "auto",
+        "addresses": [
+          "furnace.zone1",
+          "furnace.zone2",
+          "furnace.zone3"
+        ]
       }
     },
     {
@@ -52,9 +52,9 @@
       "w": 6,
       "h": 5,
       "config": {
-        "channel": "sample.temperature",
         "sparkline": true,
-        "showSource": true
+        "address": "furnace.sample",
+        "showDevice": true
       }
     },
     {
@@ -77,8 +77,8 @@
       "w": 8,
       "h": 8,
       "config": {
-        "loop": "heater1",
-        "view": "full"
+        "view": "full",
+        "controller": "heaters.heater1"
       }
     },
     {
@@ -89,8 +89,8 @@
       "w": 8,
       "h": 8,
       "config": {
-        "loop": "heater2",
-        "view": "full"
+        "view": "full",
+        "controller": "heaters.heater2"
       }
     },
     {
@@ -101,44 +101,20 @@
       "w": 8,
       "h": 8,
       "config": {
-        "loop": "heater3",
-        "view": "full"
+        "view": "full",
+        "controller": "heaters.heater3"
       }
     },
     {
       "id": "w8",
-      "kind": "actuator",
+      "kind": "device",
       "x": 0,
       "y": 18,
-      "w": 6,
+      "w": 18,
       "h": 5,
       "config": {
-        "actuator": "heater1",
-        "commands": []
-      }
-    },
-    {
-      "id": "w9",
-      "kind": "actuator",
-      "x": 6,
-      "y": 18,
-      "w": 6,
-      "h": 5,
-      "config": {
-        "actuator": "heater2",
-        "commands": []
-      }
-    },
-    {
-      "id": "w10",
-      "kind": "actuator",
-      "x": 12,
-      "y": 18,
-      "w": 6,
-      "h": 5,
-      "config": {
-        "actuator": "heater3",
-        "commands": []
+        "commands": [],
+        "device": "heaters"
       }
     },
     {

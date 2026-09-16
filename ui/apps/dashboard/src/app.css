@@ -4,7 +4,7 @@
    equal height, not each sized to its own content (CSS Grid's default `align-items: stretch`
    already stretches the cell; this makes the visible card inside actually fill that height). */
 .controller-cell { display: flex; flex-direction: column; }
-.controller-cell > .fb-loop, .controller-cell > .fb-tile, .controller-cell > .fb-actuator { flex: 1 1 auto; }
+.controller-cell > .fb-loop, .controller-cell > .fb-tile, .controller-cell > .fb-write-panel { flex: 1 1 auto; }
 
 /* One spacing scale (DESIGN-SPEC.md §1.4, the library's --fb-space-*): gutters between cards and
    sections; padding inside a card is the library's --fb-gap (--fb-space-3, 12px). */
@@ -14,7 +14,8 @@
   --section-gap: var(--fb-space-5);  /* 24px */
 }
 
-section + section { margin-top: var(--section-gap); }
+/* Scoped to the page's own sections: the library's panels are <section>s too, laid side by side in grids. */
+main > section + section { margin-top: var(--section-gap); }
 
 /*
  * Every section lays out on the same 12-column grid, so stat tiles, source
@@ -98,9 +99,9 @@ td .fb-state { max-height: 9rem; overflow: auto; }
 .dash-widget-link > .fb-tile-body > a { height: 100%; }
 /* Inside a tile, the loop faceplate's charts follow the tile, not the viewport. */
 .fb-tile .fb-loop.fb-loop-compact > .fb-loop-charts { grid-template-columns: minmax(0, 1fr); }
-.fb-tile .fb-actuator .fb-commands { grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr)); }
+.fb-tile .fb-device .fb-commands { grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr)); }
 
-/* Graph page (#/graph): a channel picker beside a chart that fills the rest of the viewport height (measured, not eyeballed — see ui.md). */
+/* Graph page (#/graph): a signal picker beside a chart that fills the rest of the viewport height (measured, not eyeballed — see ui.md). */
 .fb-graph-body { display: flex; gap: var(--gutter); align-items: stretch; height: calc(100vh - 128px); min-height: 320px; }
 .fb-graph-picker { flex: 0 0 260px; min-width: 220px; min-height: 0; border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); background: var(--fb-bg-1); overflow: hidden; display: flex; }
 .fb-graph-chart { flex: 1 1 auto; min-width: 0; }

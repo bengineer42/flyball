@@ -4,7 +4,7 @@
  * the dev server hot-swap a page without re-running the whole app.
  */
 import { useMemo } from "react";
-import type { ChannelOut, ProgrammerState, SessionRow } from "@flyball/client";
+import type { Address, ProgrammerState, SessionRow } from "@flyball/client";
 import { useQuery, useRig, type QueryState, type useRecording } from "@flyball/react";
 
 export type Programmer = QueryState<ProgrammerState>;
@@ -21,9 +21,6 @@ export const sessionName = (s: SessionRow) => {
   return d && typeof d.name === "string" && d.name ? d.name : `session #${s.id}`;
 };
 
-/** Live reader runs from `/ws/readers`, keyed by name: the store's shared socket, a new object once a second at most. For a stale threshold's period alone, `useReaderPeriods` re-renders less. */
-export { useReaderRuns } from "@flyball/react";
-
 /**
  * Where the store holds what the live charts are drawing: the open session's
  * export URLs, or nothing while the rig is not recording. A chart offers
@@ -36,14 +33,14 @@ export function useRecordingExports() {
   return useMemo(
     () => ({
       id,
-      /** One channel's series, as the store has it. */
-      series: (channel: Pick<ChannelOut, "source" | "measurand">) =>
-        id === null ? undefined : rig.seriesExportUrl(id, channel.source, channel.measurand, "csv"),
-      /** A whole chart's counterpart: only a single-channel chart has one file behind it. */
-      channels: (channels: Array<Pick<ChannelOut, "source" | "measurand">>) =>
-        id === null || channels.length !== 1 ? undefined : rig.seriesExportUrl(id, channels[0]!.source, channels[0]!.measurand, "csv"),
-      /** One loop's ticks. */
-      ticks: (loop: string) => (id === null ? undefined : rig.ticksExportUrl(id, loop, "csv")),
+      /** One signal's series, as the store has it. */
+      series: (address: Address) => (id === null ? undefined : rig.seriesExportUrl(id, address, "csv")),
+      /** A whole chart's counterpart: only a single-signal chart has one file behind it. */
+      signals: (signals: ReadonlyArray<{ address: Address }>) => (id === null || signals.length !== 1 ? undefined : rig.seriesExportUrl(id, signals[0]!.address, "csv")),
+      /** One controller's ticks; `controller` is the address of the signal it drives. */
+      ticks: (controller: Address) => (id === null ? undefined : rig.ticksExportUrl(id, controller, "csv")),
+      /** One writable signal's write states. */
+      writes: (address: Address) => (id === null ? undefined : rig.writesExportUrl(id, address, "csv")),
     }),
     [rig, id],
   );

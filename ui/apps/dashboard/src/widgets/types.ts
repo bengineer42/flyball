@@ -32,11 +32,11 @@ export interface WidgetKind {
   defaultSize: WidgetSize;
   minSize: WidgetSize;
   cost: WidgetCost;
-  /** The config's schema for this rig; `config` is the current value, for fields whose options depend on another (an actuator's commands). */
+  /** The config's schema for this rig; `config` is the current value, for fields whose options depend on another (a device's commands). */
   configSchema(bindings: Bindings, config: Record<string, unknown>): JsonSchema;
   /** Extra form hints over what the schema implies (a select instead of segments, a textarea). */
   uiSchema?: UiSchema;
-  /** The config a freshly added widget starts with: the first channel, say. */
+  /** The config a freshly added widget starts with: the first signal, say. */
   defaultConfig?(bindings: Bindings): Record<string, unknown>;
   /** The tile's heading when the widget has no `title` of its own; undefined for none. */
   titleFor?(config: Record<string, unknown>, bindings: Bindings): string | undefined;

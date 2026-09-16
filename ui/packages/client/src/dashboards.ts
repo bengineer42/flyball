@@ -26,7 +26,12 @@ export interface DashboardWidget {
   config: Record<string, unknown>;
 }
 
-/** The document a dashboard is saved as; `extra` fields are refused at every level. */
+/**
+ * The document a dashboard is saved as; `extra` fields are refused at every
+ * level. `schema_version` 2 binds by address and controller name; a
+ * version-1 document (channels, loops, actuators) is migrated by the server
+ * on read.
+ */
 export interface DashboardDocument {
   schema_version: number;
   /** The key it is saved under. */
@@ -39,9 +44,11 @@ export interface DashboardDocument {
 }
 
 /**
- * A widget naming a channel, loop or actuator the rig does not have (DESIGN-SPEC.md §4.8).
- * The document is kept and returned anyway; the widget renders the "unbound" state instead of
- * being dropped.
+ * A widget whose binding -- a `readout`/`gauge`'s `address`, a `chart`'s
+ * `addresses`, a `loop`'s `controller`, a `device`'s `device` -- names
+ * something the rig does not have (DESIGN-SPEC.md §4.8). The document is
+ * kept and returned anyway; the widget renders the "unbound" state instead
+ * of being dropped.
  */
 export interface DashboardProblem {
   widget_id: string;
@@ -57,6 +64,9 @@ export interface DashboardRow {
   body: DashboardDocument;
   created_ns: Nanoseconds;
   sha256: string;
-  /** What it names that this rig lacks; empty when everything resolves. */
-  problems?: DashboardProblem[];
+}
+
+/** `GET /api/dashboards/{name}` and the answer to a save: the row plus what it names that this rig lacks. */
+export interface DashboardWithProblems extends DashboardRow {
+  problems: DashboardProblem[];
 }

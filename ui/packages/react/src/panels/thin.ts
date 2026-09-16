@@ -1,7 +1,7 @@
 /**
  * Keep one point in `every`, always including the newest so a live chart's
  * right edge is current. `every` is a floor for how thin the series may get:
- * a short series (a sparse loop tick trace, say) is never thinned down to
+ * a short series (a sparse controller tick trace, say) is never thinned down to
  * just its first and last point (a straight line with no shape) merely
  * because the caller's decimation factor happens to exceed its length --
  * the effective step is capped so at least a handful of interior points

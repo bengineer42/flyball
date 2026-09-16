@@ -19,8 +19,7 @@ import {
 } from "@mui/material";
 import { Form as MuiForm } from "@rjsf/mui";
 import { CommandForm, DevicePanel, useCommands, useRigSchema, useSimulation, type SimulationHook } from "@flyball/react";
-import type { DeviceSchema } from "@flyball/client";
-import type { SimulationPlant } from "@flyball/client";
+import type { DeviceOut, DeviceSchema, SimulationPlant } from "@flyball/client";
 import { describeDevice, describeSimParam } from "@flyball/client";
 import { useNow } from "../time.js";
 import { StateBlock } from "../cards.js";
@@ -184,13 +183,13 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
             <TableCell>parameters</TableCell>
             <TableCell align="right">input</TableCell>
             <TableCell align="right">output</TableCell>
-            <TableCell align="right">read</TableCell>
+            <TableCell align="right">read (by signal)</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {names.map((name) => {
             const plant = plants[name]!;
-            const { kind, tag, ...rest } = plant.config;
+            const { kind, tag, model, ...rest } = plant.config;
             const live = plant.links ?? {};
             const readings = Object.entries(plant.readings ?? {});
             return (
@@ -198,7 +197,14 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
                 <TableCell>
                   <code>{name}</code>
                 </TableCell>
-                <TableCell>{kind || tag ? describeDevice(String(kind ?? tag)) : ""}</TableCell>
+                <TableCell>
+                  {kind || tag ? describeDevice(String(kind ?? tag)) : ""}
+                  {typeof model === "string" && (
+                    <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 0.75 }}>
+                      {model}
+                    </Typography>
+                  )}
+                </TableCell>
                 <TableCell sx={{ color: "text.secondary", fontSize: "0.85em" }}>
                   <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
                     {Object.entries(rest)
@@ -221,10 +227,8 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
                   <PortList values={ports(plant.output, plant.outputs)} digits={2} />
                 </TableCell>
                 <TableCell align="right">
-                  <PortList
-                    values={readings.map(([port, r]) => [readings.length === 1 && port === "output" ? "" : port, r?.value ?? null])}
-                    digits={2}
-                  />
+                  {/* By signal address: what a `sim_daq` last delivered off this plant, noise and all. */}
+                  <PortList values={readings.map(([address, r]) => [readings.length === 1 ? "" : address, r?.value ?? null])} digits={2} />
                 </TableCell>
               </TableRow>
             );
@@ -240,8 +244,8 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
 }
 
 /** One device's simulation-only commands (faults, disturbances) as forms, run through its own route. */
-function DeviceFaults({ kind, schema }: { kind: "actuators" | "readers"; schema: DeviceSchema }) {
-  const commands = useCommands(kind, schema.name);
+function DeviceFaults({ schema }: { schema: DeviceSchema }) {
+  const commands = useCommands(schema.name);
   const tags = Object.keys(schema.commands).filter((t) => schema.commands[t]?.simulation);
   if (!tags.length) return null;
   return (
@@ -274,9 +278,8 @@ function DeviceFaults({ kind, schema }: { kind: "actuators" | "readers"; schema:
 function Faults() {
   const schema = useRigSchema();
   if (!schema.data) return null;
-  const actuators = Object.values(schema.data.actuators).filter((a) => Object.values(a.commands).some((c) => c.simulation));
-  const readers = Object.values(schema.data.readers).filter((r) => Object.values(r.commands).some((c) => c.simulation));
-  if (!actuators.length && !readers.length) return null;
+  const devices = Object.values(schema.data.devices).filter((d) => Object.values(d.commands).some((c) => c.simulation));
+  if (!devices.length) return null;
   return (
     <Paper variant="outlined" sx={{ p: 3, mb: "16px" }}>
       <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.5 }}>
@@ -285,11 +288,8 @@ function Faults() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
         Things a real rig could never do: script a failure, kick a plant, shrink a heater. Kept here, off the devices' own pages.
       </Typography>
-      {actuators.map((a) => (
-        <DeviceFaults key={a.name} kind="actuators" schema={a} />
-      ))}
-      {readers.map((r) => (
-        <DeviceFaults key={r.name} kind="readers" schema={r} />
+      {devices.map((d) => (
+        <DeviceFaults key={d.name} schema={d} />
       ))}
     </Paper>
   );
@@ -297,12 +297,14 @@ function Faults() {
 
 /**
  * The simulation page: speed control from `/api/sim`, the rig file's plants,
- * and the application's own device (`/api/sim/device`) when it has one.
- * Needs only a `RigProvider` above it; the app wires the route and the tab
- * (hide the tab when `useSimulation().attached` is false).
+ * every device's simulation-only commands, and the application's own device
+ * (`/api/sim/device`, which `GET /api/devices` lists with `kind:
+ * "simulation"`) when it has one. The app wires the route and the tab (hide
+ * the tab when `useSimulation().attached` is false).
  */
-export function Simulation() {
+export function Simulation({ devices }: { devices: DeviceOut[] }) {
   const sim = useSimulation();
+  const own = devices.find((d) => d.kind === "simulation");
   if (sim.loading && !sim.simulation) return <LinearProgress />;
   if (!sim.attached) {
     return (
@@ -330,10 +332,10 @@ export function Simulation() {
       <SpeedControl sim={sim} />
       <Plants plants={simulation.plants} />
       <Faults />
-      {sim.schema ? (
+      {sim.schema && own ? (
         <DevicePanel
+          device={own}
           schema={sim.schema}
-          state={sim.view?.state}
           view={sim.view}
           form={MuiForm}
           subtitle={<code>/api/sim/device</code>}

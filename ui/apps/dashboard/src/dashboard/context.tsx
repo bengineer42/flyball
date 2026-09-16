@@ -2,23 +2,25 @@
  * What the widgets read, split by how often it changes, so a tile that shows
  * health does not re-render on every sample. The page fills these once from
  * the app's hooks (one websocket per stream, fanned out here); widgets never
- * fetch or subscribe on their own.
+ * fetch or subscribe on their own, except through the telemetry store's
+ * per-signal hooks (`useSignal`, `useWriteState`, `useController`).
  */
 import { createContext, useContext } from "react";
-import type { ActuatorSchema, ChannelOut, DeviceState, LoopOut, RigEvent, RigSchema, SourceOut } from "@flyball/client";
-import type { LoopTraces, Traces, useHealth, useRecording } from "@flyball/react";
+import { describeSignal, deviceOf, publishes, signalsOf, type Address, type ControllerOut, type DeviceOut, type RigEvent, type SignalOut } from "@flyball/client";
+import type { ControllerTraces, useHealth, useRecording } from "@flyball/react";
 import type { ChartSettings } from "../YScaleSelect.js";
 import type { Programmer, useRecordingExports } from "../model.js";
 
-/** What a widget may bind to, with display names. */
+/** What a widget may bind to, with display names: a signal by address, a controller by name, a device by name. */
 export interface Bindings {
-  schema: RigSchema;
-  sources: SourceOut[];
-  channels: ChannelOut[];
-  loops: LoopOut[];
-  actuators: ActuatorSchema[];
-  sourceLabel(name: string): string;
-  channelLabel(key: string): string;
+  devices: DeviceOut[];
+  /** Every publishing signal, in tree order: what a readout, gauge or chart may show. */
+  signals: SignalOut[];
+  controllers: ControllerOut[];
+  deviceLabel(name: string): string;
+  /** `Tube furnace · Zone 1 (entry) (°C)`, or the address itself when the rig lacks it. */
+  signalLabel(address: Address): string;
+  signalAt(address: Address): SignalOut | undefined;
 }
 
 export interface RigData {
@@ -35,9 +37,7 @@ export interface RigData {
 }
 
 export const RigDataContext = createContext<RigData | null>(null);
-export const TracesContext = createContext<Traces>({});
-export const StatesContext = createContext<Record<string, DeviceState>>({});
-export const LoopsContext = createContext<{ loops: Record<string, LoopOut>; history: LoopTraces }>({ loops: {}, history: {} });
+export const ControllersContext = createContext<{ controllers: Record<Address, ControllerOut>; history: ControllerTraces }>({ controllers: {}, history: {} });
 export const EventsContext = createContext<RigEvent[]>([]);
 
 export function useRigData(): RigData {
@@ -46,25 +46,23 @@ export function useRigData(): RigData {
   return data;
 }
 export const useBindings = () => useRigData().bindings;
-export const useTraces = () => useContext(TracesContext);
-export const useStates = () => useContext(StatesContext);
-export const useLoopsData = () => useContext(LoopsContext);
+export const useControllersData = () => useContext(ControllersContext);
 export const useEventsData = () => useContext(EventsContext);
 
 /** Bindings from the rig documents: labels fall back to names. */
-export function makeBindings(schema: RigSchema, sources: SourceOut[], loops: Record<string, LoopOut>): Bindings {
-  const channels = sources.flatMap((s) => s.channels);
-  const sourceLabel = (name: string) => sources.find((s) => s.name === name)?.label ?? name;
+export function makeBindings(devices: DeviceOut[], controllers: Record<Address, ControllerOut>): Bindings {
+  const signals = devices.flatMap((d) => signalsOf(d.signals)).filter(publishes);
+  const byAddress = new Map(signals.map((s) => [s.address, s]));
+  const deviceLabel = (name: string) => devices.find((d) => d.name === name)?.label ?? name;
   return {
-    schema,
-    sources,
-    channels,
-    loops: Object.values(loops),
-    actuators: Object.values(schema.actuators),
-    sourceLabel,
-    channelLabel(key) {
-      const c = channels.find((ch) => `${ch.source}.${ch.measurand}` === key);
-      return c ? `${sourceLabel(c.source)} · ${c.label || c.measurand} (${c.unit})` : key;
+    devices,
+    signals,
+    controllers: Object.values(controllers),
+    deviceLabel,
+    signalLabel(address) {
+      const s = byAddress.get(address);
+      return s ? `${deviceLabel(deviceOf(address))} · ${describeSignal(s)} (${s.unit})` : address;
     },
+    signalAt: (address) => byAddress.get(address),
   };
 }

@@ -6,7 +6,7 @@
  * time as well as by count. Nothing here allocates per push.
  */
 export interface RingOptions {
-  /** Columns beside time; 1 for a channel, 5 for a loop tick. */
+  /** Columns beside time; 1 for a signal, 5 for a controller tick. */
   width?: number;
   /** Rows to start with. */
   initial?: number;

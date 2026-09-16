@@ -1,7 +1,7 @@
 import uPlot from "uplot";
 
 /**
- * How a chart's y axis is scaled: fit the data (`"auto"`), the channel's
+ * How a chart's y axis is scaled: fit the data (`"auto"`), the signal's
  * declared range (`"range"`), or fixed bounds. Shared by every chart.
  */
 export type YScale = "auto" | "range" | { min: number; max: number };

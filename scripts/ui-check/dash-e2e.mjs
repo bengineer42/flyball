@@ -75,9 +75,9 @@ await page.waitForTimeout(500);
 check('enters edit mode', (await page.locator('[data-testid=edit-toggle]').innerText()).trim() === 'Done');
 check('RGL mounted in edit mode', (await page.locator('.react-grid-layout').count()) > 0);
 
-// 2. Add a readout "by thing" for zone2.temperature. The catalogue (`AddWidgetDrawer`) is
-// "by widget" only -- there is no rig-schema tree picker yet (DESIGN-SPEC.md §4.3's "by thing"
-// tab is not built; see the report) -- so this adds a Readout, then binds it to zone2.temperature
+// 2. Add a readout "by thing" for furnace.zone2. The catalogue (`AddWidgetDrawer`) is
+// "by widget" only -- there is no device-tree picker yet (DESIGN-SPEC.md §4.3's "by thing"
+// tab is not built; see the report) -- so this adds a Readout, then binds it to furnace.zone2
 // via the settings form, which is the same end state a "by thing" pick would produce.
 const beforeCount = await page.locator('.dash-item').count();
 await page.click('[data-testid=add-widget]');
@@ -96,12 +96,12 @@ await newItem.hover();
 await newItem.getByRole('button', { name: /widget menu/ }).click();
 await page.click('[data-testid=widget-configure]');
 await page.waitForSelector('[data-testid=configure-dialog]');
-await page.getByLabel('Channel').click();
-await page.getByRole('option', { name: /Zone 2.*temperature/i }).click();
+await page.getByLabel('Signal').click();
+await page.getByRole('option', { name: /Zone 2/i }).click();
 await page.click('[data-testid=configure-apply]');
 await page.waitForTimeout(300);
 const boundText = await newItem.innerText();
-check('binds the readout to zone2.temperature "by thing"', /zone\s?2/i.test(boundText), boundText.slice(0, 60));
+check('binds the readout to furnace.zone2 "by thing"', /zone\s?2/i.test(boundText), boundText.slice(0, 60));
 
 // 3. Resize it: drag the SE handle of the new widget by +2 columns / +2 rows.
 const handle = newItem.locator('.react-resizable-handle-se');

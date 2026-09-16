@@ -4,7 +4,7 @@
  * schema shaped for a form, a step's arguments in and out of that form, and
  * the step an error message points at. No rendering, no fetching.
  */
-import { deref, humanise, RigError, unwrapNullable, type JsonSchema } from "@flyball/client";
+import { deref, humanise, isEmpty, RigError, unwrapNullable, type CommandSchema, type JsonSchema, type SignalSchema } from "@flyball/client";
 import type { Tree } from "./programText.js";
 
 /** One step of a program file: `{ramp: {...}}`, plus any modifier keys the dialect allows beside it. */
@@ -151,7 +151,7 @@ export function argsOf(value: unknown, command: CommandInfo | undefined): Record
 /**
  * A step's arguments as the form holds them: the shorthand expanded, the
  * composite time field and its flat keys left out (they are one control of
- * their own, see `timeEntries`), and `loop` always a list.
+ * their own, see `timeEntries`), and `loop` (the controllers named) always a list.
  */
 export function toForm(value: unknown, command: CommandInfo | undefined): Record<string, unknown> {
   const args = argsOf(value, command);
@@ -292,35 +292,117 @@ export interface FormShape {
 }
 
 /**
+ * What the rig has for a `command` or `set` step's picks (`GET /api/schema`):
+ * each device's commands and its writable signals by path relative to the
+ * device, for the `device` / `device_command` / `args` / `values` fields.
+ */
+export interface DevicePicks {
+  commands: Record<string, Record<string, CommandSchema>>;
+  /** Only writable signals; a device with none takes no `set`. */
+  writable: Record<string, Record<string, SignalSchema>>;
+}
+
+/** The device command a `command` step names, when `devices` knows it. */
+function deviceCommandOf(args: Record<string, unknown>, devices: DevicePicks | undefined): CommandSchema | undefined {
+  const device = typeof args.device === "string" ? devices?.commands[args.device] : undefined;
+  return typeof args.device_command === "string" ? device?.[args.device_command] : undefined;
+}
+
+/** A writable signal as a number field: its label, unit and limits, the address and access as the hint. */
+function valueField(path: string, signal: SignalSchema): JsonSchema {
+  const [low, high] = signal.limits ?? [undefined, undefined];
+  return {
+    type: "number",
+    title: signal.label || humanise(path.split(".").pop() ?? path),
+    unit: signal.unit,
+    description: `${signal.address} [${signal.access.toUpperCase()}]${signal.limits ? ` · limits ${signal.limits[0]} – ${signal.limits[1]} ${signal.unit}` : ""}`,
+    ...(low !== undefined ? { minimum: low } : {}),
+    ...(high !== undefined ? { maximum: high } : {}),
+  };
+}
+
+/**
  * The argument schema shaped for the form: `loop` as a pick from the rig's
- * loops, the composite time field and its flat keys left to their own
- * control, defaults as placeholders.
+ * controllers, a `command` step's `device` and `device_command` as picks
+ * from the rig's devices and its `args` as that command's own arguments
+ * (from `current`, what the step says now), a `set` step's `device` as a
+ * pick from the devices with a writable signal and its `values` as one
+ * number field per such signal, the composite time field and its flat keys
+ * left to their own control, defaults as placeholders.
  * Self-contained: `$defs` are copied in so `$ref`s still resolve.
  */
-export function formShape(command: CommandInfo, root: JsonSchema, loops: string[] | undefined): FormShape {
+export function formShape(command: CommandInfo, root: JsonSchema, controllers: string[] | undefined, devices?: DevicePicks, current: Record<string, unknown> = {}): FormShape {
   const properties: Record<string, JsonSchema> = {};
   const ui: Record<string, unknown> = {};
+  const deviceCommand = command.tag === "command" ? deviceCommandOf(current, devices) : undefined;
+  let defs = root.$defs;
   for (const [name, raw] of Object.entries(command.args.properties ?? {})) {
     if (command.time?.keys.includes(name)) continue; // one control of its own
     let field = withoutDefaults(deref(raw, root));
     if (name === "wait" && field.type === "boolean" && !field.description) field = { ...field, description: `wait for the ${command.title.toLowerCase()} to finish before the next step` };
+    if (command.tag === "command" && devices) {
+      if (name === "device") {
+        const names = Object.keys(devices.commands);
+        if (names.length > 0) field = { ...field, enum: names };
+      } else if (name === "device_command") {
+        const names = Object.keys((typeof current.device === "string" && devices.commands[current.device]) || {});
+        if (names.length > 0) field = { ...field, enum: names };
+      } else if (name === "args") {
+        // nothing to fill until the command is known, and nothing when it takes no arguments
+        if (!deviceCommand || isEmpty(deviceCommand.arguments)) continue;
+        const { $defs, ...args } = withoutDefaults(deviceCommand.arguments);
+        field = { ...args, title: field.title ?? "Arguments", ...(deviceCommand.description ? { description: deviceCommand.description.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ") } : {}) };
+        if ($defs) defs = { ...defs, ...$defs };
+      }
+    }
+    if (command.tag === "set" && devices) {
+      if (name === "device") {
+        const names = Object.keys(devices.writable);
+        if (names.length > 0) field = { ...field, enum: names };
+      } else if (name === "values") {
+        const signals = (typeof current.device === "string" && devices.writable[current.device]) || {};
+        // one number per writable signal, none required: the step sets the ones given
+        if (Object.keys(signals).length > 0) field = { type: "object", title: field.title ?? "Values", properties: Object.fromEntries(Object.entries(signals).map(([path, signal]) => [path, valueField(path, signal)])) };
+      }
+    }
     if (name === "loop") {
       field = {
         type: "array",
-        title: field.title ?? "Loop",
-        description: field.description ?? (loops && loops.length > 0 ? undefined : "Loop names; none means the rig's default loop."),
-        items: loops && loops.length > 0 ? { type: "string", enum: loops } : { type: "string" },
+        title: "Controllers",
+        description: field.description ?? (controllers && controllers.length > 0 ? undefined : "Controller names (the address each drives); none means the rig's default controller."),
+        items: controllers && controllers.length > 0 ? { type: "string", enum: controllers } : { type: "string" },
         uniqueItems: true,
       };
-      if (loops && loops.length > 0) ui[name] = { "ui:widget": "checkboxes", "ui:options": { inline: true } };
+      if (controllers && controllers.length > 0) ui[name] = { "ui:widget": "checkboxes", "ui:options": { inline: true } };
     } else {
       const d = raw.default;
       if (d !== undefined && d !== null && typeof d !== "object") ui[name] = { "ui:placeholder": String(d) };
     }
     properties[name] = field;
   }
-  const schema: JsonSchema = { type: "object", title: command.title, properties, ...(command.args.required ? { required: command.args.required.filter((r) => r in properties) } : {}), ...(root.$defs ? { $defs: withoutDefaults({ $defs: root.$defs }).$defs } : {}) };
+  const schema: JsonSchema = { type: "object", title: command.title, properties, ...(command.args.required ? { required: command.args.required.filter((r) => r in properties) } : {}), ...(defs ? { $defs: withoutDefaults({ $defs: defs }).$defs } : {}) };
   return { schema, uiSchema: ui };
+}
+
+/**
+ * A `command` or `set` step's arguments with what no longer applies dropped:
+ * a new device clears the command, its args and the values; a new command
+ * its args.
+ */
+export function onDeviceChange(args: Record<string, unknown>, before: Record<string, unknown>): { args: Record<string, unknown>; changed: boolean } {
+  if (args.device !== before.device) {
+    const { device_command: _c, args: _a, values: _v, ...rest } = args;
+    void _c;
+    void _a;
+    void _v;
+    return { args: rest, changed: true };
+  }
+  if (args.device_command !== before.device_command) {
+    const { args: _a, ...rest } = args;
+    void _a;
+    return { args: rest, changed: true };
+  }
+  return { args, changed: false };
 }
 
 /** The tree with `steps` guaranteed a list; null when `value` is not a program-shaped mapping at all. */

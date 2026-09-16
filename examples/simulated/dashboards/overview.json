@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "overview",
   "rig": "furnace",
-  "description": "Health, every reading, and the loops driving the heaters.",
+  "description": "Health, every reading, and the controllers driving the heaters.",
   "grid": {
     "cols": 24,
     "row_height": 24
@@ -19,8 +19,8 @@
         "tiles": [
           "rig",
           "recording",
-          "readers",
-          "loops",
+          "devices",
+          "controllers",
           "conditions"
         ]
       }
@@ -33,9 +33,9 @@
       "w": 6,
       "h": 5,
       "config": {
-        "channel": "zone1.temperature",
         "sparkline": true,
-        "showSource": true
+        "address": "furnace.zone1",
+        "showDevice": true
       }
     },
     {
@@ -46,9 +46,9 @@
       "w": 6,
       "h": 5,
       "config": {
-        "channel": "zone2.temperature",
         "sparkline": true,
-        "showSource": true
+        "address": "furnace.zone2",
+        "showDevice": true
       }
     },
     {
@@ -59,9 +59,9 @@
       "w": 6,
       "h": 5,
       "config": {
-        "channel": "zone3.temperature",
         "sparkline": true,
-        "showSource": true
+        "address": "furnace.zone3",
+        "showDevice": true
       }
     },
     {
@@ -72,9 +72,9 @@
       "w": 6,
       "h": 5,
       "config": {
-        "channel": "sample.temperature",
         "sparkline": true,
-        "showSource": true
+        "address": "furnace.sample",
+        "showDevice": true
       }
     },
     {
@@ -86,15 +86,15 @@
       "w": 24,
       "h": 8,
       "config": {
-        "channels": [
-          "zone1.temperature",
-          "zone2.temperature",
-          "zone3.temperature",
-          "sample.temperature"
-        ],
         "window_s": 0,
         "every": 0,
-        "y": "page"
+        "y": "page",
+        "addresses": [
+          "furnace.zone1",
+          "furnace.zone2",
+          "furnace.zone3",
+          "furnace.sample"
+        ]
       }
     },
     {
@@ -105,8 +105,8 @@
       "w": 8,
       "h": 8,
       "config": {
-        "loop": "heater1",
-        "view": "full"
+        "view": "full",
+        "controller": "heaters.heater1"
       }
     },
     {
@@ -117,8 +117,8 @@
       "w": 8,
       "h": 8,
       "config": {
-        "loop": "heater2",
-        "view": "full"
+        "view": "full",
+        "controller": "heaters.heater2"
       }
     },
     {
@@ -129,8 +129,8 @@
       "w": 8,
       "h": 8,
       "config": {
-        "loop": "heater3",
-        "view": "full"
+        "view": "full",
+        "controller": "heaters.heater3"
       }
     },
     {

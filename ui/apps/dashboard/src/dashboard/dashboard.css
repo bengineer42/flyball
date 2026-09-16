@@ -113,7 +113,7 @@ a.dash-health-stat:hover { background: var(--fb-bg-hover, var(--fb-bg-2)); }
 .dash-editing .dash-widget-heading, .dash-editing .dash-widget-spacer, .dash-editing .dash-widget-link { border-color: var(--fb-border-1); }
 
 /*
- * Loop and Actuator widgets take `bare` and hand their chrome (name, channel, mode badge,
+ * Controller and Device widgets take `bare` and hand their chrome (name, signal, mode badge,
  * severity) up through `useWidgetChrome` -- `WidgetFrame`'s `PanelFrame` is their only frame,
  * so nothing here needs to fight a nested one any more (the interim shim that used to live
  * here, flattening a second frame, is gone with it).

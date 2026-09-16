@@ -1,9 +1,8 @@
 import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
-import { useAlarmSummary, useHealth, useQuery, useReaderPeriods, useRig, useRigSchema, useSources, type StreamStatus } from "@flyball/react";
-import type { ActuatorSchema, ChannelOut, DeviceState } from "@flyball/client";
+import { useHealth, type StreamStatus } from "@flyball/react";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
-import { PAGE_ICONS, SourceIcon, WarnIcon, type IconComponent } from "./icons.js";
+import { PAGE_ICONS, WarnIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
 
 type Colour = NonNullable<ChipProps["color"]>;
@@ -81,8 +80,6 @@ export const SimChip = ({ speed }: { speed: number | undefined }) => {
 };
 
 export interface StatusProps {
-  actuators: ActuatorSchema[];
-  states: Record<string, DeviceState>;
   recording: Recording;
   programmer: Programmer;
   /** Every stream the app opens; folded into one live/reconnecting/offline chip. */
@@ -91,48 +88,31 @@ export interface StatusProps {
 
 /**
  * The app bar's condition summary: an always-present alarm chip, one folded
- * stream-health chip, recording, the running program, and readers only when
- * one is not running. Every healthy state is `color="default"` outlined —
- * colour is reserved for abnormal conditions (ISA-101 §0).
+ * stream-health chip, recording, the running program, and polled devices
+ * only when one is not running. Every healthy state is `color="default"`
+ * outlined — colour is reserved for abnormal conditions (ISA-101 §0).
  */
 export function Status({ recording, programmer, streams }: StatusProps) {
-  const rig = useRig();
   const health = useHealth(5000);
-  // Kept warm so the loops/actuators pages open with a populated cache; no chip reads it any more.
-  useQuery(() => rig.loops(), [rig], { refreshMs: 5000 });
+  const h = health.data;
 
-  // Alarm summary (research §6): device conditions plus channels outside their warn/alarm band —
-  // `plant.toml`'s 18 amber channels must not read "0" here just because no device condition
-  // fired. `/api/health.alarms` now carries this (backend, and already folds device conditions
-  // into its warn/alarm counts — do not add `active.length` again on top of it); a client-side
-  // fallback (from the store, device conditions added separately) covers an older daemon.
-  const schema = useRigSchema();
-  const sources = useSources();
-  const channels = (sources.data ?? []).flatMap((s) => s.channels);
-  // Periods only (not full reader runs): re-renders this chip less often — DESIGN-SPEC.md §2/B-3.
-  const periods = useReaderPeriods();
-  const readerOfSource = new Map<string, string>();
-  for (const reader of Object.values(schema.data?.readers ?? {})) for (const src of reader.sources) readerOfSource.set(src.name, reader.name);
-  const periodOf = (c: ChannelOut) => periods[readerOfSource.get(c.source) ?? ""] ?? undefined;
-  // No channels (empty array) when the server already supplies `alarms`: this stops
-  // `useAlarmSummary` subscribing every channel on the samples socket for a chip that would
-  // then ignore it — otherwise `/ws/samples` stays open on every page, even ones with no chart.
-  const clientSummary = useAlarmSummary(health.data?.alarms ? [] : channels, periodOf);
-  const active = (health.data?.conditions ?? []).filter((c) => c.level >= 30);
-  const amberChannels = health.data?.alarms?.warn ?? clientSummary.warn;
-  const redChannels = health.data?.alarms?.alarm ?? clientSummary.alarm;
-  const conditionCount = health.data?.alarms ? amberChannels + redChannels : active.length + amberChannels + redChannels;
-  const worst = health.data?.alarms?.max_level ?? Math.max(0, ...active.map((c) => c.level));
-  const alarmColour: Colour = redChannels > 0 || worst >= 40 ? "error" : amberChannels > 0 || worst >= 30 ? "warning" : "default";
+  // Alarm summary (research §6): `/api/health.alarms` counts the signals outside their warn/alarm
+  // band plus the device conditions at WARNING/ERROR, so the chip reads the same as the Overview tile.
+  const active = (h?.conditions ?? []).filter((c) => c.level >= 30);
+  const amber = h?.alarms.warn ?? 0;
+  const red = h?.alarms.alarm ?? 0;
+  const conditionCount = amber + red;
+  const worst = h?.alarms.max_level ?? 0;
+  const alarmColour: Colour = red > 0 || worst >= 40 ? "error" : amber > 0 || worst >= 30 ? "warning" : "default";
 
   const offline = streams.some((s) => s === "closed");
   const reconnecting = !offline && streams.some((s) => s !== "open");
   const liveState = offline ? "offline" : reconnecting ? "reconnecting" : "live";
   const liveDot = offline ? "error.main" : reconnecting ? "warning.main" : "text.disabled";
 
-  const readers = Object.entries(health.data?.readers ?? {});
-  const running = readers.filter(([, r]) => r.running).length;
-  const readerLines: Line[] = readers.map(([name, r]) => ({ name, href: hrefFor({ kind: "reader", name }), state: r.running ? "running" : "stopped" }));
+  const devices = Object.entries(h?.devices ?? {});
+  const running = devices.filter(([, d]) => d.running).length;
+  const deviceLines: Line[] = devices.map(([name, d]) => ({ name, href: hrefFor({ kind: "device", name }), state: d.running ? "running" : "stopped" }));
 
   const open = recording.data;
 
@@ -144,9 +124,9 @@ export function Status({ recording, programmer, streams }: StatusProps) {
         short={`${conditionCount}`}
         colour={alarmColour}
         lines={[
-          ...active.map((c) => ({ name: c.kind, state: c.message })),
-          ...(amberChannels > 0 ? [{ name: "channels", state: `${amberChannels} outside their warn band` }] : []),
-          ...(redChannels > 0 ? [{ name: "channels", state: `${redChannels} outside their alarm band` }] : []),
+          ...active.map((c) => ({ name: `${c.device} ${c.kind}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
+          ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
+          ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
         ]}
         href={hashFor("events")}
       />
@@ -171,14 +151,14 @@ export function Status({ recording, programmer, streams }: StatusProps) {
         />
       )}
       <DotChip dotColour={liveDot} label={liveState} title={`streams ${liveState}`} />
-      {readers.length > 0 && running < readers.length && (
+      {devices.length > 0 && running < devices.length && (
         <StatusChip
-          icon={SourceIcon}
-          full={`readers ${running}/${readers.length} running`}
-          short={`${running}/${readers.length}`}
+          icon={PAGE_ICONS.devices}
+          full={`devices ${running}/${devices.length} running`}
+          short={`${running}/${devices.length}`}
           colour="error"
-          lines={readerLines}
-          href={hashFor("readers")}
+          lines={deviceLines}
+          href={hashFor("devices")}
         />
       )}
     </>

@@ -40,8 +40,8 @@ export interface WidgetFrameProps {
  * subtitle, a text status, the actions (drag grip and `⋯` menu in edit mode)
  * -- and the widget draws its body only, frameless, inside `.fb-tile-body`.
  * A widget never mounts a `PanelFrame`/`Tile` of its own. Library panels that
- * carry their own chrome for the L3 pages (`Readout`, `LoopPanel`,
- * `ActuatorPanel`) take a `bare` prop that drops it; a widget wrapping one
+ * carry their own chrome for the L3 pages (`Readout`, `ControllerPanel`,
+ * `WritePanel`) take a `bare` prop that drops it; a widget wrapping one
  * passes `bare` and hands what the head needs (severity, subtitle, footer,
  * a mode chip) up through `useWidgetChrome` (./chrome.ts).
  *
@@ -63,7 +63,7 @@ export const WidgetFrame = memo(function WidgetFrame({ widget, editing, onAction
   const own = widget.title ?? kind?.titleFor?.(widget.config, bindings);
   const header = editing || kind?.header !== false;
   const title = header ? widget.title || chrome?.title || own || (editing ? kind?.label ?? widget.kind : undefined) : undefined;
-  // The widget's own subtitle (source, channel) wins; edit mode names the kind where there is none and the title does not already.
+  // The widget's own subtitle (device, signal) wins; edit mode names the kind where there is none and the title does not already.
   const subtitle = header ? chrome?.subtitle ?? (editing && own && own !== kind?.label ? kind?.label : undefined) : undefined;
   const act = (action: WidgetAction) => {
     setMenu(null);

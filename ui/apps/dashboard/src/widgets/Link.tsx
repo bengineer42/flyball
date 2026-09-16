@@ -31,7 +31,7 @@ const LinkWidget = memo(function LinkWidget({ config }: WidgetComponentProps) {
 export const link: WidgetKind = {
   kind: "link",
   label: "Link",
-  description: "A button to a page of the app -- a source, a loop, a program -- or to a URL.",
+  description: "A button to a page of the app -- a device, a signal, a controller, a program -- or to a URL.",
   category: "layout",
   defaultSize: { w: 4, h: 1 },
   minSize: { w: 2, h: 1 },
@@ -40,7 +40,7 @@ export const link: WidgetKind = {
     type: "object",
     properties: {
       page: { type: "string", title: "Page", default: "overview", oneOf: [...PAGES.map((p) => ({ const: p.id, title: p.label })), { const: "url", title: "a URL" }] },
-      name: { type: "string", title: "Name", default: "", description: "The thing on that page (a source, loop, actuator or program name; a session id); blank for the list." },
+      name: { type: "string", title: "Name", default: "", description: "The thing on that page (a device or program name, a signal's or controller's address, a session id); blank for the list." },
       url: { type: "string", title: "URL", default: "", description: "When the page is \"a URL\"." },
       label: { type: "string", title: "Label", default: "", description: "Blank: the page and name." },
       variant: { type: "string", title: "Look", default: "outlined", enum: ["outlined", "text"] },
@@ -48,7 +48,7 @@ export const link: WidgetKind = {
     required: ["page"],
   }),
   uiSchema: { page: { "ui:widget": "select" } },
-  defaultConfig: () => ({ page: "sources", name: "", url: "", label: "", variant: "outlined" }),
+  defaultConfig: () => ({ page: "inputs", name: "", url: "", label: "", variant: "outlined" }),
   titleFor: () => undefined,
   header: false,
   Component: LinkWidget,

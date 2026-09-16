@@ -1,18 +1,18 @@
-import { memo, useState, type ReactNode } from "react";
-import { Alert, Box, Button, ButtonBase, Chip, Link, Paper, Stack, Typography } from "@mui/material";
-import { Readout, ObjectView, UnitCharts, groupByUnit, useHealth, channelKey, countRender, useActuatorState, useAlarmSummary, useEvents, useLatest, useReaderPeriods, useReaderRuns, useTraceRef, type TraceRef } from "@flyball/react";
-import type { ActuatorSchema, ChannelOut, ReaderRun, ReaderSchema, RigSchema, SourceOut } from "@flyball/client";
-import { CircleIcon, OkIcon, SourceIcon, WarnIcon, channelIcon, PAGE_ICONS, type IconComponent } from "../icons.js";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { Alert, Button, ButtonBase, Chip, Link, Paper, Stack, Typography } from "@mui/material";
+import { Readout, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef } from "@flyball/react";
+import { describeController, setpointOf, type ControllerOut, type DeviceOut, type SignalOut } from "@flyball/client";
+import { CircleIcon, OkIcon, SignalIcon, WarnIcon, signalIcon, PAGE_ICONS, type IconComponent } from "../icons.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor, type Page } from "../router.js";
-import { DeviceCard, ReaderCard, SectionHead, StateBlock, StatusDot, clickThrough, clickableSx } from "../cards.js";
+import { DeviceSummaryCard, SectionHead, StateBlock, clickThrough, clickableSx } from "../cards.js";
 import { useRecordingExports } from "../model.js";
 import { PageBar } from "../PageBar.js";
 import { GroupingSelect, readGrouping, writeGrouping, type Grouping } from "../grouping.js";
+import { publishingOf } from "./Inputs.js";
 
 export interface OverviewProps extends ChartSettings {
-  schema: RigSchema;
-  sources: SourceOut[];
+  devices: DeviceOut[];
   onOpen(page: Page): void;
 }
 
@@ -57,65 +57,75 @@ function GoTo({ label, onClick }: { label: string; onClick(): void }) {
 }
 
 /**
- * A channel's readout tile, with its kind's icon in the corner. Reads the store itself, so only
- * the tile re-renders on its channel's samples; memoised on primitives, so the page re-rendering
- * (a reader's run once a second, say) does not touch forty tiles.
+ * A signal's readout tile, with its kind's icon in the corner. Reads the store itself (the
+ * stale threshold from its device's run), so only the tile re-renders on its signal's samples;
+ * memoised on primitives, so the page re-rendering does not touch forty tiles.
  */
-const Tile = memo(function Tile({ channel, live, windowS, every, showSource, exportHref, periodS, className }: { channel: ChannelOut; live: TraceRef; windowS: number; every: number; showSource: boolean; exportHref?: string; periodS?: number | null; className?: string }) {
-  const Icon = channelIcon(channel);
+const Tile = memo(function Tile({ signal, live, windowS, every, showDevice, exportHref, className }: { signal: SignalOut; live: TraceRef; windowS: number; every: number; showDevice: boolean; exportHref?: string; className?: string }) {
+  const Icon = signalIcon(signal);
   return (
     <div className={className ?? "tile-with-icon c3"}>
       <Icon fontSize="small" className="tile-icon" />
-      <Readout channel={channel} source={live} showSource={showSource} windowS={windowS} every={every} exportHref={exportHref} fresh={{ periodS }} />
+      <Readout signal={signal} source={live} showDevice={showDevice} windowS={windowS} every={every} exportHref={exportHref} />
     </div>
   );
 });
 
-/** When a source last reported, from its first channel's newest point; re-renders this line alone. */
-function LastSample({ source }: { source: SourceOut }) {
-  const first = source.channels[0];
-  const point = useLatest(first ? channelKey(first) : undefined);
+/** When a device last published, from its first publishing signal's newest point; re-renders this line alone. */
+function LastSample({ first }: { first: SignalOut | undefined }) {
+  const point = useSignal(first?.address);
   return <>{point ? `sample ${new Date(point.t * 1000).toLocaleTimeString()}` : "no sample yet"}</>;
 }
 
-/** The readers' cards, subscribed to their runs (a last-read time that moves once a second) so the page above is not. */
-function ReaderCards({ readers, fallback }: { readers: ReaderSchema[]; fallback: Record<string, Partial<ReaderRun>> | undefined }) {
-  const runs = useReaderRuns();
+/** The devices' cards, subscribed to their runs (a last-read time that moves once a second) so the page above is not. */
+function DeviceCards({ devices }: { devices: DeviceOut[] }) {
+  const runs = useDeviceRuns();
   return (
     <div className="grid">
-      {readers.map((r) => (
-        <ReaderCard key={r.name} className="c3" reader={r} run={runs[r.name] ?? fallback?.[r.name]} />
+      {devices.map((d) => (
+        <DeviceSummaryCard key={d.name} className="c3" device={d} run={runs[d.name]} />
       ))}
     </div>
   );
 }
 
-/** One actuator's card, subscribed to its own state. */
-const ActuatorCard = memo(function ActuatorCard({ actuator }: { actuator: ActuatorSchema }) {
-  const state = useActuatorState(actuator.name);
-  const conditions = state?.conditions ?? [];
+/** One controller's card: what it drives from what, its mode, and the live reading, setpoint and demand. */
+const ControllerCard = memo(function ControllerCard({ name, sourceUnit, precision }: { name: string; sourceUnit: string; precision: number }) {
+  const c = useController(name);
+  if (!c) return null;
+  const href = hrefFor({ kind: "controller", name });
+  const num = (v: number | null | undefined, unit: string) => (v == null ? "—" : `${v.toFixed(precision)} ${unit}`);
+  const setpoint = setpointOf(c);
   return (
-    <DeviceCard
-      className="c3"
-      icon={PAGE_ICONS.actuators}
-      name={actuator.name}
-      label={actuator.label}
-      href={hrefFor({ kind: "actuator", name: actuator.name })}
-      type={actuator.type}
-      chip={conditions.length > 0 ? <Chip label={conditions.map((c) => c.kind).join(", ")} color="warning" variant="outlined" /> : <StatusDot />}
-    >
-      <ObjectView schema={actuator.state} value={state} omit={["conditions"]} />
-    </DeviceCard>
+    <Paper className="c3" sx={{ p: 3, display: "flex", flexDirection: "column", gap: 1, minWidth: 0, ...clickableSx }} onClick={clickThrough(href)}>
+      <Stack direction="row" alignItems="center" spacing={1}>
+        <PAGE_ICONS.controllers fontSize="small" sx={{ color: "text.disabled" }} />
+        <Typography fontWeight={600} noWrap>
+          <Link href={href} underline="hover" color="inherit">
+            {describeController(c)}
+          </Link>
+        </Typography>
+        <Chip label={c.mode} size="small" variant="outlined" color={c.mode === "regulating" ? "primary" : "default"} sx={{ ml: "auto !important" }} className={`fb-mode fb-mode-${c.mode}`} />
+      </Stack>
+      <Typography variant="body2" color="text.secondary" noWrap title={`${c.source} → ${c.target}`}>
+        {c.source} → {c.target}
+      </Typography>
+      <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
+        reading {num(c.reading?.value, sourceUnit)} · target {num(setpoint, sourceUnit)} · demand {num(c.demand, c.demand_unit)}
+      </Typography>
+    </Paper>
   );
 });
 
-/** Everything the rig knows about itself on one page: health strip, channels, actuators, readers. */
-export function Overview({ schema, sources, onOpen, ...charts }: OverviewProps) {
+/** Everything the rig knows about itself on one page: health strip, inputs, controllers, devices. */
+export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   countRender("Overview");
   const { windowS, yScale, every } = charts;
-  const channels = sources.flatMap((s) => s.channels);
+  const publishing = useMemo(() => publishingOf(devices), [devices]);
+  const signals = useMemo(() => publishing.flatMap((d) => d.signals), [publishing]);
+  const byAddress = useMemo(() => new Map(signals.map((s) => [s.address, s])), [signals]);
   // One handle on the store for every chart and tile on the page; nothing here re-renders on a sample.
-  const live = useTraceRef(channels);
+  const live = useTraceRef(useMemo(() => signals.map((s) => s.address), [signals]));
   const { events } = useEvents(500);
   const stored = useRecordingExports();
   const [grouping, setGrouping] = useState<Grouping>(readGrouping);
@@ -125,50 +135,34 @@ export function Overview({ schema, sources, onOpen, ...charts }: OverviewProps) 
   };
   const health = useHealth(5000);
   const h = health.data;
-  // The readers' periods (for stale thresholds) change rarely; the runs themselves move every read and stay in `ReaderCards`.
-  const periods = useReaderPeriods();
+  const { controllers } = useControllers();
+  const controllerList = useMemo(() => Object.values(controllers).sort((a: ControllerOut, b: ControllerOut) => a.name.localeCompare(b.name)), [controllers]);
   const problems = events.filter((e) => e.level === "ERROR" || e.level === "WARNING").length;
   const errors = events.filter((e) => e.level === "ERROR").length;
-  const actuators = Object.values(schema.actuators);
-  const readers = Object.values(schema.readers);
-  const readerCount = h ? Object.keys(h.readers).length : 0;
-  const readersDown = h ? Object.values(h.readers).filter((r) => !r.running).length : 0;
-  const warnings = hashFor("events", null, null, { level: "WARNING" });
+  const shownDevices = devices.filter((d) => d.kind !== "simulation");
+  const polled = h ? Object.keys(h.devices).length : 0;
+  const stopped = h ? Object.values(h.devices).filter((d) => !d.running).length : 0;
+  const warnings = hashFor("events", null, { level: "WARNING" });
 
-
-  // Freshness for stale detection (DESIGN-SPEC.md §2/B-3): the channel's reader period; the
-  // sample times come from the store (a Readout in `source` mode fills them in itself, in rig time).
-  const readerOfSource = new Map<string, string>();
-  for (const reader of readers) for (const src of reader.sources) readerOfSource.set(src.name, reader.name);
-  const periodOf = (channel: ChannelOut) => periods[readerOfSource.get(channel.source) ?? ""];
-
-  // Alarm summary (research §6): device conditions plus channels outside their warn/alarm band —
-  // a rig with every tile amber must not read "0 conditions". `/api/health` has no channel-band
-  // state, so this is computed here from the store's latest values (re-rendering only when a
-  // count changes); a server-side summary that folds this in (so the app-bar chip need not
-  // re-derive it) would be better.
-  const activeConditions = (h?.conditions ?? []).filter((c) => c.level >= 30);
-  // `/api/health` carries the summary (`alarms`: channels plus device conditions) on current
-  // daemons; an older one leaves the channels to the store and the conditions to this page.
-  const local = useAlarmSummary(h?.alarms ? [] : channels, periodOf);
-  const amberChannels = h?.alarms ? h.alarms.warn : local.warn + activeConditions.filter((c) => c.level < 40).length;
-  const redChannels = h?.alarms ? h.alarms.alarm : local.alarm + activeConditions.filter((c) => c.level >= 40).length;
-  const conditionsCount = amberChannels + redChannels;
-  const worstDeviceLevel = Math.max(0, ...activeConditions.map((c) => c.level));
-  const conditionsTone: Tone | undefined = redChannels > 0 || worstDeviceLevel >= 40 ? "bad" : conditionsCount > 0 ? "warn" : undefined;
+  // Alarm summary (research §6): `/api/health.alarms` folds the signals outside their warn/alarm
+  // band with the device conditions at WARNING/ERROR, so this tile and the app-bar chip agree.
+  const amber = h?.alarms.warn ?? 0;
+  const red = h?.alarms.alarm ?? 0;
+  const conditionsCount = amber + red;
+  const conditionsTone: Tone | undefined = red > 0 || (h?.alarms.max_level ?? 0) >= 40 ? "bad" : conditionsCount > 0 ? "warn" : undefined;
 
   return (
     <>
-      <PageBar end={<ChartControls {...charts} unit={sources[0]?.channels[0]?.unit} />}>
+      <PageBar end={<ChartControls {...charts} unit={signals[0]?.unit} />}>
         <GroupingSelect value={grouping} onChange={group} />
       </PageBar>
       <div className="grid stats">
         <Stat icon={h?.ok ? OkIcon : WarnIcon} label="rig" value={h ? (h.ok ? "ok" : "fault") : "…"} tone={h ? (h.ok ? "ok" : "bad") : undefined} href={hashFor("events")} />
-        <Stat icon={SourceIcon} label="recording" value={h ? (h.recording ? "on" : "off") : "…"} tone={h?.recording ? "ok" : undefined} href={hashFor("sessions")} />
-        <Stat icon={PAGE_ICONS.sources} label="readers" value={h ? `${readerCount - readersDown}/${readerCount} running` : "…"} tone={readersDown ? "warn" : undefined} href={hashFor("readers")} />
-        <Stat icon={PAGE_ICONS.controllers} label="controllers" value={h ? Object.keys(h.loops).length : "…"} href={hashFor("controllers")} />
+        <Stat icon={SignalIcon} label="recording" value={h ? (h.recording ? "on" : "off") : "…"} tone={h?.recording ? "ok" : undefined} href={hashFor("sessions")} />
+        <Stat icon={PAGE_ICONS.devices} label="devices" value={h ? `${polled - stopped}/${polled} polling` : "…"} tone={stopped ? "warn" : undefined} href={hashFor("devices")} />
+        <Stat icon={PAGE_ICONS.controllers} label="controllers" value={h ? Object.keys(h.controllers).length : "…"} href={hashFor("controllers")} />
         <Stat icon={WarnIcon} label="conditions" value={h ? conditionsCount : "…"} tone={h ? conditionsTone : undefined} href={warnings} />
-        <Stat icon={CircleIcon} label="signals waiting" value={h ? h.signals.length : "…"} href={hashFor("events")} />
+        <Stat icon={CircleIcon} label="waits" value={h ? h.waits.length : "…"} href={hashFor("events")} />
         <Stat icon={PAGE_ICONS.events} label="events" value={`${problems} warn/error of ${events.length}`} tone={errors ? "bad" : problems ? "warn" : undefined} href={hashFor("events")} />
         <Stat icon={PAGE_ICONS.sessions} label="uptime" value={h ? uptime(h.uptime_s) : "…"} />
       </div>
@@ -176,7 +170,10 @@ export function Overview({ schema, sources, onOpen, ...charts }: OverviewProps) 
       {h && h.conditions.length > 0 && (
         <Stack spacing={0.5} sx={{ mb: 3 }}>
           {h.conditions.map((c) => (
-            <Alert key={c.kind + c.since_ns} severity={c.level >= 40 ? "error" : "warning"}>
+            <Alert key={`${c.device}-${c.kind}-${c.since_ns}`} severity={c.level >= 40 ? "error" : "warning"}>
+              <Link href={hrefFor({ kind: "device", name: c.device })} color="inherit" underline="hover">
+                <strong>{c.device}</strong>
+              </Link>{" "}
               <strong>{c.kind}</strong> {c.message}
             </Alert>
           ))}
@@ -184,83 +181,83 @@ export function Overview({ schema, sources, onOpen, ...charts }: OverviewProps) 
       )}
 
       <section>
-        <SectionHead icon={PAGE_ICONS.sources} title="Sources" count={sources.length} end={<GoTo label="charts" onClick={() => onOpen("sources")} />} />
-        {sources.length === 0 && <StateBlock state="empty" message="No sources declared. Add a reader to the rig file to see channels here." action={{ label: "View sources page", onClick: () => onOpen("sources") }} />}
-        {sources.length > 0 && (
-        <div className="grid">
-        {grouping === "channel" && channels.map((c) => <Tile key={channelKey(c)} channel={c} live={live} windowS={windowS} every={every} showSource exportHref={stored.series(c)} periodS={periodOf(c)} />)}
-        {grouping === "unit" &&
-          groupByUnit(channels).map(({ unit, channels: cs }) => (
-            <div key={unit} className="c12 unit-group">
-              <Stack direction="row" alignItems="center" spacing={1} className="source-head">
-                <Typography fontWeight={600}>{unit}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {cs.length} channel{cs.length === 1 ? "" : "s"}
-                </Typography>
-              </Stack>
-              <div className="grid">
-                {cs.map((c) => <Tile key={channelKey(c)} channel={c} live={live} windowS={windowS} every={every} showSource exportHref={stored.series(c)} periodS={periodOf(c)} />)}
-              </div>
+        <SectionHead icon={PAGE_ICONS.inputs} title="Inputs" count={signals.length} end={<GoTo label="charts" onClick={() => onOpen("inputs")} />} />
+        {signals.length === 0 && <StateBlock state="empty" message="No signal publishes. Add a device with a publishing signal to the rig file to see readings here." action={{ label: "View inputs page", onClick: () => onOpen("inputs") }} />}
+        {signals.length > 0 && (
+          <div className="grid">
+            {grouping === "signal" && signals.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice exportHref={stored.series(s.address)} />)}
+            {grouping === "unit" &&
+              groupByUnit(signals).map(({ unit, signals: ss }) => (
+                <div key={unit} className="c12 unit-group">
+                  <Stack direction="row" alignItems="center" spacing={1} className="source-head">
+                    <Typography fontWeight={600}>{unit}</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {ss.length} signal{ss.length === 1 ? "" : "s"}
+                    </Typography>
+                  </Stack>
+                  <div className="grid">
+                    {ss.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice exportHref={stored.series(s.address)} />)}
+                  </div>
+                </div>
+              ))}
+            {grouping === "device" &&
+              publishing.map(({ device, signals: ss }) => {
+                const href = hrefFor({ kind: "device", name: device.name });
+                // A quarter of the row per signal, up to the whole row: its tiles then sit beside the other devices' tiles.
+                const span = Math.min(12, 3 * Math.max(1, ss.length));
+                return (
+                  <div key={device.name} className={`source-group c${span}`}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={1}
+                      className="source-head"
+                      sx={{ cursor: "pointer", borderRadius: 1, "&:hover .source-name": { textDecoration: "underline" } }}
+                      onClick={clickThrough(href)}
+                    >
+                      <PAGE_ICONS.devices fontSize="inherit" sx={{ color: "text.disabled", alignSelf: "center" }} />
+                      <Typography fontWeight={600}>
+                        <Link href={href} underline="hover" color="inherit" className="source-name">
+                          {device.label ?? device.name}
+                        </Link>
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {device.label && `${device.name} · `}
+                        <LastSample first={ss[0]} />
+                      </Typography>
+                    </Stack>
+                    <div className="tiles">
+                      {ss.map((s) => (
+                        <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice={false} exportHref={stored.series(s.address)} className="tile-with-icon" />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            <div className="c12 fb-charts">
+              <UnitCharts signals={signals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
             </div>
-          ))}
-        {grouping === "source" && sources.map((src) => {
-          const href = hrefFor({ kind: "source", name: src.name });
-          // A quarter of the row per channel, up to the whole row: its tiles then sit beside the other sources' tiles.
-          const span = Math.min(12, 3 * Math.max(1, src.channels.length));
-          return (
-            <div key={src.name} className={`source-group c${span}`}>
-              <Stack
-                direction="row"
-                alignItems="center"
-                spacing={1}
-                className="source-head"
-                sx={{ cursor: "pointer", borderRadius: 1, "&:hover .source-name": { textDecoration: "underline" } }}
-                onClick={clickThrough(href)}
-              >
-                <SourceIcon fontSize="inherit" sx={{ color: "text.disabled", alignSelf: "center" }} />
-                <Typography fontWeight={600}>
-                  <Link href={href} underline="hover" color="inherit" className="source-name">
-                    {src.label ?? src.name}
-                  </Link>
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {src.label && `${src.name} · `}
-                  <LastSample source={src} />
-                </Typography>
-              </Stack>
-              <div className="tiles">
-                {src.channels.map((c) => (
-                  <Tile key={channelKey(c)} channel={c} live={live} windowS={windowS} every={every} showSource={false} exportHref={stored.series(c)} periodS={periodOf(c)} className="tile-with-icon" />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-        {sources.length > 0 && (
-          <div className="c12 fb-charts">
-            <UnitCharts channels={channels} source={live} sources={sources} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.channels} />
           </div>
         )}
-        </div>
+      </section>
+
+      <section>
+        <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={controllerList.length} end={<GoTo label="faceplates" onClick={() => onOpen("controllers")} />} />
+        {controllerList.length === 0 && <StateBlock state="empty" message="No controller attached. Bind a publishing signal to a writable one to regulate it." action={{ label: "View controllers page", onClick: () => onOpen("controllers") }} />}
+        {controllerList.length > 0 && (
+          <div className="grid">
+            {controllerList.map((c) => {
+              const source = byAddress.get(c.source);
+              return <ControllerCard key={c.name} name={c.name} sourceUnit={source?.unit ?? ""} precision={source?.precision ?? 1} />;
+            })}
+          </div>
         )}
       </section>
 
       <section>
-        <SectionHead icon={PAGE_ICONS.actuators} title="Actuators" count={actuators.length} end={<GoTo label="commands" onClick={() => onOpen("actuators")} />} />
-        {actuators.length === 0 && <StateBlock state="empty" message="No actuators declared. Add one to the rig file to command it here." action={{ label: "View actuators page", onClick: () => onOpen("actuators") }} />}
-        {actuators.length > 0 && (
-        <div className="grid">
-          {actuators.map((a) => (
-            <ActuatorCard key={a.name} actuator={a} />
-          ))}
-        </div>
-        )}
-      </section>
-
-      <section>
-        <SectionHead icon={SourceIcon} title="Readers" count={readers.length} end={<GoTo label="all readers" onClick={() => onOpen("readers")} />} />
-        {readers.length === 0 && <StateBlock state="empty" message="No readers declared. Add one to the rig file to see it here." action={{ label: "View readers page", onClick: () => onOpen("readers") }} />}
-        {readers.length > 0 && <ReaderCards readers={readers} fallback={h?.readers} />}
+        <SectionHead icon={PAGE_ICONS.devices} title="Devices" count={shownDevices.length} end={<GoTo label="all devices" onClick={() => onOpen("devices")} />} />
+        {shownDevices.length === 0 && <StateBlock state="empty" message="No devices declared. Add one to the rig file to see it here." />}
+        {shownDevices.length > 0 && <DeviceCards devices={shownDevices} />}
       </section>
     </>
   );

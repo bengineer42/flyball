@@ -7,7 +7,7 @@ the top of each `.mjs` if they move. Working files go to `$FLYBALL_CHECK_DIR` (d
 
 | script | does |
 | --- | --- |
-| `rig-up.sh <rig.toml> <api> <ui> [--record …]` | daemon (store under the check dir) + Vite dev server proxied to it; logs and PIDs under the check dir |
+| `rig-up.sh <rig file> <api> <ui> [--record …]` | daemon (store under the check dir) + Vite dev server proxied to it; logs and PIDs under the check dir |
 | `rig-down.sh <rigname>` | kills both process groups |
 | `shot.mjs <url> <out.png> [--width --height --wait --dark --full --click sel]` | screenshot + `<out>.log` of every console error/warning; prints counts. The number to watch: every page on every rig should print `errors=0 warnings=0` |
 | `measure.mjs <url> <selector>` | bounding boxes and canvas sizes of matching elements (chart plot area checks) |
@@ -15,13 +15,13 @@ the top of each `.mjs` if they move. Working files go to `$FLYBALL_CHECK_DIR` (d
 | `dash-e2e.mjs <ui-url> <api-url>` | 22-step dashboard editor test (add/bind/resize/undo/redo/configure/duplicate/remove/save/reload/rename/export/import/home/delete, no RGL in view mode, zero console issues); must print `ALL PASS` |
 | `contrast.mjs` | WCAG contrast of every `--fb-*` fg/bg pair in `packages/react/src/styles.css`, both modes |
 | `programText-roundtrip.mjs` | parses every example program with the app's `programText.ts`, round-trips yaml/toml/json, cross-checks PyYAML |
-| `sweep.sh <rig.toml> <api> <ui>` | one rig through every page at 1440 light, dark, 400 px, plus a channel and a loop detail page |
+| `sweep.sh <rig file> <api> <ui>` | one rig through every page at 1440 light, dark, 400 px, plus a channel and a loop detail page |
 
 Typical session:
 
 ```bash
 export FLYBALL_CHECK_DIR=/tmp/flyball-check
-scripts/ui-check/rig-up.sh examples/simulated/furnace.toml 8001 5201 --record
+scripts/ui-check/rig-up.sh examples/simulated/furnace.yaml 8001 5201 --record
 curl -X POST localhost:8001/api/programs/library/anneal/run
 node scripts/ui-check/shot.mjs http://127.0.0.1:5201/#/loops $FLYBALL_CHECK_DIR/shots/loops.png
 node scripts/ui-check/dash-e2e.mjs http://127.0.0.1:5201 http://127.0.0.1:8001

@@ -21,7 +21,7 @@ import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { Form as MuiForm } from "@rjsf/mui";
 import { SchemaForm } from "@flyball/react";
 import type { JsonSchema } from "@flyball/client";
-import { argsOf, commandsOf, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
+import { argsOf, commandsOf, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
 
 const COMMAND_TYPE = "application/x-flyball-command";
 const STEP_TYPE = "application/x-flyball-step";
@@ -47,17 +47,21 @@ export interface ProgramBuilderProps {
   onChange(tree: ProgramTree): void;
   /** `GET /api/programs/schema`; without it there is no palette and the steps show as raw JSON. */
   programSchema: JsonSchema | undefined;
-  /** The rig's loop names, for the `loop` pick; undefined while unknown. */
-  loops: string[] | undefined;
+  /** The rig's controller names (the address each drives), for the `loop` pick; undefined while unknown. */
+  controllers: string[] | undefined;
+  /** The rig's devices with their commands and writable signals, for a `command` or `set` step's picks; undefined while unknown. */
+  devices?: DevicePicks;
   /** Check errors by step index (the daemon counts from zero). */
   stepErrors: Record<number, string>;
+  /** Check warnings by step index: what the step names that the rig lacks right now. */
+  stepWarnings?: Record<number, string>;
   /** Bumped whenever the tree was replaced from outside (the text), so the forms re-read their values. */
   revision: number;
   /** Create mode: the name field is shown, and is what the program will be stored as. A stored program is renamed from the header instead. */
   nameEditable?: boolean;
 }
 
-export function ProgramBuilder({ tree, onChange, programSchema, loops, stepErrors, revision, nameEditable }: ProgramBuilderProps) {
+export function ProgramBuilder({ tree, onChange, programSchema, controllers, devices, stepErrors, stepWarnings = {}, revision, nameEditable }: ProgramBuilderProps) {
   const commands = useMemo(() => commandsOf(programSchema), [programSchema]);
   const modifierSchemas = useMemo(() => modifiersOf(programSchema), [programSchema]);
   const byTag = useMemo(() => Object.fromEntries(commands.map((c) => [c.tag, c])), [commands]);
@@ -169,8 +173,10 @@ export function ProgramBuilder({ tree, onChange, programSchema, loops, stepError
                 commands={commands}
                 modifierSchemas={modifierSchemas}
                 programSchema={programSchema}
-                loops={loops}
+                controllers={controllers}
+                devices={devices}
                 error={stepErrors[i]}
+                warning={stepWarnings[i]}
                 dragging={dragging === i}
                 onDragStart={(e) => {
                   e.dataTransfer.setData(STEP_TYPE, String(i));
@@ -186,8 +192,14 @@ export function ProgramBuilder({ tree, onChange, programSchema, loops, stepError
                 onArgs={(data) => {
                   if (!tag) return;
                   const before = fromForm(toForm(value, command), command);
-                  const args = fromForm(data, command);
+                  let args = fromForm(data, command);
                   if (sameValue(args, before)) return; // nothing the user changed (RJSF reports its initial state too)
+                  if (tag === "command" || tag === "set") {
+                    // the command, args and values picks follow the device: a new one remounts the form with the new picks
+                    const next = onDeviceChange(args, before);
+                    args = next.args;
+                    if (next.changed) setStructure((n) => n + 1);
+                  }
                   // the composite time field is not the form's: carry it over as it is
                   const current = argsOf(value, command);
                   const time = Object.fromEntries(Object.entries(current).filter(([k]) => command?.time?.keys.includes(k)));
@@ -396,8 +408,10 @@ interface StepCardProps {
   commands: CommandInfo[];
   modifierSchemas: Record<string, JsonSchema>;
   programSchema: JsonSchema | undefined;
-  loops: string[] | undefined;
+  controllers: string[] | undefined;
+  devices: DevicePicks | undefined;
   error: string | undefined;
+  warning: string | undefined;
   dragging: boolean;
   onDragStart(e: DragEvent<HTMLElement>): void;
   onDragEnd(): void;
@@ -413,17 +427,17 @@ interface StepCardProps {
   onDelete(): void;
 }
 
-function StepCard({ index, count, tag, value, modifiers, command, commands, modifierSchemas, programSchema, loops, error, dragging, onDragStart, onDragEnd, onArgs, onTime, onCommand, onModifier, onUp, onDown, onDuplicate, onInsertAfter, onDelete }: StepCardProps) {
+function StepCard({ index, count, tag, value, modifiers, command, commands, modifierSchemas, programSchema, controllers, devices, error, warning, dragging, onDragStart, onDragEnd, onArgs, onTime, onCommand, onModifier, onUp, onDown, onDuplicate, onInsertAfter, onDelete }: StepCardProps) {
   // The form's value and its schema are fixed at mount (the key changes on structural edits); the form owns the edits after that.
   const [initial] = useState(() => toForm(value, command));
-  const shape = useMemo(() => (command && programSchema ? formShape(command, programSchema, loops) : null), [command, programSchema, loops]);
+  const shape = useMemo(() => (command && programSchema ? formShape(command, programSchema, controllers, devices, initial) : null), [command, programSchema, controllers, devices, initial]);
   // The time control is the tree's, not the form's: it follows `value` on every render.
   const time = command?.time;
   const entries = useMemo(() => (time ? timeEntries(argsOf(value, command), time) : []), [time, value, command]);
   const [modifierAnchor, setModifierAnchor] = useState<HTMLElement | null>(null);
   const unusedModifiers = Object.keys(modifierSchemas).filter((k) => !(k in modifiers));
   return (
-    <Paper data-step={index + 1} data-command={tag ?? ""} sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5, opacity: dragging ? 0.5 : 1, ...(error ? { borderColor: "error.main" } : {}) }}>
+    <Paper data-step={index + 1} data-command={tag ?? ""} sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5, opacity: dragging ? 0.5 : 1, ...(error ? { borderColor: "error.main" } : warning ? { borderColor: "warning.main" } : {}) }}>
       <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
         <Tooltip title="Drag to reorder">
           <Box
@@ -501,6 +515,11 @@ function StepCard({ index, count, tag, value, modifiers, command, commands, modi
       {error && (
         <Alert severity="error" sx={{ py: 0 }} data-testid="step-error">
           {error}
+        </Alert>
+      )}
+      {warning && !error && (
+        <Alert severity="warning" sx={{ py: 0 }} data-testid="step-warning">
+          {warning}
         </Alert>
       )}
       {!tag && (

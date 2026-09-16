@@ -31,9 +31,8 @@ import StopIcon from "@mui/icons-material/Stop";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
-import { LoopPanel, SchemaForm, channelKey, useActuatorStates, useFreshness, useLoops, useQuery, useReaderPeriods, useRig, useRigSchema, useSources, type LoopTrace } from "@flyball/react";
-import { alarmLevel, type ActuatorChoice, type ActuatorSchema, type ChannelOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type LoopOut, type LoopSchema, type ReaderSchema } from "@flyball/client";
-import { Actuator } from "../Actuator.js";
+import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
+import { describeSignal, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type SignalChoice, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
@@ -41,43 +40,36 @@ import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { PageBar } from "../PageBar.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
-import { Crumbs } from "./Sources.js";
+import { Crumbs } from "./Inputs.js";
 import { hashFor } from "../router.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const channelName = (c: ChannelOut) => `${c.source}.${c.measurand}`;
-/** `/api/loops/schema` channels carry a `dimension`; the wire type does not declare it yet. */
-const dimensionOf = (c: ChannelOut) => {
-  const d = (c as { dimension?: unknown }).dimension;
-  return typeof d === "string" ? d : "";
-};
 
 type LawChoice = "stored" | "configure" | "none";
 
 /** What the dialog sends: `law` is a tuning's name, a config, or null for no law; `feedforward` a config. */
 interface Draft {
-  actuator: ActuatorChoice | null;
-  channel: string | null;
+  /** The writable signal to drive: the controller's name. */
+  target: SignalChoice | null;
+  /** The publishing signal to regulate, by address. */
+  source: string | null;
   lawChoice: LawChoice;
   tuning: string;
   config: LawConfig | null;
-  /** Null until an actuator and channel are chosen (the default depends on their units). */
+  /** Null until a target and source are chosen (the default depends on their units). */
   feedforward: FeedforwardConfig | null;
   isDefault: boolean;
 }
 
-const EMPTY_DRAFT: Draft = { actuator: null, channel: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false };
-
-/** The unit an actuator's demands are in: its own, or the channel's when it has none. */
-const demandUnitOf = (actuator: ActuatorChoice | null, channel: ChannelOut | null) => actuator?.demand_unit ?? channel?.unit ?? null;
+const EMPTY_DRAFT: Draft = { target: null, source: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false };
 
 /**
  * What the rig would pick when no feedforward is given: `setpoint` when the
- * actuator takes the channel's unit (demand = setpoint), else `none` (the
- * law does all the work, in the actuator's unit).
+ * target takes the source's unit (demand = setpoint), else `none` (the law
+ * does all the work, in the target's unit).
  */
-const defaultFeedforward = (actuator: ActuatorChoice | null, channel: ChannelOut | null): FeedforwardConfig | null =>
-  actuator && channel ? { tag: actuator.demand_unit === null || actuator.demand_unit === channel.unit ? "setpoint" : "none" } : null;
+const defaultFeedforward = (target: SignalChoice | null, source: SignalChoice | null): FeedforwardConfig | null =>
+  target && source ? { tag: target.unit === source.unit ? "setpoint" : "none" } : null;
 
 /**
  * A tagged union's branches titled by their tag (`PI`, not `PIConfig`), so
@@ -108,37 +100,33 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
 }
 
 /**
- * Make a controller in four steps: the actuator, a channel it may take, the
- * law, and the feedforward that maps the setpoint into the actuator's unit
- * (defaulted from the units, as the rig would). Channels another controller
- * already regulates are disabled. Opened either from the page bar (any
- * actuator) or from an unlooped actuator's own card, which preselects it
- * (`initialActuator`) and jumps straight to the channel step.
+ * Make a controller in four steps: the writable signal to drive (the
+ * target), a publishing signal to regulate (the source), the law, and the
+ * feedforward that maps the setpoint into the target's unit (defaulted from
+ * the units, as the rig would). Sources another controller already
+ * regulates and targets already driven are disabled. Opened either from the
+ * page bar (any target) or from an undriven signal's own card, which
+ * preselects it (`initialTarget`) and jumps straight to the source step.
  */
-/** Display names by identifier, for the pickers; a name not here is shown as itself. */
-interface Labels {
-  actuators: Record<string, string | null | undefined>;
-  sources: Record<string, string | null | undefined>;
-}
-
-const AddLoopDialog = memo(function AddLoopDialog({
+const AddControllerDialog = memo(function AddControllerDialog({
   open,
   schema,
-  labels,
-  initialActuator,
+  devices,
+  initialTarget,
   onClose,
   onCreated,
 }: {
   open: boolean;
-  schema: LoopSchema | undefined;
-  labels?: Labels;
-  /** Preselect this actuator (an unlooped actuator's own "Add controller" button) and open on the channel step. */
-  initialActuator?: ActuatorChoice | null;
+  schema: ControllerSchema | undefined;
+  /** For the devices' display names in the pickers. */
+  devices: DeviceOut[];
+  /** Preselect this target (an undriven signal's own "Add controller" button) and open on the source step. */
+  initialTarget?: SignalChoice | null;
   onClose(): void;
-  onCreated(loop: LoopOut): void;
+  onCreated(controller: ControllerOut): void;
 }) {
-  const actuatorLabel = (name: string) => labels?.actuators[name] ?? name;
-  const sourceLabel = (name: string) => labels?.sources[name] ?? name;
+  const deviceLabel = (name: string) => devices.find((d) => d.name === name)?.label ?? name;
+  const choiceLabel = (c: SignalChoice) => c.label || c.address.slice(c.device.length + 1);
   const rig = useRig();
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   // Bumped to remount a SchemaForm with new initial values (it keeps its own form state after the first render).
@@ -147,56 +135,46 @@ const AddLoopDialog = memo(function AddLoopDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
-  // Opening on a preselected actuator (from its own card) starts the stepper on the channel step.
+  // Opening on a preselected target (from its own card) starts the stepper on the source step.
   const openedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (open && initialActuator && openedFor.current !== initialActuator.name) {
-      openedFor.current = initialActuator.name;
-      setDraft({ ...EMPTY_DRAFT, actuator: initialActuator });
+    if (open && initialTarget && openedFor.current !== initialTarget.address) {
+      openedFor.current = initialTarget.address;
+      setDraft({ ...EMPTY_DRAFT, target: initialTarget });
       setActive(1);
     } else if (!open) {
       openedFor.current = null;
     }
-  }, [open, initialActuator]);
+  }, [open, initialTarget]);
 
-  const driving = useMemo(() => {
-    // actuator name → the controller it drives (a controller is named after its actuator).
-    const out: Record<string, string> = {};
-    for (const loop of Object.values(schema?.regulated ?? {})) out[loop] = loop;
-    return out;
+  // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
+  const byDevice = useMemo(() => {
+    const groups: Record<string, SignalChoice[]> = {};
+    for (const c of schema?.sources ?? []) (groups[c.device] ??= []).push(c);
+    return groups;
   }, [schema]);
 
-  const bySource = useMemo(() => {
-    const allowed = new Set(draft.actuator?.channels ?? []);
-    const groups: Record<string, ChannelOut[]> = {};
-    for (const c of schema?.channels ?? []) {
-      if (!allowed.has(channelName(c))) continue;
-      (groups[c.source] ??= []).push(c);
-    }
-    return groups;
-  }, [schema, draft.actuator]);
-
-  const channel = useMemo(() => schema?.channels.find((c) => channelName(c) === draft.channel) ?? null, [schema, draft.channel]);
-  const demandUnit = demandUnitOf(draft.actuator, channel);
-  const unitsAgree = channel !== null && demandUnit === channel.unit;
+  const source = useMemo(() => schema?.sources.find((c) => c.address === draft.source) ?? null, [schema, draft.source]);
+  const demandUnit = draft.target?.unit ?? null;
+  const unitsAgree = source !== null && demandUnit === source.unit;
   // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
-  const feedforward = draft.feedforward ?? defaultFeedforward(draft.actuator, channel);
+  const feedforward = draft.feedforward ?? defaultFeedforward(draft.target, source);
   const feedforwardSchema = useMemo(
     () => (schema?.feedforwards ? titledByTag(unitsAgree ? schema.feedforwards : withoutSetpoint(schema.feedforwards)) : undefined),
     [schema, unitsAgree],
   );
 
   const lawReady = draft.lawChoice === "none" || (draft.lawChoice === "stored" ? draft.tuning !== "" : draft.config !== null);
-  const canCreate = Boolean(draft.actuator && draft.channel && lawReady && feedforward);
+  const canCreate = Boolean(draft.target && draft.source && lawReady && feedforward);
 
   const create = async () => {
-    if (!draft.actuator || !draft.channel) return;
+    if (!draft.target || !draft.source) return;
     setBusy(true);
     try {
       const law = draft.lawChoice === "none" ? null : draft.lawChoice === "stored" ? draft.tuning : draft.config;
-      const loop = await rig.makeLoop({ channel: draft.channel, actuator: draft.actuator.name, law, feedforward, default: draft.isDefault });
+      const controller = await rig.createController({ target: draft.target.address, source: draft.source, law, feedforward, default: draft.isDefault });
       setError(null);
-      onCreated(loop);
+      onCreated(controller);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -214,29 +192,29 @@ const AddLoopDialog = memo(function AddLoopDialog({
         {!schema && <Typography color="text.secondary">loading what the rig can regulate…</Typography>}
         {schema && (
           <Stepper activeStep={active} orientation="vertical" nonLinear>
-            <Step completed={draft.actuator !== null}>
+            <Step completed={draft.target !== null}>
               <StepLabel onClick={() => setActive(0)} sx={{ cursor: "pointer" }}>
-                Actuator{draft.actuator && active !== 0 ? `: ${actuatorLabel(draft.actuator.name)}` : ""}
+                Target{draft.target && active !== 0 ? `: ${draft.target.address}` : ""}
               </StepLabel>
               <StepContent>
-                {schema.actuators.length === 0 && <Typography color="text.secondary">This rig has no actuators to drive.</Typography>}
+                {schema.targets.length === 0 && <Typography color="text.secondary">This rig has no writable signal to drive.</Typography>}
                 <List dense disablePadding>
-                  {schema.actuators.map((a) => {
-                    const taken = driving[a.name];
+                  {schema.targets.map((t) => {
+                    const taken = schema.driven[t.address];
                     return (
                       <ListItemButton
-                        key={a.name}
-                        selected={draft.actuator?.name === a.name}
+                        key={t.address}
+                        selected={draft.target?.address === t.address}
                         disabled={Boolean(taken)}
                         onClick={() => {
-                          patch({ actuator: a, channel: a.channels.includes(draft.channel ?? "") ? draft.channel : null, feedforward: null });
+                          patch({ target: t, feedforward: null });
                           setActive(1);
                         }}
-                        data-actuator={a.name}
+                        data-target={t.address}
                       >
                         <ListItemText
-                          primary={actuatorLabel(a.name)}
-                          secondary={`${labels?.actuators[a.name] ? `${a.name} · ` : ""}${a.type} · ${taken ? `already drives controller ${taken}` : a.demand_unit ? `takes demands in ${a.demand_unit}` : "any channel"}`}
+                          primary={`${choiceLabel(t)} · ${t.unit}`}
+                          secondary={`${t.address} · ${deviceLabel(t.device)}${taken ? ` · already driven by ${taken}` : t.limits ? ` · limits ${t.limits[0]} – ${t.limits[1]} ${t.unit}` : ""}`}
                         />
                       </ListItemButton>
                     );
@@ -244,41 +222,38 @@ const AddLoopDialog = memo(function AddLoopDialog({
                 </List>
               </StepContent>
             </Step>
-            <Step completed={draft.channel !== null}>
-              <StepLabel onClick={() => draft.actuator && setActive(1)} sx={{ cursor: draft.actuator ? "pointer" : "default" }}>
-                Channel{draft.channel && active !== 1 ? `: ${draft.channel}` : ""}
+            <Step completed={draft.source !== null}>
+              <StepLabel onClick={() => draft.target && setActive(1)} sx={{ cursor: draft.target ? "pointer" : "default" }}>
+                Source{draft.source && active !== 1 ? `: ${draft.source}` : ""}
               </StepLabel>
               <StepContent>
-                {Object.keys(bySource).length === 0 && (
-                  <Typography color="text.secondary">{draft.actuator ? `${draft.actuator.name} may regulate no channel on this rig.` : "Pick an actuator first."}</Typography>
-                )}
+                {Object.keys(byDevice).length === 0 && <Typography color="text.secondary">{draft.target ? "No signal on this rig publishes." : "Pick a target first."}</Typography>}
                 <List dense disablePadding>
-                  {Object.entries(bySource).map(([source, channels]) => (
-                    <li key={source}>
+                  {Object.entries(byDevice).map(([device, choices]) => (
+                    <li key={device}>
                       <ul style={{ padding: 0 }}>
                         <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
-                          {sourceLabel(source)}
-                          {labels?.sources[source] && (
+                          {deviceLabel(device)}
+                          {deviceLabel(device) !== device && (
                             <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
-                              {source}
+                              {device}
                             </Typography>
                           )}
                         </ListSubheader>
-                        {channels.map((c) => {
-                          const name = channelName(c);
-                          const by = schema.regulated[name];
+                        {choices.map((c) => {
+                          const by = schema.regulated[c.address];
                           return (
                             <ListItemButton
-                              key={name}
-                              selected={draft.channel === name}
+                              key={c.address}
+                              selected={draft.source === c.address}
                               disabled={Boolean(by)}
                               onClick={() => {
-                                patch({ channel: name, feedforward: null });
+                                patch({ source: c.address, feedforward: null });
                                 setActive(2);
                               }}
-                              data-channel={name}
+                              data-source={c.address}
                             >
-                              <ListItemText primary={`${c.label || c.measurand} · ${c.unit}`} secondary={`${dimensionOf(c)}${by ? ` · regulated by ${by}` : ""}`} />
+                              <ListItemText primary={`${choiceLabel(c)} · ${c.unit}`} secondary={`${c.address}${c.dimension ? ` · ${c.dimension}` : ""}${by ? ` · regulated by ${by}` : ""}`} />
                             </ListItemButton>
                           );
                         })}
@@ -289,7 +264,7 @@ const AddLoopDialog = memo(function AddLoopDialog({
               </StepContent>
             </Step>
             <Step completed={lawReady && draft.lawChoice !== "none"}>
-              <StepLabel onClick={() => draft.channel && setActive(2)} sx={{ cursor: draft.channel ? "pointer" : "default" }}>
+              <StepLabel onClick={() => draft.source && setActive(2)} sx={{ cursor: draft.source ? "pointer" : "default" }}>
                 Law
                 {active !== 2 && (draft.lawChoice === "none" ? ": none (manual only)" : draft.lawChoice === "stored" ? `: tuning ${draft.tuning || "…"}` : draft.config ? `: ${String(draft.config.tag)}` : "")}
               </StepLabel>
@@ -340,26 +315,26 @@ const AddLoopDialog = memo(function AddLoopDialog({
               </StepContent>
             </Step>
             <Step completed={feedforward !== null}>
-              <StepLabel onClick={() => draft.channel && setActive(3)} sx={{ cursor: draft.channel ? "pointer" : "default" }}>
+              <StepLabel onClick={() => draft.source && setActive(3)} sx={{ cursor: draft.source ? "pointer" : "default" }}>
                 Feedforward{feedforward && active !== 3 ? `: ${feedforward.tag}` : ""}
               </StepLabel>
               <StepContent>
                 <Stack spacing={1.5}>
-                  {!(draft.actuator && channel) && <Typography color="text.secondary">Pick an actuator and a channel first.</Typography>}
-                  {draft.actuator && channel && (
+                  {!(draft.target && source) && <Typography color="text.secondary">Pick a target and a source first.</Typography>}
+                  {draft.target && source && (
                     <Typography variant="body2" color="text.secondary" data-testid="feedforward-help">
                       {unitsAgree
-                        ? `${draft.actuator.name} takes demands in ${demandUnit}, the same as ${channelName(channel)} — "setpoint" passes the setpoint straight through and the law corrects in ${demandUnit}.`
-                        : `${draft.actuator.name} takes ${demandUnit}; ${channelName(channel)} is ${channel.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "setpoint" is not offered: the units differ. "none" leaves all of it to the law.`}
+                        ? `${draft.target.address} takes demands in ${demandUnit}, the same as ${source.address} — "setpoint" passes the setpoint straight through and the law corrects in ${demandUnit}.`
+                        : `${draft.target.address} takes ${demandUnit}; ${source.address} is ${source.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "setpoint" is not offered: the units differ. "none" leaves all of it to the law.`}
                     </Typography>
                   )}
                   {feedforward && (
                     <Chip label={`feedforward set: ${feedforward.tag}${draft.feedforward === null ? " (the rig's default)" : ""}`} color="success" variant="outlined" sx={{ alignSelf: "flex-start" }} data-testid="feedforward-set" />
                   )}
-                  {draft.actuator && channel && feedforwardSchema && (
+                  {draft.target && source && feedforwardSchema && (
                     <Box data-testid="feedforward-form">
                       <SchemaForm
-                        key={`${formKey}-${draft.actuator.name}-${draft.channel}`}
+                        key={`${formKey}-${draft.target.address}-${draft.source}`}
                         schema={feedforwardSchema}
                         value={feedforward ?? undefined}
                         uiSchema={TAG_HIDDEN}
@@ -388,7 +363,7 @@ const AddLoopDialog = memo(function AddLoopDialog({
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void create()} disabled={!canCreate || busy} data-testid="create-loop">
+        <Button variant="contained" onClick={() => void create()} disabled={!canCreate || busy} data-testid="create-controller">
           Create
         </Button>
       </DialogActions>
@@ -407,7 +382,7 @@ const AddLoopDialog = memo(function AddLoopDialog({
  * this field and its button before Stop, which the faceplate places in the
  * header regardless of where it sits in the DOM.
  */
-const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: LoopOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
+const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
   const [busy, setBusy] = useState(false);
@@ -498,7 +473,7 @@ const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode
  * even though the panel places them after the Target row in the DOM, so Tab
  * reaches target -> Move -> Stop in that order.
  */
-const LoopStopControl = memo(function LoopStopControl({ name, mode, onEvent }: { name: string; mode: LoopOut["mode"]; onEvent(name: string, kind: "changed" | "removed"): void }) {
+const StopControl = memo(function StopControl({ name, mode, onEvent }: { name: string; mode: ControllerOut["mode"]; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -521,7 +496,7 @@ const LoopStopControl = memo(function LoopStopControl({ name, mode, onEvent }: {
 
   return (
     <Stack component="span" direction="row" spacing={0.5} alignItems="center" sx={{ display: "inline-flex" }}>
-      <Tooltip title="Stop regulating: the actuator holds its last demand and takes commands directly">
+      <Tooltip title="Stop regulating: the target holds its last demand and takes demands directly">
         <span>
           <Button
             variant="outlined"
@@ -547,13 +522,13 @@ const LoopStopControl = memo(function LoopStopControl({ name, mode, onEvent }: {
         title={regulating ? `${name} is regulating — stop it and remove?` : `Remove controller ${name}?`}
         text={
           regulating
-            ? `Removing ${name} stops it first: the actuator keeps its last demand and takes commands directly. The channel is then free for another controller.`
-            : `The channel is then free for another controller; the actuator stays attached.`
+            ? `Removing ${name} stops it first: the target keeps its last demand and takes demands directly. Its source is then free for another controller.`
+            : `Its source is then free for another controller; the target keeps its last demand.`
         }
         action={regulating ? "Stop and remove" : "Remove"}
         onClose={() => setConfirmRemove(false)}
         onConfirm={() => {
-          void act(() => rig.removeLoop(name)).then((ok) => {
+          void act(() => rig.detachController(name)).then((ok) => {
             setConfirmRemove(false);
             if (ok) onEvent(name, "removed");
           });
@@ -569,221 +544,189 @@ const LoopStopControl = memo(function LoopStopControl({ name, mode, onEvent }: {
 });
 
 /**
- * One controller's faceplate, wrapping `LoopPanel` so `useFreshness` runs
- * once per controller rather than a variable number of times inside a
- * list's `.map` (which would break the rules of hooks as controllers come
- * and go). Reader-offline (B-3) is the channel's own staleness: its
- * reader's period against the time since its last sample, in rig time.
- * `extra` is the collapsible actuator state/config/settings/commands
- * section the merged Controllers page adds below the faceplate (no
- * duplication of demand/output range, which the Output row already shows).
+ * One controller's faceplate: `ControllerPanel` with the source and target
+ * signals it needs for units, bands and limits (the panel subscribes to the
+ * store itself for PV, OP and the source device's run). No direct-demand
+ * panel below it: the rig refuses a manual demand on a signal with a
+ * controller attached, in any mode -- detach the controller to drive the
+ * signal by hand, and the card becomes the write panel.
  */
-const LoopFaceplate = memo(function LoopFaceplate({
-  loop,
+const Faceplate = memo(function Faceplate({
+  controller,
+  source,
+  target,
   history,
-  periods,
-  readers,
-  outputRange,
   windowS,
   yScale,
   every,
   exportHref,
   controls,
   headerControls,
-  extra,
 }: {
-  loop: LoopOut;
-  history: LoopTrace | undefined;
-  periods: Record<string, number | null>;
-  readers: ReaderSchema[];
-  outputRange: [number, number] | null;
+  controller: ControllerOut;
+  source: SignalOut;
+  target: SignalOut | undefined;
+  history: ControllerTrace | undefined;
   windowS?: number;
   yScale?: ChartSettings["yScale"];
   every?: number;
   exportHref?: string;
   controls?: ReactNode;
   headerControls?: ReactNode;
-  extra?: ReactNode;
 }) {
-  const reader = readers.find((r) => r.sources.some((s) => s.name === loop.channel.source));
-  const fresh = useFreshness(channelKey(loop.channel), reader ? periods[reader.name] : undefined);
-  const readerOffline = alarmLevel(null, {}, fresh) === "stale";
   return (
-    <LoopPanel
-      loop={loop}
+    <ControllerPanel
+      controller={controller}
+      source={source}
+      target={target}
       history={history}
       windowS={windowS}
       yScale={yScale}
       every={every}
       exportHref={exportHref}
-      outputRange={outputRange}
-      readerOffline={readerOffline}
       trends
       detail
       controls={controls}
       headerControls={headerControls}
-      extra={extra}
     />
   );
 });
 
-/** The actuator's state/config/settings/commands, open inline below a controller's faceplate -- one card, no second frame, no disclosure. */
-function ActuatorExtra({ schema, state }: { schema: ActuatorSchema; state: Parameters<typeof Actuator>[0]["state"] }) {
-  return (
-    <section className="fb-loop-law">
-      <h4 className="fb-section-title" title={schema.description || undefined}>actuator: state &amp; commands</h4>
-      <Actuator schema={schema} state={state} bare omitFields={ACTUATOR_EXTRA_OMIT} />
-    </section>
-  );
-}
-const ACTUATOR_EXTRA_OMIT = ["demand", "output_range"];
-
 export interface ControllersProps extends ChartSettings {
-  /** One actuator only (`#/controllers/{name}`). */
+  devices: DeviceOut[];
+  /** One controller only (`#/controllers/{address}`): the writable signal of that address. */
   name?: string | null;
 }
 
 /**
- * One card per actuator (DESIGN-SPEC §3.4/§3.5, merged): with a controller
- * (a loop is always bound to exactly one actuator) the card is the loop
- * faceplate, its actuator's state/config/settings/commands collapsed below;
- * without one it is the actuator card as `#/actuators` showed, plus a
- * primary "Add controller" button that opens the stepper with this actuator
- * preselected. Live from `/ws/loops` and the actuator-state store, with a
- * dialog to add a controller to any actuator.
+ * One card per writable signal (DESIGN-SPEC §3.4/§3.5, merged): with a
+ * controller (a controller is named by the signal it drives) the card is
+ * the faceplate, the signal's direct-demand panel below it; without one it
+ * is the write panel alone, plus a primary "Add controller" button that
+ * opens the stepper with this target preselected. Live from
+ * `/ws/controllers` and `/ws/writes`, with a dialog to add a controller to
+ * any writable signal.
  */
-export function Controllers({ name = null, ...charts }: ControllersProps) {
+export function Controllers({ devices, name = null, ...charts }: ControllersProps) {
   const { windowS, yScale, every } = charts;
   const rig = useRig();
   const stored = useRecordingExports();
-  const rigSchema = useRigSchema();
-  const sources = useSources();
-  const { loops, history, status } = useLoops(3600, every);
-  const { states: actuatorStates } = useActuatorStates();
-  const periods = useReaderPeriods();
-  const readers = useMemo(() => Object.values(rigSchema.data?.readers ?? {}), [rigSchema.data]);
-  const allActuators = useMemo(() => Object.values(rigSchema.data?.actuators ?? {}), [rigSchema.data]);
-  const labels = useMemo<Labels>(
-    () => ({
-      actuators: Object.fromEntries(allActuators.map((a) => [a.name, a.label])),
-      sources: Object.fromEntries((sources.data ?? []).map((s) => [s.name, s.label])),
-    }),
-    [allActuators, sources.data],
-  );
-  const loopSchema = useQuery(() => rig.loopSchema(), [rig]);
+  const { controllers, history, status } = useControllers(3600, every);
+  const signals = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals)).map((s) => [s.address, s])), [devices]);
+  const targets = useMemo(() => [...signals.values()].filter(writable), [signals]);
+  const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);
   const [adding, setAdding] = useState(false);
-  const [addingFor, setAddingFor] = useState<ActuatorChoice | null>(null);
-  // The stream never says a loop is gone: hide one we removed until the stream sends a new object for that name (re-created).
-  const [removed, setRemoved] = useState<Record<string, LoopOut>>({});
-  const [created, setCreated] = useState<Record<string, LoopOut>>({});
+  const [addingFor, setAddingFor] = useState<SignalChoice | null>(null);
+  // The stream never says a controller is gone: hide one we detached until the stream sends a new object for that name (re-created).
+  const [removed, setRemoved] = useState<Record<string, ControllerOut>>({});
+  const [created, setCreated] = useState<Record<string, ControllerOut>>({});
 
-  const all = { ...created, ...loops };
-  // A loop is named after the actuator it drives, so one filter picks out the single card for a detail route.
-  const shownActuators = name === null ? allActuators : allActuators.filter((a) => a.name === name);
-  const loopOf = (actuatorName: string): LoopOut | undefined => {
-    const l = all[actuatorName];
-    return l && removed[l.name] !== l ? l : undefined;
+  const all = { ...created, ...controllers };
+  // A controller is named by the signal it drives, so one filter picks out the single card for a detail route.
+  const shown = name === null ? targets : targets.filter((t) => t.address === name);
+  const controllerOf = (address: string): ControllerOut | undefined => {
+    const c = all[address];
+    return c && removed[c.name] !== c ? c : undefined;
   };
   // What the panels' controls report back; one stable callback so the controls need not re-render per tick.
   const latest = useRef(all);
   latest.current = all;
   const onEvent = useCallback(
-    (loopName: string, kind: "changed" | "removed") => {
+    (controllerName: string, kind: "changed" | "removed") => {
       if (kind === "removed") {
-        const gone = latest.current[loopName];
-        if (gone) setRemoved((r) => ({ ...r, [loopName]: gone }));
+        const gone = latest.current[controllerName];
+        if (gone) setRemoved((r) => ({ ...r, [controllerName]: gone }));
         setCreated((c) => {
-          const { [loopName]: _gone, ...rest } = c;
+          const { [controllerName]: _gone, ...rest } = c;
           void _gone;
           return rest;
         });
       }
-      loopSchema.refresh();
+      controllerSchema.refresh();
     },
-    [loopSchema.refresh],
+    [controllerSchema.refresh],
   );
 
-  const openAdd = useCallback((actuator?: ActuatorChoice) => {
-    setAddingFor(actuator ?? null);
+  const openAdd = useCallback((target?: SignalChoice) => {
+    setAddingFor(target ?? null);
     setAdding(true);
   }, []);
 
+  const only = shown.length === 1 ? controllerOf(shown[0]!.address) : undefined;
   const toolbar = (
-    <PageBar end={<ChartControls {...charts} unit={shownActuators.length === 1 ? loopOf(shownActuators[0]!.name)?.channel.unit : undefined} />}>
+    <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.source)?.unit : undefined} />}>
       {name === null ? (
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => openAdd()} data-testid="add-loop">
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => openAdd()} data-testid="add-controller">
           Add controller
         </Button>
       ) : (
         <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />
       )}
-      {loopSchema.error && <Typography color="error">{loopSchema.error.message}</Typography>}
+      {controllerSchema.error && <Typography color="error">{controllerSchema.error.message}</Typography>}
     </PageBar>
   );
   const closeDialog = useCallback(() => setAdding(false), []);
   const onCreated = useCallback(
-    (loop: LoopOut) => {
+    (controller: ControllerOut) => {
       setAdding(false);
-      setCreated((c) => ({ ...c, [loop.name]: loop }));
+      setCreated((c) => ({ ...c, [controller.name]: controller }));
       setRemoved((r) => {
-        const { [loop.name]: _gone, ...rest } = r;
+        const { [controller.name]: _gone, ...rest } = r;
         void _gone;
         return rest;
       });
-      loopSchema.refresh();
+      controllerSchema.refresh();
     },
-    [loopSchema.refresh],
+    [controllerSchema.refresh],
   );
-  const dialog = <AddLoopDialog open={adding} schema={loopSchema.data} labels={labels} initialActuator={addingFor} onClose={closeDialog} onCreated={onCreated} />;
+  const dialog = <AddControllerDialog open={adding} schema={controllerSchema.data} devices={devices} initialTarget={addingFor} onClose={closeDialog} onCreated={onCreated} />;
 
-  if (name !== null && shownActuators.length === 0)
-    return status === "connecting" ? <Typography color="text.secondary">loading…</Typography> : <Alert severity="warning">No controller named {name}.</Alert>;
+  if (name !== null && shown.length === 0)
+    return status === "connecting" ? <Typography color="text.secondary">loading…</Typography> : <Alert severity="warning">No writable signal at {name}.</Alert>;
   return (
     <>
       {toolbar}
-      {name === null && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={shownActuators.length} />}
-      {shownActuators.length === 0 &&
+      {name === null && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={shown.length} />}
+      {shown.length === 0 &&
         (status === "connecting" ? (
           <StateBlock state="loading" message="Loading controllers…" />
         ) : (
-          <StateBlock state="empty" message="No controllers yet." action={{ label: "Add controller", onClick: () => openAdd() }} />
+          <StateBlock state="empty" message="No writable signal on this rig: nothing to control." />
         ))}
       {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
       <div className="grid">
-        {shownActuators.map((a) => {
-          const l = loopOf(a.name);
-          const state = actuatorStates[a.name];
-          if (l) {
-            const tag = typeof l.law?.tag === "string" ? l.law.tag : null;
+        {shown.map((target) => {
+          const c = controllerOf(target.address);
+          const source = c ? signals.get(c.source) : undefined;
+          if (c && source) {
+            const tag = typeof c.law?.tag === "string" ? c.law.tag : null;
             return (
-              <div key={a.name} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
-                <LoopFaceplate
-                  loop={l}
-                  history={history[l.name]}
-                  periods={periods}
-                  readers={readers}
+              <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+                <Faceplate
+                  controller={c}
+                  source={source}
+                  target={target}
+                  history={history[c.name]}
                   windowS={windowS}
                   yScale={yScale}
                   every={every}
-                  exportHref={stored.ticks(l.name)}
-                  outputRange={state?.output_range ?? null}
-                  controls={<LoopSetpointControl name={l.name} unit={l.channel.unit} mode={l.mode} tag={tag} onEvent={onEvent} />}
-                  headerControls={<LoopStopControl name={l.name} mode={l.mode} onEvent={onEvent} />}
-                  extra={<ActuatorExtra schema={a} state={state} />}
+                  exportHref={stored.ticks(c.name)}
+                  controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} onEvent={onEvent} />}
+                  headerControls={<StopControl name={c.name} mode={c.mode} onEvent={onEvent} />}
                 />
               </div>
             );
           }
           return (
-            <div key={a.name} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
-              <Actuator schema={a} state={state} />
+            <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+              <WritePanel signal={target} title={describeSignal(target)} />
               <Button
                 variant="contained"
                 fullWidth
                 startIcon={<AddIcon />}
                 sx={{ mt: 1 }}
-                onClick={() => openAdd(loopSchema.data?.actuators.find((c) => c.name === a.name))}
-                data-testid={`add-controller-${a.name}`}
+                onClick={() => openAdd(controllerSchema.data?.targets.find((t) => t.address === target.address))}
+                data-testid={`add-controller-${target.address}`}
               >
                 Add controller
               </Button>

@@ -40,8 +40,8 @@ function relative(ms: number, now: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
-/** Event scopes that name a thing with a page. */
-const SCOPE_KINDS: Record<string, RefKind> = { loop: "loop", reader: "reader", actuator: "actuator", source: "source", session: "session" };
+/** Event scopes that name a thing with a page (`device` is the one the backend emits today; the rest are for a scope a driver might add). */
+const SCOPE_KINDS: Record<string, RefKind> = { device: "device", controller: "controller", signal: "signal", session: "session" };
 
 const key = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.kind}`;
 

@@ -2,18 +2,18 @@ import { memo } from "react";
 import { ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { segmentSx } from "./WindowSelect.js";
 
-/** How the sources are laid out: a card per source, a flat grid of channels, or channels grouped by unit. */
-export type Grouping = "source" | "channel" | "unit";
+/** How the publishing signals are laid out: a card per device, a flat grid of signals, or signals grouped by unit. */
+export type Grouping = "device" | "signal" | "unit";
 
-const KEY = "flyball.sources.view";
+const KEY = "flyball.inputs.view";
 
-/** Remembered like the theme: one choice for the Overview and the Sources page. */
+/** Remembered like the theme: one choice for the Overview and the Inputs page. */
 export const readGrouping = (): Grouping => {
   try {
     const v = window.localStorage.getItem(KEY);
-    return v === "unit" || v === "channel" ? v : "source";
+    return v === "unit" || v === "signal" ? v : "device";
   } catch {
-    return "source";
+    return "device";
   }
 };
 
@@ -27,9 +27,9 @@ export const writeGrouping = (g: Grouping) => {
 
 export const GroupingSelect = memo(function GroupingSelect({ value, onChange }: { value: Grouping; onChange(g: Grouping): void }) {
   return (
-    <ToggleButtonGroup exclusive size="small" value={value} onChange={(_e, v: Grouping | null) => v && onChange(v)} aria-label="group sources" sx={segmentSx}>
-      <ToggleButton value="source">by source</ToggleButton>
-      <ToggleButton value="channel">by channel</ToggleButton>
+    <ToggleButtonGroup exclusive size="small" value={value} onChange={(_e, v: Grouping | null) => v && onChange(v)} aria-label="group signals" sx={segmentSx}>
+      <ToggleButton value="device">by device</ToggleButton>
+      <ToggleButton value="signal">by signal</ToggleButton>
       <ToggleButton value="unit">by unit</ToggleButton>
     </ToggleButtonGroup>
   );

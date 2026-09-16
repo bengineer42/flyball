@@ -1,10 +1,12 @@
 /**
- * The dashboard a rig gets for nothing: made from its schema, so a fresh
- * install is not blank. One health strip, a readout per channel, a chart per
- * unit, a faceplate per loop, a card per actuator, then the programmer and
- * the events. Never saved unless someone saves it.
+ * The dashboard a rig gets for nothing: made from its devices, so a fresh
+ * install is not blank. One health strip, a readout per publishing signal,
+ * a chart per unit, a faceplate per controller, a card per device with a
+ * writable signal, then the programmer and the events. Never saved unless
+ * someone saves it.
  */
 import type { DashboardDocument, DashboardWidget } from "@flyball/client";
+import { signalsOf, writable } from "@flyball/client";
 import { groupByUnit } from "@flyball/react";
 import type { Bindings } from "./context.js";
 import { DEFAULT_GRID, SCHEMA_VERSION } from "./document.js";
@@ -23,27 +25,29 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   };
 
   // Sizes below follow the widget catalogue's defaults (DESIGN-SPEC.md §3) on a 24-column grid:
-  // health 24×2, readout 6×5, chart 12×8, loop 8×8, actuator 6×4, program 8×6, events 12×6.
-  row([{ id: "health", kind: "health", title: null, config: { tiles: ["rig", "recording", "readers", "loops", "conditions"] } }], cols, 2);
+  // health 24×2, readout 6×5, chart 12×8, loop 8×8, device 6×4, program 8×6, events 12×6.
+  row([{ id: "health", kind: "health", title: null, config: { tiles: ["rig", "recording", "devices", "controllers", "conditions"] } }], cols, 2);
 
-  const channels = bindings.channels;
+  const signals = bindings.signals;
+  // Ids carry the address with its dots turned to dashes, so an id stays a plain token.
+  const slug = (address: string) => address.replace(/\./g, "-");
   row(
-    channels.map((c) => ({ id: `readout-${c.source}-${c.measurand}`, kind: "readout", title: null, config: { channel: `${c.source}.${c.measurand}`, sparkline: true, showSource: true } })),
+    signals.map((s) => ({ id: `readout-${slug(s.address)}`, kind: "readout", title: null, config: { address: s.address, sparkline: true, showDevice: true } })),
     6,
     5,
   );
 
-  const units = groupByUnit(channels);
-  // A chart binds 1–8 channels (DESIGN-SPEC.md §3.3): a unit with more gets a chart per eight. Index the id: stripping
+  const units = groupByUnit(signals);
+  // A chart binds 1–8 signals (DESIGN-SPEC.md §3.3): a unit with more gets a chart per eight. Index the id: stripping
   // punctuation from the unit for readability can collide (e.g. "°C" and "C" both sanitise to "C"), so the index —
-  // stable for a given rig, since channel order comes from its schema — is what actually guarantees uniqueness.
-  const charts = units.flatMap(({ unit, channels: cs }, i) => {
-    const parts: (typeof cs)[] = [];
-    for (let k = 0; k < cs.length; k += 8) parts.push(cs.slice(k, k + 8));
-    return parts.map((part, j) => ({ id: `chart-${i}${parts.length > 1 ? `-${j + 1}` : ""}-${unit.replace(/[^a-z0-9]+/gi, "")}`, kind: "chart", title: null as string | null, config: { channels: part.map((c) => `${c.source}.${c.measurand}`), window_s: 0, every: 0, y: "page" }, n: part.length }));
+  // stable for a given rig, since signal order comes from its devices — is what actually guarantees uniqueness.
+  const charts = units.flatMap(({ unit, signals: ss }, i) => {
+    const parts: (typeof ss)[] = [];
+    for (let k = 0; k < ss.length; k += 8) parts.push(ss.slice(k, k + 8));
+    return parts.map((part, j) => ({ id: `chart-${i}${parts.length > 1 ? `-${j + 1}` : ""}-${unit.replace(/[^a-z0-9]+/gi, "")}`, kind: "chart", title: null as string | null, config: { addresses: part.map((s) => s.address), window_s: 0, every: 0, y: "page" }, n: part.length }));
   });
-  // Half-width charts (12 of 24) sit two abreast; a chart with more than four channels takes the full row so its legend
-  // stays on one or two lines and leaves the plot its height (measured on `plant.toml` at 1440: 12 channels in a 12-column
+  // Half-width charts (12 of 24) sit two abreast; a chart with more than four signals takes the full row so its legend
+  // stays on one or two lines and leaves the plot its height (measured on `plant` at 1440: 12 signals in a 12-column
   // chart made a 7-row legend and a 72px plot). Every chart of a rig shares one size so the rows stay rows.
   const wide = charts.length < 2 || charts.some((c) => c.n > 4);
   row(
@@ -54,13 +58,15 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
 
   row(
     // 8x8 is the "trends on" size (DESIGN-SPEC.md §3.4); "compact" (no trends) wants 6x5.
-    bindings.loops.map((l) => ({ id: `loop-${l.name}`, kind: "loop", title: null, config: { loop: l.name, view: "full" } })),
+    bindings.controllers.map((c) => ({ id: `loop-${slug(c.name)}`, kind: "loop", title: null, config: { controller: c.name, view: "full" } })),
     8,
     8,
   );
 
   row(
-    bindings.actuators.map((a) => ({ id: `actuator-${a.name}`, kind: "actuator", title: null, config: { actuator: a.name, commands: [], showConfig: false } })),
+    bindings.devices
+      .filter((d) => d.kind !== "simulation" && signalsOf(d.signals).some(writable))
+      .map((d) => ({ id: `device-${d.name}`, kind: "device", title: null, config: { device: d.name, commands: [], showConfig: false } })),
     6,
     4,
   );
@@ -70,5 +76,5 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   widgets.push({ id: "events", kind: "events", title: null, x: 8, y: programY, w: 12, h: 6, config: { level: "INFO", limit: 20, scope: "" } });
   y += 6;
 
-  return { schema_version: SCHEMA_VERSION, name: GENERATED_NAME, rig, description: "Made from the rig's schema: everything it has, in the order it declares it.", grid: { ...DEFAULT_GRID }, widgets };
+  return { schema_version: SCHEMA_VERSION, name: GENERATED_NAME, rig, description: "Made from the rig's devices: everything it has, in the order it declares it.", grid: { ...DEFAULT_GRID }, widgets };
 }

@@ -17,7 +17,7 @@ export interface MultiSeriesTrace {
   /** Seconds since the epoch, ascending. Traces need not share the same times. Omitted when the chart draws from a `source`. */
   t?: number[];
   v?: (number | null)[];
-  /** The channel in the `source` store this trace draws from (`source.measurand`); the trace at the same index of `source.keys` otherwise. */
+  /** The signal in the `source` store this trace draws from (its address); the trace at the same index of `source.keys` otherwise. */
   key?: string;
   /** Any CSS colour. Defaults cycle through `--fb-series-1` … `--fb-series-6`. */
   color?: string;
@@ -37,7 +37,7 @@ export interface MultiSeriesProps {
    * Draw straight from the telemetry store (`useTraceRef`): the chart subscribes
    * itself, redraws at most ten times a second while on screen, and never
    * re-renders on samples. Each trace's `key` (or its index in `source.keys`)
-   * says which channel it is.
+   * says which signal it is.
    */
   source?: TraceRef;
   /** Hold every redraw (the editor is dragging); one follows when released. */
@@ -115,7 +115,7 @@ const points = (s: MultiSeriesTrace) => ({ t: s.t ?? EMPTY, v: s.v ?? EMPTY });
  * legend at each trace's own newest point through uPlot's own `setLegend`:
  * the values (and their formatting) come from each series' own `value()`, so
  * hover and idle always agree. Traces are not resampled onto one clock (a
- * fast channel and a slow one keep their own timestamps, joined with nulls
+ * fast signal and a slow one keep their own timestamps, joined with nulls
  * where one has no point — `align()`), so "newest" is found per series, not
  * at one shared index: at the single latest instant some traces are still
  * null there. A real hover's own indices are left alone, and the toolbar

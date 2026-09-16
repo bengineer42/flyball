@@ -6,7 +6,7 @@
 export interface DebugCounters {
   /** `setData` calls, every chart. */
   charts: number;
-  /** `setData` calls by chart id (a widget id, or `source.measurand`). */
+  /** `setData` calls by chart id (a widget id, or a signal address). */
   chartsById: Record<string, number>;
   /** Renders of the app root. */
   renders: number;

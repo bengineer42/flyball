@@ -1,14 +1,14 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { LoopPanel, Ref, channelKey, useActuatorState, useFreshness, useReaderPeriods, useVisible, type LoopTrace } from "@flyball/react";
-import { alarmLevel } from "@flyball/client";
-import { useBindings, useLoopsData, useRigData } from "../dashboard/context.js";
+import { ControllerPanel, Ref, useFreshness, useVisible, type ControllerTrace } from "@flyball/react";
+import { alarmLevel, describeController, signalsOf } from "@flyball/client";
+import { useBindings, useControllersData, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
-import { loopSchema, SELECTS } from "./schema.js";
+import { controllerSchema, SELECTS } from "./schema.js";
 import { useFrozen } from "./size.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
-const EMPTY: LoopTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
+const EMPTY: ControllerTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
 
 // The faceplate's own container query stacks rows above trends below this width
 // (packages/react styles.css: `@container (max-width: 39.99rem)`); matched here so the trends get
@@ -56,41 +56,36 @@ function useBox(ref: React.RefObject<HTMLElement | null>): { w: number; h: numbe
  * scrolls. Law and feedforward never show here; that stays behind the L3
  * Controllers page's `detail` toggle. No controls: a dashboard widget is a
  * read view. Body only (`bare`): the frame is `WidgetFrame`'s, fed the
- * name/channel/mode through `useWidgetChrome`.
+ * name/source/mode through `useWidgetChrome`. The document's kind stays
+ * `loop` (the wire's name for the widget); its binding is `controller`.
  */
-const LoopWidget = memo(function LoopWidget({ config }: WidgetComponentProps) {
+const ControllerWidget = memo(function ControllerWidget({ config }: WidgetComponentProps) {
   const { charts, exports } = useRigData();
-  const { loops, history } = useLoopsData();
+  const { controllers, history } = useControllersData();
   const bindings = useBindings();
   const host = useRef<HTMLDivElement>(null);
   const visible = useVisible(host);
   const box = useBox(host);
-  const name = String(config.loop ?? "");
-  const loop = loops[name];
+  const name = String(config.controller ?? "");
+  const controller = controllers[name];
   const wantsTrends = config.view === "full";
   const { show: trends, height: trendHeight } = trendBudget(box, wantsTrends);
   const trace = useFrozen(history[name] ?? EMPTY, visible);
-  // The loop is named for its actuator; read the live state from the store directly
-  // (as the Actuator widget does) rather than the dashboard's `states` context, which
-  // Dashboards.tsx leaves empty on purpose -- widgets read samples/loops/states themselves.
-  const state = useActuatorState(name);
-  const periods = useReaderPeriods();
-  // Reader-offline (B-3): the channel's own staleness, its reader's period against its last sample.
-  const reader = loop && Object.values(bindings.schema.readers).find((r) => r.sources.some((s) => s.name === loop.channel.source));
-  const fresh = useFreshness(loop ? channelKey(loop.channel) : undefined, reader ? periods[reader.name] : undefined);
-  const readerOffline = alarmLevel(null, {}, fresh) === "stale";
-  const title = useMemo(() => (loop ? <Ref kind="loop" name={loop.name}>{loop.label ?? loop.name}</Ref> : undefined), [loop?.name, loop?.label]);
-  const subtitle = useMemo(
-    () => (loop ? <Ref kind="channel" name={loop.channel.source} measurand={loop.channel.measurand} /> : undefined),
-    [loop?.channel.source, loop?.channel.measurand],
-  );
-  const status = useMemo(() => (loop ? <span className={`fb-badge fb-mode fb-mode-${loop.mode}`}>{loop.mode}</span> : undefined), [loop?.mode]);
-  useWidgetChrome(loop ? { title, subtitle, status, severity: readerOffline ? "stale" : undefined } : null);
-  if (!loop) return <Missing what="loop" name={name} hint={bindings.loops.length ? "Configure the widget to pick one of this rig's loops." : "This rig has no loops."} />;
-  const outputRange = state?.output_range ?? null;
+  // The source signal (units, bands) from the bindings; the target (limits) from its device's tree, which may not publish.
+  const source = controller ? bindings.signalAt(controller.source) : undefined;
+  const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.target) : undefined;
+  // Source-offline (B-3): the source signal's own staleness, its device's period against its last sample.
+  const fresh = useFreshness(controller?.source);
+  const offline = alarmLevel(null, {}, fresh) === "stale";
+  const title = useMemo(() => (controller ? <Ref kind="controller" name={controller.name}>{describeController(controller)}</Ref> : undefined), [controller?.name, controller?.label]); // eslint-disable-line react-hooks/exhaustive-deps
+  const subtitle = useMemo(() => (controller ? <Ref kind="signal" name={controller.source} /> : undefined), [controller?.source]); // eslint-disable-line react-hooks/exhaustive-deps
+  const status = useMemo(() => (controller ? <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span> : undefined), [controller?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useWidgetChrome(controller ? { title, subtitle, status, severity: offline ? "stale" : undefined } : null);
+  if (!controller) return <Missing what="controller" name={name} hint={bindings.controllers.length ? "Configure the widget to pick one of this rig's controllers." : "This rig has no controllers."} />;
+  if (!source) return <Missing what="signal" name={controller.source} hint="The controller's source does not publish on this rig." />;
   return (
     <div ref={host} className="fb-fill fb-loop-host">
-      <LoopPanel loop={loop} history={trace} trends={trends} trendHeight={trendHeight} outputRange={outputRange} readerOffline={readerOffline} windowS={charts.windowS} yScale={charts.yScale} every={charts.every} exportHref={exports.ticks(loop.name)} bare />
+      <ControllerPanel controller={controller} source={source} target={target} history={trace} trends={trends} trendHeight={trendHeight} windowS={charts.windowS} yScale={charts.yScale} every={charts.every} exportHref={exports.ticks(controller.name)} bare />
     </div>
   );
 });
@@ -106,7 +101,7 @@ export const loop: WidgetKind = {
   configSchema: (bindings) => ({
     type: "object",
     properties: {
-      loop: loopSchema(bindings),
+      controller: controllerSchema(bindings),
       view: {
         type: "string",
         title: "View",
@@ -117,15 +112,16 @@ export const loop: WidgetKind = {
         ],
       },
     },
-    required: ["loop"],
+    required: ["controller"],
   }),
   uiSchema: { ...SELECTS, view: { "ui:widget": "select" } },
-  defaultConfig: (bindings) => ({ loop: bindings.loops[0]?.name ?? "", view: "full" }),
+  defaultConfig: (bindings) => ({ controller: bindings.controllers[0]?.name ?? "", view: "full" }),
   // Fallback title before `useWidgetChrome`'s richer one (a `Ref` link) lands, and while editing.
   titleFor: (config, bindings) => {
-    const name = String(config.loop ?? "");
+    const name = String(config.controller ?? "");
     if (!name) return undefined;
-    return bindings.loops.find((l) => l.name === name)?.label || name;
+    const c = bindings.controllers.find((l) => l.name === name);
+    return c ? describeController(c) : name;
   },
-  Component: LoopWidget,
+  Component: ControllerWidget,
 };

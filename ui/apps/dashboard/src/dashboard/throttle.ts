@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { LoopOut } from "@flyball/client";
-import type { LoopTraces, Traces } from "@flyball/react";
+import type { Address, ControllerOut } from "@flyball/client";
+import type { ControllerTraces } from "@flyball/react";
 
 /**
  * `value` at most once per `ms`: the samples arrive faster than anyone can
@@ -36,40 +36,16 @@ export function useThrottled<T>(value: T, ms: number): T {
 const sameTrace = (a: { t: number[]; v: unknown[] }, b: { t: number[]; v: unknown[] }) =>
   a.t.length === b.t.length && a.t[a.t.length - 1] === b.t[b.t.length - 1] && a.v[a.v.length - 1] === b.v[b.v.length - 1] && a.t[0] === b.t[0];
 
-/**
- * The same traces with each channel's object kept from the previous render
- * unless its points changed (`useSamples` rebuilds every array on every
- * render, so identity alone says nothing). A chart memoised on its channels'
- * trace objects then only touches the canvas when one of *its* channels
- * moved.
- */
-export function useStableTraces(traces: Traces): Traces {
-  const held = useRef<Traces>({});
+/** The same for controllers: one object per controller and per trace, kept until a tick moves it. */
+export function useStableControllers(controllers: Record<Address, ControllerOut>, history: ControllerTraces): { controllers: Record<Address, ControllerOut>; history: ControllerTraces } {
+  const held = useRef<{ controllers: Record<Address, ControllerOut>; history: ControllerTraces }>({ controllers: {}, history: {} });
   let changed = false;
-  const next: Traces = {};
-  for (const [key, trace] of Object.entries(traces)) {
-    const prev = held.current[key];
-    if (prev && prev.channel === trace.channel && sameTrace(prev, trace)) next[key] = prev;
-    else {
-      next[key] = trace;
-      changed = true;
-    }
+  const nextControllers: Record<Address, ControllerOut> = {};
+  for (const [name, controller] of Object.entries(controllers)) {
+    if (held.current.controllers[name] !== controller) changed = true;
+    nextControllers[name] = controller;
   }
-  if (Object.keys(held.current).length !== Object.keys(next).length) changed = true;
-  if (changed) held.current = next;
-  return held.current;
-}
-
-/** The same for loops: one object per loop and per trace, kept until a tick moves it. */
-export function useStableLoops(loops: Record<string, LoopOut>, history: LoopTraces): { loops: Record<string, LoopOut>; history: LoopTraces } {
-  const held = useRef<{ loops: Record<string, LoopOut>; history: LoopTraces }>({ loops: {}, history: {} });
-  let changed = false;
-  const nextLoops: Record<string, LoopOut> = {};
-  for (const [name, loop] of Object.entries(loops)) {
-    if (held.current.loops[name] !== loop) changed = true;
-    nextLoops[name] = loop;
-  }
-  const nextHistory: LoopTraces = {};
+  const nextHistory: ControllerTraces = {};
   for (const [name, trace] of Object.entries(history)) {
     const prev = held.current.history[name];
     if (prev && sameTrace({ t: prev.t, v: prev.reading }, { t: trace.t, v: trace.reading })) nextHistory[name] = prev;
@@ -78,7 +54,7 @@ export function useStableLoops(loops: Record<string, LoopOut>, history: LoopTrac
       changed = true;
     }
   }
-  if (Object.keys(held.current.loops).length !== Object.keys(nextLoops).length || Object.keys(held.current.history).length !== Object.keys(nextHistory).length) changed = true;
-  if (changed) held.current = { loops: nextLoops, history: nextHistory };
+  if (Object.keys(held.current.controllers).length !== Object.keys(nextControllers).length || Object.keys(held.current.history).length !== Object.keys(nextHistory).length) changed = true;
+  if (changed) held.current = { controllers: nextControllers, history: nextHistory };
   return held.current;
 }

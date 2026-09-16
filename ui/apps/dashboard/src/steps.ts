@@ -1,7 +1,7 @@
 /**
  * Reading a program's normalised document against the schemas the daemon
  * publishes: which command a step runs, that command's argument schema,
- * and how to say a duration, a rate or a channel in words. No rendering.
+ * and how to say a duration or a rate in words. No rendering.
  */
 import { deref, type JsonSchema, type ProgramCheck } from "@flyball/client";
 
@@ -107,13 +107,6 @@ export function formatRate(value: unknown, unit: string | undefined): string | n
   const rec = value as { per?: unknown; value?: unknown };
   if (typeof rec.per === "string" && typeof rec.value === "number" && PER[rec.per]) return say(rec.value, PER[rec.per]!);
   return null;
-}
-
-/** `{source, measurand}`: a channel reference. */
-export function channelRefOf(value: unknown): { source: string; measurand: string } | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const v = value as { source?: unknown; measurand?: unknown };
-  return typeof v.source === "string" && typeof v.measurand === "string" ? { source: v.source, measurand: v.measurand } : null;
 }
 
 /** The title an enum member carries, from `oneOf: [{const, title}]`, or `enumNames`/`x-enumNames`; else null. */

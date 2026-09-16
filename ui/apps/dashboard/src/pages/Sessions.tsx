@@ -33,9 +33,9 @@ import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DownloadIcon from "@mui/icons-material/Download";
 import StopCircleOutlinedIcon from "@mui/icons-material/StopCircleOutlined";
-import { SessionPanel, useNowS, useQuery, useRig, useSession, type SessionExports } from "@flyball/react";
+import { SessionPanel, useDeviceRuns, useNowS, useQuery, useRig, useSession, type SessionExports } from "@flyball/react";
 import type { SessionRow } from "@flyball/client";
-import { sessionName, useReaderRuns, type Recording } from "../model.js";
+import { sessionName, type Recording } from "../model.js";
 import { duration, when } from "../time.js";
 import { hashFor } from "../router.js";
 import { Confirm } from "../Confirm.js";
@@ -147,14 +147,14 @@ function follow(href: string, name: string) {
 
 /**
  * Everything the store will send for one session, as a menu of links: the
- * whole thing as a zip, the channels wide (raw or resampled), long, JSON, and
+ * whole thing as a zip, the signals wide (raw or resampled), long, JSON, and
  * the events. Every route answers with an attachment, so these are plain
  * links; the open session exports like any other.
  */
 function DownloadMenu({ id }: { id: number }) {
   const rig = useRig();
-  const runs = useReaderRuns();
-  // The finest grid worth offering: the fastest reader currently running, else a second.
+  const runs = useDeviceRuns();
+  // The finest grid worth offering: the fastest device currently polled, else a second.
   const periods = Object.values(runs)
     .map((r) => r.period_s)
     .filter((p): p is number => typeof p === "number" && p > 0);
@@ -185,7 +185,7 @@ function DownloadMenu({ id }: { id: number }) {
       <Menu open={Boolean(anchor)} anchorEl={anchor} onClose={close}>
         {item("Everything (zip)", "every table, the controllers' ticks and the metadata", rig.exportUrl(id, { format: "zip" }), `session-${id}.zip`)}
         <Divider />
-        {item("All channels — CSV wide", "a column per channel, a row per sample instant", rig.exportUrl(id, { format: "csv", layout: "wide" }), `session-${id}-wide.csv`)}
+        {item("All signals — CSV wide", "a column per signal, a row per sample instant", rig.exportUrl(id, { format: "csv", layout: "wide" }), `session-${id}-wide.csv`)}
         <MenuItem
           onClick={() => {
             close();
@@ -195,7 +195,7 @@ function DownloadMenu({ id }: { id: number }) {
         >
           <ListItemText primary="CSV wide resampled…" secondary="the same, on a regular grid" />
         </MenuItem>
-        {item("CSV long", "a row per raw value: time, source, measurand, unit", rig.exportUrl(id, { format: "csv", layout: "long" }), `session-${id}-long.csv`)}
+        {item("CSV long", "a row per raw value: time, signal, unit", rig.exportUrl(id, { format: "csv", layout: "long" }), `session-${id}-long.csv`)}
         {item("JSON", "the wide table as a list of objects", rig.exportUrl(id, { format: "json", layout: "wide" }), `session-${id}-wide.json`)}
         <Divider />
         {item("Events CSV", "flags, notes and what the rig logged", rig.eventsExportUrl(id, "csv"), `session-${id}-events.csv`)}
@@ -204,7 +204,7 @@ function DownloadMenu({ id }: { id: number }) {
         <DialogTitle>Resample session #{id}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            One row per step, each channel holding its last value. {periods.length ? `The fastest reader samples every ${finest} s.` : "No reader period is visible, so a second is offered."}
+            One row per step, each signal holding its last value. {periods.length ? `The fastest device polls every ${finest} s.` : "No poll period is visible, so a second is offered."}
           </DialogContentText>
           <TextField
             autoFocus
@@ -243,8 +243,9 @@ function SessionDrillIn({ id, onBack, onDelete }: { id: number; onBack(): void; 
   const open = detail.data ? !detail.data.session.end_ns : true;
   // The panel is pure: it takes the URLs, the client knows how to build them.
   const exports: SessionExports = {
-    series: (source, measurand, format) => rig.seriesExportUrl(id, source, measurand, format),
-    ticks: (loop, format) => rig.ticksExportUrl(id, loop, format),
+    series: (address, format) => rig.seriesExportUrl(id, address, format),
+    writes: (address, format) => rig.writesExportUrl(id, address, format),
+    ticks: (controller, format) => rig.ticksExportUrl(id, controller, format),
     events: (format) => rig.eventsExportUrl(id, format),
   };
   return (

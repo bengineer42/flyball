@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start a daemon for a rig plus a Vite dev server pointed at it.
-#   rig-up.sh <rig.toml> <api-port> <ui-port> [extra daemon args…]
+#   rig-up.sh <rig file> <api-port> <ui-port> [extra daemon args…]
 # Logs: $S/logs/<name>-daemon.log and -vite.log. PIDs in $S/logs/<name>.pids. Store in $S/stores/<name>.sqlite.
 # Stop with: rig-down.sh <name>
 set -u

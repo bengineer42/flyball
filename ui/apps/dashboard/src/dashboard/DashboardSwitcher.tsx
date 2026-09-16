@@ -32,11 +32,14 @@ export function DashboardSwitcher({ name, generated, onOpen }: DashboardSwitcher
   const wanted = name ?? (!generated && home ? home : null);
   const isGenerated = wanted === null;
   const label = isGenerated ? GENERATED_NAME : wanted;
+  // Until the list has loaded, the route's name is not yet an option: MUI warns about an out-of-range value.
+  // `renderValue` shows the name regardless, so the select's own value can wait for the list.
+  const listed = !isGenerated && (list.data ?? []).some((d) => d.name === wanted);
   const Icon = PAGE_ICONS.dashboards;
   return (
     <FormControl size="small" sx={{ minWidth: narrow ? 0 : 200, width: narrow ? 40 : undefined, flexShrink: 0 }}>
       <Select
-        value={isGenerated ? "" : wanted}
+        value={listed ? wanted : ""}
         displayEmpty
         onChange={(e) => {
           const v = e.target.value;

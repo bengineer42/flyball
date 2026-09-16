@@ -34,8 +34,8 @@ import SaveAsIcon from "@mui/icons-material/SaveAs";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import UndoIcon from "@mui/icons-material/Undo";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { download, fileName, invalidateDashboards, useDashboards, useHealth, useLoops, useRig, type Traces } from "@flyball/react";
-import { RigError, type DashboardDocument, type DashboardWidget, type DeviceState, type JsonSchema, type RigEvent, type RigSchema, type SourceOut } from "@flyball/client";
+import { download, fileName, invalidateDashboards, useControllers, useDashboards, useHealth, useRig } from "@flyball/react";
+import { RigError, type DashboardDocument, type DashboardProblem, type DashboardWidget, type DeviceOut, type JsonSchema, type RigEvent } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
@@ -43,14 +43,14 @@ import { useRecordingExports, type Programmer, type Recording } from "../model.j
 import { leaveFreely, useLeaveGuard } from "../router.js";
 import { AddWidgetDrawer } from "../dashboard/AddWidgetDrawer.js";
 import { ConfigureDialog } from "../dashboard/ConfigureDialog.js";
-import { EventsContext, LoopsContext, RigDataContext, StatesContext, TracesContext, makeBindings, type RigData } from "../dashboard/context.js";
+import { ControllersContext, EventsContext, RigDataContext, makeBindings, type RigData } from "../dashboard/context.js";
 import { DEFAULT_GRID, bottomOf, duplicateWidget, emptyDocument, exportJson, newId, normalise, sameDocument } from "../dashboard/document.js";
 import { GENERATED_NAME, generateOverview } from "../dashboard/generate.js";
 import { DashboardEditGrid, DashboardViewGrid, type Placement } from "../dashboard/Grid.js";
 import "../dashboard/dashboard.css";
 import { useHistory } from "../dashboard/history.js";
 import { readHome, writeHome } from "../dashboard/home.js";
-import { useStableLoops, useStableTraces, useThrottled } from "../dashboard/throttle.js";
+import { useStableControllers, useThrottled } from "../dashboard/throttle.js";
 import { validateAgainst } from "../dashboard/validate.js";
 import { WidgetFrame, type WidgetAction } from "../dashboard/WidgetFrame.js";
 import { widgetKind, type WidgetKind } from "../widgets/registry.js";
@@ -60,10 +60,7 @@ export interface DashboardsProps extends ChartSettings {
   name: string | null;
   /** `#/dashboards?generated`: the generated overview even when a home dashboard is set. */
   generated: boolean;
-  schema: RigSchema;
-  sources: SourceOut[];
-  traces: Traces;
-  states: Record<string, DeviceState>;
+  devices: DeviceOut[];
   events: RigEvent[];
   recording: Recording;
   programmer: Programmer;
@@ -124,18 +121,18 @@ function NameDialog({ open, title, action, initial, taken, busy, error, onClose,
  * through contexts fed here at a steady 10 Hz; the generated overview is a
  * function of the rig's schema and is never saved unless someone saves it.
  */
-export function Dashboards({ name, generated, schema, sources, traces, states, events, recording: recordingIn, programmer: programmerIn, onOpen, ...charts }: DashboardsProps) {
+export function Dashboards({ name, generated, devices, events, recording: recordingIn, programmer: programmerIn, onOpen, ...charts }: DashboardsProps) {
   const rig = useRig();
   const list = useDashboards();
   const healthIn = useHealth(5000);
   const exports = useRecordingExports();
-  const loopsLive = useLoops(3600, charts.every);
+  const controllersLive = useControllers(3600, charts.every);
   const rigName = healthIn.data?.rig ?? "";
 
   // `useHealth`/`programmer` are `useQuery` results and `recording` wraps one too: each is a
   // freshly-built object on every render of its owner (App.tsx, or `useQuery` itself), whether
-  // or not the data inside actually changed. Traces/states/events (below) update at up to the
-  // reader rate, so this component's own render runs at that rate too; without this, `rigData`'s
+  // or not the data inside actually changed. Controllers/events (below) update at up to the
+  // poll rate, so this component's own render runs at that rate too; without this, `rigData`'s
   // memo would recompute -- and every widget's context would change -- on every one of them,
   // which is what turned "several widget kinds on the page" into React's own
   // "Maximum update depth exceeded" (the commit falling behind the incoming rate). Kept stable
@@ -164,21 +161,19 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
   );
 
   // The live data, on a beat and with identities kept where nothing moved (see `throttle.ts`).
-  const stableTraces = useStableTraces(traces);
-  const beatTraces = useThrottled(stableTraces, BEAT_MS);
-  const stableLoops = useStableLoops(loopsLive.loops, loopsLive.history);
-  const beatLoops = useThrottled(stableLoops, BEAT_MS);
-  const beatStates = useThrottled(states, BEAT_MS);
+  // Samples and write states never pass through here: widgets read them from the telemetry store.
+  const stableControllers = useStableControllers(controllersLive.controllers, controllersLive.history);
+  const beatControllers = useThrottled(stableControllers, BEAT_MS);
   const beatEvents = useThrottled(events, 500);
 
   const hist = useHistory<DashboardDocument | null>(null);
 
-  // Bindings change when the rig's shape does, not per tick: key them on names and labels.
-  const loopKey = Object.values(beatLoops.loops)
-    .map((l) => `${l.name}|${l.label ?? ""}|${l.channel.source}.${l.channel.measurand}`)
+  // Bindings change when the rig's shape does, not per tick: key them on names, labels and ends.
+  const controllerKey = Object.values(beatControllers.controllers)
+    .map((c) => `${c.name}|${c.label ?? ""}|${c.source}`)
     .join(",");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const bindings = useMemo(() => makeBindings(schema, sources, beatLoops.loops), [schema, sources, loopKey]);
+  const bindings = useMemo(() => makeBindings(devices, beatControllers.controllers), [devices, controllerKey]);
   const { windowS, onWindow, yScale, onYScale, every, onEvery } = charts;
   const rowHeight = hist.present?.grid.row_height ?? DEFAULT_GRID.row_height;
   const rigData = useMemo<RigData>(
@@ -193,6 +188,8 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
 
   const doc = hist.present;
   const [baseline, setBaseline] = useState<DashboardDocument | null>(null);
+  /** What the server said the stored document names that this rig lacks (DESIGN-SPEC.md §4.8); the widgets show the same as "missing". */
+  const [problems, setProblems] = useState<DashboardProblem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
   /** Imported documents waiting to be shown under their name (unsaved). */
@@ -205,6 +202,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
+    setProblems([]);
     if (wanted === null) {
       const fresh = generateOverview(bindings, rigName);
       hist.reset(fresh);
@@ -221,6 +219,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
         const saved = normalise(row.body);
         hist.reset(imported ?? saved);
         setBaseline(saved);
+        setProblems(row.problems);
         setLoadedFor(wanted);
       })
       .catch((e: unknown) => {
@@ -347,6 +346,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
       const saved = normalise(row.body);
       hist.reset(saved);
       setBaseline(saved);
+      setProblems(row.problems);
       invalidateDashboards();
       setNotice(`Saved “${as}”.`);
     });
@@ -453,8 +453,13 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
   const canUndo = hist.canUndo;
   const canRedo = hist.canRedo;
   const bar = (
-    <PageBar end={<ChartControls {...charts} unit={sources[0]?.channels[0]?.unit} />}>
+    <PageBar end={<ChartControls {...charts} unit={bindings.signals[0]?.unit} />}>
       {dirty && <Chip label="unsaved" color="warning" variant="outlined" data-testid="dirty" />}
+      {problems.length > 0 && !dirty && (
+        <Tooltip title={problems.map((p) => `${p.widget_id}: ${p.reason}`).join("\n")}>
+          <Chip label={`${problems.length} widget${problems.length === 1 ? "" : "s"} need${problems.length === 1 ? "s" : ""} attention`} color="warning" variant="outlined" data-testid="problems" />
+        </Tooltip>
+      )}
       <Button variant={editing ? "contained" : "outlined"} startIcon={editing ? <CheckIcon /> : <EditOutlinedIcon />} onClick={() => setEditing((e) => !e)} data-testid="edit-toggle" disabled={!doc}>
         {editing ? "Done" : "Edit"}
       </Button>
@@ -580,9 +585,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
 
   return (
     <RigDataContext.Provider value={rigData}>
-      <TracesContext.Provider value={beatTraces}>
-        <StatesContext.Provider value={beatStates}>
-          <LoopsContext.Provider value={beatLoops}>
+          <ControllersContext.Provider value={beatControllers}>
             <EventsContext.Provider value={beatEvents}>
               {bar}
               {error && (
@@ -692,9 +695,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
                 onConfirm={() => void remove()}
               />
             </EventsContext.Provider>
-          </LoopsContext.Provider>
-        </StatesContext.Provider>
-      </TracesContext.Provider>
+          </ControllersContext.Provider>
     </RigDataContext.Provider>
   );
 }

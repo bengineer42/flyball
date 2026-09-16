@@ -2,7 +2,7 @@
  * The one-frame rule (DESIGN-SPEC.md §2, §10): `WidgetFrame` draws the only
  * chrome a widget has -- status dot, title, subtitle, actions -- and the
  * widget draws its body. What the body knows and the frame does not (the
- * channel's severity, a stale footer, a mode chip) travels up through this
+ * signal's severity, a stale footer, a mode chip) travels up through this
  * context: the widget calls `useWidgetChrome({...})` and the frame re-renders
  * its title row with it. Nothing else re-renders: the widget component is
  * memoised on its props and the frame's state lives beside it, not above.
@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import type { PanelSeverity } from "@flyball/react";
 
 export interface WidgetChrome {
-  /** Replaces the generated title when the document has none of its own (a `Ref` link to the channel, say). */
+  /** Replaces the generated title when the document has none of its own (a `Ref` link to the signal, say). */
   title?: ReactNode;
   subtitle?: ReactNode;
   /** Before the actions, always visible: a mode chip or other text status. */

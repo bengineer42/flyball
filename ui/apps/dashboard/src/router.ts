@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
-export type Page = "overview" | "dashboards" | "sources" | "graph" | "actuators" | "loops" | "controllers" | "programs" | "events" | "sessions" | "simulation" | "readers";
-/** The pages in the navigation; `readers` only exists as a detail page. Dashboards leads (spec §2: dashboard identity comes first), Overview second.
- * `actuators` and `loops` are no longer navigated to directly -- a loop is always bound to exactly one actuator, so the
- * two pages merged into one "Controllers" page (one card per actuator). Their ids stay in `Page`/`ALL_PAGES` only so an
- * old `#/loops`/`#/actuators` link still parses and `App.tsx` can redirect it to the equivalent `#/controllers` one. */
-export const PAGES: Array<{ id: Exclude<Page, "readers" | "actuators" | "loops">; label: string }> = [
+export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "programs" | "events" | "sessions" | "simulation";
+/** The pages in the navigation; `devices` only exists as a list and a detail page reached from the others. Dashboards leads (spec §2: dashboard identity comes first), Overview second. */
+export const PAGES: Array<{ id: Exclude<Page, "devices">; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
   { id: "overview", label: "Overview" },
-  { id: "sources", label: "Sources" },
+  { id: "inputs", label: "Inputs" },
   { id: "graph", label: "Graph" },
   { id: "controllers", label: "Controllers" },
   { id: "programs", label: "Programs" },
@@ -17,69 +14,62 @@ export const PAGES: Array<{ id: Exclude<Page, "readers" | "actuators" | "loops">
   { id: "sessions", label: "Sessions" },
   { id: "simulation", label: "Simulation" },
 ];
-const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "readers", "actuators", "loops"];
+const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "devices"];
 
 /**
- * `#/sources` → the list; `#/sources/dry` → one source; `#/sources/dry/humidity`
- * → one channel; `#/controllers/pumps`, `#/readers/sht4x`, `#/programs/my-control`,
- * `#/sessions/4`, `#/dashboards/firing` → one of each. `#/actuators[/x]` and
- * `#/loops[/x]` still parse (as their own `page`) so `App.tsx` can redirect them.
+ * `#/inputs` → every publishing signal; `#/inputs/furnace.zone1` → one signal
+ * by address; `#/devices/furnace` → one device; `#/controllers/heaters.heater1`
+ * → one controller (named by the address of the signal it drives);
+ * `#/programs/my-control`, `#/sessions/4`, `#/dashboards/firing` → one of each.
+ * An address has no slashes, so it is one path segment.
  */
 export interface Route {
   page: Page;
-  /** The thing's name (a session's id as text), or `null` for the list page. */
+  /** The thing's name (a session's id as text, a signal's or controller's address), or `null` for the list page. */
   name: string | null;
-  /** For a channel: the measurand. */
-  measurand: string | null;
   /** `#/events?level=WARNING` → `{level: "WARNING"}`; empty when the hash has no query. */
   params: Record<string, string>;
 }
 
 const fromHash = (): Route => {
   const [path = "", search] = window.location.hash.replace(/^#\/?/, "").split("?");
-  const [id, name, measurand] = path.split("/").map((s) => decodeURIComponent(s));
+  const [id, name] = path.split("/").map((s) => decodeURIComponent(s));
   const page = ALL_PAGES.includes(id as Page) ? (id as Page) : "overview";
-  return { page, name: name || null, measurand: page === "sources" && measurand ? measurand : null, params: Object.fromEntries(new URLSearchParams(search ?? "")) };
+  return { page, name: name || null, params: Object.fromEntries(new URLSearchParams(search ?? "")) };
 };
 
-/** The same page, name and measurand: a navigation that should scroll to the top, as opposed to a query change. */
-export const samePlace = (a: Route, b: Route) => a.page === b.page && a.name === b.name && a.measurand === b.measurand;
+/** The same page and name: a navigation that should scroll to the top, as opposed to a query change. */
+export const samePlace = (a: Route, b: Route) => a.page === b.page && a.name === b.name;
 
-export const hashFor = (page: Page, name: string | number | null = null, measurand: string | null = null, params: Record<string, string> = {}) => {
+export const hashFor = (page: Page, name: string | number | null = null, params: Record<string, string> = {}) => {
   const query = new URLSearchParams(params).toString();
-  return `#/${page}${name === null ? "" : `/${encodeURIComponent(String(name))}`}${measurand === null ? "" : `/${encodeURIComponent(measurand)}`}${query ? `?${query}` : ""}`;
+  return `#/${page}${name === null ? "" : `/${encodeURIComponent(String(name))}`}${query ? `?${query}` : ""}`;
 };
 
 /** The app's routes, for the library's `<Ref>` links and for the app's own cards. */
 export const hrefFor: HrefFor = (ref) => {
   switch (ref.kind) {
-    case "source":
-      return hashFor("sources", ref.name);
-    case "channel":
-      return hashFor("sources", ref.name, ref.measurand ?? null);
-    case "actuator":
-      return hashFor("controllers", ref.name);
-    case "reader":
-      return hashFor("readers", ref.name);
-    case "loop":
+    case "device":
+      return hashFor("devices", ref.name);
+    case "signal":
+      return hashFor("inputs", ref.name);
+    case "controller":
       return hashFor("controllers", ref.name);
     case "session":
       return hashFor("sessions", ref.name);
+    case "event":
+      return hashFor("events");
     default:
       return undefined;
   }
 };
 
-/** `#/loops[/x]` and `#/actuators[/x]` → the equivalent `#/controllers[/x]` hash (a loop is named after the actuator it drives); `null` for any other page. */
-export const legacyControllerRedirect = (route: Route): string | null =>
-  route.page === "loops" || route.page === "actuators" ? hashFor("controllers", route.name, null, route.params) : null;
-
 /**
  * Hash routing. No dependency, works when the daemon serves the bundle from
- * any path. Moving to another place (page, name or measurand) scrolls to the
- * top; a query change or a re-render of the same place leaves the scroll alone.
+ * any path. Moving to another place (page or name) scrolls to the top; a
+ * query change or a re-render of the same place leaves the scroll alone.
  */
-export function useRoute(): [Route, (page: Page, name?: string | number | null, measurand?: string | null) => void] {
+export function useRoute(): [Route, (page: Page, name?: string | number | null) => void] {
   const [route, setRoute] = useState<Route>(fromHash);
   const current = useRef(route);
   useEffect(() => {
@@ -96,7 +86,7 @@ export function useRoute(): [Route, (page: Page, name?: string | number | null, 
       unguarded = false;
       if (!free && !samePlace(prev, next) && [...guards].some((blocks) => blocks())) {
         restoring = true;
-        window.location.hash = hashFor(prev.page, prev.name, prev.measurand, prev.params);
+        window.location.hash = hashFor(prev.page, prev.name, prev.params);
         return;
       }
       current.current = next;
@@ -108,7 +98,7 @@ export function useRoute(): [Route, (page: Page, name?: string | number | null, 
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  return [route, (page, name = null, measurand = null) => (window.location.hash = hashFor(page, name, measurand))];
+  return [route, (page, name = null) => (window.location.hash = hashFor(page, name))];
 }
 
 /** Each returns true to keep the viewer where they are. */

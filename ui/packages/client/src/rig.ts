@@ -1,21 +1,23 @@
 /**
  * The rig over HTTP and websockets, one method per route. Returns the wire
  * types as the server sends them; nothing is reshaped here, so the book's
- * API page is the documentation for this file too.
+ * API page is the documentation for this file too. Everything is named by
+ * address (`furnace.zone1`), a device by name, a controller by its target's
+ * address.
  */
 
 import type { Request, StreamHandlers, Subscription, Transport } from "./transport.js";
 import { RigError } from "./transport.js";
-import type { DashboardDocument, DashboardRow } from "./dashboards.js";
+import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./dashboards.js";
 import type {
-  ActuatorRow,
-  ActuatorSchema,
-  ChannelRow,
+  Address,
   ClockOut,
-  ChannelOut,
+  ControllerOut,
+  ControllerRow,
+  ControllerSchema,
   DeviceOut,
+  DeviceRow,
   DeviceSchema,
-  DeviceSummary,
   DeviceView,
   ErrorDetail,
   Event,
@@ -23,36 +25,31 @@ import type {
   Health,
   JsonSchema,
   LawConfig,
-  LoopOut,
-  LoopRow,
-  LoopSchema,
-  NewLoop,
-  RegulateRequest,
-  ValueSource,
+  NewController,
   ProgramCheck,
   ProgramFormat,
   ProgramRow,
   ProgrammerState,
-  ReaderSchema,
-  ReaderView,
-  ReadingOut,
+  ReadOut,
+  RegulateRequest,
   RigSchema,
   Series,
   SessionEvent,
+  SessionRow,
+  SignalRow,
   Simulation,
   SimulationPlant,
-  SessionRow,
-  SourceRow,
   Span,
   StartRecording,
-  Tick,
-  SignalState,
-  SourceOut,
   StreamName,
   Streams,
+  Tick,
+  ValueSource,
+  WaitState,
+  WriteOut,
+  WriteRow,
+  WriteStateRow,
 } from "./wire.js";
-
-export type DeviceKind = "actuators" | "readers";
 
 /** What a download comes as. A whole session can also come as a `zip` of every table plus its metadata. */
 export type ExportFormat = "csv" | "json";
@@ -60,7 +57,7 @@ export type SessionExportFormat = ExportFormat | "zip";
 
 export interface SessionExportQuery {
   format?: SessionExportFormat;
-  /** `wide`: a column per channel, each row holding every channel's last value. `long`: a row per raw value. */
+  /** `wide`: a column per signal, each row holding every signal's last value. `long`: a row per raw value. */
   layout?: "wide" | "long";
   /** Resample a wide table onto this grid, in seconds. */
   step_s?: number;
@@ -72,6 +69,12 @@ export interface SeriesQuery {
   every?: number;
   bucket_ns?: number;
   max_points?: number;
+  [key: string]: number | undefined;
+}
+
+export interface WindowQuery {
+  start_ns?: number;
+  end_ns?: number;
   [key: string]: number | undefined;
 }
 
@@ -92,6 +95,8 @@ function describeDetail(detail: unknown): string | undefined {
   if (detail !== undefined && detail !== null) return JSON.stringify(detail);
   return undefined;
 }
+
+const enc = encodeURIComponent;
 
 export class RigClient {
   constructor(private readonly transport: Transport) {}
@@ -131,108 +136,159 @@ export class RigClient {
     return this.get("/api/clock");
   }
 
+  /** `GET /api/schema`: every device's schema, by name. */
   schema(signal?: AbortSignal): Promise<RigSchema> {
     return this.get("/api/schema", undefined, signal);
-  }
-
-  sources(): Promise<SourceOut[]> {
-    return this.get("/api/sources");
-  }
-
-  source(name: string): Promise<SourceOut> {
-    return this.get(`/api/sources/${encodeURIComponent(name)}`);
-  }
-
-  latest(source: string, measurand: string): Promise<{ channel: ChannelOut } & ReadingOut> {
-    return this.get(`/api/sources/${encodeURIComponent(source)}/${encodeURIComponent(measurand)}`);
-  }
-
-  loops(): Promise<LoopOut[]> {
-    return this.get("/api/loops");
-  }
-
-  loop(name: string): Promise<LoopOut> {
-    return this.get(`/api/loops/${encodeURIComponent(name)}`);
-  }
-
-  /** What a form needs to make a loop: channels (with dimension), actuators and which channels each may drive, laws, tunings. */
-  loopSchema(): Promise<LoopSchema> {
-    return this.get("/api/loops/schema");
-  }
-
-  makeLoop(body: NewLoop): Promise<LoopOut> {
-    return this.call({ method: "POST", path: "/api/loops", body });
-  }
-
-  removeLoop(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/loops/${encodeURIComponent(name)}` });
-  }
-
-  /** Aim and hand control to the law. */
-  regulate(name: string, body: RegulateRequest): Promise<LoopOut> {
-    return this.call({ method: "POST", path: `/api/loops/${encodeURIComponent(name)}/regulate`, body });
-  }
-
-  /** Stop regulating; the actuator keeps its last demand. */
-  manual(name: string): Promise<LoopOut> {
-    return this.call({ method: "POST", path: `/api/loops/${encodeURIComponent(name)}/manual` });
-  }
-
-  setReference(name: string, at: number | ValueSource): Promise<LoopOut> {
-    return this.call({ method: "PUT", path: `/api/loops/${encodeURIComponent(name)}/reference`, body: { at } });
   }
 
   tunings(): Promise<Record<string, LawConfig>> {
     return this.get("/api/tunings");
   }
 
+  tuning(tag: string): Promise<LawConfig> {
+    return this.get(`/api/tunings/${enc(tag)}`);
+  }
+
+  /** Store `config` under `tag` on the live rig, replacing any tuning already there. */
   setTuning(tag: string, config: LawConfig): Promise<LawConfig> {
-    return this.call({ method: "PUT", path: `/api/tunings/${encodeURIComponent(tag)}`, body: config });
+    return this.call({ method: "PUT", path: `/api/tunings/${enc(tag)}`, body: config });
   }
 
   // endregion
 
-  // region Devices -- the same shape under /api/actuators and /api/readers
+  // region Devices -- one list, whatever the driver
 
-  devices(kind: DeviceKind): Promise<Record<string, DeviceSummary>> {
-    return this.get(`/api/${kind}`);
+  /** Every device: its tree with the latest values and write states, commands, state, conditions, run. */
+  devices(signal?: AbortSignal): Promise<DeviceOut[]> {
+    return this.get("/api/devices", undefined, signal);
   }
 
-  device(kind: "actuators", name: string): Promise<DeviceView>;
-  device(kind: "readers", name: string): Promise<ReaderView>;
-  device(kind: DeviceKind, name: string): Promise<DeviceView> {
-    return this.get(`/api/${kind}/${encodeURIComponent(name)}`);
+  /** One device by name; 404 if none has it. */
+  device(name: string, signal?: AbortSignal): Promise<DeviceOut> {
+    return this.get(`/api/devices/${enc(name)}`, undefined, signal);
   }
 
-  deviceSchema(kind: "actuators", name: string): Promise<ActuatorSchema>;
-  deviceSchema(kind: "readers", name: string): Promise<ReaderSchema>;
-  deviceSchema(kind: DeviceKind, name: string): Promise<ActuatorSchema | ReaderSchema> {
-    return this.get(`/api/${kind}/${encodeURIComponent(name)}/schema`);
+  /** Config, settings, state, every signal and every command's request as JSON Schema. */
+  deviceSchema(name: string, signal?: AbortSignal): Promise<DeviceSchema> {
+    return this.get(`/api/devices/${enc(name)}/schema`, undefined, signal);
   }
 
-  /** Run a marked command; resolves to whatever the method returned. */
-  runCommand(kind: DeviceKind, name: string, command: string, args: Record<string, unknown> = {}): Promise<unknown> {
-    return this.call({
-      method: "POST",
-      path: `/api/${kind}/${encodeURIComponent(name)}/${encodeURIComponent(command)}`,
-      body: args,
-    });
+  /** Run a marked command; resolves to whatever the method returned. A command that succeeds on an offline device restarts its polling. */
+  command(name: string, tag: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(tag)}`, body: args });
+  }
+
+  /** Poll an offline device again on its period. */
+  restartDevice(name: string): Promise<DeviceOut> {
+    return this.call({ method: "POST", path: `/api/devices/${enc(name)}/restart` });
+  }
+
+  /**
+   * Put values on writable signals under a device as one demand, committed
+   * at once; keys are names relative to the device (dotted under a
+   * namespace: `position.x`), values in each signal's unit. Resolves to the
+   * write state of each signal set, by address. 409 for a signal a
+   * controller drives, a `together` group set in part, or a signal that is
+   * not writable; 404 for a name not under the device.
+   */
+  demandNode(name: string, values: Record<string, number>): Promise<Record<Address, WriteOut>> {
+    return this.call({ method: "PUT", path: `/api/devices/${enc(name)}/demand`, body: values });
+  }
+
+  /** The single-signal demand: `value` in the signal's unit. 409 if the address is a namespace or a controller drives it. */
+  demand(address: Address, value: number): Promise<Record<Address, WriteOut>> {
+    return this.call({ method: "PUT", path: `/api/signals/${enc(address)}`, body: value });
   }
 
   // endregion
 
-  // region Signals
+  // region Reading by address
 
-  signals(): Promise<Record<string, SignalState>> {
-    return this.get("/api/signals");
+  /**
+   * What the address names: `{reading}` for a signal, `{sample}` for an
+   * atomic namespace, `{samples}` for a device or a namespace read over
+   * several transactions; `fresh` reads the hardware first, which is how a
+   * setting (`rw`, never published) is read. 503 until the first read, 404
+   * for an unknown address. Several addresses at once come back as a list
+   * in the order given; a fresh read then costs each device one read.
+   */
+  read(address: Address, fresh?: boolean): Promise<ReadOut>;
+  read(addresses: Address[], fresh?: boolean): Promise<ReadOut[]>;
+  read(target: Address | Address[], fresh = false): Promise<ReadOut | ReadOut[]> {
+    const query = fresh ? { fresh: true } : undefined;
+    if (Array.isArray(target)) return this.get<ReadOut[]>("/api/read", { at: target.join(","), ...query });
+    return this.get<ReadOut>(`/api/read/${enc(target)}`, query);
   }
 
-  fireSignal(name: string): Promise<{ name: string; fired: boolean }> {
-    return this.call({ method: "POST", path: `/api/signals/${encodeURIComponent(name)}/fire` });
+  // endregion
+
+  // region Controllers -- named by the target's address
+
+  controllers(): Promise<ControllerOut[]> {
+    return this.get("/api/controllers");
   }
 
-  interruptSignal(name: string): Promise<{ name: string; interrupted: boolean }> {
-    return this.call({ method: "POST", path: `/api/signals/${encodeURIComponent(name)}/interrupt` });
+  /** `address` is the controller's name: its target's. */
+  controller(address: Address): Promise<ControllerOut> {
+    return this.get(`/api/controllers/${enc(address)}`);
+  }
+
+  /** The rig's default controller; 503 when there is none. */
+  defaultController(): Promise<ControllerOut> {
+    return this.get("/api/controllers/default");
+  }
+
+  /** What a form needs to make a controller: every publishing and every writable signal, laws, feedforwards, tunings, what is spoken for. */
+  controllerSchema(): Promise<ControllerSchema> {
+    return this.get("/api/controllers/schema");
+  }
+
+  /** Attach a controller; 409 if a signal is already spoken for or the units disagree, 404 for an unknown address. */
+  createController(body: NewController): Promise<ControllerOut> {
+    return this.call({ method: "POST", path: "/api/controllers", body });
+  }
+
+  /** Detach a controller. It is put in manual first so the target holds its last demand. */
+  detachController(address: Address): Promise<void> {
+    return this.call({ method: "DELETE", path: `/api/controllers/${enc(address)}` });
+  }
+
+  /** Aim at `at` (a value, or `process`/`setpoint`/`demand`) and hand control to the law; the handover's demand is committed at once. */
+  regulate(address: Address, body: RegulateRequest): Promise<ControllerOut> {
+    return this.call({ method: "POST", path: `/api/controllers/${enc(address)}/regulate`, body });
+  }
+
+  /** Stop regulating; the target keeps its last demand and takes demands directly. */
+  manual(address: Address): Promise<ControllerOut> {
+    return this.call({ method: "POST", path: `/api/controllers/${enc(address)}/manual` });
+  }
+
+  /** Move the setpoint without touching the mode or the law's state. */
+  setReference(address: Address, at: number | ValueSource): Promise<ControllerOut> {
+    return this.call({ method: "PUT", path: `/api/controllers/${enc(address)}/reference`, body: { at } });
+  }
+
+  // endregion
+
+  // region Waits -- what the rig is waiting on, and answering it
+
+  /** Every registered wait by name: pending, or settled but not yet taken down. */
+  waits(): Promise<Record<string, WaitState>> {
+    return this.get("/api/waits");
+  }
+
+  wait(name: string): Promise<WaitState> {
+    return this.get(`/api/waits/${enc(name)}`);
+  }
+
+  /** Settle the wait as met; `fired` false if it had already settled. */
+  fireWait(name: string): Promise<{ name: string; fired: boolean }> {
+    return this.call({ method: "POST", path: `/api/waits/${enc(name)}/fire` });
+  }
+
+  /** Cancel the wait; the program stops at this step. */
+  interruptWait(name: string): Promise<{ name: string; interrupted: boolean }> {
+    return this.call({ method: "POST", path: `/api/waits/${enc(name)}/interrupt` });
   }
 
   // endregion
@@ -254,7 +310,7 @@ export class RigClient {
   /**
    * Delete several sessions; there is no bulk route, so each is its own
    * request, a few at a time (`concurrency`). Resolves to the ones that
-   * failed, each with its error message — the ones not listed succeeded.
+   * failed, each with its error message -- the ones not listed succeeded.
    */
   async deleteSessions(ids: number[], concurrency = 4): Promise<Array<{ id: number; error: string }>> {
     const queue = [...ids];
@@ -278,37 +334,44 @@ export class RigClient {
     return this.call({ method: "POST", path: `/api/history/sessions/${id}/end` });
   }
 
-  series(id: number, source: string, measurand: string, query: SeriesQuery = {}): Promise<Series> {
-    return this.get(
-      `/api/history/sessions/${id}/series/${encodeURIComponent(source)}/${encodeURIComponent(measurand)}`,
-      query,
-    );
+  sessionDevices(id: number): Promise<DeviceRow[]> {
+    return this.get(`/api/history/sessions/${id}/devices`);
   }
 
-  sessionSources(id: number): Promise<SourceRow[]> {
-    return this.get(`/api/history/sessions/${id}/sources`);
+  /** Every signal the session recorded; `address` keys the series and writes. */
+  sessionSignals(id: number): Promise<SignalRow[]> {
+    return this.get(`/api/history/sessions/${id}/signals`);
   }
 
-  sessionChannels(id: number): Promise<ChannelRow[]> {
-    return this.get(`/api/history/sessions/${id}/channels`);
+  /** The writable signals whose write states the session recorded. */
+  sessionWrites(id: number): Promise<WriteRow[]> {
+    return this.get(`/api/history/sessions/${id}/writes`);
   }
 
-  sessionActuators(id: number): Promise<ActuatorRow[]> {
-    return this.get(`/api/history/sessions/${id}/actuators`);
+  sessionControllers(id: number): Promise<ControllerRow[]> {
+    return this.get(`/api/history/sessions/${id}/controllers`);
   }
 
-  sessionLoops(id: number): Promise<LoopRow[]> {
-    return this.get(`/api/history/sessions/${id}/loops`);
+  /** One signal over a window, optionally downsampled (one of `every`, `bucket_ns`, `max_points`). */
+  series(id: number, address: Address, query: SeriesQuery = {}): Promise<Series> {
+    return this.get(`/api/history/sessions/${id}/series/${enc(address)}`, query);
   }
 
-  ticks(id: number, loop: string, query: { start_ns?: number; end_ns?: number; every?: number } = {}): Promise<Tick[]> {
-    return this.get(`/api/history/sessions/${id}/ticks/${encodeURIComponent(loop)}`, query);
+  /** What one writable signal was set to, in order. */
+  writeStates(id: number, address: Address, query: WindowQuery = {}): Promise<WriteStateRow[]> {
+    return this.get(`/api/history/sessions/${id}/writes/${enc(address)}`, query);
   }
 
-  sessionEvents(id: number, query: { start_ns?: number; end_ns?: number } = {}): Promise<SessionEvent[]> {
+  /** A controller's steps; `controller` is the address of the signal it drives. */
+  ticks(id: number, controller: Address, query: WindowQuery & { every?: number } = {}): Promise<Tick[]> {
+    return this.get(`/api/history/sessions/${id}/ticks/${enc(controller)}`, query);
+  }
+
+  sessionEvents(id: number, query: WindowQuery = {}): Promise<SessionEvent[]> {
     return this.get(`/api/history/sessions/${id}/events`, query);
   }
 
+  /** In start order; nest by `parent_id`. */
   spans(id: number): Promise<Span[]> {
     return this.get(`/api/history/sessions/${id}/spans`);
   }
@@ -317,22 +380,24 @@ export class RigClient {
   // so the client builds their URLs and the page points an anchor at them;
   // nothing is fetched here.
 
-  /** URL of the whole session as a file: every channel, or `zip` for the tables, the loops' ticks, the events and the metadata. */
+  /** URL of the whole session as a file: every signal, or `zip` for the tables, the controllers' ticks, the writes, the events and the metadata. */
   exportUrl(id: number, { format = "csv", layout = "wide", step_s }: SessionExportQuery = {}): string {
     return this.url(`/api/history/sessions/${id}/export`, { format, layout: format === "zip" ? undefined : layout, step_s });
   }
 
-  /** URL of one channel's series as a file. */
-  seriesExportUrl(id: number, source: string, measurand: string, format: ExportFormat = "csv"): string {
-    return this.url(
-      `/api/history/sessions/${id}/series/${encodeURIComponent(source)}/${encodeURIComponent(measurand)}/export`,
-      { format },
-    );
+  /** URL of one signal's series as a file. */
+  seriesExportUrl(id: number, address: Address, format: ExportFormat = "csv"): string {
+    return this.url(`/api/history/sessions/${id}/series/${enc(address)}/export`, { format });
   }
 
-  /** URL of one loop's ticks as a file. */
-  ticksExportUrl(id: number, loop: string, format: ExportFormat = "csv"): string {
-    return this.url(`/api/history/sessions/${id}/ticks/${encodeURIComponent(loop)}/export`, { format });
+  /** URL of one signal's write states as a file. */
+  writesExportUrl(id: number, address: Address, format: ExportFormat = "csv"): string {
+    return this.url(`/api/history/sessions/${id}/writes/${enc(address)}/export`, { format });
+  }
+
+  /** URL of one controller's ticks as a file. */
+  ticksExportUrl(id: number, controller: Address, format: ExportFormat = "csv"): string {
+    return this.url(`/api/history/sessions/${id}/ticks/${enc(controller)}/export`, { format });
   }
 
   /** URL of the session's events as a file. */
@@ -371,15 +436,15 @@ export class RigClient {
   }
 
   program(name: string): Promise<ProgramRow> {
-    return this.get(`/api/programs/library/${encodeURIComponent(name)}`);
+    return this.get(`/api/programs/library/${enc(name)}`);
   }
 
   programHistory(name: string): Promise<ProgramRow[]> {
-    return this.get(`/api/programs/library/${encodeURIComponent(name)}/history`);
+    return this.get(`/api/programs/library/${enc(name)}/history`);
   }
 
   checkStoredProgram(name: string): Promise<ProgramCheck> {
-    return this.get(`/api/programs/library/${encodeURIComponent(name)}/check`);
+    return this.get(`/api/programs/library/${enc(name)}/check`);
   }
 
   /** Save a version, verbatim in `format`. */
@@ -387,16 +452,16 @@ export class RigClient {
     const payload: Record<string, unknown> = { format, body };
     if (label !== undefined) payload.label = label;
     if (notes !== undefined) payload.notes = notes;
-    return this.call({ method: "PUT", path: `/api/programs/library/${encodeURIComponent(name)}`, body: payload });
+    return this.call({ method: "PUT", path: `/api/programs/library/${enc(name)}`, body: payload });
   }
 
   deleteProgram(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/programs/library/${encodeURIComponent(name)}` });
+    return this.call({ method: "DELETE", path: `/api/programs/library/${enc(name)}` });
   }
 
   /** Move a program, with its whole version history, under a new name. 409 if the name is taken. */
   renameProgram(name: string, newName: string): Promise<ProgramRow[]> {
-    return this.call({ method: "POST", path: `/api/programs/library/${encodeURIComponent(name)}/rename`, body: { name: newName } });
+    return this.call({ method: "POST", path: `/api/programs/library/${enc(name)}/rename`, body: { name: newName } });
   }
 
   /** URL of the document as a file, converted to `format` if given; open it or set it as an anchor's href. */
@@ -405,7 +470,7 @@ export class RigClient {
     if (format) q.set("format", format);
     if (version !== undefined) q.set("version", String(version));
     const query = q.toString();
-    return `/api/programs/library/${encodeURIComponent(name)}/download${query ? `?${query}` : ""}`;
+    return `/api/programs/library/${enc(name)}/download${query ? `?${query}` : ""}`;
   }
 
   runStoredProgram(name: string, options: { interrupt?: boolean; version?: number } = {}): Promise<ProgrammerState> {
@@ -413,16 +478,25 @@ export class RigClient {
     if (options.interrupt) q.set("interrupt", "true");
     if (options.version !== undefined) q.set("version", String(options.version));
     const query = q.toString();
-    return this.call({ method: "POST", path: `/api/programs/library/${encodeURIComponent(name)}/run${query ? `?${query}` : ""}` });
+    return this.call({ method: "POST", path: `/api/programs/library/${enc(name)}/run${query ? `?${query}` : ""}` });
   }
 
-  /** Validate a document (the dialect tree, already parsed) without running it; 422 names the failing step. */
-  checkProgram(document: unknown): Promise<unknown> {
+  /** Validate a document (the dialect tree, already parsed) without running it: `ProgramCheck` with a warning per step naming something the rig lacks; 422 names a step that fails to parse. */
+  checkProgram(document: unknown): Promise<ProgramCheck> {
     return this.call({ method: "POST", path: "/api/programs/check", body: document });
   }
 
   programSchema(): Promise<JsonSchema> {
     return this.get("/api/programs/schema");
+  }
+
+  /**
+   * `GET /api/programs/commands`: the commands' argument schemas as one
+   * discriminated union (`$defs` per command, `discriminator.mapping` tag →
+   * ref), for rendering a program's steps with titles, units and enums.
+   */
+  programCommandsSchema(): Promise<JsonSchema> {
+    return this.get("/api/programs/commands");
   }
 
   programmer(): Promise<ProgrammerState> {
@@ -435,16 +509,16 @@ export class RigClient {
 
   // endregion
 
-  /** Subscribe to one of the websocket streams; messages are typed by stream name. */
-  stream<S extends StreamName>(name: S, handlers: StreamHandlers<Streams[S]>): Subscription {
-    return this.transport.stream(`/ws/${name}`, handlers as StreamHandlers);
-  }
-
   // region Events
 
   /** The last few hundred events, oldest first; `level` keeps that level and above. */
   events(query: { limit?: number; level?: EventLevel } = {}): Promise<Event[]> {
     return this.get("/api/events", query);
+  }
+
+  /** Subscribe to one of the websocket streams; messages are typed by stream name. */
+  stream<S extends StreamName>(name: S, handlers: StreamHandlers<Streams[S]>): Subscription {
+    return this.transport.stream(`/ws/${name}`, handlers as StreamHandlers);
   }
 
   // endregion
@@ -456,7 +530,7 @@ export class RigClient {
     return this.get("/api/sim");
   }
 
-  /** Run the rig's time at `speed` times wall time from now on. 409 unless the clock is a scaled one. */
+  /** Run the rig's time at `speed` times wall time from now on. 409 on a stepped clock. */
   setSimulationSpeed(speed: number): Promise<{ speed: number }> {
     return this.call({ method: "PUT", path: "/api/sim/clock", body: { speed } });
   }
@@ -467,17 +541,17 @@ export class RigClient {
   }
 
   simulationPlant(name: string): Promise<SimulationPlant> {
-    return this.get(`/api/sim/plants/${encodeURIComponent(name)}`);
+    return this.get(`/api/sim/plants/${enc(name)}`);
   }
 
   /** Change some of a plant's parameters while it runs: `{tau_s: 30, noise: 0.2}`; resolves to the whole config. */
   setSimulationPlant(name: string, parameters: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.call({ method: "PUT", path: `/api/sim/plants/${encodeURIComponent(name)}`, body: parameters });
+    return this.call({ method: "PUT", path: `/api/sim/plants/${enc(name)}`, body: parameters });
   }
 
   /** Put a plant at an output and/or input, at once. */
   resetSimulationPlant(name: string, body: { output?: number; input?: number } = {}): Promise<{ input: number; output: number }> {
-    return this.call({ method: "POST", path: `/api/sim/plants/${encodeURIComponent(name)}/reset`, body });
+    return this.call({ method: "POST", path: `/api/sim/plants/${enc(name)}/reset`, body });
   }
 
   /** Write the current config back to the rig file (or `path`). */
@@ -496,19 +570,10 @@ export class RigClient {
 
   /** Run one of the simulation device's commands; resolves to whatever the method returned. */
   runSimulationCommand(command: string, args: Record<string, unknown> = {}): Promise<unknown> {
-    return this.call({ method: "POST", path: `/api/sim/device/${encodeURIComponent(command)}`, body: args });
+    return this.call({ method: "POST", path: `/api/sim/device/${enc(command)}`, body: args });
   }
 
   // endregion
-
-  /**
-   * `GET /api/programs/commands`: the commands' argument schemas as one
-   * discriminated union (`$defs` per command, `discriminator.mapping` tag →
-   * ref), for rendering a program's steps with titles, units and enums.
-   */
-  programCommandsSchema(): Promise<JsonSchema> {
-    return this.get("/api/programs/commands");
-  }
 
   // region Dashboards -- the UI's own documents, saved per rig with a version history
 
@@ -517,49 +582,32 @@ export class RigClient {
     return this.get("/api/dashboards", every ? { every: true } : undefined);
   }
 
-  dashboard(name: string): Promise<DashboardRow> {
-    return this.get(`/api/dashboards/${encodeURIComponent(name)}`);
+  /** The newest version, plus what it names that this rig lacks. */
+  dashboard(name: string): Promise<DashboardWithProblems> {
+    return this.get(`/api/dashboards/${enc(name)}`);
   }
 
   dashboardHistory(name: string): Promise<DashboardRow[]> {
-    return this.get(`/api/dashboards/${encodeURIComponent(name)}/history`);
+    return this.get(`/api/dashboards/${enc(name)}/history`);
   }
 
   /** Save a version under `name`; the body is the whole document. */
-  saveDashboard(name: string, body: DashboardDocument): Promise<DashboardRow> {
-    return this.call({ method: "PUT", path: `/api/dashboards/${encodeURIComponent(name)}`, body });
+  saveDashboard(name: string, body: DashboardDocument): Promise<DashboardWithProblems> {
+    return this.call({ method: "PUT", path: `/api/dashboards/${enc(name)}`, body });
   }
 
   /** Move a dashboard, with its history, under a new name. 409 if the name is taken. */
   renameDashboard(name: string, newName: string): Promise<DashboardRow[]> {
-    return this.call({ method: "POST", path: `/api/dashboards/${encodeURIComponent(name)}/rename`, body: { name: newName } });
+    return this.call({ method: "POST", path: `/api/dashboards/${enc(name)}/rename`, body: { name: newName } });
   }
 
   deleteDashboard(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/dashboards/${encodeURIComponent(name)}` });
+    return this.call({ method: "DELETE", path: `/api/dashboards/${enc(name)}` });
   }
 
   /** JSON Schema of the document, for checking an import before it is shown. */
   dashboardSchema(): Promise<JsonSchema> {
     return this.get("/api/dashboards/schema");
-  }
-
-  // endregion
-
-  // region All devices -- one namespace: readers, actuators and an application's own device
-
-  /**
-   * `GET /api/devices`: every reader, actuator and application device, once,
-   * by name -- not `devices(kind)` above, which is the `/api/actuators` or
-   * `/api/readers` shape for one kind at a time. Use this to list or resolve
-   * a name without knowing its kind first.
-   */
-  allDevices(): Promise<Record<string, DeviceOut>> {
-    return this.get("/api/devices");
-  }
-
-  resolveDevice(name: string): Promise<DeviceOut> {
-    return this.get(`/api/devices/${encodeURIComponent(name)}`);
   }
 
   // endregion

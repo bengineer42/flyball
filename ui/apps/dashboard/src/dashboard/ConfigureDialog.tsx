@@ -12,7 +12,7 @@ export function ConfigureDialog({ widget, onClose, onApply }: { widget: Dashboar
   const kind = widgetKind(widget.kind);
   const [title, setTitle] = useState(widget.title ?? "");
   const [config, setConfig] = useState<Record<string, unknown>>(widget.config);
-  // The schema may depend on the value (an actuator's commands follow the actuator picked), so it is rebuilt as the form changes.
+  // The schema may depend on the value (a device's commands follow the device picked), so it is rebuilt as the form changes.
   const schema = useMemo(() => kind?.configSchema(bindings, config), [kind, bindings, config]);
   const placeholder = kind?.titleFor?.(config, bindings) ?? kind?.label ?? widget.kind;
   return (

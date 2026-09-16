@@ -6,13 +6,13 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-export type RefKind = "source" | "channel" | "actuator" | "reader" | "loop" | "session" | "event";
+/** What a name can refer to: a device by name, a signal by address, a controller by its name (its target's address). */
+export type RefKind = "device" | "signal" | "controller" | "session" | "event";
 
 export interface Ref {
   kind: RefKind;
+  /** The device's name, the signal's address, the controller's name, the session's id. */
   name: string;
-  /** For `channel`: the measurand; for `event`: unused. */
-  measurand?: string;
 }
 
 export type HrefFor = (ref: Ref) => string | undefined;
@@ -29,12 +29,12 @@ export function useHref(ref: Ref): string | undefined {
 }
 
 /** A name that is a link when the app has somewhere to go, and text otherwise. */
-export function Ref({ kind, name, measurand, children, className }: Ref & { children?: ReactNode; className?: string }) {
-  const href = useHref({ kind, name, ...(measurand !== undefined ? { measurand } : {}) });
-  const label = children ?? (measurand !== undefined ? `${name}.${measurand}` : name);
+export function Ref({ kind, name, children, className }: Ref & { children?: ReactNode; className?: string }) {
+  const href = useHref({ kind, name });
+  const label = children ?? name;
   const cls = ["fb-ref", className].filter(Boolean).join(" ");
   return href ? (
-    <a className={cls} href={href} title={measurand !== undefined ? `${kind} ${name}.${measurand}` : `${kind} ${name}`}>
+    <a className={cls} href={href} title={`${kind} ${name}`}>
       {label}
     </a>
   ) : (

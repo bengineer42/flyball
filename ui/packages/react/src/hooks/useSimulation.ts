@@ -40,12 +40,12 @@ const absent =
 export function useSimulation(refreshMs = 2000): SimulationHook {
   const rig = useRig();
   const doc = useQuery<Simulation | null>(() => rig.simulation().catch(absent(404)), [rig], { refreshMs });
-  // Whether there is a device to ask for: `/api/sim` says (`device`); an older daemon does not, so probe
-  // once then; a real rig or one still loading has none. Rigs without one (most) make no request at all.
+  // Whether there is a device to ask for: `/api/sim` says (`device`); a real rig or one still
+  // loading has none. Rigs without one (most) make no request at all.
   const sim = doc.data && doc.data.simulated ? doc.data : undefined;
-  const probe = doc.data === undefined ? null : sim === undefined ? false : sim.device === undefined ? "probe" : sim.device;
+  const probe = doc.data === undefined ? null : sim === undefined ? false : sim.device;
   const schema = useQuery<DeviceSchema | null>(
-    () => (probe === false || probe === null ? Promise.resolve(null) : rig.simulationDeviceSchema().catch(absent(404, 409))),
+    () => (probe ? rig.simulationDeviceSchema().catch(absent(404, 409)) : Promise.resolve(null)),
     [rig, probe],
   );
   const hasDevice = !!schema.data;

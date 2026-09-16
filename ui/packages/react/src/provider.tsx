@@ -9,16 +9,16 @@ export interface RigProviderProps {
   url?: string;
   /** Supply your own transport (a mock, a test double, another protocol). */
   transport?: Transport;
-  /** How much the telemetry store holds; an hour per channel by default. */
+  /** How much the telemetry store holds; an hour per signal by default. */
   store?: TelemetryStoreOptions;
   children: ReactNode;
 }
 
 /**
  * Makes one `RigClient` and one `TelemetryStore` available to every hook
- * below it. The store owns the four live sockets (samples, loops, actuators,
- * events): they open on the first subscriber and close a few seconds after
- * the last leaves, whichever page that was on.
+ * below it. The store owns the live sockets (samples, writes, controllers,
+ * devices, waits, events): they open on the first subscriber and close a
+ * few seconds after the last leaves, whichever page that was on.
  */
 export function RigProvider({ url, transport, store: storeOptions, children }: RigProviderProps) {
   const value = useMemo(() => {
@@ -38,7 +38,7 @@ export function useRig(): RigClient {
   return held.client;
 }
 
-/** The provider's telemetry store: rings of samples, loop ticks, actuator states and events. */
+/** The provider's telemetry store: rings of samples and controller ticks, write states, device runs, waits and events. */
 export function useTelemetry(): TelemetryStore {
   const held = useContext(RigContext);
   if (!held) throw new Error("useTelemetry: no <RigProvider> above this component");

@@ -84,7 +84,7 @@ export const events: WidgetKind = {
     properties: {
       level: { type: "string", title: "From level", default: "INFO", enum: EVENT_LEVELS, description: "This level and above." },
       limit: { type: "integer", title: "Rows", default: 20, minimum: 1, maximum: 200, description: "At most; the widget shows as many as its height holds." },
-      scope: { type: "string", title: "Scope", default: "", description: "Only this scope (`program`, `loop`, `actuator`, …); blank for all." },
+      scope: { type: "string", title: "Scope", default: "", description: "Only this scope (`program`, `controller`, `device`, …); blank for all." },
     },
   }),
   defaultConfig: () => ({ level: "INFO", limit: 20, scope: "" }),

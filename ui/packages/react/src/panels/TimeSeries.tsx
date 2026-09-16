@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import type { ChannelOut } from "@flyball/client";
+import { describeSignal, type SignalOut } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
@@ -10,7 +10,7 @@ import { saveTable, seriesTable } from "./download.js";
 import { useChartLifecycle } from "./useChartLifecycle.js";
 import { pageSyncKey } from "./MultiSeries.js";
 import type { TraceRef } from "../store/hooks.js";
-import { channelKey, emptyTrace } from "../store/telemetry.js";
+import { emptyTrace } from "../store/telemetry.js";
 
 const EMPTY: number[] = [];
 
@@ -38,12 +38,12 @@ export function useThemeVersion(): number {
 }
 
 export interface TimeSeriesProps {
-  channel: ChannelOut;
+  signal: SignalOut;
   /** Seconds since the epoch, ascending. Omitted when the chart draws from a `source`. */
   t?: number[];
   v?: number[];
   /**
-   * Draw the channel straight from the telemetry store (`useTraceRef`): the
+   * Draw the signal straight from the telemetry store (`useTraceRef`): the
    * chart subscribes itself, redraws at most ten times a second (twice for a
    * sparkline) while on screen, and never re-renders on samples.
    */
@@ -52,13 +52,13 @@ export interface TimeSeriesProps {
   paused?: boolean;
   /** `cursor.sync.key`: charts sharing a key share a cursor. Default: the page (the location hash). */
   syncKey?: string;
-  /** Names this chart in the redraw counter (`window.__fb.chartsById`); default `source.measurand`. */
+  /** Names this chart in the redraw counter (`window.__fb.chartsById`); default the signal's address. */
   id?: string;
   /** Plot height in pixels, or `"auto"`: follows the width (0.3 of it, between 160 and 360). */
   height?: number | "auto";
-  /** Fix the y axis to the channel's declared range rather than autoscaling. Shorthand for `yScale="range"`. */
+  /** Fix the y axis to the signal's declared range rather than autoscaling. Shorthand for `yScale="range"`. */
   fixedRange?: boolean;
-  /** How to scale the y axis: fit the data, the channel's range, or fixed bounds. */
+  /** How to scale the y axis: fit the data, the signal's range, or fixed bounds. */
   yScale?: YScale;
   /** No axes, no legend: a sparkline. */
   compact?: boolean;
@@ -72,7 +72,7 @@ export interface TimeSeriesProps {
   every?: number;
   /** Pan/zoom toolbar and wheel/drag navigation; on by default for full charts, never for sparklines. */
   navigable?: boolean;
-  /** Heading of the full-size view; default `source.measurand`. */
+  /** Heading of the full-size view; default the signal's address. */
   title?: string;
   /**
    * Shown full-size in an overlay (a sparkline opens as a full chart). Uncontrolled
@@ -81,16 +81,16 @@ export interface TimeSeriesProps {
    */
   expanded?: boolean;
   onExpandChange?(expanded: boolean): void;
-  /** The same channel in the store, as an export URL; the toolbar's download menu offers it beside what is held here. */
+  /** The same signal in the store, as an export URL; the toolbar's download menu offers it beside what is held here. */
   exportHref?: string;
 }
 
 /**
- * One channel over time. A thin wrapper over uPlot: the chart is built once
- * per channel and fed new data on every render, so a live trace at 10 Hz
- * costs a `setData`, not a rebuild. Axis label and unit come from the channel.
+ * One signal over time. A thin wrapper over uPlot: the chart is built once
+ * per signal and fed new data on every render, so a live trace at 10 Hz
+ * costs a `setData`, not a rebuild. Axis label and unit come from the signal.
  */
-export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKey, id, height = 160, fixedRange = false, compact: compactProp = false, windowS, yScale, every, navigable, title, expanded, onExpandChange, exportHref }: TimeSeriesProps) {
+export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey, id, height = 160, fixedRange = false, compact: compactProp = false, windowS, yScale, every, navigable, title, expanded, onExpandChange, exportHref }: TimeSeriesProps) {
   const nav = useRef(navigation()).current;
   const [following, setFollowing] = useState(true);
   nav.onChange = setFollowing;
@@ -111,13 +111,14 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
   const [yFit, setYFit] = useState<YScale | null>(null);
   const wanted: YScale = yScale ?? (fixedRange ? "range" : "auto");
   const effective = yFit !== null && yFit === wanted ? "auto" : wanted;
-  const y = yRange(effective, channel.range);
+  const y = yRange(effective, signal.range);
   const yKey = typeof effective === "object" ? `${effective.min}:${effective.max}` : effective;
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
   const theme = useThemeVersion();
   const t = tProp ?? EMPTY;
   const v = vProp ?? EMPTY;
+  const label = describeSignal(signal);
 
   useEffect(() => {
     if (!host.current) return;
@@ -135,11 +136,11 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
       series: [
         {},
         {
-          label: channel.label,
+          label,
           stroke: palette.accent,
           points: { show: false },
           width: 1.5,
-          value: (_u, raw) => (raw == null ? "—" : `${raw.toFixed(channel.precision ?? 2)} ${channel.unit}`),
+          value: (_u, raw) => (raw == null ? "—" : `${raw.toFixed(signal.precision ?? 2)} ${signal.unit}`),
         },
       ],
       axes: compact
@@ -147,9 +148,9 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
         : [
             axis({ label: "time" }),
             axis({
-              label: `${channel.label} (${channel.unit})`,
+              label: `${label} (${signal.unit})`,
               size: axisSize,
-              values: (_u, ticks) => ticks.map((x) => x.toFixed(channel.precision != null ? Math.min(channel.precision, 2) : 1)),
+              values: (_u, ticks) => ticks.map((x) => x.toFixed(signal.precision != null ? Math.min(signal.precision, 2) : 1)),
             }),
           ],
       scales: {
@@ -184,7 +185,9 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
       chart.current?.destroy();
       chart.current = null;
     };
-  }, [channel, height, yKey, compact, windowS, theme, interactive, open, syncKey]);
+    // `label` follows `signal`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signal, height, yKey, compact, windowS, theme, interactive, open, syncKey]);
 
   const latest = useRef({ t: thin(t, every), v: thin(v, every) });
   if (!source) latest.current = { t: thin(t, every), v: thin(v, every) };
@@ -192,7 +195,7 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
   const view = useRef(emptyTrace());
   const everyRef = useRef(every);
   everyRef.current = every;
-  const key = channelKey(channel);
+  const key = signal.address;
   const { redraw } = useChartLifecycle({
     host,
     source,
@@ -225,12 +228,12 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
         chart={() => chart.current}
         following={following}
         onFitY={effective === "auto" ? undefined : () => setYFit(wanted)}
-        yLabel={channel.unit || channel.label}
+        yLabel={signal.unit || label}
         onExpand={() => setOpen(!open)}
         expanded={open}
         onDownload={(format) =>
           // Everything held, not the thinned trace the canvas draws.
-          saveTable(`${channel.source}.${channel.measurand}`, seriesTable([{ label: `${channel.source}.${channel.measurand}`, unit: channel.unit, ...held() }]), format)
+          saveTable(signal.address, seriesTable([{ label: signal.address, unit: signal.unit, ...held() }]), format)
         }
         exportHref={exportHref}
       />
@@ -250,7 +253,7 @@ export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKe
       <div className="fb-chart fb-chart-placeholder" style={{ height: typeof height === "number" ? height : 160 }} onClick={close} title="Showing full-size">
         <span className="fb-muted">full-size · Esc to return</span>
       </div>
-      <ChartOverlay title={title ?? `${channel.source}.${channel.measurand}`} onClose={close}>
+      <ChartOverlay title={title ?? signal.address} onClose={close}>
         {body}
       </ChartOverlay>
     </>

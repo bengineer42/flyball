@@ -1,9 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import uPlot from "uplot";
-import type { ChannelOut, FeedforwardConfig, LoopOut } from "@flyball/client";
-import { alarmLevel, describeStateKey, humanise, setpointOf } from "@flyball/client";
-import type { LoopTrace } from "../hooks/useLoops.js";
+import type { ControllerOut, FeedforwardConfig, SignalOut } from "@flyball/client";
+import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf } from "@flyball/client";
+import type { ControllerTrace } from "../hooks/useControllers.js";
 import { Ref } from "../links.js";
+import { useDeviceRun, useFreshness, useSignal, useWriteState } from "../store/hooks.js";
 import { thin } from "./thin.js";
 import { yRange, type YScale } from "./yscale.js";
 
@@ -40,11 +41,11 @@ function stdDev(values: (number | null)[]): number {
 
 /**
  * A band around `center` (the setpoint) for the process mini trend under
- * "auto": uPlot's plain fit-to-data zooms into pure sensor noise once a loop
+ * "auto": uPlot's plain fit-to-data zooms into pure sensor noise once a controller
  * settles onto a flat setpoint, and a hold with a millikelvin of noise reads
  * as a storm. The floor is whichever is widest of the warn band, 2% of the
- * channel's declared range, or 5x the reading's own noise; widened further
- * to cover the reading itself, so a real excursion (an actuator at limit,
+ * signal's declared range, or 5x the reading's own noise; widened further
+ * to cover the reading itself, so a real excursion (a target at limit,
  * say) still shows instead of being clipped to the floor.
  */
 function settledBand(center: number, warn: [number, number] | null | undefined, range: [number, number] | null | undefined, reading: (number | null)[]): [number, number] | null {
@@ -128,17 +129,18 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
   return <div ref={host} className="fb-chart fb-loop-mini" />;
 }
 
-export interface LoopPanelProps {
-  loop: LoopOut;
-  /** The loop's recent ticks; `useLoops` supplies one per loop. Omit for a readout-only panel. */
-  history?: LoopTrace;
+export interface ControllerPanelProps {
+  controller: ControllerOut;
+  /** The signal the controller regulates (`controller.source`): its unit, range, bands and precision shape the PV/SP rows and the process trend. */
+  source: SignalOut;
   /**
-   * Unit the drive chart and its readouts are in: `loop.demand_unit` (the
-   * actuator's, or the channel's when it has none) unless overridden.
+   * The signal it drives (`controller.target`): its `limits` draw the OP bar
+   * and its unit labels the drive rows. Omitted, the unit is
+   * `controller.demand_unit` and the OP row has no bar.
    */
-  demandUnit?: string | null;
-  /** The actuator's achievable demand range, in `demandUnit` (`DeviceState.output_range`); draws the OP bar as a % of it when known. */
-  outputRange?: [number, number] | null;
+  target?: SignalOut;
+  /** The controller's recent ticks; `useControllers` supplies one per controller. Omit for a readout-only panel. */
+  history?: ControllerTrace;
   /** Seconds of history the chart shows; it scrolls once full. */
   windowS?: number;
   /** Rendered inline in the SP row: the setpoint entry and Move/Regulate button. */
@@ -149,7 +151,7 @@ export interface LoopPanelProps {
   yScale?: YScale;
   /** Draw one point in `every`. */
   every?: number;
-  /** The loop's ticks in the store, as an export URL; both trends' download menus offer it. */
+  /** The controller's ticks in the store, as an export URL; both trends' download menus offer it. */
   exportHref?: string;
   /** Process and Drive mini trends, stacked at the right. Off shows the three rows alone. */
   trends?: boolean;
@@ -157,23 +159,21 @@ export interface LoopPanelProps {
   trendHeight?: number;
   /** Law and feedforward state: a compact, always-open section (not a `<details>` any more -- a user report found the disclosure hid content people needed every time). Only the Controllers page opens this; a dashboard widget never does. */
   detail?: boolean;
-  /** The reader behind this channel has gone quiet: shown in the banner ahead of "actuator at limit" / "open loop". */
-  readerOffline?: boolean;
   /**
-   * No outer card and no header (name, channel, mode badge): for a caller that already draws its
+   * No outer card and no header (name, source, mode badge): for a caller that already draws its
    * own frame -- `WidgetFrame`'s tile, fed the title/subtitle/mode badge through `useWidgetChrome`.
    * Default false: the full card the Controllers page shows.
    */
   bare?: boolean;
-  /** Extra content in the card, below the law/feedforward details -- the merged Controllers page's collapsible actuator state/config/settings/commands. Ignored when `bare`. */
+  /** Extra content in the card, below the law/feedforward details -- the Controllers page's collapsible write state / device commands. Ignored when `bare`. */
   extra?: ReactNode;
 }
 
-const EMPTY: LoopTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
+const EMPTY: ControllerTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
 /** Default trend height on the Controllers page, which has room; a dashboard tile passes its own (`trendHeight`), computed from what it actually has. */
 const TREND_HEIGHT = 150;
 
-/** True when the actuator's achievable differs from what was asked, beyond float noise. */
+/** True when what the target will give differs from what was asked, beyond float noise. */
 const differs = (demand: number | null, expected: number) => demand == null || Math.abs(expected - demand) > 1e-9 * Math.max(1, Math.abs(demand));
 
 /** The trace column's last value: the current one, or null when the latest tick had none (never an older one, which would be stale). */
@@ -184,9 +184,9 @@ const fractionOf = (value: number | null, range: [number, number] | null | undef
   value == null || !range ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
 
 /** Warn/alarm band edges that fall inside `range`, as left-offset percentages for ticks on a bar (mirrors `Readout`). */
-function bandTicks(channel: ChannelOut, range: [number, number]): Array<{ band: "warn" | "alarm"; left: number }> {
+function bandTicks(signal: Pick<SignalOut, "warn" | "alarm">, range: [number, number]): Array<{ band: "warn" | "alarm"; left: number }> {
   return (["warn", "alarm"] as const).flatMap((band) =>
-    (channel[band] ?? [])
+    (signal[band] ?? [])
       .filter((edge) => edge > range[0] && edge < range[1])
       .map((edge) => ({ band, left: ((edge - range[0]) / (range[1] - range[0])) * 100 })),
   );
@@ -222,24 +222,24 @@ function feedforwardArgs(feedforward: FeedforwardConfig | null | undefined): unk
 }
 
 /**
- * One control loop as a process-control faceplate: mode badge and a banner
+ * One controller as a process-control faceplate: mode badge and a banner
  * for the top condition in the header, then three aligned rows -- PV (what
- * it reads), SP (where it aims, with the entry and Move controls), OP (what
- * it drives the actuator with, after limits) -- each with a bar, and the
- * Process/Drive trends stacked beside them. Pure; `useLoops` supplies the
- * data and the caller supplies the controls.
+ * the source reads), SP (where it aims, with the entry and Move controls),
+ * OP (what the target was set to, after limits) -- each with a bar, and the
+ * Process/Drive trends stacked beside them. `useControllers` supplies the
+ * history and the caller the controls; the live PV, the target's write
+ * state and the source device's run come from the telemetry store, so the
+ * panel needs a `RigProvider` above it.
  *
  * The trends are drawn apart from the OP bar on purpose: a reading and a
  * demand are different things even when the rig gives them the same unit (a
- * temperature the heater is told to hold is not the temperature measured),
- * and an actuator with no unit of its own has a demand in the channel's
- * unit by convention.
+ * temperature the heater is told to hold is not the temperature measured).
  */
-export function LoopPanel({
-  loop,
+export function ControllerPanel({
+  controller,
+  source,
+  target,
   history = EMPTY,
-  demandUnit,
-  outputRange,
   windowS,
   controls,
   headerControls,
@@ -249,21 +249,23 @@ export function LoopPanel({
   trends = true,
   trendHeight = TREND_HEIGHT,
   detail = false,
-  readerOffline = false,
   bare = false,
   extra,
-}: LoopPanelProps) {
-  const { channel } = loop;
-  const unit = channel.unit;
-  const dUnit = demandUnit ?? loop.demand_unit ?? unit;
-  const precision = channel.precision ?? 2;
+}: ControllerPanelProps) {
+  const point = useSignal(controller.source);
+  const write = useWriteState(controller.target) ?? target?.write ?? null;
+  const run = useDeviceRun(deviceOf(controller.source));
+  const fresh = useFreshness(controller.source);
+  const unit = source.unit;
+  const dUnit = target?.unit ?? controller.demand_unit ?? unit;
+  const precision = source.precision ?? 2;
   const fmt = (value: number | string | null | undefined, u: string) =>
     value == null ? "—" : typeof value === "number" ? `${value.toFixed(precision)} ${u}` : value;
 
   const process = [
     {
       label: "reading",
-      hint: `What ${channel.source}.${channel.measurand} measures: the value the loop is trying to control.`,
+      hint: `What ${controller.source} measures: the value the controller is trying to hold.`,
       unit,
       t: history.t,
       v: history.reading,
@@ -271,7 +273,7 @@ export function LoopPanel({
     },
     {
       label: "setpoint",
-      hint: "Where the loop is aiming right now; a ramp moves it over time.",
+      hint: "Where the controller is aiming right now; a ramp moves it over time.",
       unit,
       t: history.t,
       v: history.reference,
@@ -280,7 +282,7 @@ export function LoopPanel({
       precision,
     },
   ];
-  const feedforward = loop.feedforward as FeedforwardConfig | undefined;
+  const feedforward = controller.feedforward as FeedforwardConfig | undefined;
   const ffTag = typeof feedforward?.tag === "string" ? feedforward.tag : null;
   // Under no feedforward the correction *is* the demand; drawing it twice says nothing.
   const showCorrection = ffTag !== "none";
@@ -288,18 +290,18 @@ export function LoopPanel({
   const drive = [
     {
       label: "demand",
-      hint: showCorrection ? `What the loop asks of ${loop.name}: feedforward(setpoint) plus the law's correction.` : `What the loop asks of ${loop.name}: the law's correction alone (no feedforward).`,
+      hint: showCorrection ? `What the controller asks of ${controller.target}: feedforward(setpoint) plus the law's correction.` : `What the controller asks of ${controller.target}: the law's correction alone (no feedforward).`,
       unit: dUnit,
       t: history.t,
       v: history.demand,
       precision,
     },
-    // Achievable is drawn only where it differs from the demand (the actuator clamped); elsewhere the two coincide.
+    // Achievable is drawn only where it differs from the demand (the target clamped); elsewhere the two coincide.
     ...(clampedTrace.some((v) => v != null)
       ? [
           {
             label: "achievable (clamped)",
-            hint: `What ${loop.name} could actually give while the demand was beyond its limit.`,
+            hint: `What ${controller.target} could actually give while the demand was beyond its limit.`,
             unit: dUnit,
             t: history.t,
             v: clampedTrace,
@@ -323,49 +325,57 @@ export function LoopPanel({
         ]
       : []),
   ];
-  const law = loop.law as Record<string, unknown> | null;
+  const law = controller.law as Record<string, unknown> | null;
   const { tag, ...rest } = law ?? {};
-  const following = typeof loop.reference === "string" ? humanise(loop.reference) : null;
+  const following = typeof controller.reference === "string" ? humanise(controller.reference) : null;
   // A ramp names its generator; the setpoint is then recovered through the feedforward, or failing that read off the
   // latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
-  const setpoint = setpointOf(loop) ?? (following ? latest(history.reference) : null);
-  const reading = loop.reading?.value ?? null;
-  // The actuator clamped: it will give `expected`, not what was asked.
-  const clamped = loop.expected != null && differs(loop.demand, loop.expected);
-  const output = loop.expected ?? loop.demand;
+  const setpoint = setpointOf(controller) ?? (following ? latest(history.reference) : null);
+  // PV: the source's newest sample from the store, else what the controller saw at its last tick.
+  const reading = point?.v ?? controller.reading?.value ?? null;
+  // OP: the target's write state (after limits) from `/ws/writes`, else what the controller expects it to give.
+  const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.demand, controller.expected);
+  const output = write?.value ?? controller.expected ?? controller.demand;
+  const requested = write?.requested ?? controller.demand;
   const deviation = reading != null && setpoint != null ? reading - setpoint : null;
-  const deviationWarn = alarmLevel(reading, channel) !== "ok";
+  const deviationWarn = alarmLevel(reading, source) !== "ok";
 
-  const range = channel.range;
+  const range = source.range;
   const pvFraction = fractionOf(reading, range);
   const spFraction = fractionOf(setpoint, range);
-  const pvTicks = range ? bandTicks(channel, range) : [];
+  const pvTicks = range ? bandTicks(source, range) : [];
+  const outputRange = target?.limits ?? null;
   const opFraction = fractionOf(output, outputRange);
   // Which rail the output is pinned to, for the OP bar's highlighted end when clamped.
-  const limitEdge: "hi" | "lo" | null = clamped ? ((loop.demand ?? 0) > loop.expected! ? "hi" : "lo") : null;
+  const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.demand ?? 0) > controller.expected! ? "hi" : "lo";
 
-  // `loop.mode === "open"` is a distinct wire state the backend does not currently emit; the
-  // real "no feedback" condition an operator meets is the `open_loop` law tag -- present and
-  // "regulating" (it is still driving the actuator), just with nothing correcting for error.
-  const banner = readerOffline
-    ? { text: "reader offline", hint: "No reading has arrived for this channel recently." }
-    : clamped
-      ? { text: "actuator at limit", hint: `${loop.name} cannot give the full demand; it is clamped to what it can achieve.` }
-      : loop.mode === "open" || tag === "open_loop"
-        ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
-        : null;
+  // The source device's run says whether anything is arriving at all; freshness catches a device that is
+  // nominally running but has gone quiet. `controller.mode === "open"` is a distinct wire state the backend
+  // does not currently emit; the real "no feedback" condition an operator meets is the `open_loop` law tag --
+  // present and "regulating" (it is still driving the target), just with nothing correcting for error.
+  const offline = !!run && (!run.running || run.conditions.some((c) => c.kind === "offline"));
+  const stale = alarmLevel(reading, source, fresh) === "stale";
+  const banner = offline
+    ? { text: "source offline", hint: `${deviceOf(controller.source)} is not being read; the controller has nothing to regulate on.` }
+    : stale
+      ? { text: "no recent reading", hint: `No sample has arrived on ${controller.source} recently.` }
+      : clamped
+        ? { text: "target at limit", hint: `${controller.target} cannot give the full demand; it is clamped to what it can achieve.` }
+        : controller.mode === "open" || tag === "open_loop"
+          ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
+          : null;
 
   const frame = (
     <div className={`fb-loop-frame${trends ? "" : " fb-loop-no-trends"}`}>
       {!bare && (
         <header className="fb-loop-head">
-          <h3><Ref kind="loop" name={loop.name}>{loop.label ?? loop.name}</Ref></h3>
+          <h3><Ref kind="controller" name={controller.name}>{describeController(controller)}</Ref></h3>
           <span className="fb-muted">
-            {loop.label && `${loop.name} · `}
-            <Ref kind="channel" name={channel.source} measurand={channel.measurand} />
-            {loop.default && " · default"}
+            {controller.label && `${controller.name} · `}
+            <Ref kind="signal" name={controller.source} />
+            {controller.default && " · default"}
           </span>
-          <span className={`fb-badge fb-mode fb-mode-${loop.mode}`}>{loop.mode}</span>
+          <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span>
         </header>
       )}
       {banner && (
@@ -387,43 +397,43 @@ export function LoopPanel({
             </div>
           )}
           <span className="fb-loop-caption" style={deviation != null ? { color: deviationWarn ? "var(--fb-warn)" : "var(--fb-fg-2)" } : undefined}>
-            {deviation != null ? `${Math.abs(deviation).toFixed(precision)} ${unit} ${deviation >= 0 ? "above" : "below"} target` : " "}
+            {deviation != null ? `${Math.abs(deviation).toFixed(precision)} ${unit} ${deviation >= 0 ? "above" : "below"} target` : " "}
           </span>
         </div>
         <div className="fb-loop-row">
           <dt title="setpoint — SP">Target</dt>
           <dd>{fmt(setpoint, unit)}</dd>
           {controls && <span className="fb-loop-sp-controls">{controls}</span>}
-          <span className="fb-loop-caption">{following ? `→ following ${following.toLowerCase()}` : " "}</span>
+          <span className="fb-loop-caption">{following ? `→ following ${following.toLowerCase()}` : " "}</span>
         </div>
         <div className="fb-loop-row">
-          <dt title="drive after limits — OP">Output</dt>
+          <dt title="what the target was set to, after limits — OP">Output</dt>
           <dd>{fmt(output, dUnit)}</dd>
           {opFraction !== null && (
             <div
               className={`fb-range${clamped ? ` fb-range-limit-${limitEdge}` : ""}`}
-              title={clamped ? `output at its ${limitEdge === "hi" ? "upper" : "lower"} limit; requested ${fmt(loop.demand, dUnit)}` : `${outputRange![0]} – ${outputRange![1]} ${dUnit}`}
+              title={clamped ? `output at its ${limitEdge === "hi" ? "upper" : "lower"} limit; requested ${fmt(requested, dUnit)}` : `${outputRange![0]} – ${outputRange![1]} ${dUnit}`}
             >
               <div className="fb-range-fill" style={{ width: `${opFraction * 100}%` }} />
             </div>
           )}
-          <span className="fb-loop-caption">{clamped ? `requested ${fmt(loop.demand, dUnit)}` : " "}</span>
+          <span className="fb-loop-caption">{clamped ? `requested ${fmt(requested, dUnit)}` : " "}</span>
         </div>
       </dl>
       {headerControls && <div className="fb-loop-stop">{headerControls}</div>}
       {trends && (
         <div className="fb-loop-trends">
           <div>
-            <h4 className="fb-loop-chart-title" title="What the loop measures against where it is aiming">
+            <h4 className="fb-loop-chart-title" title="What the controller measures against where it is aiming">
               Process <span className="fb-muted">{unit}</span>
             </h4>
-            <MiniTrend series={process} height={trendHeight} every={every} yScale={yScale} range={channel.range} windowS={windowS} settledBand={setpoint != null ? settledBand(setpoint, channel.warn, channel.range, history.reading) : null} />
+            <MiniTrend series={process} height={trendHeight} every={every} yScale={yScale} range={source.range} windowS={windowS} settledBand={setpoint != null ? settledBand(setpoint, source.warn, source.range, history.reading) : null} />
           </div>
           <div>
-            <h4 className="fb-loop-chart-title" title={`What the loop asks of ${loop.name}, and what it can give back`}>
-              Drive <span className="fb-muted">{loop.name} · {dUnit}</span>
+            <h4 className="fb-loop-chart-title" title={`What the controller asks of ${controller.target}, and what it can give back`}>
+              Drive <span className="fb-muted">{controller.target} · {dUnit}</span>
             </h4>
-            {/* The port limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
+            {/* The target's limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
             <MiniTrend series={drive} height={trendHeight} every={every} yScale={outputRange ? "range" : undefined} range={outputRange} windowS={windowS} />
           </div>
         </div>
@@ -444,12 +454,12 @@ export function LoopPanel({
               ))}
             </p>
           ) : (
-            <p className="fb-loop-law-line fb-muted" title="No law is fitted; the actuator is driven by demand alone.">
+            <p className="fb-loop-law-line fb-muted" title="No law is fitted; the target is driven by demand alone.">
               manual · no law
             </p>
           )}
           {ffTag && (
-            <p className="fb-loop-law-line fb-loop-feedforward" title="What the loop asks for before the law corrects: the setpoint mapped into the actuator's unit">
+            <p className="fb-loop-law-line fb-loop-feedforward" title="What the controller asks for before the law corrects: the setpoint mapped into the target's unit">
               <span className="fb-tag">{ffTag}</span>
               <span> · {unit === dUnit ? dUnit : `${unit} → ${dUnit}`}</span>
               {(() => {

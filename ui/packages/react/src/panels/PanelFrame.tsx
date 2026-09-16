@@ -5,7 +5,7 @@ export type PanelSeverity = "ok" | "warn" | "alarm" | "stale";
 export interface PanelFrameProps {
   /** The heading; without one (and without status/actions/severity) the frame has no header row. */
   title?: ReactNode;
-  /** After the title, muted: a unit, a name, a channel. 12px. */
+  /** After the title, muted: a unit, a name, an address. 12px. */
   subtitle?: ReactNode;
   /** Before actions, always visible: a mode chip or other text status (DESIGN-SPEC.md §2 — chips stay only where text matters). */
   status?: ReactNode;

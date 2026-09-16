@@ -4,7 +4,8 @@
  * panel asks before it hands a schema over.
  */
 
-import type { FeedforwardConfig, JsonSchema } from "./wire.js";
+import type { Access, Address, ControllerOut, FeedforwardConfig, JsonSchema, SignalOut, TreeNode } from "./wire.js";
+import { isNamespace } from "./wire.js";
 
 /** Follow a local `$ref` (`#/$defs/Name`) against `root`. Returns the input when it is not a ref. */
 export function deref(schema: JsonSchema, root: JsonSchema): JsonSchema {
@@ -108,7 +109,7 @@ function walk(segments: string[], node: unknown): unknown {
   return walk(rest, record[head]);
 }
 
-/** `feedforward(setpoint)`: the demand, in the actuator's unit, the feedforward asks for at `setpoint`. Null for a tag this client does not know. */
+/** `feedforward(setpoint)`: the demand, in the target's unit, the feedforward asks for at `setpoint`. Null for a tag this client does not know. */
 export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined, setpoint: number): number | null {
   if (!feedforward) return setpoint;
   switch (feedforward.tag) {
@@ -143,7 +144,7 @@ export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined,
  * segment or a value beyond its ends is ambiguous, a zero gain likewise.
  */
 export function invertFeedforward(feedforward: FeedforwardConfig | null | undefined, base: number): number | null {
-  if (!feedforward) return base; // an older server: demand is in the channel's unit
+  if (!feedforward) return base;
   switch (feedforward.tag) {
     case "setpoint":
       return base;
@@ -172,17 +173,16 @@ export function invertFeedforward(feedforward: FeedforwardConfig | null | undefi
 }
 
 /**
- * A loop's current setpoint, in the channel's unit: `setpoint` as the
+ * A controller's current setpoint, in the source's unit: `setpoint` as the
  * server resolved it at the last tick (a ramp's current value); else the
- * reference when it is a number; else (an older server naming a ramp's
- * generator) recovered by inverting the feedforward on `demand − correction`,
- * which is exact for `setpoint` and `affine` and for a monotone `table`, and
- * null for `none`.
+ * reference when it is a number; else recovered by inverting the
+ * feedforward on `demand − correction`, which is exact for `setpoint` and
+ * `affine` and for a monotone `table`, and null for `none`.
  */
-export function setpointOf(loop: { reference: number | string | null; setpoint?: number | null; demand: number | null; correction: number | null; feedforward?: FeedforwardConfig | null }): number | null {
-  if (typeof loop.setpoint === "number") return loop.setpoint;
-  if (typeof loop.reference === "number") return loop.reference;
-  if (loop.demand != null && loop.correction != null) return invertFeedforward(loop.feedforward, loop.demand - loop.correction);
+export function setpointOf(controller: Pick<ControllerOut, "reference" | "demand" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
+  if (typeof controller.setpoint === "number") return controller.setpoint;
+  if (typeof controller.reference === "number") return controller.reference;
+  if (controller.demand != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.demand - controller.correction);
   return null;
 }
 
@@ -194,7 +194,7 @@ export function humanise(tag: string): string {
 
 /**
  * Every event `kind` the backend emits, worded for a log reader. Enumerated
- * from the `rig.event(...)` call sites (`runtime/{writer,reader,rig}.py`,
+ * from the `rig.event(...)` call sites (`runtime/{writer,polling,rig}.py`,
  * `programmer/programmer.py`, `server/routes/library.py`) -- not guessed.
  */
 const EVENT_KINDS: Record<string, string> = {
@@ -223,7 +223,7 @@ export function describeEventKind(kind: string): string {
 /**
  * A program-step subject as the programmer names it: `name[step]`, `step`
  * 0-based (`programmer.py`'s `self._step`). `anneal[2]` → `anneal · step 3`.
- * Any other subject (a loop, a reader, a device name) is returned unchanged.
+ * Any other subject (a controller, a device name) is returned unchanged.
  */
 export function describeSubject(subject: string): string {
   const m = /^(.+)\[(\d+)\]$/.exec(subject);
@@ -248,42 +248,85 @@ export function describeStateKey(key: string): { label: string; hint?: string } 
 }
 
 /**
- * A device or plant tag as words: the Python class name the server puts in
- * `DeviceSchema.type` (`SimActuator`), or a config `kind`/`tag` discriminator
- * (`sim_reader`, `sim_furnace`). From the device classes under
- * `flyball/{sim,devices,integrations}` and the tags in
- * `examples/simulated/rig.schema.json`; unknown tags fall through to `humanise`.
+ * A device, link or plant tag as words: the Python class name the server
+ * puts in `DeviceOut.type` / `DeviceSchema.type` (`SimDaq`), or a rig
+ * file's `driver:` / link `kind:` tag (`sim_daq`, `sim_furnace`). From the
+ * device classes under `flyball/{sim,devices,integrations}` and the tags
+ * registered there; unknown tags fall through to `humanise`.
  */
 const DEVICE_TAGS: Record<string, string> = {
-  SimActuator: "Simulated actuator",
-  SimReader: "Simulated reader",
-  FunctionReader: "Simulated reader",
-  RecordingActuator: "Recording actuator",
-  BlockReader: "Reader",
-  ModbusActuator: "Modbus actuator",
-  ModbusReader: "Modbus reader",
-  ScpiActuator: "SCPI actuator",
-  ScpiReader: "SCPI reader",
-  QCoDeSActuator: "QCoDeS actuator",
-  QCoDeSReader: "QCoDeS reader",
-  PyMeasureActuator: "PyMeasure actuator",
-  PyMeasureReader: "PyMeasure reader",
-  sim_actuator: "Simulated actuator",
-  sim_reader: "Simulated reader",
+  SimDaq: "Simulated DAQ",
+  SimDrive: "Simulated drive",
+  Modbus: "Modbus device",
+  Scpi: "SCPI instrument",
+  QCoDeS: "QCoDeS instrument",
+  PyMeasure: "PyMeasure instrument",
+  sim_daq: "Simulated DAQ",
+  sim_drive: "Simulated drive",
   sim_furnace: "Simulated furnace",
   sim_plant: "Simulated plant",
-  modbus_actuator: "Modbus actuator",
-  modbus_reader: "Modbus reader",
-  scpi_actuator: "SCPI actuator",
-  scpi_reader: "SCPI reader",
-  qcodes_actuator: "QCoDeS actuator",
-  qcodes_reader: "QCoDeS reader",
-  pymeasure_reader: "PyMeasure reader",
-  pymeasure_actuator: "PyMeasure actuator",
+  modbus: "Modbus device",
+  modbus_tcp: "Modbus TCP",
+  modbus_rtu: "Modbus RTU",
+  scpi: "SCPI instrument",
+  serial: "Serial port",
+  visa: "VISA resource",
+  qcodes: "QCoDeS instrument",
+  pymeasure: "PyMeasure instrument",
+  fake_registers: "Fake registers",
+  fake_text: "Fake text link",
 };
 
 export function describeDevice(tag: string): string {
   return DEVICE_TAGS[tag] ?? humanise(tag);
+}
+
+/** A signal's display name: its `label`, or its `name` humanised when the driver gave none. */
+export function describeSignal(signal: Pick<SignalOut, "name" | "label">): string {
+  return signal.label || humanise(signal.name);
+}
+
+/** A controller's display name: its target's `label`, or its `name` (the target's address). */
+export function describeController(controller: Pick<ControllerOut, "name" | "label">): string {
+  return controller.label || controller.name;
+}
+
+const ACCESS_WORDS: Record<string, string> = { r: "read", p: "publish", w: "write" };
+
+/** An access set (`"rp"`, `"w"`) as words: `read, publish`. */
+export function describeAccess(access: Access): string {
+  return [...access.toLowerCase()].map((letter) => ACCESS_WORDS[letter] ?? letter).join(", ");
+}
+
+/** Whether a signal publishes (streams, is recorded, may be a readout or a controller's source). */
+export function publishes(signal: Pick<SignalOut, "access">): boolean {
+  return signal.access.toLowerCase().includes("p");
+}
+
+/** Whether a signal takes demands (may be a controller's target). */
+export function writable(signal: Pick<SignalOut, "access">): boolean {
+  return signal.access.toLowerCase().includes("w");
+}
+
+/** Every signal under a tree, namespaces flattened, in tree order. */
+export function signalsOf(tree: readonly TreeNode[]): SignalOut[] {
+  const out: SignalOut[] = [];
+  for (const node of tree) {
+    if (isNamespace(node)) out.push(...signalsOf(node.signals));
+    else out.push(node);
+  }
+  return out;
+}
+
+/** The device an address is under: its first segment. */
+export function deviceOf(address: Address): string {
+  const dot = address.indexOf(".");
+  return dot < 0 ? address : address.slice(0, dot);
+}
+
+/** A signal's address from its node's and its name relative to the node (`hum_sensors.dry` + `humidity`). */
+export function addressOf(node: Address, name: string): Address {
+  return `${node}.${name}`;
 }
 
 /** Unit derived from a simulated-plant config key's suffix, longest first so `_w_per_k`/`_j_per_k` win over a bare `_k`. */
@@ -310,18 +353,18 @@ export function describeSimParam(key: string): { label: string; unit?: string; h
 
 export type AlarmLevel = "ok" | "warn" | "alarm" | "stale";
 
-/** How long a channel may go without a sample before it reads "stale" — DESIGN-SPEC.md §2: `max(3 × period_s, 5s)`. */
+/** How long a signal may go without a sample before it reads "stale" — DESIGN-SPEC.md §2: `max(3 × period_s, 5s)`. */
 export function staleAfterS(periodS: number | null | undefined): number {
   return Math.max(3 * (periodS ?? 0), 5);
 }
 
 /**
- * Freshness for one channel, in RIG time (a simulated rig's clock runs
+ * Freshness for one signal, in RIG time (a simulated rig's clock runs
  * faster than the wall clock, so `nowS` must come from `/api/clock` or the
  * newest sample across the rig, never `Date.now()`).
  */
 export interface Freshness {
-  /** Seconds of the channel's own reader; unknown treated as 0 (only the 5s floor applies). */
+  /** The poll period of the signal's device (`DeviceOut.run.period_s`); unknown treated as 0 (only the 5s floor applies). */
   periodS?: number | null;
   /** The last sample's time, in rig seconds; null/undefined skips the stale check. */
   lastSampleS?: number | null;
@@ -333,9 +376,9 @@ export interface Freshness {
  * The freshest of a set of traces' last points, in seconds — a live proxy
  * for the rig's current time when nothing is polling `/api/clock`
  * continuously (DESIGN-SPEC.md §2: "the newest sample time across the
- * rig"). At least one channel elsewhere on the rig must still be sampling
+ * rig"). At least one signal elsewhere on the rig must still be sampling
  * for this to track real time; a rig gone completely silent freezes it,
- * same as every channel on it going stale together.
+ * same as every signal on it going stale together.
  */
 export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null {
   let latest: number | null = null;
@@ -347,22 +390,22 @@ export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null 
 }
 
 /**
- * Where `value` sits against a channel's bands: outside `alarm` is "alarm",
+ * Where `value` sits against a signal's bands: outside `alarm` is "alarm",
  * outside `warn` is "warn", else "ok" — unless `fresh` says no sample has
  * arrived recently enough, in which case the level is "stale" regardless of
- * the last value (a stuck reading is not a healthy one). A channel with no
+ * the last value (a stuck reading is not a healthy one). A signal with no
  * bands, or no value, is "ok" unless stale.
  */
 export function alarmLevel(
   value: number | null | undefined,
-  channel: { warn?: [number, number] | null; alarm?: [number, number] | null },
+  signal: { warn?: [number, number] | null; alarm?: [number, number] | null },
   fresh?: Freshness | null,
 ): AlarmLevel {
   if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(fresh.periodS)) return "stale";
   if (value === null || value === undefined || Number.isNaN(value)) return "ok";
   const outside = (band: [number, number] | null | undefined) =>
     !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));
-  if (outside(channel.alarm)) return "alarm";
-  if (outside(channel.warn)) return "warn";
+  if (outside(signal.alarm)) return "alarm";
+  if (outside(signal.warn)) return "warn";
   return "ok";
 }

@@ -1,17 +1,41 @@
 import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
 import { useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject } from "@flyball/client";
+import { describeDevice, describeEventKind, describeStateKey, describeSubject, type SignalOut, type SignalRow } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
 import { ValueView } from "./ValueView.js";
 import { Ref } from "../links.js";
 
-/** An actuator's recorded config, if any, as a plain object minus what the row already says. */
-function actuatorConfig(config: unknown): { label: string | null; rest: Record<string, unknown> } {
+/** A device's recorded config, if any, as a plain object minus what the row already says. */
+function deviceConfig(config: unknown): { label: string | null; rest: Record<string, unknown> } {
   if (!config || typeof config !== "object") return { label: null, rest: {} };
-  const { label, tag: _tag, name: _name, ...rest } = config as Record<string, unknown>;
+  const { label, tag: _tag, name: _name, driver: _driver, ...rest } = config as Record<string, unknown>;
   return { label: typeof label === "string" ? label : null, rest };
+}
+
+/** A recorded signal as the charts take one: the row's metadata, with `together` (not recorded) empty and no live values. */
+function asSignal(row: SignalRow): SignalOut {
+  return {
+    name: row.address.slice(row.address.lastIndexOf(".") + 1),
+    address: row.address,
+    access: row.access,
+    label: row.label ?? "",
+    quantity: row.quantity,
+    unit: row.unit,
+    dimension: null,
+    dtype: row.dtype,
+    shape: row.shape,
+    range: row.range,
+    precision: row.precision,
+    warn: row.warn,
+    alarm: row.alarm,
+    poll_s: null,
+    limits: row.limits,
+    together: [],
+    latest: null,
+    write: null,
+  };
 }
 
 /** A law config (`{tag, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
@@ -33,20 +57,21 @@ function storedEvent(detail: unknown): { level?: string; message?: string; detai
   return { level: typeof level === "number" ? LEVEL_NAME[level] : undefined, message, details };
 }
 
-export type SessionGrouping = "unit" | "channel";
+export type SessionGrouping = "unit" | "signal";
 
 /** What the store will send this session as. */
 export type SessionDownload = "csv" | "json";
 
 /**
  * Where the store keeps this session's tables, as export URLs (the app's
- * client builds them). Given, every channel, loop and the events get a link
- * to their own file, and each chart's download menu offers the stored copy
- * beside what the browser is holding.
+ * client builds them). Given, every signal, write, controller and the
+ * events get a link to their own file, and each chart's download menu
+ * offers the stored copy beside what the browser is holding.
  */
 export interface SessionExports {
-  series(source: string, measurand: string, format: SessionDownload): string;
-  ticks(loop: string, format: SessionDownload): string;
+  series(address: string, format: SessionDownload): string;
+  writes(address: string, format: SessionDownload): string;
+  ticks(controller: string, format: SessionDownload): string;
   events(format: SessionDownload): string;
 }
 
@@ -65,14 +90,14 @@ function Download({ what, href }: { what: string; href(format: SessionDownload):
 
 export interface SessionPanelProps {
   detail: SessionDetail;
-  /** Chart height per channel. */
+  /** Chart height per signal. */
   height?: number;
-  /** One chart per unit (default), or one per channel. Uncontrolled unless given. */
+  /** One chart per unit (default), or one per signal. Uncontrolled unless given. */
   grouping?: SessionGrouping;
   onGrouping?(grouping: SessionGrouping): void;
   /** y axis scaling for every chart. */
   yScale?: YScale;
-  /** Rendered at the end of the Channels heading: the app's window/scale controls. */
+  /** Rendered at the end of the Signals heading: the app's window/scale controls. */
   controls?: React.ReactNode;
   /** Draw one point in `every`. */
   every?: number;
@@ -89,7 +114,7 @@ export interface SessionPanelProps {
 
 const when = (s: number) => new Date(s * 1000).toLocaleString();
 
-/** Traces grouped by unit so every channel of a kind shares one axis, in first-seen order. */
+/** Traces grouped by unit so every signal of a kind shares one axis, in first-seen order. */
 function byUnit(traces: SessionDetail["traces"]): Array<[string, Array<SessionTrace & { key: string }>]> {
   const groups = new Map<string, Array<SessionTrace & { key: string }>>();
   for (const [key, trace] of Object.entries(traces)) {
@@ -105,15 +130,16 @@ const duration = (s: number) => {
 const fmtDuration = (s: number) => (s < 0 ? "just started" : duration(s));
 
 /**
- * One recorded session, top to bottom: header, a chart per channel over the
- * whole session (with spans as annotations under it), loops and actuators as
- * recorded, then events. Pure: `useSession` supplies the detail.
+ * One recorded session, top to bottom: header, a chart per signal over the
+ * whole session (with spans as annotations under it), the devices, writes
+ * and controllers as recorded, then events. Pure: `useSession` supplies
+ * the detail.
  */
 export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports, nowS }: SessionPanelProps) {
   const [own, setOwn] = useState<SessionGrouping>("unit");
   const mode = grouping ?? own;
   const setMode = (g: SessionGrouping) => (onGrouping ? onGrouping(g) : setOwn(g));
-  const { session, traces, actuators, loops, events, spans, startS } = detail;
+  const { session, traces, devices, writes, controllers, events, spans, startS } = detail;
   const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
   const details = session.details as Record<string, unknown> | null;
   const name = details && typeof details.name === "string" ? details.name : `session ${session.id}`;
@@ -143,9 +169,9 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
 
       <section className="fb-session-section">
         <h4 className="fb-session-heading">
-          <span>Channels</span>
+          <span>Signals</span>
           <span className="fb-segmented" role="radiogroup" aria-label="chart grouping">
-            {(["unit", "channel"] as const).map((g) => (
+            {(["unit", "signal"] as const).map((g) => (
               <button
                 key={g}
                 type="button"
@@ -154,38 +180,23 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 className={mode === g ? "active" : ""}
                 onClick={() => setMode(g)}
               >
-                {g === "unit" ? "by unit" : "each channel"}
+                {g === "unit" ? "by unit" : "each signal"}
               </button>
             ))}
           </span>
           {controls && <span className="fb-source-controls">{controls}</span>}
         </h4>
-        {mode === "channel" &&
+        {mode === "signal" &&
           Object.entries(traces).map(([key, tr]) => (
             <div key={key} className="fb-channel">
               <h4>
-                <Ref kind="channel" name={tr.channel.source.name} measurand={tr.channel.measurand.name} />
+                <Ref kind="signal" name={tr.signal.address} />
                 <span className="fb-latest">
-                  {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
+                  {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(tr.signal.precision ?? 2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
                 </span>
-                {exports && <Download what={key} href={(f) => exports.series(tr.channel.source.name, tr.channel.measurand.name, f)} />}
+                {exports && <Download what={key} href={(f) => exports.series(tr.signal.address, f)} />}
               </h4>
-              <TimeSeries
-                channel={{
-                  source: tr.channel.source.name,
-                  measurand: tr.channel.measurand.name,
-                  unit: tr.unit,
-                  label: tr.channel.measurand.label ?? tr.channel.measurand.name,
-                  range: null,
-                  precision: 2,
-                }}
-                t={tr.t}
-                v={tr.v}
-                height={height}
-                yScale={yScale}
-                every={every}
-                exportHref={exports?.series(tr.channel.source.name, tr.channel.measurand.name, "csv")}
-              />
+              <TimeSeries signal={asSignal(tr.signal)} t={tr.t} v={tr.v} height={height} yScale={yScale} every={every} exportHref={exports?.series(tr.signal.address, "csv")} />
             </div>
           ))}
         {mode === "unit" && byUnit(traces).map(([unit, group]) => (
@@ -195,7 +206,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 {group.map((tr, i) => (
                   <span key={tr.key}>
                     {i > 0 && ", "}
-                    <Ref kind="channel" name={tr.channel.source.name} measurand={tr.channel.measurand.name} />
+                    <Ref kind="signal" name={tr.signal.address} />
                   </span>
                 ))}
               </span>
@@ -208,7 +219,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               yScale={yScale}
               every={every}
               exportHref={
-                exports && group.length === 1 ? exports.series(group[0]!.channel.source.name, group[0]!.channel.measurand.name, "csv") : undefined
+                exports && group.length === 1 ? exports.series(group[0]!.signal.address, "csv") : undefined
               }
               series={group.map(
                 (tr): MultiSeriesTrace => ({
@@ -216,21 +227,21 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                   unit,
                   t: tr.t,
                   v: tr.v,
-                  precision: 2,
+                  precision: tr.signal.precision ?? 2,
                 }),
               )}
             />
             <div className="fb-muted fb-session-latest">
               {group.map((tr) => (
                 <span key={tr.key}>
-                  {tr.key}: {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(2)} ${unit} · ${tr.v.length} pts` : "no points"}
-                  {exports && <Download what={tr.key} href={(f) => exports.series(tr.channel.source.name, tr.channel.measurand.name, f)} />}
+                  {tr.key}: {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(tr.signal.precision ?? 2)} ${unit} · ${tr.v.length} pts` : "no points"}
+                  {exports && <Download what={tr.key} href={(f) => exports.series(tr.signal.address, f)} />}
                 </span>
               ))}
             </div>
           </div>
         ))}
-        {Object.keys(traces).length === 0 && <div className="fb-muted">no channels recorded</div>}
+        {Object.keys(traces).length === 0 && <div className="fb-muted">no signals recorded</div>}
       </section>
 
       {spans.length > 0 && (
@@ -250,39 +261,49 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
         </section>
       )}
 
-      {(loops.length > 0 || actuators.length > 0) && (
+      {(devices.length > 0 || writes.length > 0 || controllers.length > 0) && (
         <section className="fb-session-section">
           <h4>Equipment</h4>
           <dl className="fb-state">
-            {actuators.map((a) => {
-              const { label, rest } = actuatorConfig(a.config);
+            {devices.map((d) => {
+              const { label, rest } = deviceConfig(d.config);
               return (
-                <div key={a.name} className="fb-state-row">
-                  <dt><Ref kind="actuator" name={a.name} /></dt>
+                <div key={d.id} className="fb-state-row">
+                  <dt><Ref kind="device" name={d.address}>{d.label ?? label ?? d.address}</Ref></dt>
                   <dd>
-                    {describeDevice(a.kind)}
-                    {label && <> · {label}</>}
+                    {d.driver ? describeDevice(d.driver) : "device"}
+                    {(d.label ?? label) && <> · {d.address}</>}
                     {Object.keys(rest).length > 0 && <ValueView value={rest} describeKey={describeStateKey} />}
                   </dd>
                 </div>
               );
             })}
-            {loops.map((l, i) => {
-              const loopName = l.name ?? l.actuator.name ?? String(i);
-              const { tag, gains } = lawSummary(l.config);
-              return (
-              <div key={i} className="fb-state-row">
+            {writes.map((w) => (
+              <div key={w.signal.address} className="fb-state-row">
                 <dt>
-                  controller {loopName}
-                  {exports && <Download what={`${loopName}'s ticks`} href={(f) => exports.ticks(loopName, f)} />}
+                  <Ref kind="signal" name={w.signal.address} />
+                  {exports && <Download what={`${w.signal.address}'s writes`} href={(f) => exports.writes(w.signal.address, f)} />}
                 </dt>
                 <dd>
-                  <Ref kind="channel" name={l.channel.source.name} measurand={l.channel.measurand.name} /> →{" "}
-                  <Ref kind="actuator" name={l.actuator.name} />
-                  {tag && <> · <span className="fb-tag">{tag}</span></>}
-                  {gains && <span className="fb-muted"> · {gains}</span>}
+                  written · {w.signal.unit}
+                  {w.limits && <span className="fb-muted"> · limits {w.limits[0]} – {w.limits[1]} {w.signal.unit}</span>}
                 </dd>
               </div>
+            ))}
+            {controllers.map((c) => {
+              const { tag, gains } = lawSummary(c.law);
+              return (
+                <div key={c.name} className="fb-state-row">
+                  <dt>
+                    controller <Ref kind="controller" name={c.name} />
+                    {exports && <Download what={`${c.name}'s ticks`} href={(f) => exports.ticks(c.name, f)} />}
+                  </dt>
+                  <dd>
+                    <Ref kind="signal" name={c.source} /> → <Ref kind="signal" name={c.name} />
+                    {tag && <> · <span className="fb-tag">{tag}</span></>}
+                    {gains && <span className="fb-muted"> · {gains}</span>}
+                  </dd>
+                </div>
               );
             })}
           </dl>

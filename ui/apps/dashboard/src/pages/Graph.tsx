@@ -20,18 +20,19 @@ import {
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
 import CloseIcon from "@mui/icons-material/Close";
-import type { ChannelOut, SourceOut } from "@flyball/client";
-import { MultiSeries, channelKey, groupByUnit, useTraceRef, type MultiSeriesTrace } from "@flyball/react";
+import { describeSignal, deviceOf, type DeviceOut, type SignalOut } from "@flyball/client";
+import { MultiSeries, groupByUnit, useTraceRef, type MultiSeriesTrace } from "@flyball/react";
 import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { StateBlock } from "../cards.js";
 import { segmentSx } from "../WindowSelect.js";
+import { publishingOf } from "./Inputs.js";
 
 export interface GraphProps extends ChartSettings {
-  sources: SourceOut[];
+  devices: DeviceOut[];
 }
 
-type PickerGroup = "source" | "unit";
+type PickerGroup = "device" | "unit";
 
 const GROUP_KEY = "flyball.graph.group";
 const SELECTION_KEY = "flyball.graph.selection";
@@ -39,9 +40,9 @@ const HASH_PARAM = "ch";
 
 const readPickerGroup = (): PickerGroup => {
   try {
-    return window.localStorage.getItem(GROUP_KEY) === "unit" ? "unit" : "source";
+    return window.localStorage.getItem(GROUP_KEY) === "unit" ? "unit" : "device";
   } catch {
-    return "source";
+    return "device";
   }
 };
 const writePickerGroup = (g: PickerGroup) => {
@@ -68,7 +69,7 @@ const writeStoredSelection = (keys: string[]) => {
   }
 };
 
-/** `#/graph?ch=a,b,c` → `["a", "b", "c"]`; empty when the hash carries none. */
+/** `#/graph?ch=a,b,c` → `["a", "b", "c"]` (signal addresses); empty when the hash carries none. */
 const readHashSelection = (): string[] => {
   const query = window.location.hash.split("?")[1];
   if (!query) return [];
@@ -96,18 +97,19 @@ function seriesColorFor(slot: number): string {
 }
 
 /**
- * Any readings plotted together: a searchable tree of every channel (grouped
- * by source or by unit) on the left, ticked ones drawn on one chart on the
- * right with a y axis per distinct unit — spec §3.16's "no dual axes" rule is
- * deliberately overridden on this page, at the user's request; `MultiSeries`
- * itself caps it at four visible axes and folds the rest.
+ * Any readings plotted together: a searchable tree of every publishing
+ * signal (grouped by device or by unit) on the left, ticked ones drawn on
+ * one chart on the right with a y axis per distinct unit — spec §3.16's "no
+ * dual axes" rule is deliberately overridden on this page, at the user's
+ * request; `MultiSeries` itself caps it at four visible axes and folds the rest.
  *
- * Selection lives in the URL hash (`?ch=a,b,c`, so a graph is shareable) and
- * in `localStorage` (so the last graph comes back on a plain visit). Each
- * channel keeps the colour slot it was first ticked into (spec §1.2): hiding
- * one never repaints the others, and re-ticking it returns its own colour.
+ * Selection lives in the URL hash (`?ch=a,b,c`, addresses, so a graph is
+ * shareable) and in `localStorage` (so the last graph comes back on a plain
+ * visit). Each signal keeps the colour slot it was first ticked into (spec
+ * §1.2): hiding one never repaints the others, and re-ticking it returns
+ * its own colour.
  */
-export function Graph({ sources, ...charts }: GraphProps) {
+export function Graph({ devices, ...charts }: GraphProps) {
   const { windowS, yScale, every } = charts;
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
@@ -115,15 +117,12 @@ export function Graph({ sources, ...charts }: GraphProps) {
   const [pickerGroup, setPickerGroupState] = useState<PickerGroup>(readPickerGroup);
   const [search, setSearch] = useState("");
 
-  const channelsByKey = useMemo(() => {
-    const map = new Map<string, ChannelOut>();
-    for (const s of sources) for (const c of s.channels) map.set(channelKey(c), c);
-    return map;
-  }, [sources]);
+  const publishing = useMemo(() => publishingOf(devices), [devices]);
+  const byAddress = useMemo(() => new Map<string, SignalOut>(publishing.flatMap((d) => d.signals).map((s) => [s.address, s])), [publishing]);
 
   const [order, setOrder] = useState<string[]>(() => {
     const fromHash = readHashSelection();
-    return (fromHash.length ? fromHash : readStoredSelection()).filter((k) => channelsByKey.has(k));
+    return (fromHash.length ? fromHash : readStoredSelection()).filter((k) => byAddress.has(k));
   });
   useEffect(() => {
     writeHashSelection(order);
@@ -131,7 +130,7 @@ export function Graph({ sources, ...charts }: GraphProps) {
   }, [order]);
 
   // Fixed colour slots by first-selected order (DESIGN-SPEC §1.2): never reassigned while the page is open,
-  // so deselecting one channel does not repaint the survivors, and reselecting it returns its own colour.
+  // so deselecting one signal does not repaint the survivors, and reselecting it returns its own colour.
   const slots = useRef(new Map<string, number>());
   const nextSlot = useRef(0);
   const slotFor = (key: string): number => {
@@ -150,35 +149,35 @@ export function Graph({ sources, ...charts }: GraphProps) {
     writePickerGroup(g);
   };
 
-  const sourceLabel = (name: string) => sources.find((s) => s.name === name)?.label ?? name;
+  const deviceLabel = (name: string) => devices.find((d) => d.name === name)?.label ?? name;
   const needle = search.trim().toLowerCase();
-  const matches = (c: ChannelOut) => !needle || `${c.label} ${c.measurand} ${c.unit} ${sourceLabel(c.source)} ${c.source}`.toLowerCase().includes(needle);
+  const matches = (s: SignalOut) => !needle || `${s.label} ${s.address} ${s.quantity} ${s.unit} ${deviceLabel(deviceOf(s.address))}`.toLowerCase().includes(needle);
 
   const branches =
-    pickerGroup === "source"
-      ? sources.map((s) => ({ key: s.name, heading: s.label ?? s.name, channels: s.channels.filter(matches) }))
-      : groupByUnit(sources.flatMap((s) => s.channels).filter(matches)).map((g) => ({ key: g.unit, heading: g.unit, channels: g.channels }));
-  const visibleBranches = branches.filter((b) => b.channels.length > 0);
+    pickerGroup === "device"
+      ? publishing.map(({ device, signals }) => ({ key: device.name, heading: device.label ?? device.name, signals: signals.filter(matches) }))
+      : groupByUnit(publishing.flatMap((d) => d.signals).filter(matches)).map((g) => ({ key: g.unit, heading: g.unit, signals: g.signals }));
+  const visibleBranches = branches.filter((b) => b.signals.length > 0);
 
-  const selected = order.map((k) => channelsByKey.get(k)).filter((c): c is ChannelOut => !!c);
-  const live = useTraceRef(selected);
+  const selected = order.map((k) => byAddress.get(k)).filter((s): s is SignalOut => !!s);
+  const live = useTraceRef(useMemo(() => selected.map((s) => s.address), [selected]));
   const primaryUnit = selected[0]?.unit;
-  const series: MultiSeriesTrace[] = selected.map((c) => ({
-    label: `${sourceLabel(c.source)}.${c.label || c.measurand}`,
-    unit: c.unit,
-    key: channelKey(c),
-    color: seriesColorFor(slotFor(channelKey(c))),
-    precision: c.precision ?? undefined,
-    hint: `${c.source}.${c.measurand} (${c.unit})`,
+  const series: MultiSeriesTrace[] = selected.map((s) => ({
+    label: `${deviceLabel(deviceOf(s.address))}.${describeSignal(s)}`,
+    unit: s.unit,
+    key: s.address,
+    color: seriesColorFor(slotFor(s.address)),
+    precision: s.precision ?? undefined,
+    hint: `${s.address} (${s.unit})`,
   }));
 
   const picker = (
     <Stack sx={{ height: "100%", minHeight: 0 }}>
       <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
-        <TextField size="small" placeholder="search channels" value={search} onChange={(e) => setSearch(e.target.value)} inputProps={{ "aria-label": "search channels" }} />
-        <ToggleButtonGroup exclusive size="small" value={pickerGroup} onChange={(_e, v: PickerGroup | null) => v && setPickerGroup(v)} aria-label="group channels" sx={segmentSx}>
-          <ToggleButton value="source" sx={{ flex: 1 }}>
-            by source
+        <TextField size="small" placeholder="search signals" value={search} onChange={(e) => setSearch(e.target.value)} inputProps={{ "aria-label": "search signals" }} />
+        <ToggleButtonGroup exclusive size="small" value={pickerGroup} onChange={(_e, v: PickerGroup | null) => v && setPickerGroup(v)} aria-label="group signals" sx={segmentSx}>
+          <ToggleButton value="device" sx={{ flex: 1 }}>
+            by device
           </ToggleButton>
           <ToggleButton value="unit" sx={{ flex: 1 }}>
             by unit
@@ -193,8 +192,8 @@ export function Graph({ sources, ...charts }: GraphProps) {
               <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
                 {b.heading}
               </ListSubheader>
-              {b.channels.map((c) => {
-                const key = channelKey(c);
+              {b.signals.map((s) => {
+                const key = s.address;
                 const checked = order.includes(key);
                 return (
                   <ListItemButton key={key} dense onClick={() => toggle(key)} sx={{ py: 0.25 }}>
@@ -203,11 +202,11 @@ export function Graph({ sources, ...charts }: GraphProps) {
                     </ListItemIcon>
                     <ListItemText
                       primary={
-                        <span title={`${c.source}.${c.measurand}`}>
-                          {c.label || c.measurand} <span className="fb-muted">{c.unit}</span>
+                        <span title={s.address}>
+                          {describeSignal(s)} <span className="fb-muted">{s.unit}</span>
                         </span>
                       }
-                      secondary={pickerGroup === "unit" ? sourceLabel(c.source) : undefined}
+                      secondary={pickerGroup === "unit" ? deviceLabel(deviceOf(s.address)) : undefined}
                     />
                   </ListItemButton>
                 );
@@ -227,21 +226,21 @@ export function Graph({ sources, ...charts }: GraphProps) {
   const bar = (
     <PageBar end={<ChartControls {...charts} unit={primaryUnit} />}>
       {narrow && (
-        <IconButton size="small" aria-label="choose channels" onClick={() => setDrawerOpen(true)}>
+        <IconButton size="small" aria-label="choose signals" onClick={() => setDrawerOpen(true)}>
           <TuneIcon fontSize="small" />
         </IconButton>
       )}
       <Typography variant="body2" color="text.secondary">
-        {selected.length === 0 ? "no channels selected" : `${selected.length} channel${selected.length === 1 ? "" : "s"} plotted`}
+        {selected.length === 0 ? "no signals selected" : `${selected.length} signal${selected.length === 1 ? "" : "s"} plotted`}
       </Typography>
     </PageBar>
   );
 
-  if (sources.length === 0)
+  if (publishing.length === 0)
     return (
       <>
         {bar}
-        <StateBlock state="empty" message="No sources declared. Add a reader to the rig file to see channels here." />
+        <StateBlock state="empty" message="No signal publishes. Add a device with a publishing signal to the rig file to plot it here." />
       </>
     );
 
@@ -254,7 +253,7 @@ export function Graph({ sources, ...charts }: GraphProps) {
           <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)} PaperProps={{ sx: { width: 280, maxWidth: "85vw", display: "flex", flexDirection: "column" } }}>
             <Stack direction="row" alignItems="center" sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
               <Typography variant="h1" component="h2" sx={{ flexGrow: 1 }}>
-                Channels
+                Signals
               </Typography>
               <IconButton aria-label="close" onClick={() => setDrawerOpen(false)}>
                 <CloseIcon fontSize="small" />
@@ -265,7 +264,7 @@ export function Graph({ sources, ...charts }: GraphProps) {
         )}
         <div className="fb-fill fb-chart-host fb-graph-chart">
           {selected.length === 0 ? (
-            <StateBlock state="empty" message="Tick a channel on the left to plot it." />
+            <StateBlock state="empty" message="Tick a signal on the left to plot it." />
           ) : (
             <MultiSeries series={series} source={live} id="graph" unit={primaryUnit} title="graph" height="fill" windowS={windowS} yScale={yScale} every={every} />
           )}

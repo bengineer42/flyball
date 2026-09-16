@@ -1,40 +1,41 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
-import type { DeviceKind, DeviceState, DeviceView, Health, RigSchema, RigError } from "@flyball/client";
-import { useRig, useTelemetry } from "../provider.js";
+import { useCallback, useState } from "react";
+import type { DeviceOut, DeviceSchema, Health, RigError, RigSchema } from "@flyball/client";
+import { useRig } from "../provider.js";
 import { useQuery, type QueryState } from "./useQuery.js";
-import type { StreamStatus } from "./useStream.js";
-import { READOUT_MS, useStoreStatus } from "../store/hooks.js";
 
-/** `GET /api/schema` once; the document every panel is a function of. */
+/** `GET /api/schema` once: every device's schema, by name. */
 export function useRigSchema(): QueryState<RigSchema> {
   const rig = useRig();
   return useQuery((signal) => rig.schema(signal), [rig]);
 }
 
-/** `GET /api/health`, polled: ok, recording, reader liveness, conditions, signals. */
+/** `GET /api/health`, polled: ok, recording, device liveness, conditions, alarms, waits. */
 export function useHealth(refreshMs = 5000): QueryState<Health> {
   const rig = useRig();
   return useQuery(() => rig.health(), [rig], { refreshMs });
 }
 
-/** One device's view (config, settings, state) by HTTP, refreshed on demand. */
-export function useDeviceView(kind: DeviceKind, name: string): QueryState<DeviceView> {
+/**
+ * `GET /api/devices`: every device with its signal tree (metadata, latest
+ * values, write states), commands, state, conditions and run. Fetched once,
+ * or every `refreshMs`; the tree's metadata is what a page is built from,
+ * while the live values come through the store (`useSignal`, `useWriteState`).
+ */
+export function useDevices(refreshMs?: number): QueryState<DeviceOut[]> {
   const rig = useRig();
-  return useQuery(() => rig.device(kind as "actuators", name), [rig, kind, name]);
+  return useQuery((signal) => rig.devices(signal), [rig], refreshMs ? { refreshMs } : {});
 }
 
-/**
- * Latest state of every actuator, from `/ws/actuators` through the telemetry
- * store; the initial message carries all of them. The object keeps its
- * identity until a state changes, and changes reach the caller at most four
- * times a second. One actuator: `useActuatorState(name)`.
- */
-export function useActuatorStates(): { states: Record<string, DeviceState>; status: StreamStatus } {
-  const store = useTelemetry();
-  const subscribe = useCallback((cb: () => void) => store.subscribeActuators(null, cb, READOUT_MS), [store]);
-  useSyncExternalStore(subscribe, () => store.actuatorVersion());
-  const status = useStoreStatus("actuators");
-  return { states: store.actuators(), status };
+/** `GET /api/devices/{name}`: one device's tree, commands, state, conditions and run. */
+export function useDevice(name: string, refreshMs?: number): QueryState<DeviceOut> {
+  const rig = useRig();
+  return useQuery((signal) => rig.device(name, signal), [rig, name], refreshMs ? { refreshMs } : {});
+}
+
+/** `GET /api/devices/{name}/schema`: config, settings, state, signals and each command's arguments as JSON Schema. */
+export function useDeviceSchema(name: string): QueryState<DeviceSchema> {
+  const rig = useRig();
+  return useQuery((signal) => rig.deviceSchema(name, signal), [rig, name]);
 }
 
 export interface CommandRunner {
@@ -44,8 +45,8 @@ export interface CommandRunner {
   busy: string | null;
 }
 
-/** Runs a device's commands and remembers what came back. */
-export function useCommands(kind: DeviceKind, name: string): CommandRunner {
+/** Runs a device's commands (`POST /api/devices/{name}/commands/{tag}`) and remembers what came back. */
+export function useCommands(name: string): CommandRunner {
   const rig = useRig();
   const [results, setResults] = useState<CommandRunner["results"]>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,7 +55,7 @@ export function useCommands(kind: DeviceKind, name: string): CommandRunner {
     async (command: string, args: Record<string, unknown> = {}) => {
       setBusy(command);
       try {
-        const result = await rig.runCommand(kind, name, command, args);
+        const result = await rig.command(name, command, args);
         setResults((r) => ({ ...r, [command]: { result, at: Date.now() } }));
         return result;
       } catch (error) {
@@ -64,7 +65,7 @@ export function useCommands(kind: DeviceKind, name: string): CommandRunner {
         setBusy(null);
       }
     },
-    [rig, kind, name],
+    [rig, name],
   );
 
   return { run, results, busy };

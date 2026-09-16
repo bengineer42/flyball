@@ -1,15 +1,13 @@
-import type { ChannelOut, DeviceState, Event, LoopOut, ReaderRun, RigClient, SampleOut, Subscription } from "@flyball/client";
-import { setpointOf } from "@flyball/client";
+import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, WaitState, WriteOut, WriteStateOut } from "@flyball/client";
+import { addressOf, deviceOf, setpointOf } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
 
 export type StreamStatus = "connecting" | "open" | "closed";
 
-/** The streams the store owns (one socket each, shared by every subscriber); `signals` stays with `useStream`. */
-export type StoreStream = "samples" | "loops" | "actuators" | "events" | "readers";
-const STREAMS: StoreStream[] = ["samples", "loops", "actuators", "events", "readers"];
-
-export const channelKey = (c: { source: string; measurand: string }) => `${c.source}.${c.measurand}`;
+/** The streams the store owns (one socket each, shared by every subscriber). */
+export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "waits" | "events";
+const STREAMS: StoreStream[] = ["samples", "writes", "controllers", "devices", "waits", "events"];
 
 /** Plain arrays a chart reuses between refreshes: time in seconds since the epoch, value. */
 export interface TraceView {
@@ -17,8 +15,8 @@ export interface TraceView {
   v: number[];
 }
 
-/** A loop's ticks as parallel arrays; null where the loop had no value (see `LoopTrace`). */
-export interface LoopView {
+/** A controller's ticks as parallel arrays; null where it had no value (see `ControllerTrace`). */
+export interface ControllerView {
   t: number[];
   reference: (number | null)[];
   reading: (number | null)[];
@@ -28,7 +26,7 @@ export interface LoopView {
 }
 
 export const emptyTrace = (): TraceView => ({ t: [], v: [] });
-export const emptyLoopView = (): LoopView => ({ t: [], reference: [], reading: [], demand: [], expected: [], correction: [] });
+export const emptyControllerView = (): ControllerView => ({ t: [], reference: [], reading: [], demand: [], expected: [], correction: [] });
 
 export interface ReadOptions {
   /** Rows from this time (seconds since the epoch) on; everything held when omitted. */
@@ -40,7 +38,7 @@ export interface ReadOptions {
 }
 
 export interface TelemetryStoreOptions {
-  /** Seconds of history kept per channel and loop. */
+  /** Seconds of history kept per signal and controller. */
   windowS?: number;
   /** Rows per ring at most. */
   capacity?: number;
@@ -57,10 +55,10 @@ interface Sub {
   dirty: boolean;
 }
 
-const LOOP_COLS = 5; // reference, reading, demand, expected, correction
+const CONTROLLER_COLS = 5; // reference, reading, demand, expected, correction
 
-/** A loop's identity across sessions and restarts: what it drives and what it reads. */
-const pairOf = (loop: LoopOut) => `${loop.name}|${loop.channel.source}.${loop.channel.measurand}`;
+/** A controller's identity across sessions and restarts: what it drives and what it reads. */
+const pairOf = (c: { name: string; source: string }) => `${c.name}|${c.source}`;
 
 const nan = (x: number | null | undefined) => (x == null ? Number.NaN : x);
 
@@ -68,57 +66,63 @@ const nan = (x: number | null | undefined) => (x == null ? Number.NaN : x);
 export const historyPoints = (): number => Math.min(4000, 2 * Math.max(300, typeof window === "undefined" ? 1440 : window.innerWidth));
 
 /**
- * Every live value the rig publishes, held once and fanned out: samples as
- * a ring buffer per channel, the latest state and a ring of ticks per loop,
- * actuator states, a capped ring of events. Subscribers are told once per
- * animation frame at most, each at its own cadence, and read what they need
- * from the rings (no arrays are built per message). Sockets open on the
- * first subscriber to a stream and close a few seconds after the last one
- * leaves, so a Strict Mode double mount opens each once.
+ * Every live value the rig publishes, held once and fanned out, keyed by
+ * address: samples as a ring buffer per signal (`/ws/samples`, each node's
+ * sample expanded to `node.name` addresses), the latest write state per
+ * writable signal (`/ws/writes`), the latest state and a ring of ticks per
+ * controller (`/ws/controllers`, keyed by target address), each polled
+ * device's run (`/ws/devices`), the waits (`/ws/waits`), a capped ring of
+ * events. Subscribers are told once per animation frame at most, each at
+ * its own cadence, and read what they need from the rings (no arrays are
+ * built per message). Sockets open on the first subscriber to a stream and
+ * close a few seconds after the last one leaves, so a Strict Mode double
+ * mount opens each once.
  */
 export class TelemetryStore {
   readonly windowS: number;
   private readonly capacity: number;
   private readonly graceMs: number;
 
-  private channels = new Map<string, Ring>();
-  private channelVersions = new Map<string, number>();
-  private loopRings = new Map<string, Ring>();
-  private loopLatest: Record<string, LoopOut> = {};
-  private loopVersions = new Map<string, number>();
-  private loopsVersion = 0;
-  private actuatorStates: Record<string, DeviceState> = {};
-  private actuatorVersions = new Map<string, number>();
-  private actuatorsVersion = 0;
-  private readerRunList: Record<string, ReaderRun> = {};
-  private readersVersion = 0;
+  private signals = new Map<Address, Ring>();
+  private signalVersions = new Map<Address, number>();
+  private nodeLatest: Record<Address, SampleOut> = {};
+  private nodeVersions = new Map<Address, number>();
+  private writeList: Record<Address, WriteOut> = {};
+  private writeVersions = new Map<Address, number>();
+  private writesVersion = 0;
+  private controllerRings = new Map<Address, Ring>();
+  private controllerLatest: Record<Address, ControllerOut> = {};
+  private controllerVersions = new Map<Address, number>();
+  private controllersVersion = 0;
+  private deviceRunList: Record<string, DeviceRunOut> = {};
+  private deviceVersions = new Map<string, number>();
+  private devicesVersion = 0;
   private periodsKey = "";
+  private waitList: Record<string, WaitState> = {};
+  private waitsVersion = 0;
   private eventList: Event[] = [];
   private eventsVersion = 0;
   private readonly eventCap = 2000;
   private eventsSeeded: Promise<void> | null = null;
   private eventsSeedLimit = 0;
 
-  private subs = { samples: new Set<Sub>(), loops: new Set<Sub>(), actuators: new Set<Sub>(), events: new Set<Sub>(), readers: new Set<Sub>(), status: new Set<Sub>() };
-  /** Subscribers by key, so a sample touches only those that asked for its channel; and those that asked for any. */
+  private subs = { samples: new Set<Sub>(), writes: new Set<Sub>(), controllers: new Set<Sub>(), devices: new Set<Sub>(), waits: new Set<Sub>(), events: new Set<Sub>(), status: new Set<Sub>() };
+  /** Subscribers by key, so a sample touches only those that asked for its address; and those that asked for any. */
   private byKey = new Map<string, Set<Sub>>();
-  private anyKey = { samples: new Set<Sub>(), loops: new Set<Sub>(), actuators: new Set<Sub>(), events: new Set<Sub>(), readers: new Set<Sub>(), status: new Set<Sub>() };
+  private anyKey = { samples: new Set<Sub>(), writes: new Set<Sub>(), controllers: new Set<Sub>(), devices: new Set<Sub>(), waits: new Set<Sub>(), events: new Set<Sub>(), status: new Set<Sub>() };
   private dirty = new Set<Sub>();
   private frame: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   private sockets = new Map<StoreStream, { subscription: Subscription; count: number; closer: ReturnType<typeof setTimeout> | null }>();
-  private statuses: Record<StoreStream, StreamStatus | "idle"> = { samples: "idle", loops: "idle", actuators: "idle", events: "idle", readers: "idle" };
+  private statuses: Record<StoreStream, StreamStatus | "idle"> = { samples: "idle", writes: "idle", controllers: "idle", devices: "idle", waits: "idle", events: "idle" };
   private statusVersion = 0;
-  private lastSeq = new Map<string, number>();
-  private gapUntil = 0;
-  private gapTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private seededChannels = new Set<string>();
-  private pendingSeed: ChannelOut[] = [];
+  private seededSignals = new Set<Address>();
+  private pendingSeed: Address[] = [];
   private seeding: Promise<void> | null = null;
   private newestS = Number.NEGATIVE_INFINITY;
-  private seededLoops = new Set<string>();
+  private seededControllers = new Set<string>();
 
   constructor(
     private readonly rig: RigClient,
@@ -129,37 +133,37 @@ export class TelemetryStore {
     this.graceMs = graceMs;
   }
 
-  // region Channels
+  // region Signals
 
-  private ring(key: string): Ring {
-    let ring = this.channels.get(key);
+  private ring(address: Address): Ring {
+    let ring = this.signals.get(address);
     if (!ring) {
       ring = new Ring({ width: 1, initial: 1024, cap: this.capacity, windowS: this.windowS });
-      this.channels.set(key, ring);
+      this.signals.set(address, ring);
     }
     return ring;
   }
 
-  /** Every channel a sample has arrived for. */
-  channelKeys(): string[] {
-    return [...this.channels.keys()];
+  /** Every signal address a sample has arrived for. */
+  signalKeys(): Address[] {
+    return [...this.signals.keys()];
   }
 
-  /** The newest point of a channel. */
-  latest(key: string): { t: number; v: number } | undefined {
-    const ring = this.channels.get(key);
+  /** The newest point of a signal. */
+  latest(address: Address): { t: number; v: number } | undefined {
+    const ring = this.signals.get(address);
     if (!ring || !ring.length) return undefined;
     return { t: ring.lastT()!, v: ring.last()! };
   }
 
-  /** Bumps whenever the channel gains a point (or its history lands). */
-  version(key: string): number {
-    return this.channelVersions.get(key) ?? 0;
+  /** Bumps whenever the signal gains a point (or its history lands). */
+  version(address: Address): number {
+    return this.signalVersions.get(address) ?? 0;
   }
 
-  /** Copy a channel's rows into `out` (arrays reused), thinned as asked. */
-  read(key: string, out: TraceView, options: ReadOptions = {}): TraceView {
-    const ring = this.channels.get(key);
+  /** Copy a signal's rows into `out` (arrays reused), thinned as asked. */
+  read(address: Address, out: TraceView, options: ReadOptions = {}): TraceView {
+    const ring = this.signals.get(address);
     if (!ring) {
       out.t.length = 0;
       out.v.length = 0;
@@ -170,80 +174,86 @@ export class TelemetryStore {
     return out;
   }
 
-  /** The rig's clock as far as the samples say: the newest sample time across every channel, or null before any. */
+  /** The rig's clock as far as the samples say: the newest sample time across every signal, or null before any. */
   nowS(): number | null {
     return Number.isFinite(this.newestS) ? this.newestS : null;
   }
 
-  /** Points held for a channel. */
-  count(key: string): number {
-    return this.channels.get(key)?.length ?? 0;
+  /** Points held for a signal. */
+  count(address: Address): number {
+    return this.signals.get(address)?.length ?? 0;
   }
 
-  private bumpChannel(key: string): void {
-    this.channelVersions.set(key, (this.channelVersions.get(key) ?? 0) + 1);
-    this.mark("samples", key);
+  /** The newest sample of a node (`values` keyed relative to it); the same object until the node delivers again. */
+  sample(node: Address): SampleOut | undefined {
+    return this.nodeLatest[node];
   }
 
-  private onSample(sample: SampleOut): void {
-    const time = sample.time_ns / 1e9;
-    if (time > this.newestS) this.newestS = time;
-    const row = [0];
-    for (const measurand in sample.values) {
-      const key = `${sample.source}.${measurand}`;
-      row[0] = sample.values[measurand]!;
-      this.ring(key).push(time, row);
-      this.bumpChannel(key);
-    }
-    const last = this.lastSeq.get(sample.source);
-    this.lastSeq.set(sample.source, sample.seq);
-    if (last !== undefined && sample.seq > last + 1) {
-      // The server dropped samples for us (a lagging client): show it for a while. Only the
-      // edges are announced -- a client that is lagging sees a gap in every message.
-      const now = Date.now();
-      const wasLagging = now < this.gapUntil;
-      this.gapUntil = now + 5000;
-      if (!wasLagging) {
-        this.statusVersion++;
-        this.mark("status", null);
-      }
-      if (this.gapTimer === null) this.gapTimer = setTimeout(() => this.gapEnded(), 5000);
-    }
-  }
-
-  private gapEnded(): void {
-    this.gapTimer = null;
-    const remaining = this.gapUntil - Date.now();
-    if (remaining > 0) {
-      this.gapTimer = setTimeout(() => this.gapEnded(), remaining); // gaps kept coming: try again when the last one ages out
-      return;
-    }
-    this.statusVersion++;
-    this.mark("status", null);
-    this.flushSoon();
-  }
-
-  /** Called once per animation frame for any of `keys` that gained points (`everyMs` apart at least). */
-  subscribeTrace(keys: string[], cb: () => void, everyMs = 100): () => void {
-    return this.subscribe("samples", new Set(keys), cb, everyMs);
-  }
-
-  /** As `subscribeTrace` for one channel, at a readout's cadence. */
-  subscribeLatest(key: string, cb: () => void, everyMs = 250): () => void {
-    return this.subscribe("samples", new Set([key]), cb, everyMs);
+  /** Bumps whenever the node delivers a sample. */
+  sampleVersion(node: Address): number {
+    return this.nodeVersions.get(node) ?? 0;
   }
 
   /**
-   * Fill the window from the recording store: one `/series` per channel per
+   * The poll period of the device an address is under, from `/ws/devices`;
+   * undefined until the device has reported, or for one that is not polled.
+   * The input to a stale threshold (`staleAfterS`).
+   */
+  periodOf(address: Address): number | null | undefined {
+    return this.deviceRunList[deviceOf(address)]?.period_s;
+  }
+
+  private bumpSignal(address: Address): void {
+    this.signalVersions.set(address, (this.signalVersions.get(address) ?? 0) + 1);
+    this.mark("samples", address);
+  }
+
+  private onSamples(samples: SampleOut[]): void {
+    if (!samples.length) return;
+    const row = [0];
+    const next = { ...this.nodeLatest };
+    for (const sample of samples) {
+      const time = sample.time_ns / 1e9;
+      if (time > this.newestS) this.newestS = time;
+      for (const name in sample.values) {
+        const address = addressOf(sample.node, name);
+        row[0] = sample.values[name]!;
+        this.ring(address).push(time, row);
+        this.bumpSignal(address);
+      }
+      next[sample.node] = sample;
+      this.nodeVersions.set(sample.node, (this.nodeVersions.get(sample.node) ?? 0) + 1);
+      this.mark("samples", sample.node);
+    }
+    this.nodeLatest = next;
+  }
+
+  /** Called once per animation frame for any of `addresses` that gained points (`everyMs` apart at least). */
+  subscribeTrace(addresses: Address[], cb: () => void, everyMs = 100): () => void {
+    return this.subscribe("samples", new Set(addresses), cb, everyMs);
+  }
+
+  /** As `subscribeTrace` for one signal, at a readout's cadence. */
+  subscribeLatest(address: Address, cb: () => void, everyMs = 250): () => void {
+    return this.subscribe("samples", new Set([address]), cb, everyMs);
+  }
+
+  /** Called when the node delivers a sample, at most every `everyMs`. */
+  subscribeSample(node: Address, cb: () => void, everyMs = 250): () => void {
+    return this.subscribe("samples", new Set([node]), cb, everyMs);
+  }
+
+  /**
+   * Fill the window from the recording store: one `/series` per signal per
    * session, newest session first until the window is covered, at most 20
-   * sessions. Once per channel per page life; points that arrived live
+   * sessions. Once per signal per page life; points that arrived live
    * before the history landed keep their place after it.
    */
-  seed(channels: ChannelOut[]): Promise<void> {
-    const wanted = channels.filter((c) => !this.seededChannels.has(channelKey(c)));
+  seed(addresses: Address[]): Promise<void> {
+    const wanted = addresses.filter((a) => !this.seededSignals.has(a));
     if (!wanted.length) return this.seeding ?? Promise.resolve();
-    for (const c of wanted) this.seededChannels.add(channelKey(c));
-    // Forty tiles mounting together ask once: the channels are gathered for a tick and fetched as one batch.
+    for (const a of wanted) this.seededSignals.add(a);
+    // Forty tiles mounting together ask once: the addresses are gathered for a tick and fetched as one batch.
     this.pendingSeed.push(...wanted);
     this.seeding ??= new Promise<void>((resolve) => {
       setTimeout(() => {
@@ -258,13 +268,13 @@ export class TelemetryStore {
     return this.seeding;
   }
 
-  private async fetchHistory(channels: ChannelOut[]): Promise<void> {
+  private async fetchHistory(addresses: Address[]): Promise<void> {
     const rig = this.rig;
     const [sessions, clock, current] = await Promise.all([rig.sessions(20), rig.clock(), rig.recording().catch(() => null)]);
     const nowS = clock.now_ns / 1e9;
     const horizonS = nowS - this.windowS;
-    const parts = new Map<string, Array<{ t: number[]; v: number[] }>>();
-    let floorS = Number.POSITIVE_INFINITY; // sessions must not overlap on the axis (see `seedLoops`)
+    const parts = new Map<Address, Array<{ t: number[]; v: number[] }>>();
+    let floorS = Number.POSITIVE_INFINITY; // sessions must not overlap on the axis (see `seedControllers`)
     const maxPoints = historyPoints();
     for (const session of sessions) {
       // Only the current recording may be open; another open session was left by a
@@ -277,57 +287,91 @@ export class TelemetryStore {
       if (endS < horizonS) break;
       const startOffset = Math.max(0, Math.floor((horizonS - startS) * 1e9));
       await Promise.all(
-        channels.map(async (c) => {
-          const series = await rig.series(session.id, c.source, c.measurand, { start_ns: startOffset, max_points: maxPoints }).catch(() => null);
+        addresses.map(async (address) => {
+          const series = await rig.series(session.id, address, { start_ns: startOffset, max_points: maxPoints }).catch(() => null);
           if (!series || !series.points.length) return;
-          const key = channelKey(c);
-          (parts.get(key) ?? parts.set(key, []).get(key)!).push({
+          (parts.get(address) ?? parts.set(address, []).get(address)!).push({
             t: series.points.map((p) => startS + p.offset_ns / 1e9),
             v: series.points.map((p) => p.value),
           });
         }),
       );
     }
-    for (const [key, chunks] of parts) {
+    for (const [address, chunks] of parts) {
       chunks.sort((a, b) => a.t[0]! - b.t[0]!);
       const t = chunks.flatMap((k) => k.t);
       const v = chunks.flatMap((k) => k.v);
-      this.ring(key).prepend(t, [v]);
-      this.bumpChannel(key);
+      this.ring(address).prepend(t, [v]);
+      this.bumpSignal(address);
     }
     this.flushSoon();
   }
 
   // endregion
 
-  // region Loops
+  // region Writes
 
-  private loopRing(name: string): Ring {
-    let ring = this.loopRings.get(name);
+  /** Every writable signal's latest write state, by address; the same object until one changes. */
+  writes(): Record<Address, WriteOut> {
+    return this.writeList;
+  }
+
+  write(address: Address): WriteOut | undefined {
+    return this.writeList[address];
+  }
+
+  /** Bumps when the signal is committed, or any signal when `address` is omitted. */
+  writeVersion(address?: Address): number {
+    return address === undefined ? this.writesVersion : (this.writeVersions.get(address) ?? 0);
+  }
+
+  private onWrites(writes: WriteStateOut[]): void {
+    if (!writes.length) return;
+    const next = { ...this.writeList };
+    for (const { signal, ...state } of writes) {
+      next[signal] = state;
+      this.writeVersions.set(signal, (this.writeVersions.get(signal) ?? 0) + 1);
+      this.mark("writes", signal);
+    }
+    this.writeList = next;
+    this.writesVersion++;
+  }
+
+  /** Called when the signal is committed (any signal when `address` is null), at most every `everyMs`. */
+  subscribeWrites(address: Address | null, cb: () => void, everyMs = 250): () => void {
+    return this.subscribe("writes", address === null ? null : new Set([address]), cb, everyMs);
+  }
+
+  // endregion
+
+  // region Controllers
+
+  private controllerRing(name: Address): Ring {
+    let ring = this.controllerRings.get(name);
     if (!ring) {
-      ring = new Ring({ width: LOOP_COLS, initial: 256, cap: this.capacity, windowS: this.windowS });
-      this.loopRings.set(name, ring);
+      ring = new Ring({ width: CONTROLLER_COLS, initial: 256, cap: this.capacity, windowS: this.windowS });
+      this.controllerRings.set(name, ring);
     }
     return ring;
   }
 
-  /** The latest `LoopOut` per name; the same object until a loop changes. */
-  loops(): Record<string, LoopOut> {
-    return this.loopLatest;
+  /** The latest `ControllerOut` per name (target address); the same object until a controller changes. */
+  controllers(): Record<Address, ControllerOut> {
+    return this.controllerLatest;
   }
 
-  loop(name: string): LoopOut | undefined {
-    return this.loopLatest[name];
+  controller(name: Address): ControllerOut | undefined {
+    return this.controllerLatest[name];
   }
 
-  /** Bumps when the named loop ticks, or any loop when `name` is omitted. */
-  loopVersion(name?: string): number {
-    return name === undefined ? this.loopsVersion : (this.loopVersions.get(name) ?? 0);
+  /** Bumps when the named controller ticks, or any controller when `name` is omitted. */
+  controllerVersion(name?: Address): number {
+    return name === undefined ? this.controllersVersion : (this.controllerVersions.get(name) ?? 0);
   }
 
-  /** Copy a loop's ticks into `out` (arrays reused), thinned as asked. */
-  readLoop(name: string, out: LoopView, options: ReadOptions = {}): LoopView {
-    const ring = this.loopRings.get(name);
+  /** Copy a controller's ticks into `out` (arrays reused), thinned as asked. */
+  readController(name: Address, out: ControllerView, options: ReadOptions = {}): ControllerView {
+    const ring = this.controllerRings.get(name);
     const cols = [out.reference, out.reading, out.demand, out.expected, out.correction] as number[][];
     if (!ring) {
       out.t.length = 0;
@@ -339,65 +383,66 @@ export class TelemetryStore {
     return out;
   }
 
-  private onLoops(loops: LoopOut[]): void {
-    if (!loops.length) return;
-    const next = { ...this.loopLatest };
-    const row = new Array<number>(LOOP_COLS);
-    for (const loop of loops) {
-      next[loop.name] = loop;
-      const time = loop.reading ? loop.reading.time_ns / 1e9 : Date.now() / 1000;
-      row[0] = nan(setpointOf(loop));
-      row[1] = nan(loop.reading ? loop.reading.value : null);
-      row[2] = nan(loop.demand);
-      row[3] = nan(loop.expected);
-      row[4] = nan(loop.correction);
-      this.loopRing(loop.name).push(time, row);
-      this.loopVersions.set(loop.name, (this.loopVersions.get(loop.name) ?? 0) + 1);
-      this.mark("loops", loop.name);
+  private onControllers(controllers: ControllerOut[]): void {
+    if (!controllers.length) return;
+    const next = { ...this.controllerLatest };
+    const row = new Array<number>(CONTROLLER_COLS);
+    for (const c of controllers) {
+      next[c.name] = c;
+      const time = c.reading ? c.reading.time_ns / 1e9 : Date.now() / 1000;
+      row[0] = nan(setpointOf(c));
+      row[1] = nan(c.reading ? c.reading.value : null);
+      row[2] = nan(c.demand);
+      row[3] = nan(c.expected);
+      row[4] = nan(c.correction);
+      this.controllerRing(c.name).push(time, row);
+      this.controllerVersions.set(c.name, (this.controllerVersions.get(c.name) ?? 0) + 1);
+      this.mark("controllers", c.name);
     }
-    this.loopLatest = next;
-    this.loopsVersion++;
+    this.controllerLatest = next;
+    this.controllersVersion++;
   }
 
-  /** Called when the named loop ticks (any loop when `name` is null), at most every `everyMs`. */
-  subscribeLoop(name: string | null, cb: () => void, everyMs = 250): () => void {
-    return this.subscribe("loops", name === null ? null : new Set([name]), cb, everyMs);
+  /** Called when the named controller ticks (any controller when `name` is null), at most every `everyMs`. */
+  subscribeController(name: Address | null, cb: () => void, everyMs = 250): () => void {
+    return this.subscribe("controllers", name === null ? null : new Set([name]), cb, everyMs);
   }
 
   /**
-   * `GET /api/loops` once (so the latest state is there before the socket's
-   * first message) and the window of ticks from the recording store for each
-   * loop not yet seeded, matched by (actuator, channel) across sessions.
+   * `GET /api/controllers` once (so the latest state is there before the
+   * socket's first message) and the window of ticks from the recording
+   * store for each controller not yet seeded, matched by (target, source)
+   * across sessions.
    */
-  seedLoops(every?: number): Promise<void> {
+  seedControllers(every?: number): Promise<void> {
     return this.rig
-      .loops()
-      .then(async (loops) => {
-        const fresh = loops.filter((l) => !(l.name in this.loopLatest));
-        if (fresh.length) this.onLoops(fresh);
-        const wanted = loops.filter((l) => !this.seededLoops.has(pairOf(l)));
+      .controllers()
+      .then(async (controllers) => {
+        const fresh = controllers.filter((c) => !(c.name in this.controllerLatest));
+        if (fresh.length) this.onControllers(fresh);
+        const wanted = controllers.filter((c) => !this.seededControllers.has(pairOf(c)));
         if (!wanted.length) return;
-        for (const l of wanted) this.seededLoops.add(pairOf(l));
+        for (const c of wanted) this.seededControllers.add(pairOf(c));
         const traces = await this.fetchTicks(wanted, every);
         for (const [name, view] of traces) {
-          this.loopRing(name).prepend(view.t, [view.reference, view.reading, view.demand, view.expected, view.correction].map((c) => c.map(nan)));
-          this.loopVersions.set(name, (this.loopVersions.get(name) ?? 0) + 1);
-          this.mark("loops", name);
+          this.controllerRing(name).prepend(view.t, [view.reference, view.reading, view.demand, view.expected, view.correction].map((c) => c.map(nan)));
+          this.controllerVersions.set(name, (this.controllerVersions.get(name) ?? 0) + 1);
+          this.mark("controllers", name);
         }
-        this.loopsVersion++;
+        this.controllersVersion++;
         this.flushSoon();
       })
-      .catch(() => undefined); // the socket sends every loop on connect anyway; no store is fine
+      .catch(() => undefined); // the socket sends every controller on connect anyway; no store is fine
   }
 
-  private async fetchTicks(loops: LoopOut[], every?: number): Promise<Map<string, LoopView>> {
+  private async fetchTicks(controllers: ControllerOut[], every?: number): Promise<Map<Address, ControllerView>> {
     const rig = this.rig;
-    const out = new Map<string, LoopView>();
+    const out = new Map<Address, ControllerView>();
     const [sessions, clock, current] = await Promise.all([rig.sessions(20).catch(() => []), rig.clock(), rig.recording().catch(() => null)]);
     if (!sessions.length) return out;
     const nowS = clock.now_ns / 1e9; // the rig's now: a simulated clock runs ahead of the wall
-    const wanted = new Map(loops.map((l) => [pairOf(l), l.name]));
-    const perLoop = new Map<string, Array<{ startS: number; ticks: Awaited<ReturnType<RigClient["ticks"]>> }>>();
+    const wanted = new Map(controllers.map((c) => [pairOf(c), c.name]));
+    const perController = new Map<Address, Array<{ startS: number; ticks: Awaited<ReturnType<RigClient["ticks"]>> }>>();
     const horizonS = nowS - this.windowS;
     // Sessions must sit one after another on the time axis. A simulated clock
     // restarts with the daemon, so an older session can carry *later* stamps
@@ -410,21 +455,20 @@ export class TelemetryStore {
       if (endS > floorS) continue;
       floorS = startS;
       if (endS < horizonS) break;
-      const rows = await rig.sessionLoops(session.id).catch(() => []);
+      const rows = await rig.sessionControllers(session.id).catch(() => []);
       await Promise.all(
         rows.map(async (row) => {
-          const pair = `${row.actuator.name}|${row.channel.source.name}.${row.channel.measurand.name}`;
-          const name = wanted.get(pair);
+          const name = wanted.get(pairOf(row));
           if (!name) return;
           const startOffset = Math.max(0, (horizonS - startS) * 1e9); // history routes take offsets from the session's start
-          const ticks = await rig.ticks(session.id, row.actuator.name, { start_ns: Math.floor(startOffset), ...(every && every > 1 ? { every } : {}) }).catch(() => []);
-          if (ticks.length) (perLoop.get(name) ?? perLoop.set(name, []).get(name)!).push({ startS, ticks });
+          const ticks = await rig.ticks(session.id, row.name, { start_ns: Math.floor(startOffset), ...(every && every > 1 ? { every } : {}) }).catch(() => []);
+          if (ticks.length) (perController.get(name) ?? perController.set(name, []).get(name)!).push({ startS, ticks });
         }),
       );
     }
-    for (const [name, parts] of perLoop) {
+    for (const [name, parts] of perController) {
       parts.sort((a, b) => a.startS - b.startS);
-      const view = emptyLoopView();
+      const view = emptyControllerView();
       for (const { startS, ticks } of parts) {
         for (const k of ticks) {
           view.t.push(startS + k.offset_ns / 1e9);
@@ -442,71 +486,72 @@ export class TelemetryStore {
 
   // endregion
 
-  // region Actuators
+  // region Devices
 
-  /** Every actuator's latest state; the same object until one changes. */
-  actuators(): Record<string, DeviceState> {
-    return this.actuatorStates;
+  /** Every polled device's run (period, running, last read, conditions, state) by name; the same object until one changes. */
+  deviceRuns(): Record<string, DeviceRunOut> {
+    return this.deviceRunList;
   }
 
-  actuator(name: string): DeviceState | undefined {
-    return this.actuatorStates[name];
+  deviceRun(name: string): DeviceRunOut | undefined {
+    return this.deviceRunList[name];
   }
 
-  actuatorVersion(name?: string): number {
-    return name === undefined ? this.actuatorsVersion : (this.actuatorVersions.get(name) ?? 0);
+  /** Bumps when the named device reports, or any device when `name` is omitted. */
+  deviceVersion(name?: string): number {
+    return name === undefined ? this.devicesVersion : (this.deviceVersions.get(name) ?? 0);
   }
 
-  private onActuators(states: Array<{ name: string; state: DeviceState }>): void {
-    if (!states.length) return;
-    const next = { ...this.actuatorStates };
-    for (const { name, state } of states) {
-      next[name] = state;
-      this.actuatorVersions.set(name, (this.actuatorVersions.get(name) ?? 0) + 1);
-      this.mark("actuators", name);
-    }
-    this.actuatorStates = next;
-    this.actuatorsVersion++;
-  }
-
-  subscribeActuators(name: string | null, cb: () => void, everyMs = 250): () => void {
-    return this.subscribe("actuators", name === null ? null : new Set([name]), cb, everyMs);
-  }
-
-  // endregion
-
-  // region Readers
-
-  /** Every reader's run (period, running, last read), the same object until one changes. */
-  readerRuns(): Record<string, ReaderRun> {
-    return this.readerRunList;
-  }
-
-  readersVersionNow(): number {
-    return this.readersVersion;
-  }
-
-  /** The readers' periods as one string; changes only when a period does (a stale threshold's input). */
-  readerPeriodsKey(): string {
+  /** The devices' periods as one string; changes only when a period does (a stale threshold's input). */
+  devicePeriodsKey(): string {
     return this.periodsKey;
   }
 
-  private onReaders(readers: Array<{ name: string } & ReaderRun>): void {
-    if (!readers.length) return;
-    const next = { ...this.readerRunList };
-    for (const { name, ...run } of readers) next[name] = run;
-    this.readerRunList = next;
-    this.readersVersion++;
+  private onDevices(devices: DeviceRunOut[]): void {
+    if (!devices.length) return;
+    const next = { ...this.deviceRunList };
+    for (const run of devices) {
+      next[run.name] = run;
+      this.deviceVersions.set(run.name, (this.deviceVersions.get(run.name) ?? 0) + 1);
+      this.mark("devices", run.name);
+    }
+    this.deviceRunList = next;
+    this.devicesVersion++;
     this.periodsKey = Object.keys(next)
       .sort()
       .map((name) => `${name}=${next[name]!.period_s ?? ""}`)
       .join(",");
-    this.mark("readers", null);
   }
 
-  /** Called when a reader reports, at most every `everyMs` (a second by default: a run is a footer line). */
-  subscribeReaders(cb: () => void, everyMs = 1000): () => void {
-    return this.subscribe("readers", null, cb, everyMs);
+  /** Called when the named device reports (any device when `name` is null), at most every `everyMs` (a second: a run is a footer line). */
+  subscribeDevices(name: string | null, cb: () => void, everyMs = 1000): () => void {
+    return this.subscribe("devices", name === null ? null : new Set([name]), cb, everyMs);
+  }
+
+  // endregion
+
+  // region Waits
+
+  /** Every wait the socket has reported, by name, settled ones included; the same object until one changes. */
+  waits(): Record<string, WaitState> {
+    return this.waitList;
+  }
+
+  waitsVersionNow(): number {
+    return this.waitsVersion;
+  }
+
+  private onWaits(waits: WaitState[]): void {
+    if (!waits.length) return;
+    const next = { ...this.waitList };
+    for (const wait of waits) next[wait.name] = wait;
+    this.waitList = next;
+    this.waitsVersion++;
+    this.mark("waits", null);
+  }
+
+  subscribeWaits(cb: () => void, everyMs = 250): () => void {
+    return this.subscribe("waits", null, cb, everyMs);
   }
 
   // endregion
@@ -572,11 +617,6 @@ export class TelemetryStore {
   /** Statuses of the streams that have been opened, for a live/reconnecting/offline chip. */
   openStatuses(): StreamStatus[] {
     return STREAMS.map((s) => this.statuses[s]).filter((s): s is StreamStatus => s !== "idle");
-  }
-
-  /** True for a few seconds after a sample's `seq` skipped: the server dropped some for this client. */
-  lagging(): boolean {
-    return Date.now() < this.gapUntil;
   }
 
   statusVersionNow(): number {
@@ -699,19 +739,22 @@ export class TelemetryStore {
       counters.messages[stream] = (counters.messages[stream] ?? 0) + 1;
       switch (stream) {
         case "samples":
-          this.onSample(message as SampleOut);
+          this.onSamples((message as { samples: SampleOut[] }).samples ?? []);
           break;
-        case "loops":
-          this.onLoops((message as { loops: LoopOut[] }).loops);
+        case "writes":
+          this.onWrites((message as { writes: WriteStateOut[] }).writes ?? []);
           break;
-        case "actuators":
-          this.onActuators((message as { actuators: Array<{ name: string; state: DeviceState }> }).actuators);
+        case "controllers":
+          this.onControllers((message as { controllers: ControllerOut[] }).controllers ?? []);
+          break;
+        case "devices":
+          this.onDevices((message as { devices: DeviceRunOut[] }).devices ?? []);
+          break;
+        case "waits":
+          this.onWaits((message as { waits: WaitState[] }).waits ?? []);
           break;
         case "events":
-          this.onEvents((message as { events: Event[] }).events);
-          break;
-        case "readers":
-          this.onReaders((message as { readers: Array<{ name: string } & ReaderRun> }).readers);
+          this.onEvents((message as { events: Event[] }).events ?? []);
           break;
       }
       this.flushSoon();

@@ -1,10 +1,10 @@
-import { Chip, Link, Paper, Stack, Typography } from "@mui/material";
+import { Chip, Paper, Stack, Typography } from "@mui/material";
 import { fields, formatValue, humanise, unwrapNullable, deref, type JsonSchema } from "@flyball/client";
 import { ValueView } from "@flyball/react";
-import { hrefFor } from "../router.js";
-import { channelRefOf, commandDescription, commandSchemaFor, durationSeconds, enumTitle, formatDuration, formatRate, isDurationSchema, type NormalisedProgram, type NormalisedStep } from "../steps.js";
+import { commandDescription, commandSchemaFor, durationSeconds, enumTitle, formatDuration, formatRate, isDurationSchema, type NormalisedProgram, type NormalisedStep } from "../steps.js";
+import type { DevicePicks } from "../programDoc.js";
 
-/** A value the way its argument schema says: durations in words, rates with their unit, channels as links, enums by title. */
+/** A value the way its argument schema says: durations in words, rates with their unit, enums by title. */
 function ArgValue({ value, schema, root }: { value: unknown; schema: JsonSchema | undefined; root: JsonSchema | undefined }) {
   if (value === null || value === undefined) return <span className="fb-muted">—</span>;
   const resolved = schema && root ? deref(unwrapNullable(schema).inner, root) : schema;
@@ -17,18 +17,6 @@ function ArgValue({ value, schema, root }: { value: unknown; schema: JsonSchema 
     if (s !== null) return <>{formatDuration(s)}</>;
   } else if (typeof value === "number" && isDurationSchema(resolved)) {
     return <>{formatDuration(value)}</>;
-  }
-  const channel = channelRefOf(value);
-  if (channel) {
-    const href = hrefFor({ kind: "channel", name: channel.source, measurand: channel.measurand });
-    const label = `${channel.source}.${channel.measurand}`;
-    return href ? (
-      <Link href={href} underline="hover">
-        {label}
-      </Link>
-    ) : (
-      <>{label}</>
-    );
   }
   const title = enumTitle(resolved, value);
   if (title) return <>{title}</>;
@@ -82,8 +70,6 @@ function ArgRows({ value, schema, root }: { value: Record<string, unknown>; sche
 const modifierText = (key: string, value: unknown): string => {
   const s = durationSeconds(value);
   if (s !== null && typeof value === "object") return `${key}: ${formatDuration(s)}`;
-  const channel = channelRefOf(value);
-  if (channel) return `${key}: ${channel.source}.${channel.measurand}`;
   if (value === true) return key;
   if (value === null || value === undefined) return key;
   if (typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
@@ -96,25 +82,35 @@ export interface ProgramStepsProps {
   commands: JsonSchema | undefined;
   /** `GET /api/programs/schema`, for the commands' descriptions. */
   programSchema?: JsonSchema;
+  /** The rig's devices and their commands, so a `command` step's `args` show with that command's titles and units. */
+  devices?: DevicePicks;
 }
 
 /** One card per step, read-only: the command, what it does, its arguments with units, and the modifiers as chips. */
-export function ProgramSteps({ program, commands, programSchema }: ProgramStepsProps) {
+export function ProgramSteps({ program, commands, programSchema, devices }: ProgramStepsProps) {
   if (program.steps.length === 0) return <Typography color="text.secondary">no steps</Typography>;
   return (
     <Stack spacing={1}>
       {program.steps.map((step, i) => (
-        <StepCard key={i} index={i} step={step} commands={commands} programSchema={programSchema} />
+        <StepCard key={i} index={i} step={step} commands={commands} programSchema={programSchema} devices={devices} />
       ))}
     </Stack>
   );
 }
 
-function StepCard({ index, step, commands, programSchema }: { index: number; step: NormalisedStep; commands: JsonSchema | undefined; programSchema: JsonSchema | undefined }) {
+function StepCard({ index, step, commands, programSchema, devices }: { index: number; step: NormalisedStep; commands: JsonSchema | undefined; programSchema: JsonSchema | undefined; devices: DevicePicks | undefined }) {
   const { command: tag, ...args } = step.command;
   const { command: _c, ...modifiers } = step;
   void _c;
-  const schema = commandSchemaFor(commands, tag);
+  let schema = commandSchemaFor(commands, tag);
+  let root = commands;
+  // a `command` step's `args` are the device command's own: its schema in place of the dialect's untyped object, its `$defs` beside the root's
+  const device = tag === "command" && typeof args.device === "string" && typeof args.device_command === "string" ? devices?.commands[args.device]?.[args.device_command] : undefined;
+  if (device && schema?.properties?.args) {
+    const { $defs, ...deviceArgs } = device.arguments;
+    schema = { ...schema, properties: { ...schema.properties, args: { ...deviceArgs, title: schema.properties.args.title } } };
+    if (root && $defs) root = { ...root, $defs: { ...root.$defs, ...$defs } };
+  }
   const description = schema?.description ?? commandDescription(programSchema, tag);
   const shortDescription = description?.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ");
   return (
@@ -134,7 +130,7 @@ function StepCard({ index, step, commands, programSchema }: { index: number; ste
           {shortDescription}
         </Typography>
       )}
-      <ArgRows value={args} schema={schema ? { ...schema, properties: Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([k]) => k !== "command")) } : undefined} root={commands} />
+      <ArgRows value={args} schema={schema ? { ...schema, properties: Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([k]) => k !== "command")) } : undefined} root={root} />
     </Paper>
   );
 }

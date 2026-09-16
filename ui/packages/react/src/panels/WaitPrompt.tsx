@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import type { SignalState } from "@flyball/client";
+import type { WaitState } from "@flyball/client";
 
-export interface SignalPromptProps {
-  /** Prompts still waiting for a person; nothing renders when empty. Pass `useSignals().pending`, not every signal. */
-  signals: SignalState[];
+export interface WaitPromptProps {
+  /** Prompts still waiting for a person; nothing renders when empty. Pass `useWaits().pending`, not every wait. */
+  waits: WaitState[];
   /** The rig's now, in seconds, for the "waiting for" clock; wall time when omitted. */
   nowS?: number;
   onFire: (name: string) => void | Promise<void>;
@@ -23,15 +23,15 @@ const clock = (s: number) => {
  * Pure: the app decides where it goes (a banner on every page, so nobody
  * misses it) and what firing does.
  */
-export function SignalPrompt({ signals, nowS, onFire, onInterrupt }: SignalPromptProps) {
+export function WaitPrompt({ waits, nowS, onFire, onInterrupt }: WaitPromptProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [wall, setWall] = useState(() => Date.now() / 1000);
   useEffect(() => {
-    if (nowS !== undefined || !signals.length) return;
+    if (nowS !== undefined || !waits.length) return;
     const id = window.setInterval(() => setWall(Date.now() / 1000), 1000);
     return () => window.clearInterval(id);
-  }, [nowS, signals.length]);
-  if (!signals.length) return null;
+  }, [nowS, waits.length]);
+  if (!waits.length) return null;
   const now = nowS ?? wall;
   const answer = async (fn: (name: string) => void | Promise<void>, name: string) => {
     setBusy(name);
@@ -43,25 +43,25 @@ export function SignalPrompt({ signals, nowS, onFire, onInterrupt }: SignalPromp
   };
   return (
     <div className="fb-signals" role="alert">
-      {signals.map((s) => {
-        const waitedS = Math.max(0, now - s.since_ns / 1e9);
-        const leftS = s.timeout_s === null ? null : s.timeout_s - waitedS;
+      {waits.map((w) => {
+        const waitedS = Math.max(0, now - w.since_ns / 1e9);
+        const leftS = w.timeout_s === null ? null : w.timeout_s - waitedS;
         return (
-          <div key={s.name} className="fb-signal">
+          <div key={w.name} className="fb-signal">
             <span className="fb-signal-icon" aria-hidden="true">⏸</span>
             <div className="fb-signal-text">
-              <strong>{s.message || `waiting for ${s.name}`}</strong>
+              <strong>{w.message || `waiting for ${w.name}`}</strong>
               <span className="fb-muted">
                 {" "}
                 · waiting {clock(waitedS)}
                 {leftS !== null && (leftS > 0 ? ` · gives up in ${clock(leftS)}` : " · timed out")}
               </span>
             </div>
-            <button type="button" className="fb-signal-go" disabled={busy === s.name} onClick={() => answer(onFire, s.name)}>
+            <button type="button" className="fb-signal-go" disabled={busy === w.name} onClick={() => answer(onFire, w.name)}>
               Go
             </button>
             {onInterrupt && (
-              <button type="button" className="fb-signal-skip" disabled={busy === s.name} onClick={() => answer(onInterrupt, s.name)} title="Stop waiting; the program sees this step as interrupted">
+              <button type="button" className="fb-signal-skip" disabled={busy === w.name} onClick={() => answer(onInterrupt, w.name)} title="Stop waiting; the program sees this step as interrupted">
                 Abandon
               </button>
             )}
