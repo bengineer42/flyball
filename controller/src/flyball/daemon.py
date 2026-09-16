@@ -39,6 +39,7 @@ def serve(
     store: Store | None = None,
     programs: Path | None = None,
     tunings: Path | None = None,
+    config: RigConfig | None = None,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -54,12 +55,15 @@ def serve(
             start and whenever the library is asked to rescan.
         tunings: A directory of control-law config files, stored on `rig.tunings`
             under each file's stem before serving. A missing directory is fine.
+        config: What the rig was built from, for `/api/rig/config`.
     """
     import uvicorn
 
+    from flyball.client import Rig as Client
+    from flyball.mcp.http import mount
     from flyball.programmer import Programmer
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
-    from flyball.server.deps import set_programs_dir, set_store
+    from flyball.server.deps import set_programs_dir, set_rig_config, set_store
     from flyball.server.routes import dashboards
     from flyball.server.routes.library import import_directory, load_tunings
 
@@ -69,6 +73,7 @@ def serve(
     set_simulation(simulation)
     set_store(store)
     set_programs_dir(programs)
+    set_rig_config(config)
     if store is not None and programs is not None and programs.is_dir():
         imported = import_directory(store, programs, rig.clock.now_ns())
         log.info("programs from %s: %d imported", programs, len(imported))
@@ -79,10 +84,13 @@ def serve(
     if store is not None and boards is not None and boards.is_dir():
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
+    app = create_app()
+    mount(app, Client(f"http://127.0.0.1:{port}"))  # `/mcp/<mode>`: a model's way in
     try:
-        uvicorn.run(create_app(), host=host, port=port, log_level=log_level)
+        uvicorn.run(app, host=host, port=port, log_level=log_level)
     finally:
         programmer.interrupt()
+        set_rig_config(None)
         set_programs_dir(None)
         set_store(None)
         set_simulation(None)
@@ -194,7 +202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     log.info("serving %s on %s:%d", config.name or first.name, args.host, args.port)
     programs = args.programs if args.programs is not None else first.parent / "programs"
     tunings = args.tunings if args.tunings is not None else first.parent / "tunings"
-    serve(rig, args.host, args.port, args.log_level, simulation, store, programs, tunings)
+    serve(rig, args.host, args.port, args.log_level, simulation, store, programs, tunings, config)
     return 0
 
 

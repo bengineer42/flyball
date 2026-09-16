@@ -9,14 +9,15 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Annotated, Any, Union
 
-from fastapi import APIRouter
-from pydantic import Field, SerializeAsAny
+from fastapi import APIRouter, HTTPException
+from pydantic import Field, SerializeAsAny, ValidationError
 
 from flyball.control import ControlLawConfig, ControlLaws, ControlLawView, Tuning
 from flyball.control.errors import TuningNotRegisteredError
 from flyball.core.device import Condition, Device
+from flyball.runtime.config import RigConfig, canonical, rig_schema
 from flyball.runtime.rig import Rig
-from flyball.server.deps import RigDep, current_rig
+from flyball.server.deps import RigDep, current_rig, current_rig_config, current_simulation
 from flyball.server.schemas import ClockOut
 
 router = APIRouter(prefix="/api", tags=["rig"])
@@ -118,6 +119,41 @@ async def read_health() -> dict[str, Any]:
 async def read_clock(rig: RigDep) -> ClockOut:
     """The rig's timebase now: start, elapsed, and the instant this was answered."""
     return ClockOut.of(rig.clock)
+
+
+# endregion
+
+# region Rig file
+
+
+@router.get("/rig/schema")
+async def read_rig_schema() -> dict[str, Any]:
+    """The rig file's JSON schema, with every driver this daemon has installed."""
+    return rig_schema()
+
+
+@router.get("/rig/config")
+async def read_rig_config() -> dict[str, Any]:
+    """The rig file as it now stands: a simulation's with its changes, else what was loaded."""
+    if (simulation := current_simulation()) is not None:
+        return simulation.config_document()
+    if (config := current_rig_config()) is None:
+        raise HTTPException(status_code=404, detail="This server was not started from a rig file")
+    return canonical(config)
+
+
+@router.post("/rig/check")
+async def check_rig(document: dict[str, Any]) -> dict[str, Any]:
+    """Validate a rig document against the drivers installed here; nothing is built or run.
+
+    Returns the canonical form. 422 says what is wrong. One document, not a
+    layered set: merge layers and apply a board before sending.
+    """
+    try:
+        config = RigConfig.model_validate(document)
+    except (ValidationError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return canonical(config)
 
 
 # endregion

@@ -141,6 +141,9 @@ class Rig:
     def put(self, path: str, body: Any = None) -> Any:
         return self._request("PUT", path, body)
 
+    def delete(self, path: str) -> Any:
+        return self._request("DELETE", path)
+
     # endregion
     # region Schema
 

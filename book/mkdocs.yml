@@ -67,6 +67,7 @@ nav:
   - Running:
       - The daemon: 3-running/daemon.md
       - The CLI: 3-running/cli.md
+      - The MCP server: 3-running/mcp.md
       - The UI: 3-running/ui.md
       - Dashboards: 3-running/dashboards.md
       - Writing programs: 3-running/programs.md

@@ -20,6 +20,7 @@ from .dialect import Dialect
 if TYPE_CHECKING:
     from flyball.core.device import Device
     from flyball.programmer import ProgrammerState
+    from flyball.runtime.config import RigConfig
     from flyball.runtime.simulation import Simulation
 
 
@@ -38,6 +39,7 @@ _programmer: Programmer | None = None
 _dialect: Dialect = Dialect()
 _simulation: Simulation | None = None
 _simulation_device: Device | None = None
+_rig_config: RigConfig | None = None
 
 
 def set_rig(rig: Rig | None) -> None:
@@ -49,6 +51,16 @@ def set_rig(rig: Rig | None) -> None:
 def current_rig() -> Rig | None:
     """The attached rig, or None. For lifespan and telemetry, which tolerate absence."""
     return _rig
+
+
+def set_rig_config(config: RigConfig | None) -> None:
+    """The config the rig was built from, for `/api/rig/config` on a hardware rig."""
+    global _rig_config
+    _rig_config = config
+
+
+def current_rig_config() -> RigConfig | None:
+    return _rig_config
 
 
 def get_rig() -> Rig:

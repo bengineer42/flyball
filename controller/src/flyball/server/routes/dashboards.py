@@ -262,6 +262,17 @@ async def read_dashboard_schema() -> dict[str, Any]:
     return Dashboard.model_json_schema()
 
 
+@router.get("/widgets")
+async def read_widget_catalogue() -> dict[str, Any]:
+    """Every widget kind and its `config` schema, for a client writing a document by hand.
+
+    The UI owns the kinds; `widgets.json` beside the server package is a copy
+    of its registry with the rig-dependent pickers reduced to `x-binding`.
+    """
+    path = Path(__file__).parent.parent / "widgets.json"
+    return json.loads(path.read_text())  # type: ignore[no-any-return]
+
+
 @router.get("")
 async def list_dashboards(
     store: StoreDep,
