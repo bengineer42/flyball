@@ -1,4 +1,8 @@
-/** JSON Schema pieces the config forms share: pickers bound to what the rig has, with display names as titles. */
+/**
+ * JSON Schema pieces the config forms share: pickers bound to what the rig has, with display names as
+ * titles. Each carries `x-binding` naming what it picks, so a catalogue made with no rig
+ * (`scripts/widgets-json.ts`) still says which fields bind to the rig.
+ */
 import type { JsonSchema, SignalOut } from "@flyball/client";
 import type { Bindings } from "../dashboard/context.js";
 import { isNumeric } from "../valueReadout.js";
@@ -10,7 +14,7 @@ import { isNumeric } from "../valueReadout.js";
  */
 export function signalSchema(bindings: Bindings, title = "Signal", numeric = false): JsonSchema {
   const options = bindings.signals.filter((s: SignalOut) => !numeric || isNumeric(s)).map((s) => ({ const: s.address, title: bindings.signalLabel(s.address) }));
-  return { type: "string", title, ...(options.length ? { oneOf: options } : {}) };
+  return { type: "string", title, "x-binding": "signal", ...(options.length ? { oneOf: options } : {}) };
 }
 
 /** Several signals, each once. */
@@ -21,13 +25,13 @@ export function signalsSchema(bindings: Bindings, title = "Signals", numeric = f
 /** One of the rig's controllers, by name (the address of the signal it drives). */
 export function controllerSchema(bindings: Bindings): JsonSchema {
   const options = bindings.controllers.map((c) => ({ const: c.name, title: c.label ? `${c.label} (${c.name})` : c.name }));
-  return { type: "string", title: "Controller", ...(options.length ? { oneOf: options } : {}) };
+  return { type: "string", title: "Controller", "x-binding": "controller", ...(options.length ? { oneOf: options } : {}) };
 }
 
 /** One of the rig's devices, by name. */
 export function deviceSchema(bindings: Bindings): JsonSchema {
   const options = bindings.devices.filter((d) => d.kind !== "simulation").map((d) => ({ const: d.name, title: d.label ? `${d.label} (${d.name})` : d.name }));
-  return { type: "string", title: "Device", ...(options.length ? { oneOf: options } : {}) };
+  return { type: "string", title: "Device", "x-binding": "device", ...(options.length ? { oneOf: options } : {}) };
 }
 
 /** A choice with a "follow the page" entry first: the chart controls in the page bar apply unless a widget says otherwise. */

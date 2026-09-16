@@ -1,13 +1,17 @@
 {
   "name": "flyball-ui",
   "private": true,
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm --workspace apps/dashboard run dev",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc -b",
     "lint": "eslint .",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "widgets-json": "vite-node --config apps/dashboard/vite.config.ts scripts/widgets-json.ts"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
