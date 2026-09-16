@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import uPlot from "uplot";
-import type { ChannelOut, FeedforwardConfig, LoopOut } from "@flyball/client";
+import type { ChannelOut, FeedforwardConfig, LoopOut, Trajectory } from "@flyball/client";
 import { alarmLevel, describeStateKey, humanise, setpointOf } from "@flyball/client";
 import type { LoopTrace } from "../hooks/useLoops.js";
 import { Ref } from "../links.js";
@@ -326,6 +326,7 @@ export function LoopPanel({
   const law = loop.law as Record<string, unknown> | null;
   const { tag, ...rest } = law ?? {};
   const following = typeof loop.reference === "string" ? humanise(loop.reference) : null;
+  const trajectory = loop.trajectory ? describeTrajectory(loop.trajectory, unit, precision, loop.reading?.time_ns ?? null) : null;
   // A ramp names its generator; the setpoint is then recovered through the feedforward, or failing that read off the
   // latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
   const setpoint = setpointOf(loop) ?? (following ? latest(history.reference) : null);
@@ -394,7 +395,7 @@ export function LoopPanel({
           <dt title="setpoint — SP">Target</dt>
           <dd>{fmt(setpoint, unit)}</dd>
           {controls && <span className="fb-loop-sp-controls">{controls}</span>}
-          <span className="fb-loop-caption">{following ? `→ following ${following.toLowerCase()}` : " "}</span>
+          <span className="fb-loop-caption">{trajectory ?? (following ? `→ following ${following.toLowerCase()}` : " ")}</span>
         </div>
         <div className="fb-loop-row">
           <dt title="drive after limits — OP">Output</dt>
@@ -474,4 +475,23 @@ export function LoopPanel({
   // `bare` drops the card look (`.fb-panel`) -- an element cannot query its own size, so this is
   // still needed one level above the grid that reacts to it.
   return <article className={`fb-loop${bare ? " fb-loop-bare" : " fb-panel"}`}>{frame}</article>;
+}
+
+/**
+ * A running trajectory in a phrase: "→ ramp to 75 %RH · 10 %RH/min · 2 min left". Spec first, then
+ * whatever the state re-evaluates; the time left is against the latest reading's instant, the nearest
+ * thing to the rig's clock this panel has.
+ */
+function describeTrajectory(trajectory: Trajectory, unit: string, precision: number, now_ns: number | null): string {
+  const { spec, state } = trajectory;
+  const to = state.to ?? spec.to;
+  const rate = state.rate ?? spec.rate;
+  const end = state.end_time_ns ?? spec.end_time_ns;
+  const parts = [`→ ${humanise(spec.tag).toLowerCase()}${to != null ? ` to ${to.toFixed(precision)} ${unit}` : ""}`];
+  if (rate != null && rate !== 0) parts.push(`${(Math.abs(rate) * 60).toFixed(precision)} ${unit}/min`);
+  if (end != null && now_ns != null) {
+    const left = (end - now_ns) / 1e9;
+    parts.push(left <= 0 ? "landed" : left < 90 ? `${Math.round(left)} s left` : `${Math.round(left / 60)} min left`);
+  }
+  return parts.join(" · ");
 }

@@ -32,7 +32,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { LoopPanel, SchemaForm, channelKey, useActuatorStates, useFreshness, useLoops, useQuery, useReaderPeriods, useRig, useRigSchema, useSources, type LoopTrace } from "@flyball/react";
-import { alarmLevel, type ActuatorChoice, type ActuatorSchema, type ChannelOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type LoopOut, type LoopSchema, type ReaderSchema } from "@flyball/client";
+import { alarmLevel, type ActuatorChoice, type ActuatorSchema, type ChannelOut, type FeedforwardConfig, type GeneratorConfig, type JsonSchema, type LawConfig, type LoopOut, type LoopSchema, type ReaderSchema } from "@flyball/client";
 import { Actuator } from "../Actuator.js";
 import { Confirm } from "../Confirm.js";
 import { useRecordingExports } from "../model.js";
@@ -396,20 +396,37 @@ const AddLoopDialog = memo(function AddLoopDialog({
   );
 });
 
+/** How a ramp's pace is given: a rate in the channel's unit per minute or second, or the time the whole ramp takes. */
+const PACES = [
+  { key: "per_minute", label: (unit: string) => `${unit}/min` },
+  { key: "per_second", label: (unit: string) => `${unit}/s` },
+  { key: "minutes", label: () => "min" },
+  { key: "seconds", label: () => "s" },
+] as const;
+type PaceKey = (typeof PACES)[number]["key"];
+
 /**
  * The setpoint entry and its verb button, rendered inline in the faceplate's
  * Target row (DESIGN-SPEC §3.4): "Regulate at" hands control to the law at
  * this value (a bumpless start) while stopped, "Move target" changes the
- * target and leaves the law running while regulating. Takes primitives and a
- * stable callback so it does not re-render on every tick (its text field is
- * a MUI form control, which sets state in an effect whenever it renders in
- * development). Split from the stop/remove control below so Tab reaches
- * this field and its button before Stop, which the faceplate places in the
- * header regardless of where it sits in the DOM.
+ * target and leaves the law running while regulating. A "ramp" toggle turns
+ * the value into a destination and adds a pace and a starting point -- the
+ * current setpoint unless the reading or a typed value is chosen -- and the
+ * rig walks the setpoint from there. Takes primitives and a stable callback so it does not
+ * re-render on every tick (its text field is a MUI form control, which sets
+ * state in an effect whenever it renders in development). Split from the
+ * stop/remove control below so Tab reaches this field and its button before
+ * Stop, which the faceplate places in the header regardless of where it sits
+ * in the DOM.
  */
 const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: LoopOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
+  const [ramp, setRamp] = useState(false);
+  const [pace, setPace] = useState("");
+  const [paceKey, setPaceKey] = useState<PaceKey>("per_minute");
+  const [from, setFrom] = useState<"setpoint" | "process" | "value">("setpoint");
+  const [fromValue, setFromValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLaw = tag !== null && tag !== "open_loop";
@@ -428,42 +445,107 @@ const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode
     }
   };
   const value = setpoint.trim() === "" ? null : Number(setpoint);
-  const valid = value !== null && Number.isFinite(value);
+  const paceValue = pace.trim() === "" ? null : Number(pace);
+  const startValue = fromValue.trim() === "" ? null : Number(fromValue);
+  const valid =
+    value !== null &&
+    Number.isFinite(value) &&
+    (!ramp || (paceValue !== null && Number.isFinite(paceValue) && paceValue > 0 && (from !== "value" || (startValue !== null && Number.isFinite(startValue)))));
+  // A ramp sets off from the current setpoint unless told otherwise: the reading, or a value typed in.
+  const generator: GeneratorConfig | null = ramp && paceValue !== null ? { tag: "ramp", to: value!, pace: { [paceKey]: paceValue } } : null;
+  const at = from === "value" ? startValue! : from;
+  const start = () => (generator ? rig.regulate(name, { at, generator }) : rig.regulate(name, { at: value! }));
+  const move = () => (generator ? rig.setReference(name, at, generator) : rig.setReference(name, value!));
 
   // One field, one verb. Stopped: "Regulate at" hands control to the law at
   // this target (a bumpless start). Regulating: "Move target" changes the
   // target and leaves the law running as it is. Both write the same number;
   // what differs is whether control is being started or already on.
-  const startLabel = hasLaw ? "Aim here and start the law (bumpless)" : tag === null ? "No law: give the controller a tuning first" : "Open loop: no law to regulate with";
+  const startLabel = !hasLaw ? (tag === null ? "No law: give the controller a tuning first" : "Open loop: no law to regulate with") : ramp ? "Start the law where the ramp sets off and ramp to the target" : "Aim here and start the law (bumpless)";
 
   return (
     <Stack component="span" direction="row" spacing={0.75} alignItems="center" useFlexGap sx={{ display: "inline-flex", flexWrap: { xs: "wrap", md: "nowrap" } }}>
       <TextField
         type="number"
-        label="target"
+        label={ramp ? "ramp to" : "target"}
         value={setpoint}
         onChange={(e) => setSetpoint(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && valid && !busy) {
-            void act(() => (regulating ? rig.setReference(name, value!) : rig.regulate(name, { at: value! })));
+            void act(regulating ? move : start);
           }
         }}
         inputProps={{ "aria-label": `target ${name}`, step: "any", "data-testid": `regulate-at-${name}`, style: { width: "4.5em" } }}
         InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>{unit}</span> }}
         sx={{ flexShrink: 0, "& .MuiInputBase-input": { py: 0.75 } }}
       />
+      <Tooltip title={ramp ? "Go straight to the target" : "Walk the setpoint there at a pace"}>
+        <ToggleButton value="ramp" size="small" selected={ramp} onChange={() => setRamp((r) => !r)} aria-label={`ramp ${name}`} data-testid={`ramp-${name}`} sx={{ flexShrink: 0, py: 0.5, textTransform: "none" }}>
+          ramp
+        </ToggleButton>
+      </Tooltip>
+      {ramp && (
+        <TextField
+          select
+          label="from"
+          value={from}
+          onChange={(e) => setFrom(e.target.value as typeof from)}
+          SelectProps={{ native: true }}
+          inputProps={{ "aria-label": `ramp from ${name}`, "data-testid": `ramp-from-${name}` }}
+          sx={{ flexShrink: 0, "& .MuiInputBase-input": { py: 0.75 } }}
+        >
+          <option value="setpoint">setpoint</option>
+          <option value="process">reading</option>
+          <option value="value">value…</option>
+        </TextField>
+      )}
+      {ramp && from === "value" && (
+        <TextField
+          type="number"
+          label="from"
+          value={fromValue}
+          onChange={(e) => setFromValue(e.target.value)}
+          inputProps={{ "aria-label": `ramp from value ${name}`, step: "any", "data-testid": `ramp-from-value-${name}`, style: { width: "4.5em" } }}
+          InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>{unit}</span> }}
+          sx={{ flexShrink: 0, "& .MuiInputBase-input": { py: 0.75 } }}
+        />
+      )}
+      {ramp && (
+        <TextField
+          type="number"
+          label="pace"
+          value={pace}
+          onChange={(e) => setPace(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && valid && !busy) void act(regulating ? move : start);
+          }}
+          inputProps={{ "aria-label": `pace ${name}`, step: "any", min: 0, "data-testid": `pace-${name}`, style: { width: "4em" } }}
+          InputProps={{
+            endAdornment: (
+              <select value={paceKey} onChange={(e) => setPaceKey(e.target.value as PaceKey)} aria-label={`pace unit ${name}`} style={{ fontSize: "0.8rem", border: "none", background: "transparent", color: "inherit" }}>
+                {PACES.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label(unit)}
+                  </option>
+                ))}
+              </select>
+            ),
+          }}
+          sx={{ flexShrink: 0, "& .MuiInputBase-input": { py: 0.75 } }}
+        />
+      )}
       {regulating ? (
-        <Tooltip title="Change the target; the law keeps running as it is">
+        <Tooltip title={ramp ? "Start the ramp; the law keeps running as it is" : "Change the target; the law keeps running as it is"}>
           <span>
             <Button
               variant="contained"
               size="small"
               disabled={!valid || busy}
-              onClick={() => void act(() => rig.setReference(name, value!))}
+              onClick={() => void act(move)}
               data-testid={`set-reference-${name}`}
               sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
             >
-              Move target
+              {ramp ? "Ramp" : "Move target"}
             </Button>
           </span>
         </Tooltip>
@@ -475,11 +557,11 @@ const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode
               size="small"
               startIcon={<PlayArrowIcon />}
               disabled={!hasLaw || !valid || busy}
-              onClick={() => void act(() => rig.regulate(name, { at: value! }))}
+              onClick={() => void act(start)}
               data-testid={`regulate-${name}`}
               sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
             >
-              Regulate at
+              {ramp ? "Ramp" : "Regulate at"}
             </Button>
           </span>
         </Tooltip>

@@ -20,6 +20,7 @@ import type {
   ErrorDetail,
   Event,
   EventLevel,
+  GeneratorConfig,
   Health,
   JsonSchema,
   LawConfig,
@@ -178,8 +179,9 @@ export class RigClient {
     return this.call({ method: "POST", path: `/api/loops/${encodeURIComponent(name)}/manual` });
   }
 
-  setReference(name: string, at: number | ValueSource): Promise<LoopOut> {
-    return this.call({ method: "PUT", path: `/api/loops/${encodeURIComponent(name)}/reference`, body: { at } });
+  /** Move the setpoint, leaving the mode and the law alone; with a `generator`, follow that trajectory from `at`. */
+  setReference(name: string, at: number | ValueSource, generator?: GeneratorConfig | null): Promise<LoopOut> {
+    return this.call({ method: "PUT", path: `/api/loops/${encodeURIComponent(name)}/reference`, body: generator ? { at, generator } : { at } });
   }
 
   tunings(): Promise<Record<string, LawConfig>> {

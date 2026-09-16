@@ -194,6 +194,35 @@ export type FeedforwardConfig =
   | { tag: "table"; points: Array<[number, number]> }
   | { tag: string; [arg: string]: unknown };
 
+/** What a running setpoint generator fixed when it started: always where and when it set off; the rest when the generator can settle it up front. */
+export interface TrajectorySpec {
+  tag: string;
+  /** The setpoint it set off from, in the channel's unit. */
+  start: number;
+  start_time_ns: Nanoseconds;
+  /** Where it is heading, if fixed. */
+  to: number | null;
+  /** When it gets there, if fixed. */
+  end_time_ns: Nanoseconds | null;
+  /** Per second, if constant. */
+  rate: number | null;
+}
+
+/** What a running generator keeps re-evaluating: whatever its spec could not fix (a decaying rate, a moving target). */
+export interface TrajectoryState {
+  to: number | null;
+  end_time_ns: Nanoseconds | null;
+  rate: number | null;
+}
+
+export interface Trajectory {
+  spec: TrajectorySpec;
+  state: TrajectoryState;
+}
+
+/** A setpoint trajectory to build, discriminated on `tag`; `ramp` is `{to, pace}` with `pace` a `Speed` or a `Duration`. */
+export type GeneratorConfig = { tag: "ramp"; to: number; pace: Record<string, number> } | { tag: string; [arg: string]: unknown };
+
 export interface LoopOut {
   name: string;
   /** A display name (the actuator's); null when the rig gave none, in which case show `name`. */
@@ -206,8 +235,10 @@ export interface LoopOut {
   feedforward: FeedforwardConfig;
   /** The unit `demand`, `expected` and `correction` are in: the actuator's, or the channel's when it has none. */
   demand_unit: string;
-  /** A fixed setpoint, or the name of the trajectory generator being followed (a ramp). */
+  /** A fixed setpoint, or the tag of the trajectory generator being followed (a ramp); `trajectory` has the rest. */
   reference: number | string | null;
+  /** Where a running trajectory set off, is heading and lands; null for a fixed reference. */
+  trajectory: Trajectory | null;
   /** The reference resolved at the last tick, in the channel's unit: a ramp's current value. Null before the first tick or with no reference. */
   setpoint: number | null;
   correction: number | null;
@@ -441,6 +472,8 @@ export interface LoopSchema {
   laws: JsonSchema;
   /** JSON Schema of the feedforward config union, discriminated on `tag`. */
   feedforwards: JsonSchema;
+  /** JSON Schema of the setpoint generator config union, discriminated on `tag`. */
+  generators: JsonSchema;
   tunings: TuningChoice[];
   /** channel name → the loop already regulating it. */
   regulated: Record<string, string>;
@@ -467,6 +500,8 @@ export interface RegulateRequest {
   at: number | ValueSource;
   tuning?: LawConfig | string | null;
   transfer?: Transfer;
+  /** A trajectory to follow from `at`. */
+  generator?: GeneratorConfig | null;
 }
 
 // The simulation: `/api/sim` -- the rig's clock and its `sim_plant` links, for a rig with nothing real on it.
