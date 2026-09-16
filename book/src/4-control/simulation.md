@@ -29,7 +29,7 @@ reading a `Lag`), a `Heater` (`[W]`, driving it) and the default controller
 between them, then runs it with nothing polling:
 
 ```python
---8<-- "oven.py:69:78"
+--8<-- "oven.py:71:80"
 ```
 
 With a stepped clock, `rig.read(node, fresh=True)` reads once and delivers
@@ -46,7 +46,7 @@ anything, which is enough to drive a bare plant by hand:
 
 ```python
 from flyball.control import PI, Controller
-from flyball.core import Access, Quantity, Reading, SignalSpec
+from flyball.core import Access, Quantity, Reading, Role, SignalSpec
 from flyball.core.device import Device
 from flyball.core.units.si import Celsius
 from flyball.sim import Lag, SteppedClock
@@ -57,7 +57,7 @@ TEMPERATURE = Quantity("temperature", Celsius)
 class Bench(Device):
     TREE = (
         SignalSpec(name="reading", quantity=TEMPERATURE, access=Access.RP),
-        SignalSpec(name="heater", quantity=TEMPERATURE, access=Access.W),
+        SignalSpec(name="heater", quantity=TEMPERATURE, access=Access.RPW, role=Role.DEMAND),
     )
 
 

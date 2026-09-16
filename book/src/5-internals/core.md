@@ -85,8 +85,10 @@ Three kinds of object, told apart by who changes them and when:
 | structure (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
 | values (per instant) | `Reading`, `Sample`, `Demand`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
 
-This is the device's own config/settings/state split (below) applied to the
-whole graph: the structure tier is the settings layer of the rig. Two rules
+A device's own signal roles echo the same split at finer grain (below): a
+`Role.CONFIG` signal is effective at the structure tier; a
+`Role.DEMAND`/`Role.SETTING`/`Role.OUTPUT` signal's readings are the values
+tier. Two rules
 keep "mutable" from meaning "anything goes": after startup, mutation goes
 through the rig, under its lock, and is an event — `Signal.override(...)`
 and `restrict(...)` are the primitives, but the only caller once the rig
@@ -98,33 +100,46 @@ both.
 
 ## Devices
 
-Three tiers — config, settings, state — told apart by who changes them, and
-`@command` methods. `Device.__init_subclass__` reads the property
-annotations, checks each derives from the right base and that pydantic can
-describe it, and collects commands, checking every argument and return can
-cross the wire. A mistake fails at import, not on the first request.
+Every signal has a **role** (`Role.DEMAND`, `Role.OUTPUT`, `Role.SETTING`,
+`Role.CONFIG`, `Role.INPUT`), which sets its default access, and structure
+is declared once as descriptors in the class body (`Namespace`, `Demand`,
+`Output`, `Setting`, `ConfigSignal`, `Input`) or built from config in
+`__init__` and bound with `Device.bind`. `Device.__init_subclass__` collects
+every descriptor into `DESCRIPTORS`, checks `vtype` and `config`'s return
+type against pydantic, and collects `@command` methods — checking every
+argument and return can cross the wire, and synthesising a `set_<path>` for
+every demand no command links to. A mistake fails at import, not on the
+first request.
 
-A device with only `R`/`P` signals is a plain sensor; one with `W` signals
-drives something; one with `RPW` signals — a single-register PSU voltage —
-is both at once. There is no separate reader/actuator split any more:
-[Device][flyball.core.device.Device] implements
-[read][flyball.core.device.Device.read] for the readable side and
-[apply][flyball.core.device.Device.apply] /
-[commit][flyball.core.device.Device.commit] for the writable one, and a
-device may do either, both, or (through `observe`) follow another device's
-signal without a controller in between.
+A device with only `R`/`P` signals is a plain sensor; one with a `Demand`
+drives something; one with both is both at once. There is no separate
+reader/actuator class any more:
+[Readable][flyball.core.device.Readable] implements
+[read][flyball.core.device.Readable.read] for the polled side and
+[Committable][flyball.core.device.Committable] implements
+[apply][flyball.core.device.Committable.apply] /
+[commit][flyball.core.device.Committable.commit] for the demand side;
+`cls.readable`/`cls.writable` are derived from whether `read`/`commit` is
+defined. A device may be either, both, or neither, and separately declare
+`Input` signals — another device's signal the rig binds to a role; when one
+lands the rig commits the device, which reads it itself
+(`self.<input>.value`, from the router) inside `commit`. There is no
+`observe` callback.
 
-Writes are two-phase, as an older `set_demand()`/no-argument `apply()` split
-still is in spirit: `apply(signal, time_ns, value)` records one value with
-no hardware I/O — the mirror of `observe(reading)`, which records a bound
-input changed on another device — and `commit(time_ns)` pushes everything
-recorded to the hardware once and returns a `WriteState` per signal. The rig
-calls `commit` once per delivery for every device it touched, and
-immediately after a manual demand; the rig tracks which devices a delivery
-touched, so a driver keeps no dirty flag of its own. A simple device
-inherits both; a composite one (blending two pumps into one settable
-humidity) does its arithmetic in `commit`, so a new target, a changed bound
-reading and a new setting arriving in one delivery still cost one write.
+Writes are two-phase: `apply(signal, time_ns, value)` records one value
+with no hardware I/O, and `commit(time_ns) -> None` pushes everything
+recorded to the hardware once. `commit` returns nothing: the rig reports
+each pending demand as the readback the driver pushed
+(`signal.push(value, time_ns)`), or the committed value if the driver
+pushed nothing itself; a demand that railed has its `signal.at_limit` set
+before `commit` returns. The rig calls `commit` once per delivery for every
+device it touched, and immediately after a manual demand; the rig tracks
+which devices a delivery touched, so a driver keeps no dirty flag of its
+own. A simple device inherits both `apply` and the default `commit`; a
+composite one (blending two pumps into one settable humidity) overrides
+`commit` itself to do arithmetic across everything pending and everything
+it reads from its inputs, so a new target, a changed input reading and a
+new setting arriving in one delivery still cost one write.
 
 ## Errors
 

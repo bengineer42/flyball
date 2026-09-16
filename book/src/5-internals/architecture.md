@@ -24,7 +24,7 @@ program file dialect, and a client and CLI built from what the server
 publishes. Nothing below them knows they exist.
 
 The application layer sits *beside* the runtime, not above it: it implements
-protocols the runtime defines (`Device.read`/`apply`/`commit`) rather than
+protocols the runtime defines (`Readable.read`, `Committable.apply`/`commit`) rather than
 being called by name. That is what makes a second application a matter of
 writing a device driver rather than editing the rig.
 
@@ -59,11 +59,11 @@ subclassing, with a pydantic model derived from the class itself.
 | commands | `class X(Command, tag=…)` | the dataclass constructor → request |
 | configs | `class X(Config, tag=…)` | the model itself; `union` discriminates on `tag` |
 
-Devices do the same without a registry: `config`, `settings` and `state`
-types are read off property annotations on subclassing, and `@command`
-methods are collected. Everything that faces a person — routes, CLI
-subcommands, forms, program steps — is derived from those models, so nothing
-is described twice.
+Devices do the same without a registry: descriptors in the class body (or
+built from config) collect into the tree on subclassing, `config`'s return
+annotation gives `config_type`, and `@command` methods are collected.
+Everything that faces a person — routes, CLI subcommands, forms, program
+steps — is derived from those, so nothing is described twice.
 
 ## Dependencies
 

@@ -5,7 +5,7 @@ A **config** is a description that builds something: a pydantic model with
 eventually described in a file rather than in code.
 
 ```python
---8<-- "device.py:20:26"
+--8<-- "device.py:27:33"
 ```
 
 A device's config is a `DriverConfig[D]` — `Config[D]` with `build(name,
@@ -19,8 +19,9 @@ tells the three apart by what they build.
 
 Config arrives from outside — a YAML file, a `PUT` request — so it is
 validated on the way in. Pydantic gives that, plus a JSON schema the UI and
-CLI build forms from. Settings and state are dataclasses because they are
-built in-process and only ever leave.
+CLI build forms from. A device's other signals (`Output`, `Setting`,
+`Demand`) are readings in the router, not a returned model: they are built
+in-process and only ever leave.
 
 Configs hold real defaults rather than `None` sentinels, so a serialised
 config records what the rig actually did. `model_dump(exclude_unset=True)`
@@ -96,5 +97,5 @@ Rebuilding is the only way to change it; a controller driving the device
 never sees its config.
 
 ```python
---8<-- "device.py:48:60"
+--8<-- "device.py:47:54"
 ```

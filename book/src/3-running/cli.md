@@ -44,8 +44,8 @@ These work with no daemon reachable; they use the configs installed here:
 Every device is a subcommand named after it:
 
 ```
-flyball heater                 config, settings and state
-flyball heater schema          the three schemas and every command's
+flyball heater                 the signal tree, conditions, readable/writable
+flyball heater schema          the config schema, every signal's and command's
 flyball heater --help          the device's docstring and its commands
 ```
 
@@ -85,7 +85,7 @@ from flyball.client import Rig
 
 rig = Rig("http://pi:8000")
 rig.devices.heater.set_limit(limit=0.5)
-rig.devices.probe.view()["state"]
+rig.devices.probe.view()["conditions"]
 rig.demand("heaters.heater1", 1200.0)
 for frame in rig.watch("controllers"):
     ...

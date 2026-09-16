@@ -1,9 +1,10 @@
 # Writing a sensor
 
-A sensor is a `Device` whose signals are `R`/`P`: readable, and published on
-its own schedule. There is no separate `Reader` class — a sensor, an
-actuator with a readback, and a multi-channel instrument are all `Device`,
-told apart by which access flags their signals carry.
+A sensor is a `Readable` device: it implements `read`, and its signals are
+`R`/`P` (`Output`, the default role). There is no separate `Reader` class —
+a sensor, an actuator with a readback, and a multi-channel instrument are
+all `Device`, told apart by which of `Readable`/`Committable` they are and
+which access flags their signals carry.
 
 ## Declare what is measured
 
@@ -49,8 +50,8 @@ the chip speaks Kelvin and the signal says °C, subtract 273.15 in `read`.
 ## A polled device
 
 The rig calls `read(time_ns, node)` on the device's period and delivers
-what comes back — `Device.read` yields one `Sample` per instant actually
-read, keyed by the bound signal objects, never by name:
+what comes back — `read` yields one `Sample` per instant actually read,
+keyed by the bound signal objects, never by name:
 
 ```python
 --8<-- "sensor.py:35:48"
@@ -100,13 +101,12 @@ their samples are stamped within microseconds. Give it devices satisfying
 `TwoPhase` (`trigger()` and `collect()`); it maps each key to its result or
 the exception that stopped it.
 
-## Config, settings, state, commands
+## Config and commands
 
-A sensor is a device like any other, so it may declare the three tiers and
+A sensor is a device like any other, so it may declare a `ConfigSignal` and
 mark commands the same way a writable device does — see
-[Writing an actuator](actuator.md#the-three-tiers). One with nothing to
-configure or set declares nothing and still answers `view` with empty
-models.
+[Writing an actuator](actuator.md#demand-output-and-setting). One with
+nothing to configure declares nothing.
 
 ## What the runtime adds
 

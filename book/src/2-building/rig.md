@@ -5,7 +5,7 @@ their signals, the polling, and the recorder. It has no opinion about what
 any controller regulates. Assembly is a handful of calls:
 
 ```python
---8<-- "oven.py:53:73"
+--8<-- "oven.py:46:66"
 ```
 
 ## Devices
@@ -40,11 +40,13 @@ When a device delivers — a poll, a push, or a fresh read —
 
 1. Every reading lands in `rig.latest`; only signals that publish go on to
    `rig.samples` and the recorder.
-2. Devices with a bound input on one of the signals `observe` it.
+2. Devices with a bound `Input` on one of the signals are added to the
+   delivery's touched set — there is no callback; a touched device reads
+   the value itself (`self.<input>.value`) when its `commit` runs, in step 4.
 3. Controllers whose source is in the delivery tick: the law steps, and the
    demand is written to the target.
-4. Every device touched — by a tick's write or by `observe` — has `commit`
-   called once, however many signals on it changed.
+4. Every device touched — by a tick's write or by a bound input landing —
+   has `commit` called once, however many signals on it changed.
 5. The recorder, if any, is given the published samples, the ticks, and the
    write states.
 

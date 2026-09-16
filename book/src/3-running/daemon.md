@@ -43,7 +43,7 @@ flyball controllers
 | | |
 | --- | --- |
 | `GET /api/health` | one look: uptime, devices, controllers, conditions, alarms, waits, recording |
-| `GET /api/schema` | every device's config, settings, state and command schemas |
+| `GET /api/schema` | every device's config, signal and command schemas |
 | `/api/devices` | each device's signal tree, schema, and a `POST` per command |
 | `/api/read`, `/api/signals` | a signal's reading, a namespace's sample, or a device's samples; put a demand on a writable signal |
 | `/api/controllers`, `/api/tunings`, `/api/clock` | the live rig |

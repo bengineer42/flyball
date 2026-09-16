@@ -12,7 +12,9 @@ timed hold).
 dots inside a segment.
 
 **bound input** — a signal on another device this one follows (`bound:` in
-the rig file); delivered to `Device.observe`.
+the rig file, an `Input` descriptor); when it lands the rig commits this
+device, which reads it itself (`self.<input>.value`) in `commit` — there
+is no callback.
 
 **command** — a non-value action on a device: a method marked `@command`.
 Also, a program step: a frozen dataclass with `run`, registered by tag.
@@ -26,14 +28,15 @@ from; a pydantic model with `build()`. Changed only by rebuilding.
 **correction** — what the law produces: the offset added to the
 feedforward's demand.
 
-**delivery** — one call to `rig.on_samples`: observers, then controllers,
-then one commit per device touched, then the recorder.
+**delivery** — one call to `rig.on_samples`: bound inputs mark devices
+touched, then controllers tick, then one commit per device touched, then
+the recorder.
 
 **demand** — one or more values put on `W` signals under one node at one
 instant; a sample in reverse.
 
 **device** — a named thing in the rig with a tree of signals, commands and
-state.
+conditions.
 
 **driver** — which device code builds a device entry; the discriminator,
 written `driver:` in the rig file (the Python side calls it the config
@@ -76,6 +79,9 @@ under it.
 scalars and lists replace, `null` deletes. Swaps drivers behind the same
 names — the real-vs-simulated pattern.
 
+**output** — a signal that is produced, never set: a measurement, a
+derived value, a mode (`Role.OUTPUT`, `RP`).
+
 **plant** — the thing being controlled, as a model: gain, time constant,
 dead time (simulation only).
 
@@ -96,6 +102,11 @@ controllers that `load_rig` builds.
 **rig** — the clock, the devices, the controllers, the polling, the
 recorder. What the equipment *is*.
 
+**role** — what a signal is to its device: `Role.DEMAND` (settable),
+`Role.OUTPUT` (produced), `Role.SETTING` (re-set by a command),
+`Role.CONFIG` (effective at build) or `Role.INPUT` (bound, not in the
+tree). Sets the signal's default access.
+
 **sample** — every signal under one node at one instant, keyed by the
 bound signal objects.
 
@@ -104,21 +115,17 @@ the config and tuning in force.
 
 **setpoint** — the reference resolved at an instant, in the source's unit.
 
-**settings** — what a command can change while a device runs.
+**setting** — a signal re-set by a command while a device runs, shown but
+not driven by a controller (`Role.SETTING`, `RP`).
 
-**signal** — one named value of one quantity on one device; has an address
-and an access set.
-
-**state** — what a device reports now; changes every tick or read.
+**signal** — one named value of one quantity on one device; has an address,
+a role and an access set.
 
 **structure tier** — the rig-level objects (`Node`, `Signal`, `Device`,
 `Rig`, `Controller`): mutable, identity-hashed, made once at startup;
 changed only through the rig, under its lock, as an event.
 
 **tick** — one controller step on one reading.
-
-**together** — sibling `W` signals that must be set in the same demand as
-each other.
 
 **transfer** — how a handover seeds the correction: `none`, `reset`,
 `carry`, `track`.

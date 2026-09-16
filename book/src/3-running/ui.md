@@ -14,7 +14,7 @@ language and the reasoning behind it, see `ui/DESIGN-SPEC.md`.
 | **Dashboards** | saved and generated layouts of widgets — see [Dashboards](dashboards.md) |
 | **Overview** | the rig at a glance: a stat tile per publishing signal, a card per polled device (its run: period, last read, conditions) |
 | **Inputs** | every publishing signal charted, grouped by device or by unit |
-| **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's state/settings/commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
+| **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions, open one, export, delete |

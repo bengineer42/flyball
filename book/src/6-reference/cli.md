@@ -51,9 +51,9 @@ One per device, named after it, built from the schema.
 
 | command | reads | |
 | --- | --- | --- |
-| `NAME` | `GET /api/devices/NAME` | config, settings, state |
-| `NAME schema` | the cached schema | config, settings, state and command schemas |
-| `NAME COMMAND [flags]` | `POST /api/devices/NAME/COMMAND` | run a command |
+| `NAME` | `GET /api/devices/NAME` | the signal tree, conditions, readable/writable |
+| `NAME schema` | the cached schema | the config schema, every signal's and command's |
+| `NAME COMMAND [flags]` | `POST /api/devices/NAME/commands/COMMAND` | run a command |
 
 Flags per argument:
 

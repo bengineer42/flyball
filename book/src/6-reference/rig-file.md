@@ -80,7 +80,7 @@ like an envelope key).
 | `label` | string, optional | shown instead of the name |
 | `poll_s` | number, optional | inherited down the tree; a namespace or signal override wins |
 | `signals` | `{name: SignalOverride \| NamespaceOverride}` | per-signal metadata overrides and access restriction — never adds access the driver did not declare |
-| `bound` | `{role: address}` | inputs this device follows on another device (`observe`) |
+| `bound` | `{role: address}` | inputs this device follows on another device: a `role` on the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
 | `config` | object | the driver's own settings, if not given flat |
 
 ```yaml
@@ -101,7 +101,7 @@ devices:
 file this became).
 
 A `SignalOverride` is `{label, range, precision, warn, alarm, poll_s,
-limits, together, access, readable, publishing, writable}`: the first
+limits, access, readable, publishing, writable}`: the first
 group replaces metadata the driver declared; `access` names the set to
 keep (`"r"`), and `readable`/`publishing`/`writable` drop one flag each and
 take only `false` — the driver declares what it can honour, the file

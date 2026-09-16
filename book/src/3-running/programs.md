@@ -130,8 +130,7 @@ would make that ambiguous.
 
 `set` reaches a device directly rather than through a controller: it is
 `rig.demand` in a step, and fails the same way a demand does -- 409 for a
-signal a controller drives, a `together` group set in part, or a signal
-that is not writable.
+signal a controller drives, or a signal that is not writable.
 
 `command`'s `device` names any device on the rig, readable or writable,
 since names are unique rig-wide. This is also how a program reaches a

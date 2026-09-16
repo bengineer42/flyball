@@ -50,12 +50,13 @@ independently.
 
 | model | of | shape |
 | --- | --- | --- |
-| `SignalOut` | a `Signal` in a device's tree | `{name, address, access, label, quantity, unit, dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits, together, latest, write}` |
+| `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits, initial, latest, write}` |
 | `NamespaceOut` | a `Node` | `{name, address, atomic, label, poll_s, signals: [...]}`, nesting `SignalOut`/`NamespaceOut` |
 | `WriteOut` | a `WriteState` | `{value, requested, at_limit, controller}` |
 | `SampleOut` | a `Sample` | `{node, time_ns, values}`, `values` keyed relative to `node` |
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
-| `DeviceOut` | a `Device` | `{name, label, kind, driver, type, link, poll_s, signals, commands, state, conditions, run}` |
+| `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
+| `DeviceOut` | a `Device` | `{name, label, kind, driver, type, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
 | `ControllerOut` | a `Controller`/`ControllerView` | identity, mode, law config and state, reference, setpoint, correction, demand, expected, reading |
 | `ClockOut` | a `Clock` | `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 
@@ -87,7 +88,7 @@ directly — no separate observer is attached for them.
 | `/ws/samples` | `rig.samples` (newest published sample per node) | `{samples: [SampleOut]}`; at most one sample per node per flush |
 | `/ws/writes` | `rig.write_states` | `{writes: [WriteOut with signal]}` of the signals committed |
 | `/ws/controllers` | `rig.controller_states` joined to controller settings | `{controllers: [ControllerOut]}` of those that ticked |
-| `/ws/devices` | `rig.polling.runs` | `{devices: [{name, period_s, running, last_read_ns, conditions, state}]}` as each reads, fails or is restarted |
+| `/ws/devices` | `rig.polling.runs` | `{devices: [{name, period_s, running, last_read_ns, conditions}]}` as each reads, fails or is restarted |
 | `/ws/waits` | `rig.triggers.latest` | `{waits: [WaitState]}` as each registers or settles |
 | `/ws/events` | `rig.recent` | `{events: [Event]}` as each happens |
 

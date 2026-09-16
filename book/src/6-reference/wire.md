@@ -22,8 +22,9 @@ first; convert the small result second.
 | type | JSON |
 | --- | --- |
 | `Quantity` | not carried on its own; a signal's `unit` and `dimension` fields say what it is |
-| a signal in a device's tree | `{name, address, access, label, quantity, unit, dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits, together, latest, write}` — see [Devices](api.md#devices) |
+| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits, initial, latest, write}` — see [Devices](api.md#devices) |
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
+| `role` | `"demand"`, `"output"`, `"setting"` or `"config"` |
 | `Reading` | `{"signal": address, "time_ns": int, "value": float}` |
 | `Sample` | `{"node": address, "time_ns": int, "values": {relative-name: float}}` — keys are dotted paths relative to `node`, never nested |
 | `WriteOut` | `{value, requested, at_limit: "low" \| "high" \| null, controller}` |
@@ -48,11 +49,12 @@ Kelvin against a °C signal converts before it reports.
 
 | type | JSON |
 | --- | --- |
-| `DeviceOut` | `{name, label, kind, driver, type, link, poll_s, signals, commands, state, conditions, run}` — see [Devices](api.md#devices) |
-| a device view (`GET .../schema`'s `config`/`settings`/`state`) | each a JSON Schema; an instance is `{...fields}` |
+| `DeviceOut` | `{name, label, kind, driver, type, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
+| `CommandOut` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
+| a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
 | `Condition` | `{"kind": str, "level": 10 \| 20 \| 30 \| 40, "message": str, "since_ns": int}` |
-| `DeviceSchema` | `{name, label, type, driver, description, config, settings, state, signals, commands: {tag: {description, arguments, simulation}}}` |
-| a command request | one property per method parameter after `self`, from the method's signature |
+| `DeviceSchema` (`GET .../schema`) | `{name, label, type, driver, description, readable, writable, config, signals, inputs, commands: {tag: {description, arguments, simulation, commit, mode, interrupts, demand_of}}}` |
+| a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
 
 ## Controllers and laws
 

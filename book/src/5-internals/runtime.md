@@ -14,27 +14,31 @@ a fresh read may deliver several at once:
 
 1. **Every reading lands in `latest`**, whether or not it publishes, and the
    last `RECENT_READINGS` (60) per signal are kept for a stat on request.
-2. **Observers hear what publishes.** A device with a bound input on a
-   signal (`bound: { dry: hum_sensors.dry.humidity }`) gets `device.observe(reading)`
-   for every reading on that exact signal; a device bound to a whole node
-   gets the sample cut down to that node, but only once it is
-   `published()` — a subscriber hears only what publishes, never a fresh
-   read of an `R`-only setting, which is for whoever asked for it. Either
-   way the observing device is added to the delivery's touched set.
+2. **Devices with a bound input are touched.** A device with an `Input`
+   bound to a signal (`bound: { dry: hum_sensors.dry.humidity }`) is added
+   to the delivery's touched set for every reading on that exact signal; a
+   device bound to a whole node is touched by any sample carrying something
+   under it, but only once it is `published()` — a subscriber hears only
+   what publishes, never a fresh read of an `R`-only setting, which is for
+   whoever asked for it. There is no callback: a touched device reads the
+   value itself (`self.<input>.value`, from the router) when the rig calls
+   its `commit`, in step 4.
 3. **Controllers whose source is in the delivery tick.** For every reading
    whose signal a controller regulates (`self.controllers.find(signal)`),
    the reading is queued; after every sample in the batch has been walked,
    every queued `(controller, reading)` pair calls
-   `controller.on_reading(reading)`. Ticking happens after every observer
-   has seen the batch, not per-signal as they arrive, so an observer never
-   sees a stale controller state.
+   `controller.on_reading(reading)`. Ticking happens after every touched
+   device is known, not per-signal as readings arrive, so a device's commit
+   never sees a stale controller state.
 4. **One commit per device touched.** `Rig._commit` calls `device.commit(time_ns)`
-   once for every device the delivery touched — by an observed bound
-   input or by a controller's write — filling in what the rig knows (the
+   once for every device the delivery touched — by a bound input landing
+   or by a controller's write — filling in what the rig knows (the
    value requested before clamping, and which controller drives the
-   signal) that the device itself cannot know. A blocking device's commit
-   runs on its own `Writer` thread instead, and its states arrive later
-   through `Rig.written`.
+   signal) that the device itself cannot know. `commit` returns nothing:
+   the rig fills in each pending demand's state from what the driver
+   pushed (or the committed value, if it pushed nothing). A blocking
+   device's commit runs on its own `Writer` thread instead, and its states
+   arrive later through `Rig.written`.
 5. **The recorder goes last**, so it sees what the whole delivery produced:
    `recorder.record(published, ticks, states, time_ns=...)` — every sample
    that had something publishing, every controller tick, every write state
@@ -63,13 +67,10 @@ before touching anything:
    controller may re-demand its own target; anything else attempting to
    move a controller's target gets "is driven by controller ...: set its
    reference, or detach it".
-3. Each value is clamped to the signal's `limits`, and the original value
-   kept (as `_requested`) only where the clamp changed it — that is what
-   `WriteState.requested` reports later.
-4. `together` groups are checked whole: a signal declared `together` with
-   others (the blender's `dry_flow`/`wet_flow`) must have every sibling
-   present in the *same* demand, named in the spec, or it is refused
-   ("is set with wet_flow").
+3. Each value is clamped to the signal's `limits` — numbers, or a reference
+   to another signal of the same device, resolved live — and the original
+   value kept (as `_requested`) only where the clamp changed it — that is
+   what `WriteState.requested` reports later.
 
 Only once all of this holds does anything happen: `device.apply` (or, for a
 blocking device, `writer.apply`) is called once per signal, under the rig's

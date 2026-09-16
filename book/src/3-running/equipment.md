@@ -204,10 +204,10 @@ Anything that *pushes* values — an MQTT topic, an EPICS monitor, a websocket
 — is a device with no period: attach it with `rig.add_device(device)` (no
 `start_polling` call), and whenever a value arrives call
 `rig.on_samples([sample])` from whatever thread produced it, as
-`book/src/snippets/device.py`'s `PushedWeather` does:
+`book/src/snippets/sensor.py`'s `PushedWeather` does:
 
 ```python
---8<-- "sensor.py:39:56"
+--8<-- "sensor.py:51:68"
 ```
 
 `rig.on_samples` takes the rig's own lock, so it is safe from a serial

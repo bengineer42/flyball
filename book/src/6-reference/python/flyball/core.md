@@ -11,6 +11,8 @@
 
 ::: flyball.core.device
 
+::: flyball.core.router
+
 ::: flyball.core.trigger
 
 ::: flyball.core.clock

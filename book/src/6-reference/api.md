@@ -43,38 +43,54 @@ lists them all with their signal trees.
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
 | `POST` | `/api/devices/{name}/commands/{tag}` | body: the command's arguments; returns what the method returns; a command that succeeds on an offline device restarts its polling |
 | `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut` |
-| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, a `together` group set in part, or a signal that is not writable; 404 for a name not under the device |
+| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 404 for a name not under the device |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal demand; returns `{address: WriteOut}`; 409 if the address is a namespace |
 
 A `DeviceOut` is `{name, label, kind, driver, type, link, poll_s, signals,
-commands, state, conditions, run}`: `kind` is `device`, or `simulation`
-for an application's own simulation device (see [Simulation](#simulation)),
-`driver` the rig file's tag (null for a device built in code), `type` the
-class, `link` the rig file's name
-for the link it was built on (or null), `signals` the tree, `commands`
-`[{name, description, simulation}]`, `state` what the device reports of
-itself, `conditions` its own plus the runtime's (`offline`, `slow`), and
-`run` `{period_s, running, last_read_ns}` for a polled device (null
-otherwise).
+commands, inputs, readable, writable, conditions, run}`: `kind` is
+`device`, or `simulation` for an application's own simulation device (see
+[Simulation](#simulation)), `driver` the rig file's tag (null for a device
+built in code), `type` the class, `link` the rig file's name for the link
+it was built on (or null), `signals` the tree, `commands` `[CommandOut]`,
+`inputs` `{role: InputOut}` — what the device follows, and what is bound to
+it — `readable`/`writable` whether it implements `read`/`commit`,
+`conditions` its own (pushed onto its `conditions` output) plus the
+runtime's (`offline`, `slow`), and `run` `{period_s, running,
+last_read_ns}` for a polled device (null otherwise).
 
-A signal in the tree is `{name, address, access, label, quantity, unit,
-dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits,
-together, latest, write}`: `access` is the set in force as letters (`rp`,
-`w`, `rw`, `rpw`), `latest` `{time_ns, value}` once it has been read (null
-before), `write` a `WriteOut` for a writable signal once it has been set. A
-namespace is `{name, address, atomic, label, poll_s, signals: [...]}`,
-nesting the same shapes.
+A signal in the tree is `{name, address, access, role, tags, label,
+quantity, unit, dimension, dtype, shape, range, precision, warn, alarm,
+poll_s, limits, initial, latest, write}`: `access` is the set in force as
+letters (`rp`, `w`, `rw`, `rpw`), `role` one of `demand`, `output`,
+`setting`, `config`, `tags` the section as `{axis: name}` (empty without
+one), `limits` the effective numbers now, `latest` `{time_ns, value}` once
+it has been read (null before), `write` a `WriteOut` for a writable signal
+once it has been set. A namespace is `{name, address, atomic, label,
+poll_s, signals: [...]}`, nesting the same shapes.
 
 A `WriteOut` is `{value, requested, at_limit, controller}`: what was last
 set after limits, what was asked for when the clamp changed it, `low` /
 `high` when the value sits on a limit, and the controller driving the
 signal (it refuses manual demands; set its reference or detach it).
 
-A `DeviceSchema` is `{name, label, type, driver, description, config,
-settings, state, signals, commands: {tag: {description, arguments,
-simulation}}}`, each of `config`/`settings`/`state`/`arguments` a JSON
-Schema; `signals` is `{path: {address, access, label, quantity, unit,
-dimension, range, precision, limits}}` by path relative to the device.
+A `CommandOut` is `{name, description, simulation, commit, mode,
+interrupts, demand_of, links}`: `commit` whether the rig commits the
+device once the method returns, `mode` what the device's `mode` output
+becomes when it runs (if it has one), `interrupts` whether it may put a
+controller into manual and run anyway, `demand_of` the path of the demand
+it sets for a synthesised `set_<name>`, and `links` `{argument: demand
+path}` for every argument that is a value for a demand.
+
+`GET /api/devices/{name}/schema` returns `{name, label, type, driver,
+description, readable, writable, config, signals, inputs, commands}`:
+`config` a JSON Schema for the driver's config, `signals` `{path: {address,
+access, role, tags, label, quantity, unit, dimension, dtype, value, range,
+precision, limits}}` by path relative to the device (`value` a JSON Schema
+for the signal's own type), `inputs` `{role: {label, quantity, unit,
+bound}}`, and `commands` `{tag: {description, arguments, simulation,
+commit, mode, interrupts, demand_of}}` — `arguments` a JSON Schema whose
+properties linked to a demand also carry `x-signal`, `unit` and
+`minimum`/`maximum` from that signal's effective limits.
 
 ## Reading
 
@@ -242,7 +258,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
 | `GET` | `/api/sim/config` | the rig file as it now stands |
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from |
-| `GET` | `/api/sim/device` | the application's simulation device: `{config, settings, state}`; 404 without one |
+| `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |
 | `POST` | `/api/sim/device/{command}` | one of its commands |
 
@@ -269,6 +285,6 @@ flush sends nothing.
 | `/ws/samples` | the newest published sample per node | `{samples: [{node, time_ns, values}]}` of the nodes that delivered; only publishing signals, `values` keyed relative to `node`; at most one sample per node per flush |
 | `/ws/writes` | every write state | `{writes: [{signal, value, requested, at_limit, controller}]}` of the signals committed |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
-| `/ws/devices` | every polled device | `{devices: [{name, period_s, running, last_read_ns, conditions, state}]}` as each reads, fails or is restarted |
+| `/ws/devices` | every polled device | `{devices: [{name, period_s, running, last_read_ns, conditions}]}` as each reads, fails or is restarted |
 | `/ws/waits` | every registered wait | `{waits: [WaitState]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |
