@@ -5,6 +5,12 @@
 Pydantic puts the unit in the JSON schema;
 [unit_of][flyball.core.units.types.unit_of] reads it back in-process. Nothing
 here converts: a driver reports in exactly the annotated unit.
+
+A bare unit with no quantity (a config field like `frequency_hz`) still
+wants `UnitRef`; a driver's typed alias for a named quantity is shorter as
+`Annotated[float, FLOW]`, a [Quantity][flyball.core.quantity.Quantity]
+standing directly as its own metadata -- see `Quantity`'s own pydantic
+hook. `unit_of` finds either.
 """
 
 from typing import Annotated, Any, get_type_hints
@@ -53,14 +59,20 @@ def Measured(unit: Unit, /, **constraints: Any) -> Any:
 
     Keyword arguments are pydantic `Field` constraints:
     `Measured(Litre / Minute, ge=0)` also puts `minimum: 0` in the schema.
+    Returns `Any`, so it defeats a type checker; prefer the typed form,
+    `Annotated[float, QUANTITY]` with a `Quantity`, where one applies.
     """
     return Annotated[float, UnitRef(unit), Field(**constraints)]
 
 
 def unit_of(cls: type, field: str) -> UnitRef | None:
-    """The `UnitRef` on `cls.field`, or None if the field carries no unit."""
+    """The unit annotating `cls.field` -- a `UnitRef` or a `Quantity` -- or None."""
+    from flyball.core.quantity import Quantity  # deferred: quantity imports this package
+
     hint = get_type_hints(cls, include_extras=True)[field]
     for meta in getattr(hint, "__metadata__", ()):
         if isinstance(meta, UnitRef):
             return meta
+        if isinstance(meta, Quantity):
+            return UnitRef(meta.unit)
     return None

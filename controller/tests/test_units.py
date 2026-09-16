@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import pickle
+from typing import Annotated
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from flyball.core.clock import Duration, Rate, TimeUnit
+from flyball.core.quantity import Quantity
+from flyball.core.units import Measured, UnitRef, unit_of
 from flyball.core.units import dimensions as d
 from flyball.core.units.dimension import DIMENSIONLESS, BaseDimension, Dimension, Kilo, Milli
 from flyball.core.units.errors import DimensionMismatchError
@@ -171,3 +174,35 @@ class TestUnitLookup:
         with pytest.raises(ValueError, match="already"):
             Unit("bogus metre", "m", Time)
         Unit("metre again", "m", Length)  # the same unit under the same symbol is fine
+
+
+class TestMeasuredAndUnitOf:
+    def test_measured_is_a_unitref_with_field_constraints(self):
+        adapter = TypeAdapter(Measured(Litre / Minute, ge=0))
+        schema = adapter.json_schema()
+        assert schema["unit"] == "L/min"
+        assert schema["dimension"] == "Volume flow"
+        assert schema["minimum"] == 0
+        with pytest.raises(ValidationError):
+            adapter.validate_python(-1.0)
+
+    def test_unit_of_finds_a_bare_unitref(self):
+        class Config:
+            frequency_hz: Annotated[float, UnitRef(Kilogram)]  # any unit will do here
+
+        assert unit_of(Config, "frequency_hz").symbol == "kg"
+
+    def test_unit_of_finds_a_quantity(self):
+        class Config:
+            flow_l_per_min: Annotated[float, Quantity("flow", Litre / Minute)]
+
+        found = unit_of(Config, "flow_l_per_min")
+        assert isinstance(found, UnitRef)
+        assert found.symbol == "L/min"
+        assert found.dimension == "Volume flow"
+
+    def test_unit_of_none_for_a_bare_float(self):
+        class Config:
+            plain: float
+
+        assert unit_of(Config, "plain") is None
