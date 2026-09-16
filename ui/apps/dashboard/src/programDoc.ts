@@ -4,7 +4,7 @@
  * schema shaped for a form, a step's arguments in and out of that form, and
  * the step an error message points at. No rendering, no fetching.
  */
-import { deref, humanise, isEmpty, RigError, unwrapNullable, type CommandSchema, type JsonSchema, type SignalSchema } from "@flyball/client";
+import { deref, describeUnit, humanise, isEmpty, RigError, unwrapNullable, type CommandSchema, type JsonSchema, type SignalSchema } from "@flyball/client";
 import type { Tree } from "./programText.js";
 
 /** One step of a program file: `{ramp: {...}}`, plus any modifier keys the dialect allows beside it. */
@@ -301,8 +301,107 @@ export interface DevicePicks {
   names: string[];
   /** Every command a device has, simulation ones included: those are not offered, but a saved one is still known. */
   commands: Record<string, Record<string, CommandSchema>>;
-  /** Only writable signals; a device with none takes no `set`. */
+  /** Only writable signals, in tree order; a device with none takes no `set`. */
   writable: Record<string, Record<string, SignalSchema>>;
+  /**
+   * Sibling signals set in the same demand (`SignalOut.together`, from
+   * `GET /api/devices`; the schema does not carry it), by device then by
+   * path relative to it. Undefined when the caller cannot say: a `set`
+   * step then offers every writable signal at once rather than a choice
+   * of group.
+   */
+  together?: Record<string, Record<string, string[]>>;
+}
+
+/**
+ * One way of setting a device: the signals the rig takes as one demand --
+ * a `together` group, or a lone writable signal. A `set` step sets one.
+ */
+export interface ValueGroup {
+  /** The members' paths joined with `+`, for a pick. */
+  key: string;
+  /** The members' paths relative to the device, in tree order. */
+  keys: string[];
+  title: string;
+}
+
+const signalTitle = (path: string, signal: SignalSchema) => signal.label || humanise(path.split(".").pop() ?? path);
+
+/** `flow` → `Flows`; `humidity` → `Humidities`, ugly but never seen: a group of one is titled by its member. */
+const plural = (word: string) => humanise(/[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : /s$/.test(word) ? word : `${word}s`);
+
+/**
+ * A group's title: one member's own title; several of one quantity as
+ * "Flows · dry, wet" (the quantity's word dropped from each title) when
+ * that leaves each member a word of its own, else "Dry flow + Wet flow".
+ */
+function groupTitle(members: Array<[string, SignalSchema]>): string {
+  const titles = members.map(([path, signal]) => signalTitle(path, signal));
+  if (members.length === 1) return titles[0]!;
+  const quantity = members[0]![1].quantity;
+  if (quantity && members.every(([, s]) => s.quantity === quantity)) {
+    const word = new RegExp(`\\b${quantity.replace(/\W/g, "")}s?\\b`, "i");
+    const rest = titles.map((t) => t.replace(word, "").replace(/\s+/g, " ").trim().toLowerCase());
+    if (rest.every(Boolean) && new Set(rest).size === rest.length) return `${plural(quantity)} · ${rest.join(", ")}`;
+  }
+  return titles.join(" + ");
+}
+
+/**
+ * The ways `device` may be set, in tree order: each `together` group once
+ * (the closure over siblings, so a one-sided declaration still joins), and
+ * every other writable signal on its own. Empty when `devices` cannot say
+ * (no `together`), or the device has nothing writable.
+ */
+export function valueGroups(devices: DevicePicks | undefined, device: unknown): ValueGroup[] {
+  if (!devices?.together || typeof device !== "string") return [];
+  const signals = devices.writable[device] ?? {};
+  const declared = devices.together[device] ?? {};
+  const paths = Object.keys(signals);
+  // both ways round, so a group declared on one side only still joins
+  const siblings: Record<string, Set<string>> = Object.fromEntries(paths.map((p) => [p, new Set<string>()]));
+  for (const [p, qs] of Object.entries(declared)) {
+    for (const q of qs) {
+      if (!(p in siblings) || !(q in siblings)) continue;
+      siblings[p]!.add(q);
+      siblings[q]!.add(p);
+    }
+  }
+  const seen = new Set<string>();
+  const out: ValueGroup[] = [];
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    const members = new Set<string>([path]);
+    for (const p of members) for (const q of siblings[p] ?? []) members.add(q); // a Set iterates what is added while walking
+    const keys = paths.filter((p) => members.has(p)); // tree order, whatever order the closure found them in
+    for (const k of keys) seen.add(k);
+    out.push({ key: keys.join("+"), keys, title: groupTitle(keys.map((k) => [k, signals[k]!])) });
+  }
+  return out;
+}
+
+/** The groups `values` sets a member of, in tree order: one is the step as the rig takes it; several are a step the rig will refuse. */
+export function groupsPresent(groups: ValueGroup[], values: unknown): ValueGroup[] {
+  const keys = isObject(values) ? Object.keys(values) : [];
+  return groups.filter((g) => g.keys.some((k) => keys.includes(k)));
+}
+
+/**
+ * The group a `set` step's form shows first: the one its saved `values`
+ * set (several: each of them, and the form says so), else -- nothing saved
+ * -- the first, so a fresh step has fields to type into. None when the
+ * device offers no groups or the saved keys are all ones the rig lacks.
+ */
+export function initialGroups(groups: ValueGroup[], values: unknown): ValueGroup[] {
+  const present = groupsPresent(groups, values);
+  if (present.length > 0) return present;
+  return isObject(values) && Object.keys(values).length > 0 ? [] : groups.slice(0, 1);
+}
+
+/** `values` said as `group` alone: the members it already has (nothing else, empty until typed). */
+export function valuesFor(group: ValueGroup, values: unknown): Record<string, unknown> {
+  const saved = isObject(values) ? values : {};
+  return Object.fromEntries(group.keys.filter((k) => k in saved).map((k) => [k, saved[k]]));
 }
 
 /** The device command a `command` step names, when `devices` knows it. */
@@ -351,14 +450,15 @@ function savedField(name: string, value: unknown, description?: string): JsonSch
   return { type, title: humanise(name), ...(description ? { description } : {}) };
 }
 
-/** A writable signal as a number field: its label, unit and limits, the address and access as the hint. */
+/** A writable signal as a number field: its label, unit (none for a dimensionless `1`) and limits, the address and access as the hint. */
 function valueField(path: string, signal: SignalSchema): JsonSchema {
   const [low, high] = signal.limits ?? [undefined, undefined];
+  const unit = describeUnit(signal.unit);
   return {
     type: "number",
-    title: signal.label || humanise(path.split(".").pop() ?? path),
-    unit: signal.unit,
-    description: `${signal.address} [${signal.access.toUpperCase()}]${signal.limits ? ` · limits ${signal.limits[0]} – ${signal.limits[1]} ${signal.unit}` : ""}`,
+    title: signalTitle(path, signal),
+    ...(unit ? { unit } : {}),
+    description: `${signal.address} [${signal.access.toUpperCase()}]${signal.limits ? ` · limits ${signal.limits[0]} – ${signal.limits[1]}${unit ? ` ${unit}` : ""}` : ""}`,
     ...(low !== undefined ? { minimum: low } : {}),
     ...(high !== undefined ? { maximum: high } : {}),
   };
@@ -370,8 +470,11 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
  * from the rig's devices and its `args` as that command's own arguments
  * (from `current`, what the step says now), a `set` step's `device` as a
  * pick from the devices with a writable signal and its `values` as one
- * number field per such signal, the composite time field and its flat keys
- * left to their own control, defaults as placeholders.
+ * number field per signal of the group(s) shown -- `groups` when the
+ * caller chose, else what the saved values set (`initialGroups`); every
+ * writable signal when the rig's groups are not known -- the composite
+ * time field and its flat keys left to their own control, defaults as
+ * placeholders.
  *
  * What `current` says is always on the form, whether or not the rig has it:
  * a device, command or signal the rig lacks is a pick option or a field of
@@ -381,7 +484,7 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
  * one is shown.
  * Self-contained: `$defs` are copied in so `$ref`s still resolve.
  */
-export function formShape(command: CommandInfo, root: JsonSchema, controllers: string[] | undefined, devices?: DevicePicks, current: Record<string, unknown> = {}, warning?: string): FormShape {
+export function formShape(command: CommandInfo, root: JsonSchema, controllers: string[] | undefined, devices?: DevicePicks, current: Record<string, unknown> = {}, warning?: string, groups?: ValueGroup[]): FormShape {
   const properties: Record<string, JsonSchema> = {};
   const ui: Record<string, unknown> = {};
   const deviceCommand = command.tag === "command" ? deviceCommandOf(current, devices) : undefined;
@@ -415,9 +518,11 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
         field = pickField(field, Object.keys(devices.writable), current.device, has, "nothing writable");
       } else if (name === "values") {
         const signals = (typeof current.device === "string" && devices.writable[current.device]) || {};
-        // one number per writable signal, none required: the step sets the ones given; a saved signal the device lacks keeps its row
+        const offered = valueGroups(devices, current.device);
+        const shown = offered.length === 0 ? Object.keys(signals) : (groups ?? initialGroups(offered, current.values)).flatMap((g) => g.keys);
+        // one number per signal shown, none required: the step sets the ones given; a saved signal the device lacks keeps its row
         const saved = isObject(current.values) ? current.values : {};
-        const fields = Object.fromEntries([...Object.entries(signals).map(([path, signal]) => [path, valueField(path, signal)]), ...Object.entries(saved).filter(([path]) => !(path in signals)).map(([path, v]) => [path, savedField(path, v, warningFor(warning, path))])]);
+        const fields = Object.fromEntries([...shown.map((path) => [path, valueField(path, signals[path]!)]), ...Object.entries(saved).filter(([path]) => !(path in signals)).map(([path, v]) => [path, savedField(path, v, warningFor(warning, path))])]);
         if (Object.keys(fields).length > 0) field = { type: "object", title: field.title ?? "Values", properties: fields };
       }
     }

@@ -440,8 +440,13 @@ export type Transfer = "none" | "carry" | "track" | "reset";
 /** Where a controller is sent: a value, where it already is (`process`/`setpoint`/`demand`), or a trajectory to follow. */
 export type ReferenceSpec = number | ValueSource | GeneratorSpec;
 
+/** Where a generator starts from: a value, or the controller's `setpoint`, `process` (the reading) or `demand`. */
+export type StartSpec = number | ValueSource;
+
 export interface RegulateRequest {
   at: ReferenceSpec;
+  /** For a generator in `at`: where it starts. Omitted, the current setpoint while regulating, else the last reading. */
+  start?: StartSpec | null;
   tuning?: LawConfig | string | null;
   transfer?: Transfer;
 }

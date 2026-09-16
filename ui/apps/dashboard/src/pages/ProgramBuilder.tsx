@@ -19,9 +19,10 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { Form as MuiForm } from "@rjsf/mui";
-import { SchemaForm } from "@flyball/react";
+import type { ObjectFieldTemplateProps } from "@rjsf/utils";
+import { impliedUiSchema, SchemaForm } from "@flyball/react";
 import type { JsonSchema } from "@flyball/client";
-import { argsOf, commandsOf, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
+import { argsOf, commandsOf, formShape, fromForm, initialGroups, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, valueGroups, valuesFor, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField, type ValueGroup } from "../programDoc.js";
 
 const COMMAND_TYPE = "application/x-flyball-command";
 const STEP_TYPE = "application/x-flyball-step";
@@ -399,6 +400,59 @@ function TimeControl({ field, entries, onChange, idPrefix }: { field: TimeField;
   );
 }
 
+/** What the `values` template is told through its `ui:options`: the device's groups, the one(s) on show, and where a pick goes. */
+interface ValuesOptions {
+  groups: ValueGroup[];
+  shown: ValueGroup[];
+  onGroup(group: ValueGroup): void;
+}
+
+/**
+ * The `values` object of a `set` step: the theme's object template with a
+ * pick of the device's groups between its title and its fields. The rig
+ * takes one group per demand, so a file that sets several is shown whole
+ * (every present group's fields) with a warning; picking one keeps that
+ * group's values and drops the rest.
+ */
+function ValuesTemplate(props: ObjectFieldTemplateProps) {
+  const { ObjectFieldTemplate: Default, TitleFieldTemplate: Title } = props.registry.templates;
+  const options = (props.uiSchema?.["ui:options"] ?? {}) as Partial<ValuesOptions>;
+  const { groups, shown, onGroup } = options;
+  if (!groups || groups.length === 0 || !shown || !onGroup) return <Default {...props} />;
+  const id = props.idSchema.$id;
+  return (
+    <>
+      {props.title && <Title id={`${id}__title`} title={props.title} required={props.required} schema={props.schema} uiSchema={props.uiSchema} registry={props.registry} />}
+      <FormControl size="small" sx={{ minWidth: "14em", mt: 1 }} data-testid="values-group">
+        <InputLabel id={`${id}_group-label`}>signals</InputLabel>
+        <Select
+          labelId={`${id}_group-label`}
+          id={`${id}_group`}
+          label="signals"
+          value={shown.length === 1 ? shown[0]!.key : ""}
+          inputProps={{ "aria-label": "signals to set" }}
+          onChange={(e) => {
+            const next = groups.find((g) => g.key === e.target.value);
+            if (next && !(shown.length === 1 && shown[0]!.key === next.key)) onGroup(next);
+          }}
+        >
+          {groups.map((g) => (
+            <MenuItem key={g.key} value={g.key}>
+              {g.title}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      {shown.length > 1 && (
+        <Alert severity="warning" sx={{ mt: 1, py: 0 }} data-testid="values-conflict">
+          one group per set step: this one sets {shown.map((g) => g.title).join(" and ")}, and the rig takes one at a time. Pick the group to keep.
+        </Alert>
+      )}
+      <Default {...props} title="" />
+    </>
+  );
+}
+
 interface StepCardProps {
   index: number;
   count: number;
@@ -431,8 +485,27 @@ interface StepCardProps {
 function StepCard({ index, count, tag, value, modifiers, command, commands, modifierSchemas, programSchema, controllers, devices, error, warning, dragging, onDragStart, onDragEnd, onArgs, onTime, onCommand, onModifier, onUp, onDown, onDuplicate, onInsertAfter, onDelete }: StepCardProps) {
   // The form's value and its schema are fixed at mount (the key changes on structural edits); the form owns the edits after that.
   // The check's warning only words the marks on what the rig lacks, so it may arrive later without disturbing the form.
-  const [initial] = useState(() => toForm(value, command));
-  const shape = useMemo(() => (command && programSchema ? formShape(command, programSchema, controllers, devices, initial, warning) : null), [command, programSchema, controllers, devices, initial, warning]);
+  const [initial, setInitial] = useState(() => toForm(value, command));
+  // A `set` step's values: the device's groups, the user's pick among them (none yet: what the saved values say), and a
+  // remount of the form when the pick changes, since the form owns its data once mounted.
+  const [generation, setGeneration] = useState(0);
+  const [chosen, setChosen] = useState<ValueGroup | undefined>(undefined);
+  const groups = useMemo(() => (command?.tag === "set" ? valueGroups(devices, initial.device) : []), [command, devices, initial]);
+  const shown = useMemo(() => (chosen ? [chosen] : initialGroups(groups, initial.values)), [chosen, groups, initial]);
+  const shape = useMemo(() => (command && programSchema ? formShape(command, programSchema, controllers, devices, initial, warning, chosen ? [chosen] : undefined) : null), [command, programSchema, controllers, devices, initial, warning, chosen]);
+  const uiSchema = useMemo(() => {
+    const values = shape?.schema.properties?.values;
+    if (!shape || groups.length === 0 || !values?.properties) return shape?.uiSchema;
+    const onGroup = (group: ValueGroup) => {
+      const args = { ...toForm(value, command), values: valuesFor(group, argsOf(value, command).values) };
+      setChosen(group);
+      setInitial(args);
+      setGeneration((n) => n + 1);
+      onArgs(args);
+    };
+    const options: ValuesOptions = { groups, shown, onGroup };
+    return { ...shape.uiSchema, values: { ...impliedUiSchema(values, shape.schema), "ui:ObjectFieldTemplate": ValuesTemplate, "ui:options": options } };
+  }, [shape, groups, shown, value, command, onArgs]);
   // The time control is the tree's, not the form's: it follows `value` on every render.
   const time = command?.time;
   const entries = useMemo(() => (time ? timeEntries(argsOf(value, command), time) : []), [time, value, command]);
@@ -542,7 +615,7 @@ function StepCard({ index, count, tag, value, modifiers, command, commands, modi
             "& .MuiFormHelperText-root": { mt: 0.375 },
           }}
         >
-          <SchemaForm schema={shape.schema} uiSchema={shape.uiSchema} value={initial} onChange={onArgs} idPrefix={`step${index + 1}`} form={MuiForm} />
+          <SchemaForm key={generation} schema={shape.schema} uiSchema={uiSchema} value={initial} onChange={onArgs} idPrefix={`step${index + 1}`} form={MuiForm} />
           {time && <TimeControl field={time} entries={entries} onChange={onTime} idPrefix={`step${index + 1}`} />}
         </Box>
       ) : tag && !command ? (
