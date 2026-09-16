@@ -12,7 +12,14 @@ from typing import Any
 
 from pydantic import BaseModel, SerializeAsAny, TypeAdapter
 
-from flyball.control import ControlLaws, ControlLawView, FeedforwardConfig, Loop, LoopView
+from flyball.control import (
+    ControlLaws,
+    ControlLawView,
+    FeedforwardConfig,
+    Loop,
+    LoopView,
+    Trajectory,
+)
 from flyball.core.clock import Clock
 from flyball.core.model import discriminated_union
 from flyball.core.reading import Channel, Sample, Source
@@ -144,6 +151,9 @@ class LoopOut(BaseModel):
     demand_unit: str
     """The unit `demand`, `expected` and `correction` are in: the actuator's, or the channel's."""
     reference: float | str | None
+    """A fixed setpoint, or the tag of the trajectory being followed; `trajectory` has the rest."""
+    trajectory: Trajectory | None
+    """Where a running trajectory is heading and, if it lands, when; None for a fixed reference."""
     setpoint: float | None
     """The reference as resolved at the last tick, so a ramp's current value is on the wire."""
     correction: float
@@ -174,6 +184,7 @@ class LoopOut(BaseModel):
             reference=reference
             if isinstance(reference, float | int | type(None))
             else reference.tag,
+            trajectory=view.trajectory,
             setpoint=view.setpoint,
             correction=view.correction,
             demand=view.demand,

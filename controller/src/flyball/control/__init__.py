@@ -16,7 +16,13 @@ from .feedforward import (
 )
 from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
 from .loop import Loop, LoopSettings, LoopState, LoopView
-from .setpoint import LinearRampSetpoint, SetPointGenerator
+from .setpoint import (
+    GeneratorConfig,
+    LinearRampSetpoint,
+    SetPointGenerator,
+    SetPointGenerators,
+    Trajectory,
+)
 from .types import (
     ApplyResult,
     ControlLaw,
@@ -56,6 +62,7 @@ __all__ = [
     "Feedforward",
     "FeedforwardConfig",
     "Feedforwards",
+    "GeneratorConfig",
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "Loop",
@@ -68,8 +75,10 @@ __all__ = [
     "P",
     "RegulateResult",
     "SetPointGenerator",
+    "SetPointGenerators",
     "Setpoint",
     "Table",
+    "Trajectory",
     "Transfer",
     "Tuning",
     "Tunings",

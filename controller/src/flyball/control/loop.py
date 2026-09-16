@@ -14,7 +14,7 @@ from .errors import (
     LastReadingNotAvailableError,
 )
 from .feedforward import Feedforward, FeedforwardConfig, Setpoint
-from .setpoint import SetPointGenerator
+from .setpoint import SetPointGenerator, Trajectory
 from .types import (
     ApplyResult,
     ControlLaw,
@@ -60,6 +60,8 @@ class LoopState:
     law: ControlLawState | None
     correction: float = 0.0
     reference: float | SetPointGenerator | None = None
+    trajectory: Trajectory | None = None
+    """The reference as a running generator sees itself now; None for a fixed one."""
     setpoint: float | None = None
     """The reference resolved at the last tick: a ramp's value then, in the channel's unit."""
     demand: float | None = None
@@ -84,6 +86,7 @@ class LoopView(LoopSettings, LoopState):
             min_period_s=settings.min_period_s,
             correction=state.correction,
             reference=state.reference,
+            trajectory=state.trajectory,
             setpoint=state.setpoint,
             demand=state.demand,
             expected=state.expected,
@@ -165,10 +168,16 @@ class Loop[A: Actuator]:
 
     @property
     def state(self) -> LoopState:
+        reference = self.reference
         return LoopState(
             law=self.law and self.law.state,
             correction=self.correction,
-            reference=self.reference,
+            reference=reference,
+            trajectory=reference.trajectory(
+                self.clock.from_start_s(self.clock.now_ns()), self.clock.start_time_ns
+            )
+            if isinstance(reference, SetPointGenerator)
+            else None,
             setpoint=self.setpoint,
             demand=self.demand,
             expected=self.expected,

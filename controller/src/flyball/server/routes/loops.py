@@ -14,7 +14,7 @@ from typing import Annotated, Any, Union
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, TypeAdapter
 
-from flyball.control import ControlLaws, Feedforwards
+from flyball.control import ControlLaws, Feedforwards, SetPointGenerators
 from flyball.control.types import Transfer, ValueSource
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.reading import Measurand, Source
@@ -32,6 +32,10 @@ FeedforwardConfig = Annotated[  # type: ignore[valid-type]
     Union[tuple(ff.config for ff in Feedforwards.values())],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
 ]
+GeneratorConfig = Annotated[  # type: ignore[valid-type]
+    Union[tuple(g.config for g in SetPointGenerators.values())],  # ruff: ignore[non-pep604-annotation-union]
+    Field(discriminator="tag"),
+]
 
 
 class NewLoop(BaseModel):
@@ -47,15 +51,17 @@ class NewLoop(BaseModel):
 
 
 class Regulate(BaseModel):
-    """Aim and hand control to the law."""
+    """Aim and hand control to the law; with a ``generator``, follow that trajectory from ``at``."""
 
     at: float | ValueSource
     tuning: LawConfig | str | None = None  # type: ignore[valid-type]
     transfer: Transfer = Transfer.TRACK
+    generator: GeneratorConfig | None = None  # type: ignore[valid-type]
 
 
 class Reference(BaseModel):
     at: float | ValueSource
+    generator: GeneratorConfig | None = None  # type: ignore[valid-type]
 
 
 class ActuatorChoice(BaseModel):
@@ -83,6 +89,8 @@ class LoopSchema(BaseModel):
     """JSON Schema of the law config union, discriminated on ``tag``."""
     feedforwards: dict[str, Any]
     """JSON Schema of the feedforward config union, discriminated on ``tag``."""
+    generators: dict[str, Any]
+    """JSON Schema of the setpoint generator config union, discriminated on ``tag``."""
     tunings: list[TuningChoice]
     """Stored tunings a loop may name instead of a config."""
     regulated: dict[str, str]
@@ -120,6 +128,7 @@ async def read_loop_schema(rig: RigDep) -> LoopSchema:
         actuators=actuators,
         laws=TypeAdapter(LawConfig).json_schema(),
         feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
+        generators=TypeAdapter(GeneratorConfig).json_schema(),
         tunings=[
             TuningChoice(name=name, law=config.tag, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()
@@ -165,8 +174,9 @@ def regulate(rig: RigDep, name: str, body: Regulate) -> LoopOut:
     tuning = body.tuning.build() if isinstance(body.tuning, BaseModel) else body.tuning  # type: ignore[union-attr]
     if isinstance(tuning, str) and (tuning := rig.tunings.get(tuning)) is None:
         raise NotFoundError(f"Tuning {body.tuning!r} not found")
+    generator = body.generator.build() if body.generator is not None else None
     with rig.lock:
-        loop.regulate(body.at, tuning=tuning, transfer=body.transfer)
+        loop.regulate(body.at, generator=generator, tuning=tuning, transfer=body.transfer)
         rig.apply(loop.actuator)
     return _out(rig, name)
 
@@ -181,7 +191,8 @@ def manual(rig: RigDep, name: str) -> LoopOut:
 
 @router.put("/{name}/reference")
 def set_reference(rig: RigDep, name: str, body: Reference) -> LoopOut:
-    """Move the setpoint without touching the mode or the law's state."""
+    """Move the setpoint, leaving the mode and the law alone; a ``generator`` starts from ``at``."""
+    generator = body.generator.build() if body.generator is not None else None
     with rig.lock:
-        rig.loops.resolve(name).set_reference(body.at)
+        rig.loops.resolve(name).set_reference(body.at, generator=generator)
     return _out(rig, name)

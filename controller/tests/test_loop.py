@@ -88,3 +88,53 @@ def test_min_period_caps_how_often_the_law_steps(fresh):
     clock.advance(0.1)
     rig.on_read([sample(src, temperature, 5.0, clock.now_ns(), seq=11)])
     assert len(heater.demands) == demands_before + 2, "a reading past the period steps again"
+
+
+def test_a_generator_builds_from_its_config_and_views_itself_with_or_without_an_end():
+    """A ramp lands, so it has an end time; a trajectory that only approaches its point has none."""
+    import math
+
+    from flyball.control.setpoint import LinearRampSetpoint, SetPointGenerator
+
+    class Approach(SetPointGenerator, tag="approach", register=False):
+        """Closes the gap to `to` with time constant `tau`: never quite arrives."""
+
+        def __init__(self, to: float, tau: float) -> None:
+            self.to = to
+            self.tau = tau
+
+        def start(self, time: float, value: float) -> None:
+            super().start(time, value)
+            self.origin, self.span = time, self.to - value
+
+        def generate(self, time: float) -> float:
+            return self.to - self.span * math.exp(-(time - self.origin) / self.tau)
+
+        def rate(self, time: float) -> float:
+            return self.span / self.tau * math.exp(-(time - self.origin) / self.tau)
+
+        def destination(self) -> float:
+            return self.to
+
+    ramp = LinearRampSetpoint.config(tag="ramp", to=80.0, pace={"minutes": 3}).build()
+    ramp.start(100.0, 20.0)
+    view = ramp.trajectory(100.0, origin_ns=0).model_dump()
+    assert view == {
+        "tag": "ramp",
+        "start": 20.0,
+        "start_time_ns": 100 * 10**9,
+        "to": 80.0,
+        "end_time_ns": 280 * 10**9,
+        "rate": 60 / 180,
+    }
+    assert ramp.config.model_dump()["to"] == 80.0  # the running one still says how it was built
+
+    approach = Approach.config(to=80.0, tau=30.0).build()
+    approach.start(100.0, 20.0)
+    assert approach.generate(130.0) == pytest.approx(80.0 - 60.0 * math.exp(-1))
+    view = approach.trajectory(130.0, origin_ns=0).model_dump()
+    assert (
+        view["to"] == 80.0
+        and view["end_time_ns"] is None
+        and view["rate"] == pytest.approx(2 * math.exp(-1))
+    )

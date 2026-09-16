@@ -124,3 +124,50 @@ def test_every_actuator_can_be_driven_by_hand_unless_a_loop_regulates_it(client)
     assert refused.status_code == 409 and "stop the loop" in refused.json()["detail"]
     c.post("/api/loops/heater/manual")
     assert c.post("/api/actuators/heater/demand", json={"demand": 43.0}).status_code == 200
+
+
+def test_a_generator_config_starts_a_trajectory_the_loop_reports(client):
+    c, rig, src = client
+    rig.read(rig.readers.by_name["lt_reader"])
+    assert (
+        "ramp"
+        in c.get("/api/loops/schema").json()["generators"]["$defs"]["LinearRampSetpointConfig"][
+            "properties"
+        ]["tag"]["const"]
+    )
+    c.post(
+        "/api/loops",
+        json={
+            "channel": f"{src.name}.lt_temp",
+            "actuator": "heater",
+            "law": {"tag": "P", "kp": 1.0},
+        },
+    )
+    fixed = c.post("/api/loops/heater/regulate", json={"at": 20.0}).json()
+    assert fixed["reference"] == 20.0 and fixed["trajectory"] is None
+
+    # A ramp from the current setpoint to 80 over three minutes: the wire says where and when.
+    start_ns = rig.clock.now_ns()
+    ramp = c.put(
+        "/api/loops/heater/reference",
+        json={"at": "setpoint", "generator": {"tag": "ramp", "to": 80.0, "pace": {"minutes": 3}}},
+    ).json()
+    assert ramp["reference"] == "ramp" and ramp["mode"] == "regulating"
+    trajectory = ramp["trajectory"]
+    assert trajectory["tag"] == "ramp" and trajectory["start"] == 20.0 and trajectory["to"] == 80.0
+    assert abs(trajectory["start_time_ns"] - start_ns) < 10**9
+    assert abs(trajectory["end_time_ns"] - (start_ns + 180 * 10**9)) < 10**9
+    assert trajectory["rate"] == pytest.approx(60.0 / 180.0)
+
+    bad = c.put("/api/loops/heater/reference", json={"at": 20.0, "generator": {"tag": "nope"}})
+    assert bad.status_code == 422
+    regulated = c.post(
+        "/api/loops/heater/regulate",
+        json={
+            "at": 20.0,
+            "generator": {"tag": "ramp", "to": 50.0, "pace": {"value": 10, "per": "minute"}},
+        },
+    ).json()
+    assert regulated["trajectory"]["to"] == 50.0 and regulated["trajectory"][
+        "rate"
+    ] == pytest.approx(10 / 60)
