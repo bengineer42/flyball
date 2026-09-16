@@ -9,6 +9,14 @@ Everything on the wire is named by **address**: a signal's
 signal it drives (`heaters.heater1`). Addresses are dotted paths with no
 slashes, so they sit in one path segment.
 
+## Authentication
+
+None by default. Started with `--token T` (or `FLYBALL_TOKEN=T`), the
+daemon requires `Authorization: Bearer T` on every `/api`, `/ws` and `/mcp`
+request (`/openapi.json` and `/docs` too); a websocket may pass `?token=T`
+instead, since a browser cannot set the header. Missing or wrong: `401`
+with `WWW-Authenticate: Bearer`, and a socket is closed with code 4401.
+
 ## Errors
 
 `{"detail": "<message>"}` with the status from the error's base:
@@ -35,6 +43,10 @@ A `LawConfig` is `{tag, ...gains}`, e.g. `{"tag": "PI", "kp": 0.5, "ki": 0.05, "
 
 The rig built up while it runs, in the rig file's own terms; every change
 is a version in the store (see [the daemon](../3-running/daemon.md#building-a-rig-while-it-runs)).
+On a rig with real hardware links the writes below (links, devices, a
+document, restore) answer `409` unless the daemon runs with `--compose`;
+a simulated rig, or one started bare, may always be built up. Reading and
+saving are never gated.
 
 | | | |
 | --- | --- | --- |
@@ -51,6 +63,10 @@ is a version in the store (see [the daemon](../3-running/daemon.md#building-a-ri
 | `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files}]`, newest first; `?limit=` |
 | `GET` | `/api/rig/versions/{id}` | the same with `document` |
 | `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match; records `restored {id}` |
+| `GET` | `/api/drivers` | every registered tag: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
+| `POST` | `/api/drivers/reload` | re-import the daemon's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
+| `GET` | `/api/probe` | `{report}`: the board's buses, GPIO chips and, with `?scan=true`, I²C addresses (flyball-linux); 404 where it is not installed |
+| `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
 | `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the daemon was not started from a file); a path: the whole rig, flattened (422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
 
 ## Devices
