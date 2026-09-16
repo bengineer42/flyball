@@ -182,9 +182,12 @@ class Rig:
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
         own, device.router = device.router, self.router
-        if own.samples:  # what it pushed before it was added: initial values, configs
+        if own.latest:  # what it pushed before it was added: initial values, configs
             now = self.clock.now_ns()
-            self.on_samples([Sample(s.node, now, s.values) for s in own.samples.values()])
+            by_node: dict[Node, dict[Signal, Any]] = {}
+            for signal, reading in own.latest.items():
+                by_node.setdefault(signal.node, {})[signal] = reading.value
+            self.on_samples([Sample(node, now, values) for node, values in by_node.items()])
 
     # endregion
 
@@ -517,21 +520,25 @@ class Rig:
             if (writer := self._writer_for(device)) is not None:
                 writer.request(time_ns)
             else:
+                before = dict(self.router.seq)
                 device.commit(time_ns)
-                states.update(self._states(device, time_ns))
+                states.update(self._states(device, time_ns, before))
         return states
 
-    def _states(self, device: Committable, time_ns: int) -> dict[Signal, WriteState]:
+    def _states(
+        self, device: Committable, time_ns: int, before: Mapping[Signal, int]
+    ) -> dict[Signal, WriteState]:
         """What a commit set each pending demand to, with what the rig knows; clears `pending`.
 
-        The driver may have pushed a readback in `commit`; a demand it did
-        not push gets the committed value as its reading, so every demand
-        has a current value. The rig adds what was asked for, when the clamp
+        The driver may have pushed a readback in `commit` (`before` is the
+        router's count per signal from before it ran); a demand it did not
+        push gets the committed value as its reading, so every demand has a
+        current value. The rig adds what was asked for, when the clamp
         changed it, and which controller drives the signal; the device's
         `written` gets the filled-in state too, so the wire shows one thing.
         """
         states: dict[Signal, WriteState] = {}
-        pushed = {s for sample in self._pushed for s in sample.values}
+        seq = self.router.seq
         for signal, value in device.pending.items():
             at_limit = signal.at_limit
             if at_limit is None and (limits := signal.limits) is not None:
@@ -550,9 +557,8 @@ class Rig:
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
-            latest = self.router.reading(signal)
-            if signal not in pushed and (latest is None or latest.time_ns < time_ns):
-                self._pushed.append(Sample(signal.node, time_ns, {signal: value}))
+            if seq.get(signal, 0) == before.get(signal, 0):  # the driver pushed no readback
+                signal.push(value, time_ns)
         device.pending.clear()
         return states
 
@@ -560,14 +566,14 @@ class Rig:
         """Deliver what commits pushed, each batch as one more delivery, until nothing is left."""
         while self._pushed:
             pushed, self._pushed = self._pushed, []
-            self._deliver_samples(pushed)
+            self._deliver_samples(pushed, noted=True)
 
     def written(self, device: Committable, time_ns: int) -> None:
         """A blocking device's writer finished a commit: publish, deliver and record its states."""
         with self.lock:
             self._touched = {}  # the context for the readbacks `_states` pushes
             try:
-                filled = self._states(device, time_ns)
+                filled = self._states(device, time_ns, {})
             finally:
                 self._touched = None
             self._deliver(filled)
@@ -593,9 +599,10 @@ class Rig:
         An argument that is a value for a demand (`For[...]`) is filled from
         that demand's current value when left out, and clamped to the
         signal's effective limits. A synthesised `set_<name>` goes through
-        [demand][flyball.runtime.rig.Rig.demand]. Unless the command is
-        `owner_exempt`, it is refused while a controller drives one of the
-        device's demands. The method runs under the rig lock; afterwards the
+        [demand][flyball.runtime.rig.Rig.demand]. A command that changes
+        what drives the device -- one with a `mode`, or a linked argument --
+        is refused while a controller drives one of the device's demands,
+        unless it is `owner_exempt`. The method runs under the rig lock; afterwards the
         device's `mode` output (if it has one) becomes the command's, a
         `commit=True` command commits the device, each linked demand the
         driver did not push gets its argument as its reading, and
@@ -627,7 +634,8 @@ class Rig:
                     given[name], (int, float)
                 ):
                     given[name] = min(max(float(given[name]), limits[0]), limits[1])
-            if not spec.owner_exempt:
+            if not spec.owner_exempt and (spec.mode is not None or linked):
+                # It changes what drives the device: not while a controller does.
                 for signal in device.signals.values():
                     holder = self.controllers.driving(signal)
                     if holder is not None and holder.mode.active():
@@ -639,13 +647,13 @@ class Rig:
             outer = self._touched
             if outer is None:
                 self._touched = {}
+            before = dict(self.router.seq)
             try:
                 result = spec.method(device, **given)
                 if spec.mode is not None and (mode := device.signals.get("mode")) is not None:
                     mode.push(spec.mode, time_ns)
-                pushed = {s for sample in self._pushed for s in sample.values}
                 for name, signal in linked.items():
-                    if signal not in pushed:
+                    if self.router.seq.get(signal, 0) == before.get(signal, 0):  # no readback
                         signal.push(given[name], time_ns)
                 if (last := device.signals.get(f"last.{tag}")) is not None:
                     last.push({"args": given, "at": time_ns}, time_ns)
@@ -756,14 +764,17 @@ class Rig:
             return
         with self.lock:
             if self._touched is not None:
-                # Pushed from inside a delivery (a commit's readbacks): the
-                # next delivery, once this one has committed.
+                # Pushed from inside a delivery (a commit's readbacks, a
+                # mode): known at once, so the driver reads what it just
+                # pushed; delivered next, once this delivery has committed.
+                for sample in samples:
+                    self.router.note(sample)
                 self._pushed.extend(samples)
                 return
             self._deliver_samples(samples)
             self._flush_pushed()
 
-    def _deliver_samples(self, samples: Sequence[Sample]) -> None:
+    def _deliver_samples(self, samples: Sequence[Sample], *, noted: bool = False) -> None:
         """One delivery, under the lock: note, observers, controllers, commits, recorder."""
         ticks: list[tuple[Controller, Reading]] = []
         published: list[Sample] = []
@@ -771,7 +782,8 @@ class Rig:
         self._touched = touched
         try:
             for sample in samples:
-                self.router.note(sample)
+                if not noted:
+                    self.router.note(sample)
                 if (streamed := sample.published()) is not None:
                     published.append(streamed)
                     if self.samples.watched:

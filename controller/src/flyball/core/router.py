@@ -33,6 +33,8 @@ class Router:
     """The newest sample delivered on another node of the tree, cut down to this atomic one: a
     root sample carrying `dry.humidity` is the newest instant on `dry` too."""
     recent: dict[Signal, deque[Reading]]
+    seq: dict[Signal, int]
+    """How many readings each signal has had: what changed, when the clock did not move."""
     deliver: Callable[[Sequence[Sample]], None] | None
     """What a push runs: the rig's delivery once attached; None notes the samples and no more."""
     now_ns: Callable[[], int]
@@ -43,6 +45,7 @@ class Router:
         self.samples = {}
         self.cuts = {}
         self.recent = {}
+        self.seq = {}
         self.deliver = None
         self.now_ns = time.time_ns
 
@@ -93,6 +96,7 @@ class Router:
         for reading in sample.readings():
             signal = reading.signal
             self.latest[signal] = reading
+            self.seq[signal] = self.seq.get(signal, 0) + 1
             if (recent := self.recent.get(signal)) is None:
                 recent = self.recent[signal] = deque(maxlen=RECENT_READINGS)
             recent.append(reading)
