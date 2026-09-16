@@ -25,7 +25,9 @@ import type {
   Health,
   JsonSchema,
   LawConfig,
+  LinkEntry,
   NewController,
+  NewDevice,
   ProgramCheck,
   ProgramFormat,
   ProgramRow,
@@ -33,7 +35,11 @@ import type {
   ReadOut,
   ReferenceSpec,
   RegulateRequest,
+  RigDocument,
   RigSchema,
+  RigVersion,
+  RigVersionDetail,
+  SaveResult,
   StartSpec,
   Series,
   SessionEvent,
@@ -199,6 +205,70 @@ export class RigClient {
   /** The single-signal demand: `value` in the signal's unit. 409 if the address is a namespace or a controller drives it. */
   demand(address: Address, value: number): Promise<Record<Address, WriteOut>> {
     return this.call({ method: "PUT", path: `/api/signals/${enc(address)}`, body: value });
+  }
+
+  /** Build a device on the rig's links and put it on the rig: bound, polling, recorded. 409 for a name in use, 404 for an unknown link or an unresolved bound address, 422 for an unknown driver or a config it refuses. */
+  addDevice(body: NewDevice): Promise<DeviceOut> {
+    return this.call({ method: "POST", path: "/api/devices", body });
+  }
+
+  /** Take a device off the rig with everything that hung off it; 404 if there is none. */
+  removeDevice(name: string): Promise<void> {
+    return this.call({ method: "DELETE", path: `/api/devices/${enc(name)}` });
+  }
+
+  // endregion
+
+  // region Composition -- links and whole documents; the rig's versions; saving it
+
+  /** Build a link and hold it under `body.name`; 409 if the name is taken, 422 for a bad config. */
+  addLink(body: LinkEntry): Promise<LinkEntry> {
+    return this.call({ method: "POST", path: "/api/links", body });
+  }
+
+  /** Drop a link no device is built on; 409 while one is. */
+  removeLink(name: string): Promise<void> {
+    return this.call({ method: "DELETE", path: `/api/links/${enc(name)}` });
+  }
+
+  /** Add a document's links, devices and controllers to the running rig, in that order; validated whole before anything is built, so a failure part-way leaves what was built before it. */
+  addDocument(document: Partial<RigDocument> & Record<string, unknown>): Promise<RigDocument> {
+    return this.call({ method: "POST", path: "/api/rig", body: document });
+  }
+
+  /** The running rig as a rig file would build it: links, devices, controllers as they are now. */
+  rigDocument(signal?: AbortSignal): Promise<RigDocument> {
+    return this.get("/api/rig/document", undefined, signal);
+  }
+
+  /** What differs between the running rig and the files it was loaded from, as an overlay (a key removed appears as `null`); `{}` when nothing has changed. */
+  rigChanges(signal?: AbortSignal): Promise<Record<string, unknown>> {
+    return this.get("/api/rig/changes", undefined, signal);
+  }
+
+  /** Every version of the rig this store has seen, newest first: when, and why it changed. */
+  rigVersions(limit?: number): Promise<RigVersion[]> {
+    return this.get("/api/rig/versions", limit === undefined ? undefined : { limit });
+  }
+
+  /** One version with the document it held. */
+  rigVersion(id: number): Promise<RigVersionDetail> {
+    return this.get(`/api/rig/versions/${id}`);
+  }
+
+  /** Make the running rig that version again: links, devices and controllers rebuilt to match it; records a version of its own. */
+  restoreVersion(id: number): Promise<RigDocument> {
+    return this.call({ method: "POST", path: `/api/rig/versions/${id}/restore` });
+  }
+
+  /** Write the running rig out. No `path`: the changes since the files were loaded, to the overlay beside them (409 if the rig was not started from a file). A `path`: the whole rig, flattened (422 for a suffix the daemon does not write, 409 for one of the loaded files unless `overwrite`). */
+  saveRig(body: { path?: string; overwrite?: boolean } = {}): Promise<SaveResult> {
+    return this.call({ method: "POST", path: "/api/rig/save", body });
+  }
+
+  /** The rig file's JSON schema, with every driver and link type installed here. */
+  rigSchema(signal?: AbortSignal): Promise<JsonSchema> {
+    return this.get("/api/rig/schema", undefined, signal);
   }
 
   // endregion

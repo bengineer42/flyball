@@ -11,6 +11,7 @@ import { DashboardSwitcher } from "./dashboard/DashboardSwitcher.js";
 import { Inputs, SignalDetail } from "./pages/Inputs.js";
 import { Graph } from "./pages/Graph.js";
 import { DevicePage } from "./pages/Devices.js";
+import { RigPage } from "./pages/Rig.js";
 import { Controllers } from "./pages/Controllers.js";
 import { Events } from "./pages/Events.js";
 import { Sessions } from "./pages/Sessions.js";
@@ -182,6 +183,7 @@ export function App() {
               {page === "graph" && <Graph devices={all} {...charts} />}
               {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
               {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
+              {page === "rig" && <RigPage />}
               {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
               {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
               {page === "events" && <EventsPage level={params.level} />}

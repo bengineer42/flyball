@@ -587,6 +587,63 @@ export type RigEvent = Event;
 
 // endregion
 
+// region Rig composition -- building the rig up from links, devices and a whole document; its versions; saving it
+
+/**
+ * The rig file's own shape: what `GET /api/rig/document`, `/api/rig/config`,
+ * a version's `document`, and `POST /api/rig` take and return. `name` is
+ * absent on a rig built with none.
+ */
+export interface RigDocument {
+  name?: string;
+  links: Record<string, Record<string, unknown>>;
+  devices: Record<string, Record<string, unknown>>;
+  controllers: Record<string, Record<string, unknown>>;
+}
+
+/** A link as the file writes one: `{name, tag, ...its config}`. Body for `POST /api/links`, and what it returns. */
+export interface LinkEntry {
+  name: string;
+  tag: string;
+  [key: string]: unknown;
+}
+
+/**
+ * A device entry with its name, as `POST /api/devices` takes it: the file's
+ * envelope (`driver`, `label`, `poll_s`, `bound`) plus the driver's own
+ * settings, either under `config` or flat beside the envelope.
+ */
+export interface NewDevice {
+  name: string;
+  driver: string;
+  config?: Record<string, unknown>;
+  label?: string;
+  poll_s?: number;
+  bound?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/** `GET /api/rig/versions`: one version of the rig's history, newest first. */
+export interface RigVersion {
+  id: number;
+  time_ns: Nanoseconds;
+  reason: string;
+  files: string[];
+}
+
+/** `GET /api/rig/versions/{id}`: a version with the document it held. */
+export interface RigVersionDetail extends RigVersion {
+  document: RigDocument;
+}
+
+/** `POST /api/rig/save`: where the rig was written, and what. */
+export interface SaveResult {
+  path: string;
+  document: RigDocument;
+}
+
+// endregion
+
 // region Streams
 
 /**

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
-export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "programs" | "events" | "sessions" | "simulation";
+export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "rig" | "programs" | "events" | "sessions" | "simulation";
 /** The pages in the navigation; `inputs` only exists as the signal detail page (`#/inputs/<address>`) reached from readouts. Dashboards leads (spec §2: dashboard identity comes first), Overview second. */
 export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
   { id: "overview", label: "Overview" },
   { id: "devices", label: "Devices" },
+  { id: "rig", label: "Rig" },
   { id: "graph", label: "Graph" },
   { id: "controllers", label: "Controllers" },
   { id: "programs", label: "Programs" },

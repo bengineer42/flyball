@@ -1,15 +1,21 @@
 import { useMemo, useState } from "react";
-import { Alert, Box, Link, Paper, Stack, Typography } from "@mui/material";
-import { DeviceSignals, Gauge, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useSignal, useTraceRef } from "@flyball/react";
-import { describeController, describeSignal, deviceOf, formatValue, publishes, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
+import { Alert, Box, Button, IconButton, Link, Paper, Stack, Tooltip, Typography } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { DeviceSignals, Gauge, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useRigDocument, useRigFileSchema, useSignal, useTraceRef } from "@flyball/react";
+import { describeController, describeSignal, deviceOf, formatValue, publishes, RigError, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
 import { useRecordingExports } from "../model.js";
 import { StateBlock } from "../cards.js";
+import { Confirm } from "../Confirm.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor } from "../router.js";
 import { signalIcon } from "../icons.js";
 import { PageBar } from "../PageBar.js";
 import { GroupingSelect, readGrouping, writeGrouping, type Grouping } from "../grouping.js";
 import { isNumeric, useValueReadout } from "../valueReadout.js";
+import { AddDeviceDialog, LinksSection } from "./Devices.js";
+
+const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
 export interface InputsProps extends ChartSettings {
   devices: DeviceOut[];
@@ -36,8 +42,45 @@ function LatestValue({ signal }: { signal: SignalOut }) {
  * per signal), a chart per signal, or every signal of a unit on one chart.
  * Every chart draws from the store: the page never re-renders on a sample.
  */
-export function Inputs({ devices, ...charts }: InputsProps) {
+export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
   const { windowS, yScale, every } = charts;
+  const rig = useRig();
+  const rigSchema = useRigFileSchema();
+  const rigDocument = useRigDocument();
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Local overlay: `devices` is fetched once by the app, so a device this page just added or
+  // removed is reflected here immediately rather than waiting for the app to refetch it.
+  const [added, setAdded] = useState<Record<string, DeviceOut>>({});
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const devices = useMemo(
+    () => [...fromRig.filter((d) => !removed.has(d.name) && !(d.name in added)), ...Object.values(added)],
+    [fromRig, added, removed],
+  );
+  const linkNames = Object.keys(rigDocument.data?.links ?? {});
+
+  const removeDevice = async () => {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      await rig.removeDevice(removing);
+      setError(null);
+      setRemoved((r) => new Set(r).add(removing));
+      setAdded((a) => {
+        const { [removing]: _gone, ...rest } = a;
+        void _gone;
+        return rest;
+      });
+      setRemoving(null);
+    } catch (e) {
+      setError(detail(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const publishing = useMemo(() => publishingOf(devices), [devices]);
   const signals = useMemo(() => publishing.flatMap((d) => d.signals), [publishing]);
   // A non-number never reaches a chart axis: the unit and per-signal charts are numeric signals only.
@@ -52,19 +95,63 @@ export function Inputs({ devices, ...charts }: InputsProps) {
   const bar = (
     <PageBar end={<ChartControls {...charts} unit={numericSignals[0]?.unit} />}>
       <GroupingSelect value={grouping} onChange={group} />
+      <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setAdding(true)} data-testid="add-device">
+        Add device
+      </Button>
     </PageBar>
+  );
+  const dialogs = (
+    <>
+      <AddDeviceDialog
+        open={adding}
+        schema={rigSchema.data}
+        linkNames={linkNames}
+        onClose={() => setAdding(false)}
+        onCreated={(device) => {
+          setAdding(false);
+          setAdded((a) => ({ ...a, [device.name]: device }));
+          setRemoved((r) => {
+            const next = new Set(r);
+            next.delete(device.name);
+            return next;
+          });
+        }}
+      />
+      <Confirm
+        open={removing !== null}
+        title={`Remove device ${removing}?`}
+        text="Takes it off the rig with everything that hung off it."
+        action="Remove"
+        busy={busy}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => void removeDevice()}
+      />
+    </>
   );
   const shown = devices.filter((d) => d.kind !== "simulation");
   if (shown.length === 0)
     return (
       <>
+        <LinksSection document={rigDocument} schema={rigSchema} />
         {bar}
-        <StateBlock state="empty" message="No devices declared. Add one to the rig file to see its readings here." />
+        {error && (
+          <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+        <StateBlock state="empty" message="No devices declared. Add one below, or to the rig file, to see its readings here." />
+        {dialogs}
       </>
     );
   return (
     <>
+      <LinksSection document={rigDocument} schema={rigSchema} />
       {bar}
+      {error && (
+        <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
       {grouping === "unit" && (
         <div className="fb-charts">
           <UnitCharts signals={numericSignals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
@@ -104,11 +191,24 @@ export function Inputs({ devices, ...charts }: InputsProps) {
         <div className="grid">
           {shown.map((device) => (
             <div key={device.name} className="c6 xl4">
-              <DeviceSignals device={device} windowS={windowS} every={every} exportHref={(s) => stored.series(s.address)} />
+              <DeviceSignals
+                device={device}
+                windowS={windowS}
+                every={every}
+                exportHref={(s) => stored.series(s.address)}
+                controls={
+                  <Tooltip title="Remove this device from the rig">
+                    <IconButton aria-label={`remove device ${device.name}`} size="small" onClick={() => setRemoving(device.name)} data-testid={`remove-${device.name}`}>
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                }
+              />
             </div>
           ))}
         </div>
       )}
+      {dialogs}
     </>
   );
 }

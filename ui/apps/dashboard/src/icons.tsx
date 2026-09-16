@@ -1,4 +1,5 @@
 import type SvgIcon from "@mui/material/SvgIcon";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AirIcon from "@mui/icons-material/Air";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
@@ -31,6 +32,7 @@ export const PAGE_ICONS: Record<Page, IconComponent> = {
   graph: MultilineChartIcon,
   controllers: LoopIcon,
   devices: MemoryIcon,
+  rig: AccountTreeOutlinedIcon,
   programs: PlaylistPlayIcon,
   events: NotificationsNoneIcon,
   sessions: StorageOutlinedIcon,

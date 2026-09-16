@@ -4,6 +4,7 @@ export { useStream, type StreamStatus } from "./hooks/useStream.js";
 export { useWaits } from "./hooks/useWaits.js";
 export { WaitPrompt, type WaitPromptProps } from "./panels/WaitPrompt.js";
 export { useRigSchema, useHealth, useDevices, useDevice, useDeviceSchema, useCommands, type CommandRunner } from "./hooks/useDevices.js";
+export { useRigFileSchema, useRigDocument, useRigChanges, useRigVersions } from "./hooks/useRigComposition.js";
 export { SchemaForm, type SchemaFormProps } from "./form/SchemaForm.js";
 export { widgets, UnitNumberWidget, SliderNumberWidget, ToggleWidget, SegmentedWidget } from "./form/widgets.js";
 export { impliedUiSchema, simplifyNullables } from "./form/uiSchema.js";

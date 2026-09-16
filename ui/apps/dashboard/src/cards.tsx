@@ -108,7 +108,7 @@ export const clickThrough = (href: string | undefined) => (e: MouseEvent) => {
 export const clickableSx = { cursor: "pointer", transition: "border-color 120ms, background-color 120ms", "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" } } as const;
 
 /** A device card: label (a link to its page; the name is its hover hint), type, a status chip at the end, then the body. The whole card opens the page when it has one. */
-export function DeviceCard({ icon: Icon, name, label, href, type, chip, children, footer, className }: { icon: IconComponent; name: string; label?: string | null; href?: string; type: string; chip: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
+export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions, children, footer, className }: { icon: IconComponent; name: string; label?: string | null; href?: string; type: string; chip: ReactNode; actions?: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
     <Paper className={className} sx={{ p: 3, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
       <Stack direction="row" alignItems="center" spacing={1}>
@@ -126,6 +126,7 @@ export function DeviceCard({ icon: Icon, name, label, href, type, chip, children
           {type}
         </Typography>
         <Box sx={{ ml: "auto !important" }}>{chip}</Box>
+        {actions}
       </Stack>
       {children}
       {footer && (
@@ -200,7 +201,7 @@ function TreeRows({ device }: { device: DeviceOut }) {
  * the poll period and the last read. `run` is the live one from `/ws/devices`
  * when the caller has it, else what `GET /api/devices` said.
  */
-export function DeviceSummaryCard({ device, run, link = true, className }: { device: DeviceOut; run?: (Partial<RunOut> & { conditions?: ReadonlyArray<{ kind: string; level: number; message: string }> }) | null; link?: boolean; className?: string }) {
+export function DeviceSummaryCard({ device, run, link = true, actions, className }: { device: DeviceOut; run?: (Partial<RunOut> & { conditions?: ReadonlyArray<{ kind: string; level: number; message: string }> }) | null; link?: boolean; actions?: ReactNode; className?: string }) {
   const live = run ?? device.run;
   const conditions = run?.conditions ?? device.conditions;
   const polled = live !== null && live !== undefined;
@@ -217,6 +218,7 @@ export function DeviceSummaryCard({ device, run, link = true, className }: { dev
       href={link ? hrefFor({ kind: "device", name: device.name }) : undefined}
       type={describeDevice(device.driver ?? device.type)}
       chip={<StatusDot tone={tone} label={stopped ? "stopped" : named || undefined} title={stopped ? "polling stopped" : conditions.map((c) => `${c.kind}: ${c.message}`).join("\n") || (polled ? "running" : "not polled")} />}
+      actions={actions}
       footer={footer || undefined}
     >
       {device.signals.length > 0 ? (
