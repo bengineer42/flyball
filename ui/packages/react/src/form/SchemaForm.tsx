@@ -18,26 +18,30 @@ export interface SchemaFormProps {
   schema: JsonSchema;
   /** Initial values. */
   value?: Record<string, unknown>;
-  /** Called with validated data on submit. */
-  onSubmit(data: Record<string, unknown>): void | Promise<unknown>;
+  /** Called with validated data on submit. Without it there is no submit button: the form is live, driven by `onChange`. */
+  onSubmit?(data: Record<string, unknown>): void | Promise<unknown>;
+  /** Called with the data on every edit, before any validation. */
+  onChange?(data: Record<string, unknown>): void;
   submitLabel?: string;
   disabled?: boolean;
   /** Extra RJSF `uiSchema`, merged over what the schema implies. */
   uiSchema?: UiSchema;
+  /** Prefix for the fields' element ids (`root` by default), so several forms on one page do not share ids. */
+  idPrefix?: string;
   /** The RJSF form to render with; `@rjsf/core`'s by default, a theme's (e.g. `@rjsf/mui`) if you have one. */
   form?: ComponentType<FormProps<any, any, any>>;
 }
 
-export function SchemaForm({ schema, value, onSubmit, submitLabel = "Run", disabled, uiSchema, form: RjsfForm = Form }: SchemaFormProps) {
+export function SchemaForm({ schema, value, onSubmit, onChange, submitLabel = "Run", disabled, uiSchema, idPrefix, form: RjsfForm = Form }: SchemaFormProps) {
   const simplified = useMemo(() => simplifyNullables(schema), [schema]);
   const ui = useMemo(
     () => ({
       ...impliedUiSchema(simplified, simplified),
       "ui:options": { label: false }, // the root object's title: the panel already names the command
       ...uiSchema,
-      "ui:submitButtonOptions": { submitText: submitLabel },
+      "ui:submitButtonOptions": { submitText: submitLabel, norender: !onSubmit },
     }),
-    [simplified, uiSchema, submitLabel],
+    [simplified, uiSchema, submitLabel, onSubmit],
   );
   const [formData, setFormData] = useState<Record<string, unknown> | undefined>(value);
 
@@ -49,12 +53,16 @@ export function SchemaForm({ schema, value, onSubmit, submitLabel = "Run", disab
       validator={validator}
       widgets={widgets}
       formData={formData}
+      idPrefix={idPrefix}
       disabled={disabled}
       liveValidate={false}
       showErrorList={false}
       noHtml5Validate
-      onChange={(e: IChangeEvent) => setFormData(e.formData as Record<string, unknown>)}
-      onSubmit={(e: IChangeEvent) => void onSubmit((e.formData ?? {}) as Record<string, unknown>)}
+      onChange={(e: IChangeEvent) => {
+        setFormData(e.formData as Record<string, unknown>);
+        onChange?.((e.formData ?? {}) as Record<string, unknown>);
+      }}
+      onSubmit={(e: IChangeEvent) => void onSubmit?.((e.formData ?? {}) as Record<string, unknown>)}
     />
   );
 }

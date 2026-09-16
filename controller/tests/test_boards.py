@@ -137,3 +137,38 @@ def test_a_tag_registered_later_is_valid_in_a_file(fresh):
     assert rig_model() is not before, "a new tag means a new model"
     assert rig_model() is rig_model(), "... cached until the next one"
     assert tag in str(RigConfig.model_json_schema())
+
+
+def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh):
+    from flyball.core.reading import Source
+
+    name = fresh("half_built")
+    document = {
+        "links": {"p": {"tag": "sim_plant"}},
+        "readers": [
+            {
+                "period_s": 0.01,
+                "device": {
+                    "tag": "sim_reader",
+                    "name": name,
+                    "link": "p",
+                    "measurand": "t",
+                    "unit": "°C",
+                },
+            }
+        ],
+        "actuators": [{"tag": "sim_actuator", "name": "h", "link": "p"}],
+        "loops": [{"channel": f"{name}.t", "actuator": "h"}],
+    }
+    config = RigConfig.model_validate(document)
+    Source.forget(name)
+    document["loops"][0]["channel"] = f"{name}.nope"  # fails at the loop, after the reader is built
+    broken = RigConfig.model_validate(document)
+    with pytest.raises(NotFoundError):
+        broken.build()
+    rig = config.build(start=True)  # the retry: the source name is free, nothing was left polling
+    try:
+        assert rig.readers.run(name).running is True and list(rig.loops) == ["h"]
+    finally:
+        rig.readers.stop_all()
+        Source.forget(name)

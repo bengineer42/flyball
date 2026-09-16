@@ -13,6 +13,7 @@ from .errors import (
     ControllerNotStartedError,
     LastReadingNotAvailableError,
 )
+from .feedforward import Feedforward, FeedforwardConfig, Setpoint
 from .setpoint import SetPointGenerator
 from .types import (
     ApplyResult,
@@ -45,6 +46,10 @@ class LoopSettings:
 
     name: str
     law: ControlLawConfig | None
+    feedforward: FeedforwardConfig
+    """What maps the setpoint (channel unit) to a demand (actuator unit); the law adds to it."""
+    demand_unit: str | None
+    """The actuator's unit, or None when it takes the channel's."""
     offset_ns: int
     min_period_s: float | None = None
     """Step the law at most this often, however fast readings arrive. None: every reading."""
@@ -55,6 +60,8 @@ class LoopState:
     law: ControlLawState | None
     correction: float = 0.0
     reference: float | SetPointGenerator | None = None
+    setpoint: float | None = None
+    """The reference resolved at the last tick: a ramp's value then, in the channel's unit."""
     demand: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
@@ -71,10 +78,13 @@ class LoopView(LoopSettings, LoopState):
         return cls(
             name=settings.name,
             law=settings.law and state.law and ControlLawView.of(settings.law, state.law),
+            feedforward=settings.feedforward,
+            demand_unit=settings.demand_unit,
             offset_ns=settings.offset_ns,
             min_period_s=settings.min_period_s,
             correction=state.correction,
             reference=state.reference,
+            setpoint=state.setpoint,
             demand=state.demand,
             expected=state.expected,
             delivered_correction=state.delivered_correction,
@@ -87,9 +97,11 @@ class Loop[A: Actuator]:
     clock: Clock
     actuator: A
     law: ControlLaw | None
+    feedforward: Feedforward
     correction: float = 0.0
     offset_ns: int = 0
     reference: float | SetPointGenerator | None = None
+    setpoint: float | None = None
     demand: float | None = None
     expected: float | None = None
     reading: Reading | None = None
@@ -105,9 +117,17 @@ class Loop[A: Actuator]:
         actuator: A,
         law: ControlLaw | ControlLawConfig | ControlLawView | Tuning | None = None,
         min_period_s: float | None = None,
+        write: Callable[[float], float | None] | None = None,
+        feedforward: Feedforward | FeedforwardConfig | None = None,
     ) -> None:
         self.clock = clock
         self.actuator = actuator
+        if isinstance(feedforward, FeedforwardConfig):
+            feedforward = feedforward.build()
+        self.feedforward = Setpoint() if feedforward is None else feedforward
+        self.write: Callable[[float], float | None] = write or actuator.set_demand
+        """How a demand reaches the actuator: its `set_demand`, or a queue in front of a bus."""
+        self.law = None
         if law is not None:
             self._set_law(law)
         self.lock = RLock()
@@ -137,6 +157,8 @@ class Loop[A: Actuator]:
         return LoopSettings(
             name=self.name,
             law=self.law and self.law.config,
+            feedforward=self.feedforward.config,
+            demand_unit=None if (u := self.actuator.demand_unit) is None else u.symbol,
             offset_ns=self.offset_ns,
             min_period_s=self.min_period_s,
         )
@@ -147,6 +169,7 @@ class Loop[A: Actuator]:
             law=self.law and self.law.state,
             correction=self.correction,
             reference=self.reference,
+            setpoint=self.setpoint,
             demand=self.demand,
             expected=self.expected,
             delivered_correction=self.delivered_correction,
@@ -164,7 +187,7 @@ class Loop[A: Actuator]:
         return require(self.reference, ControllerNotStartedError)
 
     def demand_at(self, time_ns: int) -> float:
-        return self.setpoint_at(time_ns) + self.correction
+        return self.feedforward(self.setpoint_at(time_ns)) + self.correction
 
     def _set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
         self.law = law if isinstance(law, ControlLaw) else law.build()
@@ -238,7 +261,7 @@ class Loop[A: Actuator]:
                     hold = (
                         self.correction
                         if transfer is Transfer.CARRY or held is None
-                        else held - setpoint
+                        else held - self.feedforward(setpoint)
                     )
                     if self.law is not None:
                         self.correction = self.law.resume(reading, setpoint, hold)
@@ -312,9 +335,11 @@ class Loop[A: Actuator]:
             self._apply_demand(setpoint)
 
     def _apply_demand(self, setpoint: float) -> ApplyResult:
-        self.demand = setpoint + self.correction
-        self.expected = self.actuator.set_demand(self.demand)
-        self.delivered_correction = None if self.expected is None else self.expected - setpoint
+        self.setpoint = setpoint
+        base = self.feedforward(setpoint)
+        self.demand = base + self.correction
+        self.expected = self.write(self.demand)
+        self.delivered_correction = None if self.expected is None else self.expected - base
 
         return ApplyResult(
             expected=self.expected,

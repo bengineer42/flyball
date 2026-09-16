@@ -29,6 +29,28 @@ raised. A polled reader runs on a `PeriodicLoop` thread; a pushed reader is
 attached so its `emit` lands in `on_read` under the lock. Both paths go
 through `delivered`, which also stamps the run.
 
+Only `read` itself can put a reader offline, and an offline reader stops
+polling until `restart`. A failure downstream of the read — a law, an
+observer, the recorder — is the rig's: a `delivery_failed` event, and the
+reader carries on. A poll that finds itself more than a period behind (a
+stall, a suspend) resynchronises and counts a `missed` rather than firing
+back-to-back to catch up.
+
+## Threads and the lock
+
+The rule: nothing that can block on a device or a disk runs under the rig
+lock, and nothing that can raise for one device's reasons runs on another
+device's thread. The delivery path — readings, observers, the loop's tick —
+is arithmetic under the lock. What leaves it:
+
+| work | where it runs |
+| --- | --- |
+| a blocking actuator's `set_demand` (`blocking = True` on the class: SCPI, Modbus, QCoDeS, PyMeasure) | a `Writer` thread per actuator; the loop hands it the newest demand and reads back `expected` on its next tick; a bus that fails is a `write_failed` condition in `/api/health` and one event per outage, and the loop keeps ticking |
+| the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
+| a simulated actuator's `set_demand` | in the tick — it is arithmetic, and a stepped clock stays deterministic |
+
+`rig.stop()` stops all of it: polling, writers, recording.
+
 ## Loops
 
 `Loops` indexes by name for people and programs, by channel for the tick.
@@ -64,6 +86,8 @@ unwind.
 
 Not an observer: it wants the whole delivery, after the loops have ticked.
 Which sources and loops it records is decided once, at construction.
-Deliveries are buffered and written in one transaction every `flush_s`; a
-transaction costs milliseconds on an SD card whether it holds one row or a
-hundred. `close` writes what is left and ends the session.
+Deliveries are buffered on the delivery path (a list append) and written by
+the recorder's thread in one transaction every `flush_s`; a transaction costs
+milliseconds on an SD card whether it holds one row or a hundred, and none
+of those milliseconds are the loop's. `close` stops the thread, writes what
+is left and ends the session.

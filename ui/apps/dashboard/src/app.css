@@ -1,14 +1,94 @@
 /* Layout only. Colours, type and controls come from the MUI theme; the library panels from --fb-* (set in theme.tsx). */
-section + section { margin-top: 1.5rem; }
-.tiles { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
-.tiles-wide { grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr)); }
-.tiles-full { grid-template-columns: 1fr; }
-.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
-.source-group { margin-bottom: 1rem; }
+
+/* One spacing scale, in 8px steps: gutters between cards and sections; padding inside a card is the library's --fb-gap. */
+:root {
+  --gutter: 16px;
+  --gutter-half: 8px;
+  --section-gap: 24px;
+}
+
+section + section { margin-top: var(--section-gap); }
+
+/*
+ * Every section lays out on the same 12-column grid, so stat tiles, source
+ * tiles, the unit chart and the device cards share column edges. A child
+ * takes `c3` (a quarter), `c4` (a third), `c6` (a half) or `c12` (the row);
+ * the spans widen as the screen narrows, down to one column on a phone.
+ */
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gutter); }
+.grid > * { min-width: 0; grid-column: span 12; }
+.grid > .c3 { grid-column: span 3; }
+.grid > .c4 { grid-column: span 4; }
+.grid > .c6 { grid-column: span 6; }
+.grid > .c9 { grid-column: span 9; }
+.grid > .c12 { grid-column: span 12; }
+/* Wide enough for one more column of charts. */
+@media (min-width: 1800px) {
+  .grid > .xl6 { grid-column: span 6; }
+  .grid > .xl4 { grid-column: span 4; }
+  .grid > .xl3 { grid-column: span 3; }
+}
+@media (max-width: 1199.98px) {
+  .grid > .c3 { grid-column: span 4; }
+  .grid > .c4, .grid > .c6 { grid-column: span 6; }
+  .grid > .c9 { grid-column: span 12; }
+}
+@media (max-width: 899.98px) {
+  .grid > .c3, .grid > .c4 { grid-column: span 6; }
+  .grid > .c6 { grid-column: span 12; }
+}
+@media (max-width: 599.98px) {
+  .grid > .c3, .grid > .c4 { grid-column: span 12; }
+  /* Stat tiles are short: two abreast still read on a phone. */
+  .stats > .c3 { grid-column: span 6; }
+}
+
+/* Tiles inside a card fit whatever width the card was given: as many as fit, none narrower than 12rem, collapsing to one. */
+.tiles { display: grid; gap: var(--gutter-half); grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr)); }
+.tiles > * { min-width: 0; }
+
+.stats { margin-bottom: var(--section-gap); }
+.source-group, .unit-group { display: flex; flex-direction: column; gap: var(--gutter-half); }
+.source-head { min-height: 24px; }
 .tile-with-icon { position: relative; }
 .tile-icon { position: absolute; top: 0.6rem; right: 0.75rem; color: var(--fb-muted); opacity: 0.6; }
-@media (max-width: 600px) {
-  .tiles-wide { grid-template-columns: 1fr; }
-}
+
+/* A section heading and the controls that belong to it: one row, controls on the right edge, wrapping under on a phone. */
+.section-head { min-height: 40px; margin-bottom: var(--gutter-half); }
+
 /* A safety net: any schema-less value dump inside a table cell stays a few lines tall and scrolls. */
 td .fb-state { max-height: 9rem; overflow: auto; }
+
+/*
+ * Dashboards: react-grid-layout positions the tiles; each tile fills its cell.
+ * The library's placeholder is red by default; ours is the accent, faint.
+ */
+.dash-grid { position: relative; min-height: 120px; }
+.dash-item { min-width: 0; min-height: 0; }
+.dash-item > .fb-tile { height: 100%; }
+.dash-grid .react-grid-item.react-grid-placeholder { background: var(--fb-accent); opacity: 0.15; border-radius: var(--fb-radius); }
+.dash-grid .react-grid-item > .react-resizable-handle { z-index: 2; }
+.dash-grid .react-grid-item > .react-resizable-handle::after { border-color: var(--fb-muted); }
+.dash-grid .react-grid-item > .react-resizable-handle-e::after, .dash-grid .react-grid-item > .react-resizable-handle-s::after { display: none; }
+.dash-grid .react-grid-item.react-draggable-dragging > .fb-tile { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); }
+/* Edit mode: the header is the handle, and the tile's edge says so. */
+.dash-editing .fb-tile-editing { border-style: dashed; }
+.dash-editing .fb-tile-drag { cursor: grab; user-select: none; }
+.dash-editing .fb-tile-drag:active, .dash-editing .react-draggable-dragging .fb-tile-drag { cursor: grabbing; }
+.dash-editing .fb-tile-editing .fb-tile-head { background: var(--fb-bg); }
+.fb-tile-grip { cursor: grab; }
+/* The tile's own content fills it. */
+.fb-fill { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.fb-chart-host > .fb-chart-wrap, .fb-loop-host > .fb-panel { flex: 1 1 auto; min-height: 0; }
+.fb-gauge-host { align-items: center; justify-content: center; }
+.fb-gauge-host-bar { justify-content: center; }
+.fb-gauge-host-bar > .fb-gauge { display: flex; width: 100%; }
+.fb-tile .fb-readout-value { font-size: clamp(1.4em, 9cqi, 2.6em); }
+.dash-widget-heading > .fb-tile-body { justify-content: flex-end; }
+.dash-widget-heading, .dash-widget-spacer, .dash-widget-link { background: transparent; border-color: transparent; }
+.dash-editing .dash-widget-heading, .dash-editing .dash-widget-spacer, .dash-editing .dash-widget-link { border-color: var(--fb-border); }
+.dash-widget-link > .fb-tile-body { padding: 0; }
+.dash-widget-link > .fb-tile-body > a { height: 100%; }
+/* Inside a tile, the loop faceplate's charts follow the tile, not the viewport. */
+.fb-tile .fb-loop.fb-loop-compact > .fb-loop-charts { grid-template-columns: minmax(0, 1fr); }
+.fb-tile .fb-actuator .fb-commands { grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr)); }

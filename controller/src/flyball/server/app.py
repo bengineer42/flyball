@@ -20,7 +20,9 @@ from flyball.core.errors import (
 from flyball.server.deps import current_rig
 from flyball.server.routes import (
     actuators_router,
+    dashboards_router,
     events_router,
+    export_router,
     history_router,
     library_router,
     loops_router,
@@ -103,6 +105,8 @@ def create_app() -> FastAPI:
     app.include_router(schema_router)
     app.include_router(sim_router)
     app.include_router(history_router)
+    app.include_router(export_router)
+    app.include_router(dashboards_router)
     app.include_router(library_router)
     app.include_router(telemetry_router)
     return app

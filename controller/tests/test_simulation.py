@@ -213,3 +213,45 @@ class TestLiveValues:
         oven.rig.clock.set_speed(50)
         time.sleep(0.15)
         assert oven.measured_speed() == pytest.approx(50, rel=0.2)
+
+
+def test_a_stall_resynchronises_the_poll_instead_of_bursting():
+    from threading import Event
+
+    from flyball.core.utils import PeriodicLoop
+    from flyball.sim import ScaledClock
+
+    calls = []
+    clock = ScaledClock(1)
+    loop = PeriodicLoop(lambda: calls.append(time.monotonic()), 0.01, False, clock=clock)
+    loop.start()
+    time.sleep(0.05)
+    # A stall: hold the callback... simplest is to sleep the thread through the callback.
+    loop._fn = lambda: (calls.append(time.monotonic()), time.sleep(0.2))  # noqa: SLF001
+    time.sleep(0.25)
+    loop._fn = lambda: calls.append(time.monotonic())  # noqa: SLF001
+    time.sleep(0.05)
+    loop.stop()
+    gaps = [b - a for a, b in zip(calls, calls[1:], strict=False)]
+    assert loop.missed >= 1, "the stall was noticed"
+    assert max(gaps) > 0.15 and sum(1 for g in gaps if g < 0.002) <= 2, "no burst after it"
+    assert Event  # keep the import: the test is about waiting
+
+
+def test_a_timed_activity_whose_wait_raises_fails_the_step(rig):
+    from flyball.programmer import Timed
+
+    class Broken:
+        def wait(self, event, timeout):
+            raise RuntimeError("clock gone")
+
+    rig.clock = Broken()  # type: ignore[assignment]
+    timed = Timed(1.0, name="t")
+    timed.attach(rig)
+    assert timed._event.wait(2) is True, "settled, not left pending"  # noqa: SLF001
+    assert isinstance(timed.error, RuntimeError)
+
+
+def test_save_is_atomic(oven, tmp_path):
+    out = oven.save(tmp_path / "o.toml")
+    assert out.exists() and not (tmp_path / "o.toml.tmp").exists()

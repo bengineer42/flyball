@@ -54,6 +54,7 @@ def serve(
     from flyball.programmer import Programmer
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
     from flyball.server.deps import set_programs_dir, set_store
+    from flyball.server.routes import dashboards
     from flyball.server.routes.library import import_directory
 
     programmer = Programmer(rig)
@@ -65,6 +66,10 @@ def serve(
     if store is not None and programs is not None and programs.is_dir():
         imported = import_directory(store, programs, rig.clock.now_ns())
         log.info("programs from %s: %d imported", programs, len(imported))
+    boards = None if programs is None else programs.parent / "dashboards"
+    if store is not None and boards is not None and boards.is_dir():
+        rows = dashboards.import_directory(store, boards, rig.name, rig.clock.now_ns())
+        log.info("dashboards from %s: %d imported", boards, len(rows))
     try:
         uvicorn.run(create_app(), host=host, port=port, log_level=log_level)
     finally:
@@ -74,8 +79,7 @@ def serve(
         set_simulation(None)
         set_programmer(None)
         set_rig(None)
-        rig.stop_recording()
-        rig.readers.stop_all()
+        rig.stop()  # polling, writers, recording
 
 
 def start(
@@ -98,6 +102,12 @@ def start_with_store(
 
     rig = config.build()
     store = SqliteStore(store_path)
+    # A session still open in the store was left by a daemon that died: close
+    # it at its last sample, or it would look live and overlap the next one.
+    for orphan in store.sessions():
+        if orphan.open:
+            store.end_session(orphan.id)
+            log.warning("closed session %d, left open by an earlier run", orphan.id)
     if record if record is not None else config.recording:
         rig.start_recording(store, config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)
@@ -114,7 +124,10 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--log-level", default="info")
     p.add_argument("--record", action="store_true", help="open a recording session on start")
     p.add_argument(
-        "--store", type=Path, default=Path("flyball.sqlite"), help="where sessions are kept"
+        "--store",
+        type=Path,
+        default=None,
+        help="where sessions are kept (default: '<rig>.sqlite' beside the rig file)",
     )
     p.add_argument(
         "--programs",
@@ -136,7 +149,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"flyball-daemon: {args.rig}: {e}", file=sys.stderr)
         return 2
     rig, store = start_with_store(
-        config, record=True if args.record else None, store_path=args.store
+        config,
+        record=True if args.record else None,
+        store_path=args.store if args.store is not None else args.rig.with_suffix(".sqlite"),
     )
     simulation = None
     if config.simulated:

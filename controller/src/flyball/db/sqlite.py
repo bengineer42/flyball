@@ -17,10 +17,11 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from flyball.core.errors import NotFoundError
+from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.reading import Channel, Measurand, Sample, Source
 
 from .errors import (
+    DashboardNotFoundError,
     NotDeclaredError,
     ProgramNotFoundError,
     SessionEndedError,
@@ -31,6 +32,7 @@ from .migrate import migrate
 from .types import (
     ActuatorRow,
     ChannelRow,
+    DashboardRow,
     Downsample,
     Event,
     LoopRow,
@@ -72,6 +74,17 @@ def _window_clause(window: Window | None, column: str) -> tuple[str, list[int]]:
         clauses.append(f"{column} < ?")
         params.append(window.end_ns)
     return "".join(f" AND {c}" for c in clauses), params
+
+
+def _dashboard_row(row: sqlite3.Row) -> DashboardRow:
+    return DashboardRow(
+        id=row["id"],
+        name=row["name"],
+        rig=row["rig"],
+        body=_loads(row["body"]),
+        created_ns=row["created_ns"],
+        sha256=row["sha256"],
+    )
 
 
 def _program_row(row: sqlite3.Row) -> ProgramRow:
@@ -179,7 +192,9 @@ class SqliteSessionWriter:
             )
             self._actuators.add(name)
 
-    def declare_loop(self, name: str, channel: Channel, config: Any = None) -> None:
+    def declare_loop(
+        self, name: str, channel: Channel, config: Any = None, feedforward: Any = None
+    ) -> None:
         self._open()
         if name in self._loops:
             return
@@ -190,14 +205,15 @@ class SqliteSessionWriter:
             raise NotDeclaredError("source", str(channel.source.name))
         with self._store._transaction() as connection:
             connection.execute(
-                "INSERT INTO loop (session_id, name, source_id, measurand_id, config)"
-                " VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO loop (session_id, name, source_id, measurand_id, config, feedforward)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     self._session.id,
                     name,
                     sid,
                     self._measurand_id(channel.measurand, connection),
                     _dumps(config),
+                    _dumps(feedforward),
                 ),
             )
             self._loops.add(name)
@@ -460,6 +476,7 @@ class SqliteStore:
                 actuators[r["name"]],
                 ChannelRow(sources[r["source_id"]], measurands[r["measurand_id"]]),
                 _loads(r["config"]),
+                _loads(r["feedforward"]),
             )
             for r in self._query(
                 "SELECT * FROM loop WHERE session_id = ? ORDER BY name", (session_id,)
@@ -711,5 +728,93 @@ class SqliteStore:
         with self._transaction() as connection:
             if connection.execute("DELETE FROM program WHERE name = ?", (name,)).rowcount == 0:
                 raise ProgramNotFoundError(name)
+
+    def rename_program(self, name: str, new_name: str) -> list[ProgramRow]:
+        if name == new_name:
+            return self.program_history(name)
+        with self._transaction() as connection:
+            taken = connection.execute(
+                "SELECT 1 FROM program WHERE name = ? LIMIT 1", (new_name,)
+            ).fetchone()
+            if taken is not None:
+                raise ConflictError(f"a program named {new_name!r} already exists")
+            moved = connection.execute(
+                "UPDATE program SET name = ? WHERE name = ?", (new_name, name)
+            ).rowcount
+            if moved == 0:
+                raise ProgramNotFoundError(name)
+        return self.program_history(new_name)
+
+    # endregion
+
+    # region Dashboards
+
+    def save_dashboard(self, name: str, rig: str, body: Any, created_ns: int) -> DashboardRow:
+        text = _dumps(body)
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO dashboard (name, rig, body, created_ns, sha256)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (name, rig, text, created_ns, digest),
+            )
+            return self.dashboard_version(cursor.lastrowid)  # type: ignore[arg-type]
+
+    def dashboard(self, name: str) -> DashboardRow:
+        rows = self._query(
+            "SELECT * FROM dashboard WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1",
+            (name,),
+        )
+        if not rows:
+            raise DashboardNotFoundError(name)
+        return _dashboard_row(rows[0])
+
+    def dashboard_version(self, dashboard_id: int) -> DashboardRow:
+        rows = self._query("SELECT * FROM dashboard WHERE id = ?", (dashboard_id,))
+        if not rows:
+            raise DashboardNotFoundError(f"#{dashboard_id}")
+        return _dashboard_row(rows[0])
+
+    def dashboards(self, rig: str | None = None) -> list[DashboardRow]:
+        newest = (
+            "SELECT d.* FROM dashboard d JOIN ("
+            " SELECT name, MAX(id) AS id FROM dashboard GROUP BY name"
+            ") newest ON newest.id = d.id"
+        )
+        rows = (
+            self._query(newest + " ORDER BY d.name")
+            if rig is None
+            else self._query(newest + " WHERE d.rig = ? ORDER BY d.name", (rig,))
+        )
+        return [_dashboard_row(r) for r in rows]
+
+    def dashboard_history(self, name: str) -> list[DashboardRow]:
+        return [
+            _dashboard_row(r)
+            for r in self._query(
+                "SELECT * FROM dashboard WHERE name = ? ORDER BY created_ns DESC, id DESC", (name,)
+            )
+        ]
+
+    def delete_dashboard(self, name: str) -> None:
+        with self._transaction() as connection:
+            if connection.execute("DELETE FROM dashboard WHERE name = ?", (name,)).rowcount == 0:
+                raise DashboardNotFoundError(name)
+
+    def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]:
+        if name == new_name:
+            return self.dashboard_history(name)
+        with self._transaction() as connection:
+            taken = connection.execute(
+                "SELECT 1 FROM dashboard WHERE name = ? LIMIT 1", (new_name,)
+            ).fetchone()
+            if taken is not None:
+                raise ConflictError(f"a dashboard named {new_name!r} already exists")
+            moved = connection.execute(
+                "UPDATE dashboard SET name = ? WHERE name = ?", (new_name, name)
+            ).rowcount
+            if moved == 0:
+                raise DashboardNotFoundError(name)
+        return self.dashboard_history(new_name)
 
     # endregion

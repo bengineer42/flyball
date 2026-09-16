@@ -38,3 +38,7 @@ build/
 examples/**/*.schema.json
 
 *.sqlite
+*.sqlite-*
+*.sqlite-wal
+*.sqlite-shm
+

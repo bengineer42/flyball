@@ -74,7 +74,7 @@ function SpeedControl({ sim }: { sim: SimulationHook }) {
   };
 
   return (
-    <Paper sx={{ p: 1.5, mb: 1.5 }} data-testid="speed-control">
+    <Paper sx={{ p: 2, mb: "16px" }} data-testid="speed-control">
       <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
         Time scale
       </Typography>
@@ -168,10 +168,12 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
   const names = Object.keys(plants);
   if (names.length === 0) return null;
   return (
-    <Paper sx={{ p: 1.5, mb: 1.5 }}>
+    <Paper sx={{ p: 2, mb: "16px" }}>
       <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.5 }}>
         Plants
       </Typography>
+      {/* Wide on purpose (one column per port); scrolls inside the card rather than the page on a phone. */}
+      <Box sx={{ overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -218,6 +220,7 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
           })}
         </TableBody>
       </Table>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
         Retune with <code>flyball sim plant &lt;name&gt; key=value</code> or <code>PUT /api/sim/plants/&lt;name&gt;</code>.
       </Typography>
@@ -260,7 +263,7 @@ function Faults() {
   const readers = Object.values(schema.data.readers).filter((r) => Object.values(r.commands).some((c) => c.simulation));
   if (!actuators.length && !readers.length) return null;
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+    <Paper variant="outlined" sx={{ p: 2, mb: "16px" }}>
       <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1 }}>
         Faults and disturbances
       </Typography>
@@ -297,13 +300,13 @@ export function Simulation() {
   const simulation = sim.simulation!;
   return (
     <>
-      <Stack direction="row" spacing={1} alignItems="baseline" sx={{ mb: 1.5 }}>
+      <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap" useFlexGap sx={{ mb: "16px" }}>
         <Typography variant="h1" component="h1">
           Simulation
         </Typography>
         {simulation.name && <Chip size="small" label={simulation.name} />}
         {simulation.path && (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere", minWidth: 0 }}>
             from <code>{simulation.path}</code>
             {simulation.changed.length > 0 && ` · unsaved: ${simulation.changed.join(", ")}`}
           </Typography>

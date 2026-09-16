@@ -162,6 +162,8 @@ class PyMeasureActuatorState(ActuatorState):
 class PyMeasureActuator(Actuator):
     """One writable property (a `control` or `setting`) as the loop's actuator."""
 
+    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
+
     def __init__(self, name: str, instrument: Any, attribute: str, unit: str | None = None) -> None:
         super().__init__(name)
         prop = properties(instrument).get(attribute)

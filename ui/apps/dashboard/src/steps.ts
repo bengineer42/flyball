@@ -13,6 +13,7 @@ export interface NormalisedStep {
 
 export interface NormalisedProgram {
   name?: string;
+  description?: string;
   steps: NormalisedStep[];
 }
 
@@ -21,7 +22,7 @@ export function normalisedOf(check: ProgramCheck | undefined): NormalisedProgram
   const n = check?.normalised as Partial<NormalisedProgram> | null | undefined;
   if (!n || !Array.isArray(n.steps)) return null;
   const steps = n.steps.filter((s): s is NormalisedStep => Boolean(s && typeof s === "object" && s.command && typeof s.command === "object" && typeof (s.command as { command?: unknown }).command === "string"));
-  return { name: typeof n.name === "string" ? n.name : undefined, steps };
+  return { name: typeof n.name === "string" ? n.name : undefined, description: typeof n.description === "string" ? n.description : undefined, steps };
 }
 
 /** The argument schema of `tag` from `GET /api/programs/commands`: the discriminator's mapping, else the variant whose `command` is that const. */

@@ -1,6 +1,8 @@
 export { RigProvider, useRig, type RigProviderProps } from "./provider.js";
 export { useQuery, type QueryState } from "./hooks/useQuery.js";
 export { useStream, type StreamStatus } from "./hooks/useStream.js";
+export { useSignals } from "./hooks/useSignals.js";
+export { SignalPrompt, type SignalPromptProps } from "./panels/SignalPrompt.js";
 export { useRigSchema, useHealth, useDeviceView, useActuatorStates, useCommands, type CommandRunner } from "./hooks/useDevices.js";
 export { SchemaForm, type SchemaFormProps } from "./form/SchemaForm.js";
 export { widgets, UnitNumberWidget, SliderNumberWidget, ToggleWidget, SegmentedWidget } from "./form/widgets.js";
@@ -21,7 +23,7 @@ export { MultiSeries, type MultiSeriesProps, type MultiSeriesTrace } from "./pan
 export { LoopPanel, type LoopPanelProps } from "./panels/LoopPanel.js";
 export { EventsPanel, EVENT_LEVELS, type EventsPanelProps } from "./panels/EventsPanel.js";
 export { useSession, useRecording, type SessionDetail, type SessionTrace } from "./hooks/useSession.js";
-export { SessionPanel, type SessionPanelProps } from "./panels/SessionPanel.js";
+export { SessionPanel, type SessionPanelProps, type SessionExports, type SessionDownload } from "./panels/SessionPanel.js";
 export { LinksProvider, Ref, useHref, type HrefFor, type RefKind } from "./links.js";
 export { UnitCharts, groupByUnit, type UnitChartsProps } from "./panels/UnitCharts.js";
 export { DevicePanel, type DevicePanelProps } from "./panels/DevicePanel.js";
@@ -30,3 +32,8 @@ export { yRange, type YScale } from "./panels/yscale.js";
 export { thin } from "./panels/thin.js";
 export { navigation, type Navigation } from "./panels/navigation.js";
 export { ChartToolbar, type ChartToolbarProps } from "./panels/ChartToolbar.js";
+export { ChartOverlay, plotHeight, type ChartOverlayProps } from "./panels/ChartOverlay.js";
+export { download, saveTable, seriesTable, toCsv, toJson, isoTime, fileName, type Table, type TraceLike } from "./panels/download.js";
+export { Tile, type TileProps } from "./panels/Tile.js";
+export { useVisible } from "./hooks/useVisible.js";
+export { useDashboards } from "./hooks/useDashboards.js";

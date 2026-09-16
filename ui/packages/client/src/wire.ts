@@ -70,6 +70,8 @@ export interface ReadingOut {
 
 export interface SourceOut {
   name: string;
+  /** A display name (`"Zone 1 (entry)"`); null when the rig gave none, in which case show `name`. */
+  label: string | null;
   channels: ChannelOut[];
   latest: SampleOut | null;
 }
@@ -105,6 +107,8 @@ export interface CommandSchema {
 export interface DeviceSchema {
   name: string;
   type: string;
+  /** A display name; null when the rig gave none, in which case show `name`. Also `config.label` on the device's view. */
+  label: string | null;
   description: string | null;
   config: JsonSchema;
   settings: JsonSchema;
@@ -156,14 +160,36 @@ export interface LawConfig {
   [gain: string]: unknown;
 }
 
+/**
+ * What maps the setpoint into the actuator's unit before the law corrects:
+ * `demand = feedforward(setpoint) + correction`. `setpoint` passes it
+ * through (the units agree), `none` gives 0 (the law does all the work),
+ * `affine` is `gain * setpoint + bias`, `table` interpolates `(setpoint,
+ * demand)` breakpoints, held flat beyond the ends.
+ */
+export type FeedforwardConfig =
+  | { tag: "setpoint" }
+  | { tag: "none" }
+  | { tag: "affine"; gain: number; bias?: number }
+  | { tag: "table"; points: Array<[number, number]> }
+  | { tag: string; [arg: string]: unknown };
+
 export interface LoopOut {
   name: string;
+  /** A display name (the actuator's); null when the rig gave none, in which case show `name`. */
+  label: string | null;
   channel: ChannelOut;
   default: boolean;
   mode: LoopMode;
   law: Record<string, unknown>;
+  /** What the loop asks for before the law corrects: the setpoint mapped into the actuator's unit. */
+  feedforward: FeedforwardConfig;
+  /** The unit `demand`, `expected` and `correction` are in: the actuator's, or the channel's when it has none. */
+  demand_unit: string;
   /** A fixed setpoint, or the name of the trajectory generator being followed (a ramp). */
   reference: number | string | null;
+  /** The reference resolved at the last tick, in the channel's unit: a ramp's current value. Null before the first tick or with no reference. */
+  setpoint: number | null;
   correction: number | null;
   demand: number | null;
   expected: number | null;
@@ -179,6 +205,8 @@ export interface SignalState {
   outcome: SignalOutcome;
   since_ns: Nanoseconds;
   timeout_s: number | null;
+  /** Waiting on a person (a program's `wait`): only these deserve a button. A hold or an arrival settles by itself. */
+  prompt: boolean;
 }
 
 export interface SessionRow {
@@ -273,21 +301,28 @@ export interface ActuatorRow {
   config: unknown;
 }
 
+/** A loop is named by the actuator it drives; the store row carries no `name` of its own. */
 export interface LoopRow {
   name?: string;
   actuator: ActuatorRow;
   channel: ChannelRow;
   config: unknown;
+  /** The feedforward's config; null in sessions recorded before there was one. */
+  feedforward?: unknown;
 }
 
 export interface Tick {
   loop: string;
   offset_ns: Nanoseconds;
   mode: string;
+  /** The law's share of the demand, in the actuator's unit. */
   correction: number;
   reading: number | null;
+  /** The setpoint resolved at this tick, in the channel's unit (a ramp's value, not its name). */
   setpoint: number | null;
   demand: number | null;
+  expected?: number | null;
+  delivered_correction?: number | null;
 }
 
 export interface SessionEvent {
@@ -350,10 +385,18 @@ export interface ProgrammerState {
 export interface ActuatorChoice {
   name: string;
   type: string;
-  /** null: takes any channel; else only channels in this unit. */
+  /** null: demands are in the channel's unit; else the unit its demands are in, and a feedforward bridges the two. */
   demand_unit: string | null;
-  /** `source.measurand` names this actuator may regulate. */
+  /** `source.measurand` names this actuator may regulate: every channel, since a feedforward bridges units. */
   channels: string[];
+}
+
+/** A stored tuning as the loop form offers it: its name, the law it is for, and the gains. */
+export interface TuningChoice {
+  name: string;
+  /** The law's tag (`PI`, `PID`, ...), so a form can offer the tunings for one law. */
+  law: string;
+  config: LawConfig;
 }
 
 /** `GET /api/loops/schema`: what a form needs to make a loop on this rig right now. */
@@ -362,7 +405,9 @@ export interface LoopSchema {
   actuators: ActuatorChoice[];
   /** JSON Schema of the law config union, discriminated on `tag`. */
   laws: JsonSchema;
-  tunings: string[];
+  /** JSON Schema of the feedforward config union, discriminated on `tag`. */
+  feedforwards: JsonSchema;
+  tunings: TuningChoice[];
   /** channel name → the loop already regulating it. */
   regulated: Record<string, string>;
 }
@@ -371,6 +416,12 @@ export interface NewLoop {
   channel: string;
   actuator: string;
   law?: LawConfig | string | null;
+  /**
+   * A config, or a tag alone (`"setpoint"`). Omitted: `setpoint` when the
+   * actuator takes the channel's unit, else `none`. `"setpoint"` across
+   * differing units is refused (409).
+   */
+  feedforward?: FeedforwardConfig | string | null;
   default?: boolean;
   min_period_s?: number | null;
 }

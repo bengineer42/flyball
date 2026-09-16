@@ -44,9 +44,25 @@ def read_reader_schema(rig: RigDep, name: str) -> dict[str, Any]:
     return device_schema(reader, sources=[source_schema(s) for s in reader.sources])
 
 
+@router.post("/{name}/restart")
+def restart_reader(rig: RigDep, name: str) -> dict[str, Any]:
+    """Poll an offline reader again on its period, after whatever was wrong has been put right."""
+    rig.readers.restart(name)
+    return _view(rig, name)
+
+
+# After `restart`: a fixed path must be declared before the catch-all command route.
 @router.post("/{name}/{command}")
 def run_command(
     rig: RigDep, name: str, command: str, body: Annotated[dict[str, Any] | None, Body()] = None
 ) -> Any:
-    """Call the marked method with the validated body; respond with whatever it returns."""
-    return run(rig.readers.get(name), command, body)
+    """Call the marked method with the validated body; respond with whatever it returns.
+
+    A command that succeeds on an offline reader is taken as the fix
+    (`restore`, a reset, a reconnect): polling starts again, and a reader
+    still broken simply goes offline again with a fresh event.
+    """
+    result = run(rig.readers.get(name), command, body)
+    if not rig.readers.run(name).running and rig.readers.run(name).period_s is not None:
+        rig.readers.restart(name)
+    return result

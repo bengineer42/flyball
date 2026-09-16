@@ -14,7 +14,7 @@ from typing import Annotated, Any, Union
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, TypeAdapter
 
-from flyball.control import ControlLaws
+from flyball.control import ControlLaws, Feedforwards
 from flyball.control.types import Transfer, ValueSource
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.reading import Measurand, Source
@@ -28,6 +28,10 @@ LawConfig = Annotated[  # type: ignore[valid-type]
     Union[tuple(law.config for law in ControlLaws.values())],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
 ]
+FeedforwardConfig = Annotated[  # type: ignore[valid-type]
+    Union[tuple(ff.config for ff in Feedforwards.values())],  # ruff: ignore[non-pep604-annotation-union]
+    Field(discriminator="tag"),
+]
 
 
 class NewLoop(BaseModel):
@@ -36,6 +40,8 @@ class NewLoop(BaseModel):
     channel: str
     actuator: str
     law: LawConfig | str | None = None  # type: ignore[valid-type]
+    feedforward: FeedforwardConfig | str | None = None  # type: ignore[valid-type]
+    """A config or a tag. Omitted: ``setpoint`` when the units agree, else ``none``."""
     default: bool = False
     min_period_s: Positive | None = None
 
@@ -56,9 +62,16 @@ class ActuatorChoice(BaseModel):
     name: str
     type: str
     demand_unit: str | None
-    """None: takes any channel. Else only channels in this unit."""
+    """None: takes any channel's unit. Else the unit its demands are in."""
     channels: list[str]
-    """The channels this actuator may regulate, as ``source.measurand``."""
+    """The channels this actuator may regulate, as ``source.measurand``: all of them."""
+
+
+class TuningChoice(BaseModel):
+    name: str
+    law: str
+    """The law's tag, so a form can offer the tunings for one law."""
+    config: dict[str, Any]
 
 
 class LoopSchema(BaseModel):
@@ -68,7 +81,9 @@ class LoopSchema(BaseModel):
     actuators: list[ActuatorChoice]
     laws: dict[str, Any]
     """JSON Schema of the law config union, discriminated on ``tag``."""
-    tunings: list[str]
+    feedforwards: dict[str, Any]
+    """JSON Schema of the feedforward config union, discriminated on ``tag``."""
+    tunings: list[TuningChoice]
     """Stored tunings a loop may name instead of a config."""
     regulated: dict[str, str]
     """Channels already regulated, and by which loop."""
@@ -90,16 +105,13 @@ def _out(rig: RigDep, name: str) -> LoopOut:
 @router.get("/schema")
 async def read_loop_schema(rig: RigDep) -> LoopSchema:
     channels = [ChannelOut.of(ch) for source in rig.sources for ch in source.channels]
-    by_unit: dict[str | None, list[str]] = {}
-    for c in channels:
-        by_unit.setdefault(c.unit, []).append(f"{c.source}.{c.measurand}")
     every = [f"{c.source}.{c.measurand}" for c in channels]
     actuators = [
         ActuatorChoice(
             name=a.name,
             type=type(a).__name__,
             demand_unit=a.demand_unit.symbol if a.demand_unit is not None else None,
-            channels=every if a.demand_unit is None else by_unit.get(a.demand_unit.symbol, []),
+            channels=every,
         )
         for a in rig.actuators.values()
     ]
@@ -107,7 +119,11 @@ async def read_loop_schema(rig: RigDep) -> LoopSchema:
         channels=channels,
         actuators=actuators,
         laws=TypeAdapter(LawConfig).json_schema(),
-        tunings=list(rig.tunings.all()),
+        feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
+        tunings=[
+            TuningChoice(name=name, law=config.tag, config=config.model_dump(mode="json"))
+            for name, config in rig.tunings.all().items()
+        ],
         regulated={ch.name: loop.name for ch, loop in rig.loops.entries()},
     )
 
@@ -129,6 +145,7 @@ def make_loop(rig: RigDep, body: NewLoop) -> LoopOut:
             law=law,
             default=body.default,
             min_period_s=body.min_period_s,
+            feedforward=body.feedforward,
         )
     return _out(rig, body.actuator)
 

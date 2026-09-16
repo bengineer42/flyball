@@ -54,6 +54,7 @@ def test_steps_after_a_wait_run_on_the_worker_and_a_failure_there_is_an_event(ri
     programmer.start(Program([Note("a"), Wait("go", name="go"), Note("b"), Note("boom")], name="p"))
     assert seen == ["a"] and programmer.state.step == 1 and programmer.state.command == "wait"
     assert "go" in rig.signals.states()
+    assert rig.signals.states()["go"].prompt is True, "a wait is answered by a person"
     rig.signals.fire("go")
     programmer.join(2)
     assert seen == ["a", "b"] and programmer.running is False
@@ -139,3 +140,15 @@ def test_arrive_waits_for_a_subset_of_loops_and_ramp_can_be_non_blocking():
     deliver(src_a, 59.8)
     programmer.join(2)
     assert programmer.running is False
+
+
+def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
+    from flyball.core.clock import Duration
+    from flyball.programmer.loops import Hold
+
+    Note, seen = note
+    programmer = Programmer(rig)
+    programmer.start(Program([Hold(Duration(60)), Note("after")]))
+    (state,) = rig.signals.states().values()
+    assert state.prompt is False, "a hold settles on its own; nobody should be asked"
+    programmer.start(Note("instead"), interrupt=True)

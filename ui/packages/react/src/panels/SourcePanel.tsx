@@ -7,7 +7,8 @@ import { Ref } from "../links.js";
 export interface SourcePanelProps {
   source: SourceOut;
   traces: Traces;
-  height?: number;
+  /** Plot height per channel, or `"auto"` to follow the width. */
+  height?: number | "auto";
   /** Seconds of history each chart shows; charts scroll once it is full. */
   windowS?: number;
   /** Rendered at the end of the header: a window selector, for instance. */
@@ -16,17 +17,20 @@ export interface SourcePanelProps {
   yScale?: YScale;
   /** Draw one point in `every`. */
   every?: number;
+  /** Where the store holds a channel, as an export URL; each chart's download menu offers it. */
+  exportHref?(channel: SourceOut["channels"][number]): string | undefined;
 }
 
 /** One source: a chart per channel, latest value in the heading. Pure; `useSamples` supplies the traces. */
-export function SourcePanel({ source, traces, height, windowS, controls, yScale, every }: SourcePanelProps) {
+export function SourcePanel({ source, traces, height, windowS, controls, yScale, every, exportHref }: SourcePanelProps) {
   const first = source.channels[0] && traces[channelKey(source.channels[0])];
   const lastT = first && first.t.length ? first.t[first.t.length - 1]! : undefined;
   return (
     <article className="fb-panel fb-source">
       <header className="fb-source-head">
-        <h3><Ref kind="source" name={source.name} /></h3>
+        <h3><Ref kind="source" name={source.name}>{source.label ?? source.name}</Ref></h3>
         <span className="fb-muted">
+          {source.label && `${source.name} · `}
           {source.channels.length} channel{source.channels.length === 1 ? "" : "s"}
           {lastT !== undefined && ` · last sample ${new Date(lastT * 1000).toLocaleTimeString()}`}
         </span>
@@ -43,7 +47,7 @@ export function SourcePanel({ source, traces, height, windowS, controls, yScale,
                 {last === undefined ? "—" : `${last.toFixed(c.precision ?? 2)} ${c.unit}`}
               </span>
             </h4>
-            <TimeSeries channel={c} t={trace?.t ?? []} v={trace?.v ?? []} height={height} windowS={windowS} yScale={yScale} every={every} />
+            <TimeSeries channel={c} t={trace?.t ?? []} v={trace?.v ?? []} height={height} windowS={windowS} yScale={yScale} every={every} exportHref={exportHref?.(c)} />
           </section>
         );
       })}

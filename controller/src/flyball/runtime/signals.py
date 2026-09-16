@@ -23,6 +23,8 @@ class SignalState:
     outcome: Outcome
     since_ns: int
     timeout_s: float | None
+    prompt: bool = False
+    """Waiting on a person: only these deserve a button. The rest settle on their own."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,13 +49,22 @@ class Signals:
         signal: Signal,
         message: str | None = None,
         timeout_s: float | None = None,
+        prompt: bool = False,
     ) -> SignalState:
         """Name a signal while something waits on it.
+
+        Args:
+            name: What it is fired by: `POST /api/signals/{name}/fire`.
+            signal: What is waited on.
+            message: What the wait is for, for a person.
+            timeout_s: When the wait gives up, if it does.
+            prompt: Nothing but a person (or an external trigger) fires it,
+                so a UI should ask. A hold or an arrival settles on its own.
 
         Raises:
             ConflictError: `name` is already waiting on something else.
         """
-        state = SignalState(name, message, signal.outcome, self._clock.now_ns(), timeout_s)
+        state = SignalState(name, message, signal.outcome, self._clock.now_ns(), timeout_s, prompt)
         with self._lock:
             if (existing := self._entries.get(name)) is not None and existing.signal is not signal:
                 raise ConflictError(f"Signal {name!r} is already pending")
@@ -80,6 +91,7 @@ class Signals:
                 signal.outcome,
                 entry.state.since_ns,
                 entry.state.timeout_s,
+                entry.state.prompt,
             )
             self._entries[name] = _Entry(signal, state)
         self.latest.set(name, state)

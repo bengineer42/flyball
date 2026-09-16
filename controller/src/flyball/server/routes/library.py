@@ -192,6 +192,16 @@ async def delete_program(store: StoreDep, name: str) -> None:
     store.delete_program(name)
 
 
+class Rename(BaseModel):
+    name: str
+
+
+@router.post("/{name}/rename")
+async def rename_program(store: StoreDep, name: str, body: Rename) -> list[ProgramRow]:
+    """Move the program -- every version, its whole history -- under a new name. 409 if taken."""
+    return store.rename_program(name, body.name)
+
+
 @router.post("/{name}/run")
 def run_stored(
     store: StoreDep,

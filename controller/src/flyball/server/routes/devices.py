@@ -84,6 +84,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
     cls = type(device)
     return {
         "name": device.name,
+        "label": device.label,
         "type": cls.__name__,
         "description": cls.__doc__.strip().splitlines()[0] if cls.__doc__ else None,
         **extra,

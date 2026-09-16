@@ -10,6 +10,7 @@ run starts from them.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -338,7 +339,10 @@ class Simulation:
         if target.suffix.lower() not in SUFFIXES:
             raise ValueError(f"{target}: use one of {', '.join(SUFFIXES)}")
         document = self.config_document()
-        target.write_text(dumps(document, target.suffix))
+        text = dumps(document, target.suffix)
+        partial = target.with_name(target.name + ".tmp")  # a crash mid-write leaves the old file
+        partial.write_text(text)
+        os.replace(partial, target)
         self.document = document  # what is on disk is now the baseline
         self.path = target
         self._changed.clear()

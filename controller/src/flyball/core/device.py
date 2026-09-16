@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, ClassVar, get_type_hints, overload
 
-from pydantic import TypeAdapter
+from pydantic import Field, TypeAdapter
 from pydantic.errors import (
     PydanticInvalidForJsonSchema,
     PydanticSchemaGenerationError,
@@ -93,7 +93,16 @@ class DeviceSettings:
 
 
 class DeviceConfig[D: "Device"](Config[D]):
-    """What a device is built from, and what builds it."""
+    """What a device is built from, and what builds it.
+
+    `label` is for people; `name` stays the identifier routes, programs and
+    sessions use, so renaming what a heater is called on screen changes
+    nothing that refers to it.
+    """
+
+    label: str | None = Field(
+        default=None, description="A display name, e.g. 'Zone 1 heater'; `name` is the identifier."
+    )
 
     def build(self) -> D:
         raise NotImplementedError(f"{type(self).__name__} cannot build a device")
@@ -202,6 +211,8 @@ class Device:
     """
 
     name: str
+    label: str | None = None
+    """A display name, from the rig file; None: show `name`."""
     config_type: ClassVar[type[DeviceConfig[Any]]] = DeviceConfig
     settings_type: ClassVar[type[DeviceSettings]] = DeviceSettings
     state_type: ClassVar[type[DeviceState]] = DeviceState

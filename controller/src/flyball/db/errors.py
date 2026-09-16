@@ -20,6 +20,11 @@ class ProgramNotFoundError(StoreError, NotFoundError):
         super().__init__(f"Program {name!r} not found")
 
 
+class DashboardNotFoundError(StoreError, NotFoundError):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Dashboard {name!r} not found")
+
+
 class SessionEndedError(StoreError, ConflictError):
     def __init__(self, session_id: int) -> None:
         super().__init__(f"Session {session_id} has ended; nothing more can be written to it")

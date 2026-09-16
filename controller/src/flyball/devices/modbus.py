@@ -139,6 +139,8 @@ class ModbusActuatorState(ActuatorState):
 class ModbusActuator(Actuator):
     """Writes one register from the loop's demand."""
 
+    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
+
     def __init__(self, name: str, link: RegisterLink, register: Register, unit_id: int = 1) -> None:
         super().__init__(name)
         self.link = link

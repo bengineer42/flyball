@@ -16,6 +16,7 @@ from flyball.core.reading import Channel, Sample, Source
 from .types import (
     ActuatorRow,
     ChannelRow,
+    DashboardRow,
     Downsample,
     Event,
     LoopRow,
@@ -49,7 +50,9 @@ class SessionWriter(Protocol):
         """Idempotent."""
         ...
 
-    def declare_loop(self, name: str, channel: Channel, config: Any = None) -> None:
+    def declare_loop(
+        self, name: str, channel: Channel, config: Any = None, feedforward: Any = None
+    ) -> None:
         """`name` is the actuator's, which must already be declared."""
         ...
 
@@ -233,6 +236,38 @@ class Store(Protocol):
     def delete_program(self, name: str) -> None:
         """Every version."""
         ...
+
+    def rename_program(self, name: str, new_name: str) -> list[ProgramRow]:
+        """Move every version of `name` under `new_name`; the history comes with it.
+
+        Raises [ProgramNotFoundError][flyball.db.errors.ProgramNotFoundError] when
+        there is nothing under `name`, and `ConflictError` when `new_name` is taken.
+        """
+        ...
+
+    # endregion
+
+    # region Dashboards
+
+    def save_dashboard(self, name: str, rig: str, body: Any, created_ns: int) -> DashboardRow:
+        """Add a version under `name`. Earlier versions stay; `dashboard` is the newest."""
+        ...
+
+    def dashboard(self, name: str) -> DashboardRow: ...
+
+    def dashboard_version(self, dashboard_id: int) -> DashboardRow: ...
+
+    def dashboards(self, rig: str | None = None) -> list[DashboardRow]:
+        """Newest version of every name, by name; for one rig when given."""
+        ...
+
+    def dashboard_history(self, name: str) -> list[DashboardRow]: ...
+
+    def delete_dashboard(self, name: str) -> None:
+        """Every version."""
+        ...
+
+    def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]: ...
 
     # endregion
 

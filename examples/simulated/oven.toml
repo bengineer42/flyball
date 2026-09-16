@@ -21,6 +21,7 @@ period_s = 1.0
 [readers.device]
 tag = "sim_reader"
 name = "thermocouple"
+label = "Oven thermocouple"
 link = "chamber"
 measurand = "temperature"
 unit = "°C"
@@ -32,6 +33,7 @@ alarm = [10, 110]   # outside: an alarm (EPICS LOLO/HIHI)
 [[actuators]]
 tag = "sim_actuator"
 name = "heater"
+label = "Oven heater"
 link = "chamber"
 limits = [0.0, 1.0]  # duty: off to full
 

@@ -139,3 +139,30 @@ def test_import_directory_imports_new_and_changed_files_only(client, tmp_path):
         assert len(client.get("/api/programs/library/firing/history").json()) == 2
     finally:
         set_programs_dir(None)
+
+
+def test_rename_moves_every_version(client):
+    client.put(
+        "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
+    )
+    client.put(
+        "/api/programs/library/dry",
+        content=YAML + "# v2\n",
+        headers={"content-type": "application/yaml"},
+    )
+    client.put(
+        "/api/programs/library/other", content=YAML, headers={"content-type": "application/yaml"}
+    )
+    assert (
+        client.post("/api/programs/library/dry/rename", json={"name": "other"}).status_code == 409
+    )
+    moved = client.post("/api/programs/library/dry/rename", json={"name": "wet"})
+    assert moved.status_code == 200 and len(moved.json()) == 2
+    assert client.get("/api/programs/library/dry").status_code == 404
+    assert [r["name"] for r in client.get("/api/programs/library/wet/history").json()] == [
+        "wet",
+        "wet",
+    ]
+    assert (
+        client.post("/api/programs/library/nothing/rename", json={"name": "x"}).status_code == 404
+    )

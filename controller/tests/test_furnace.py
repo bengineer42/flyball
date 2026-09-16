@@ -32,7 +32,12 @@ class TestFurnace:
         # A heater cannot cool: the feedforward says so by going negative, so the
         # actuator clamps to zero drive and reports ambient as what it can hold.
         assert furnace.feedforward("heater1", -50) < 0.0
-        assert furnace.inverse_feedforward("heater1", 0.0) == pytest.approx(furnace.ambient, abs=0.01)
+        assert furnace.inverse_feedforward("heater1", 0.0) == pytest.approx(
+            furnace.ambient, abs=0.01
+        )
+        assert furnace.feedforward("heater1", -8000) < furnace.feedforward("heater1", -50) < 0.0, (
+            "monotonic below ambient: a wound-up law cannot switch the heater back on"
+        )
         assert furnace.inverse_feedforward("heater1", furnace.feedforward("heater1", 500)) == (
             pytest.approx(500, abs=0.01)
         )

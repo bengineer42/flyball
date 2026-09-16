@@ -1,23 +1,24 @@
 # The loop in detail
 
-`Loop[A: Actuator]` is one channel, one law, one actuator, one reference.
-This chapter is the arithmetic; [The loop](../1-concepts/loop.md) is the
-shape.
+`Loop[A: Actuator]` is one channel, one law, one actuator, one reference,
+and one feedforward. This chapter is the arithmetic;
+[The loop](../1-concepts/loop.md) is the shape.
 
 ## State
 
 | field | is |
 | --- | --- |
 | `reference` | a float, or a `SetPointGenerator` evaluated at each tick's instant |
-| `correction` | what the law last produced |
-| `demand` | `setpoint + correction`, what the actuator was last told |
+| `correction` | what the law last produced, in the actuator's unit |
+| `demand` | `feedforward(setpoint) + correction`, what the actuator was last told |
 | `expected` | what the actuator said it would deliver, or `None` |
-| `delivered_correction` | `expected − setpoint`; fed back to the law as anti-windup |
+| `delivered_correction` | `expected − feedforward(setpoint)`; fed back to the law as anti-windup |
 | `mode` | `manual`, `open`, `regulating` |
 | `reading` | the last reading on the channel |
 | `offset_ns` | the law's clock origin; `elapsed` is measured from here |
 
-`LoopSettings` (the law's config, `offset_ns`) changes only on a retune;
+`LoopSettings` (the law's config, the feedforward's, the actuator's
+`demand_unit`, `offset_ns`) changes only on a retune;
 `LoopState` (everything above) changes every tick. `LoopView` joins them. The
 telemetry cells carry the state per tick and join the settings on at flush,
 so a retune shows without the tick paying for it.
@@ -34,10 +35,33 @@ def tick(self, reading):
             self.correction = self.law.step(
                 self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
             )
-        self.demand = setpoint + self.correction
+        base = self.feedforward(setpoint)
+        self.demand = base + self.correction
         self.expected = self.actuator.set_demand(self.demand)
-        self.delivered_correction = None if self.expected is None else self.expected - setpoint
+        self.delivered_correction = None if self.expected is None else self.expected - base
 ```
+
+## The feedforward
+
+The feedforward is the open-loop guess: the demand, in the *actuator's*
+unit, that ought to hold the setpoint, which is in the *channel's*. The law
+corrects the rest, so its gains are in actuator units per channel unit
+(watts per °C on a bare heater; °C per °C on a packaged controller that
+takes a temperature). Feedforwards are tagged and self-describing like laws
+(`Feedforward` in `flyball.control.feedforward`; subclassing generates the
+config and registers the tag), and a rig file names one per loop:
+
+| tag | `demand =` | for |
+| --- | --- | --- |
+| `setpoint` | `setpoint` | an actuator that takes the channel's unit; the default when the units agree |
+| `none` | `0` | a bare actuator under PID; the default when they differ |
+| `affine` | `gain · setpoint + bias` | a plant that is linear near one point |
+| `table` | interpolated `(setpoint, demand)` points, flat past the ends | a static curve measured at commissioning |
+
+`attach_loop` refuses `setpoint` when the units differ: handing a heater
+"300" meaning °C when it reads watts would run happily and do nonsense.
+The bumpless seed on `regulate` is `held − feedforward(setpoint)`, so a
+handover from manual holds the output whatever the units.
 
 `to_law_time` is `(time_ns − offset_ns) / 1e9`: seconds since the law's own
 start. The law keeps no clock; it derives its interval from the previous

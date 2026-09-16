@@ -18,6 +18,7 @@ period_s = 0.5
 [readers.device]
 tag = "sim_reader"
 name = "level"
+label = "Tank level"
 link = "tank"
 measurand = "volume"
 unit = "L"
@@ -27,6 +28,7 @@ precision = 1
 [[actuators]]
 tag = "sim_actuator"
 name = "valve"
+label = "Inlet valve"
 link = "tank"
 limits = [0.0, 1.0]
 

@@ -21,23 +21,23 @@ export const clickThrough = (href: string | undefined) => (e: MouseEvent) => {
 /** The look of a surface that opens a page when clicked. */
 export const clickableSx = { cursor: "pointer", transition: "border-color 120ms, background-color 120ms", "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" } } as const;
 
-/** A device card: name (a link to its page), type, a status chip at the end, then the body. The whole card opens the page when it has one. */
-export function DeviceCard({ icon: Icon, name, href, type, chip, children, footer }: { icon: IconComponent; name: string; href?: string; type: string; chip: ReactNode; children: ReactNode; footer?: ReactNode }) {
+/** A device card: label (a link to its page) with the name beside it when they differ, type, a status chip at the end, then the body. The whole card opens the page when it has one. */
+export function DeviceCard({ icon: Icon, name, label, href, type, chip, children, footer, className }: { icon: IconComponent; name: string; label?: string | null; href?: string; type: string; chip: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
-    <Paper sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
+    <Paper className={className} sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1, minWidth: 0, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
       <Stack direction="row" alignItems="center" spacing={1}>
         <Icon fontSize="small" sx={{ color: "text.disabled" }} />
         <Typography fontWeight={600}>
           {href ? (
             <Link href={href} underline="hover" color="inherit">
-              {name}
+              {label ?? name}
             </Link>
           ) : (
-            name
+            label ?? name
           )}
         </Typography>
         <Typography variant="body2" color="text.secondary" noWrap>
-          {type}
+          {label ? `${name} · ${type}` : type}
         </Typography>
         <Box sx={{ ml: "auto !important" }}>{chip}</Box>
       </Stack>
@@ -52,20 +52,22 @@ export function DeviceCard({ icon: Icon, name, href, type, chip, children, foote
 }
 
 /** A reader: run state, one row per source it declares with its measurands as chips, read period and last read. */
-export function ReaderCard({ reader, run, link = true }: { reader: ReaderSchema; run: Partial<ReaderRun> | undefined; link?: boolean }) {
+export function ReaderCard({ reader, run, link = true, className }: { reader: ReaderSchema; run: Partial<ReaderRun> | undefined; link?: boolean; className?: string }) {
   const footer = run
     ? [run.period_s != null && `every ${run.period_s} s`, run.last_read_ns != null && `last read ${clock(run.last_read_ns)}`].filter(Boolean).join(" · ")
     : null;
   return (
     <DeviceCard
+      className={className}
       icon={SourceIcon}
       name={reader.name}
+      label={reader.label}
       href={link ? hrefFor({ kind: "reader", name: reader.name }) : undefined}
       type={reader.type}
       chip={
         <Chip
           label={run ? (run.running ? "running" : "stopped") : "…"}
-          color={run ? (run.running ? "success" : "warning") : "default"}
+          color={run && !run.running ? "warning" : "default"}
           variant="outlined"
         />
       }

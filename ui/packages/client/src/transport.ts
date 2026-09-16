@@ -20,6 +20,8 @@ export interface Response {
   status: number;
   /** Parsed JSON, or `undefined` for an empty body. */
   json: unknown;
+  /** The body as text when it was not JSON (a proxy's HTML, a crashed handler's "Internal Server Error"). */
+  text?: string;
 }
 
 /** A live stream: `close` ends it; the transport calls `onMessage` per parsed JSON message. */
@@ -35,6 +37,8 @@ export interface StreamHandlers<T = unknown> {
 
 export interface Transport {
   request(request: Request): Promise<Response>;
+  /** Where requests go, when the transport has an origin: `""` for same-origin. A download link needs the URL, not a fetch. */
+  readonly base?: string;
   /** `path` is under the base URL, e.g. `/ws/samples`. */
   stream(path: string, handlers: StreamHandlers): Subscription;
 }
@@ -66,6 +70,7 @@ function buildUrl(base: string, path: string, query?: Request["query"]): string 
  */
 export function browserTransport(base: string = window.location.origin): Transport {
   return {
+    base,
     async request({ method, path, query, body, signal }) {
       const init: RequestInit = { method, headers: {} };
       if (signal) init.signal = signal;
@@ -75,7 +80,14 @@ export function browserTransport(base: string = window.location.origin): Transpo
       }
       const response = await fetch(buildUrl(base, path, query), init);
       const text = await response.text();
-      return { status: response.status, json: text ? JSON.parse(text) : undefined };
+      if (!text) return { status: response.status, json: undefined };
+      try {
+        return { status: response.status, json: JSON.parse(text) };
+      } catch (e) {
+        // Not JSON: an error page, or a handler that died before serialising. Hand the text up rather than a parse error.
+        if (response.status >= 400) return { status: response.status, json: undefined, text };
+        throw e;
+      }
     },
 
     stream(path, handlers) {

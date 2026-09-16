@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, StrEnum
-from threading import Event, Thread
+from threading import Event, Thread, current_thread
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Self
 
@@ -89,6 +89,8 @@ class PeriodicLoop:
         self._loop_time = loop_time
         self._clock = clock  # None: wall time
         self._handle: int | None = None
+        self.missed = 0
+        """Times the loop found itself more than a period behind and skipped ahead."""
         self._event = Event()
         self._fn = fn
         self._args = args
@@ -121,13 +123,15 @@ class PeriodicLoop:
         self._thread = Thread(target=self.run, daemon=True)
         self._thread.start()
 
-    def stop(self, timeout: float | None = None) -> None:
+    def stop(self, timeout: float | None = None, join: bool = True) -> None:
+        """Stop; `join=False` from inside the loop's own function, which cannot wait for itself."""
         if self._handle is not None and self._clock is not None:
             self._clock.cancel(self._handle)  # type: ignore[attr-defined]
             self._handle = None
         if self._thread is not None:
             self._event.set()
-            self._thread.join(timeout=timeout)
+            if join and self._thread is not current_thread():
+                self._thread.join(timeout=timeout)
 
     def _once(self) -> None:
         try:
@@ -164,9 +168,15 @@ class PeriodicLoop:
                 self.set_error(e)
                 if self._stop_on_error:
                     break
-            sleep_time = self._next_loop_time - self._now()
+            now = self._now()
+            sleep_time = self._next_loop_time - now
             if sleep_time > 0:
                 self._wait(sleep_time)
+            elif sleep_time < -self.loop_time:
+                # More than a period behind (a stall, a suspend): resynchronise
+                # rather than fire back-to-back to repay the missed ones.
+                self.missed += 1
+                self._next_loop_time = now
             self._next_loop_time += self.loop_time
         self._thread = None
 

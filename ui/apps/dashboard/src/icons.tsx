@@ -10,6 +10,7 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
+import SpaceDashboardOutlinedIcon from "@mui/icons-material/SpaceDashboardOutlined";
 import SpeedIcon from "@mui/icons-material/Speed";
 import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
 import ThermostatIcon from "@mui/icons-material/Thermostat";
@@ -23,6 +24,7 @@ export type IconComponent = typeof SvgIcon;
 
 export const PAGE_ICONS: Record<Page, IconComponent> = {
   overview: DashboardOutlinedIcon,
+  dashboards: SpaceDashboardOutlinedIcon,
   sources: ShowChartIcon,
   actuators: TuneIcon,
   loops: LoopIcon,

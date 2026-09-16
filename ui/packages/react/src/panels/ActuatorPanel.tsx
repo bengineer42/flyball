@@ -41,8 +41,9 @@ export function ActuatorPanel({ schema, state, view, commands, onRun, busy, resu
   return (
     <article className="fb-panel fb-actuator">
       <header>
-        <h3><Ref kind="actuator" name={schema.name} /></h3>
+        <h3><Ref kind="actuator" name={schema.name}>{schema.label ?? schema.name}</Ref></h3>
         <span className="fb-muted">
+          {schema.label && `${schema.name} · `}
           {schema.type}
           {schema.demand_unit && ` · demand in ${schema.demand_unit}`}
         </span>

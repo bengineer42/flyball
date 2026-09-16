@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=program.schema.json
+# The operator in the loop: the program stops and waits for a person twice --
+# once to load, once to unload -- and carries on when they press go (or gives
+# up after the timeout). `wait` raises a signal the UI shows as a button.
+name: load-sample
+description: A short run with two operator waits, for trying the go button.
+steps:
+  - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
+  - wait: { message: "Load the sample into zone 2, close the door, then press go", timeout: { minutes: 30 } }
+  - ramp: { loop: [heater1, heater2, heater3], to: 300, per_minute: 20 }
+  - hold: { minutes: 5, message: "soak at 300" }
+  - ramp: { loop: [heater1, heater2, heater3], to: 60, per_minute: 20 }
+  - manual: [heater1, heater2, heater3]
+  - wait: { message: "Unload the sample, then press go", timeout: { minutes: 30 } }

@@ -29,6 +29,7 @@ from flyball.core.reading import Measurand, Reader, Sample, Source
 from flyball.core.sink import Actuator, ActuatorState
 from flyball.core.units import DIMENSIONLESS, Quantity
 from flyball.core.units.dimension import Unit
+from flyball.core.units.dimensions import Power
 
 from .furnace import Furnace, MultiPlant, Port
 from .plant import Fopdt, Integrator, Lag, Noisy, Plant
@@ -224,7 +225,7 @@ class SimReader(Reader):
 
     @command(simulation=True)
     def restore(self) -> SimReaderState:
-        """Mend the sensor; the rig restarts the reader on its next poll."""
+        """Mend the sensor; a command on an offline reader makes the rig poll it again."""
         self._broken = False
         return self.state
 
@@ -275,12 +276,17 @@ class SimActuatorState(ActuatorState):
 class SimActuator(Actuator):
     """Drives a plant's input from the loop's demand.
 
-    The demand is in the *output's* unit -- "hold 50 °C" -- as every loop's
-    is; the actuator turns it into an input through the plant's static
-    feedforward and clamps to its limits, and the loop's correction covers
-    what the feedforward gets wrong. That is the split every real actuator
-    makes (the humidity blender's flows for a target %RH); here it is exact
-    by construction, which is why `disturb` exists.
+    Two kinds of actuator, told apart by `unit`:
+
+    - A *smart* one takes the demand in the output's unit -- "hold 50 °C" --
+      and turns it into an input through the plant's static feedforward,
+      clamped to its limits; the loop's correction covers what the
+      feedforward gets wrong. That is what a packaged controller does, and
+      here it is exact by construction, which is why `disturb` exists. This
+      is the default, and any unit that is not a drive.
+    - A *plain* one takes the drive itself: a fraction of full (`of full`)
+      or a power (`W`, with `power_w` saying what full is). The loop's
+      feedforward, not the actuator, knows the plant.
     """
 
     def __init__(
@@ -290,6 +296,7 @@ class SimActuator(Actuator):
         limits: tuple[float, float] = (0.0, 1.0),
         unit: str | None = None,
         config: SimActuatorConfig | None = None,
+        power_w: float | None = None,
     ) -> None:
         super().__init__(name)
         self.plant = plant
@@ -298,6 +305,15 @@ class SimActuator(Actuator):
         self._config = config
         if unit:
             self.demand_unit = Unit.get(unit)  # type: ignore[misc]
+        # In drive units a demand is the plant's input, scaled: the actuator does no modelling.
+        dimension = None if self.demand_unit is None else self.demand_unit.dimension
+        self.scale: float | None = None
+        if dimension == DIMENSIONLESS:
+            self.scale = 1.0
+        elif dimension == Power:
+            if power_w is None:
+                raise ValueError(f"{name}: a demand in {unit} needs `power_w`, what full drive is")
+            self.scale = power_w * self.demand_unit.factor  # type: ignore[union-attr]
 
     @property
     def config(self) -> SimActuatorConfig:
@@ -327,6 +343,10 @@ class SimActuator(Actuator):
         """
         self._demand = demand
         lo, hi = self.limits
+        if self.scale is not None:
+            drive = min(hi, max(lo, demand / self.scale))
+            self.plant.input = drive
+            return drive * self.scale
         wanted = self.plant.feedforward(demand)
         drive = min(hi, max(lo, wanted))
         self.plant.input = drive
@@ -359,13 +379,25 @@ class SimActuatorConfig(DeviceConfig[SimActuator], tag="sim_actuator"):
         description="What the drive is clamped to.",
         json_schema_extra={"live": "state.input"},
     )
-    unit: str | None = None
+    unit: str | None = Field(
+        default=None,
+        description="What demands arrive in: the output's unit (the actuator models the plant),"
+        " `of full` (the drive itself) or a power (`W`, with `power_w`).",
+    )
+    power_w: float | None = Field(
+        default=None, gt=0, description="What full drive is, when demands are a power."
+    )
 
     def build(self) -> SimActuator:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a plant before building")
         return SimActuator(
-            self.name, _port(self.link, self.port, output=False), self.limits, self.unit, self
+            self.name,
+            _port(self.link, self.port, output=False),
+            self.limits,
+            self.unit,
+            self,
+            self.power_w,
         )
 
 

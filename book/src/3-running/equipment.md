@@ -34,7 +34,7 @@ through minutes in a moment. They use two device tags any rig file may:
 | --- | --- |
 | `sim_plant` (a link) | one plant model — `lag`, `integrator` or `fopdt`, with gain, time constant, dead time, ambient, noise — shared by the devices that name it |
 | `sim_reader` | reads the plant's output as a measurand with a unit, range and precision, advancing the plant by the time since the last read |
-| `sim_actuator` | turns the loop's demand (in the output's unit) into the plant's input through the plant's feedforward, clamped to `limits`; commands `set_limits` and `disturb` |
+| `sim_actuator` | drives the plant's input from the loop's demand, clamped to `limits`: in the output's unit through the plant's feedforward (a packaged controller), or as the drive itself in `of full` or a power (`unit = "W"`, `power_w`); commands `set_limits` and `disturb` |
 
 ```toml
 [links.chamber]

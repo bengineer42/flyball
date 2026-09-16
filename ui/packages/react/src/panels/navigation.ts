@@ -6,7 +6,8 @@
  * point at the right edge. *Held*: the user zoomed or panned, so the x range
  * is theirs and new data does not move it. Wheel zooms about the pointer,
  * drag on the plot pans (shift-drag keeps uPlot's select-to-zoom), and the
- * toolbar steps back and forth, fits, and returns to following.
+ * toolbar steps back and forth, fits, and returns to following. (Double-click
+ * is the chart's: it opens the chart full-size.)
  */
 
 import type uPlot from "uplot";
@@ -72,7 +73,6 @@ export function navigation(): Navigation {
             const up = () => (dragging = null);
             window.addEventListener("mousemove", move);
             window.addEventListener("mouseup", up);
-            over.addEventListener("dblclick", () => nav.follow(u));
           },
           setSelect(u) {
             // uPlot's select-to-zoom (shift-drag) sets the scale itself; record it as held.

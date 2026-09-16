@@ -27,7 +27,7 @@ table knows. All of these fail at load with the offending name.
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `readers` | `[{device: Reader, period_s?}]` | `period_s` > 0 polls; omit for a pushed reader |
 | `actuators` | `[Actuator]` | |
-| `loops` | `[{channel, actuator, law?, default?}]` | `channel` is `source.measurand` |
+| `loops` | `[{channel, actuator, law?, feedforward?, default?}]` | `channel` is `source.measurand` |
 
 ## Links
 
@@ -47,6 +47,10 @@ from `links` or an inline link.
 
 ## Devices
 
+Every device takes `name` (the identifier routes, programs and sessions use)
+and an optional `label` (what the UI shows instead: `"Zone 1 heater"`). A
+reader with one source gives that source the same label.
+
 | `tag` | is | fields |
 | --- | --- | --- |
 | `scpi_reader` | reader, one source | `name`, `link`, `measurands: {name: {query, unit, label?, range?, precision?}}`, `source?` (defaults to `name`) |
@@ -54,7 +58,7 @@ from `links` or an inline link.
 | `modbus_reader` | reader, one source | `name`, `link`, `registers: {name: Register}`, `unit_id` = 1, `source?` |
 | `modbus_actuator` | actuator | `name`, `link`, `output: Register`, `unit_id` = 1 |
 | `sim_reader` | reader, one source | `name`, `link`, `port?` (a multi-port plant's output), `measurand`, `unit`, `range?`, `precision?`; commands `fail`, `restore` |
-| `sim_actuator` | actuator | `name`, `link`, `port?` (a multi-port plant's input), `limits`, `unit?`; commands `set_limits`, `disturb` |
+| `sim_actuator` | actuator | `name`, `link`, `port?` (a multi-port plant's input), `limits`, `unit?` (the output's: models the plant; `of full` or a power with `power_w`: takes the drive itself), `power_w?`; commands `set_limits`, `disturb` |
 
 The tags `flyball-linux` adds (`i2c`, `gpio`, `sht4x`, `pwm_actuator`, ...)
 are on the [boards page](../3-running/boards.md). Any device entry may say
@@ -72,6 +76,7 @@ range, precision}`; only `address` is required. `kind` is `u16` (default),
 | `channel` | `source.measurand` | the controlled variable |
 | `actuator` | name | must be listed under `actuators` |
 | `law` | `{tag, ...gains}` | e.g. `{tag = "PI", kp = 0.2, ki = 0.05}`; omit for none |
+| `feedforward` | `{tag, ...}` | maps the setpoint to a demand in the actuator's unit: `setpoint`, `none`, `affine {gain, bias}`, `table {points}`; omit for `setpoint` when the units agree, else `none` |
 | `default` | bool | the loop a command means when it names none |
 
 ## Example

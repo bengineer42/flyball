@@ -144,9 +144,13 @@ class Timed(Activity):
 
     def attach(self, rig: Rig) -> None:
         def run() -> None:
-            # wait() on the signal's own event: an interrupt ends it early.
-            if not rig.clock.wait(self._event, self.duration_s):
-                self.fire()
+            # wait() on the signal's own event: an interrupt ends it early. A
+            # wait that raises fails the step rather than leaving it pending.
+            try:
+                if not rig.clock.wait(self._event, self.duration_s):
+                    self.fire()
+            except Exception as error:
+                self.fail(error)
 
         self._clock = rig.clock
         self._thread = Thread(target=run, daemon=True, name=f"timed:{self.name}")

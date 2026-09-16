@@ -8,6 +8,34 @@ import { Ref } from "../links.js";
 
 export type SessionGrouping = "unit" | "channel";
 
+/** What the store will send this session as. */
+export type SessionDownload = "csv" | "json";
+
+/**
+ * Where the store keeps this session's tables, as export URLs (the app's
+ * client builds them). Given, every channel, loop and the events get a link
+ * to their own file, and each chart's download menu offers the stored copy
+ * beside what the browser is holding.
+ */
+export interface SessionExports {
+  series(source: string, measurand: string, format: SessionDownload): string;
+  ticks(loop: string, format: SessionDownload): string;
+  events(format: SessionDownload): string;
+}
+
+/** One table as a file, in either format: two small links beside whatever they belong to. */
+function Download({ what, href }: { what: string; href(format: SessionDownload): string }) {
+  return (
+    <span className="fb-download">
+      {(["csv", "json"] as const).map((format) => (
+        <a key={format} className="fb-tb" href={href(format)} download title={`Download ${what} as ${format.toUpperCase()}`}>
+          {format === "csv" ? "⭳ csv" : "json"}
+        </a>
+      ))}
+    </span>
+  );
+}
+
 export interface SessionPanelProps {
   detail: SessionDetail;
   /** Chart height per channel. */
@@ -21,6 +49,8 @@ export interface SessionPanelProps {
   controls?: React.ReactNode;
   /** Draw one point in `every`. */
   every?: number;
+  /** URL builders for the store's own files; without them the panel shows no download links. */
+  exports?: SessionExports;
 }
 
 const when = (s: number) => new Date(s * 1000).toLocaleString();
@@ -43,7 +73,7 @@ const duration = (s: number) => {
  * whole session (with spans as annotations under it), loops and actuators as
  * recorded, then events. Pure: `useSession` supplies the detail.
  */
-export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every }: SessionPanelProps) {
+export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports }: SessionPanelProps) {
   const [own, setOwn] = useState<SessionGrouping>("unit");
   const mode = grouping ?? own;
   const setMode = (g: SessionGrouping) => (onGrouping ? onGrouping(g) : setOwn(g));
@@ -102,6 +132,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 <span className="fb-latest">
                   {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
                 </span>
+                {exports && <Download what={key} href={(f) => exports.series(tr.channel.source.name, tr.channel.measurand.name, f)} />}
               </h4>
               <TimeSeries
                 channel={{
@@ -117,6 +148,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 height={height}
                 yScale={yScale}
                 every={every}
+                exportHref={exports?.series(tr.channel.source.name, tr.channel.measurand.name, "csv")}
               />
             </div>
           ))}
@@ -135,9 +167,13 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
             </h4>
             <MultiSeries
               unit={unit}
+              title={unit}
               height={height}
               yScale={yScale}
               every={every}
+              exportHref={
+                exports && group.length === 1 ? exports.series(group[0]!.channel.source.name, group[0]!.channel.measurand.name, "csv") : undefined
+              }
               series={group.map(
                 (tr): MultiSeriesTrace => ({
                   label: tr.key,
@@ -152,6 +188,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               {group.map((tr) => (
                 <span key={tr.key}>
                   {tr.key}: {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(2)} ${unit} · ${tr.v.length} pts` : "no points"}
+                  {exports && <Download what={tr.key} href={(f) => exports.series(tr.channel.source.name, tr.channel.measurand.name, f)} />}
                 </span>
               ))}
             </div>
@@ -189,21 +226,30 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 </dd>
               </div>
             ))}
-            {loops.map((l, i) => (
+            {loops.map((l, i) => {
+              const loopName = l.name ?? l.actuator.name ?? String(i);
+              return (
               <div key={i} className="fb-state-row">
-                <dt>loop {l.name ?? i}</dt>
+                <dt>
+                  loop {loopName}
+                  {exports && <Download what={`${loopName}'s ticks`} href={(f) => exports.ticks(loopName, f)} />}
+                </dt>
                 <dd>
                   <Ref kind="channel" name={l.channel.source.name} measurand={l.channel.measurand.name} /> →{" "}
                   <Ref kind="actuator" name={l.actuator.name} /> <ValueView value={l.config} />
                 </dd>
               </div>
-            ))}
+              );
+            })}
           </dl>
         </section>
       )}
 
       <section className="fb-session-section">
-        <h4>Events</h4>
+        <h4>
+          Events
+          {exports && events.length > 0 && <Download what="the events" href={exports.events} />}
+        </h4>
         {events.length === 0 ? (
           <div className="fb-muted">none</div>
         ) : (

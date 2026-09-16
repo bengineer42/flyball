@@ -136,6 +136,8 @@ class QCoDeSActuatorState(ActuatorState):
 class QCoDeSActuator(Actuator):
     """One settable parameter as the loop's actuator."""
 
+    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
+
     def __init__(self, name: str, parameter: Any, unit: str | None = None) -> None:
         super().__init__(name)
         if not _settable(parameter):

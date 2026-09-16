@@ -39,6 +39,7 @@ period_s = 1.0
 [readers.device]
 tag = "sim_reader"
 name = "zone1"
+label = "Zone 1 (entry)"
 link = "tube"
 port = "zone1"
 measurand = "temperature"
@@ -51,6 +52,7 @@ period_s = 1.0
 [readers.device]
 tag = "sim_reader"
 name = "zone2"
+label = "Zone 2 (centre)"
 link = "tube"
 port = "zone2"
 measurand = "temperature"
@@ -63,6 +65,7 @@ period_s = 1.0
 [readers.device]
 tag = "sim_reader"
 name = "zone3"
+label = "Zone 3 (exit)"
 link = "tube"
 port = "zone3"
 measurand = "temperature"
@@ -75,6 +78,7 @@ period_s = 2.0
 [readers.device]
 tag = "sim_reader"
 name = "sample"
+label = "Sample"
 link = "tube"
 port = "sample"
 measurand = "temperature"
@@ -82,42 +86,54 @@ unit = "°C"
 range = [0, 1200]
 precision = 1
 
+# Plain heaters: a demand is a power in watts, `power_w` being full drive.
+# The actuator knows nothing of the furnace; the loop's feedforward does.
 [[actuators]]
 tag = "sim_actuator"
 name = "heater1"
+label = "Zone 1 heater"
 link = "tube"
 port = "heater1"
-unit = "°C"
+unit = "W"
+power_w = 2500
 
 [[actuators]]
 tag = "sim_actuator"
 name = "heater2"
+label = "Zone 2 heater"
 link = "tube"
 port = "heater2"
-unit = "°C"
+unit = "W"
+power_w = 6000
 
 [[actuators]]
 tag = "sim_actuator"
 name = "heater3"
+label = "Zone 3 heater"
 link = "tube"
 port = "heater3"
-unit = "°C"
+unit = "W"
+power_w = 2000
 
-# The actuator's feedforward covers the static losses at the demanded
-# temperature; the law corrects the rest, in °C of demand per °C of error.
-# Tuned at the cold end: watch the middle zone's soak at 900 °C.
+# Plain PI in watts per °C of error: the standard controller, its integral
+# finding the hold power on its own. Tuned on a 15 °C/min ramp to 700 and a
+# hold: 2-4 °C overshoot, settled in 10-20 min. The losses steepen with
+# temperature (radiation), so it is softer at 900 than at 200. A `feedforward`
+# (`{ tag = "table", points = [[20, 0], [200, 289], [400, 660], ...] }`, the
+# single-zone losses curve) is the alternative when the load is known
+# beforehand; on a ramp it only adds to a wound-up integral, so it is off here.
 [[loops]]
 channel = "zone1.temperature"
 actuator = "heater1"
-law = { tag = "PI", kp = 3.0, ki = 0.01, tt = 30 }
+law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
 
 [[loops]]
 channel = "zone2.temperature"
 actuator = "heater2"
-law = { tag = "PI", kp = 3.0, ki = 0.01, tt = 30 }
+law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
 default = true
 
 [[loops]]
 channel = "zone3.temperature"
 actuator = "heater3"
-law = { tag = "PI", kp = 3.5, ki = 0.012, tt = 30 }
+law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }

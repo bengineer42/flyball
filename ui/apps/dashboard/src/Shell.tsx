@@ -141,8 +141,9 @@ export function Shell({ page, onNavigate, title, status, simulated = false, chil
         </Drawer>
       )}
 
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: 2.5, maxWidth: 1500 }}>
-        <Toolbar variant="dense" />
+      {/* The page uses the width it has: one gutter on a phone, two on a desktop, capped only where a card row would get absurd. */}
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: "16px", md: "24px" }, pb: "24px", maxWidth: 2200 }}>
+        <Toolbar variant="dense" sx={{ mb: "16px" }} />
         {children}
       </Box>
     </Box>

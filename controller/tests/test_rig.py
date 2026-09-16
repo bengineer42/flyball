@@ -77,12 +77,41 @@ def test_reader_run_records_reads_and_goes_offline_on_error(rig, probe, temperat
     run = rig.readers.run(reader.name)
     assert run.last_read_ns == clock.now_ns() and run.conditions == ()
     reader.fail = True
-    with pytest.raises(OSError):
-        rig.readers._read(reader)
+    rig.readers._read(reader)  # the poll swallows it: the run says so, and an event is raised
     run = rig.readers.run(reader.name)
     assert run.running is False
     assert run.conditions[0].kind == "offline" and run.conditions[0].level is Level.ERROR
     assert "I2C timeout" in run.conditions[0].message
+    assert rig.recent[-1].kind == "offline" and rig.recent[-1].subject == reader.name
+    reader.fail = False
+    assert rig.readers.restart(reader.name).conditions == ()
+    assert rig.recent[-1].kind == "restarted"
+
+
+def test_a_failure_downstream_of_a_read_is_not_the_reader_s(rig, probe, temperature, fresh):
+    from flyball.core.reading import Reader
+    from flyball.core.sink import Observer
+
+    class Broken(Observer):
+        observes = frozenset({probe})
+        touches = frozenset()
+
+        def observe(self, sample):
+            raise ValueError("a bug in an observer")
+
+    class Fine(Reader):
+        def read(self, time_ns):
+            return [sample(probe, temperature, 1.0, time_ns)]
+
+    rig.attach_observer(Broken())
+    reader = Fine(fresh("fine"), (probe,))
+    rig.readers.add(reader)
+    rig.readers._read(reader)
+    run = rig.readers.run(reader.name)
+    assert run.conditions == () and run.last_read_ns is not None, "the reader read fine"
+    event = rig.recent[-1]
+    assert event.kind == "delivery_failed" and event.scope == "rig"
+    assert "a bug in an observer" in event.message
 
 
 def test_function_reader_stamps_every_source_with_one_instant(fresh, temperature):
@@ -148,21 +177,31 @@ def test_a_mixed_reader_delivers_both_paths(rig, probe, temperature, fresh, cloc
     assert rig._readings[probe[temperature]].value == 2.0
 
 
-def test_attach_loop_refuses_an_actuator_that_takes_another_unit(rig, probe, temperature, fresh):
+def test_attach_loop_picks_the_feedforward_by_unit(rig, probe, temperature, fresh):
+    from flyball.control import NoFeedforward, Setpoint
     from flyball.core.errors import ConflictError
     from flyball.core.units.si import Kelvin, Volt
 
     class VoltsIn(RecordingActuator):
         demand_unit = Volt
 
-    with pytest.raises(ConflictError, match="takes demands in V"):
-        rig.attach_loop(probe[temperature], VoltsIn(fresh("psu")), law=PI(kp=1.0))
-
     class KelvinIn(RecordingActuator):
         demand_unit = Kelvin
 
-    with pytest.raises(ConflictError, match="takes demands in K"):  # same dimension, different unit
-        rig.attach_loop(probe[temperature], KelvinIn(fresh("k")), law=PI(kp=1.0))
+    same, psu = RecordingActuator(fresh("same")), VoltsIn(fresh("psu"))
+    rig.attach_loop(probe[temperature], same, law=PI(kp=1.0))
+    assert isinstance(rig.loops.resolve(same.name).feedforward, Setpoint)
+    rig.loops.remove(same.name)
+    rig.attach_loop(probe[temperature], psu, law=PI(kp=1.0))
+    assert isinstance(rig.loops.resolve(psu.name).feedforward, NoFeedforward)
+    rig.loops.remove(psu.name)
+    # Passing the setpoint straight to an actuator that takes another unit is nonsense,
+    # even the same dimension in a different unit.
+    with pytest.raises(ConflictError, match="takes demands in K"):
+        rig.attach_loop(
+            probe[temperature], KelvinIn(fresh("k")), law=PI(kp=1.0), feedforward="setpoint"
+        )
+    rig.attach_loop(probe[temperature], KelvinIn(fresh("k2")), law=PI(kp=1.0), feedforward="none")
 
 
 def test_a_slow_read_raises_a_warning_condition(rig, probe, temperature, fresh):
@@ -180,3 +219,74 @@ def test_a_slow_read_raises_a_warning_condition(rig, probe, temperature, fresh):
     rig.readers._read(reader)
     (condition,) = rig.readers.run(reader.name).conditions
     assert condition.kind == "slow" and condition.level is Level.WARNING
+
+
+class TestWriters:
+    """A blocking actuator's writes happen on its own thread; a failing bus is a condition."""
+
+    def test_the_loop_never_waits_for_a_blocking_actuator(self, rig, probe, temperature, fresh):
+        import threading
+        import time
+
+        gate = threading.Event()
+        written = []
+
+        class Slow(RecordingActuator):
+            blocking = True
+
+            def set_demand(self, demand):
+                gate.wait(2)  # a 2 s bus timeout, unless released
+                written.append(demand)
+                return demand
+
+        heater = Slow(fresh("slow"))
+        rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
+        rig.loops[heater.name].regulate(50.0)
+        t = time.monotonic()
+        rig.on_read([sample(probe, temperature, 40.0, rig.clock.now_ns())])
+        assert time.monotonic() - t < 0.2, "the delivery did not wait on the bus"
+        assert written == [], "the write is queued"
+        gate.set()
+        deadline = time.monotonic() + 2
+        while len(written) < 2 and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert written and written[-1] == pytest.approx(60.0)
+        assert rig.writers[heater.name].expected == pytest.approx(60.0)
+        rig.stop()
+
+    def test_newest_demand_wins_and_a_failing_bus_is_reported(self, rig, probe, temperature, fresh):
+        import time
+
+        class Flaky(RecordingActuator):
+            blocking = True
+            fail = True
+
+            def set_demand(self, demand):
+                if self.fail:
+                    raise OSError("bus timeout")
+                return super().set_demand(demand)
+
+        heater = Flaky(fresh("flaky"))
+        rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
+        rig.loops[heater.name].regulate(50.0)
+        rig.on_read([sample(probe, temperature, 40.0, rig.clock.now_ns())])
+        writer = rig.writers[heater.name]
+        deadline = time.monotonic() + 2
+        while writer.failed is None and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert writer.failed is not None and writer.failed.kind == "write_failed"
+        assert [(n, c.kind) for n, c in rig.write_conditions()] == [(heater.name, "write_failed")]
+        assert rig.recent[-1].kind == "write_failed" and rig.recent[-1].subject == heater.name
+        heater.fail = False
+        rig.on_read([sample(probe, temperature, 41.0, rig.clock.now_ns(), seq=2)])
+        deadline = time.monotonic() + 2
+        while writer.failed is not None and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert writer.failed is None and rig.recent[-1].kind == "write_recovered"
+        rig.stop()
+
+    def test_a_synchronous_actuator_is_written_in_the_tick(self, rig, probe, temperature, heater):
+        rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
+        rig.loops[heater.name].regulate(50.0)
+        rig.on_read([sample(probe, temperature, 40.0, rig.clock.now_ns())])
+        assert heater.demands[-1] == pytest.approx(60.0) and rig.writers == {}

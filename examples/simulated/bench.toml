@@ -18,6 +18,7 @@ period_s = 0.5
 [readers.device]
 tag = "scpi_reader"
 name = "dmm"
+label = "Bench DMM"
 link = "dmm"
 [readers.device.measurands.voltage]
 query = "MEAS:VOLT:DC?"
@@ -33,6 +34,7 @@ precision = 3
 [[actuators]]
 tag = "scpi_actuator"
 name = "psu"
+label = "Bench PSU"
 link = "psu"
 command = "SOUR:VOLT {value:.3f}"
 demand_unit = "V"

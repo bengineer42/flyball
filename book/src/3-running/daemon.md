@@ -12,7 +12,7 @@ flyball-daemon rig.toml --host 0.0.0.0 --record  # reachable, with a session ope
 The file is validated first (`flyball rig check rig.toml` does the same
 without serving); a bad file is a one-line message and exit code 2. With
 `recording = true` in the file, or `--record`, a session is opened in
-`--store` (default `flyball.sqlite`) before serving. On shutdown the
+`--store` (default `<rig>.sqlite` beside the rig file) before serving. On shutdown the
 programmer is interrupted, the session closed and the polled readers stopped.
 
 An application with hardware the file cannot describe writes its own entry
@@ -47,6 +47,7 @@ flyball loops
 | `/api/sources`, `/api/loops`, `/api/tunings`, `/api/clock` | the live rig |
 | `/api/signals` | what a program is waiting on; fire or interrupt one |
 | `/api/programs` | check a program file, run one, see what is running |
+| `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.json` beside the rig file are imported on start |
 | `/api/events`, `/ws/events` | what has happened: a step failed, a reader went offline |
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives |

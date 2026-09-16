@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   Alert,
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   IconButton,
   Link,
   LinearProgress,
@@ -11,41 +16,49 @@ import {
   MenuItem,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DownloadIcon from "@mui/icons-material/Download";
+import DriveFileRenameOutlineIcon from "@mui/icons-material/DriveFileRenameOutline";
+import SaveAsIcon from "@mui/icons-material/SaveAs";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import StopIcon from "@mui/icons-material/Stop";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useQuery, useRig } from "@flyball/react";
-import type { ProgramCheck, ProgramFormat, RigEvent } from "@flyball/client";
+import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "@flyball/client";
 import { hashFor } from "../router.js";
 import { Confirm } from "../Confirm.js";
 import { NEW, stepOf, type Programmer } from "../model.js";
 import { clickThrough, clickableSx } from "../cards.js";
 import { normalisedOf, stepsSummary } from "../steps.js";
-import { ProgramSteps } from "./ProgramSteps.js";
+import { asProgram, briefError, stepOfError, type ProgramTree } from "../programDoc.js";
+import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
+import { ProgramBuilder } from "./ProgramBuilder.js";
 import { when } from "../time.js";
 import { Crumbs } from "./Sources.js";
 
 const FORMATS: ProgramFormat[] = ["yaml", "toml", "json"];
-const TEMPLATE = 'name: ...\nsteps:\n  - wait: {message: "...", seconds: 5}\n';
+const TEMPLATE = "steps: []\n";
 
 const formatOf = (filename: string): ProgramFormat | null => {
   const ext = filename.toLowerCase().split(".").pop();
@@ -130,17 +143,32 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
 }
 
 /** One row of the library: the whole row opens the program; check and step summary are fetched lazily. */
-function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: { name: string; id: number; format: string; label?: string | null; created_ns: number; notes?: unknown }; running: boolean; busy: boolean; onRun(): void; onDelete(): void }) {
+function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: { name: string; id: number; format: ProgramFormat; body?: string; label?: string | null; created_ns: number; notes?: unknown }; running: boolean; busy: boolean; onRun(): void; onDelete(): void }) {
   const rig = useRig();
   const check = useQuery(() => rig.checkStoredProgram(p.name), [rig, p.name, p.id]);
   const href = hashFor("programs", p.name);
   const normalised = normalisedOf(check.data);
+  // The description from the rig's normalised document, else read from the body (a program that fails the check still has one).
+  const description = useMemo(() => {
+    if (normalised?.description) return normalised.description;
+    if (!p.body) return undefined;
+    try {
+      return asProgram(parseText(p.body, p.format))?.description;
+    } catch {
+      return undefined;
+    }
+  }, [normalised?.description, p.body, p.format]);
   return (
     <TableRow hover sx={clickableSx} onClick={clickThrough(href)} data-program={p.name}>
       <TableCell>
         <Link href={href} underline="hover" fontWeight={500}>
           {p.name}
         </Link>
+        {typeof description === "string" && description && (
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 480, whiteSpace: "normal" }} data-testid="program-description">
+            {description}
+          </Typography>
+        )}
       </TableCell>
       <TableCell>
         <Chip label={p.format} variant="outlined" />
@@ -325,6 +353,52 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
   );
 }
 
+/** A dialog asking for a program name; `onSubmit` may reject with the reason shown inline (a 409 for a taken name). */
+function NameDialog({ open, title, text, action, initial, busy, onClose, onSubmit }: { open: boolean; title: string; text: string; action: string; initial: string; busy: boolean; onClose(): void; onSubmit(name: string): Promise<string | null> }) {
+  const [name, setName] = useState(initial);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setName(initial);
+      setProblem(null);
+    }
+  }, [open, initial]);
+  const submit = async () => {
+    const n = name.trim();
+    if (!n) return setProblem("A name is needed.");
+    setProblem(await onSubmit(n));
+  };
+  return (
+    <Dialog open={open} onClose={() => (busy ? undefined : onClose())} fullWidth maxWidth="xs">
+      <DialogTitle>{title}</DialogTitle>
+      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+        <DialogContentText>{text}</DialogContentText>
+        <TextField
+          autoFocus
+          label="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          error={Boolean(problem)}
+          helperText={problem ?? undefined}
+          inputProps={{ "aria-label": `${action} name` }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+          }}
+          fullWidth
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="contained" onClick={() => void submit()} disabled={busy || !name.trim()}>
+          {action}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export interface ProgramDetailProps {
   /** `NEW` for create mode. */
   name: string;
@@ -334,59 +408,187 @@ export interface ProgramDetailProps {
   onDeleted(): void;
 }
 
-/** One program: editor, format, save, download, history, run/interrupt, live status. */
+/** What the rig said about the tree last checked: ok, or the errors by step and overall. */
+interface CheckState {
+  ok: boolean;
+  /** The whole-program message when the error names no step (or on top of the step ones). */
+  error: string | null;
+  stepErrors: Record<number, string>;
+  normalised: unknown;
+}
+
+const PARSE_DEBOUNCE_MS = 400;
+const CHECK_DEBOUNCE_MS = 500;
+const EMPTY: ProgramTree = { steps: [] };
+
+/** The text parsed as a program, or the reason it is not one. */
+function parseProgram(text: string, format: ProgramFormat): { tree: ProgramTree; error: null } | { tree: null; error: string } {
+  try {
+    const value = parseText(text, format);
+    const tree = asProgram(value);
+    if (!tree) return { tree: null, error: value === null || value === undefined ? "the document is empty" : Array.isArray(value) || typeof value !== "object" ? "a program is a mapping with a 'steps' list" : "'steps' must be a list" };
+    return { tree, error: null };
+  } catch (e) {
+    return { tree: null, error: message(e) };
+  }
+}
+
+/**
+ * One program: the step builder and the text, two views of one document tree,
+ * each editable; format, save, download, history, run/interrupt, live status.
+ */
 export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
   const rig = useRig();
   const creating = routeName === NEW;
   const stored = useQuery(async () => (creating ? null : rig.program(routeName)), [rig, routeName, creating]);
   const history = useQuery(async () => (creating ? [] : rig.programHistory(routeName)), [rig, routeName, creating]);
-  // The schemas the steps view reads: the commands' arguments, and the file dialect for their descriptions.
-  const commands = useQuery(() => rig.programCommandsSchema(), [rig]);
   const programSchema = useQuery(() => rig.programSchema(), [rig]);
-  const [name, setName] = useState(creating ? "" : routeName);
+  const loops = useQuery(async () => (await rig.loops()).map((l) => l.name), [rig]);
   const [format, setFormat] = useState<ProgramFormat>("yaml");
-  const [body, setBody] = useState(creating ? TEMPLATE : "");
+  // The tree is the truth; the text is what the user sees and saves. Either side may be edited: the other follows.
+  const [tree, setTree] = useState<ProgramTree>(EMPTY);
+  const [text, setText] = useState(creating ? TEMPLATE : "");
+  const [revision, setRevision] = useState(0); // bumped when the tree was replaced from the text, so the builder re-reads it
+  const [parseError, setParseError] = useState<string | null>(null);
   const [saved, setSaved] = useState(creating ? TEMPLATE : "");
   const [label, setLabel] = useState("");
-  const [check, setCheck] = useState<ProgramCheck | null>(null);
+  const [check, setCheck] = useState<CheckState | null>(null);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [runVersion, setRunVersion] = useState<number | null | "latest">(null);
+  const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
+  const [saveAs, setSaveAs] = useState(false);
+  const [rename, setRename] = useState(false);
+  const [tab, setTab] = useState<"steps" | "text">("steps");
+  const wide = useMediaQuery(useTheme().breakpoints.up("md"));
+  const dirty = text !== saved;
+  const running = programmer.data?.running ?? false;
+  const loaded = useRef(false);
+
   const copyText = async () => {
     try {
-      await navigator.clipboard.writeText(body);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard unavailable (insecure context): nothing to do */
     }
   };
-  const [convertTo, setConvertTo] = useState<ProgramFormat | null>(null);
-  const [runVersion, setRunVersion] = useState<number | null | "latest">(null);
-  const [downloadAnchor, setDownloadAnchor] = useState<HTMLElement | null>(null);
-  const dirty = body !== saved;
-  const running = programmer.data?.running ?? false;
-  const normalised = normalisedOf(check ?? undefined);
 
-  // Load the stored row into the editor once it arrives.
+  /** Text from outside (the stored row, a version, the template): parsed at once. */
+  const loadText = (body: string, fmt: ProgramFormat) => {
+    setFormat(fmt);
+    setText(body);
+    const parsed = parseProgram(body, fmt);
+    setParseError(parsed.error);
+    if (parsed.tree) setTree(parsed.tree);
+    setRevision((n) => n + 1);
+  };
+
+  // Load the stored row into the editor once it arrives (and the template for a new one).
   useEffect(() => {
+    if (creating) {
+      if (!loaded.current) loadText(TEMPLATE, "yaml");
+      loaded.current = true;
+      return;
+    }
     if (stored.data) {
-      setFormat(stored.data.format);
-      setBody(stored.data.body);
+      loadText(stored.data.body, stored.data.format);
       setSaved(stored.data.body);
       setLabel(stored.data.label ?? "");
+      loaded.current = true;
     }
-  }, [stored.data]);
-  // The server-side check needs the stored row: show it for the saved text only.
+  }, [stored.data, creating]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Typing in the text: parse after a pause; a parse failure keeps the last good tree and the text as typed.
+  const typed = useRef<string | null>(null);
   useEffect(() => {
-    if (creating || !stored.data) return;
+    if (typed.current === null) return;
+    const body = typed.current;
+    const handle = window.setTimeout(() => {
+      if (typed.current !== body) return;
+      typed.current = null;
+      const parsed = parseProgram(body, format);
+      setParseError(parsed.error);
+      if (parsed.tree) {
+        setTree(parsed.tree);
+        setRevision((n) => n + 1);
+      }
+    }, PARSE_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [text, format]);
+  const onText = (body: string) => {
+    typed.current = body;
+    setText(body);
+  };
+
+  /** An edit in the builder: the tree changes and the text is regenerated in the current format. */
+  const onTree = (next: ProgramTree) => {
+    typed.current = null;
+    setTree(next);
+    setParseError(null);
+    try {
+      setText(dumpText(next, format));
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
+  const switchFormat = (fmt: ProgramFormat) => {
+    if (fmt === format || parseError) return;
+    try {
+      const body = dumpText(tree, fmt);
+      typed.current = null;
+      setFormat(fmt);
+      setText(body);
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
+  // The rig's check of the tree, after a pause; the offending step is found from the message, else by checking steps alone.
+  useEffect(() => {
+    if (!loaded.current) return;
     let live = true;
-    rig.checkStoredProgram(routeName).then((c) => live && setCheck(c), () => live && setCheck(null));
+    setChecking(true);
+    const handle = window.setTimeout(async () => {
+      let result: CheckState;
+      try {
+        const normalised = await rig.checkProgram(tree);
+        result = { ok: true, error: null, stepErrors: {}, normalised };
+      } catch (e) {
+        const { index, message: why } = stepOfError(e);
+        if (index !== null) result = { ok: false, error: null, stepErrors: { [index]: briefError(why) }, normalised: null };
+        else {
+          const stepErrors: Record<number, string> = {};
+          if (tree.steps.length > 1 && !(e instanceof RigError && e.status !== 422)) {
+            const alone = await Promise.all(
+              tree.steps.map((step) =>
+                rig.checkProgram({ steps: [step] }).then(
+                  () => null,
+                  (se: unknown) => briefError(stepOfError(se).message),
+                ),
+              ),
+            );
+            alone.forEach((m, i) => {
+              if (m) stepErrors[i] = m;
+            });
+          } else if (tree.steps.length === 1) stepErrors[0] = briefError(why);
+          result = { ok: false, error: Object.keys(stepErrors).length ? null : briefError(why), stepErrors, normalised: null };
+        }
+      }
+      if (!live) return;
+      setCheck(result);
+      setChecking(false);
+    }, CHECK_DEBOUNCE_MS);
     return () => {
       live = false;
+      window.clearTimeout(handle);
     };
-  }, [rig, routeName, creating, stored.data]);
+  }, [rig, tree, revision]);
 
   const act = async (op: () => Promise<unknown>) => {
     setBusy(true);
@@ -402,38 +604,57 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     }
   };
 
+  const programName = typeof tree.name === "string" ? tree.name.trim() : "";
+  /** Create (new), or add a version to this program: the server never overwrites a version. */
   const save = async () => {
-    const n = name.trim();
+    const n = creating ? programName : routeName;
     if (!n) {
-      setError("A name is needed.");
+      setError("A name is needed: fill in the name field.");
       return;
     }
-    const ok = await act(() => rig.saveProgram(n, format, body, label.trim() || undefined));
+    if (parseError) {
+      setError(`The text does not parse: ${parseError}`);
+      return;
+    }
+    const ok = await act(() => rig.saveProgram(n, format, text, label.trim() || undefined));
     if (!ok) return;
-    setSaved(body);
-    if (creating || n !== routeName) onSaved(n);
+    setSaved(text);
+    if (creating) onSaved(n);
     else {
       stored.refresh();
       history.refresh();
     }
   };
-
-  const convert = async (fmt: ProgramFormat) => {
-    setConvertTo(null);
-    if (creating || !stored.data) {
-      setFormat(fmt); // nothing stored to convert from; the text is taken as-is in the new format
-      return;
+  /** The current text under another name: a new program; this one is untouched. Resolves to the problem to show, or null. */
+  const saveAsName = async (n: string): Promise<string | null> => {
+    if (n === routeName) return "That is this program's name; Update adds a version to it.";
+    setBusy(true);
+    try {
+      await rig.saveProgram(n, format, text, label.trim() || undefined);
+      setSaveAs(false);
+      onSaved(n);
+      return null;
+    } catch (e) {
+      return message(e);
+    } finally {
+      setBusy(false);
     }
-    const ok = await act(async () => {
-      const r = await fetch(rig.programDownloadUrl(routeName, fmt));
-      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-      const text = await r.text();
-      setFormat(fmt);
-      setBody(text);
-      setSaved(text); // converted, not edited
-    });
-    void ok;
   };
+  const renameTo = async (n: string): Promise<string | null> => {
+    if (n === routeName) return null;
+    setBusy(true);
+    try {
+      await rig.renameProgram(routeName, n);
+      setRename(false);
+      onSaved(n);
+      return null;
+    } catch (e) {
+      return e instanceof RigError && e.status === 409 ? `A program called ${n} already exists.` : message(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const versions = history.data?.length;
 
   const run = async (version?: number) => {
     setRunVersion(null);
@@ -443,6 +664,76 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
 
   if (!creating && stored.error) return <Alert severity="error">{stored.error.message}</Alert>;
   if (!creating && !stored.data) return <Typography color="text.secondary">loading…</Typography>;
+
+  const commentsLost = hasComments(text, format);
+  const normalised = check?.ok ? normalisedOf({ ok: true, error: null, normalised: check.normalised }) : null;
+  const checkChip = checking ? (
+    <Chip label="checking…" variant="outlined" />
+  ) : check ? (
+    <Tooltip title={check.ok ? "The rig accepts this program" : check.error ?? "a step is not accepted; see the card"}>
+      <Chip label={check.ok ? (normalised ? stepsSummary(normalised) : "ok") : `error${Object.keys(check.stepErrors).length ? ` in step ${Object.keys(check.stepErrors).map((i) => Number(i) + 1).join(", ")}` : ""}`} color={check.ok ? "success" : "error"} variant="outlined" data-testid="check-chip" />
+    </Tooltip>
+  ) : undefined;
+
+  const stepsPane = (
+    <Box data-testid="steps" sx={{ minWidth: 0 }}>
+      <Heading end={checkChip}>Steps</Heading>
+      {check && !check.ok && check.error && (
+        <Alert severity="error" sx={{ mb: 1 }} data-testid="check-error">
+          {check.error}
+        </Alert>
+      )}
+      {parseError && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          showing the last text that parsed; fix the text to update
+        </Typography>
+      )}
+      <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} loops={loops.data} stepErrors={check?.stepErrors ?? {}} revision={revision} nameEditable={creating} />
+    </Box>
+  );
+  const textPane = (
+    <Box sx={{ position: "relative", minWidth: 0 }}>
+      <Heading
+        end={
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Tooltip title={parseError ? "Fix the text before switching format" : commentsLost ? "Switching format regenerates the text from the steps: comments are dropped" : "The text is regenerated in the chosen format"}>
+              <ToggleButtonGroup exclusive size="small" value={format} aria-label="format" onChange={(_e, fmt: ProgramFormat | null) => fmt && switchFormat(fmt)} disabled={Boolean(parseError)}>
+                {FORMATS.map((f) => (
+                  <Tooltip key={f} title={SUPPORTED[f] ? "" : `${f} is not available in this build`}>
+                    <span>
+                      <ToggleButton value={f} sx={{ py: 0.25 }} disabled={!SUPPORTED[f] || Boolean(parseError)}>
+                        {f}
+                      </ToggleButton>
+                    </span>
+                  </Tooltip>
+                ))}
+              </ToggleButtonGroup>
+            </Tooltip>
+            <Tooltip title={copied ? "copied" : "copy to clipboard"}>
+              <IconButton size="small" aria-label="copy program text" onClick={() => void copyText()}>
+                {copied ? <CheckIcon fontSize="small" color="success" /> : <ContentCopyIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        }
+      >
+        Text
+      </Heading>
+      <TextField
+        multiline
+        fullWidth
+        minRows={16}
+        maxRows={40}
+        value={text}
+        onChange={(e) => onText(e.target.value)}
+        error={Boolean(parseError)}
+        helperText={parseError ? `does not parse — ${parseError}` : commentsLost ? "editing in the steps view regenerates this text; its comments are dropped" : undefined}
+        FormHelperTextProps={{ "data-testid": "parse-error" } as never}
+        spellCheck={false}
+        inputProps={{ "aria-label": "program body", style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.85rem", lineHeight: 1.45, whiteSpace: "pre", overflowX: "auto" } }}
+      />
+    </Box>
+  );
 
   return (
     <>
@@ -454,28 +745,8 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       )}
       <Paper sx={{ p: 1.5, mb: 1.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-          {creating ? (
-            <TextField label="name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "program name" }} />
-          ) : (
-            <Typography fontWeight={600}>{routeName}</Typography>
-          )}
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={format}
-            aria-label="format"
-            onChange={(_e, fmt: ProgramFormat | null) => {
-              if (!fmt || fmt === format) return;
-              if (dirty) setConvertTo(fmt);
-              else void convert(fmt);
-            }}
-          >
-            {FORMATS.map((f) => (
-              <ToggleButton key={f} value={f} sx={{ py: 0.25 }}>
-                {f}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
+          <Typography fontWeight={600}>{creating ? programName || "new program" : routeName}</Typography>
+          <Chip label={format} variant="outlined" />
           {dirty && <Chip label="unsaved" color="warning" variant="outlined" />}
           <Box sx={{ flexGrow: 1 }} />
           {!creating && (
@@ -490,6 +761,9 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                   </MenuItem>
                 ))}
               </Menu>
+              <Button startIcon={<DriveFileRenameOutlineIcon />} onClick={() => setRename(true)} disabled={busy}>
+                Rename…
+              </Button>
               <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={running || busy} onClick={() => setRunVersion("latest")}>
                 Run
               </Button>
@@ -508,74 +782,57 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
             </>
           )}
         </Stack>
-        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: creating ? "1fr" : "minmax(0, 1fr) minmax(0, 1fr)" }, alignItems: "start" }}>
-          {!creating && (
-            <Box data-testid="steps" sx={{ minWidth: 0 }}>
-              <Heading end={normalised ? <Chip label={stepsSummary(normalised)} variant="outlined" /> : undefined}>Steps</Heading>
-              {check && !check.ok && (
-                <Alert severity="error" sx={{ mb: 1 }}>
-                  {check.error ?? "the rig rejects this program"}
-                </Alert>
-              )}
-              {normalised ? (
-                <ProgramSteps program={normalised} commands={commands.data} programSchema={programSchema.data} />
-              ) : check && !check.ok ? (
-                <Typography variant="body2" color="text.secondary">
-                  The steps cannot be shown until the program passes the check; the text above is what is stored.
-                </Typography>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  {check ? "no steps" : "checking…"}
-                </Typography>
-              )}
-              {dirty && (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  showing the saved version; save to update
-                </Typography>
-              )}
-            </Box>
-          )}
-          <Box sx={{ position: "relative" }}>
-            <Heading
-              end={
-                <Tooltip title={copied ? "copied" : "copy to clipboard"}>
-                  <IconButton size="small" aria-label="copy program text" onClick={() => void copyText()}>
-                    {copied ? <CheckIcon fontSize="small" color="success" /> : <ContentCopyIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
-              }
-            >
-              Text
-            </Heading>
-            <TextField
-              multiline
-              fullWidth
-              minRows={16}
-              maxRows={40}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              spellCheck={false}
-              inputProps={{ "aria-label": "program body", style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.85rem", lineHeight: 1.45, whiteSpace: "pre", overflowX: "auto" } }}
-            />
+        {wide ? (
+          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", alignItems: "start" }}>
+            {stepsPane}
+            {textPane}
           </Box>
-        </Box>
-        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+        ) : (
+          <>
+            <Tabs value={tab} onChange={(_e, v: "steps" | "text") => setTab(v)} sx={{ minHeight: 32 }}>
+              <Tab value="steps" label="Steps" sx={{ minHeight: 32, py: 0 }} />
+              <Tab value="text" label="Text" sx={{ minHeight: 32, py: 0 }} />
+            </Tabs>
+            {tab === "steps" ? stepsPane : textPane}
+          </>
+        )}
+        <Stack direction="row" spacing={1.5} alignItems="flex-start" flexWrap="wrap" useFlexGap>
           <TextField label="label" value={label} onChange={(e) => setLabel(e.target.value)} sx={{ minWidth: 200 }} />
-          <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || (!creating && !dirty && label === (stored.data?.label ?? ""))}>
-            Save
-          </Button>
-          {check && !dirty && (
+          {creating ? (
+            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !programName} data-testid="create">
+              Create {programName || "…"}
+            </Button>
+          ) : (
+            <>
+              <Tooltip title="Adds a version; earlier versions stay under Versions and can be loaded or run.">
+                <span>
+                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || (!dirty && label === (stored.data?.label ?? ""))} data-testid="update">
+                    Update {routeName}
+                    {versions !== undefined ? ` (version ${versions + 1})` : ""}
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={`Creates a new program; ${routeName} is unchanged.`}>
+                <span>
+                  <Button variant="outlined" startIcon={<SaveAsIcon />} onClick={() => setSaveAs(true)} disabled={busy || Boolean(parseError)} data-testid="save-as">
+                    Save as…
+                  </Button>
+                </span>
+              </Tooltip>
+            </>
+          )}
+          {check && (
             <Alert severity={check.ok ? "success" : "error"} sx={{ flexGrow: 1, py: 0 }}>
-              {check.ok ? "the rig accepts this program" : check.error}
+              {check.ok ? "the rig accepts this program" : check.error ?? `step ${Object.keys(check.stepErrors).map((i) => Number(i) + 1).join(", ")}: ${Object.values(check.stepErrors)[0] ?? "not accepted"}`}
             </Alert>
           )}
-          {dirty && (
-            <Typography variant="body2" color="text.secondary">
-              save to check against the rig
-            </Typography>
-          )}
         </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: -1 }}>
+          {creating ? "Create stores the text as version 1 of a new program." : "Saving never overwrites: every save is a new version of this program."}
+        </Typography>
       </Paper>
+      <NameDialog open={saveAs} title="Save as a new program" text={`Creates a new program from the current text; ${routeName} is unchanged.`} action="Save as" initial={`${routeName}-copy`} busy={busy} onClose={() => setSaveAs(false)} onSubmit={saveAsName} />
+      <NameDialog open={rename} title={`Rename ${routeName}`} text="Moves every version under the new name." action="Rename" initial={routeName} busy={busy} onClose={() => setRename(false)} onSubmit={renameTo} />
 
       {!creating && (
         <Box sx={{ mb: 1.5 }}>
@@ -606,14 +863,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                   <TableCell>{h.format}</TableCell>
                   <TableCell sx={{ fontFamily: "monospace" }}>{h.sha256.slice(0, 12)}</TableCell>
                   <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                    <Button
-                      onClick={() => {
-                        setFormat(h.format);
-                        setBody(h.body);
-                      }}
-                    >
-                      load this version
-                    </Button>
+                    <Button onClick={() => loadText(h.body, h.format)}>load this version</Button>
                     <Button disabled={running || busy} onClick={() => setRunVersion(h.id)}>
                       run this version
                     </Button>
@@ -632,14 +882,6 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
         </TableContainer>
       )}
 
-      <Confirm
-        open={convertTo !== null}
-        title={`Convert to ${convertTo}?`}
-        text="The editor has unsaved changes; converting replaces them with the stored version in the new format."
-        action="Discard and convert"
-        onClose={() => setConvertTo(null)}
-        onConfirm={() => void convert(convertTo!)}
-      />
       <Confirm
         open={runVersion !== null}
         title={runVersion === "latest" ? `Run ${routeName}?` : `Run ${routeName} version ${runVersion}?`}

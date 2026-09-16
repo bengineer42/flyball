@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Sequence
+from threading import Lock
 from typing import Protocol, runtime_checkable
 
 STEFAN_BOLTZMANN = 5.670374419e-8
@@ -164,6 +165,7 @@ class Furnace:
         self.sample_measured = start
         self._inputs = {f"heater{i + 1}": 0.0 for i in range(zones)}
         self._last_ns: int | None = None
+        self._lock = Lock()
 
     # region MultiPlant
 
@@ -184,10 +186,12 @@ class Furnace:
         return clean + (self._random.gauss(0.0, self.noise) if self.noise else 0.0)
 
     def advance(self, time_ns: int) -> None:
-        if self._last_ns is not None and time_ns > self._last_ns:
-            self.step((time_ns - self._last_ns) / 1e9)
-        if self._last_ns is None or time_ns > self._last_ns:
-            self._last_ns = time_ns
+        # Readers poll on their own threads outside the rig lock; only one may integrate.
+        with self._lock:
+            if self._last_ns is not None and time_ns > self._last_ns:
+                self.step((time_ns - self._last_ns) / 1e9)
+            if self._last_ns is None or time_ns > self._last_ns:
+                self._last_ns = time_ns
 
     def feedforward(self, port: str, demand: float) -> float:
         """The drive that holds `demand` in this zone alone, at steady state: losses over power.
@@ -217,11 +221,18 @@ class Furnace:
     # endregion
 
     def _losses(self, temperature: float) -> float:
+        """Heat leaving a zone at `temperature`; negative below ambient, and monotonic.
+
+        The radiative term is floored at 0 K: a demand below -273 °C (a law
+        wound far negative with no anti-windup) must not turn the fourth
+        power positive again and switch the heater on.
+        """
+        kelvin = max(temperature + KELVIN, 0.0)
         radiative = (
             self.emissivity
             * STEFAN_BOLTZMANN
             * self.area
-            * ((temperature + KELVIN) ** 4 - (self.ambient + KELVIN) ** 4)
+            * (kelvin**4 - (self.ambient + KELVIN) ** 4)
         )
         return self.loss * (temperature - self.ambient) + radiative
 

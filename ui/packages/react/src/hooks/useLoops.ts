@@ -6,9 +6,11 @@ import { useStream, type StreamStatus } from "./useStream.js";
 
 /**
  * A loop's recent ticks as parallel arrays, oldest first: `t` in seconds
- * since the epoch, the rest in the loop's own units (`demand` and
- * `expected` in the actuator's demand unit). Null where the loop had no
- * value at that tick, e.g. `expected` for an actuator that returns none.
+ * since the epoch, `reference` and `reading` in the channel's unit,
+ * `demand`, `expected` and `correction` in the actuator's (`LoopOut.demand_unit`).
+ * Null where the loop had no value at that tick, e.g. `expected` for an
+ * actuator that returns none, or `reference` while a ramp runs under a
+ * feedforward the setpoint cannot be recovered through (see `setpointOf`).
  */
 export interface LoopTrace {
   t: number[];
@@ -16,11 +18,13 @@ export interface LoopTrace {
   reading: (number | null)[];
   demand: (number | null)[];
   expected: (number | null)[];
+  /** The law's share of the demand: `demand − feedforward(setpoint)`. */
+  correction: (number | null)[];
 }
 
 export type LoopTraces = Record<string, LoopTrace>;
 
-const empty = (): LoopTrace => ({ t: [], reference: [], reading: [], demand: [], expected: [] });
+const empty = (): LoopTrace => ({ t: [], reference: [], reading: [], demand: [], expected: [], correction: [] });
 
 /**
  * Trim to the last `windowS` seconds and append the loop's current values.
@@ -41,6 +45,7 @@ function push(trace: LoopTrace, loop: LoopOut, windowS: number): LoopTrace {
     reading: slice(trace.reading, loop.reading ? loop.reading.value : null),
     demand: slice(trace.demand, loop.demand),
     expected: slice(trace.expected, loop.expected),
+    correction: slice(trace.correction, loop.correction),
   };
 }
 
@@ -70,7 +75,8 @@ function appendTicks(trace: LoopTrace, startS: number, ticks: Awaited<ReturnType
     reference: [...trace.reference, ...ticks.map((k) => k.setpoint)],
     reading: [...trace.reading, ...ticks.map((k) => k.reading)],
     demand: [...trace.demand, ...ticks.map((k) => k.demand)],
-    expected: [...trace.expected, ...ticks.map((k) => (k as { expected?: number | null }).expected ?? null)],
+    expected: [...trace.expected, ...ticks.map((k) => k.expected ?? null)],
+    correction: [...trace.correction, ...ticks.map((k) => k.correction ?? null)],
   };
 }
 
@@ -83,7 +89,7 @@ function appendTicks(trace: LoopTrace, startS: number, ticks: Awaited<ReturnType
  * axis, so a gap between sessions shows as a gap.
  */
 async function fromStore(rig: RigClient, loops: LoopOut[], windowS: number, every?: number): Promise<LoopTraces> {
-  const [sessions, clock] = await Promise.all([rig.sessions(20).catch(() => []), rig.clock()]);
+  const [sessions, clock, current] = await Promise.all([rig.sessions(20).catch(() => []), rig.clock(), rig.recording().catch(() => null)]);
   if (!sessions.length) return {};
   const nowS = clock.now_ns / 1e9; // the rig's now: a simulated clock runs ahead of the wall
   const wanted = new Map(loops.map((l) => [pairOf(l), l.name]));
@@ -95,6 +101,7 @@ async function fromStore(rig: RigClient, loops: LoopOut[], windowS: number, ever
   // than the current one; such a session cannot share the axis and is skipped.
   let floorS = Number.POSITIVE_INFINITY;
   for (const session of sessions) {
+    if (session.end_ns === null && session.id !== current?.id) continue; // an orphan, see useSources
     const startS = session.start_ns / 1e9;
     const endS = session.end_ns === null ? nowS : session.end_ns / 1e9;
     if (endS > floorS) continue;
@@ -135,12 +142,13 @@ function splice(history: LoopTrace | undefined, live: LoopTrace): LoopTrace {
     reading: join(history.reading, live.reading),
     demand: join(history.demand, live.demand),
     expected: join(history.expected, live.expected),
+    correction: join(history.correction, live.correction),
   };
 }
 
 /**
  * Every loop: the latest `LoopOut` per name, and a trace of the last
- * `windowS` seconds of reference, reading, demand and expected per loop,
+ * `windowS` seconds of reference, reading, demand, expected and correction per loop,
  * so a chart can draw them. Seeded from `GET /api/loops` and, when a
  * session is recording, from its stored ticks -- so a freshly opened page
  * shows the window already full -- then live from `/ws/loops`.

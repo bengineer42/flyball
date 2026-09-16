@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from contextlib import suppress
 from threading import RLock
 from typing import Any
 
 from flyball.control import ControlLawLike, Loop, LoopState, Tunings
+from flyball.control.feedforward import (
+    FeedforwardConfig,
+    FeedforwardLike,
+    Feedforwards,
+    NoFeedforward,
+    Setpoint,
+)
 from flyball.core import Clock
-from flyball.core.device import Event, Level
+from flyball.core.device import Condition, Event, Level
 from flyball.core.errors import ConflictError
 from flyball.core.reading import Channel, Reader, Reading, Sample, Source
 from flyball.core.sink import RESERVED_NAMES, Actuator, ActuatorState, Observer, Sink
@@ -17,6 +25,7 @@ from flyball.core.typing import OrderedSet
 from flyball.db import Store
 from flyball.runtime.reader import Readers
 from flyball.runtime.signals import Signals
+from flyball.runtime.writer import Writer, is_blocking
 
 from .loops import Loops
 from .recorder import Recorder
@@ -34,6 +43,8 @@ class Rig:
     """What the rig file called it, if it came from one."""
     links: dict[str, Any]
     """What the rig file's `links` built, by name: buses, sessions, simulated plants."""
+    writers: dict[str, Writer]
+    """A thread per blocking actuator, carrying the loop's demands to the bus."""
     lock: RLock
     actuator_states: Latest[str, ActuatorState]
     """The newest state of each actuator, by name. Built only while someone watches."""
@@ -56,6 +67,7 @@ class Rig:
     def __init__(self, name: str | None = None) -> None:
         self.name = name
         self.links = {}
+        self.writers = {}
         self.clock = Clock()
         self.loops = Loops()
         self.actuators = {}
@@ -130,6 +142,25 @@ class Rig:
             self.recorder.event(event)
         return event
 
+    def _writer_for(self, actuator: Actuator) -> Callable[[float], float | None] | None:
+        """A queue in front of an actuator that blocks on a bus; None for one that does not."""
+        if not is_blocking(actuator):
+            return None
+        if (writer := self.writers.get(actuator.name)) is None:
+            writer = self.writers[actuator.name] = Writer(self, actuator)
+        return writer.request
+
+    def write_conditions(self) -> list[tuple[str, Condition]]:
+        """Bus failures the writers are seeing now, by actuator name."""
+        return [(name, w.failed) for name, w in self.writers.items() if w.failed is not None]
+
+    def stop(self) -> None:
+        """Stop what runs on threads: polling, writers, recording. The rig can be built again."""
+        self._readers.stop_all()
+        for writer in self.writers.values():
+            writer.stop()
+        self.stop_recording()
+
     def apply(self, sink: Sink) -> None:
         """Commit a sink and, for an actuator, note what it is doing now for anyone watching."""
         sink.apply()
@@ -154,21 +185,49 @@ class Rig:
         law: ControlLawLike | str | None = None,
         default: bool = False,
         min_period_s: float | None = None,
+        feedforward: FeedforwardLike | str | None = None,
     ) -> None:
+        """Regulate `channel` through `actuator`.
+
+        Args:
+            channel: The controlled variable.
+            actuator: What the loop drives; added to the rig if new.
+            law: The control law, a config, or a stored tuning's name.
+            default: Make this the loop commands address when they name none.
+            min_period_s: Step the law at most this often.
+            feedforward: What maps the setpoint to a demand in the actuator's
+                unit: an instance, a config, or a tag. Default: the setpoint
+                itself when the actuator takes the channel's unit, else none
+                (the law does all the work).
+        """
         if isinstance(law, str):
             law = self.tunings.get(law)
         demand_unit = actuator.demand_unit  # an instance may narrow the class's
-        if demand_unit is not None and demand_unit != channel.unit:
-            # The loop hands the actuator demands in the channel's unit; an
-            # actuator that expects another would run happily and do nonsense.
+        same_unit = demand_unit is None or demand_unit == channel.unit
+        if isinstance(feedforward, str):
+            feedforward = Feedforwards[feedforward]()
+        elif isinstance(feedforward, FeedforwardConfig):
+            feedforward = feedforward.build()
+        if feedforward is None:
+            feedforward = Setpoint() if same_unit else NoFeedforward()
+        elif isinstance(feedforward, Setpoint) and not same_unit:
+            # Handing an actuator demands in the channel's unit when it expects
+            # another would run happily and do nonsense.
             raise ConflictError(
-                f"loop on {channel.name} ({channel.unit}) cannot drive {actuator.name!r},"
-                f" which takes demands in {demand_unit}"
+                f"loop on {channel.name} ({channel.unit}) cannot pass its setpoint to"
+                f" {actuator.name!r}, which takes demands in {demand_unit}"
             )
         self.add_actuator(actuator)
         self.loops.add(
             channel,
-            Loop(self.clock, actuator, law=law, min_period_s=min_period_s),
+            Loop(
+                self.clock,
+                actuator,
+                law=law,
+                min_period_s=min_period_s,
+                write=self._writer_for(actuator),
+                feedforward=feedforward,
+            ),
             default=default,
         )
 
@@ -193,8 +252,24 @@ class Rig:
                 writer,
                 self.sources if sources is None else sources,
                 self.loops.entries() if loops is None else loops,
+                on_failure=self._recording_failed,
             )
             return self.recorder
+
+    def _recording_failed(self, error: Exception) -> None:
+        """From the recorder's thread: detach it first, so the event does not go back to it."""
+        with self.lock:
+            recorder, self.recorder = self.recorder, None
+        self.event(
+            Level.ERROR,
+            "rig",
+            "recorder",
+            "recording_failed",
+            f"recording stopped: {type(error).__name__}: {error}",
+        )
+        if recorder is not None:
+            with suppress(Exception):  # the store already failed once
+                recorder.writer.end(self.clock.now_ns())
 
     def stop_recording(self) -> None:
         with self.lock:

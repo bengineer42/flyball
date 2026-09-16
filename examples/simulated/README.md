@@ -15,6 +15,9 @@ here to try the system, to test against, and to show what a rig file is.
 
 `furnace.toml` is a `sim_furnace` link read through four `sim_reader`s and
 driven by three `sim_actuator`s, each naming a `port` of the one plant. The
+heaters are plain: a demand is a power in watts, and each loop carries a
+`table` feedforward -- the single-zone losses curve, as one would measure it
+at commissioning -- so the law only has to cover what the neighbours add. The
 zones conduct heat to each other, so holding the middle at 900 °C drags the
 ends above their 600 °C setpoints with their heaters off — a heater cannot
 cool — and losses are convective plus radiative, so the drive a zone needs

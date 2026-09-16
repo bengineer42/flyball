@@ -1,12 +1,11 @@
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
-import { RigProvider, useLoops, useEvents, useRigSchema, LoopPanel, EventsPanel } from "@flyball/react";
+import { RigProvider, useLoops, useEvents, LoopPanel, EventsPanel } from "@flyball/react";
 import "uplot/dist/uPlot.min.css";
 import "@flyball/react/styles.css";
 
 function Harness() {
   const [windowS, setWindowS] = useState(120);
-  const schema = useRigSchema();
   const { loops, history, status } = useLoops(3600);
   const events = useEvents(500);
   const select = (
@@ -26,7 +25,6 @@ function Harness() {
           key={loop.name}
           loop={loop}
           history={history[loop.name]}
-          demandUnit={schema.data?.actuators[loop.name]?.demand_unit ?? "W"}
           windowS={windowS}
           controls={select}
         />

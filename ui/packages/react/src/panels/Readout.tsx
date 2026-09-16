@@ -15,10 +15,12 @@ export interface ReadoutProps {
   windowS?: number;
   /** Draw one point in `every` on the sparkline. */
   every?: number;
+  /** The same channel in the store, as an export URL; offered by the download menu of the chart the sparkline opens as. */
+  exportHref?: string;
 }
 
 /** One channel as a tile: label, current value with unit, position in range, sparkline. */
-export function Readout({ channel, t, v, sparkline = true, showSource = true, windowS, every }: ReadoutProps) {
+export function Readout({ channel, t, v, sparkline = true, showSource = true, windowS, every, exportHref }: ReadoutProps) {
   const last = v.length ? v[v.length - 1] : undefined;
   const range = channel.range;
   const precision = channel.precision ?? 2;
@@ -57,7 +59,7 @@ export function Readout({ channel, t, v, sparkline = true, showSource = true, wi
           ))}
         </div>
       )}
-      {sparkline && <TimeSeries channel={channel} t={t} v={v} height={44} compact windowS={windowS} every={every} />}
+      {sparkline && <TimeSeries channel={channel} t={t} v={v} height={44} compact windowS={windowS} every={every} exportHref={exportHref} />}
     </div>
   );
 }

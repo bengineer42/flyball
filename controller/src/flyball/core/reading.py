@@ -220,17 +220,22 @@ class Source:
     duplicate is an error, not a merge.
     """
 
-    __slots__ = ("_channels", "_seq", "name")
+    __slots__ = ("_channels", "_seq", "label", "name")
 
     _registry: ClassVar[dict[str, Source]] = {}
 
     name: str
+    label: str | None
+    """A display name; None: show `name`."""
     _channels: dict[Measurand, Channel]
 
-    def __init__(self, name: str, measurands: Iterable[Measurand] = ()) -> None:
+    def __init__(
+        self, name: str, measurands: Iterable[Measurand] = (), label: str | None = None
+    ) -> None:
         if name in self._registry:
             raise SourceExistsError(name)
         self.name = name
+        self.label = label
         self._channels = {}
         self._seq = 0
         self._registry[name] = self

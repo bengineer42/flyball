@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
-import { FormControl, InputLabel, MenuItem, Select, Stack, TextField } from "@mui/material";
+import { Stack, TextField, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import type { YScale } from "@flyball/react";
-import { WindowSelect } from "./WindowSelect.js";
+import { Labelled, WindowSelect, controlSx, segmentSx } from "./WindowSelect.js";
 
 const STORAGE_KEY = "flyball.charts.yscale";
 
@@ -58,31 +58,23 @@ export const YScaleSelect = memo(function YScaleSelect({ value, onChange, unit }
   const box = (key: "min" | "max") => (
     <TextField
       type="number"
-      label={key}
+      placeholder={key}
       value={custom[key]}
       onChange={(e) => apply({ ...custom, [key]: e.target.value })}
       inputProps={{ "aria-label": `y ${key}`, step: "any", style: { width: "5em" } }}
-      sx={{ "& .MuiInputBase-input": { py: 0.5, fontSize: "0.85rem" } }}
+      sx={controlSx}
       helperText={undefined}
     />
   );
   return (
-    <Stack direction="row" spacing={0.75} alignItems="center">
-      <FormControl size="small" sx={{ minWidth: 112 }}>
-        <InputLabel id="yscale-select-label">y axis</InputLabel>
-        <Select
-          labelId="yscale-select-label"
-          label="y axis"
-          value={choice}
-          onChange={(e) => choose(e.target.value as Choice)}
-          sx={{ fontSize: "0.85rem", "& .MuiSelect-select": { py: 0.5 } }}
-          inputProps={{ "aria-label": "y axis scale" }}
-        >
-          <MenuItem value="auto">Auto</MenuItem>
-          <MenuItem value="range">Full range</MenuItem>
-          <MenuItem value="custom">Custom…</MenuItem>
-        </Select>
-      </FormControl>
+    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+      <Labelled label="y">
+        <ToggleButtonGroup exclusive size="small" value={choice} onChange={(_e, v: Choice | null) => v && choose(v)} aria-label="y axis scale" sx={segmentSx}>
+          <ToggleButton value="auto" title="Fit the y axis to the data">auto</ToggleButton>
+          <ToggleButton value="range" title="The channel's declared range">range</ToggleButton>
+          <ToggleButton value="custom" title="Bounds typed here">custom</ToggleButton>
+        </ToggleButtonGroup>
+      </Labelled>
       {editing && (
         <>
           {box("min")}
@@ -126,26 +118,25 @@ export const writeEvery = (n: number) => {
 /** Sample every nth point: lighter charts for a long window or a dense series. */
 export const EverySelect = memo(function EverySelect({ value, onChange }: { value: number; onChange(n: number): void }) {
   return (
-    <FormControl size="small" sx={{ minWidth: 110 }}>
-      <InputLabel id="every-label">sample</InputLabel>
-      <Select labelId="every-label" label="sample" value={value} onChange={(e) => onChange(Number(e.target.value))} inputProps={{ "data-testid": "every-select" }}>
+    <Labelled label="sample">
+      <ToggleButtonGroup exclusive size="small" value={value} onChange={(_e, v: number | null) => v !== null && onChange(v)} aria-label="sample every nth point" data-testid="every-select" sx={segmentSx}>
         {EVERY.map((n) => (
-          <MenuItem key={n} value={n}>
-            {n === 1 ? "every point" : `every ${n}th`}
-          </MenuItem>
+          <ToggleButton key={n} value={n} title={n === 1 ? "Every point" : `Every ${n}th point`}>
+            {n === 1 ? "all" : `1/${n}`}
+          </ToggleButton>
         ))}
-      </Select>
-    </FormControl>
+      </ToggleButtonGroup>
+    </Labelled>
   );
 });
 
-/** The chart controls side by side; memoised for the same reason as `WindowSelect`. */
+/** The chart controls side by side, on one baseline; memoised for the same reason as `WindowSelect`. Lives once per page, in the page bar. */
 export const ChartControls = memo(function ChartControls({ windowS, onWindow, yScale, onYScale, every, onEvery, unit }: ChartSettings & { unit?: string }) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-      <YScaleSelect value={yScale} onChange={onYScale} unit={unit} />
-      <EverySelect value={every} onChange={onEvery} />
+    <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
       <WindowSelect value={windowS} onChange={onWindow} />
+      <EverySelect value={every} onChange={onEvery} />
+      <YScaleSelect value={yScale} onChange={onYScale} unit={unit} />
     </Stack>
   );
 });

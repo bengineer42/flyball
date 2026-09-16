@@ -142,6 +142,8 @@ class ScpiActuator(Actuator):
         readback: A query that reports the setting, for `state`.
     """
 
+    blocking = True  # writes go to a bus: the rig queues them off the loop's thread
+
     def __init__(
         self,
         name: str,

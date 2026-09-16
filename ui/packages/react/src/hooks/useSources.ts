@@ -48,12 +48,15 @@ export function useSamples(sources: SourceOut[] | undefined, windowS = 300): { t
       // Sessions newest first until the window is covered; a channel is the
       // same channel in every session it was recorded in, so a restart or a
       // new recording does not blank the chart. Rig time, not wall time.
-      const [sessions, clock] = await Promise.all([rig.sessions(20), rig.clock()]);
+      const [sessions, clock, current] = await Promise.all([rig.sessions(20), rig.clock(), rig.recording().catch(() => null)]);
       const nowS = clock.now_ns / 1e9;
       const horizonS = nowS - windowS;
       const parts: Record<string, Array<{ t: number[]; v: number[] }>> = {};
       let floorS = Number.POSITIVE_INFINITY; // see useLoops: sessions must not overlap on the axis
       for (const session of sessions) {
+        // Only the current recording may be open; another open session was left by a
+        // daemon that died and would overlay stale readings on the live trace.
+        if (session.end_ns === null && session.id !== current?.id) continue;
         const startS = session.start_ns / 1e9;
         const endS = session.end_ns === null ? nowS : session.end_ns / 1e9;
         if (endS > floorS) continue;

@@ -6,6 +6,7 @@
 
 import type { Request, StreamHandlers, Subscription, Transport } from "./transport.js";
 import { RigError } from "./transport.js";
+import type { DashboardDocument, DashboardRow } from "./dashboards.js";
 import type {
   ActuatorRow,
   ActuatorSchema,
@@ -52,6 +53,18 @@ import type {
 
 export type DeviceKind = "actuators" | "readers";
 
+/** What a download comes as. A whole session can also come as a `zip` of every table plus its metadata. */
+export type ExportFormat = "csv" | "json";
+export type SessionExportFormat = ExportFormat | "zip";
+
+export interface SessionExportQuery {
+  format?: SessionExportFormat;
+  /** `wide`: a column per channel, each row holding every channel's last value. `long`: a row per raw value. */
+  layout?: "wide" | "long";
+  /** Resample a wide table onto this grid, in seconds. */
+  step_s?: number;
+}
+
 export interface SeriesQuery {
   start_ns?: number;
   end_ns?: number;
@@ -61,16 +74,42 @@ export interface SeriesQuery {
   [key: string]: number | undefined;
 }
 
+/**
+ * An error body's `detail` as one line: the string FastAPI sends, or a 422's
+ * list of `{loc, msg}` as `field: message; ...`. Undefined when there is none.
+ */
+function describeDetail(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const lines = detail.map((item) => {
+      const { loc, msg } = (item ?? {}) as { loc?: unknown[]; msg?: unknown };
+      const where = Array.isArray(loc) ? loc.filter((l) => l !== "body").join(".") : "";
+      return where ? `${where}: ${String(msg ?? JSON.stringify(item))}` : String(msg ?? JSON.stringify(item));
+    });
+    if (lines.length) return lines.join("; ");
+  }
+  if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+  return undefined;
+}
+
 export class RigClient {
   constructor(private readonly transport: Transport) {}
 
   private async call<T>(request: Request): Promise<T> {
     const response = await this.transport.request(request);
     if (response.status >= 400) {
-      const detail = (response.json as ErrorDetail | undefined)?.detail ?? `HTTP ${response.status}`;
-      throw new RigError(response.status, detail, request.path);
+      const body = response.json as ErrorDetail | { detail: unknown } | undefined;
+      throw new RigError(response.status, describeDetail(body?.detail) ?? response.text?.trim() ?? `HTTP ${response.status}`, request.path);
     }
     return response.json as T;
+  }
+
+  /** A route's URL under the transport's base, for a link the browser follows itself (a download). */
+  private url(path: string, query: Record<string, string | number | undefined> = {}): string {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined) q.set(key, String(value));
+    const search = q.toString();
+    return `${this.transport.base ?? ""}${path}${search ? `?${search}` : ""}`;
   }
 
   private get<T>(path: string, query?: Request["query"], signal?: AbortSignal): Promise<T> {
@@ -251,6 +290,33 @@ export class RigClient {
     return this.get(`/api/history/sessions/${id}/spans`);
   }
 
+  // The export routes answer with a file (`Content-Disposition: attachment`),
+  // so the client builds their URLs and the page points an anchor at them;
+  // nothing is fetched here.
+
+  /** URL of the whole session as a file: every channel, or `zip` for the tables, the loops' ticks, the events and the metadata. */
+  exportUrl(id: number, { format = "csv", layout = "wide", step_s }: SessionExportQuery = {}): string {
+    return this.url(`/api/history/sessions/${id}/export`, { format, layout: format === "zip" ? undefined : layout, step_s });
+  }
+
+  /** URL of one channel's series as a file. */
+  seriesExportUrl(id: number, source: string, measurand: string, format: ExportFormat = "csv"): string {
+    return this.url(
+      `/api/history/sessions/${id}/series/${encodeURIComponent(source)}/${encodeURIComponent(measurand)}/export`,
+      { format },
+    );
+  }
+
+  /** URL of one loop's ticks as a file. */
+  ticksExportUrl(id: number, loop: string, format: ExportFormat = "csv"): string {
+    return this.url(`/api/history/sessions/${id}/ticks/${encodeURIComponent(loop)}/export`, { format });
+  }
+
+  /** URL of the session's events as a file. */
+  eventsExportUrl(id: number, format: ExportFormat = "csv"): string {
+    return this.url(`/api/history/sessions/${id}/events/export`, { format });
+  }
+
   // endregion
 
   // region Recording -- the one place the rig and the store meet
@@ -303,6 +369,11 @@ export class RigClient {
 
   deleteProgram(name: string): Promise<void> {
     return this.call({ method: "DELETE", path: `/api/programs/library/${encodeURIComponent(name)}` });
+  }
+
+  /** Move a program, with its whole version history, under a new name. 409 if the name is taken. */
+  renameProgram(name: string, newName: string): Promise<ProgramRow[]> {
+    return this.call({ method: "POST", path: `/api/programs/library/${encodeURIComponent(name)}/rename`, body: { name: newName } });
   }
 
   /** URL of the document as a file, converted to `format` if given; open it or set it as an anchor's href. */
@@ -415,4 +486,40 @@ export class RigClient {
   programCommandsSchema(): Promise<JsonSchema> {
     return this.get("/api/programs/commands");
   }
+
+  // region Dashboards -- the UI's own documents, saved per rig with a version history
+
+  /** The newest version of each of this rig's dashboards (`every`: every rig's). */
+  dashboards(every = false): Promise<DashboardRow[]> {
+    return this.get("/api/dashboards", every ? { every: true } : undefined);
+  }
+
+  dashboard(name: string): Promise<DashboardRow> {
+    return this.get(`/api/dashboards/${encodeURIComponent(name)}`);
+  }
+
+  dashboardHistory(name: string): Promise<DashboardRow[]> {
+    return this.get(`/api/dashboards/${encodeURIComponent(name)}/history`);
+  }
+
+  /** Save a version under `name`; the body is the whole document. */
+  saveDashboard(name: string, body: DashboardDocument): Promise<DashboardRow> {
+    return this.call({ method: "PUT", path: `/api/dashboards/${encodeURIComponent(name)}`, body });
+  }
+
+  /** Move a dashboard, with its history, under a new name. 409 if the name is taken. */
+  renameDashboard(name: string, newName: string): Promise<DashboardRow[]> {
+    return this.call({ method: "POST", path: `/api/dashboards/${encodeURIComponent(name)}/rename`, body: { name: newName } });
+  }
+
+  deleteDashboard(name: string): Promise<void> {
+    return this.call({ method: "DELETE", path: `/api/dashboards/${encodeURIComponent(name)}` });
+  }
+
+  /** JSON Schema of the document, for checking an import before it is shown. */
+  dashboardSchema(): Promise<JsonSchema> {
+    return this.get("/api/dashboards/schema");
+  }
+
+  // endregion
 }

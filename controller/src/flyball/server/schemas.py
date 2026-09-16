@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, SerializeAsAny, TypeAdapter
 
-from flyball.control import ControlLaws, ControlLawView, Loop, LoopView
+from flyball.control import ControlLaws, ControlLawView, FeedforwardConfig, Loop, LoopView
 from flyball.core.clock import Clock
 from flyball.core.model import discriminated_union
 from flyball.core.reading import Channel, Sample, Source
@@ -92,6 +92,8 @@ class SampleOut(BaseModel):
 
 class SourceOut(BaseModel):
     name: str
+    label: str | None = None
+    """A display name from the rig file; None: show `name`."""
     channels: list[ChannelOut]
     latest: SampleOut | None
 
@@ -99,6 +101,7 @@ class SourceOut(BaseModel):
     def of(cls, source: Source, latest: Sample | None) -> SourceOut:
         return cls(
             name=str(source.name),
+            label=source.label,
             channels=[ChannelOut.of(c) for c in source.channels],
             latest=None if latest is None else SampleOut.of(latest),
         )
@@ -113,11 +116,19 @@ class LoopOut(BaseModel):
     """A loop as a client sees it. Separate from `LoopView` so the wire shape stays stable."""
 
     name: str
+    label: str | None = None
+    """The actuator's display name; None: show `name`."""
     channel: ChannelOut
     default: bool
     mode: str
     law: SerializeAsAny[ControlLawView] | None
+    feedforward: SerializeAsAny[FeedforwardConfig]
+    """What maps the setpoint to the demand; the law's correction is added to it."""
+    demand_unit: str
+    """The unit `demand`, `expected` and `correction` are in: the actuator's, or the channel's."""
     reference: float | str | None
+    setpoint: float | None
+    """The reference as resolved at the last tick, so a ramp's current value is on the wire."""
     correction: float
     demand: float | None
     expected: float | None
@@ -126,21 +137,27 @@ class LoopOut(BaseModel):
 
     @classmethod
     def of(cls, channel: Channel, loop: Loop[Any], default: bool) -> LoopOut:
-        return cls.of_view(channel, loop.view, default)
+        return cls.of_view(channel, loop.view, default, loop.actuator.label)
 
     @classmethod
-    def of_view(cls, channel: Channel, view: LoopView, default: bool) -> LoopOut:
+    def of_view(
+        cls, channel: Channel, view: LoopView, default: bool, label: str | None = None
+    ) -> LoopOut:
         """From a snapshot, so the wire model can be built off the control thread."""
         reference = view.reference
         return cls(
             name=view.name,
+            label=label,
             channel=ChannelOut.of(channel),
             default=default,
             mode=view.mode.value,
             law=view.law,
+            feedforward=view.feedforward,
+            demand_unit=view.demand_unit or channel.unit.symbol,
             reference=reference
             if isinstance(reference, float | int | type(None))
             else reference.tag,
+            setpoint=view.setpoint,
             correction=view.correction,
             demand=view.demand,
             expected=view.expected,

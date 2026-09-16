@@ -33,26 +33,34 @@ def client():
     set_rig(None)
 
 
-def test_schema_offers_channels_by_unit(client):
+def test_schema_offers_every_channel_and_the_feedforwards(client):
     c, rig, src = client
     rig.read(rig.readers.by_name["lt_reader"])  # sources are known once read
     schema = c.get("/api/loops/schema").json()
     by_name = {a["name"]: a for a in schema["actuators"]}
-    assert by_name["heater"]["channels"] == [f"{src.name}.lt_temp"]  # °C only
-    assert sorted(by_name["anything"]["channels"]) == sorted([
-        f"{src.name}.lt_flow",
-        f"{src.name}.lt_temp",
-    ])
+    assert by_name["heater"]["demand_unit"] == "°C" and by_name["anything"]["demand_unit"] is None
+    every = sorted([f"{src.name}.lt_flow", f"{src.name}.lt_temp"])
+    assert sorted(by_name["heater"]["channels"]) == every  # a feedforward bridges units
+    assert sorted(by_name["anything"]["channels"]) == every
     tags = {d["properties"]["tag"]["const"] for d in schema["laws"]["$defs"].values()}
     assert "PI" in tags and schema["laws"]["discriminator"]["propertyName"] == "tag"
+    ff = {d["properties"]["tag"]["const"] for d in schema["feedforwards"]["$defs"].values()}
+    assert ff >= {"setpoint", "none", "affine", "table"}
     assert {c_["dimension"] for c_ in schema["channels"]} == {"Temperature", "Volume flow"}
 
 
 def test_make_regulate_manual_reference_remove(client):
     c, rig, src = client
     rig.read(rig.readers.by_name["lt_reader"])
-    bad = c.post("/api/loops", json={"channel": f"{src.name}.lt_flow", "actuator": "heater"})
-    assert bad.status_code == 409  # heater takes °C
+    bad = c.post(
+        "/api/loops",
+        json={"channel": f"{src.name}.lt_flow", "actuator": "heater", "feedforward": "setpoint"},
+    )
+    assert bad.status_code == 409  # heater takes °C; a flow setpoint cannot go straight to it
+    ok = c.post("/api/loops", json={"channel": f"{src.name}.lt_flow", "actuator": "heater"})
+    assert ok.status_code == 201 and ok.json()["feedforward"] == {"tag": "none"}
+    assert ok.json()["demand_unit"] == "°C"
+    assert c.delete("/api/loops/heater").status_code == 204
 
     made = c.post(
         "/api/loops",
@@ -67,6 +75,7 @@ def test_make_regulate_manual_reference_remove(client):
         made.status_code == 201
         and made.json()["mode"] == "manual"
         and made.json()["default"] is True
+        and made.json()["feedforward"] == {"tag": "setpoint"}
     )
     assert (
         c.post(

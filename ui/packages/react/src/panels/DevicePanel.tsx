@@ -17,7 +17,7 @@ export interface DevicePanelProps {
   results?: Record<string, CommandFormProps["result"]>;
   /** The RJSF form to render commands with (a theme's `Form`); default `@rjsf/core`. */
   form?: CommandFormProps["form"];
-  /** The heading; default the device's name. */
+  /** The heading; default the device's label, else its name. */
   title?: ReactNode;
   /** After the type in the header: a unit, a route, whatever tells the device apart. */
   subtitle?: ReactNode;
@@ -50,8 +50,9 @@ export function DevicePanel({ schema, state, view, commands, onRun, busy, result
   return (
     <article className="fb-panel fb-device">
       <header>
-        <h3>{title ?? schema.name}</h3>
+        <h3>{title ?? schema.label ?? schema.name}</h3>
         <span className="fb-muted">
+          {title === undefined && schema.label && `${schema.name} · `}
           {schema.type}
           {subtitle && <> · {subtitle}</>}
         </span>

@@ -6,6 +6,7 @@ through commands.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Annotated, Any, Union
 
 from fastapi import APIRouter
@@ -47,15 +48,19 @@ async def read_health() -> dict[str, Any]:
     rig = current_rig()
     if rig is None:
         return {"ok": False, "rig": None}
-    conditions = [
-        {"device": name, **c.__dict__}
-        for name in rig.readers.by_name
-        for c in rig.readers.run(name).conditions
-    ] + [
-        {"device": name, **c.__dict__}
-        for name, actuator in rig.actuators.items()
-        for c in actuator.state.conditions
-    ]
+    conditions = (
+        [
+            {"device": name, **asdict(c)}
+            for name in rig.readers.by_name
+            for c in rig.readers.run(name).conditions
+        ]
+        + [
+            {"device": name, **asdict(c)}
+            for name, actuator in rig.actuators.items()
+            for c in actuator.state.conditions
+        ]
+        + [{"device": name, **c.__dict__} for name, c in rig.write_conditions()]
+    )
     return {
         "ok": not any(c["level"] >= 40 for c in conditions),
         "rig": rig.name,

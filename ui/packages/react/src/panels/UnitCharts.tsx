@@ -10,16 +10,21 @@ export interface UnitChartsProps {
   /** Which channels to draw; each lands on the chart for its unit. */
   channels: ChannelOut[];
   traces: Traces;
-  height?: number;
+  /** Plot height, or `"auto"` to follow the width. */
+  height?: number | "auto";
   windowS?: number;
   /** Rendered at the end of the header of the first chart (a window selector, say). */
   controls?: ReactNode;
-  /** Trace label: `source.measurand` by default; `label` gives just the measurand's label. */
+  /** Trace label: `source.measurand` by default (the source's label when `sources` gives one); `label` gives just the measurand's label. */
   labels?: "qualified" | "label";
+  /** The sources the channels belong to, for their labels; a source not here is named by its `name`. */
+  sources?: ReadonlyArray<{ name: string; label?: string | null }>;
   /** y axis scaling; `"range"` uses the widest declared range among the unit's channels. */
   yScale?: YScale;
   /** Draw one point in `every`. */
   every?: number;
+  /** Where the store holds a chart's channels, as an export URL; the chart's download menu offers it. */
+  exportHref?(channels: ChannelOut[]): string | undefined;
 }
 
 /** The widest declared range among channels, for a shared axis. */
@@ -40,15 +45,16 @@ export function groupByUnit(channels: ChannelOut[]): Array<{ unit: string; chann
  * process, dry and wet humidities on one %RH axis, their temperatures on one
  * °C axis. Pure; `useSamples` supplies the traces.
  */
-export function UnitCharts({ channels, traces, height = 220, windowS, controls, labels = "qualified", yScale, every }: UnitChartsProps) {
+export function UnitCharts({ channels, traces, height = 220, windowS, controls, labels = "qualified", sources, yScale, every, exportHref }: UnitChartsProps) {
   const groups = groupByUnit(channels);
+  const sourceLabel = (name: string) => sources?.find((s) => s.name === name)?.label ?? name;
   return (
     <>
       {groups.map(({ unit, channels: cs }, i) => {
         const series: MultiSeriesTrace[] = cs.map((c) => {
           const trace = traces[channelKey(c)];
           return {
-            label: labels === "label" ? c.label : `${c.source}.${c.measurand}`,
+            label: labels === "label" ? c.label : `${sourceLabel(c.source)}.${c.label || c.measurand}`,
             unit,
             t: trace?.t ?? [],
             v: trace?.v ?? [],
@@ -56,7 +62,7 @@ export function UnitCharts({ channels, traces, height = 220, windowS, controls, 
           };
         });
         return (
-          <section key={unit} className="fb-unit-chart">
+          <section key={unit} className="fb-panel fb-unit-chart">
             <header className="fb-source-head">
               <h4>{unit}</h4>
               <span className="fb-muted fb-unit-chart-channels">
@@ -69,7 +75,7 @@ export function UnitCharts({ channels, traces, height = 220, windowS, controls, 
               </span>
               {i === 0 && controls && <span className="fb-source-controls">{controls}</span>}
             </header>
-            <MultiSeries series={series} unit={unit} height={height} windowS={windowS} yScale={yScale} range={widest(cs)} every={every} />
+            <MultiSeries series={series} unit={unit} title={unit} height={height} windowS={windowS} yScale={yScale} range={widest(cs)} every={every} exportHref={exportHref?.(cs)} />
           </section>
         );
       })}

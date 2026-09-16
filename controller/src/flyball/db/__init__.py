@@ -18,6 +18,7 @@ from .store import SessionWriter, Store
 from .types import (
     ActuatorRow,
     ChannelRow,
+    DashboardRow,
     Downsample,
     Event,
     LoopRow,
@@ -38,6 +39,7 @@ from .types import (
 __all__ = [
     "ActuatorRow",
     "ChannelRow",
+    "DashboardRow",
     "Downsample",
     "Event",
     "LoopRow",

@@ -22,7 +22,9 @@ const SEGMENTED_MAX = 4;
  *
  * Also inlines a `$ref` that carries siblings (`{$ref, default}`, pydantic's
  * enum-with-default): inside an `anyOf` branch RJSF 5 keeps re-applying that
- * default over the user's choice.
+ * default over the user's choice; and rewrites a 2020-12 tuple
+ * (`prefixItems`, what pydantic emits for `tuple[float, float]`) as the
+ * draft-07 `items: [...]` RJSF 5 renders.
  */
 export function simplifyNullables(schema: JsonSchema): JsonSchema {
   const isCompound = (s: JsonSchema) => Boolean(s.properties || s.oneOf || s.anyOf || s.$ref);
@@ -44,13 +46,18 @@ export function simplifyNullables(schema: JsonSchema): JsonSchema {
       }
     }
     const out: JsonSchema = { ...node };
+    if (Array.isArray(node.prefixItems) && !node.items) {
+      const { prefixItems, ...rest } = out;
+      void prefixItems;
+      return walk({ ...rest, items: node.prefixItems, ...(node.maxItems === node.prefixItems.length ? { additionalItems: false } : {}) });
+    }
     if (node.properties) {
       out.properties = Object.fromEntries(Object.entries(node.properties).map(([k, v]) => [k, walk(v)]));
     }
     if (node.$defs) {
       out.$defs = Object.fromEntries(Object.entries(node.$defs).map(([k, v]) => [k, walk(v)]));
     }
-    if (node.items && !Array.isArray(node.items)) out.items = walk(node.items);
+    if (node.items) out.items = Array.isArray(node.items) ? node.items.map(walk) : walk(node.items);
     return out;
   };
   return walk(schema);

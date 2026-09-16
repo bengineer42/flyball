@@ -7,6 +7,7 @@ pushed through `runs`.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,8 @@ from flyball.core.reading import Channel, Reader, Sample
 from flyball.core.sink import RESERVED_NAMES
 from flyball.core.topic import Latest
 from flyball.core.utils import PeriodicLoop
+
+log = logging.getLogger("flyball.readers")
 
 if TYPE_CHECKING:
     from flyball.runtime.rig import Rig
@@ -55,9 +58,25 @@ class Readers:
         reader.attach(lambda samples: self.delivered(reader, samples))
 
     def delivered(self, reader: Reader, samples: Sequence[Sample]) -> None:
-        """Samples from `reader`, pushed or polled: into the rig, then noted as its latest."""
-        with self.rig.lock:
-            self.rig.on_read(samples)
+        """Samples from `reader`, pushed or polled: into the rig, then noted as its latest.
+
+        A failure *downstream* -- a law, an observer, the recorder -- is the
+        rig's, not the reader's: it becomes an event and the reader carries
+        on, its samples still noted as read.
+        """
+        try:
+            with self.rig.lock:
+                self.rig.on_read(samples)
+        except Exception as error:
+            log.exception("delivering %s's samples", reader.name)
+            self.rig.event(
+                Level.ERROR,
+                "rig",
+                reader.name,
+                "delivery_failed",
+                f"{type(error).__name__}: {error}",
+                {"reader": reader.name},
+            )
         self._update(reader, last_read_ns=max(s.time_ns for s in samples), conditions=())
 
     def get(self, name: str) -> Reader:
@@ -78,23 +97,45 @@ class Readers:
         self._update(reader, period_s=period, running=True)
         loop.start()
 
+    def restart(self, name: str) -> ReaderRun:
+        """Poll an offline reader again on its period; a pushed reader just clears its conditions.
+
+        Raises:
+            NotFoundError: No such reader.
+        """
+        reader = self.get(name)
+        period = self._runs[name].period_s
+        if period is not None:
+            self.start_periodic(reader, period)
+        self._update(reader, conditions=())
+        self.rig.event(Level.INFO, "reader", name, "restarted", "polling again")
+        return self._runs[name]
+
     def stop_all(self) -> None:
         for name, loop in self.periodic.items():
             loop.stop()
             self._update(self.by_name[name], running=False)
 
     def _read(self, reader: Reader) -> None:
-        """One scheduled poll: emit what it returns -- or note the failure and stop."""
+        """One scheduled poll: emit what it returns -- or note the failure and stop polling.
+
+        Only `read` itself can put the reader offline; delivery failures are
+        handled in [delivered][flyball.runtime.reader.Readers.delivered].
+        A reader that went offline stays stopped until `restart`.
+        """
         started = self.rig.clock.monotonic()  # in the rig's time, as the period is
         try:
-            reader.emit(reader.read(self.rig.clock.now_ns()))
+            samples = reader.read(self.rig.clock.now_ns())
         except Exception as error:
             offline = Condition(
                 "offline", Level.ERROR, f"{type(error).__name__}: {error}", self.rig.clock.now_ns()
             )
             self._update(reader, running=False, conditions=(offline,))
             self.rig.event(Level.ERROR, "reader", reader.name, "offline", offline.message)
-            raise
+            if (loop := self.periodic.get(reader.name)) is not None:
+                loop.stop(join=False)  # from inside the loop: it exits after this call
+            return
+        reader.emit(samples)
         period = self._runs[reader.name].period_s
         took = self.rig.clock.monotonic() - started
         if period is not None and took > period:

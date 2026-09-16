@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
-export type Page = "overview" | "sources" | "actuators" | "loops" | "programs" | "events" | "sessions" | "simulation" | "readers";
+export type Page = "overview" | "dashboards" | "sources" | "actuators" | "loops" | "programs" | "events" | "sessions" | "simulation" | "readers";
 /** The pages in the navigation; `readers` only exists as a detail page. */
 export const PAGES: Array<{ id: Exclude<Page, "readers">; label: string }> = [
   { id: "overview", label: "Overview" },
+  { id: "dashboards", label: "Dashboards" },
   { id: "sources", label: "Sources" },
   { id: "actuators", label: "Actuators" },
   { id: "loops", label: "Loops" },
@@ -18,7 +19,7 @@ const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "readers"];
 /**
  * `#/sources` → the list; `#/sources/dry` → one source; `#/sources/dry/humidity`
  * → one channel; `#/actuators/pumps`, `#/loops/pumps`, `#/readers/sht4x`,
- * `#/programs/my-control`, `#/sessions/4` → one of each.
+ * `#/programs/my-control`, `#/sessions/4`, `#/dashboards/firing` → one of each.
  */
 export interface Route {
   page: Page;
@@ -72,10 +73,26 @@ export const hrefFor: HrefFor = (ref) => {
  */
 export function useRoute(): [Route, (page: Page, name?: string | number | null, measurand?: string | null) => void] {
   const [route, setRoute] = useState<Route>(fromHash);
+  const current = useRef(route);
   useEffect(() => {
+    let restoring = false;
     const onHash = () => {
+      if (restoring) {
+        restoring = false;
+        return;
+      }
       const next = fromHash();
-      setRoute((prev) => {
+      const prev = current.current;
+      // A page with unsaved work may refuse to be left: put the hash back and stay.
+      const free = unguarded;
+      unguarded = false;
+      if (!free && !samePlace(prev, next) && [...guards].some((blocks) => blocks())) {
+        restoring = true;
+        window.location.hash = hashFor(prev.page, prev.name, prev.measurand, prev.params);
+        return;
+      }
+      current.current = next;
+      setRoute(() => {
         if (!samePlace(prev, next)) window.scrollTo(0, 0);
         return next;
       });
@@ -84,6 +101,37 @@ export function useRoute(): [Route, (page: Page, name?: string | number | null, 
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
   return [route, (page, name = null, measurand = null) => (window.location.hash = hashFor(page, name, measurand))];
+}
+
+/** Each returns true to keep the viewer where they are. */
+const guards = new Set<() => boolean>();
+let unguarded = false;
+
+/** The next hash change goes through without asking: for a page's own navigation after it saved or discarded its work. */
+export const leaveFreely = () => {
+  unguarded = true;
+};
+
+/**
+ * While `when`, leaving the current place (another page, another name) asks
+ * `message` first, and closing or reloading the tab gets the browser's own
+ * prompt. For a page with unsaved edits.
+ */
+export function useLeaveGuard(when: boolean, message: string) {
+  useEffect(() => {
+    if (!when) return;
+    const guard = () => !window.confirm(message);
+    guards.add(guard);
+    const unload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", unload);
+    return () => {
+      guards.delete(guard);
+      window.removeEventListener("beforeunload", unload);
+    };
+  }, [when, message]);
 }
 
 const SCROLL_KEY = "flyball.scroll";

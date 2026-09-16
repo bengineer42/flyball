@@ -6,6 +6,7 @@ import { Actuator } from "../Actuator.js";
 import { ReaderCard } from "../cards.js";
 import { hashFor, hrefFor } from "../router.js";
 import { Crumbs } from "./Sources.js";
+import { PageBar } from "../PageBar.js";
 
 /** One actuator's panel, and the loop that drives it (a loop is named after its actuator). */
 export function ActuatorDetail({ schema, name, states }: { schema: RigSchema; name: string; states: Record<string, DeviceState> }) {
@@ -15,17 +16,20 @@ export function ActuatorDetail({ schema, name, states }: { schema: RigSchema; na
   const loop = loops[name];
   return (
     <>
-      <Crumbs items={[{ label: "actuators", href: hashFor("actuators") }, { label: name }]} />
-      <Paper sx={{ p: 1.5, mb: 1.5 }}>
+      <PageBar>
+        <Crumbs items={[{ label: "actuators", href: hashFor("actuators") }, { label: actuator.label ?? name }]} />
+      </PageBar>
+      <Paper sx={{ p: 2, mb: "16px" }}>
         <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.5 }}>
           Driven by
         </Typography>
         {loop ? (
           <Typography>
             <Link href={hrefFor({ kind: "loop", name: loop.name })} underline="hover">
-              loop {loop.name}
+              loop {loop.label ?? loop.name}
             </Link>{" "}
             <Typography component="span" variant="body2" color="text.secondary">
+              {loop.label && `${loop.name} · `}
               {loop.mode} · on{" "}
               <Link href={hrefFor({ kind: "channel", name: loop.channel.source, measurand: loop.channel.measurand })} underline="hover">
                 {loop.channel.source}.{loop.channel.measurand}
@@ -50,9 +54,11 @@ export function ReaderDetail({ schema, name }: { schema: RigSchema; name: string
   if (!reader) return <Alert severity="warning">No such reader.</Alert>;
   return (
     <>
-      <Crumbs items={[{ label: "overview", href: hashFor("overview") }, { label: "readers" }, { label: name }]} />
-      <div className="tiles tiles-wide">
-        <ReaderCard reader={reader} run={runs[name]} link={false} />
+      <PageBar>
+        <Crumbs items={[{ label: "overview", href: hashFor("overview") }, { label: "readers" }, { label: reader.label ?? name }]} />
+      </PageBar>
+      <div className="grid">
+        <ReaderCard className="c6" reader={reader} run={runs[name]} link={false} />
       </div>
     </>
   );
@@ -64,9 +70,9 @@ export function Readers({ schema }: { schema: RigSchema }) {
   const readers = Object.values(schema.readers);
   if (readers.length === 0) return <Typography color="text.secondary">no readers attached</Typography>;
   return (
-    <div className="tiles tiles-wide">
+    <div className="grid">
       {readers.map((r) => (
-        <ReaderCard key={r.name} reader={r} run={runs[r.name]} />
+        <ReaderCard key={r.name} className="c3" reader={r} run={runs[r.name]} />
       ))}
     </div>
   );

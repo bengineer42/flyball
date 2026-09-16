@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from flyball.core.device import Level
 from flyball.core.resource import Operator
 
+from .activities import Prompt
 from .errors import CommandRuntimeError, ProgramAlreadyRunningError
 from .program import Program
 
@@ -219,7 +220,13 @@ class Programmer:
                 program rather than treating the step as done.
         """
         name = activity.name or command.tag
-        self.rig.signals.register(name, activity, activity.message, activity.timeout_s)
+        self.rig.signals.register(
+            name,
+            activity,
+            activity.message,
+            activity.timeout_s,
+            prompt=isinstance(activity, Prompt),
+        )
         activity.attach(self.rig)
         try:
             activity.wait()

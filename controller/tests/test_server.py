@@ -266,3 +266,42 @@ class TestSimRoutes:
         view = client.get("/api/actuators/valve").json()
         assert view["config"]["limits"] == [0.0, 1.0]
         assert resolve_live("state.input", view) == view["state"]["input"] == 1.0
+
+
+def test_a_command_on_an_offline_reader_restarts_it_and_health_reports_conditions(
+    client, rig, probe, temperature, fresh
+):
+    from flyball.core.device import command
+    from flyball.core.reading import Reader
+    from helpers import sample
+
+    class Flaky(Reader):
+        def __init__(self):
+            super().__init__(fresh("flaky"), (probe,))
+            self.broken = True
+
+        def read(self, time_ns):
+            if self.broken:
+                raise RuntimeError("open circuit")
+            return [sample(probe, temperature, 20.0, time_ns)]
+
+        @command
+        def restore(self) -> None:
+            """Mend it."""
+            self.broken = False
+
+    reader = Flaky()
+    rig.start_reader(reader, period=0.5)
+    rig.readers._read(reader)  # one poll, as the loop would: it fails and stops
+    assert rig.readers.run(reader.name).running is False
+    health = client.get("/api/health").json()
+    assert health["conditions"][0]["device"] == reader.name
+    assert health["conditions"][0]["kind"] == "offline"
+
+    assert client.post(f"/api/readers/{reader.name}/restore").status_code == 200
+    assert rig.readers.run(reader.name).running is True
+    assert rig.readers.run(reader.name).conditions == ()
+    rig.readers.stop_all()
+
+    assert client.post(f"/api/readers/{reader.name}/restart").json()["run"]["running"] is True
+    rig.readers.stop_all()

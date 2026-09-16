@@ -1,7 +1,9 @@
 """Routers the app mounts."""
 
 from .actuators import router as actuators_router
+from .dashboards import router as dashboards_router
 from .events import router as events_router
+from .export import router as export_router
 from .history import router as history_router
 from .library import router as library_router
 from .loops import router as loops_router
@@ -16,7 +18,9 @@ from .telemetry import router as telemetry_router
 
 __all__ = [
     "actuators_router",
+    "dashboards_router",
     "events_router",
+    "export_router",
     "history_router",
     "library_router",
     "loops_router",

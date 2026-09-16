@@ -36,7 +36,7 @@ import flyball.hardware.links  # ruff: ignore[unused-import]
 import flyball.integrations.pymeasure  # ruff: ignore[unused-import]
 import flyball.integrations.qcodes  # ruff: ignore[unused-import]
 import flyball.sim.devices  # ruff: ignore[unused-import]
-from flyball.control import ControlLaws
+from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock
 from flyball.core.config import Config, discover
 from flyball.core.errors import NotFoundError
@@ -47,6 +47,7 @@ from flyball.core.sink import Actuator
 from flyball.runtime.rig import Rig
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
+FeedforwardConfig = discriminated_union(Feedforwards, "tag", lambda ff: ff.config)
 
 Role = Literal["link", "reader", "actuator"]
 
@@ -104,6 +105,11 @@ class LoopEntry(BaseModel):
     channel: str = Field(description="`source.measurand` of the controlled variable.")
     actuator: str = Field(description="The actuator by name.")
     law: LawConfig | None = None  # type: ignore[valid-type]
+    feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
+        default=None,
+        description="Maps the setpoint to a demand in the actuator's unit; the law adds to it."
+        " Omit for the setpoint itself when the units agree, else none.",
+    )
     default: bool = False
     min_period_s: float | None = Field(
         default=None,
@@ -229,24 +235,48 @@ class RigConfig(BaseModel):
         rig.links = links
         if clock is not None:
             rig.clock = clock
-        for entry in self.readers:
-            rig.start_reader(with_link(entry.device).build(), entry.period_s if start else None)
-        for config in self.actuators:
-            rig.add_actuator(with_link(config).build())
-        for loop in self.loops:
-            source_name, _, measurand_name = loop.channel.partition(".")
-            try:
-                channel = Source.get(source_name)[Measurand.get(measurand_name)]
-                actuator = rig.actuators[loop.actuator]
-            except (NotFoundError, KeyError) as e:
-                raise NotFoundError(f"loop on {loop.channel!r} -> {loop.actuator!r}: {e}") from e
-            rig.attach_loop(
-                channel,
-                actuator,
-                law=loop.law,
-                default=loop.default,
-                min_period_s=loop.min_period_s,
-            )
+        # Build everything before anything runs: a failure part-way leaves no
+        # thread polling and no source name registered for a retry to trip on.
+        readers: list[tuple[Reader, float | None]] = []
+        try:
+            for entry in self.readers:
+                reader = with_link(entry.device).build()
+                reader.label = entry.device.label
+                sources = list(reader.sources)
+                if entry.device.label and len(sources) == 1:
+                    sources[0].label = entry.device.label  # one source: the device is it
+                readers.append((reader, entry.period_s if start else None))
+            for reader, _ in readers:
+                rig.start_reader(reader)  # attached, not yet polled
+            for config in self.actuators:
+                actuator = with_link(config).build()
+                actuator.label = config.label
+                rig.add_actuator(actuator)
+            for loop in self.loops:
+                source_name, _, measurand_name = loop.channel.partition(".")
+                try:
+                    channel = Source.get(source_name)[Measurand.get(measurand_name)]
+                    actuator = rig.actuators[loop.actuator]
+                except (NotFoundError, KeyError) as e:
+                    raise NotFoundError(
+                        f"loop on {loop.channel!r} -> {loop.actuator!r}: {e}"
+                    ) from e
+                rig.attach_loop(
+                    channel,
+                    actuator,
+                    law=loop.law,
+                    default=loop.default,
+                    min_period_s=loop.min_period_s,
+                    feedforward=loop.feedforward,
+                )
+        except Exception:
+            for reader, _ in readers:
+                for source in reader.sources:
+                    Source.forget(source.name)
+            raise
+        for reader, period in readers:
+            if period is not None:
+                rig.start_reader(reader, period)
         return rig
 
 

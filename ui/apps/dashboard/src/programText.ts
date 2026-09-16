@@ -387,7 +387,7 @@ class YamlParser {
     }
     l = this.current();
     if (!l) return null;
-    const value = this.node(l.indent, -1);
+    const value = this.node(-1);
     const after = this.current();
     if (after) throw new ParseError(`unexpected content '${after.text.slice(0, 20)}'`, after.no);
     // an end marker may follow; after it, nothing but blank lines: one document only
@@ -401,8 +401,8 @@ class YamlParser {
     return value;
   }
 
-  /** The node starting at the current line, which sits at `indent`; `parentIndent` bounds it. */
-  private node(indent: number, parentIndent: number): unknown {
+  /** The node starting at the current line; `parentIndent` bounds it. */
+  private node(parentIndent: number): unknown {
     const l = this.current();
     if (!l || l.indent <= parentIndent) return null;
     if (l.text === "-" || l.text.startsWith("- ")) return this.sequence(l.indent);
@@ -413,9 +413,7 @@ class YamlParser {
   /** A scalar that is the whole node: a flow collection (maybe over several lines), a quoted or a plain scalar. */
   private scalarLines(parentIndent: number): unknown {
     const l = this.current()!;
-    const c = l.text[0];
-    if (c === "[" || c === "{" || c === '"' || c === "'") return this.inlineValue(l.text, l.no, parentIndent, true);
-    return this.inlineValue(l.text, l.no, parentIndent, true);
+    return this.inlineValue(l.text, l.no, parentIndent);
   }
 
   /**
@@ -423,14 +421,14 @@ class YamlParser {
    * continue on following lines while unbalanced; a block scalar; or a plain scalar (one line,
    * or folded over more-indented lines).
    */
-  private inlineValue(text: string, no: number, parentIndent: number, consumeCurrent: boolean): unknown {
+  private inlineValue(text: string, no: number, parentIndent: number): unknown {
     const c = text[0]!;
-    if (c === "|" || c === ">") return this.blockScalar(text, parentIndent, consumeCurrent);
+    if (c === "|" || c === ">") return this.blockScalar(text, parentIndent);
     if (c === "&" || c === "*" || c === "!") throw new ParseError("anchors, aliases and tags are not supported", no);
     if (c === "[" || c === "{" || c === '"' || c === "'") {
       // gather lines until the collection / string closes
       let joined = text;
-      let end = this.pos + (consumeCurrent ? 1 : 1);
+      let end = this.pos + 1;
       const closed = (s: string) => {
         try {
           const r = new FlowReader(s, no);
@@ -469,13 +467,13 @@ class YamlParser {
     return resolvePlain(s);
   }
 
-  private blockScalar(header: string, parentIndent: number, consumeCurrent: boolean): string {
+  private blockScalar(header: string, parentIndent: number): string {
     const m = /^([|>])([-+]?)(\d?)([-+]?)\s*(#.*)?$/.exec(header);
     if (!m) throw new ParseError(`bad block scalar header '${header}'`, this.lines[this.pos]?.no);
     const folded = m[1] === ">";
     const chomp = m[2] || m[4] || "";
     const explicit = m[3] ? parentIndent + Number(m[3]) : undefined;
-    if (consumeCurrent) this.pos++;
+    this.pos++;
     const body: string[] = [];
     let contentIndent = explicit;
     while (this.pos < this.lines.length) {
@@ -532,10 +530,10 @@ class YamlParser {
         const next = this.current();
         // `key:` followed by a list at the same indent is allowed
         if (next && (next.indent > indent || (next.indent === indent && (next.text === "-" || next.text.startsWith("- "))))) {
-          out[key] = next.indent === indent ? this.sequence(indent) : this.node(next.indent, indent);
+          out[key] = next.indent === indent ? this.sequence(indent) : this.node(indent);
         } else out[key] = null;
       } else {
-        out[key] = this.inlineValue(rest, l.no, indent, true);
+        out[key] = this.inlineValue(rest, l.no, indent);
       }
     }
   }
@@ -551,17 +549,17 @@ class YamlParser {
       if (rest === "" || rest.startsWith("#")) {
         this.pos++;
         const next = this.current();
-        out.push(next && next.indent > indent ? this.node(next.indent, indent) : null);
+        out.push(next && next.indent > indent ? this.node(indent) : null);
         continue;
       }
       const restIndent = indent + (l.text.length - rest.length);
       if (rest === "-" || rest.startsWith("- ") || keyColon(rest) >= 0) {
         // compact nested collection: `- key: v` / `- - v`; re-slice the line at the item's column
         this.lines[this.pos] = { ...l, indent: restIndent, text: rest };
-        out.push(this.node(restIndent, indent));
+        out.push(this.node(indent));
         continue;
       }
-      out.push(this.inlineValue(rest, l.no, indent, true));
+      out.push(this.inlineValue(rest, l.no, indent));
     }
   }
 }

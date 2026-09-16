@@ -9,16 +9,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
   FormControlLabel,
   IconButton,
-  InputLabel,
   List,
   ListItemButton,
   ListItemText,
   ListSubheader,
-  MenuItem,
-  Select,
   Stack,
   Step,
   StepContent,
@@ -35,10 +31,15 @@ import StopIcon from "@mui/icons-material/Stop";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
-import { LoopPanel, SchemaForm, useLoops, useQuery, useRig, useRigSchema } from "@flyball/react";
-import type { ActuatorChoice, ChannelOut, LawConfig, LoopOut, LoopSchema } from "@flyball/client";
+import { LoopPanel, SchemaForm, useLoops, useQuery, useRig, useRigSchema, useSources } from "@flyball/react";
+import type { ActuatorChoice, ChannelOut, FeedforwardConfig, JsonSchema, LawConfig, LoopOut, LoopSchema } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
+import { useRecordingExports } from "../model.js";
+import { TuningPicker } from "../TuningPicker.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
+import { PageBar } from "../PageBar.js";
+import { Crumbs } from "./Sources.js";
+import { hashFor } from "../router.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const channelName = (c: ChannelOut) => `${c.source}.${c.measurand}`;
@@ -50,24 +51,76 @@ const dimensionOf = (c: ChannelOut) => {
 
 type LawChoice = "stored" | "configure" | "none";
 
-/** What the dialog sends: `law` is a tuning's name, a config, or null for no law. */
+/** What the dialog sends: `law` is a tuning's name, a config, or null for no law; `feedforward` a config. */
 interface Draft {
   actuator: ActuatorChoice | null;
   channel: string | null;
   lawChoice: LawChoice;
   tuning: string;
   config: LawConfig | null;
+  /** Null until an actuator and channel are chosen (the default depends on their units). */
+  feedforward: FeedforwardConfig | null;
   isDefault: boolean;
 }
 
+/** The unit an actuator's demands are in: its own, or the channel's when it has none. */
+const demandUnitOf = (actuator: ActuatorChoice | null, channel: ChannelOut | null) => actuator?.demand_unit ?? channel?.unit ?? null;
+
 /**
- * Make a loop in three steps: the actuator (which decides what it may
- * regulate), a channel it may take, and the law. The channel list follows
- * the actuator; channels another loop already regulates are disabled.
+ * What the rig would pick when no feedforward is given: `setpoint` when the
+ * actuator takes the channel's unit (demand = setpoint), else `none` (the
+ * law does all the work, in the actuator's unit).
  */
-const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: LoopSchema | undefined; onClose(): void; onCreated(loop: LoopOut): void }) {
+const defaultFeedforward = (actuator: ActuatorChoice | null, channel: ChannelOut | null): FeedforwardConfig | null =>
+  actuator && channel ? { tag: actuator.demand_unit === null || actuator.demand_unit === channel.unit ? "setpoint" : "none" } : null;
+
+/**
+ * A tagged union's branches titled by their tag (`PI`, not `PIConfig`), so
+ * the form's kind picker reads as the tags the rig speaks; the `tag` field
+ * itself is then hidden by `TAG_HIDDEN`.
+ */
+function titledByTag(schema: JsonSchema): JsonSchema {
+  const defs = Object.fromEntries(
+    Object.entries(schema.$defs ?? {}).map(([name, def]) => {
+      const tag = (def.properties?.tag as JsonSchema | undefined)?.const;
+      return [name, typeof tag === "string" ? { ...def, title: tag } : def];
+    }),
+  );
+  return { ...schema, $defs: defs };
+}
+const TAG_HIDDEN = { tag: { "ui:widget": "hidden" } };
+
+/** The feedforward schema with the `setpoint` branch dropped: across differing units the rig refuses it (409). */
+function withoutSetpoint(schema: JsonSchema): JsonSchema {
+  const mapping = { ...(schema.discriminator?.mapping ?? {}) };
+  const ref = mapping["setpoint"];
+  delete mapping["setpoint"];
+  return {
+    ...schema,
+    oneOf: (schema.oneOf ?? []).filter((b) => b.$ref !== ref && (b.properties?.tag as JsonSchema | undefined)?.const !== "setpoint"),
+    ...(schema.discriminator ? { discriminator: { ...schema.discriminator, mapping } } : {}),
+  };
+}
+
+/**
+ * Make a loop in four steps: the actuator, a channel it may take, the law,
+ * and the feedforward that maps the setpoint into the actuator's unit
+ * (defaulted from the units, as the rig would). Channels another loop
+ * already regulates are disabled.
+ */
+/** Display names by identifier, for the pickers; a name not here is shown as itself. */
+interface Labels {
+  actuators: Record<string, string | null | undefined>;
+  sources: Record<string, string | null | undefined>;
+}
+
+const AddLoopDialog = memo(function AddLoopDialog({ open, schema, labels, onClose, onCreated }: { open: boolean; schema: LoopSchema | undefined; labels?: Labels; onClose(): void; onCreated(loop: LoopOut): void }) {
+  const actuatorLabel = (name: string) => labels?.actuators[name] ?? name;
+  const sourceLabel = (name: string) => labels?.sources[name] ?? name;
   const rig = useRig();
-  const [draft, setDraft] = useState<Draft>({ actuator: null, channel: null, lawChoice: "none", tuning: "", config: null, isDefault: false });
+  const [draft, setDraft] = useState<Draft>({ actuator: null, channel: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false });
+  // Bumped to remount a SchemaForm with new initial values (it keeps its own form state after the first render).
+  const [formKey, setFormKey] = useState(0);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,15 +143,25 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
     return groups;
   }, [schema, draft.actuator]);
 
+  const channel = useMemo(() => schema?.channels.find((c) => channelName(c) === draft.channel) ?? null, [schema, draft.channel]);
+  const demandUnit = demandUnitOf(draft.actuator, channel);
+  const unitsAgree = channel !== null && demandUnit === channel.unit;
+  // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
+  const feedforward = draft.feedforward ?? defaultFeedforward(draft.actuator, channel);
+  const feedforwardSchema = useMemo(
+    () => (schema?.feedforwards ? titledByTag(unitsAgree ? schema.feedforwards : withoutSetpoint(schema.feedforwards)) : undefined),
+    [schema, unitsAgree],
+  );
+
   const lawReady = draft.lawChoice === "none" || (draft.lawChoice === "stored" ? draft.tuning !== "" : draft.config !== null);
-  const canCreate = Boolean(draft.actuator && draft.channel && lawReady);
+  const canCreate = Boolean(draft.actuator && draft.channel && lawReady && feedforward);
 
   const create = async () => {
     if (!draft.actuator || !draft.channel) return;
     setBusy(true);
     try {
       const law = draft.lawChoice === "none" ? null : draft.lawChoice === "stored" ? draft.tuning : draft.config;
-      const loop = await rig.makeLoop({ channel: draft.channel, actuator: draft.actuator.name, law, default: draft.isDefault });
+      const loop = await rig.makeLoop({ channel: draft.channel, actuator: draft.actuator.name, law, feedforward, default: draft.isDefault });
       setError(null);
       onCreated(loop);
     } catch (e) {
@@ -109,7 +172,7 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
   };
 
   const tunings = schema?.tunings ?? [];
-  const lawSchema = schema?.laws;
+  const lawSchema = useMemo(() => (schema?.laws ? titledByTag(schema.laws) : undefined), [schema]);
 
   return (
     <Dialog open={open} onClose={() => (busy ? undefined : onClose())} fullWidth maxWidth="sm">
@@ -120,7 +183,7 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
           <Stepper activeStep={active} orientation="vertical" nonLinear>
             <Step completed={draft.actuator !== null}>
               <StepLabel onClick={() => setActive(0)} sx={{ cursor: "pointer" }}>
-                Actuator{draft.actuator && active !== 0 ? `: ${draft.actuator.name}` : ""}
+                Actuator{draft.actuator && active !== 0 ? `: ${actuatorLabel(draft.actuator.name)}` : ""}
               </StepLabel>
               <StepContent>
                 {schema.actuators.length === 0 && <Typography color="text.secondary">This rig has no actuators to drive.</Typography>}
@@ -133,14 +196,14 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
                         selected={draft.actuator?.name === a.name}
                         disabled={Boolean(taken)}
                         onClick={() => {
-                          patch({ actuator: a, channel: a.channels.includes(draft.channel ?? "") ? draft.channel : null });
+                          patch({ actuator: a, channel: a.channels.includes(draft.channel ?? "") ? draft.channel : null, feedforward: null });
                           setActive(1);
                         }}
                         data-actuator={a.name}
                       >
                         <ListItemText
-                          primary={a.name}
-                          secondary={`${a.type} · ${taken ? `already drives loop ${taken}` : a.demand_unit ? `takes demands in ${a.demand_unit}` : "any channel"}`}
+                          primary={actuatorLabel(a.name)}
+                          secondary={`${labels?.actuators[a.name] ? `${a.name} · ` : ""}${a.type} · ${taken ? `already drives loop ${taken}` : a.demand_unit ? `takes demands in ${a.demand_unit}` : "any channel"}`}
                         />
                       </ListItemButton>
                     );
@@ -161,7 +224,12 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
                     <li key={source}>
                       <ul style={{ padding: 0 }}>
                         <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
-                          {source}
+                          {sourceLabel(source)}
+                          {labels?.sources[source] && (
+                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                              {source}
+                            </Typography>
+                          )}
                         </ListSubheader>
                         {channels.map((c) => {
                           const name = channelName(c);
@@ -172,7 +240,7 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
                               selected={draft.channel === name}
                               disabled={Boolean(by)}
                               onClick={() => {
-                                patch({ channel: name });
+                                patch({ channel: name, feedforward: null });
                                 setActive(2);
                               }}
                               data-channel={name}
@@ -206,23 +274,24 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
                     <ToggleButton value="none">none</ToggleButton>
                   </ToggleButtonGroup>
                   {draft.lawChoice === "stored" && (
-                    <FormControl size="small" sx={{ maxWidth: 280 }}>
-                      <InputLabel id="tuning-label">tuning</InputLabel>
-                      <Select labelId="tuning-label" label="tuning" value={draft.tuning} onChange={(e) => patch({ tuning: String(e.target.value) })}>
-                        {tunings.map((t) => (
-                          <MenuItem key={t} value={t}>
-                            {t}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
+                    <TuningPicker
+                      tunings={tunings}
+                      value={draft.tuning}
+                      onChange={(tuning) => patch({ tuning })}
+                      onConfigure={(config) => {
+                        patch({ lawChoice: "configure", config });
+                        setFormKey((k) => k + 1);
+                      }}
+                    />
                   )}
                   {draft.lawChoice === "configure" && lawSchema && (
                     <Box data-testid="law-form">
                       {draft.config && <Chip label={`law set: ${String(draft.config.tag)}`} color="success" variant="outlined" sx={{ mb: 1 }} />}
                       <SchemaForm
+                        key={formKey}
                         schema={lawSchema}
                         value={draft.config ?? undefined}
+                        uiSchema={TAG_HIDDEN}
                         form={MuiForm}
                         submitLabel="Use this law"
                         onSubmit={(data) => patch({ config: data as LawConfig })}
@@ -233,6 +302,39 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, onClose, onCre
                     <Typography variant="body2" color="text.secondary">
                       No law: the loop starts in manual and cannot regulate until a tuning is given.
                     </Typography>
+                  )}
+                </Stack>
+              </StepContent>
+            </Step>
+            <Step completed={feedforward !== null}>
+              <StepLabel onClick={() => draft.channel && setActive(3)} sx={{ cursor: draft.channel ? "pointer" : "default" }}>
+                Feedforward{feedforward && active !== 3 ? `: ${feedforward.tag}` : ""}
+              </StepLabel>
+              <StepContent>
+                <Stack spacing={1.5}>
+                  {!(draft.actuator && channel) && <Typography color="text.secondary">Pick an actuator and a channel first.</Typography>}
+                  {draft.actuator && channel && (
+                    <Typography variant="body2" color="text.secondary" data-testid="feedforward-help">
+                      {unitsAgree
+                        ? `${draft.actuator.name} takes demands in ${demandUnit}, the same as ${channelName(channel)} — "setpoint" passes the setpoint straight through and the law corrects in ${demandUnit}.`
+                        : `${draft.actuator.name} takes ${demandUnit}; ${channelName(channel)} is ${channel.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "setpoint" is not offered: the units differ. "none" leaves all of it to the law.`}
+                    </Typography>
+                  )}
+                  {feedforward && (
+                    <Chip label={`feedforward set: ${feedforward.tag}${draft.feedforward === null ? " (the rig's default)" : ""}`} color="success" variant="outlined" sx={{ alignSelf: "flex-start" }} data-testid="feedforward-set" />
+                  )}
+                  {draft.actuator && channel && feedforwardSchema && (
+                    <Box data-testid="feedforward-form">
+                      <SchemaForm
+                        key={`${formKey}-${draft.actuator.name}-${draft.channel}`}
+                        schema={feedforwardSchema}
+                        value={feedforward ?? undefined}
+                        uiSchema={TAG_HIDDEN}
+                        form={MuiForm}
+                        submitLabel="Use this feedforward"
+                        onSubmit={(data) => patch({ feedforward: data as FeedforwardConfig })}
+                      />
+                    </Box>
                   )}
                   <FormControlLabel
                     control={<Checkbox checked={draft.isDefault} onChange={(e) => patch({ isDefault: e.target.checked })} />}
@@ -401,8 +503,17 @@ export interface LoopsProps extends ChartSettings {
 export function Loops({ name = null, ...charts }: LoopsProps) {
   const { windowS, yScale, every } = charts;
   const rig = useRig();
-  const schema = useRigSchema();
+  const stored = useRecordingExports();
+  const rigSchema = useRigSchema();
+  const sources = useSources();
   const { loops, history, status } = useLoops(3600, every);
+  const labels = useMemo<Labels>(
+    () => ({
+      actuators: Object.fromEntries(Object.values(rigSchema.data?.actuators ?? {}).map((a) => [a.name, a.label])),
+      sources: Object.fromEntries((sources.data ?? []).map((s) => [s.name, s.label])),
+    }),
+    [rigSchema.data, sources.data],
+  );
   const loopSchema = useQuery(() => rig.loopSchema(), [rig]);
   const [adding, setAdding] = useState(false);
   // The stream never says a loop is gone: hide one we removed until the stream sends a new object for that name (re-created).
@@ -431,14 +542,16 @@ export function Loops({ name = null, ...charts }: LoopsProps) {
   );
 
   const toolbar = (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-      <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAdding(true)} data-testid="add-loop">
-        Add loop
-      </Button>
+    <PageBar end={<ChartControls {...charts} unit={shown[0]?.channel.unit} />}>
+      {name === null ? (
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAdding(true)} data-testid="add-loop">
+          Add loop
+        </Button>
+      ) : (
+        <Crumbs items={[{ label: "loops", href: hashFor("loops") }, { label: name }]} />
+      )}
       {loopSchema.error && <Typography color="error">{loopSchema.error.message}</Typography>}
-      <Box sx={{ flexGrow: 1 }} />
-      <ChartControls {...charts} unit={shown[0]?.channel.unit} />
-    </Stack>
+    </PageBar>
   );
   const closeDialog = useCallback(() => setAdding(false), []);
   const onCreated = useCallback(
@@ -454,28 +567,30 @@ export function Loops({ name = null, ...charts }: LoopsProps) {
     },
     [loopSchema.refresh],
   );
-  const dialog = <AddLoopDialog open={adding} schema={loopSchema.data} onClose={closeDialog} onCreated={onCreated} />;
+  const dialog = <AddLoopDialog open={adding} schema={loopSchema.data} labels={labels} onClose={closeDialog} onCreated={onCreated} />;
 
   if (name !== null && shown.length === 0)
     return status === "connecting" ? <Typography color="text.secondary">loading…</Typography> : <Alert severity="warning">No loop named {name}.</Alert>;
   return (
     <>
-      {name === null && toolbar}
+      {toolbar}
       {shown.length === 0 && (
         <Typography color="text.secondary">{status === "connecting" ? "loading…" : "This rig has no loops attached."}</Typography>
       )}
-      <div className="tiles tiles-full">
+      {/* Two loops abreast on a wide screen, each a faceplate with its charts beside the readouts; one per row otherwise. */}
+      <div className="grid">
         {shown.map((l) => (
+          <div key={l.name} className={name === null ? "c12 xl6" : "c12"}>
           <LoopPanel
-            key={l.name}
             loop={l}
             history={history[l.name]}
-            demandUnit={l.name in (schema.data?.actuators ?? {}) ? (schema.data!.actuators[l.name]!.demand_unit ?? "unitless") : undefined}
             windowS={windowS}
             yScale={yScale}
             every={every}
+            exportHref={stored.ticks(l.name)}
             controls={<LoopControls name={l.name} unit={l.channel.unit} mode={l.mode} tag={typeof l.law?.tag === "string" ? l.law.tag : null} onEvent={onEvent} />}
           />
+          </div>
         ))}
       </div>
       {dialog}

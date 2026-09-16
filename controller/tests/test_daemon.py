@@ -86,3 +86,20 @@ def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):
     assert deps.current_rig() is None
     with pytest.raises(Exception, match="No programmer"):
         deps.get_programmer()
+
+
+def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, oven):
+    from flyball.db.sqlite import SqliteStore
+
+    path = tmp_path / "s.sqlite"
+    store = SqliteStore(path)
+    orphan = store.open_session(start_ns=1_000, config=None).session
+    store.close()
+    rig, store = daemon.start_with_store(oven, record=True, store_path=path)
+    try:
+        sessions = {s.id: s for s in store.sessions()}
+        assert sessions[orphan.id].end_ns is not None, "the orphan was closed"
+        assert rig.recorder is not None and sum(s.open for s in sessions.values()) == 1
+    finally:
+        rig.readers.stop_all()
+        rig.stop_recording()

@@ -113,7 +113,9 @@ def _loop_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
     with rig.lock:
         channel, loop = next((ch, lp) for ch, lp in rig.loops.entries() if lp.name == name)
         view = LoopView.of(loop.settings, state)
-    return LoopOut.of_view(channel, view, name == rig.loops.default).model_dump(mode="json")
+    return LoopOut.of_view(
+        channel, view, name == rig.loops.default, loop.actuator.label
+    ).model_dump(mode="json")
 
 
 def _actuator_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:

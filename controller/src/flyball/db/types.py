@@ -73,6 +73,8 @@ class LoopRow:
     actuator: ActuatorRow
     channel: ChannelRow
     config: Any
+    feedforward: Any = None
+    """The feedforward's config; None in sessions recorded before there was one."""
 
     @property
     def name(self) -> str:
@@ -108,6 +110,18 @@ class ProgramRow:
     sha256: str
     label: str | None = None
     notes: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardRow:
+    """A stored dashboard: the document as the UI saved it, for one rig."""
+
+    id: int
+    name: str
+    rig: str
+    body: Any
+    created_ns: int
+    sha256: str
 
 
 # endregion

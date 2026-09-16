@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RigProvider } from "@flyball/react";
 import "uplot/dist/uPlot.min.css";
+import "react-grid-layout/css/styles.css";
 import "@flyball/react/styles.css";
 import "./app.css";
 import { AppTheme } from "./theme.js";
