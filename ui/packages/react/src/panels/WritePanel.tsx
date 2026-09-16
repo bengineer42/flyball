@@ -120,7 +120,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const attached = useController(signal.address);
   // Until something has been set, the last reading stands in for the set value: a published signal's live readback, else the last read the rig has.
   const liveReading = useSignal(publishes(signal) ? signal.address : undefined);
-  const reading = liveReading ?? (signal.latest ? { t: signal.latest.time_ns / 1e9, v: signal.latest.value } : undefined);
+  const reading = liveReading ?? (signal.latest && typeof signal.latest.value === "number" ? { t: signal.latest.time_ns / 1e9, v: signal.latest.value } : undefined);
   const precision = precisionProp ?? signal.precision ?? 2;
   const fmt = (value: number | null | undefined) => (value == null ? "—" : withUnit(value.toFixed(precision), signal.unit));
   const [text, setText] = useState("");
@@ -133,7 +133,6 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   }, [signal.address, write?.controller]);
 
   const driven = attached?.name ?? write?.controller ?? null;
-  const together = signal.together.length ? signal.together : null;
   const limits = signal.limits;
   const atLimit = write?.at_limit ?? null;
   const requested = atLimit && write?.requested != null && write.value != null && write.requested !== write.value ? write.requested : null;
@@ -160,16 +159,9 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
       driven by <Ref kind="controller" name={driven} />
     </span>
   );
-  const togetherNote = together && (
-    <span className="fb-muted" title={`Set with ${together.join(", ")} as one demand on the device: the rig refuses this one alone.`}>
-      set with {together.join(", ")} on <Ref kind="device" name={deviceOf(signal.address)} />
-    </span>
-  );
-  // A controller's target has nothing to type into, nor has a `together` member: its group on the device's page sets it.
+  // A controller's target has nothing to type into: it says which controller instead.
   const entry = driven ? (
     drivenNote
-  ) : together ? (
-    togetherNote
   ) : (
     <form className="fb-write-entry fb-unit-input" onSubmit={(e) => void submit(e)} title={withUnit(`Set ${describeSignal(signal)}, in`, signal.unit)}>
       <DemandEntry signal={signal} text={text} onText={setText} disabled={busy} precision={precision} />

@@ -200,7 +200,15 @@
 /* `bare` (a dashboard tile, or the Controllers page's collapsible under a loop's own card, draws the frame): body only. */
 .fb-actuator-bare { min-width: 0; }
 .fb-command { background: var(--fb-bg-2); border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); padding: var(--fb-gap); }
+/* The command whose `mode` is the device's current one: the same accent a driving controller gets. */
+.fb-command-active { border-color: var(--fb-accent); }
 .fb-command h4 { margin: 0; display: flex; align-items: baseline; gap: 0.5rem; }
+.fb-command-effect { margin: 0.15rem 0 0.4rem; font-size: 0.8em; }
+.fb-command-links { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin-top: 0.3rem; font-size: 0.8em; }
+.fb-command-last { margin: 0.4rem 0 0; font-size: 0.8em; }
+/* The device's `mode` output, prominent beside the run line. */
+.fb-mode { background: var(--fb-accent); color: #fff; }
+.fb-device-inputs { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin: 0.2rem 0 0.5rem; font-size: 0.85em; }
 .fb-tag { font-size: 0.7em; font-weight: normal; color: var(--fb-fg-2); background: var(--fb-bg-1); padding: 0 0.3rem; border-radius: 3px; }
 /* The command's description, once body text, now a hover hint (on the heading too): this dot is the visible cue that one exists. */
 .fb-info { font-size: 0.85em; color: var(--fb-fg-3); cursor: help; margin-left: auto; }

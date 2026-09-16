@@ -4,8 +4,24 @@
  * panel asks before it hands a schema over.
  */
 
-import type { Access, Address, ControllerOut, FeedforwardConfig, JsonSchema, NamespaceOut, SignalOut, TreeNode } from "./wire.js";
+import type { Access, Address, ControllerOut, Dtype, FeedforwardConfig, JsonSchema, NamespaceOut, SignalOut, TreeNode } from "./wire.js";
 import { isNamespace } from "./wire.js";
+
+/** Whether a dtype's values are numbers a gauge, chart or slider can draw: `float`/`int` only. */
+export function isNumeric(dtype: Dtype): boolean {
+  return dtype === "float" || dtype === "int";
+}
+
+/**
+ * The address a command argument's field is linked to (`x-signal`, put there
+ * by the server on an argument that is a value for a demand or setting), so
+ * a form can prefill it from the store and show the live readback beside
+ * it. Undefined on a plain argument.
+ */
+export function linkedSignal(field: JsonSchema): Address | undefined {
+  const address = field["x-signal"];
+  return typeof address === "string" ? address : undefined;
+}
 
 /** Follow a local `$ref` (`#/$defs/Name`) against `root`. Returns the input when it is not a ref. */
 export function deref(schema: JsonSchema, root: JsonSchema): JsonSchema {
@@ -45,7 +61,7 @@ export function isEmpty(schema: JsonSchema): boolean {
 }
 
 /** Decimal places for a numeric field: `precision`, else from `multipleOf`, else 2. */
-export function digitsFor(schema?: JsonSchema): number {
+export function digitsFor(schema?: ValueMeta): number {
   if (typeof schema?.precision === "number") return schema.precision;
   if (schema?.multipleOf) return Math.max(0, -Math.floor(Math.log10(schema.multipleOf)));
   return 2;
@@ -55,20 +71,31 @@ export function digitsFor(schema?: JsonSchema): number {
  * A number as text with a stable width: fixed decimals, so a value under
  * noise does not change length from one reading to the next.
  */
-export function formatNumber(value: number, schema?: JsonSchema): string {
+export function formatNumber(value: number, schema?: ValueMeta): string {
   return value.toFixed(digitsFor(schema));
 }
 
-/** Render a value the way its schema says: fixed decimals, unit as suffix. */
-export function formatValue(value: unknown, schema?: JsonSchema): string {
+/** What `formatValue` needs of a schema field or a signal: enough either shape gives it. */
+export type ValueMeta = { unit?: string | null; precision?: number | null; multipleOf?: number; dtype?: Dtype };
+
+/**
+ * Render a value by dtype where one is known, else by shape: `bool` (or a
+ * plain boolean) as on/off, a number at fixed decimals with its unit as a
+ * suffix, a `[low, high]` pair as a range, any other object or array as
+ * JSON, else the value as text. Takes a command argument's `JsonSchema`
+ * field (unit, precision, multipleOf) or a `SignalOut`/`SignalSchema`
+ * (unit, precision, dtype) -- both shapes give it what it needs.
+ */
+export function formatValue(value: unknown, meta?: ValueMeta): string {
   if (value === null || value === undefined) return "—";
+  if (meta?.dtype === "bool" || typeof value === "boolean") return value ? "on" : "off";
   if (typeof value === "number") {
-    const text = formatNumber(value, schema);
-    return schema?.unit ? `${text} ${schema.unit}` : text;
+    const text = formatNumber(value, meta);
+    return meta?.unit ? `${text} ${meta.unit}` : text;
   }
   if (Array.isArray(value) && value.length === 2 && typeof value[0] === "number" && typeof value[1] === "number") {
-    const text = `${formatNumber(value[0], schema)} – ${formatNumber(value[1], schema)}`;
-    return schema?.unit ? `${text} ${schema.unit}` : text;
+    const text = `${formatNumber(value[0], meta)} – ${formatNumber(value[1], meta)}`;
+    return meta?.unit ? `${text} ${meta.unit}` : text;
   }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
@@ -412,6 +439,11 @@ export function publishes(signal: Pick<SignalOut, "access">): boolean {
 /** Whether a signal takes demands (may be a controller's target). */
 export function writable(signal: Pick<SignalOut, "access">): boolean {
   return signal.access.toLowerCase().includes("w");
+}
+
+/** Whether a signal can be read at all (`r`); a `w`-only signal has no value to ask for. */
+export function readable(signal: Pick<SignalOut, "access">): boolean {
+  return signal.access.toLowerCase().includes("r");
 }
 
 /** Every signal under a tree, namespaces flattened, in tree order. */

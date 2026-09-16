@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { alarmLevel, deviceOf, staleAfterS, type Address, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type WaitState, type WriteOut } from "@flyball/client";
+import { alarmLevel, deviceOf, staleAfterS, type Address, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WaitState, type WriteOut } from "@flyball/client";
 import { useTelemetry } from "../provider.js";
 import type { StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
 
@@ -17,6 +17,19 @@ export function useSignal(address: Address | undefined): { t: number; v: number 
   const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeLatest(address, cb, READOUT_MS)), [store, address]);
   useSyncExternalStore(subscribe, () => (address === undefined ? 0 : store.version(address)));
   return address === undefined ? undefined : store.latest(address);
+}
+
+/**
+ * A signal's newest value whatever its dtype (a number, a bool, a string --
+ * an enum's value -- or JSON), re-rendering only the calling component and
+ * at most four times a second. A number is also on `useSignal`'s ring; a
+ * bool/str/json signal only ever has one here.
+ */
+export function useLatestValue(address: Address | undefined): { t: number; value: Value } | undefined {
+  const store = useTelemetry();
+  const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeLatest(address, cb, READOUT_MS)), [store, address]);
+  useSyncExternalStore(subscribe, () => (address === undefined ? 0 : store.version(address)));
+  return address === undefined ? undefined : store.latestValue(address);
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
 import { useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject, type SignalOut, type SignalRow } from "@flyball/client";
+import { describeDevice, describeEventKind, describeStateKey, describeSubject, type Dtype, type SignalOut, type SignalRow } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
@@ -14,7 +14,16 @@ function deviceConfig(config: unknown): { label: string | null; rest: Record<str
   return { label: typeof label === "string" ? label : null, rest };
 }
 
-/** A recorded signal as the charts take one: the row's metadata, with `together` (not recorded) empty and no live values. */
+/** A recorded dtype as the current `Dtype` union; an older recording may carry a numpy-style string (`float64`), mapped onto the nearest fit. */
+function asDtype(dtype: string): Dtype {
+  if (dtype === "float" || dtype === "int" || dtype === "bool" || dtype === "str" || dtype === "enum" || dtype === "json") return dtype;
+  if (dtype.startsWith("float")) return "float";
+  if (dtype.startsWith("int") || dtype.startsWith("uint")) return "int";
+  if (dtype.startsWith("bool")) return "bool";
+  return "str";
+}
+
+/** A recorded signal as the charts take one: the row's metadata, no role or tags (not recorded) and no live values. */
 function asSignal(row: SignalRow): SignalOut {
   return {
     name: row.address.slice(row.address.lastIndexOf(".") + 1),
@@ -24,15 +33,17 @@ function asSignal(row: SignalRow): SignalOut {
     quantity: row.quantity,
     unit: row.unit,
     dimension: null,
-    dtype: row.dtype,
+    dtype: asDtype(row.dtype),
     shape: row.shape,
+    role: "output",
+    tags: {},
+    initial: null,
     range: row.range,
     precision: row.precision,
     warn: row.warn,
     alarm: row.alarm,
     poll_s: null,
     limits: row.limits,
-    together: [],
     latest: null,
     write: null,
   };

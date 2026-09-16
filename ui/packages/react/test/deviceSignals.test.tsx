@@ -1,34 +1,59 @@
 import { describe, expect, it } from "vitest";
-import type { SignalOut } from "@flyball/client";
-import { writeGroupLabel, writeGroupsOf } from "../src/panels/DeviceSignals.js";
+import type { JsonSchema } from "@flyball/client";
+import { formatValue, isNumeric, linkedSignal } from "@flyball/client";
+import { linkedArguments } from "../src/panels/CommandForm.js";
 
-/** A writable signal under `blender`, with what it must be set with. */
-function w(name: string, together: string[] = [], access = "rpw"): SignalOut {
-  return { name, address: `blender.${name}`, access, label: "", quantity: "flow", unit: "L/min", dimension: null, dtype: "float", shape: [], range: null, precision: null, warn: null, alarm: null, poll_s: null, limits: [0, 2], together, latest: null, write: null };
-}
-
-describe("writeGroupsOf", () => {
-  it("closes each together group over its siblings, in tree order, and leaves a lone signal alone", () => {
-    const humidity = w("humidity", [], "w");
-    const dry = w("dry_flow", ["wet_flow"]);
-    const wet = w("wet_flow", ["dry_flow"]);
-    const blend = w("blend_flow", [], "rw");
-    expect(writeGroupsOf([humidity, wet, dry, blend])).toEqual([[humidity], [wet, dry], [blend]]);
+describe("formatValue by dtype", () => {
+  it("renders a bool as on/off, whatever the meta says", () => {
+    expect(formatValue(true, { dtype: "bool" })).toBe("on");
+    expect(formatValue(false, { dtype: "bool" })).toBe("off");
+    // A plain boolean is recognised even with no dtype given.
+    expect(formatValue(true)).toBe("on");
   });
 
-  it("follows a one-sided listing to the closure", () => {
-    const a = w("a", ["b"]);
-    const b = w("b", []);
-    const c = w("c", ["b"]);
-    expect(writeGroupsOf([a, b, c]).map((g) => g.map((s) => s.name))).toEqual([["a", "b", "c"]]);
+  it("renders a number at its precision with its unit", () => {
+    expect(formatValue(20.567, { dtype: "float", unit: "°C", precision: 1 })).toBe("20.6 °C");
+    expect(formatValue(3, { dtype: "int", unit: "" })).toBe("3.00"); // no precision given: 2 decimals
+  });
+
+  it("renders a str/enum as plain text", () => {
+    expect(formatValue("blend", { dtype: "enum" })).toBe("blend");
+    expect(formatValue("dry", { dtype: "str" })).toBe("dry");
+  });
+
+  it("renders json as a compact structure, and null/undefined as a dash", () => {
+    expect(formatValue({ kind: "offline", level: 40 }, { dtype: "json" })).toBe('{"kind":"offline","level":40}');
+    expect(formatValue(null, { dtype: "float" })).toBe("—");
+    expect(formatValue(undefined)).toBe("—");
   });
 });
 
-describe("writeGroupLabel", () => {
-  it("pluralises a shared tail, keeps a shared head singular, else joins the names", () => {
-    expect(writeGroupLabel([w("dry_flow"), w("wet_flow")])).toBe("Flows");
-    expect(writeGroupLabel([w("dry_effort"), w("wet_effort")])).toBe("Efforts");
-    expect(writeGroupLabel([w("position_x"), w("position_y")])).toBe("Position");
-    expect(writeGroupLabel([w("gain"), w("offset")])).toBe("Gain · Offset");
+describe("isNumeric", () => {
+  it("is true only for float/int", () => {
+    expect(isNumeric("float")).toBe(true);
+    expect(isNumeric("int")).toBe(true);
+    expect(isNumeric("bool")).toBe(false);
+    expect(isNumeric("str")).toBe(false);
+    expect(isNumeric("enum")).toBe(false);
+    expect(isNumeric("json")).toBe(false);
+  });
+});
+
+describe("linkedSignal / linkedArguments", () => {
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      flow: { type: "number", title: "Flow", unit: "L/min", "x-signal": "blender.dry_flow" },
+      note: { type: "string", title: "Note" },
+    },
+  };
+
+  it("reads a field's `x-signal` address, and nothing off a plain field", () => {
+    expect(linkedSignal(schema.properties!.flow!)).toBe("blender.dry_flow");
+    expect(linkedSignal(schema.properties!.note!)).toBeUndefined();
+  });
+
+  it("finds every linked argument of a command's schema, in order, and only those", () => {
+    expect(linkedArguments(schema)).toEqual([{ name: "flow", field: schema.properties!.flow, address: "blender.dry_flow" }]);
   });
 });

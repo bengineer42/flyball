@@ -93,6 +93,34 @@ describe("TelemetryStore", () => {
     expect(store.nowS()).toBe(2);
   });
 
+  it("feeds a number to the ring and to `latestValue`, but a bool/str/json to `latestValue` only", () => {
+    const { rig, send } = fakeRig();
+    const store = new TelemetryStore(rig);
+    store.subscribeLatest("furnace.zone1", () => undefined, 0);
+    send("samples", {
+      samples: [
+        {
+          node: "furnace",
+          time_ns: 1e9,
+          values: { zone1: 20.5, running: true, mode: "heating", conditions: [{ kind: "offline", level: 40, message: "m", since_ns: 0 }] },
+        },
+      ],
+    });
+    // A number: on the ring (for a chart) and as the latest value.
+    expect(store.latest("furnace.zone1")).toEqual({ t: 1, v: 20.5 });
+    expect(store.latestValue("furnace.zone1")).toEqual({ t: 1, value: 20.5 });
+    // A bool, a str (an enum) and json: never on the ring -- a chart must not see them -- but still the latest value.
+    expect(store.latest("furnace.running")).toBeUndefined();
+    expect(store.latestValue("furnace.running")).toEqual({ t: 1, value: true });
+    expect(store.latest("furnace.mode")).toBeUndefined();
+    expect(store.latestValue("furnace.mode")).toEqual({ t: 1, value: "heating" });
+    expect(store.latest("furnace.conditions")).toBeUndefined();
+    expect(store.latestValue("furnace.conditions")?.value).toEqual([{ kind: "offline", level: 40, message: "m", since_ns: 0 }]);
+    // Every value, numeric or not, still bumps the signal's version and the node's sample.
+    expect(store.version("furnace.running")).toBe(1);
+    expect(store.sample("furnace")?.values.mode).toBe("heating");
+  });
+
   it("keys a namespace's sample under its full address", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
@@ -232,7 +260,8 @@ describe("TelemetryStore", () => {
     const store = new TelemetryStore(rig);
     const one = vi.fn();
     store.subscribeDevices("furnace", one, 0);
-    const run = (name: string, period_s: number, last: number) => ({ name, period_s, running: true, last_read_ns: last, conditions: [], state: { conditions: [] } });
+    // A `/ws/devices` frame carries no `state` any more: just the run and the runtime's own conditions.
+    const run = (name: string, period_s: number, last: number) => ({ name, period_s, running: true, last_read_ns: last, conditions: [] });
     send("devices", { devices: [run("furnace", 0.5, 1), run("heaters", 2, 1)] });
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1);

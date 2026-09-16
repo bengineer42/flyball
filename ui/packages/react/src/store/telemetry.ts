@@ -1,4 +1,4 @@
-import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, WaitState, WriteOut, WriteStateOut } from "@flyball/client";
+import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut, WriteStateOut } from "@flyball/client";
 import { addressOf, deviceOf, setpointOf } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
@@ -85,6 +85,8 @@ export class TelemetryStore {
 
   private signals = new Map<Address, Ring>();
   private signalVersions = new Map<Address, number>();
+  /** A signal's newest value whatever its dtype (a number is also in its `Ring`; a bool/str/json only lives here). */
+  private latestValues: Record<Address, { t: number; value: Value }> = {};
   private nodeLatest: Record<Address, SampleOut> = {};
   private nodeVersions = new Map<Address, number>();
   private writeList: Record<Address, WriteOut> = {};
@@ -149,11 +151,16 @@ export class TelemetryStore {
     return [...this.signals.keys()];
   }
 
-  /** The newest point of a signal. */
+  /** The newest point of a signal, numeric dtypes only (fed the ring); undefined for a signal never sampled or never numeric. */
   latest(address: Address): { t: number; v: number } | undefined {
     const ring = this.signals.get(address);
     if (!ring || !ring.length) return undefined;
     return { t: ring.lastT()!, v: ring.last()! };
+  }
+
+  /** The newest value of a signal whatever its dtype: a number, a bool, a string (an enum) or JSON. */
+  latestValue(address: Address): { t: number; value: Value } | undefined {
+    return this.latestValues[address];
   }
 
   /** Bumps whenever the signal gains a point (or its history lands). */
@@ -217,8 +224,13 @@ export class TelemetryStore {
       if (time > this.newestS) this.newestS = time;
       for (const name in sample.values) {
         const address = addressOf(sample.node, name);
-        row[0] = sample.values[name]!;
-        this.ring(address).push(time, row);
+        const value = sample.values[name]!;
+        this.latestValues[address] = { t: time, value };
+        // Only a number feeds a ring (charts, sparklines); a bool/str/json is kept as a latest value only.
+        if (typeof value === "number") {
+          row[0] = value;
+          this.ring(address).push(time, row);
+        }
         this.bumpSignal(address);
       }
       next[sample.node] = sample;
@@ -391,7 +403,7 @@ export class TelemetryStore {
       next[c.name] = c;
       const time = c.reading ? c.reading.time_ns / 1e9 : Date.now() / 1000;
       row[0] = nan(setpointOf(c));
-      row[1] = nan(c.reading ? c.reading.value : null);
+      row[1] = nan(c.reading && typeof c.reading.value === "number" ? c.reading.value : null);
       row[2] = nan(c.demand);
       row[3] = nan(c.expected);
       row[4] = nan(c.correction);

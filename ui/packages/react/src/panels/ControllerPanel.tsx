@@ -412,7 +412,7 @@ export function ControllerPanel({
   // the latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
   const setpoint = setpointOf(controller) ?? (following ? latest(history.reference) : null);
   // PV: the source's newest sample from the store, else what the controller saw at its last tick.
-  const reading = point?.v ?? controller.reading?.value ?? null;
+  const reading = point?.v ?? (typeof controller.reading?.value === "number" ? controller.reading.value : null);
   // OP: the target's write state (after limits) from `/ws/writes`, else what the controller expects it to give.
   const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.demand, controller.expected);
   const output = write?.value ?? controller.expected ?? controller.demand;

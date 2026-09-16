@@ -1,17 +1,16 @@
 import { useState, type ReactNode } from "react";
-import { describeDevice, type DeviceOut, type DeviceSchema, type DeviceView, type JsonSchema } from "@flyball/client";
+import { describeDevice, describeSignal, isNamespace, type Condition, type DeviceOut, type DeviceSchema, type DeviceView, type SignalOut } from "@flyball/client";
 import { Ref } from "../links.js";
-import { useDeviceRun } from "../store/hooks.js";
+import { useDeviceRun, useLatestValue } from "../store/hooks.js";
 import { CommandForm, type CommandFormProps } from "./CommandForm.js";
 import { ObjectView } from "./ObjectView.js";
-import { StateView } from "./StateView.js";
 
 export interface DevicePanelProps {
-  /** The device as `GET /api/devices/{name}` gave it: state, conditions, commands, run. */
+  /** The device as `GET /api/devices/{name}` gave it: its tree, conditions, commands, run. */
   device: DeviceOut;
-  /** Its schema (`GET /api/devices/{name}/schema`): how the state is labelled, what each command takes. */
+  /** Its schema (`GET /api/devices/{name}/schema`): config, signals, inputs, each command's request as JSON Schema. */
   schema: DeviceSchema;
-  /** Config and settings values (the simulation device's `GET /api/sim/device`); the two tiers are shown only when given. */
+  /** Config values (the simulation device's `GET /api/sim/device`); the config section is shown only when given. */
   view?: DeviceView;
   /** Which commands to show; default all but the simulation-only ones, in schema order. */
   commands?: string[];
@@ -26,37 +25,25 @@ export interface DevicePanelProps {
   title?: ReactNode;
   /** After the driver in the header: a link's name, whatever tells the device apart. */
   subtitle?: ReactNode;
-  /** Rendered between the header and the state: a control the panel does not know about. */
+  /** Rendered between the header and the body: a control the panel does not know about. */
   children?: ReactNode;
-  /** Open the settings section at first render; default closed. */
+  /** Open the config section at first render; default closed. */
   openSettings?: boolean;
   /**
-   * Body only -- run, conditions, state and the chosen commands, no card,
+   * Body only -- run, mode, conditions and the chosen commands, no card,
    * header or description: for a caller that already draws its own frame
    * (a dashboard widget under `WidgetFrame`, the one-frame rule of
    * DESIGN-SPEC.md §10). Default false.
    */
   bare?: boolean;
   /**
-   * Dashboard-widget rendering (DESIGN-SPEC.md §3.5): the state's first
-   * `maxFields` fields only, no description, no config/settings tiers, and
+   * Dashboard-widget rendering (DESIGN-SPEC.md §3.5): no config tier, and
    * commands inline with no section headings -- and only those `commands`
    * names (the widget default is none). Default false.
    */
   compact?: boolean;
-  /** State fields to show at most when `compact`; default 4. */
+  /** Unused now that there is no schema-described `state` to truncate; kept so existing callers still compile. */
   maxFields?: number;
-}
-
-/** `schema` kept to its first `max` properties (schema order), for a compact widget body that must not scroll. */
-function firstFields(schema: JsonSchema, max: number): JsonSchema {
-  const all = schema.properties;
-  if (!all) return schema;
-  const keys = Object.keys(all).slice(0, max);
-  if (keys.length === Object.keys(all).length) return schema;
-  const properties: Record<string, JsonSchema> = {};
-  for (const k of keys) properties[k] = all[k]!;
-  return { ...schema, properties };
 }
 
 function Section({ title, open: initial = false, children }: { title: string; open?: boolean; children: ReactNode }) {
@@ -72,23 +59,35 @@ function Section({ title, open: initial = false, children }: { title: string; op
 /** Time of day of a rig timestamp. */
 const clock = (ns: number) => new Date(ns / 1e6).toLocaleTimeString();
 
+/** The runtime's conditions (`offline`, `slow`) replace the device's own of the same kind; everything else the device reported stands. */
+function mergeConditions(base: readonly Condition[], runtime: readonly Condition[]): Condition[] {
+  const kinds = new Set(runtime.map((c) => c.kind));
+  return [...base.filter((c) => !kinds.has(c.kind)), ...runtime];
+}
+
+/** The device's `mode` output, if its driver declared one: a top-level signal named `mode`. */
+function modeSignalOf(device: DeviceOut): SignalOut | undefined {
+  return device.signals.find((n): n is SignalOut => !isNamespace(n) && n.name === "mode");
+}
+
 /**
- * Any device below its signals: the run (period, last read, restart), the
- * conditions, the state as the schema labels it, config and settings when
- * a caller has them (the simulation device's), and one form per command.
- * The state and the run follow `/ws/devices`; everything else comes in
+ * Any device below its signal tree: the run (period, last read, restart),
+ * its `mode` as a prominent chip, its conditions, config when a caller has
+ * it (the simulation device's), and one form per command -- the form
+ * highlighted when its `mode` is the device's current one. The run and the
+ * live values follow `/ws/devices` and the store; everything else comes in
  * through props.
  */
-export function DevicePanel({ device, schema, view, commands, onRun, busy, results, form, onRestart, title, subtitle, children, openSettings = false, bare = false, compact = false, maxFields = 4 }: DevicePanelProps) {
+export function DevicePanel({ device, schema, view, commands, onRun, busy, results, form, onRestart, title, subtitle, children, openSettings = false, bare = false, compact = false, maxFields: _maxFields = 4 }: DevicePanelProps) {
   // Simulation-only commands (faults, disturbances) belong on the simulation page, not beside the real ones.
   // A dashboard widget's default is none at all (DESIGN-SPEC.md §3.5); a page's default is every command.
   const tags = commands ?? (compact ? [] : Object.keys(schema.commands).filter((t) => !schema.commands[t]?.simulation));
-  const stateSchema = compact ? firstFields(schema.state, maxFields) : schema.state;
   const live = useDeviceRun(device.name);
   const run = live ?? device.run;
-  const state = live?.state ?? device.state;
-  // The runtime's conditions on polling it come with the run; the device's own are in its state (StateView shows those).
-  const conditions = live?.conditions ?? device.conditions.filter((c) => !device.state.conditions?.some((own) => own.kind === c.kind));
+  const conditions = live ? mergeConditions(device.conditions, live.conditions) : device.conditions;
+  const modeSignal = modeSignalOf(device);
+  const liveMode = useLatestValue(modeSignal?.address);
+  const currentMode = liveMode?.value ?? modeSignal?.latest?.value ?? modeSignal?.initial;
   const [restarting, setRestarting] = useState(false);
   const restart = async () => {
     setRestarting(true);
@@ -98,13 +97,18 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
       setRestarting(false);
     }
   };
-  const runLine = (run || conditions.length > 0) && (
+  const runLine = (run || conditions.length > 0 || modeSignal) && (
     <div className="fb-device-run">
       {run && (
         <span className="fb-muted" title={run.period_s !== null ? `Polled every ${run.period_s} s` : "Not polled on a period"}>
           {run.running ? "polling" : "stopped"}
           {run.period_s !== null && ` · every ${run.period_s} s`}
           {run.last_read_ns !== null && ` · last read ${clock(run.last_read_ns)}`}
+        </span>
+      )}
+      {modeSignal && currentMode !== null && currentMode !== undefined && (
+        <span className="fb-badge fb-mode" title={`${describeSignal(modeSignal)} · ${modeSignal.address}`}>
+          {String(currentMode)}
         </span>
       )}
       {conditions.length > 0 && (
@@ -123,7 +127,6 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
       )}
     </div>
   );
-  const stateView = <StateView schema={stateSchema} state={state} />;
   const commandForms = tags.length > 0 && (
     <div className="fb-commands">
       {tags.map((tag) => {
@@ -134,6 +137,8 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
             key={tag}
             tag={tag}
             command={command}
+            device={device.name}
+            currentMode={currentMode}
             onRun={(args) => onRun(tag, args)}
             busy={busy === tag}
             result={results?.[tag]}
@@ -146,23 +151,14 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
   const body = compact ? (
     <>
       {runLine}
-      {stateView}
       {commandForms}
     </>
   ) : (
     <>
       {runLine}
-      <Section title="state" open>
-        {stateView}
-      </Section>
       {view && (
-        <Section title="config">
+        <Section title="config" open={openSettings}>
           <ObjectView schema={schema.config} value={view.config} live={view} />
-        </Section>
-      )}
-      {view && (
-        <Section title="settings" open={openSettings}>
-          <ObjectView schema={schema.settings} value={view.settings} />
         </Section>
       )}
       {commandForms && (

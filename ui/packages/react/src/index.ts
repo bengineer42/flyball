@@ -42,6 +42,6 @@ export { debugCounters, countRender, countRedraw, type DebugCounters } from "./s
 export { useTelemetry } from "./provider.js";
 export { TelemetryStore, emptyTrace, emptyControllerView, historyPoints, type TelemetryStoreOptions, type TraceView, type ControllerView, type ReadOptions, type StoreStream } from "./store/telemetry.js";
 export { Ring, emptyView, type RingOptions, type RingView } from "./store/ring.js";
-export { useSignal, useSample, useTraceRef, useWriteState, useWriteStates, useController, useDeviceRun, useDeviceRuns, useWaitStates, useEventsFeed, useStreamStatus, useStoreStatus, useFreshness, useAlarmSummary, useNowS, READOUT_MS, type TraceRef, type AlarmSummary } from "./store/hooks.js";
+export { useSignal, useLatestValue, useSample, useTraceRef, useWriteState, useWriteStates, useController, useDeviceRun, useDeviceRuns, useWaitStates, useEventsFeed, useStreamStatus, useStoreStatus, useFreshness, useAlarmSummary, useNowS, READOUT_MS, type TraceRef, type AlarmSummary } from "./store/hooks.js";
 export { useChartLifecycle, type ChartLifecycleOptions } from "./panels/useChartLifecycle.js";
 export { pointCap } from "./panels/thin.js";
