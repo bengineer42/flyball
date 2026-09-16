@@ -14,6 +14,7 @@ from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
 from flyball.client import Rig as Client
+from flyball.client import RigError
 from flyball.db.sqlite import SqliteStore
 from flyball.mcp import Tier, tools_for
 from flyball.mcp.server import build
@@ -330,6 +331,14 @@ class TestDriverTools:
         from flyball.mcp.tools import _served
 
         assert ("get", "/api/devices/{name}/schema") in _served(client)
+
+    def test_the_daemon_s_driver_routes_list_their_tools(self, client):
+        listed = names(tools_for(client, "operate"))
+        assert {"list_drivers", "reload_drivers", "probe_hardware", "link_query"} <= listed
+        drivers = self.tool(client, "list_drivers", "read").run(client, {})
+        assert drivers["sim_drive"]["role"] == "driver" and "schema" in drivers["sim_drive"]
+        with pytest.raises(RigError, match="no drivers directory"):
+            self.tool(client, "reload_drivers").run(client, {})
 
     def test_guide_and_scaffold(self, client):
         guide = self.tool(client, "driver_guide", "read").run(client, {})

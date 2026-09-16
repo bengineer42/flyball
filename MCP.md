@@ -2,10 +2,10 @@
 
 The MCP surface lives in `controller/src/flyball/mcp/` and is built from the
 daemon's HTTP API; it imports nothing but `flyball.client` and
-`flyball.scaffold`. A tool that needs a route the daemon does not serve yet
-is declared with `route=(method, path)` and is **not listed** until the
-daemon's `/openapi.json` shows that route -- so the server side can land in
-any order and the tools appear as it does. The book page is
+`flyball.scaffold`. A tool that needs a particular daemon route is declared
+with `route=(method, path)` and is listed only while the daemon's
+`/openapi.json` shows that route, so an older daemon lists fewer tools
+rather than broken ones. The book page is
 `book/src/3-running/mcp.md`.
 
 ## Done (16 Sep 2026)
@@ -28,16 +28,15 @@ any order and the tools appear as it does. The book page is
 - Widget catalogue `GET /api/dashboards/widgets` from
   `controller/src/flyball/server/widgets.json`.
 
-## Needed outside `flyball/mcp/` (tools already written; listed once the route exists)
+- Drivers, over `server/routes/drivers.py` (16 Sep 2026, later the same
+  day): `list_drivers`, `reload_drivers` (the daemon's `--drivers DIR`,
+  default `drivers/` beside the first rig file), `probe_hardware`,
+  `link_query`. Verified end to end on the humidity sim: `driver_scaffold`
+  → file in the drivers dir → `check_driver` → `reload_drivers` →
+  `attach_device` → the new device's command is a tool → `read` its
+  signal.
 
-| tool | route | what it needs |
-|---|---|---|
-| `list_drivers` | `GET /api/drivers` | every registered `DriverConfig` tag with `model_json_schema()` and the module it came from (`Config.registry`, filtered to `DriverConfig`) |
-| `reload_drivers` | `POST /api/drivers/reload` | a `--drivers DIR` option on `flyball-daemon` (default `drivers/` beside the first rig file, like `programs/`); import every `*.py` in it at start and on this route, `importlib.reload` for one seen before; return what registered and any import error per file |
-| `probe_hardware` | `GET /api/probe?scan=` | `flyball_linux.probe.report(scan)` when `flyball_linux` is importable, else 404; `scan` does the I²C scan |
-| `link_query` | `POST /api/links/{name}/query` `{text}` → `{reply}` | one `query(text)` on a `TextLink` the rig holds (409 for a link that is not text); the raw way to identify an instrument before writing its entry |
-
-Also, not gated because nothing on the wire changes:
+## Still open
 
 - **`widgets.json` is hand-maintained** from `ui/apps/dashboard/src/widgets/*.tsx`.
   A generator on the UI side (evaluate each kind's `configSchema` with

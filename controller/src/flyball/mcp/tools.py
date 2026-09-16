@@ -862,7 +862,8 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "list_drivers",
-        "Every driver tag the daemon can build, with its config schema and where it came from.",
+        "Every tag the daemon can build -- drivers and links -- with its config schema, "
+        "description and the module it came from.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/drivers"),
@@ -871,7 +872,8 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "reload_drivers",
         "Import (again) every module in the daemon's drivers directory, so a new or edited "
-        "driver's tag can be attached. Runs those files' top level.",
+        "driver's tag can be attached; devices already built keep their old class. Runs "
+        "those files' top level. Returns what each file registered and any import error.",
         _object(),
         Tier.DRIVE,
         lambda rig, a: rig.post("/api/drivers/reload"),
@@ -885,7 +887,7 @@ DRIVERS: tuple[Tool, ...] = (
         "mind).",
         _object({"scan": _bool("Scan the I2C buses.")}),
         Tier.READ,
-        lambda rig, a: rig.get("/api/probe" + _query(scan="true" if a.get("scan") else None)),
+        lambda rig, a: rig.get("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
         route=("get", "/api/probe"),
     ),
     Tool(
