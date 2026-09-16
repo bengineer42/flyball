@@ -111,23 +111,10 @@ class Router:
         return list(cuts)
 
     def push(self, samples: Sample | Sequence[Sample]) -> None:
-        """Deliver `samples`: through the rig if attached, else noted here.
+        """Deliver `samples`: through the rig if attached, else noted here."""
+        from .signal import Sample
 
-        A value of `UNSET` is dropped, and a sample left with nothing is not
-        delivered: a driver pushes what it has and marks what it does not.
-        """
-        from .signal import UNSET, Sample
-
-        batch: list[Sample] = []
-        for sample in (samples,) if isinstance(samples, Sample) else samples:
-            if any(v is UNSET for v in sample.values.values()):
-                values = {s: v for s, v in sample.values.items() if v is not UNSET}
-                if not values:
-                    continue
-                sample = Sample(sample.node, sample.time_ns, values)
-            batch.append(sample)
-        if not batch:
-            return
+        batch = (samples,) if isinstance(samples, Sample) else samples
         if self.deliver is not None:
             self.deliver(batch)
         else:

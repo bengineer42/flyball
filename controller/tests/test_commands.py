@@ -10,7 +10,7 @@ from flyball.control.laws import P
 from flyball.core.device import Committable, Demand, Namespace, Output, Readable, command
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.quantity import Quantity
-from flyball.core.signal import UNSET, Access, Role, Sample, Section
+from flyball.core.signal import Access, Role, Sample, Section
 from flyball.core.units.si import Celsius, Percent
 from flyball.core.utils import Labelled
 from flyball.runtime.rig import Rig
@@ -62,6 +62,11 @@ class Heater(Committable):
         self.b.push(0.0)
 
     @command
+    def set_a(self, a) -> None:  # noqa: ANN001  linked by name: the demand's type is the argument's
+        """Bank A alone, no annotation."""
+        self.writes.append(("a", a))
+
+    @command
     def reset(self) -> str:
         """A maintenance command: no mode, no ownership check."""
         return "reset"
@@ -99,12 +104,15 @@ class TestStructure:
             "banks.b",
             "last.set_banks",
             "last.off",
+            "last.set_a",
             "last.reset",
         ]
         assert heater.a.role is Role.DEMAND and heater.a.access is Access.RPW
         assert heater.a.tags == {"bank": "a"}
         assert heater.a.limits == (0.0, 80.0), "the max_duty output's value bounds it"
-        assert set(Heater.commands) == {"set_banks", "off", "reset", "set_power"}
+        assert set(Heater.commands) == {"set_banks", "off", "set_a", "reset", "set_power"}
+        assert Heater.commands["set_a"].params["a"].link == "banks.a"
+        assert Heater.set_a.__annotations__["a"] == Annotated[float, Heater.a]
         assert Heater.commands["set_power"].demand_of == "power"
         assert Heater.commands["set_banks"].params["a"].link == "banks.a"
         assert Heater.readable is False and Heater.writable is True
@@ -171,14 +179,6 @@ class TestRun:
         rig.demand(heater.root, {"power": 10.0})
         assert heater.mode.value is Mode.AUTO, "pushed inside commit, delivered after it"
         assert rig.router.sample(heater.root) is not None
-
-
-def test_unset_values_are_dropped_from_a_push(rig: Rig, heater: Heater) -> None:
-    heater.push(a=1.0, b=UNSET)
-    assert heater.a.value == pytest.approx(1.0)
-    assert heater.b.reading is None
-    heater.push(a=UNSET, b=UNSET)  # nothing to deliver
-    assert heater.a.value == pytest.approx(1.0)
 
 
 def test_a_batch_delivers_every_push_inside_it_as_one_sample(rig: Rig, heater: Heater) -> None:

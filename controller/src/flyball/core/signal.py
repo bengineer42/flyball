@@ -32,23 +32,6 @@ type Value = Any
 dataclass for a structure. The signal's `vtype` says which; the wire's `dtype` names it."""
 
 
-class _Unset:
-    """See `UNSET`."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "UNSET"
-
-    def __bool__(self) -> bool:
-        return False
-
-
-UNSET: Any = _Unset()
-"""A value a driver pushes for a signal it has nothing for this time: the router drops it, and
-the signal keeps whatever it had. `device.push(a=1.0, b=UNSET)` is one call, no branching."""
-
-
 def dtype_of(vtype: Any) -> str:
     """The wire's name for a value type: float, int, bool, str, enum, or json for anything else."""
     if vtype is float:

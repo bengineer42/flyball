@@ -597,6 +597,9 @@ def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
             link = next((m for m in get_args(annotation)[1:] if isinstance(m, Descriptor)), None)
         if link is None and (d := descriptors.get(name)) is not None and d.role is Role.DEMAND:
             link = d
+        if link is not None and name not in hints:
+            # No annotation: the demand's type is the argument's, for the request model.
+            annotation = hints[name] = Annotated[link.vtype, link]
         params[name] = Param(
             name, annotation, None if link is None else link.path, parameter.default
         )
