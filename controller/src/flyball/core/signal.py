@@ -243,7 +243,8 @@ class Node:
 
     @property
     def atomic(self) -> bool:
-        return self.spec is not None and self.spec.atomic
+        """Read (and written) as one sample: the namespace says so, or the device for its root."""
+        return self.device.atomic if self.spec is None else self.spec.atomic
 
     @property
     def poll_s(self) -> float | None:

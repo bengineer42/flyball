@@ -28,14 +28,19 @@ devices:
   valve:
     driver: sim_drive
     label: Inlet valve
-    config: { link: tank, ports: { drive: input } }   # valve.drive [W], 0 to 1 of full
+    # valve.drive [W] L, smart: a demand is the level to hold. An
+    # integrator's `feedforward` has no static inverse (there is no fixed
+    # drive-to-level curve to read off, only a rate), so `limits` is given:
+    # 0..40 L, the steady state at gain / leak.
+    config:
+      link: tank
+      ports:
+        drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
 
-# Holding a level against the drain takes `leak / gain` of full per litre;
-# the law's gains are the old L-per-L tuning (0.05, 0.01) over the plant's
-# gain of 2.
+# The drive takes a demand straight in L, so the controller hands it the
+# setpoint untouched and the law's gains are the old L-per-L tuning.
 controllers:
   valve.drive:
     signal: level.volume
-    feedforward: { tag: affine, gain: 0.025 }
-    law: { tag: PI, kp: 0.025, ki: 0.005 }
+    law: { tag: PI, kp: 0.05, ki: 0.01 }
     default: true

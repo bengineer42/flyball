@@ -602,3 +602,14 @@ def test_a_trailing_or_doubled_dot_resolves_to_nothing(rig, sensors):
         with pytest.raises(AddressNotFoundError, match="not found"):
             rig.resolve(address)
     assert rig.resolve(sensors.name) is sensors.root
+
+
+def test_a_device_may_declare_its_root_atomic(rig, fresh):
+    class OneTransaction(Sensors):
+        atomic = True
+
+    device = OneTransaction(fresh("sht"))
+    rig.add_device(device)
+    assert device.root.atomic and not Sensors(fresh("set")).root.atomic
+    got = rig.read(device.root, fresh=True)
+    assert isinstance(got, Sample), "an atomic root reads as one sample, like an atomic namespace"

@@ -1,22 +1,27 @@
-"""Sensirion SHT40/41/45: temperature and humidity over I2C.
+"""Sensirion SHT40/41/45: temperature and humidity over I2C, one chip or a set of them.
 
 Command byte, a wait, six bytes back: two of temperature, a CRC, two of
-humidity, a CRC. No registers, so this is not a table.
+humidity, a CRC. No registers, so this is not a table. `sht4x` is one chip
+on the device root (`humidity`, `temperature [RP]`, one transaction);
+`sht4x_set` is several on one bus, each its own atomic namespace
+(`hum_sensors.dry.humidity`), read one transaction each on its own `poll_s`.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, field
 from typing import Literal
 
 from flyball.core.config import resolve
-from flyball.core.device import DeviceConfig, DeviceState
+from flyball.core.device import Device, DeviceState, DriverConfig
 from flyball.core.errors import HardwareError
-from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.units.dimension import DIMENSIONLESS, Unit
-from pydantic import Field
+from flyball.core.quantity import Quantity
+from flyball.core.signal import Access, Node, NodeSpec, Sample, SignalSpec
+from flyball.core.units import DIMENSIONLESS
+from flyball.core.units.si import Celsius
+from pydantic import BaseModel, ConfigDict, Field
 
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
 
@@ -29,6 +34,10 @@ COMMANDS: dict[str, tuple[int, float]] = {
 """Measure command and the datasheet's maximum conversion time, by precision."""
 
 PercentRH = DIMENSIONLESS.unit("percent relative humidity", "%RH", 0.01)
+HUMIDITY = Quantity("humidity", PercentRH)
+TEMPERATURE = Quantity("temperature", Celsius)
+SHT4X_ADDRESS = 0x44
+"""The default address; the -B variants answer at 0x45."""
 
 
 def crc8(data: bytes) -> int:
@@ -68,67 +77,231 @@ def encode(temperature: float, humidity: float) -> bytes:
     return t + bytes([crc8(t)]) + h + bytes([crc8(h)])
 
 
+class Sht4xSensor:
+    """One chip at `address`: command, wait, read, decode, in one `read`."""
+
+    __slots__ = ("address", "link", "precision", "sleep")
+
+    def __init__(
+        self, link: I2cLink, address: int, precision: Precision = "high", sleep: bool = True
+    ) -> None:
+        self.link = link
+        self.address = address
+        self.precision: Precision = precision
+        self.sleep = sleep
+        """Whether to wait the conversion time; off in a test against a fake."""
+
+    def read(self) -> tuple[float, float]:
+        """(°C, %RH): one I2C transaction."""
+        command, wait_s = COMMANDS[self.precision]
+        self.link.write(self.address, [command])
+        if self.sleep:
+            time.sleep(wait_s)
+        return decode(self.link.read(self.address, 6))
+
+
+def _tree() -> tuple[SignalSpec, ...]:
+    return (
+        SignalSpec(
+            name="humidity", quantity=HUMIDITY, access=Access.RP, range=(0.0, 100.0), precision=2
+        ),
+        SignalSpec(
+            name="temperature",
+            quantity=TEMPERATURE,
+            access=Access.RP,
+            range=(-40.0, 125.0),
+            precision=2,
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Sht4xState(DeviceState):
     temperature: float | None = None
     humidity: float | None = None
 
 
-class Sht4xReader(Reader):
-    """One chip at `address` (0x44, or 0x45 on the -B variants), two measurands."""
+class Sht4x(Device):
+    """One chip on the device root: `humidity`, `temperature [RP]`, one I2C transaction."""
+
+    TREE = _tree()
 
     def __init__(
         self,
         name: str,
         link: I2cLink,
-        address: int = 0x44,
+        address: int = SHT4X_ADDRESS,
         precision: Precision = "high",
         sleep: bool = True,
+        label: str | None = None,
     ) -> None:
+        super().__init__(name, label)
         self.link = link
-        self.address = address
-        self.precision = precision
-        self.sleep = sleep
-        self.temperature = Measurand(
-            "temperature", Unit.get("°C"), range=(-40.0, 125.0), precision=2
-        )
-        self.humidity = Measurand("humidity", PercentRH, range=(0.0, 100.0), precision=2)
-        self.source = Source(name, (self.temperature, self.humidity))
-        super().__init__(name, (self.source,))
+        self.sensor = Sht4xSensor(link, address, precision, sleep)
         self._last: tuple[float, float] | None = None
+
+    @property
+    def config(self) -> Sht4xConfig:
+        return Sht4xConfig(link="", address=self.sensor.address, precision=self.sensor.precision)
 
     @property
     def state(self) -> Sht4xState:
         t, h = self._last if self._last is not None else (None, None)
         return Sht4xState(temperature=t, humidity=h)
 
-    def read(self, time_ns: int) -> Iterable[Sample]:
-        command, wait_s = COMMANDS[self.precision]
-        self.link.write(self.address, [command])
-        if self.sleep:
-            time.sleep(wait_s)
-        temperature, humidity = decode(self.link.read(self.address, 6))
-        self._last = (temperature, humidity)
-        return [
-            Sample(
-                self.source,
-                self.source.next_seq(),
-                time_ns,
-                {self.temperature: temperature, self.humidity: humidity},
-            )
-        ]
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        temperature, humidity = self._last = self.sensor.read()
+        yield Sample(
+            self.root,
+            time_ns,
+            {self.signals["humidity"]: humidity, self.signals["temperature"]: temperature},
+        )
 
 
-class Sht4xConfig(DeviceConfig[Sht4xReader], tag="sht4x"):
-    name: str
+class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
+    """One chip by its I2C address."""
+
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=0x44, ge=0x03, le=0x77)
+    address: int = Field(default=SHT4X_ADDRESS, ge=0x03, le=0x77)
     precision: Precision = "high"
 
-    def build(self) -> Sht4xReader:
+    def build(self, name: str, label: str | None = None) -> Sht4x:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Sht4xReader(self.name, resolve(self.link), self.address, self.precision)
+        return Sht4x(name, resolve(self.link), self.address, self.precision, label=label)
 
 
-__all__ = ["COMMANDS", "Sht4xConfig", "Sht4xReader", "Sht4xState", "crc8", "decode", "encode"]
+Sht4x.config_type = Sht4xConfig  # the config is declared after the device it builds
+
+
+class SensorEntry(BaseModel):
+    """One sensor of an `sht4x_set`: its I2C address."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    address: int = Field(default=SHT4X_ADDRESS, ge=0x03, le=0x77)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Sht4xSetState(DeviceState):
+    temperature: dict[str, float] = field(default_factory=dict)
+    """The last temperature read on each sensor, by name; one not yet read is absent."""
+    humidity: dict[str, float] = field(default_factory=dict)
+
+
+class Sht4xSet(Device):
+    """Several chips on one bus, one atomic namespace each, read one transaction each when due."""
+
+    def __init__(
+        self,
+        name: str,
+        link: I2cLink,
+        sensors: Mapping[str, int],
+        precision: Precision = "high",
+        sleep: bool = True,
+        label: str | None = None,
+    ) -> None:
+        super().__init__(name, label)
+        if not sensors:
+            raise ValueError(f"{name}: an sht4x_set reads at least one sensor")
+        self.link = link
+        self.bind(
+            tuple(
+                NodeSpec(name=sensor_name, atomic=True, children=_tree()) for sensor_name in sensors
+            )
+        )
+        self.sensors = {
+            sensor_name: Sht4xSensor(link, address, precision, sleep)
+            for sensor_name, address in sensors.items()
+        }
+        self._last_read_ns: dict[str, int] = {}
+        self._last: dict[str, tuple[float, float]] = {}
+
+    @property
+    def config(self) -> Sht4xSetConfig:
+        (sensor, *_) = self.sensors.values()
+        return Sht4xSetConfig(
+            link="",
+            sensors={name: SensorEntry(address=s.address) for name, s in self.sensors.items()},
+            precision=sensor.precision,
+        )
+
+    @property
+    def state(self) -> Sht4xSetState:
+        return Sht4xSetState(
+            temperature={name: t for name, (t, _) in self._last.items()},
+            humidity={name: h for name, (_, h) in self._last.items()},
+        )
+
+    def _due(self, node: Node, time_ns: int) -> bool:
+        last = self._last_read_ns.get(node.name)
+        if last is None:
+            return True
+        period_s = node.poll_s
+        return period_s is None or (time_ns - last) >= 0.9 * period_s * 1e9
+
+    def _sample(self, node: Node, time_ns: int) -> Sample:
+        temperature, humidity = self._last[node.name] = self.sensors[node.name].read()
+        self._last_read_ns[node.name] = time_ns
+        return Sample(
+            node,
+            time_ns,
+            {node.signals["humidity"]: humidity, node.signals["temperature"]: temperature},
+        )
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """One sample per due namespace, each its own I2C transaction.
+
+        `node` names one namespace: always read, `fresh` or not. `None` (or
+        the root, the periodic poll): only the namespaces due on their own
+        `poll_s`.
+        """
+        if node is not None and node is not self.root:
+            yield self._sample(node, time_ns)
+            return
+        for child in self.root.children.values():
+            if self._due(child, time_ns):
+                yield self._sample(child, time_ns)
+
+
+class Sht4xSetConfig(DriverConfig[Sht4xSet], tag="sht4x_set"):
+    """Several chips on one bus, one namespace per sensor: `sensors: {dry: {address: 0x45}}`."""
+
+    link: I2cLinkConfig | str  # type: ignore[valid-type]
+    sensors: dict[str, SensorEntry]
+    precision: Precision = "high"
+
+    def build(self, name: str, label: str | None = None) -> Sht4xSet:
+        if isinstance(self.link, str):
+            raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
+        return Sht4xSet(
+            name,
+            resolve(self.link),
+            {n: s.address for n, s in self.sensors.items()},
+            self.precision,
+            label=label,
+        )
+
+
+Sht4xSet.config_type = Sht4xSetConfig
+
+
+__all__ = [
+    "COMMANDS",
+    "HUMIDITY",
+    "SHT4X_ADDRESS",
+    "TEMPERATURE",
+    "PercentRH",
+    "Precision",
+    "SensorEntry",
+    "Sht4x",
+    "Sht4xConfig",
+    "Sht4xSensor",
+    "Sht4xSet",
+    "Sht4xSetConfig",
+    "Sht4xSetState",
+    "Sht4xState",
+    "crc8",
+    "decode",
+    "encode",
+]

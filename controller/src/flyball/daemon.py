@@ -38,6 +38,7 @@ def serve(
     simulation: Simulation | None = None,
     store: Store | None = None,
     programs: Path | None = None,
+    tunings: Path | None = None,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -51,6 +52,8 @@ def serve(
             None leaves those routes answering 503.
         programs: A directory of program files, imported into the library on
             start and whenever the library is asked to rescan.
+        tunings: A directory of control-law config files, stored on `rig.tunings`
+            under each file's stem before serving. A missing directory is fine.
     """
     import uvicorn
 
@@ -58,7 +61,7 @@ def serve(
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
     from flyball.server.deps import set_programs_dir, set_store
     from flyball.server.routes import dashboards
-    from flyball.server.routes.library import import_directory
+    from flyball.server.routes.library import import_directory, load_tunings
 
     programmer = Programmer(rig)
     set_rig(rig)
@@ -69,6 +72,9 @@ def serve(
     if store is not None and programs is not None and programs.is_dir():
         imported = import_directory(store, programs, rig.clock.now_ns())
         log.info("programs from %s: %d imported", programs, len(imported))
+    if tunings is not None:
+        loaded = load_tunings(rig, tunings)
+        log.info("tunings from %s: %d loaded", tunings, len(loaded))
     boards = None if programs is None else programs.parent / "dashboards"
     if store is not None and boards is not None and boards.is_dir():
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
@@ -144,6 +150,13 @@ def parser() -> argparse.ArgumentParser:
         help="directory of program files to import (default: 'programs' beside the first rig file)",
     )
     p.add_argument(
+        "--tunings",
+        type=Path,
+        default=None,
+        help="directory of control-law configs to load (default: 'tunings' beside the first rig"
+        " file)",
+    )
+    p.add_argument(
         "--set",
         dest="sets",
         action="append",
@@ -180,7 +193,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         log.info("a simulation: %s plants, clock at %gx", len(simulation.plants), simulation.speed)
     log.info("serving %s on %s:%d", config.name or first.name, args.host, args.port)
     programs = args.programs if args.programs is not None else first.parent / "programs"
-    serve(rig, args.host, args.port, args.log_level, simulation, store, programs)
+    tunings = args.tunings if args.tunings is not None else first.parent / "tunings"
+    serve(rig, args.host, args.port, args.log_level, simulation, store, programs, tunings)
     return 0
 
 

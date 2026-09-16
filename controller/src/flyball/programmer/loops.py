@@ -27,6 +27,18 @@ def _controllers(rig: Rig, which: ControllerNames) -> list[Controller]:
     return [rig.controllers.resolve(name) for name in names]
 
 
+def _missing_controllers(rig: Rig, which: ControllerNames) -> list[str]:
+    names = which if isinstance(which, list) else [which]
+    out = []
+    for name in names:
+        if name is None:
+            if rig.controllers.default is None:
+                out.append("the rig has no default controller")
+        elif name not in rig.controllers:
+            out.append(f"controller {name!r} is not on the rig")
+    return out
+
+
 @dataclass(frozen=True)
 class Regulate(Command, tag="regulate", primary="setpoint"):
     """Aim a controller at a setpoint and let its law drive; returns at once."""
@@ -41,6 +53,12 @@ class Regulate(Command, tag="regulate", primary="setpoint"):
         for controller in _controllers(rig, self.loop):
             controller.regulate(self.setpoint, tuning=tuning)
         return None
+
+    def missing(self, rig: Rig) -> list[str]:
+        out = _missing_controllers(rig, self.loop)
+        if self.tuning is not None and rig.tunings.get(self.tuning) is None:
+            out.append(f"tuning {self.tuning!r} is not stored")
+        return out
 
 
 @dataclass(frozen=True)
@@ -87,6 +105,9 @@ class Ramp(Command, tag="ramp", primary="to"):
             name=f"ramp:{names}",
             message=f"{names} ramping to {self.to:g} over {longest:.0f} s",
         )
+
+    def missing(self, rig: Rig) -> list[str]:
+        return _missing_controllers(rig, self.loop)
 
 
 @dataclass(frozen=True)
@@ -142,6 +163,9 @@ class Arrive(Command, tag="arrive", primary="loop"):
             clock=rig.clock,
         )
 
+    def missing(self, rig: Rig) -> list[str]:
+        return _missing_controllers(rig, self.loop)
+
 
 @dataclass(frozen=True)
 class Manual(Command, tag="manual", primary="loop"):
@@ -153,6 +177,9 @@ class Manual(Command, tag="manual", primary="loop"):
         for controller in _controllers(rig, self.loop):
             controller.manual()
         return None
+
+    def missing(self, rig: Rig) -> list[str]:
+        return _missing_controllers(rig, self.loop)
 
 
 __all__ = ["Hold", "Manual", "Ramp", "Regulate"]

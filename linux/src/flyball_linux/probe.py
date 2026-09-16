@@ -16,20 +16,20 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 KNOWN: dict[int, tuple[str, str]] = {
-    0x40: ("ina219 / htu21d / si7021", "i2c_reader"),
+    0x40: ("ina219 / htu21d / si7021", "i2c_table"),
     0x44: ("sht4x / sht3x", "sht4x"),
     0x45: ("sht4x-B / sht3x-B", "sht4x"),
     0x48: ("ads1115 / tmp102 / lm75", "ads1115"),
     0x49: ("ads1115 (ADDR=VDD) / tmp102", "ads1115"),
     0x4A: ("ads1115 (ADDR=SDA)", "ads1115"),
     0x4B: ("ads1115 (ADDR=SCL)", "ads1115"),
-    0x18: ("mcp9808", "i2c_reader"),
-    0x1D: ("adxl345 / lsm303", "i2c_reader"),
+    0x18: ("mcp9808", "i2c_table"),
+    0x1D: ("adxl345 / lsm303", "i2c_table"),
     0x3C: ("ssd1306 display", ""),
     0x50: ("eeprom", ""),
-    0x68: ("ds1307 / mpu6050 / pcf8523", "i2c_reader"),
-    0x76: ("bme280 / bmp280", "i2c_reader"),
-    0x77: ("bme280 / bmp280 / bmp180", "i2c_reader"),
+    0x68: ("ds1307 / mpu6050 / pcf8523", "i2c_table"),
+    0x76: ("bme280 / bmp280", "i2c_table"),
+    0x77: ("bme280 / bmp280 / bmp180", "i2c_table"),
 }
 """Address -> (what usually lives there, the tag to start from)."""
 
@@ -90,27 +90,21 @@ def scan_i2c(bus: int) -> Iterator[int]:
 
 
 def fragment(bus_name: str, address: int) -> str:
-    """A `[[readers]]` block to start from, for a recognised address."""
+    """A `devices:` entry to start from, for a recognised address."""
     what, tag = KNOWN.get(address, ("unknown", ""))
     if not tag:
-        return f"# 0x{address:02x}: {what}; no flyball tag for it"
+        return f"# 0x{address:02x}: {what}; no flyball driver for it"
     link = bus_name.replace("i2c-", "i2c")
-    lines = [
-        f"# 0x{address:02x}: {what}",
-        "[[readers]]",
-        "period_s = 1.0",
-        "[readers.device]",
-        f'tag = "{tag}"',
-        f'name = "{tag}_{address:02x}"',
-        f'link = "{link}"',
-    ]
+    fields = [f"driver: {tag}", "poll_s: 1", f"link: {link}"]
     if tag != "sht4x":
-        lines.append(f"address = {address}")
+        fields.append(f"address: 0x{address:02x}")
     if tag == "ads1115":
-        lines.append("channels = { volts = { channel = 0 } }")
-    if tag == "i2c_reader":
-        lines.append("registers = { }   # from the datasheet: address, length, signed, scale, unit")
-    return "\n".join(lines)
+        fields.append("channels: { volts: { channel: 0 } }")
+    note = ""
+    if tag == "i2c_table":
+        fields.append("registers: {}")
+        note = "   # registers from the datasheet: address, length, signed, scale, unit"
+    return f"# 0x{address:02x}: {what}\n{tag}_{address:02x}: {{ {', '.join(fields)} }}{note}"
 
 
 def report(scan: bool = True) -> str:
@@ -143,8 +137,8 @@ def report(scan: bool = True) -> str:
             out.extend(fragment(name, a) for a in addresses)
     for device in found["onewire"]:
         out.append(
-            f"# 1-Wire {device}\n[[readers]]\nperiod_s = 2.0\n[readers.device]\n"
-            f'tag = "ds18b20"\nname = "probe_{device[-4:]}"\nlink = "w1"\ndevice = "{device}"'
+            f"# 1-Wire {device}\nprobe_{device[-4:]}:"
+            f' {{ driver: ds18b20, poll_s: 2, link: w1, device: "{device}" }}'
         )
     return "\n".join(out)
 

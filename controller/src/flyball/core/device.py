@@ -226,6 +226,8 @@ class Device:
     blocking: ClassVar[bool] = False
     """Whether `commit` may wait on a bus. The rig then runs it on a thread of its own, so a
     delivery never waits: the write states arrive when the write completes."""
+    atomic: ClassVar[bool] = False
+    """The root is read (and written) as one sample: a single-transaction device, an SHT4x."""
 
     name: str
     label: str | None = None

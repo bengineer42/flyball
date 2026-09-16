@@ -39,7 +39,10 @@ devices:
   heater:
     driver: sim_drive
     label: Oven heater
-    config: { link: chamber, ports: { drive: input } }
+    config:
+      link: chamber
+      ports:
+        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
   dual_level:
     driver: sim_daq
     label: Tank level
@@ -53,18 +56,18 @@ devices:
   valve:
     driver: sim_drive
     label: Inlet valve
-    config: { link: tank, ports: { drive: input } }
+    config:
+      link: tank
+      ports:
+        drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
 
-# Each feedforward is its plant's static inverse; the law's gains are the
-# old tunings in the plant's output unit over its gain (see oven.yaml and
-# tank.yaml).
+# Each drive takes its demand straight in the plant's output unit -- see
+# oven.yaml and tank.yaml -- so the law gains are the old per-unit tunings.
 controllers:
   heater.drive:
     signal: dual_temp.temperature
-    feedforward: { tag: affine, gain: 0.0125, bias: -0.25 }
-    law: { tag: PI, kp: 0.00025, ki: 0.00000625 }
+    law: { tag: PI, kp: 0.02, ki: 0.0005 }
     default: true
   valve.drive:
     signal: dual_level.volume
-    feedforward: { tag: affine, gain: 0.025 }
-    law: { tag: PI, kp: 0.025, ki: 0.005 }
+    law: { tag: PI, kp: 0.05, ki: 0.01 }

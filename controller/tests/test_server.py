@@ -539,11 +539,49 @@ def programmer(client, rig):
     set_programmer(None)
 
 
+def test_load_tunings_stores_law_configs_under_the_directory_from_their_file_stem(tmp_path, rig):
+    from flyball.server.routes.library import load_tunings
+
+    (tmp_path / "gentle.yaml").write_text("tag: P\nkp: 0.5\n")
+    (tmp_path / "brisk.toml").write_text('tag = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
+    (tmp_path / "notes.txt").write_text("not a tuning")
+
+    loaded = load_tunings(rig, tmp_path)
+    assert sorted(loaded) == ["brisk", "gentle"]
+    assert rig.tunings.get("gentle").kp == 0.5
+    assert rig.tunings.get("brisk").kp == 0.8
+
+    assert load_tunings(rig, tmp_path / "no_such_directory") == []
+
+
+def test_program_check_warns_of_what_the_rig_lacks(client, programmer, drive):
+    """A tuning, controller or device command the rig lacks is a warning per step, not a refusal."""
+    body = {
+        "steps": [
+            {"regulate": {"setpoint": 30, "tuning": "brisk"}},  # no default controller, no tuning
+            {"manual": "no_such_controller"},
+            {"command": {"device_command": "nope", "device": drive.name}},
+            {"command": {"device_command": "off", "device": "ghost"}},
+            {"wait": "fine"},
+        ]
+    }
+    checked = client.post("/api/programs/check", json=body).json()
+    assert checked["ok"] is True
+    assert checked["warnings"] == {
+        "0": "the rig has no default controller; tuning 'brisk' is not stored",
+        "1": "controller 'no_such_controller' is not on the rig",
+        "2": f"{drive.name!r} has no command 'nope'",
+        "3": "device 'ghost' is not on the rig",
+    }
+
+
 def test_program_check_normalises_without_running(client, programmer):
     body = {"name": "t", "steps": [{"wait": "press go"}, {"wait": {"message": "m", "name": "n"}}]}
     checked = client.post("/api/programs/check", json=body).json()
-    assert checked["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
-    assert checked["steps"][1]["command"]["name"] == "n"
+    assert checked["ok"] is True and checked["warnings"] == {}
+    normalised = checked["normalised"]
+    assert normalised["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
+    assert normalised["steps"][1]["command"]["name"] == "n"
     assert client.get("/api/programs/running").json()["running"] is False
     bad = client.post("/api/programs/check", json={"steps": [{"nope": 1}]})
     assert bad.status_code == 422 and "nope" in bad.json()["detail"]

@@ -141,7 +141,17 @@ class TestSimulation:
         assert document["links"]["chamber"]["tag"] == "sim_plant"
         heater = document["devices"]["heater"]
         assert heater["driver"] == "sim_drive" and heater["label"] == "Oven heater"
-        assert heater["config"] == {"link": "chamber", "ports": {"drive": "input"}}
+        assert heater["config"] == {
+            "link": "chamber",
+            "ports": {
+                "drive": {
+                    "port": "input",
+                    "demand": "output",
+                    "quantity": "temperature",
+                    "unit": "°C",
+                }
+            },
+        }
         assert document["controllers"]["heater.drive"]["signal"] == "thermocouple.temperature"
         assert "readers" not in document and "actuators" not in document
         assert RigConfig.model_validate(document).build(start=False).devices.keys() == {

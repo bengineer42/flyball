@@ -12,7 +12,7 @@ rig's file, stands in for its hardware under the same names (plan §1.6).
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -240,6 +240,54 @@ def _set_drive(plant: AnyPlant, port: str, fraction: float) -> None:
 def _get_input(plant: AnyPlant, port: str) -> float:
     """The plant's drive on `port`, as a fraction of full."""
     return plant.inputs[port] if isinstance(plant, MultiPlant) else plant.input
+
+
+def _feedforward(plant: AnyPlant, port: str, demand: float) -> float:
+    """The drive on `port` that would hold `demand` at steady state: the plant's static inverse."""
+    if isinstance(plant, MultiPlant):
+        return plant.feedforward(port, demand)
+    return plant.feedforward(demand)
+
+
+def _static_inverse(plant: AnyPlant, port: str) -> Callable[[float], float] | None:
+    """`port`'s own drive -> steady-state-demand map, if the plant has one.
+
+    `Noisy` does not forward `inverse_feedforward` -- it is not part of the
+    `Plant` protocol, only a few models' own -- but noise is zero-mean, so
+    the clean model it wraps still answers for the static range.
+    """
+    inner = plant.plant if isinstance(plant, Noisy) else plant
+    inverse = getattr(inner, "inverse_feedforward", None)
+    if inverse is None:
+        return None
+    return (lambda drive: inverse(port, drive)) if isinstance(inner, MultiPlant) else inverse
+
+
+def _static_range(name: str, path: str, plant: AnyPlant, port: str) -> Band:
+    """The output-unit span a `demand: output` port can deliver, read off the plant's own model."""
+    inverse = _static_inverse(plant, port)
+    if inverse is None:
+        raise ValueError(
+            f"{name}.{path}: the plant has no static range for {port!r}; give `limits`"
+        )
+    lo, hi = inverse(0.0), inverse(1.0)
+    return (min(lo, hi), max(lo, hi))
+
+
+def _demand_quantity(
+    name: str, path: str, plant: AnyPlant, quantity: str | None, unit: str | None
+) -> Quantity:
+    """What a `demand: output` port measures: a furnace zone's temperature, or spelled out."""
+    known = TEMPERATURE_C if isinstance(plant, Furnace) else None
+    if quantity is not None or unit is not None:
+        if quantity is None or unit is None:
+            raise ValueError(f"{name}.{path}: say both `quantity` and `unit`, or neither")
+        return Quantity(quantity, unit)
+    if known is None:
+        raise ValueError(
+            f"{name}.{path}: the plant has no quantity of its own; say `{{quantity, unit}}`"
+        )
+    return known
 
 
 def _tree(device: str, leaves: Mapping[str, SignalSpec]) -> tuple[NodeSpec | SignalSpec, ...]:
@@ -473,24 +521,40 @@ SimDaq.config_type = SimDaqConfig  # the config is declared after the device it 
 class DrivePort(BaseModel):
     """A `sim_drive` signal spelled out: which port, and the unit and limits it is set in.
 
-    The signal is declared in that unit with those limits, so an overlay
-    can mirror a real device's writable signal unit for unit (`blender.humidity
-    [W] %RH 0..100`); a demand is mapped linearly over `limits` onto the
-    port's 0..1 drive.
+    In the default `demand: input` form the signal is declared in that unit
+    with those limits, so an overlay can mirror a real device's writable
+    signal unit for unit (`blender.humidity [W] %RH 0..100`); a demand is
+    mapped linearly over `limits` onto the port's 0..1 drive.
+
+    `demand: output` instead declares the signal in the plant's own output
+    unit -- what a `sim_daq` reading the same plant would read -- and
+    `commit` inverts the plant's static model to find the drive, so a
+    controller can hand it the setpoint directly (the `setpoint`
+    feedforward). `quantity`/`unit` may be omitted when the plant knows its
+    output (a furnace zone); `limits` may be omitted when the plant's model
+    has a static inverse (`Lag`, `Fopdt`; not `Integrator`) -- otherwise
+    both must be given.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     port: str
-    quantity: str = Field(description="What is set: 'humidity', 'power'.")
-    unit: str
-    limits: Band = Field(
-        description="What maps onto the port's drive: `limits[0]` is off, `limits[1]` full."
+    demand: Literal["input", "output"] = "input"
+    quantity: str | None = Field(
+        default=None,
+        description="What is set: 'humidity', 'power' -- or, in output mode, what the plant's"
+        " output measures, if it cannot say.",
+    )
+    unit: str | None = None
+    limits: Band | None = Field(
+        default=None,
+        description="Input mode: what maps onto the port's drive, `limits[0]` off, `limits[1]`"
+        " full. Output mode: the deliverable span, defaulted from the plant's model if it has one.",
     )
 
     @model_validator(mode="after")
     def _limits_span(self) -> DrivePort:
-        if self.limits[1] <= self.limits[0]:
+        if self.limits is not None and self.limits[1] <= self.limits[0]:
             raise ValueError("limits must be a rising span")
         return self
 
@@ -507,10 +571,14 @@ class SimDrive(Device):
     Every signal is `[W]` in the port's own unit -- watts for a furnace
     heater, a fraction of full for a bare plant -- or, spelled out as a
     [DrivePort][flyball.sim.devices.DrivePort], in whatever unit the real
-    device it stands in for takes. Either way `limits` is what maps onto
-    the port's 0..1 drive, and the rig clamps a demand to them before it
-    gets here. The drive knows nothing of the plant's dynamics: a
-    controller's feedforward does.
+    device it stands in for takes: `demand: input` (the default) maps a
+    demand linearly over `limits` onto the port's 0..1 drive, knowing
+    nothing of the plant's dynamics -- a controller's feedforward does. A
+    port declared `demand: output` instead takes a demand in the plant's
+    own output unit and inverts the plant's static model to find the
+    drive, so the smart work moves from the controller's feedforward into
+    the drive itself. Either way the rig clamps a demand to `limits`
+    before it gets here.
     """
 
     def __init__(
@@ -528,12 +596,24 @@ class SimDrive(Device):
         """The plant port behind each signal, by the signal's path (`"dry.flow"`)."""
         self._spans: dict[str, Band] = {}
         """What each signal's `limits` were declared as: the span its values map over."""
+        self._smart: set[str] = set()
+        """Paths declared `demand: output`: `commit` inverts the plant instead of a linear map."""
         leaves: dict[str, SignalSpec] = {}
         for path, spec in ports.items():
             if isinstance(spec, str):
                 quantity, limits = _input_quantity(plant, spec)
                 port = spec
+            elif spec.demand == "output":
+                _input_quantity(plant, spec.port)  # the port exists
+                quantity = _demand_quantity(name, path, plant, spec.quantity, spec.unit)
+                limits = spec.limits
+                if limits is None:
+                    limits = _static_range(name, path, plant, spec.port)
+                port = spec.port
+                self._smart.add(path)
             else:
+                if spec.quantity is None or spec.unit is None or spec.limits is None:
+                    raise ValueError(f"{name}.{path}: say `quantity`, `unit` and `limits`")
                 _input_quantity(plant, spec.port)  # the port exists
                 quantity, limits, port = Quantity(spec.quantity, spec.unit), spec.limits, spec.port
             leaves[path] = SignalSpec(
@@ -566,7 +646,13 @@ class SimDrive(Device):
     def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
         for signal, value in self.pending.items():
             path = str(signal.path)
-            _set_drive(self.plant, self.ports[path], self._fraction(path, value))
+            port = self.ports[path]
+            fraction = (
+                min(1.0, max(0.0, _feedforward(self.plant, port, value)))
+                if path in self._smart
+                else self._fraction(path, value)
+            )
+            _set_drive(self.plant, port, fraction)
         return self.flush_pending()
 
     @command(simulation=True)
@@ -593,8 +679,9 @@ class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
     link: PlantLink = Field(description="The `sim_plant` or `sim_furnace` link driven.")  # pyright: ignore[reportIncompatibleVariableOverride]
     ports: dict[str, str | DrivePort] = Field(
         description="Signal path -> the plant's input port, or spelled out with the `quantity`,"
-        " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive)."
-        " A dotted path is a namespace."
+        " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive),"
+        " or `demand: output` to declare it in the plant's own output unit and let `commit` invert"
+        " the plant. A dotted path is a namespace."
     )
 
     def build(self, name: str, label: str | None = None) -> SimDrive:

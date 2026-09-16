@@ -1,15 +1,19 @@
 """Each device against its fake bus, to the byte."""
 
 import pytest
+from flyball.core.errors import ConflictError, HardwareError
+from flyball.core.signal import Access
 
-from flyball_linux.devices.gpio import GpioActuator, GpioReader
-from flyball_linux.devices.i2c_table import I2cActuator, I2cReader, Register
-from flyball_linux.devices.onewire import Ds18b20Reader, parse_w1_slave
-from flyball_linux.devices.pwm import PwmActuator
+from flyball_linux.devices.gpio import GpioLine
+from flyball_linux.devices.i2c_table import I2cTable, Register
+from flyball_linux.devices.onewire import Ds18b20, parse_w1_slave
+from flyball_linux.devices.pwm import PwmChannel
 from flyball_linux.links.gpio import FakeGpio
 from flyball_linux.links.i2c import FakeI2c
 from flyball_linux.links.onewire import FakeOneWire
 from flyball_linux.links.pwm import FakePwm
+
+NS = 1_000_000_000
 
 
 class TestRegister:
@@ -31,82 +35,152 @@ class TestRegister:
         with pytest.raises(ValueError, match="wants 2 bytes"):
             Register(address=0).decode(b"\x00")
 
-
-def test_i2c_reader_reads_every_register_into_one_sample(fresh):
-    bus = FakeI2c(registers={0x48: {0x00: [0x0C, 0x80], 0x02: [0x00, 0x2A]}})
-    reader = I2cReader(
-        fresh("tmp"),
-        bus,
-        0x48,
-        {
-            "temperature": Register(address=0, signed=True, scale=0.0078125, unit="°C"),
-            "status": Register(address=2, length=2),
-        },
-    )
-    (sample,) = reader.read(7)
-    values = {m.name: v for m, v in sample.values.items()}
-    assert values["temperature"] == pytest.approx(25.0) and values["status"] == 42
-    assert sample.time_ns == 7 and reader.state.values["status"] == 42
+    def test_write_makes_it_writable(self):
+        assert Register(address=0).access is Access.RP
+        assert Register(address=0, write=True).access is Access.RPW
 
 
-def test_i2c_actuator_writes_the_demand_and_reports_what_the_chip_holds(fresh):
-    bus = FakeI2c()
-    dac = I2cActuator(
-        fresh("dac"), bus, 0x60, Register(address=0x40, length=2, scale=0.001, unit="V")
-    )
-    assert dac.set_demand(1.2345) == pytest.approx(1.234)  # 1234.5 LSB rounds to even
-    assert bus.written == [(0x60, 0x40, [0x04, 0xD2])]
-    assert dac.state.demand == 1.2345 and dac.demand_unit.symbol == "V"
+class TestI2cTable:
+    def test_reads_every_register_into_one_sample(self):
+        bus = FakeI2c(registers={0x48: {0x00: [0x0C, 0x80], 0x02: [0x00, 0x2A]}})
+        chip = I2cTable(
+            "tmp",
+            bus,
+            0x48,
+            {
+                "temperature": Register(address=0, signed=True, scale=0.0078125, unit="°C"),
+                "status": Register(address=2, length=2),
+            },
+        )
+        assert chip.blocking is False, "a fake bus never blocks"
+        assert chip.signals["temperature"].unit.symbol == "°C"
+        (sample,) = chip.read(7)
+        assert sample.by_name() == {"temperature": pytest.approx(25.0), "status": 42.0}
+        assert sample.time_ns == 7 and chip.state.values["status"] == 42
+
+    def test_only_due_signals_are_read(self):
+        bus = FakeI2c(registers={0x48: {0x00: [0, 1], 0x01: [0, 2]}})
+        chip = I2cTable("c", bus, 0x48, {"a": Register(address=0), "b": Register(address=1)})
+        chip.poll_s = 1.0
+        chip.signals["b"].override(poll_s=10.0)
+        assert [s.by_name() for s in chip.read(0)] == [{"a": 1.0, "b": 2.0}]
+        assert [s.by_name() for s in chip.read(1 * NS)] == [{"a": 1.0}]
+
+    def test_commit_writes_the_register_and_reports_what_the_chip_holds(self):
+        bus = FakeI2c()
+        dac = I2cTable(
+            "dac",
+            bus,
+            0x60,
+            {"out": Register(address=0x40, length=2, scale=0.001, unit="V", write=True)},
+        )
+        out = dac.signals["out"]
+        assert out.access is Access.RPW
+        dac.apply(out, 1, 1.2345)
+        states = dac.commit(1)
+        assert bus.written == [(0x60, 0x40, [0x04, 0xD2])]
+        assert states[out].value == pytest.approx(1.234), "1234.5 LSB rounds to even"
+        assert dac.written[out].value == pytest.approx(1.234)
+        (sample,) = dac.read(2)
+        assert sample.by_name() == {"out": pytest.approx(1.234)}, "read back from the register"
+
+    def test_no_registers_is_refused(self):
+        with pytest.raises(ValueError, match="at least one register"):
+            I2cTable("c", FakeI2c(), 0x48, {})
 
 
-def test_gpio_reader_and_actuator(fresh):
-    chip = FakeGpio(levels={17: True})
-    reader = GpioReader(
-        fresh("door"), chip, 17, pull_up=True, invert=True, measurand=fresh("level")
-    )
-    (sample,) = reader.read(1)
-    assert next(iter(sample.values.values())) == 0.0 and reader.state.level is False
-    relay = GpioActuator(fresh("relay"), chip, 18, threshold=0.5, invert=True)
-    assert chip.levels[18] is True  # off, active-low
-    relay.set_demand(0.7)
-    assert chip.levels[18] is False and relay.state.on is True
-    relay.off()
-    assert relay.state.on is False and chip.sets[-1] == (18, True)
+class TestGpioLine:
+    def test_an_output_is_one_w_signal_driven_on_commit(self):
+        chip = FakeGpio()
+        relay = GpioLine("relay", chip, 18, invert=True)
+        assert {p: str(s.access) for p, s in relay.signals.items()} == {"on": "w"}
+        assert relay.signals["on"].limits == (0.0, 1.0)
+        assert chip.claimed == {18: "output"} and chip.levels[18] is True, "off, active-low"
+        on = relay.signals["on"]
+        relay.apply(on, 1, 0.7)
+        states = relay.commit(1)
+        assert chip.levels[18] is False and relay.state.level is True
+        assert states[on].value == 1.0 and states[on].at_limit is None, "a switch has no rail"
+        relay.apply(on, 2, 0.0)
+        assert relay.commit(2)[on].value == 0.0 and chip.sets[-1] == (18, True)
+        assert list(relay.read(0)) == [], "an output has nothing to read"
+
+    def test_on_and_off_commands_drive_the_line_directly(self):
+        chip = FakeGpio()
+        fan = GpioLine("fan", chip, 4)
+        assert set(type(fan).commands) == {"on", "off"}
+        assert fan.on().level is True and chip.levels[4] is True
+        assert fan.off().level is False and chip.sets == [(4, True), (4, False)]
+
+    def test_an_input_is_one_rp_signal(self):
+        chip = FakeGpio(levels={17: True})
+        door = GpioLine("door", chip, 17, direction="input", pull_up=True, invert=True)
+        assert {p: str(s.access) for p, s in door.signals.items()} == {"level": "rp"}
+        assert chip.claimed == {17: "input"}
+        (sample,) = door.read(1)
+        assert sample.by_name() == {"level": 0.0} and door.state.level is False
+        with pytest.raises(ConflictError, match="input line"):
+            door.on()
+
+    def test_config_round_trips(self):
+        line = GpioLine("x", FakeGpio(), 5, direction="input", pull_up=False)
+        assert line.config.model_dump() == {
+            "link": "",
+            "line": 5,
+            "direction": "input",
+            "invert": False,
+            "initial": False,
+            "pull_up": False,
+        }
 
 
-def test_gpio_actuator_can_switch_on_a_demand_in_the_loop_s_unit(fresh):
-    chip = FakeGpio()
-    relay = GpioActuator(fresh("heater"), chip, 4, threshold=21.0, unit="°C")
-    assert relay.demand_unit.symbol == "°C"
-    relay.set_demand(20.5)
-    assert relay.state.on is False
-    relay.set_demand(21.0)
-    assert relay.state.on is True
+class TestPwmChannel:
+    def test_a_bare_channel_is_the_duty_itself(self):
+        pwm = FakePwm()
+        led = PwmChannel("led", pwm, 1, frequency_hz=100)
+        drive = led.signals["drive"]
+        assert str(drive.access) == "w" and drive.unit.symbol == "of full"
+        assert drive.limits == (0.0, 1.0)
+        assert pwm.enabled[1] is True and pwm.channels[1] == (10_000_000, 0), "off from the start"
+        led.apply(drive, 1, 0.25)
+        states = led.commit(1)
+        assert pwm.channels[1] == (10_000_000, 2_500_000)
+        assert states[drive].value == 0.25 and led.state.duty == 0.25
 
+    def test_unit_and_span_map_the_signal_linearly_onto_the_duty(self):
+        pwm = FakePwm()
+        heater = PwmChannel(
+            "heater", pwm, 0, frequency_hz=1000, unit="°C", quantity="temperature", span=(10, 40)
+        )
+        drive = heater.signals["drive"]
+        assert drive.unit.symbol == "°C" and drive.quantity.name == "temperature"
+        assert drive.limits == (10.0, 40.0), "the span is what a demand is clamped to"
+        heater.apply(drive, 1, 25.0)
+        heater.commit(1)
+        assert heater.state.duty == pytest.approx(0.5)
+        assert pwm.channels[0] == (1_000_000, 500_000)
+        assert heater.fraction(40.0) == pytest.approx(1.0)
+        assert heater.config.span == (10.0, 40.0) and heater.config.unit == "°C"
 
-def test_pwm_actuator_maps_demand_to_duty_within_limits(fresh):
-    pwm = FakePwm()
-    heater = PwmActuator(
-        fresh("heater"), pwm, 0, frequency_hz=1000, limits=(0.0, 0.8), unit="°C", span=(10, 40)
-    )
-    assert pwm.enabled[0] is True and pwm.channels[0] == (1_000_000, 0)
-    heater.set_demand(25.0)
-    assert heater.state.duty == pytest.approx(0.5) and pwm.channels[0] == (1_000_000, 500_000)
-    heater.set_demand(60.0)
-    assert heater.state.duty == pytest.approx(0.8), "clamped to the limit"
-    heater.set_frequency(2000)
-    assert pwm.channels[0] == (500_000, 400_000)
-    heater.off()
-    assert pwm.enabled[0] is False and heater.state.duty == 0.0
+    def test_unit_without_span_or_a_falling_span_is_refused(self):
+        with pytest.raises(ValueError, match="go together"):
+            PwmChannel("h", FakePwm(), 0, unit="°C")
+        with pytest.raises(ValueError, match="rising"):
+            PwmChannel("h", FakePwm(), 0, unit="°C", span=(40, 10))
 
-
-def test_pwm_invert_and_bare_duty(fresh):
-    pwm = FakePwm()
-    led = PwmActuator(fresh("led"), pwm, 1, frequency_hz=100, invert=True)
-    led.set_demand(0.25)
-    assert pwm.channels[1] == (10_000_000, 7_500_000)
-    with pytest.raises(ValueError):
-        led.set_limits(0.5, 0.2)
+    def test_invert_frequency_and_off(self):
+        pwm = FakePwm()
+        led = PwmChannel("led", pwm, 1, frequency_hz=100, invert=True)
+        drive = led.signals["drive"]
+        led.apply(drive, 1, 0.25)
+        led.commit(1)
+        assert pwm.channels[1] == (10_000_000, 7_500_000)
+        assert led.set_frequency(200).frequency_hz == 200
+        assert pwm.channels[1] == (5_000_000, 3_750_000), "the duty is re-applied at the new period"
+        with pytest.raises(ValueError):
+            led.set_frequency(0)
+        assert led.off().enabled is False and pwm.enabled[1] is False
+        assert led.state.duty == 0.0
 
 
 class TestDs18b20:
@@ -117,14 +191,14 @@ class TestDs18b20:
         assert parse_w1_slave(self.GOOD.replace("21875", "-1250")) == pytest.approx(-1.25)
 
     def test_a_failed_crc_is_a_hardware_error(self):
-        from flyball.core.errors import HardwareError
-
         with pytest.raises(HardwareError, match="CRC"):
             parse_w1_slave(self.GOOD.replace("YES", "NO"))
 
-    def test_reader(self, fresh):
+    def test_read(self):
         bus = FakeOneWire({"28-1": self.GOOD})
-        probe = Ds18b20Reader(fresh("soil"), bus, "28-1")
+        probe = Ds18b20("soil", bus, "28-1")
+        assert {p: str(s.access) for p, s in probe.signals.items()} == {"temperature": "rp"}
         (sample,) = probe.read(3)
-        assert next(iter(sample.values.values())) == pytest.approx(21.875)
+        assert sample.by_name() == {"temperature": pytest.approx(21.875)}
         assert probe.state.temperature == pytest.approx(21.875)
+        assert probe.config.device == "28-1"

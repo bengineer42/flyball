@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=rig.schema.json
+# A greenhouse on a Raspberry Pi 5: an SHT4x for the air, a DS18B20 in the
+# soil, a PWM heater and a relay-driven fan on GPIO18. `board: rpi5`
+# supplies the buses; the file names pins by their header labels.
+#
+#   flyball-daemon greenhouse.yaml              # the Pi
+#   flyball-daemon greenhouse.yaml sim.yaml     # any machine: the same names on fake buses
+#
+# Addresses: air.temperature, air.humidity [RP]; soil.temperature [RP];
+# heater.drive [W] in °C; fan.on [W] 0/1.
+
+name: greenhouse
+board: rpi5
+
+devices:
+  air:
+    driver: sht4x
+    label: Air
+    poll_s: 2
+    link: i2c1
+  soil:
+    driver: ds18b20
+    label: Soil
+    poll_s: 5
+    link: w1
+    device: 28-0316a279e7ff        # `ls /sys/bus/w1/devices` for yours
+  heater:
+    driver: pwm_channel
+    label: Heater
+    pin: PWM0                        # the board's `pwm` link, channel 0
+    frequency_hz: 1000
+    unit: "°C"                       # `drive` is a temperature: off holds 10 °C, flat out 40;
+    quantity: temperature            # the controller corrects the rest
+    span: [10, 40]
+  fan:
+    driver: gpio_line
+    label: Fan
+    pin: GPIO18                      # `flyball fan on`, `flyball fan off`
+
+controllers:
+  heater.drive:
+    signal: air.temperature
+    law: { tag: PI, kp: 0.5, ki: 0.01 }
+    default: true

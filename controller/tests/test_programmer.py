@@ -303,3 +303,98 @@ def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
 
     with pytest.raises(NotFoundError, match="nope"):
         RunCommand(device_command="nope", device=heater.name).run(rig)
+
+
+def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
+    from flyball.control import P
+    from flyball.core.clock import Duration
+    from flyball.programmer.loops import Arrive, Manual, Ramp, Regulate
+
+    heater = Heater(fresh("heater"))
+    rig.add_device(heater)
+
+    for named_none in (Regulate(setpoint=1.0), Manual(), Arrive(), Ramp(to=1.0, pace=Duration(1))):
+        assert named_none.missing(rig) == ["the rig has no default controller"]
+
+    # the first controller attached becomes the default (`Controllers.add`)
+    controller = rig.attach_controller(
+        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0)
+    )
+
+    for named_unknown in (
+        Regulate(setpoint=1.0, loop="no_such"),
+        Manual(loop="no_such"),
+        Arrive(loop="no_such"),
+        Ramp(to=1.0, pace=Duration(1), loop="no_such"),
+    ):
+        assert named_unknown.missing(rig) == ["controller 'no_such' is not on the rig"]
+
+    assert Regulate(setpoint=1.0, loop=controller.name).missing(rig) == []
+    assert Regulate(setpoint=1.0).missing(rig) == []
+
+
+def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
+    from flyball.control import P
+    from flyball.programmer.loops import Regulate
+
+    heater = Heater(fresh("heater"))
+    rig.add_device(heater)
+    rig.attach_controller(
+        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), default=True
+    )
+    rig.tunings.add(P(kp=4.0).config.to_tuning("brisk"))
+
+    assert Regulate(setpoint=1.0, tuning="brisk").missing(rig) == []
+    assert Regulate(setpoint=1.0, tuning="ghost").missing(rig) == ["tuning 'ghost' is not stored"]
+    assert Regulate(setpoint=1.0, loop="no_such", tuning="ghost").missing(rig) == [
+        "controller 'no_such' is not on the rig",
+        "tuning 'ghost' is not stored",
+    ]
+
+
+def test_run_command_missing_names_an_unknown_device_or_command(rig, fresh):
+    from flyball.programmer import RunCommand
+
+    heater = Heater(fresh("heater"))
+    rig.add_device(heater)
+    assert RunCommand(device_command="set_duty", device=heater.name).missing(rig) == []
+    assert RunCommand(device_command="set_duty", device="ghost").missing(rig) == [
+        "device 'ghost' is not on the rig"
+    ]
+    assert RunCommand(device_command="nope", device=heater.name).missing(rig) == [
+        f"{heater.name!r} has no command 'nope'"
+    ]
+
+
+def test_set_missing_names_the_address_that_fails(rig, fresh):
+    from flyball.programmer.devices import Set
+
+    heater = Heater(fresh("heater"))
+    rig.add_device(heater)
+    assert Set(device=heater.name, values={"power": 1.0}).missing(rig) == []
+    assert Set(device="ghost", values={"power": 1.0}).missing(rig) == [
+        "Address 'ghost' not found: no device 'ghost'"
+    ]
+    assert Set(device=heater.name, values={"nope": 1.0}).missing(rig) == [
+        f"Address '{heater.name}.nope' not found: no 'nope' under {heater.name}"
+    ]
+    assert Set(device=heater.name, values={"zone": 1.0}).missing(rig) == [
+        f"'{heater.name}.zone' [rp] is not writable"
+    ]
+
+
+def test_program_missing_collects_gaps_by_step_index(rig, fresh):
+    from flyball.programmer import Program, RunCommand
+    from flyball.programmer.loops import Regulate
+
+    heater = Heater(fresh("heater"))
+    rig.add_device(heater)
+    program = Program([
+        Regulate(setpoint=1.0),  # step 0: no default controller
+        RunCommand(device_command="set_duty", device=heater.name),  # step 1: fine
+        RunCommand(device_command="nope", device="ghost"),  # step 2: unknown device
+    ])
+    assert program.missing(rig) == {
+        0: "the rig has no default controller",
+        2: "device 'ghost' is not on the rig",
+    }

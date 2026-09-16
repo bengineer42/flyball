@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from flyball.core import NotFoundError, Operator
-from flyball.core.signal import Signal
+from flyball.core import AddressNotFoundError, NotFoundError, Operator
+from flyball.core.signal import Access, Signal
 from flyball.runtime.rig import Rig
 
 from .command import Activity, Command
@@ -29,6 +29,26 @@ class Set(Command, tag="set"):
             raise NotFoundError(f"'{self.device}' is a signal, not a device or namespace")
         rig.demand(node, {**self.values})
         return None
+
+    def missing(self, rig: Rig) -> list[str]:
+        try:
+            node = rig.resolve(self.device)
+        except AddressNotFoundError as e:
+            return [str(e)]
+        if isinstance(node, Signal):
+            return [f"'{self.device}' is a signal, not a device or namespace"]
+        out: list[str] = []
+        for name in self.values:
+            try:
+                found = node.find(name)
+            except AddressNotFoundError as e:
+                out.append(str(e))
+                continue
+            if not isinstance(found, Signal):
+                out.append(f"'{found.address}' is a namespace, not a signal")
+            elif Access.W not in found.access:
+                out.append(f"'{found.address}' [{found.access}] is not writable")
+        return out
 
 
 @dataclass(frozen=True)
@@ -55,6 +75,14 @@ class RunCommand(Command, tag="command"):
             raise NotFoundError(f"{self.device!r} has no command {self.device_command!r}") from e
         spec.method(found, **(self.args or {}))
         return None
+
+    def missing(self, rig: Rig) -> list[str]:
+        device = rig.devices.get(self.device)
+        if device is None:
+            return [f"device {self.device!r} is not on the rig"]
+        if self.device_command not in type(device).commands:
+            return [f"{self.device!r} has no command {self.device_command!r}"]
+        return []
 
 
 __all__ = ["RunCommand", "Set"]

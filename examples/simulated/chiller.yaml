@@ -1,10 +1,11 @@
 # yaml-language-server: $schema=rig.schema.json
 # A reverse-acting loop: the actuator *cools*. A `sim_plant` lag with a
 # negative `gain` rests at `ambient` with the compressor off and falls
-# below it as the compressor drives harder. Nothing in the drive knows
-# which way the plant goes: the controller's feedforward is the plant's
-# static inverse, `(ambient - setpoint) / 30`, and the law's gains are
-# negative, so a reading above the setpoint drives the compressor harder.
+# below it as the compressor drives harder. The drive is declared
+# `demand: output`, so a demand is the temperature to hold and `commit()`
+# inverts the plant -- `(demand - ambient) / gain`, negative for a negative
+# gain -- which is why nothing here needs to know the compressor cools
+# rather than heats: the law's gains are ordinary positive PI.
 
 name: chiller
 
@@ -37,12 +38,17 @@ devices:
   compressor:
     driver: sim_drive
     label: Chiller compressor
-    config: { link: bath, ports: { drive: input } }   # compressor.drive [W], 0 to 1 of full
+    # compressor.drive [W] °C, smart: `limits` defaults to the plant's own
+    # static range, -8..22 °C (ambient + gain to ambient, sorted rising).
+    config:
+      link: bath
+      ports:
+        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
-# The old °C-per-°C tuning (0.05, 0.0015) over the plant's gain of -30.
+# The old °C-per-°C tuning: positive, since the plant's negative gain does
+# the inverting.
 controllers:
   compressor.drive:
     signal: probe.temperature
-    feedforward: { tag: affine, gain: -0.0333333, bias: 0.7333333 }
-    law: { tag: PI, kp: -0.0016667, ki: -0.00005 }
+    law: { tag: PI, kp: 0.05, ki: 0.0015 }
     default: true

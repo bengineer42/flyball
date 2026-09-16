@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=rig.schema.json
+# Overlay: greenhouse.yaml with no hardware. The `sim` board makes every
+# link a fake, so the same drivers run and every address, unit and access
+# is what greenhouse.yaml declares; the I²C bus is scripted so the SHT4x
+# answers 21.5 °C, 55 %RH, and the 1-Wire bus so the probe reads 21.875 °C.
+#
+#   flyball rig check greenhouse.yaml sim.yaml
+#   flyball-daemon greenhouse.yaml sim.yaml
+
+board: sim
+
+links:
+  i2c1:                              # the board's bare fake, scripted: 0x44 answers one frame
+    tag: fake_i2c
+    replies: { 0x44: [[0x61, 0x47, 0x8a, 0x7c, 0xed, 0x83]] }
+  w1:
+    tag: fake_onewire
+    texts:
+      28-0316a279e7ff: "5e 01 4b 46 7f ff 0c 10 4e : crc=4e YES\n5e 01 4b 46 7f ff 0c 10 4e t=21875"

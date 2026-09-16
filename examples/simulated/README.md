@@ -93,7 +93,7 @@ which may also sit flat beside the envelope. The simulated drivers:
 | driver | config | signals |
 | --- | --- | --- |
 | `sim_daq` | `link` (a `sim_plant` or `sim_furnace`), `ports: {signal: port}` | `[RP]`, one per port; a bare `sim_plant`'s one port is `output` and the file says what it measures: `{port: output, quantity: temperature, unit: "°C"}` |
-| `sim_drive` | `link`, `ports: {signal: port}` | `[W]`, in the port's unit: watts for a furnace `heaterN` (limits `0..power_w`), `of full` for a bare plant's `input` (limits `0..1`); or spelled out `{port, quantity, unit, limits}` to mirror a real device's unit, the value mapped linearly over `limits` onto the port's drive |
+| `sim_drive` | `link`, `ports: {signal: port}` | `[W]`, in the port's unit: watts for a furnace `heaterN` (limits `0..power_w`), `of full` for a bare plant's `input` (limits `0..1`); or spelled out `{port, quantity, unit, limits}` to mirror a real device's unit, the value mapped linearly over `limits` onto the port's drive; or `{port, demand: output, quantity, unit, limits}` to take the demand straight in the plant's own output unit, `commit` inverting the plant to find the drive — `quantity`/`unit` default from the plant if it knows (a furnace zone), `limits` from the plant's static range if its model has one (`Lag`, `Fopdt`; not `Integrator`) |
 
 A dotted key in `ports` (`dry.humidity: dry_h`) puts the signal in a
 namespace, one atomic namespace per prefix, so a sim overlay can mirror a
@@ -106,10 +106,13 @@ furnace's zones interact. `sim_daq` has the simulation-only commands `fail`
 and `restore` (a signal at a time); `sim_drive` has `disturb`, its `offset`
 in the signal's unit (watts on a furnace heater).
 
-Since a bare plant's drive is a fraction of full, each of those controllers
-carries an `affine` feedforward that is the plant's static inverse
-(`(setpoint - ambient) / gain`) and law gains in `of full` per unit of
-error -- see the comments in `oven.yaml` and `chiller.yaml`.
+`oven.yaml`, `tank.yaml`, `chiller.yaml` and `dual.yaml` declare their
+drive `demand: output`, so the signal takes a demand straight in the
+plant's own output unit (°C, L) and `commit` inverts the plant to find the
+drive -- no feedforward is needed (the default `setpoint` one hands the
+target its setpoint unchanged, since the units agree) and the law's gains
+are ordinary per-unit-of-error PI, even on the chiller's negative-gain
+plant -- see the comments in each file.
 
 ## Editing the files
 
