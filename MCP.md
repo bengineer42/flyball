@@ -44,7 +44,8 @@ rather than broken ones. The book page is
 
 ## Still open
 
-- **`widgets.json` generator** on the UI side (other session).
+- `widgets.json` is now generated: `npm run widgets-json` in `ui/` (done,
+  other session). Run it after a widget change.
 - **UI**: token entry and headers; a "Connect a model" card with the three
   `/mcp/<mode>` URLs, the `claude mcp add --transport http …` one-liner
   and the token (other session).
