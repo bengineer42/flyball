@@ -76,7 +76,7 @@ class RunCommand(Command, tag="command"):
         device = rig.devices.get(self.device)
         if device is None:
             return [f"device {self.device!r} is not on the rig"]
-        if self.device_command not in type(device).commands:
+        if self.device_command not in device.commands:
             return [f"{self.device!r} has no command {self.device_command!r}"]
         return []
 

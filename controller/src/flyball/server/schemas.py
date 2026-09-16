@@ -334,7 +334,7 @@ class DeviceOut(BaseModel):
             link=link,
             poll_s=device.poll_s,
             signals=tree_out(device.root, latest, device.written),
-            commands=[CommandOut.of(spec) for spec in type(device).commands.values()],
+            commands=[CommandOut.of(spec) for spec in device.commands.values()],
             inputs={
                 role: InputOut.of(device, role, spec) for role, spec in type(device).INPUTS.items()
             },

@@ -58,7 +58,7 @@ def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[Argument
 
 def command_for(device: Device, tag: str) -> CommandSpec:
     try:
-        return type(device).commands[tag]
+        return device.commands[tag]
     except KeyError as e:
         raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
 
@@ -122,7 +122,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
                 "interrupts": spec.interrupts,
                 "demand_of": spec.demand_of,
             }
-            for tag, spec in cls.commands.items()
+            for tag, spec in device.commands.items()
         },
     }
 

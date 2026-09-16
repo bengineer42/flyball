@@ -823,7 +823,7 @@ class Rig:
                 no value yet.
         """
         try:
-            spec = type(device).commands[tag]
+            spec = device.commands[tag]
         except KeyError as e:
             raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
         given = dict(args or {})

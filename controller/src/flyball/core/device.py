@@ -704,7 +704,9 @@ class Device:
     router: Router
     """Where this device's values live: its own until a rig adds it, then the rig's."""
     config_type: ClassVar[type[DriverConfig[Any]]]
-    commands: ClassVar[dict[str, CommandSpec]] = {}
+    commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
+    """Every command, by tag: the class's, plus a synthesised `set_<path>` for each demand of a
+    tree computed at construction (a class's demands get theirs at definition)."""
 
     def __init__(self, name: str, label: str | None = None) -> None:
         self.name = name
@@ -744,6 +746,19 @@ class Device:
         else:
             self._extended = True
         self._bind_under(self.root, specs)
+        self.signals = {str(signal.path): signal for signal in self.root.walk()}
+        self.nodes = {str(node.path): node for node in self.root.descendants()}
+        self.commands = dict(type(self).commands)
+        # A demand a computed tree binds gets its setter here, as a class's do at definition.
+        linked = {p.link for c in self.commands.values() for p in c.params.values() if p.link}
+        setters = [
+            _setter(type(self), _Leaf(path, signal.role, signal.spec))
+            for path, signal in self.signals.items()
+            if signal.role is Role.DEMAND and path not in linked
+        ]
+        new = [s for s in setters if s.tag not in self.commands]
+        for setter in new:
+            self.commands[setter.tag] = setter
         self.signals = {str(signal.path): signal for signal in self.root.walk()}
         self.nodes = {str(node.path): node for node in self.root.descendants()}
         for signal in self.root.walk():

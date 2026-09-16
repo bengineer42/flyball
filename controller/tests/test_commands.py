@@ -237,3 +237,22 @@ def test_a_reading_on_an_input_commits_the_device_that_follows_it(rig: Rig) -> N
     rig.bind_inputs(follower, {"probe": "probe.temperature"})
     rig.on_samples([Sample(probe.root, 1, {probe.temperature: 21.5})])
     assert follower.commits == [21.5]
+
+
+def test_a_computed_tree_s_demands_get_setters_on_the_instance(rig: Rig) -> None:
+    from flyball.core.signal import Access, SignalSpec
+
+    class Generic(Committable):
+        def __init__(self, name: str, ports: list[str]) -> None:
+            super().__init__(name)
+            self.bind([
+                SignalSpec(name=p, quantity=DUTY, access=Access.RPW, role=Role.DEMAND)
+                for p in ports
+            ])
+
+    device = Generic("g", ["a", "b"])
+    rig.add_device(device)
+    assert Generic.commands == {}, "the class knows nothing of a tree built per instance"
+    assert {t: c.demand_of for t, c in device.commands.items()} == {"set_a": "a", "set_b": "b"}
+    states = rig.run_command(device, "set_a", {"value": 3.0})
+    assert states[device.signals["a"]].value == pytest.approx(3.0)
