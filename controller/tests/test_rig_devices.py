@@ -76,6 +76,7 @@ def _sensor(name: str) -> NodeSpec:
         children=(
             SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.RP),
             SignalSpec(name="temperature", quantity=TEMP, access=Access.RP),
+            SignalSpec(name="heater", quantity=FLOW, access=Access.RW),  # a setting: read on demand
         ),
     )
 
@@ -570,6 +571,14 @@ class TestBoundInputs:
         blender.events.clear()
         rig.on_samples([Sample(chamber, 7, {chamber.signals["humidity"]: 45.0})])
         assert blender.events == [], "nothing under the bound node: not called"
+        setting = sensors.signals["dry.heater"]
+        rig.on_samples([Sample(dry, 8, {setting: 1.0, dry_h: 4.0})])
+        assert blender.events == [Sample(dry, 8, {dry_h: 4.0}), "commit"], (
+            "a subscriber hears what publishes; a fresh read of an R-only setting is not for it"
+        )
+        blender.events.clear()
+        rig.on_samples([Sample(dry, 9, {setting: 2.0})])
+        assert blender.events == [], "nothing published under the bound node: not called"
 
     def test_bind_inputs_refuses_what_cannot_be_followed(self, rig, sensors, blender, fresh):
         with pytest.raises(AddressNotFoundError, match=f"no 'humidty' under {sensors.name}.dry"):

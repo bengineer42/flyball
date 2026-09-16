@@ -700,7 +700,12 @@ class Rig:
                         if (cut := sample.under(node)) is not None:
                             self._last_cut[node] = cut
                     for device, node in messages:
-                        if (message := sample.under(node)) is not None:
+                        # A subscriber hears what publishes, as a signal-level
+                        # binding requires P; a fresh read of an R-only setting
+                        # is for whoever asked for it.
+                        if (message := sample.under(node)) is not None and (
+                            message := message.published()
+                        ) is not None:
                             device.observe(message)
                             touched[device] = None
                 for controller, reading in ticks:

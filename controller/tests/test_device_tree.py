@@ -365,19 +365,24 @@ class TestDeviceEntry:
             "driver": "sht4x_set",
             "label": "Humidity sensors",
             "poll_s": 1,
-            "config": {"link": "i2c1"},
+            "config": {
+                "link": "i2c1",
+                "sensors": {"chamber": {"address": 0x44}, "dry": {"address": 0x45}},
+            },
             "signals": {
-                "chamber": {
-                    "config": {"address": 0x44},
-                    "signals": {"humidity": {"warn": [20, 80]}},
-                },
-                "dry": {"poll_s": 5, "config": {"address": 0x45}},
-                "wet": {"poll_s": 5, "config": {"address": 0x46}},
+                "chamber": {"signals": {"humidity": {"warn": [20, 80]}}},
+                "dry": {"poll_s": 5},
+                "wet": {"poll_s": 5},
             },
         })
+        assert entry.config["sensors"]["chamber"] == {"address": 0x44}
         chamber = entry.signals["chamber"]
-        assert chamber.config == {"address": 0x44}  # type: ignore[union-attr]
         assert chamber.signals["humidity"].warn == (20.0, 80.0)  # type: ignore[union-attr]
+        with pytest.raises(ValidationError, match="config"):  # a namespace has no driver config
+            DeviceEntry.model_validate({
+                "driver": "sht4x_set",
+                "signals": {"dry": {"config": {"address": 0x45}}},
+            })
         assert entry.signals["dry"].poll_s == 5.0
 
     def test_build_looks_the_driver_up_and_applies_the_envelope(self, furnace_tag):
@@ -510,3 +515,9 @@ class TestDeviceEntry:
         entry = DeviceEntry.model_validate({"driver": furnace_tag, "zones": "three"})
         with pytest.raises(ValidationError, match="zones"):
             entry.build("furnace")
+
+
+def test_a_device_binds_once(fresh):
+    furnace = SimFurnace(fresh("furnace"), zones=1, power_w=(100.0,))
+    with pytest.raises(ValueError, match="already bound; a device's tree is static"):
+        furnace.bind(())

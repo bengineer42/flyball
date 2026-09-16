@@ -266,8 +266,15 @@ class Device:
         """Make the bound tree from `tree`: `root`, `signals` and `nodes`.
 
         Once, at build: readings, samples and demands hold these objects by
-        identity, and the rig file's overrides are applied onto them.
+        identity, and the rig file's overrides are applied onto them. The
+        tree is static for the life of the device; a device whose signals
+        change is replaced, not rebound.
+
+        Raises:
+            ValueError: The device is already bound.
         """
+        if hasattr(self, "root"):
+            raise ValueError(f"{self.name!r} is already bound; a device's tree is static")
         self.root = Node(spec=None, device=self, parent=None, address=self.name, path="")
         self._bind_under(self.root, tree)
         self.signals = {signal.path: signal for signal in self.root.walk()}
@@ -510,14 +517,17 @@ class SignalOverride(BaseModel):
 
 
 class NamespaceOverride(BaseModel):
-    """The envelope of a namespace: the same keys again, and its own driver config."""
+    """The envelope of a namespace: label, period and the overrides of what is under it.
+
+    A namespace's own driver settings (an I²C address) are not here: the
+    driver declares its namespaces in its own config, typed, and the
+    envelope only overrides what the driver declared.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     label: str | None = None
     poll_s: float | None = None
-    config: dict[str, Any] = Field(default_factory=dict)
-    """The namespace's own driver settings (an I²C address); the driver reads them at build."""
     signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
 
 
