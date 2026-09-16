@@ -147,6 +147,8 @@ class RigConfig(BaseModel):
     )
     files: list[Path] = Field(default_factory=list, exclude=True)
     """The files this was loaded from, set by `load_rig_config`; not part of the document."""
+    resumed: bool = Field(default=False, exclude=True)
+    """Loaded from a stored rig version rather than the files (`flyball-daemon --resume`)."""
 
     @classmethod
     def model_validate(cls, obj: Any, **kwargs: Any) -> RigConfig:  # type: ignore[override]
@@ -281,6 +283,7 @@ class RigConfig(BaseModel):
         if start:
             for device in built_devices:
                 rig.start_polling(device)
+        rig.loaded = rig.document()
         return rig
 
 

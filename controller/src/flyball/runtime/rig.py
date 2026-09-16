@@ -118,6 +118,8 @@ class Rig:
     header: dict[str, Any]
     """The loaded document's keys that are not links, devices or controllers (`board`, `clock`,
     `recording`), carried into the rendered document unchanged."""
+    loaded: dict[str, Any] | None
+    """The rig as it was when this run started, rendered: what `changes` are measured from."""
     on_change: Callable[[str], None] | None
     """Called after the rig's composition changes (a link, a device, a controller added or
     removed), with a one-line reason: the daemon records a version."""
@@ -152,6 +154,7 @@ class Rig:
         self.link_entries = {}
         self.files = []
         self.header = {}
+        self.loaded = None
         self.on_change = None
 
     @property
@@ -746,7 +749,7 @@ class Rig:
         controller is wired now, in the file's canonical form; links and
         devices built in code rather than from an entry are left out.
         """
-        from flyball.runtime.config import ControllerEntry, RigConfig, canonical
+        from flyball.runtime.config import ControllerEntry, RigConfig
 
         controllers = {
             name: ControllerEntry(
@@ -768,11 +771,24 @@ class Rig:
             "devices": dict(self.entries),
             "controllers": controllers,
         })
-        document = canonical(config)
+        # Defaults left out, as a hand-written file leaves them: a saved rig
+        # says what was chosen, not everything a driver could take.
+        document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
         document["links"] = {
-            name: {"tag": config.config_tag, **config.model_dump(mode="json", exclude_none=True)}
-            for name, config in self.link_entries.items()
+            name: {
+                "tag": link.config_tag,
+                **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+            }
+            for name, link in self.link_entries.items()
         }
+        for key in ("devices", "controllers"):
+            document.setdefault(key, {})
+        for name, entry in controllers.items():  # a tag is a default too; the file needs it
+            rendered = document["controllers"][name]
+            if entry.law is not None:
+                rendered.setdefault("law", {})["tag"] = entry.law.tag
+            if entry.feedforward is not None:
+                rendered.setdefault("feedforward", {})["tag"] = entry.feedforward.tag
         return document
 
     # endregion

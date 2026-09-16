@@ -125,10 +125,62 @@ def start_with_store(
         if orphan.open:
             store.end_session(orphan.id)
             log.warning("closed session %d, left open by an earlier run", orphan.id)
+    keep_versions(
+        rig, store, "resumed" if config.resumed else "loaded" if rig.files else "started bare"
+    )
     if record if record is not None else config.recording:
         rig.start_recording(store, config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)
     return rig, store
+
+
+START_REASONS = ("loaded", "started bare", "resumed")
+"""Versions a start records, as against a change made through the API."""
+
+
+def keep_versions(rig: Rig, store: Store, reason: str) -> None:
+    """Record the rig as it stands, and every change to its composition from now on.
+
+    A start whose rig is what the last version already says records nothing:
+    a daemon restarted on the same files does not fill the store.
+    """
+
+    def version(why: str) -> None:
+        row = store.save_rig_version(
+            rig.clock.now_ns(), why, rig.document(), [str(p) for p in rig.files]
+        )
+        log.info("rig version %d: %s", row.id, why)
+
+    last = store.latest_rig_version()
+    if last is None or last.document != rig.document():
+        version(reason)
+    rig.on_change = version
+
+
+def resumed(store_path: str | Path) -> RigConfig:
+    """The store's last rig version as a config, files and all.
+
+    Raises:
+        ValueError: The store has no version to resume from.
+    """
+    from flyball.db.sqlite import SqliteStore
+
+    store = SqliteStore(store_path)
+    try:
+        versions = store.rig_versions()
+    finally:
+        store.close()
+    if not versions:
+        raise ValueError(f"{store_path}: no rig version to resume from")
+    # The last change made through the API, not the last start: a plain
+    # restart in between (an empty rig, the files as they were) is not what
+    # `--resume` is asked for.
+    last = next((v for v in versions if v.reason not in START_REASONS), versions[0])
+    config = RigConfig.model_validate(last.document)
+    config.files = [Path(f) for f in last.files]
+    config.resumed = True
+    log.info("resuming rig version %d (%s)", last.id, last.reason)
+    return config
 
 
 def parser() -> argparse.ArgumentParser:
@@ -138,8 +190,15 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "rig",
         type=Path,
-        nargs="+",
-        help="rig file(s): .toml, .yaml or .json; later overlay earlier",
+        nargs="*",
+        help="rig file(s): .toml, .yaml or .json; later overlay earlier. None: an empty rig,"
+        " built up through the API (then --store says where sessions and versions go)",
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="start from the store's last rig version instead of the files: what was added"
+        " through the API and not saved comes back",
     )
     p.add_argument("--host", default="127.0.0.1", help="bind address (default: loopback only)")
     p.add_argument("--port", type=int, default=8000)
@@ -178,22 +237,27 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     logging.basicConfig(level=args.log_level.upper())
-    first = args.rig[0]
+    first = args.rig[0] if args.rig else Path("rig")
+    store_path = args.store if args.store is not None else first.with_suffix(".sqlite")
     try:
         discover()
-        document, _ = resolve_documents(args.rig, args.sets)
-        config = RigConfig.model_validate(document)
+        if args.resume:
+            config = resumed(store_path)
+        elif args.rig:
+            document, files = resolve_documents(args.rig, args.sets)
+            config = RigConfig.model_validate(document)
+            config.files = files
+        else:
+            config = RigConfig.model_validate({"name": first.stem})  # bare: built through the API
     except Exception as e:  # a bad file is the user's problem, not a traceback
-        names = ", ".join(str(p) for p in args.rig)
+        names = ", ".join(str(p) for p in args.rig) or "(no rig file)"
         print(f"flyball-daemon: {names}: {e}", file=sys.stderr)
         return 2
     rig, store = start_with_store(
-        config,
-        record=True if args.record else None,
-        store_path=args.store if args.store is not None else first.with_suffix(".sqlite"),
+        config, record=True if args.record else None, store_path=store_path
     )
     simulation = None
-    if config.simulated:
+    if config.simulated and args.rig:
         # What `sim save` writes back: the layers merged, but before the board
         # was applied, so a board's links are not inlined into the rig file.
         layered, _ = resolve_layers([Path(p) for p in args.rig], args.sets)
