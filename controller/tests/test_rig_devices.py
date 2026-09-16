@@ -1,0 +1,544 @@
+"""The rig's side of the device model: resolve, read, demand, bind, and one delivery."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator, Mapping
+
+import pytest
+
+from flyball.control import NoFeedforward, Transfer
+from flyball.control.laws import P
+from flyball.core.device import Device
+from flyball.core.errors import ConflictError, NotReadyError
+from flyball.core.quantity import Quantity
+from flyball.core.reading import Reader, Source
+from flyball.core.signal import (
+    Access,
+    Node,
+    NodeSpec,
+    Reading,
+    Sample,
+    Signal,
+    SignalSpec,
+    WriteState,
+)
+from flyball.core.units.si import Celsius, Percent, Watt
+from flyball.runtime.controllers import SourceClaimedError
+from flyball.runtime.rig import AddressNotFoundError
+from flyball.sim import RecordingActuator
+
+TEMP = Quantity("temperature", Celsius)
+POWER = Quantity("power", Watt)
+HUMIDITY = Quantity("humidity", Percent)
+FLOW = Quantity("flow", "L/min")
+
+
+class Furnace(Device):
+    """RP zones and W heaters on one flat tree; counts what the rig asks of it."""
+
+    TREE = (
+        SignalSpec(name="zone1", quantity=TEMP, access=Access.RP),
+        SignalSpec(name="zone2", quantity=TEMP, access=Access.RP),
+        SignalSpec(name="sample", quantity=TEMP, access=Access.RP),
+        SignalSpec(name="heater1", quantity=POWER, access=Access.W, limits=(0.0, 2500.0)),
+        SignalSpec(name="heater2", quantity=POWER, access=Access.W, limits=(0.0, 6000.0)),
+        SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),
+    )
+
+    def __init__(self, name: str, label: str | None = None) -> None:
+        super().__init__(name, label)
+        self.temps = {"zone1": 20.0, "zone2": 20.0, "sample": 20.0}
+        self.inputs: dict[str, float] = {}
+        self.reads = 0
+        self.commits = 0
+        self.fail = False
+        self.due = True
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        self.reads += 1
+        if self.fail:
+            raise OSError("modbus timeout")
+        if self.due:
+            yield Sample(self.root, time_ns, dict(self.temps))
+
+    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+        self.commits += 1
+        return super().commit(time_ns)
+
+    def write_signal(self, signal: Signal, value: float) -> None:
+        self.inputs[signal.name] = value
+
+
+def _sensor(name: str) -> NodeSpec:
+    return NodeSpec(
+        name=name,
+        atomic=True,
+        children=(
+            SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.RP),
+            SignalSpec(name="temperature", quantity=TEMP, access=Access.RP),
+        ),
+    )
+
+
+class Sensors(Device):
+    """Three atomic namespaces, each read in its own transaction."""
+
+    TREE = (_sensor("chamber"), _sensor("dry"), _sensor("wet"))
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.humidity = {"chamber": 45.0, "dry": 4.1, "wet": 95.0}
+        self.reads: list[Node | None] = []
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        self.reads.append(node)
+        nodes = self.root.descendants() if node is None or node is self.root else (node,)
+        for n in nodes:
+            yield Sample(n, time_ns, {"humidity": self.humidity[n.name], "temperature": 21.9})
+
+
+class Blender(Device):
+    """A composite actuator: bound inputs and pending values meet in one `commit`."""
+
+    TREE = (
+        SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.W, limits=(0.0, 100.0)),
+        SignalSpec(
+            name="dry_flow", quantity=FLOW, access=Access.W, together=frozenset({"wet_flow"})
+        ),
+        SignalSpec(
+            name="wet_flow", quantity=FLOW, access=Access.W, together=frozenset({"dry_flow"})
+        ),
+        SignalSpec(name="blend_flow", quantity=FLOW, access=Access.RW),
+        SignalSpec(name="expected_humidity", quantity=HUMIDITY, access=Access.RP),
+    )
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.supply: dict[str, float] = {}
+        self.target = 50.0
+        self.blend_flow = 1.0
+        self.commits = 0
+        self.pump_writes: list[tuple[float, float]] = []
+        self.events: list[Reading | Sample | str] = []
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """A fresh read yields the setting beside what publishes; it is not streamed."""
+        yield Sample(self.root, time_ns, {"blend_flow": self.blend_flow, "expected_humidity": 50.0})
+
+    def observe(self, event: Reading | Sample) -> None:
+        self.events.append(event)
+        if isinstance(event, Reading):
+            for role, signal in self.bound.items():
+                if event.signal is signal:
+                    self.supply[role] = event.value
+
+    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+        self.commits += 1
+        self.events.append("commit")
+        pending = {signal.name: value for signal, value in self.pending.items()}
+        self.target = pending.get("humidity", self.target)
+        self.blend_flow = pending.get("blend_flow", self.blend_flow)
+        self.pump_writes.append((self.supply.get("dry", 0.0), self.target))
+        return self.flush_pending()
+
+
+class Stage(Device):
+    """A W namespace written whole."""
+
+    TREE = (
+        NodeSpec(
+            name="position",
+            atomic=True,
+            children=(
+                SignalSpec(name="x", quantity=Quantity("x", "mm"), access=Access.W),
+                SignalSpec(name="y", quantity=Quantity("y", "mm"), access=Access.W),
+            ),
+        ),
+    )
+
+
+@pytest.fixture
+def furnace(rig, fresh) -> Furnace:
+    furnace = Furnace(fresh("furnace"))
+    rig.add_device(furnace)
+    return furnace
+
+
+@pytest.fixture
+def sensors(rig, fresh) -> Sensors:
+    sensors = Sensors(fresh("hum"))
+    rig.add_device(sensors)
+    return sensors
+
+
+@pytest.fixture
+def blender(rig, fresh) -> Blender:
+    blender = Blender(fresh("blender"))
+    rig.add_device(blender)
+    return blender
+
+
+class TestNames:
+    def test_add_device_claims_the_name_rig_wide(self, rig, furnace):
+        rig.add_device(furnace)  # the same object again is fine
+        assert rig.devices[furnace.name] is furnace and rig.kind_of(furnace.name) == "device"
+        with pytest.raises(ConflictError, match="already used by device"):
+            rig.add_device(Furnace(furnace.name))
+        with pytest.raises(ConflictError, match="reserved"):
+            rig.add_device(Furnace("schema"))
+
+    def test_a_device_shares_the_namespace_with_legacy_readers_and_actuators(
+        self, rig, furnace, fresh, probe
+    ):
+        """Both ways: a device refuses a legacy name, and a legacy device refuses a device's."""
+        with pytest.raises(ConflictError, match="already used by device"):
+            rig.add_actuator(RecordingActuator(furnace.name))
+        with pytest.raises(ConflictError, match="already used by device"):
+            rig.readers.add(Reader(furnace.name, ()))
+        other = fresh("reader")
+        with pytest.raises(ConflictError, match="already used by device"):
+            rig.readers.add(Reader(other, (Source(furnace.name, ()),)))
+        assert rig.kind_of(other) is None, "a failed add claims nothing"
+
+        heater = RecordingActuator(fresh("heater"))
+        rig.add_actuator(heater)
+        with pytest.raises(ConflictError, match="already used by actuator"):
+            rig.add_device(Furnace(heater.name))
+        reader = Reader(fresh("reader"), (probe,))
+        rig.readers.add(reader)
+        with pytest.raises(ConflictError, match="already used by reader"):
+            rig.add_device(Furnace(reader.name))
+        with pytest.raises(ConflictError, match="already used by source"):
+            rig.add_device(Furnace(probe.name))
+        assert heater.name in rig.devices and reader.name in rig.devices
+
+
+class TestResolve:
+    def test_walks_device_namespace_signal(self, rig, sensors):
+        assert rig.resolve(sensors.name) is sensors.root
+        assert rig.resolve(f"{sensors.name}.dry") is sensors.nodes["dry"]
+        assert rig.resolve(f"{sensors.name}.dry.humidity") is sensors.signals["dry.humidity"]
+
+    def test_an_unknown_address_names_the_segment(self, rig, sensors, fresh):
+        with pytest.raises(
+            AddressNotFoundError, match="'nowhere.x' not found: no device 'nowhere'"
+        ):
+            rig.resolve("nowhere.x")
+        with pytest.raises(AddressNotFoundError, match=f"no 'humidty' under {sensors.name}.dry"):
+            rig.resolve(f"{sensors.name}.dry.humidty")
+        with pytest.raises(AddressNotFoundError, match=f"no 'x' under {sensors.name}.dry.humidity"):
+            rig.resolve(f"{sensors.name}.dry.humidity.x")
+        heater = RecordingActuator(fresh("heater"))
+        rig.add_actuator(heater)
+        with pytest.raises(AddressNotFoundError, match=f"no device '{heater.name}'"):
+            rig.resolve(heater.name)  # a legacy device has no tree to walk
+
+
+class TestDelivery:
+    def test_a_sample_with_a_stray_key_is_refused_naming_the_node(self, rig, furnace):
+        with pytest.raises(
+            ValueError,
+            match=rf"Sample on '{furnace.name}' carries 'heater1': '{furnace.name}.heater1' \[w\]"
+            " is not readable",
+        ):
+            rig.on_samples([Sample(furnace.root, 0, {"zone1": 1.0, "heater1": 1.0})])
+        with pytest.raises(
+            ValueError, match=f"carries 'pressure': '{furnace.name}.pressure' is not a signal"
+        ):
+            rig.on_samples([Sample(furnace.root, 0, {"pressure": 1.0})])
+        assert rig.latest == {}, "refused before any of it was applied"
+
+    def test_a_dotted_key_must_be_a_signal_under_the_node(self, rig, sensors):
+        hum, dry = sensors.name, sensors.nodes["dry"]
+        with pytest.raises(
+            ValueError, match=f"Sample on '{hum}' carries 'dry': '{hum}.dry' is a namespace"
+        ):
+            rig.on_samples([Sample(sensors.root, 0, {"dry": 1.0, "wet.humidity": 1.0})])
+        with pytest.raises(
+            ValueError,
+            match=f"Sample on '{hum}.dry' carries 'wet.humidity': '{hum}.dry.wet.humidity'"
+            " is not a signal",
+        ):
+            rig.on_samples([Sample(dry, 0, {"humidity": 1.0, "wet.humidity": 1.0})])
+        assert rig.latest == {}
+
+    def test_a_sample_on_the_root_carries_its_subtree_by_dotted_keys(self, rig, sensors):
+        dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
+        dry_h, wet_h = sensors.signals["dry.humidity"], sensors.signals["wet.humidity"]
+        whole = Sample(sensors.root, 7, {"dry.humidity": 4.0, "wet.humidity": 96.0})
+        with rig.samples.watch():
+            rig.on_samples([whole])
+        assert rig.latest == {dry_h: Reading(dry_h, 7, 4.0), wet_h: Reading(wet_h, 7, 96.0)}
+        assert rig.samples.changed_since(0)[1] == {sensors.name: whole}, "flat, as delivered"
+        assert rig.read(rig.resolve(f"{sensors.name}.dry")) == Sample(dry, 7, {"humidity": 4.0})
+        assert rig.read(wet) == Sample(wet, 7, {"humidity": 96.0})
+        assert list(rig.read(sensors.root)) == [whole], "once, not again per namespace"
+        # The newest instant on a node wins, whichever node it was delivered on.
+        direct = Sample(dry, 8, {"humidity": 4.5, "temperature": 20.0})
+        rig.on_samples([direct])
+        assert rig.read(dry) is direct
+        rig.on_samples([Sample(sensors.root, 9, {"dry.temperature": 21.0})])
+        assert rig.read(dry) == Sample(dry, 9, {"temperature": 21.0})
+
+    def test_a_readable_setting_lands_in_latest_but_is_not_streamed(self, rig, blender, clock):
+        flow, expected = blender.signals["blend_flow"], blender.signals["expected_humidity"]
+        with rig.samples.watch():
+            rig.on_samples([
+                Sample(blender.root, 3, {"blend_flow": 1.5, "expected_humidity": 49.0})
+            ])
+            rig.on_samples([Sample(blender.root, 4, {"blend_flow": 1.6})])
+        assert rig.latest == {flow: Reading(flow, 4, 1.6), expected: Reading(expected, 3, 49.0)}
+        assert rig.samples.changed_since(0)[1] == {
+            blender.name: Sample(blender.root, 3, {"expected_humidity": 49.0})
+        }, "cut to what publishes; a sample with nothing left is not set at all"
+        assert rig.recent_signal_readings(flow) == [Reading(flow, 3, 1.5), Reading(flow, 4, 1.6)]
+        # A fresh read of the setting goes through the same delivery.
+        rig.demand(blender.root, {"blend_flow": 2.5})
+        clock.advance(1.0)
+        assert rig.read(flow, fresh=True) == Reading(flow, clock.now_ns(), 2.5)
+        assert rig.latest[flow].value == 2.5
+
+    def test_a_sample_with_no_values_is_refused_naming_the_node(self, rig, furnace):
+        with pytest.raises(ValueError, match=f"Sample on '{furnace.name}' carries no values"):
+            rig.on_samples([Sample(furnace.root, 0, {})])
+        rig.on_samples([])  # no samples at all is nothing to do
+
+    def test_a_partial_sample_updates_only_what_it_carries(self, rig, furnace):
+        zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
+        rig.on_samples([Sample(furnace.root, 10, {"zone1": 21.0, "zone2": 22.0, "sample": 23.0})])
+        rig.on_samples([Sample(furnace.root, 20, {"zone1": 31.0})])
+        assert rig.latest[zone1] == Reading(zone1, 20, 31.0)
+        assert rig.latest[zone2] == Reading(zone2, 10, 22.0)
+        assert rig.recent_signal_readings(zone1) == [
+            Reading(zone1, 10, 21.0),
+            Reading(zone1, 20, 31.0),
+        ]
+
+    def test_on_samples_updates_latest_and_samples(self, rig, sensors):
+        dry = sensors.nodes["dry"]
+        humidity = sensors.signals["dry.humidity"]
+        first = Sample(dry, 5, {"humidity": 4.1, "temperature": 21.9})
+        rig.on_samples([first])
+        assert rig.samples.changed_since(0)[1] == {}, "built only while watched"
+        second = Sample(dry, 6, {"humidity": 4.2, "temperature": 21.9})
+        with rig.samples.watch():
+            rig.on_samples([second])
+        assert rig.samples.changed_since(0)[1] == {f"{sensors.name}.dry": second}
+        assert rig.latest[humidity] == Reading(humidity, 6, 4.2)
+        assert rig.read(dry) is second
+
+
+class TestRead:
+    def test_a_signal_read_returns_the_last_reading_and_fresh_hits_the_device(
+        self, rig, furnace, clock
+    ):
+        zone1 = furnace.signals["zone1"]
+        with pytest.raises(NotReadyError, match=f"Nothing has been read on '{zone1.address}' yet"):
+            rig.read(zone1)
+        rig.on_samples([Sample(furnace.root, 10, {"zone1": 21.0})])
+        assert rig.read(zone1) == Reading(zone1, 10, 21.0) and furnace.reads == 0
+        furnace.temps["zone1"] = 99.0
+        clock.advance(1.0)
+        assert rig.read(zone1, fresh=True) == Reading(zone1, clock.now_ns(), 99.0)
+        assert furnace.reads == 1
+        assert rig.latest[zone1].value == 99.0, "delivered, not just returned"
+        with pytest.raises(ConflictError, match=rf"'{furnace.name}.heater1' \[w\] is not readable"):
+            rig.read(furnace.signals["heater1"])
+
+    def test_an_atomic_node_reads_as_a_sample_and_a_device_as_samples(self, rig, sensors, clock):
+        dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
+        with pytest.raises(NotReadyError, match=f"'{dry.address}'"):
+            rig.read(dry)
+        sample = rig.read(dry, fresh=True)
+        assert isinstance(sample, Sample) and sample.node is dry
+        assert sample.values == {"humidity": 4.1, "temperature": 21.9}
+        assert sensors.reads == [dry], "the bound node reaches the driver"
+        assert rig.latest[sensors.signals["dry.humidity"]].value == 4.1
+        assert list(rig.read(sensors.root)) == [sample], "not fresh: what is known"
+        samples = list(rig.read(sensors.root, fresh=True))
+        assert [s.node for s in samples] == [sensors.nodes["chamber"], dry, wet]
+        assert rig.read(wet) is samples[2]
+
+
+class TestDemand:
+    def test_refuses_a_signal_that_is_not_writable(self, rig, furnace):
+        with pytest.raises(ConflictError, match=rf"'{furnace.name}.zone1' \[rp\] is not writable"):
+            rig.demand(furnace.root, {"zone1": 1.0})
+        with pytest.raises(AddressNotFoundError, match=f"no 'heater9' under {furnace.name}"):
+            rig.demand(furnace.root, {"heater9": 1.0})
+        with pytest.raises(ValueError, match=f"Demand on '{furnace.name}' carries no values"):
+            rig.demand(furnace.root, {})
+        assert furnace.pending == {} and furnace.commits == 0
+
+    def test_together_incomplete_is_refused(self, rig, blender):
+        dry_flow, wet_flow = blender.signals["dry_flow"], blender.signals["wet_flow"]
+        with pytest.raises(ConflictError, match=f"'{blender.name}.dry_flow' is set with wet_flow"):
+            rig.demand(blender.root, {"dry_flow": 0.4})
+        assert blender.pending == {} and blender.commits == 0
+        states = rig.demand(blender.root, {"dry_flow": 0.4, "wet_flow": 0.6})
+        assert states == {dry_flow: WriteState(value=0.4), wet_flow: WriteState(value=0.6)}
+
+    def test_a_manual_demand_commits_now_and_reports_the_clamp(self, rig, furnace):
+        heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
+        states = rig.demand(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
+        assert furnace.commits == 1 and furnace.inputs == {"heater1": 2500.0, "heater2": 100.0}
+        assert states[heater1] == WriteState(value=2500.0, requested=3000.0, at_limit="high")
+        assert states[heater2] == WriteState(value=100.0)
+        assert furnace.written[heater1] == states[heater1], "the wire sees the same"
+        with rig.write_states.watch():
+            rig.demand(furnace.root, {"heater1": -1.0})
+        assert rig.write_states.changed_since(0)[1] == {
+            f"{furnace.name}.heater1": WriteState(value=0.0, requested=-1.0, at_limit="low")
+        }
+        assert rig.demand(furnace.root, {"heater1": 2500.0})[heater1].requested is None
+
+    def test_a_dotted_name_reaches_a_signal_under_a_namespace(self, rig, fresh):
+        stage = Stage(fresh("stage"))
+        rig.add_device(stage)
+        x, y = stage.signals["position.x"], stage.signals["position.y"]
+        assert rig.demand(stage.root, {"position.x": 1.0}) == {x: WriteState(value=1.0)}
+        assert rig.demand(stage.nodes["position"], {"x": 2.0, "y": 3.0}) == {
+            x: WriteState(value=2.0),
+            y: WriteState(value=3.0),
+        }
+        with pytest.raises(ConflictError, match=f"'{stage.name}.position' is a namespace"):
+            rig.demand(stage.root, {"position": 1.0})
+
+    def test_a_controller_owned_signal_refuses_a_manual_demand(self, rig, furnace):
+        heater1 = furnace.signals["heater1"]
+        controller = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=1.0))
+        with pytest.raises(
+            ConflictError,
+            match=f"'{heater1.address}' is driven by controller '{controller.name}'",
+        ):
+            rig.demand(furnace.root, {"heater1": 1.0})
+        assert rig.demand(furnace.root, {"heater2": 1.0}) == {
+            furnace.signals["heater2"]: WriteState(value=1.0)
+        }
+        rig.controllers.remove(controller.name)
+        state = rig.demand(furnace.root, {"heater1": 1.0})[heater1]
+        assert state == WriteState(value=1.0, controller=None)
+
+
+class TestControllers:
+    def test_attach_controller_wires_the_write_and_refuses_double_claims(self, rig, furnace):
+        heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
+        zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=100.0), feedforward="none")
+        assert rig.controllers[heater1.address] is controller
+        assert rig.controllers.default == controller.name
+        assert isinstance(controller.feedforward, NoFeedforward)
+        with pytest.raises(SourceClaimedError, match=f"{heater1.address} is already driven by"):
+            rig.attach_controller(heater1, zone2)
+        with pytest.raises(SourceClaimedError, match=f"{zone1.address} is already regulated by"):
+            rig.attach_controller(heater2, zone1)
+
+        # From outside a delivery -- a program, a route -- the write commits at once.
+        rig.on_samples([Sample(furnace.root, 0, {"zone1": 40.0})])
+        assert furnace.commits == 0, "manual: the tick wrote nothing"
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        assert furnace.commits == 1 and furnace.inputs == {"heater1": 0.0}
+        assert controller.expected == 0.0, "the write returned the committed value"
+        assert furnace.written[heater1] == WriteState(
+            value=0.0, at_limit="low", controller=controller.name
+        )
+
+    def test_two_controllers_on_one_device_coalesce_into_one_commit(self, rig, furnace):
+        heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
+        c1 = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=10.0))
+        c2 = rig.attach_controller(heater2, furnace.signals["zone2"], law=P(kp=10.0))
+        rig.on_samples([Sample(furnace.root, 0, {"zone1": 40.0, "zone2": 40.0})])
+        c1.regulate(50.0, transfer=Transfer.RESET)
+        c2.regulate(60.0, transfer=Transfer.RESET)
+        assert furnace.commits == 2, "two handovers outside a delivery: one commit each"
+        rig.on_samples([Sample(furnace.root, 1_000_000_000, {"zone1": 40.0, "zone2": 40.0})])
+        assert furnace.commits == 3, "one delivery, two controllers, one commit"
+        assert furnace.inputs == {"heater1": 100.0, "heater2": 200.0}
+        assert c1.expected == 100.0 and c2.expected == 200.0, "delivered() closed each tick"
+        assert c1.delivered_correction == 100.0
+        assert furnace.written[heater1].controller == c1.name
+        assert furnace.written[heater2].controller == c2.name
+
+    def test_the_controller_gets_delivered_with_the_committed_state(self, rig, furnace):
+        heater1 = furnace.signals["heater1"]
+        controller = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=1000.0))
+        rig.on_samples([Sample(furnace.root, 0, {"zone1": 40.0})])
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        with rig.controller_states.watch(), rig.write_states.watch():
+            rig.on_samples([Sample(furnace.root, 1_000_000_000, {"zone1": 40.0})])
+        assert controller.demand == 10_000.0 and controller.expected == 2500.0, "clamped"
+        assert rig.write_states.changed_since(0)[1] == {
+            heater1.address: WriteState(
+                value=2500.0, requested=10_000.0, at_limit="high", controller=controller.name
+            )
+        }
+        state = rig.controller_states.changed_since(0)[1][controller.name]
+        assert state.expected == 2500.0 and state.reading is not None
+        assert state.reading.value == 40.0
+
+
+class TestBoundInputs:
+    def test_a_bound_input_triggers_observe_then_one_commit(self, rig, sensors, blender):
+        dry, chamber = sensors.nodes["dry"], sensors.nodes["chamber"]
+        rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidity"})
+        assert blender.bound == {"dry": sensors.signals["dry.humidity"]}
+        rig.on_samples([Sample(dry, 5, {"humidity": 3.0, "temperature": 20.0})])
+        assert blender.supply == {"dry": 3.0} and blender.commits == 1
+        assert blender.pump_writes == [(3.0, 50.0)]
+
+        # A bound input and a controller's demand in one delivery: still one commit.
+        controller = rig.attach_controller(
+            blender.signals["humidity"], sensors.signals["chamber.humidity"], law=P(kp=1.0)
+        )
+        controller.regulate(47.0, transfer=Transfer.RESET)
+        assert blender.commits == 2 and blender.target == 47.0
+        rig.on_samples([
+            Sample(dry, 6, {"humidity": 4.0}),
+            Sample(chamber, 6, {"humidity": 45.0, "temperature": 20.0}),
+        ])
+        assert blender.commits == 3 and blender.supply == {"dry": 4.0}
+        assert blender.pump_writes[-1] == (4.0, 49.0)
+        assert controller.expected == 49.0
+
+    def test_a_device_bound_to_a_node_gets_a_sample_cut_to_it_after_the_readings(
+        self, rig, sensors, blender
+    ):
+        dry, chamber = sensors.nodes["dry"], sensors.nodes["chamber"]
+        wet_h = sensors.signals["wet.humidity"]
+        rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
+        assert blender.bound == {"dry": dry, "wet": wet_h}
+        on_dry = Sample(dry, 5, {"humidity": 3.0, "temperature": 20.0})
+        rig.on_samples([on_dry])
+        assert blender.events == [on_dry, "commit"], "the sample itself when it is the node's"
+        blender.events.clear()
+        whole = Sample(sensors.root, 6, {"wet.humidity": 97.0, "dry.humidity": 3.5})
+        rig.on_samples([whole])
+        assert blender.events == [
+            Reading(wet_h, 6, 97.0),
+            Sample(dry, 6, {"humidity": 3.5}),
+            "commit",
+        ], "keys relative to the bound node, after the readings, one commit"
+        blender.events.clear()
+        rig.on_samples([Sample(chamber, 7, {"humidity": 45.0})])
+        assert blender.events == [], "nothing under the bound node: not called"
+
+    def test_bind_inputs_refuses_what_cannot_be_followed(self, rig, sensors, blender, fresh):
+        with pytest.raises(AddressNotFoundError, match=f"no 'humidty' under {sensors.name}.dry"):
+            rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidty"})
+        with pytest.raises(ConflictError, match=r"\[w\] is not publishing"):
+            rig.bind_inputs(blender, {"dry": f"{blender.name}.humidity"})
+        stage = Stage(fresh("stage"))
+        rig.add_device(stage)
+        with pytest.raises(
+            ConflictError,
+            match=f"{blender.name}.bound.dry: nothing under '{stage.name}.position' publishes",
+        ):
+            rig.bind_inputs(blender, {"dry": f"{stage.name}.position"})
+        assert blender.bound == {}
+
+
+def test_a_trailing_or_doubled_dot_resolves_to_nothing(rig, sensors):
+    for address in (f"{sensors.name}.", f"{sensors.name}.dry.", f"{sensors.name}..dry"):
+        with pytest.raises(AddressNotFoundError, match="not found"):
+            rig.resolve(address)
+    assert rig.resolve(sensors.name) is sensors.root

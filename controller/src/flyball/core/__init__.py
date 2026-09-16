@@ -15,6 +15,7 @@ from .quantity import Quantity
 from .resource import Arbiter, Operator, Resource
 from .signal import (
     Access,
+    AddressNotFoundError,
     Demand,
     Node,
     NodeSpec,
@@ -47,6 +48,7 @@ from .utils import (
 
 __all__ = [
     "Access",
+    "AddressNotFoundError",
     "Arbiter",
     "Clock",
     "Config",

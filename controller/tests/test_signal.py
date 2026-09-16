@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
+
 import pytest
 
 from flyball.core.device import Device
+from flyball.core.errors import NotFoundError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, NodeSpec, Reading, Sample, SignalSpec, WriteState
 from flyball.core.units.si import Celsius, Watt
@@ -59,6 +62,15 @@ class TestSpecs:
         node = NodeSpec(name="dry", children=(spec,))
         assert node.atomic is False and node.poll_s is None
 
+    def test_only_float_scalars_yet_but_the_type_is_on_the_wire(self):
+        spec = SignalSpec(name="zone1", quantity=TEMP, access=Access.RP)
+        assert spec.dtype == "float" and spec.shape == ()
+        assert {f.name for f in fields(spec)} >= {"dtype", "shape"}, "on the wire, no override"
+        with pytest.raises(ValueError, match="only float scalars are supported yet"):
+            SignalSpec(name="n", quantity=TEMP, access=Access.RP, dtype="int")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="'zone1': dtype 'float' shape \\(3,\\): only float"):
+            SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, shape=(3,))
+
 
 class Probe(Device):
     TREE = (
@@ -85,6 +97,43 @@ def test_sample_readings_carry_the_bound_signals():
     assert readings[1].value == 21.9 and readings[1].time_ns == 1_000
     assert sample.node.address == "hum.dry" and sample.node.atomic is True
     assert sample.seconds == 1e-6
+
+
+def test_a_sample_may_carry_the_subtree_by_dotted_keys():
+    probe = Probe("hum")
+    sample = Sample(probe.root, 1_000, {"dry.humidity": 4.1, "heater": 0.0})
+    readings = list(sample.readings())
+    assert readings == [
+        Reading(probe.signals["dry.humidity"], 1_000, 4.1),
+        Reading(probe.signals["heater"], 1_000, 0.0),
+    ]
+    assert sample.published() == Sample(probe.root, 1_000, {"dry.humidity": 4.1})
+    assert sample.under(probe.nodes["dry"]) == Sample(probe.nodes["dry"], 1_000, {"humidity": 4.1})
+    assert sample.under(probe.root) is sample
+    only_setting = Sample(probe.root, 1_000, {"heater": 0.0})
+    assert only_setting.published() is None
+    assert only_setting.under(probe.nodes["dry"]) is None
+    on_dry = Sample(probe.nodes["dry"], 2_000, {"humidity": 4.2})
+    assert on_dry.published() is on_dry, "the same object when nothing is cut"
+    assert on_dry.under(probe.root) == Sample(probe.root, 2_000, {"dry.humidity": 4.2})
+
+
+def test_find_resolves_a_dotted_path_under_a_node():
+    probe = Probe("hum_sensors")
+    assert probe.root.find("dry.humidity") is probe.signals["dry.humidity"]
+    assert probe.root.find("dry") is probe.nodes["dry"]
+    assert probe.nodes["dry"].find("humidity") is probe.signals["dry.humidity"]
+    assert probe.root.find("") is probe.root
+    with pytest.raises(
+        NotFoundError, match="'hum_sensors.nope' not found: no 'nope' under hum_sensors"
+    ):
+        probe.root.find("nope")
+    with pytest.raises(NotFoundError, match="no 'x' under hum_sensors.dry.humidity"):
+        probe.root.find("dry.humidity.x")
+    with pytest.raises(
+        NotFoundError, match="'hum_sensors.dry.nope' not found: no 'nope' under hum_sensors.dry"
+    ):
+        probe.nodes["dry"].find("nope")
 
 
 def test_a_reading_names_its_signal_by_address():

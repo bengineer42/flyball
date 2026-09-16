@@ -39,10 +39,12 @@ import flyball.sim.devices  # ruff: ignore[unused-import]
 from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock
 from flyball.core.config import Config, discover
+from flyball.core.device import Device, DeviceEntry, DriverConfig
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import SUFFIXES, load_document
 from flyball.core.model import discriminated_union
 from flyball.core.reading import Measurand, Reader, Source
+from flyball.core.signal import Signal
 from flyball.core.sink import RESERVED_NAMES, Actuator
 from flyball.runtime.rig import Rig
 
@@ -118,6 +120,26 @@ class LoopEntry(BaseModel):
     )
 
 
+class ControllerEntry(BaseModel):
+    """A controller and how it regulates its target; keyed by the target's address in the file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    signal: str = Field(description="The source signal's address (a P signal).")
+    law: LawConfig | None = None  # type: ignore[valid-type]
+    feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
+        default=None,
+        description="Maps the source's unit to the target's; the law adds to it."
+        " Omit for the setpoint itself when the units agree, else none.",
+    )
+    default: bool = False
+    min_period_s: float | None = Field(
+        default=None,
+        gt=0,
+        description="Step the law at most this often; omit to step on every reading.",
+    )
+
+
 class ClockEntry(BaseModel):
     """How the rig's time runs. Only a rig with nothing real on it may run off wall time."""
 
@@ -163,6 +185,10 @@ class RigConfig(BaseModel):
     readers: list[ReaderEntry] = Field(default_factory=list)
     actuators: list[Any] = Field(default_factory=list)
     loops: list[LoopEntry] = Field(default_factory=list)
+    devices: dict[str, DeviceEntry] = Field(default_factory=dict)
+    controllers: dict[str, ControllerEntry] = Field(
+        default_factory=dict, description="Keyed by the target signal's address."
+    )
 
     @classmethod
     def model_validate(cls, obj: Any, **kwargs: Any) -> RigConfig:  # type: ignore[override]
@@ -173,7 +199,14 @@ class RigConfig(BaseModel):
     @classmethod
     def model_json_schema(cls, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
         if cls is RigConfig:
-            return rig_model().model_json_schema(**kwargs)
+            schema = rig_model().model_json_schema(**kwargs)
+            devices_schema, devices_defs = _devices_schema()
+            schema.setdefault("$defs", {}).update(devices_defs)
+            schema["properties"]["devices"] = {
+                **schema["properties"]["devices"],
+                **devices_schema,
+            }
+            return schema
         return super().model_json_schema(**kwargs)
 
     @model_validator(mode="after")
@@ -222,7 +255,24 @@ class RigConfig(BaseModel):
             driven.append(loop.actuator)
             if "." not in loop.channel:
                 raise ValueError(f"loop channel {loop.channel!r} must be 'source.measurand'")
-        if sum(loop.default for loop in self.loops) > 1:
+        for name, entry in self.devices.items():
+            claim(name, "device")
+            link = entry.config.get("link")
+            if isinstance(link, str) and link not in self.links:
+                raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
+        for target, controller in self.controllers.items():
+            if "." not in target:
+                raise ValueError(f"controller {target!r} must be a 'node.signal' address")
+            if "." not in controller.signal:
+                raise ValueError(
+                    f"controller {target!r}: signal {controller.signal!r}"
+                    " must be a 'node.signal' address"
+                )
+        if (
+            sum(loop.default for loop in self.loops)
+            + sum(c.default for c in self.controllers.values())
+            > 1
+        ):
             raise ValueError("only one loop can be the default")
         if self.clock is not None and not is_simulated(self.links):
             raise ValueError("`clock` is only for a rig whose links are all sim_* or fake_*")
@@ -262,6 +312,7 @@ class RigConfig(BaseModel):
         # Build everything before anything runs: a failure part-way leaves no
         # thread polling and no source name registered for a retry to trip on.
         readers: list[tuple[Reader, float | None]] = []
+        built_devices: list[Device] = []
         try:
             for entry in self.readers:
                 reader = with_link(entry.device).build()
@@ -298,14 +349,44 @@ class RigConfig(BaseModel):
                     min_period_s=loop.min_period_s,
                     feedforward=loop.feedforward,
                 )
+            for name, entry in self.devices.items():
+                device = entry.build(name, links)
+                rig.add_device(device)
+                built_devices.append(device)
+            for name, entry in self.devices.items():
+                if entry.bound:
+                    rig.bind_inputs(rig.devices[name], entry.bound)
+            for target_address, controller in self.controllers.items():
+                target = rig.resolve(target_address)
+                if not isinstance(target, Signal):
+                    raise ValueError(f"controller {target_address!r} is not a signal")
+                source_signal = rig.resolve(controller.signal)
+                if not isinstance(source_signal, Signal):
+                    raise ValueError(
+                        f"controller {target_address!r}: signal {controller.signal!r}"
+                        " is not a signal"
+                    )
+                rig.attach_controller(
+                    target,
+                    source_signal,
+                    law=controller.law,
+                    feedforward=controller.feedforward,
+                    default=controller.default,
+                    min_period_s=controller.min_period_s,
+                )
         except Exception:
             for reader, _ in readers:
                 for source in reader.sources:
                     Source.forget(source.name)
+            for device in built_devices:
+                rig.release(device.name)
             raise
         for reader, period in readers:
             if period is not None:
                 rig.start_reader(reader, period)
+        if start:
+            for device in built_devices:
+                rig.start_polling(device)
         return rig
 
 
@@ -332,6 +413,65 @@ def rig_model() -> type[RigConfig]:
             actuators=(list[actuators], Field(default_factory=list)),  # type: ignore[valid-type]
         )
     return _models[key]
+
+
+def _driver_configs() -> tuple[type[DriverConfig[Any]], ...]:
+    """Every registered device driver, in tag order."""
+    return tuple(
+        config
+        for tag, config in sorted(Config.registry.items())
+        if isinstance(config, type) and issubclass(config, DriverConfig)
+    )
+
+
+def _devices_schema() -> tuple[dict[str, Any], dict[str, Any]]:
+    """The `devices` property's schema, and the `$defs` it needs.
+
+    Built by hand from `Config.registry` rather than inferred: a device
+    entry's driver settings sit flat beside the envelope or under `config`
+    (`DeviceEntry`'s own before-validator normalises this, not a pydantic
+    discriminated union), so pydantic alone cannot describe the two shapes as
+    one type. `oneOf` per registered driver, each with a flat and a layered
+    variant (plan §1.5); before any driver registers, `devices` is just a
+    plain `DeviceEntry` map.
+    """
+    base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
+    defs: dict[str, Any] = dict(base.get("$defs", {}))
+    envelope = {k: v for k, v in base["properties"].items() if k not in ("driver", "config")}
+    drivers = _driver_configs()
+    if not drivers:
+        defs["DeviceEntry"] = base
+        return {"additionalProperties": {"$ref": "#/$defs/DeviceEntry"}}, defs
+    variants = []
+    for driver in drivers:
+        driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
+        defs.update(driver_schema.pop("$defs", {}))
+        driver_properties = driver_schema.get("properties", {})
+        driver_envelope = {**envelope, "driver": {"const": driver.config_tag}}
+        layered = {
+            "type": "object",
+            "title": f"{driver.config_tag} (layered)",
+            "properties": {**driver_envelope, "config": driver_schema},
+            "required": ["driver"],
+        }
+        flat = {
+            "type": "object",
+            "title": f"{driver.config_tag} (flat)",
+            "properties": {**driver_envelope, **driver_properties},
+            "required": ["driver", *driver_schema.get("required", [])],
+        }
+        variants.append({"oneOf": [layered, flat]})
+    return {"additionalProperties": {"oneOf": variants}}, defs
+
+
+def canonical(config: RigConfig) -> dict[str, Any]:
+    """`config` as the canonical layered document -- what `rig check` prints.
+
+    Every device entry already carries `config:` after `DeviceEntry`'s own
+    flat-or-layered normalisation, in envelope-key order; dumping drops every
+    `null`, since a format like TOML has no way to write one.
+    """
+    return config.model_dump(mode="json", exclude_none=True)
 
 
 # endregion
@@ -506,11 +646,13 @@ __all__ = [
     "BOARDS_ENV",
     "Board",
     "ClockEntry",
+    "ControllerEntry",
     "LoopEntry",
     "ReaderEntry",
     "RigConfig",
     "apply_board",
     "board_dirs",
+    "canonical",
     "find_board",
     "is_simulated",
     "load_board",

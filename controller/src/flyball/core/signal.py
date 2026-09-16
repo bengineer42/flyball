@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from enum import Flag, auto
 from typing import TYPE_CHECKING, Any, Literal
 
+from .errors import NotFoundError
 from .quantity import Quantity
 from .units import Unit
 
@@ -98,6 +99,10 @@ class SignalSpec:
     """One address segment: `"voltage"` under device `psu` is `psu.voltage`."""
     quantity: Quantity
     access: Access
+    dtype: Literal["float"] = "float"
+    """The element type of a value; on the wire so a client can tell before one arrives."""
+    shape: tuple[int, ...] = ()
+    """The dimensions of a value: `()` a scalar. Only float scalars are carried yet."""
     label: str = ""
     # read side (R / P)
     range: Band | None = None
@@ -119,6 +124,11 @@ class SignalSpec:
     def __post_init__(self) -> None:
         _check_segment(self.name)
         Access.check(self.access)
+        if self.dtype != "float" or self.shape != ():
+            raise ValueError(
+                f"signal {self.name!r}: dtype {self.dtype!r} shape {self.shape!r}:"
+                " only float scalars are supported yet"
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -140,6 +150,19 @@ class NodeSpec:
 def _check_segment(name: str) -> None:
     if not name or "." in name:
         raise ValueError(f"{name!r} is not an address segment: non-empty, no dots")
+
+
+def _under(path: str, name: str) -> str:
+    """`name` joined under a device-relative `path` (`""` is the root)."""
+    return f"{path}.{name}" if path else name
+
+
+class AddressNotFoundError(NotFoundError):
+    """An address did not resolve: which segment failed, and under what."""
+
+    def __init__(self, address: str, segment: str, under: str | None) -> None:
+        where = f"no device {segment!r}" if under is None else f"no {segment!r} under {under}"
+        super().__init__(f"Address {address!r} not found: {where}")
 
 
 @dataclass(eq=False, slots=True)
@@ -194,6 +217,33 @@ class Node:
         for child in self.children.values():
             yield child
             yield from child.descendants()
+
+    def find(self, relative: str) -> Signal | Node:
+        """The signal or namespace at a dotted path under this node; `""` is the node itself.
+
+        The one rule for a relative name -- a sample's or a demand's key, the
+        rest of an address after the device.
+
+        Raises:
+            AddressNotFoundError: Naming the segment that failed and what
+                it was looked for under.
+        """
+        if not relative:
+            return self
+        address = f"{self.address}.{relative}"
+        node = self
+        path = relative.split(".")
+        if "" in path:  # a trailing or doubled dot names nothing
+            raise AddressNotFoundError(address, "", node.address)
+        for i, segment in enumerate(path):
+            if (signal := node.signals.get(segment)) is not None:
+                if i + 1 < len(path):
+                    raise AddressNotFoundError(address, path[i + 1], signal.address)
+                return signal
+            if (child := node.children.get(segment)) is None:
+                raise AddressNotFoundError(address, segment, node.address)
+            node = child
+        return node
 
     def override(self, **changes: Any) -> None:
         """Replace fields of the spec in place; the bound object keeps its identity."""
@@ -290,10 +340,14 @@ class Reading:
 
 @dataclass(frozen=True, slots=True)
 class Sample:
-    """Every publishing signal of one node read at one instant.
+    """Signals under one node read at one instant: the node's declared tree is the message type.
 
     `node.address` (`"hum_sensors.dry"`, `"furnace"`) is what the wire and
-    the recorder carry; `values` are keyed by name relative to the node.
+    the recorder carry; `values` are keyed by dotted path relative to the
+    node (`"dry.humidity"` on the device root, `"humidity"` on
+    `hum_sensors.dry`), flat, never nested. Any readable signal under the
+    node may appear and any may be missing -- not read at this instant --
+    but there is always at least one. Only what publishes leaves the rig.
     """
 
     node: Node
@@ -305,10 +359,34 @@ class Sample:
         return self.time_ns / 1e9
 
     def readings(self) -> Iterator[Reading]:
-        """One [Reading][flyball.core.signal.Reading] per value, on the node's own signals."""
-        return (
-            Reading(self.node.signals[name], self.time_ns, v) for name, v in self.values.items()
-        )
+        """One [Reading][flyball.core.signal.Reading] per value, each on its bound signal."""
+        signals, path, time_ns = self.node.device.signals, self.node.path, self.time_ns
+        return (Reading(signals[_under(path, name)], time_ns, v) for name, v in self.values.items())
+
+    def published(self) -> Sample | None:
+        """Without the values on non-publishing signals: itself if none, None if nothing is left."""
+        signals, path = self.node.device.signals, self.node.path
+        kept = {n: v for n, v in self.values.items() if Access.P in signals[_under(path, n)].access}
+        if len(kept) == len(self.values):
+            return self
+        return Sample(self.node, self.time_ns, kept) if kept else None
+
+    def under(self, node: Node) -> Sample | None:
+        """The values under `node`, keyed relative to it, as a sample on it; None if there are none.
+
+        `node` may be this sample's, above it, or below it; anything on the
+        same device.
+        """
+        if node is self.node:
+            return self
+        prefix = f"{node.path}." if node.path else ""
+        path = self.node.path
+        kept = {
+            device_path[len(prefix) :]: v
+            for name, v in self.values.items()
+            if (device_path := _under(path, name)).startswith(prefix)
+        }
+        return Sample(node, self.time_ns, kept) if kept else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +394,8 @@ class Demand:
     """One or more values put on W signals under one node at one instant: a Sample in reverse.
 
     A rig-level object: the rig validates it whole, then fans it out to
-    `Device.apply` one signal at a time. `values` are in each signal's unit.
+    `Device.apply` one signal at a time. `values` are in each signal's unit,
+    keyed as a Sample's are: a dotted path relative to the node.
     """
 
     node: Node

@@ -40,6 +40,7 @@ from pydantic.errors import (
 from pydantic.json_schema import JsonSchemaMode
 
 from .config import Config
+from .errors import NotFoundError
 from .signal import Access, Band, Node, NodeSpec, Reading, Sample, Signal, SignalSpec, WriteState
 
 
@@ -238,8 +239,9 @@ class Device:
     """Every leaf, by address relative to the device: `"dry.humidity"`."""
     nodes: dict[str, Node]
     """Every namespace, likewise: `"dry"`."""
-    bound: dict[str, Signal]
-    """Inputs this device follows on other devices, by role (`"dry"`); the rig resolves them."""
+    bound: dict[str, Signal | Node]
+    """Inputs this device follows on other devices, by role (`"dry"`): a signal, or a whole
+    namespace read as one message; the rig resolves them."""
     pending: dict[Signal, float]
     """What `apply` recorded since the last `commit`."""
     written: dict[Signal, WriteState]
@@ -334,11 +336,14 @@ class Device:
         """
         self.pending[signal] = value
 
-    def observe(self, reading: Reading) -> None:
-        """A bound input changed: a signal of another device this one follows. Record it.
+    def observe(self, event: Reading | Sample) -> None:
+        """A bound input changed: something on another device this one follows. Record it.
 
-        Only called on a device with something in `bound`; the default has
-        none.
+        A [Reading][flyball.core.signal.Reading] for a bound signal; for a
+        bound node, the [Sample][flyball.core.signal.Sample] cut down to what
+        lies under it, keyed relative to it, after the readings of that
+        delivery. Only called on a device with something in `bound`; the
+        default has none.
         """
         raise NotImplementedError(f"{type(self).__name__} follows no bound input")
 
@@ -550,19 +555,28 @@ class DeviceEntry(BaseModel):
         envelope = {key: value for key, value in data.items() if key in ENVELOPE_KEYS}
         return {**envelope, "config": leftover}
 
-    def build(self, name: str) -> Device:
+    def build(self, name: str, links: Mapping[str, Any] | None = None) -> Device:
         """Build the device `driver` describes and apply this envelope to it.
 
         The driver binds its tree; the overrides are then applied onto the
         bound objects in place, so nothing holds a stale reference. Unknown
-        names and added access are errors that name the address.
+        names and added access are errors that name the address. When the
+        driver config's `link` names a key in `links`, it is substituted with
+        the built object first -- exactly as `with_link` does for a legacy
+        config; an undeclared name is a `NotFoundError` naming the device
+        and the link.
         """
         driver = Config.registry.get(self.driver)
         if driver is None:
             raise ValueError(f"driver {self.driver!r} is not registered")
         if not issubclass(driver, DriverConfig):
             raise ValueError(f"driver {self.driver!r} is a {driver.__name__}, not a device driver")
-        device = driver.model_validate(self.config).build(name, self.label)
+        config = driver.model_validate(self.config)
+        if isinstance(config.link, str):
+            if links is None or config.link not in links:
+                raise NotFoundError(f"device {name!r}: link {config.link!r} is not declared")
+            config = config.model_copy(update={"link": links[config.link]})
+        device = config.build(name, self.label)
         if self.label is not None:
             device.label = self.label
         if self.poll_s is not None:

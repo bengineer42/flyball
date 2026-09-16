@@ -436,10 +436,10 @@ def cmd_status(rig: Rig, args: argparse.Namespace) -> None:
 
 
 def cmd_rig_check(rig: Rig, args: argparse.Namespace) -> None:
-    """Validate one or more layered rig files. `--print` shows the merge, `--set` a change to it."""
+    """Validate one or more layered rig files. `--print` the canonical form, `--set` a change."""
     from flyball.core.config import discover
     from flyball.core.files import dumps
-    from flyball.runtime.config import RigConfig, resolve_documents
+    from flyball.runtime.config import RigConfig, canonical, resolve_documents
 
     names = ", ".join(str(p) for p in args.paths)
     try:
@@ -451,10 +451,12 @@ def cmd_rig_check(rig: Rig, args: argparse.Namespace) -> None:
     print(
         f"{names}: ok -- {config.name or 'unnamed'}: {len(config.links)} links, "
         f"{len(config.readers)} readers, {len(config.actuators)} actuators, "
-        f"{len(config.loops)} loops" + (f"; from {len(files)} files" if len(files) > 1 else "")
+        f"{len(config.loops)} loops, {len(config.devices)} devices, "
+        f"{len(config.controllers)} controllers"
+        + (f"; from {len(files)} files" if len(files) > 1 else "")
     )
     if args.print:
-        print(dumps(document, args.paths[0].suffix), end="")
+        print(dumps(canonical(config), args.paths[0].suffix), end="")
 
 
 def cmd_rig_schema(rig: Rig, args: argparse.Namespace) -> None:
