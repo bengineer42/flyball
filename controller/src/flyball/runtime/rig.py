@@ -609,6 +609,8 @@ class Rig:
             controller = self.controllers.remove(name)
             controller.manual()
             controller.write = Controller._unwired
+            # A watcher primes from this cell; a name the rig no longer has must not be in it.
+            self.controller_states.discard(name)
             return controller
 
     # endregion

@@ -162,3 +162,19 @@ def test_controllers_stream_sends_a_snapshot_then_each_tick(client, rig, daq, dr
         deliver(rig, daq)
         frame = ws.receive_json()["controllers"]
         assert frame[-1]["mode"] == "regulating" and frame[-1]["expected"] == 385.0
+
+
+def test_a_detached_controller_leaves_the_stream(client, rig, daq, drive, clock):
+    heater1, zone1 = drive.signals["heater1"], daq.signals["zone1"]
+    rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+    with client.websocket_connect("/ws/controllers") as ws:
+        ws.receive_json()
+        deliver(rig, daq)  # a state is published while someone watches
+        ws.receive_json()
+    assert client.delete(f"/api/controllers/{heater1.address}").status_code == 204
+    heater2 = drive.signals["heater2"]
+    rig.attach_controller(heater2, daq.signals["zone2"], law=P(kp=10.0))
+    # Priming a new watcher used to crash on the detached name.
+    with client.websocket_connect("/ws/controllers") as ws:
+        names = {c["name"] for c in ws.receive_json()["controllers"]}
+    assert names == {heater2.address}, "the detached controller's state cell is gone"
