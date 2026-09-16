@@ -68,6 +68,7 @@ class Recorder:
 
     __slots__ = (
         "_buffer",
+        "_declared",
         "_events",
         "_last_flush",
         "_last_time_ns",
@@ -103,6 +104,7 @@ class Recorder:
         self._ticks: list[Tick] = []
         self._states: list[tuple[int, Mapping[Signal, WriteState]]] = []
         self._events: list[StoredEvent] = []
+        self._declared: list[Signal] = []
         self._buffer = Lock()  # guards the four lists; held for appends and swaps only
         self._last_flush = time.monotonic()
         self._stop = StopEvent()
@@ -125,6 +127,17 @@ class Recorder:
     @property
     def running(self) -> bool:
         return self._thread.is_alive() and self.failed is None
+
+    def declare(self, signals: Iterable[Signal]) -> None:
+        """Record `signals` from now on: a device added mid-session. Declared on the next flush."""
+        new = [s for s in signals if s not in self.signals]
+        if not new:
+            return
+        self.signals = self.signals.union(new)
+        self.published = frozenset(s for s in self.signals if Access.P in s.access)
+        self.writes = frozenset(s for s in self.signals if Access.W in s.access)
+        with self._buffer:
+            self._declared.extend(new)
 
     def record(
         self,
@@ -188,11 +201,15 @@ class Recorder:
             Exception: Whatever the store raised; the buffers taken are lost.
         """
         with self._buffer:
+            declared, self._declared = self._declared, []
             samples, self._samples = self._samples, []
             ticks, self._ticks = self._ticks, []
             states, self._states = self._states, []
             events, self._events = self._events, []
         self._last_flush = time.monotonic()
+        for signal in sorted(declared, key=lambda s: s.address):
+            self.writer.declare_device(signal.device)
+            self.writer.declare_signal(signal)
         if samples:
             self.writer.write_samples(samples)
         if ticks:
@@ -212,6 +229,7 @@ class Recorder:
                 self.failed = error
                 with self._buffer:
                     self._samples, self._ticks, self._states, self._events = [], [], [], []
+                    self._declared = []
                 if self.on_failure is not None:
                     self.on_failure(error)
                 return

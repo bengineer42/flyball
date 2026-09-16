@@ -145,6 +145,8 @@ class RigConfig(BaseModel):
     controllers: dict[str, ControllerEntry] = Field(
         default_factory=dict, description="Keyed by the target signal's address."
     )
+    files: list[Path] = Field(default_factory=list, exclude=True)
+    """The files this was loaded from, set by `load_rig_config`; not part of the document."""
 
     @classmethod
     def model_validate(cls, obj: Any, **kwargs: Any) -> RigConfig:  # type: ignore[override]
@@ -233,6 +235,13 @@ class RigConfig(BaseModel):
 
         rig = Rig(self.name)
         rig.links = links
+        rig.link_entries = dict(self.links)
+        rig.files = list(self.files)
+        rig.header = {
+            k: v
+            for k, v in canonical(self).items()
+            if k not in ("name", "links", "devices", "controllers")
+        }
         if clock is not None:
             rig.clock = clock
         # Build everything before anything runs: a failure part-way leaves no
@@ -242,6 +251,7 @@ class RigConfig(BaseModel):
             for name, entry in self.devices.items():
                 device = entry.build(name, links)
                 rig.add_device(device)
+                rig.entries[name] = entry
                 built_devices.append(device)
             for name, entry in self.devices.items():
                 if entry.bound:
@@ -492,12 +502,25 @@ def resolve_documents(
     from flyball.runtime.overlay import resolve_layers
 
     path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
+    path_list.extend(saved_overlays(path_list[0]))
     document, files = resolve_layers(path_list, sets)
     board_name = document.get("board")
     if not isinstance(board_name, str):
         return document, files
     board_path = find_board(board_name, path_list[0].parent)
     return apply_board(document, load_board(board_path)), [*files, board_path]
+
+
+def saved_overlays(first: Path) -> list[Path]:
+    """The overlays the daemon saved beside a rig's first file: `<file>.d/*.<suffix>`, sorted.
+
+    What `POST /api/rig/save` writes by default; loaded after the files
+    named on the command line, so a saved addition comes back next start.
+    """
+    directory = first.with_name(first.name + ".d")
+    if not directory.is_dir():
+        return []
+    return sorted(p for p in directory.iterdir() if p.suffix.lower() in SUFFIXES)
 
 
 def load_rig_config(
@@ -509,8 +532,10 @@ def load_rig_config(
     in the file; a `board` is applied before validation.
     """
     discover()
-    document, _ = resolve_documents(path_or_paths, sets)
-    return RigConfig.model_validate(document)
+    document, files = resolve_documents(path_or_paths, sets)
+    config = RigConfig.model_validate(document)
+    config.files = files
+    return config
 
 
 def load_rig(path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[str] = ()) -> Rig:

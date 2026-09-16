@@ -91,6 +91,14 @@ class Polling:
         self.rig.event(Level.INFO, "device", name, "restarted", "polling again")
         return self._runs[name]
 
+    def stop(self, name: str) -> None:
+        """Stop polling one device and forget it; a device that was never polled is a no-op."""
+        if (loop := self.periodic.pop(name, None)) is not None:
+            loop.stop()
+        self.by_name.pop(name, None)
+        self._runs.pop(name, None)
+        self.runs.discard(name)
+
     def stop_all(self) -> None:
         for name, loop in self.periodic.items():
             loop.stop()

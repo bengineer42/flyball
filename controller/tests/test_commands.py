@@ -205,6 +205,20 @@ def test_a_batch_delivers_every_push_inside_it_as_one_sample(rig: Rig, heater: H
     assert heater.a.reading is not None and heater.a.reading.time_ns == heater.b.reading.time_ns
 
 
+def test_recording_declares_a_limit_that_follows_a_signal_as_its_number(
+    rig: Rig, heater: Heater, tmp_path
+) -> None:
+    from flyball.db import SqliteStore
+
+    store = SqliteStore(tmp_path / "rig.sqlite")
+    rig.start_recording(store)  # `banks.a` has limits (0, max_duty): declared as (0, 80)
+    rig.stop_recording()
+    session = store.sessions()[0]
+    limits = {s.address: s.limits for s in store.signals(session.id)}
+    assert tuple(limits["heater.banks.a"]) == (0.0, 80.0)
+    store.close()
+
+
 def test_a_reading_on_an_input_commits_the_device_that_follows_it(rig: Rig) -> None:
     class Follower(Committable):
         source = Demand("source", "Source", TEMP)

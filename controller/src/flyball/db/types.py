@@ -25,6 +25,8 @@ class SessionRow:
     config: Any
     hardware: Any
     details: Any
+    rig_version_id: int | None = None
+    """The rig version the session started on, when the store keeps rig versions."""
 
     @property
     def open(self) -> bool:
@@ -94,6 +96,20 @@ class ControllerRow:
     law: Any
     feedforward: Any = None
     """The feedforward's config; None in sessions recorded before there was one."""
+
+
+@dataclass(frozen=True, slots=True)
+class RigVersionRow:
+    """The rig file as it stood at one moment, and why it changed."""
+
+    id: int
+    time_ns: int
+    reason: str
+    """`loaded`, `added device blender`, `removed link pwm0`, `restored 3`, ..."""
+    files: list[str]
+    """The files the daemon loaded, for provenance; empty for a rig started bare."""
+    document: dict[str, Any]
+    """The whole rig document, `RigConfig`'s canonical form: self-contained, never a diff."""
 
 
 @dataclass(frozen=True, slots=True)

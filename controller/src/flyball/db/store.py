@@ -8,7 +8,7 @@ another, and either can be replaced without the other noticing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
 from flyball.core.device import Device
@@ -22,6 +22,7 @@ from .types import (
     Event,
     ProgramFormat,
     ProgramRow,
+    RigVersionRow,
     SampleRow,
     Series,
     SessionRow,
@@ -119,6 +120,7 @@ class Store(Protocol):
         config: Any = None,
         hardware: Any = None,
         details: Any = None,
+        rig_version_id: int | None = None,
     ) -> SessionWriter: ...
 
     def sessions(self, limit: int | None = None) -> list[SessionRow]:
@@ -295,6 +297,24 @@ class Store(Protocol):
     def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]: ...
 
     # endregion
+
+    # endregion
+
+    # region Rig versions
+
+    def save_rig_version(
+        self, time_ns: int, reason: str, document: dict[str, Any], files: Sequence[str] = ()
+    ) -> RigVersionRow:
+        """Append the rig as it now stands, and why: the whole document, never a diff."""
+        ...
+
+    def rig_versions(self, limit: int | None = None) -> list[RigVersionRow]:
+        """Newest first."""
+        ...
+
+    def rig_version(self, version_id: int) -> RigVersionRow: ...
+
+    def latest_rig_version(self) -> RigVersionRow | None: ...
 
     # endregion
 

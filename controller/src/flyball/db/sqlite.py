@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
@@ -41,6 +41,7 @@ from .types import (
     Point,
     ProgramFormat,
     ProgramRow,
+    RigVersionRow,
     SampleRow,
     Series,
     SessionRow,
@@ -199,6 +200,17 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
         config=_loads(row["config"]),
         hardware=_loads(row["hardware"]),
         details=_loads(row["details"]),
+        rig_version_id=row["rig_version_id"],
+    )
+
+
+def _rig_version_row(row: sqlite3.Row) -> RigVersionRow:
+    return RigVersionRow(
+        id=row["id"],
+        time_ns=row["time_ns"],
+        reason=row["reason"],
+        files=_loads(row["files"]) or [],
+        document=_loads(row["document"]),
     )
 
 
@@ -288,7 +300,7 @@ class SqliteSessionWriter:
                     spec.precision,
                     _dumps(spec.warn),
                     _dumps(spec.alarm),
-                    _dumps(spec.limits),
+                    _dumps(signal.limits),  # effective: a limit that follows a signal, as a number
                 ),
             )
             if Access.W in signal.access:
@@ -298,7 +310,7 @@ class SqliteSessionWriter:
                         self._session.id,
                         sid,
                         signal.device.config.config_tag or type(signal.device).__name__,
-                        _dumps(spec.limits),
+                        _dumps(signal.limits),
                     ),
                 )
                 self._writes.add(signal)
@@ -527,12 +539,20 @@ class SqliteStore:
         config: Any = None,
         hardware: Any = None,
         details: Any = None,
+        rig_version_id: int | None = None,
     ) -> SqliteSessionWriter:
         with self._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO session (start_ns, version, config, hardware, details)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (start_ns, version, _dumps(config), _dumps(hardware), _dumps(details)),
+                "INSERT INTO session (start_ns, version, config, hardware, details,"
+                " rig_version_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    start_ns,
+                    version,
+                    _dumps(config),
+                    _dumps(hardware),
+                    _dumps(details),
+                    rig_version_id,
+                ),
             )
             session_id = int(cursor.lastrowid or 0)
         return SqliteSessionWriter(self, self.session(session_id))
@@ -786,6 +806,38 @@ class SqliteStore:
     # endregion
 
     # region Tunings
+
+    # region Rig versions
+
+    def save_rig_version(
+        self, time_ns: int, reason: str, document: dict[str, Any], files: Sequence[str] = ()
+    ) -> RigVersionRow:
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO rig_version (time_ns, reason, files, document) VALUES (?, ?, ?, ?)",
+                (time_ns, reason, _dumps(list(files)), _dumps(document)),
+            )
+            version_id = int(cursor.lastrowid or 0)
+        return self.rig_version(version_id)
+
+    def rig_versions(self, limit: int | None = None) -> list[RigVersionRow]:
+        rows = self._query(
+            "SELECT * FROM rig_version ORDER BY id DESC" + ("" if limit is None else " LIMIT ?"),
+            () if limit is None else (limit,),
+        )
+        return [_rig_version_row(r) for r in rows]
+
+    def rig_version(self, version_id: int) -> RigVersionRow:
+        rows = self._query("SELECT * FROM rig_version WHERE id = ?", (version_id,))
+        if not rows:
+            raise NotFoundError(f"Rig version {version_id} not found")
+        return _rig_version_row(rows[0])
+
+    def latest_rig_version(self) -> RigVersionRow | None:
+        rows = self._query("SELECT * FROM rig_version ORDER BY id DESC LIMIT 1")
+        return _rig_version_row(rows[0]) if rows else None
+
+    # endregion
 
     def save_tuning(
         self,

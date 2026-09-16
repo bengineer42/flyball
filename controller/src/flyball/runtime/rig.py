@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
+from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, overload
 
@@ -25,6 +26,7 @@ from flyball.core.device import (
     Committable,
     Condition,
     Device,
+    DeviceEntry,
     Event,
     Level,
     Readable,
@@ -107,6 +109,18 @@ class Rig:
     """What a demand asked for where the clamp changed it, until the commit reports it."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
+    entries: dict[str, DeviceEntry]
+    """What each device was built from: its rig-file entry, for rendering the rig back out."""
+    link_entries: dict[str, Any]
+    """What each link was built from: its config, likewise."""
+    files: list[Path]
+    """The rig files the daemon loaded, if any; provenance for a version."""
+    header: dict[str, Any]
+    """The loaded document's keys that are not links, devices or controllers (`board`, `clock`,
+    `recording`), carried into the rendered document unchanged."""
+    on_change: Callable[[str], None] | None
+    """Called after the rig's composition changes (a link, a device, a controller added or
+    removed), with a one-line reason: the daemon records a version."""
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
@@ -134,6 +148,11 @@ class Rig:
         self._node_observers = {}
         self._requested = {}
         self._touched = None
+        self.entries = {}
+        self.link_entries = {}
+        self.files = []
+        self.header = {}
+        self.on_change = None
 
     @property
     def latest(self) -> dict[Signal, Reading]:
@@ -596,6 +615,168 @@ class Rig:
 
     # endregion
 
+    # region Composition
+
+    def _changed(self, reason: str) -> None:
+        if self.on_change is not None:
+            self.on_change(reason)
+
+    def add_link(self, name: str, config: Any) -> Any:
+        """Build a link from its config (a tagged `Config`) and hold it under `name`.
+
+        Raises:
+            ConflictError: The name is already a link's.
+        """
+        with self.lock:
+            if name in self.links:
+                raise ConflictError(f"Link {name!r} already exists")
+            self.links[name] = built = config.build()
+            self.link_entries[name] = config
+            self._changed(f"added link {name}")
+            return built
+
+    def remove_link(self, name: str) -> None:
+        """Drop a link no device is built on.
+
+        Raises:
+            NotFoundError: No such link.
+            ConflictError: A device was built on it.
+        """
+        with self.lock:
+            if name not in self.links:
+                raise NotFoundError(f"Link {name!r} not found")
+            built = self.links[name]
+            users = [
+                d.name for d in self.devices.values() if any(h is built for h in vars(d).values())
+            ]
+            if users:
+                raise ConflictError(f"Link {name!r} is used by {', '.join(users)}")
+            del self.links[name]
+            self.link_entries.pop(name, None)
+            self._changed(f"removed link {name}")
+
+    def add_entry(self, name: str, entry: DeviceEntry, *, start: bool = True) -> Device:
+        """Build `entry` as device `name` and put it on the running rig.
+
+        The four steps a rig file's device gets, at once: build on the rig's
+        links, add, bind its inputs, start polling. Nothing is left behind
+        if a step fails. A recording in progress records it from now on.
+
+        Raises:
+            ConflictError: The name is taken.
+            NotFoundError: The driver or a link is not known.
+            AddressNotFoundError: A bound address does not resolve.
+        """
+        with self.lock:
+            if name in self.devices:
+                raise ConflictError(f"Device {name!r} already exists")
+            device = entry.build(name, self.links)
+            self.add_device(device)
+            try:
+                if entry.bound:
+                    self.bind_inputs(device, entry.bound)
+            except Exception:
+                self._drop_device(device)
+                raise
+            self.entries[name] = entry
+            if start:
+                self.start_polling(device)
+            if self.recorder is not None:
+                self.recorder.declare(device.signals.values())
+            self._changed(f"added device {name}")
+            return device
+
+    def remove_device(self, name: str) -> None:
+        """Take a device off the running rig, and everything that hung off it.
+
+        Its poll loop stops; controllers driving or regulating a signal of
+        it are detached; other devices' inputs bound into it are unbound;
+        its readings leave the router and the streams.
+
+        Raises:
+            NotFoundError: No such device.
+        """
+        with self.lock:
+            device = self.devices.get(name)
+            if device is None:
+                raise NotFoundError(f"Device {name!r} not found")
+            for cname, controller in list(self.controllers.items()):
+                if controller.target.device is device or controller.source.device is device:
+                    self.detach_controller(cname)
+            self._drop_device(device)
+            self.entries.pop(name, None)
+            self._changed(f"removed device {name}")
+
+    def _drop_device(self, device: Device) -> None:
+        """Undo `add_device` and `bind_inputs`, stop its polling; controllers are the caller's."""
+        self.polling.stop(device.name)
+        for signal in list(self._observers):
+            if signal.device is device:
+                del self._observers[signal]
+            else:
+                self._observers[signal].pop(device, None)
+        for node in list(self._node_observers):
+            if node.device is device:
+                del self._node_observers[node]
+            else:
+                self._node_observers[node].pop(device, None)
+        for other in self.devices.values():
+            for role, bound in list(other.bound.items()):
+                if bound.device is device:
+                    del other.bound[role]
+        for signal in device.signals.values():
+            self.router.latest.pop(signal, None)
+            self.router.recent.pop(signal, None)
+            self.router.seq.pop(signal, None)
+            self.write_states.discard(signal.address)
+            self._requested.pop(signal, None)
+        for node in (device.root, *device.root.descendants()):
+            self.router.samples.pop(node, None)
+            self.router.cuts.pop(node, None)
+            self.samples.discard(node.address)
+        if (writer := self._writers.pop(device, None)) is not None:
+            writer.stop()
+        self.release(device.name)
+        device.router = Router()
+
+    def document(self) -> dict[str, Any]:
+        """The running rig as a rig file: what `RigConfig` would load to build it again.
+
+        Rendered from what each link and device was built from and how each
+        controller is wired now, in the file's canonical form; links and
+        devices built in code rather than from an entry are left out.
+        """
+        from flyball.runtime.config import ControllerEntry, RigConfig, canonical
+
+        controllers = {
+            name: ControllerEntry(
+                signal=c.source.address,
+                law=c.law.config if c.law is not None else None,
+                # The file's default: the setpoint itself. Left out, as a file would.
+                feedforward=None
+                if c.feedforward.config.tag == "setpoint"
+                else c.feedforward.config,
+                default=self.controllers.default == name,
+                min_period_s=c.min_period_s,
+            )
+            for name, c in self.controllers.items()
+        }
+        config = RigConfig.model_validate({
+            "name": self.name,
+            **self.header,
+            "links": dict(self.link_entries),
+            "devices": dict(self.entries),
+            "controllers": controllers,
+        })
+        document = canonical(config)
+        document["links"] = {
+            name: {"tag": config.config_tag, **config.model_dump(mode="json", exclude_none=True)}
+            for name, config in self.link_entries.items()
+        }
+        return document
+
+    # endregion
+
     # region Commands
 
     def run_command(self, device: Device, tag: str, args: Mapping[str, Any] | None = None) -> Any:
@@ -742,6 +923,7 @@ class Rig:
             write=write,
         )
         self.controllers.add(controller, default=default)
+        self._changed(f"attached controller {controller.name}")
         return controller
 
     def detach_controller(self, name: str) -> Controller:
@@ -758,6 +940,7 @@ class Rig:
             controller.write = Controller._unwired
             # A watcher primes from this cell; a name the rig no longer has must not be in it.
             self.controller_states.discard(name)
+            self._changed(f"detached controller {name}")
             return controller
 
     # endregion
