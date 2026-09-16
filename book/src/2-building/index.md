@@ -21,7 +21,7 @@ API, the CLI — needs to change. The extension points are:
 
 | to add | write | you get |
 | --- | --- | --- |
-| a device | a `Device` subclass with `TREE`, `read` and/or `write_signal`/`commit`, typed `config`/`settings`/`state` properties, `@command` methods | routes under `/api/devices`, telemetry, CLI subcommands, its signals in the schema |
+| a device | a `Readable` and/or `Committable` subclass, its tree as descriptors (`Demand`, `Output`, `Setting`, `ConfigSignal`) in the class body or built from config, `read` and/or `write_signal`/`commit`, `@command` methods | routes under `/api/devices`, telemetry, CLI subcommands, its signals in the schema |
 | a control law | a class with `step` | a tag usable in files and requests, config/state/view models |
 | a trajectory | a class with `generate` | the same |
 | a program command | a frozen dataclass with `run` | a request model, a spelling in program files |
@@ -38,7 +38,7 @@ after 2 min: 100.9 °C, demand 95.4
 
 Chapters:
 
-- [Writing a sensor](sensor.md) — a device with only `R`/`P` signals: quantities, the tree, polled and pushed reads
-- [Writing an actuator](actuator.md) — a device with `W` signals: `write_signal`/`commit`, the three tiers, commands, conditions
+- [Writing a sensor](sensor.md) — a `Readable` device: quantities, the tree, polled and pushed reads
+- [Writing an actuator](actuator.md) — a `Committable` device: `write_signal`/`commit`, roles, commands, conditions
 - [Config and build](config.md) — describing a device so it can be built from a file
 - [Assembling a rig](rig.md) — devices, controllers, recording, serving, or the same from a file

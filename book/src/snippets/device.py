@@ -1,20 +1,27 @@
-"""A device with all three tiers, a command, and a condition."""
+"""A driver with an output, a demand and a setting.
 
-from dataclasses import dataclass
+`read` polls the output, `commit` writes the demand, and a command's
+argument links to the setting it changes.
+"""
 
-from flyball.core import Access, Quantity, SignalSpec
+from __future__ import annotations
+
+from typing import Annotated
+
 from flyball.core.device import (
-    Condition,
-    Device,
-    DeviceSettings,
-    DeviceState,
+    Committable,
+    Demand,
     DriverConfig,
-    Level,
+    Output,
+    Readable,
+    Setting,
     command,
 )
-from flyball.core.units.si import Celsius
+from flyball.core.quantity import Quantity
+from flyball.core.units.si import Celsius, Watt
 
 TEMPERATURE = Quantity("temperature", Celsius)
+POWER = Quantity("power", Watt)
 
 
 class HeaterConfig(DriverConfig["Heater"], tag="heater"):
@@ -22,61 +29,41 @@ class HeaterConfig(DriverConfig["Heater"], tag="heater"):
 
     max_power_w: float = 500.0
 
-    def build(self, name: str, label: str | None = None) -> "Heater":
+    def build(self, name: str, label: str | None = None) -> Heater:
         return Heater(name, self, label)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class HeaterSettings(DeviceSettings):
-    """What a command can change while it runs."""
+class Heater(Readable, Committable):
+    """Turns a temperature demand into a power, capped by a settable fraction of the maximum.
 
-    limit: float = 1.0  # fraction of max_power_w a controller may use
+    `demand` has no command of its own, so the rig synthesises `set_demand`;
+    `limit` is re-set by `set_limit`, whose argument links to it.
+    """
 
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class HeaterState(DeviceState):
-    """What it reports now."""
-
-    power_w: float = 0.0
-
-
-class Heater(Device):
-    """Turns a temperature demand into a power. One writable signal."""
-
-    TREE = (SignalSpec(name="demand", quantity=TEMPERATURE, access=Access.W),)
+    demand = Demand("demand", "Target temperature", TEMPERATURE, limits=(0.0, 300.0))
+    power = Output("power", "Power drawn", POWER)
+    limit = Setting("limit", "Power limit", initial=1.0)  # fraction of max_power_w
 
     def __init__(self, name: str, config: HeaterConfig, label: str | None = None) -> None:
         super().__init__(name, label)
         self._config = config
-        self._limit = 1.0
         self._power = 0.0
-
-    def write_signal(self, signal, value: float) -> None:
-        wanted = max(0.0, (value - 20.0) * 5.0)  # a crude gain: 5 W per degree above ambient
-        self._power = min(wanted, self._config.max_power_w * self._limit)
 
     @property
     def config(self) -> HeaterConfig:
         return self._config
 
-    @property
-    def settings(self) -> HeaterSettings:
-        return HeaterSettings(limit=self._limit)
+    def read(self, time_ns: int, node=None):
+        """Poll the power meter."""
+        yield self.sample(time_ns, power=self._power)
 
-    @property
-    def state(self) -> HeaterState:
-        conditions = ()
-        if self._power >= self._config.max_power_w * self._limit:
-            conditions = (Condition("railed", Level.WARNING, "at the power limit", 0),)
-        return HeaterState(power_w=self._power, conditions=conditions)
+    def commit(self, time_ns: int) -> None:
+        """Push the demand to the element, capped by `limit`."""
+        if (target := self.demand.pending) is not None:
+            wanted = max(0.0, (target - 20.0) * 5.0)  # 5 W per degree above ambient
+            self._power = min(wanted, self._config.max_power_w * self.limit.value)
 
     @command
-    def set_limit(self, limit: float) -> HeaterSettings:
+    def set_limit(self, fraction: Annotated[float, limit]) -> None:
         """Cap the power a controller may use, as a fraction of the maximum."""
-        self._limit = max(0.0, min(1.0, limit))
-        return self.settings
-
-    @command(tag="off")
-    def switch_off(self) -> None:
-        """Cut the power."""
-        self._power = 0.0
+        self.limit.push(max(0.0, min(1.0, fraction)))

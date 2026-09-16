@@ -26,9 +26,10 @@ with the library:
 address of the signal it drives (or a list, or none for the rig's default) --
 not the device itself, since a writable signal has at most one controller.
 Device commands (`@command` methods on a device) are reachable as `command`
-steps; a humidity rig's `set_blend` or `set_fraction` becomes a `set` step on
-the blender's own writable signals instead, once those settings are signals
-rather than commands.
+steps; a humidity rig's `set_blend` is one. Its `blend` is a `Setting`
+signal — shown on the wire, `RP` — but a setting is re-set by a command,
+not a demand, so it stays a `command` step; only a `Demand` signal (`RPW`)
+can be reached as a `set` step.
 
 ## Activities and signals
 

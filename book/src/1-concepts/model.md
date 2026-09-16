@@ -7,9 +7,13 @@ is made of, and the rest of the library is arithmetic over them.
 
 Everything with a name is a **device**: a sensor, a relay, a multi-channel
 instrument, a composite like a split-range blender. A device has a tree of
-**signals** (namespaces group them into sub-devices), commands, and state.
-There is no separate reader or actuator class — what a device *is* falls
-out of which access flags its signals carry.
+**signals** (namespaces group them into sub-devices), commands, and
+**conditions** — what the driver says is true of it now (railed, offline,
+overdriven), pushed onto the base class's own `conditions` output. There is
+no separate reader or actuator class: a device is `Readable` (implements
+`read`, produces samples on a schedule) if it polls, `Committable`
+(implements `apply`/`commit`) if it has demands, both, or neither — what
+falls out of that is which access flags its signals carry.
 
 ```python
 from flyball.core import Quantity
@@ -24,24 +28,46 @@ two devices may both report `temperature` in °C without sharing an object.
 Range, precision and bands live on the *signal*, because two thermocouples
 on one rig can differ in all three.
 
+## Roles
+
+Every signal has a **role**, declared on its descriptor and fixed for the
+device's life. The role sets the signal's default access:
+
+| role | access | meaning |
+| --- | --- | --- |
+| `Role.DEMAND` | `RPW` | settable, with a current value (its readback) that updates — what a controller drives |
+| `Role.OUTPUT` | `RP` | produced, never set: a measurement, a derived value, a mode |
+| `Role.SETTING` | `RP` | re-set by a command while the device runs, shown; not driven by a controller |
+| `Role.CONFIG` | `R` | effective at build, shown, never set at run time |
+| `Role.INPUT` | — | another device's signal, bound by the rig to a role; not in the tree |
+
+Structure is declared once, as descriptors in the class body (`Namespace`,
+`Demand`, `Output`, `Setting`, `ConfigSignal`, `Input`), or built from config
+in `__init__` with the same factories and bound with `Device.bind`.
+`Section("dry", "Dry line")` in place of a name tags a second grouping axis
+across the tree, orthogonal to the namespace. On the class a descriptor is
+its spec; on an instance it is the bound
+[`Signal`][flyball.core.signal.Signal] (`self.dry_flow.value`,
+`.push(v)`, `.pending`, `.limits`).
+
 ## Signals: R, P, W
 
 A **signal** is one named value of one quantity on one device. It has an
 **address** — `device[.namespace…].signal`, e.g. `hum_sensors.dry.humidity`
-— and an **access** set:
+— and an **access** set, which a signal's role sets by default and a rig
+file may only narrow:
 
 | flag | meaning | where it matters |
 | --- | --- | --- |
 | **R** readable | a `GET` returns a current value on demand (last known, or a fresh hardware read with `fresh=true`) | detail pages, "read now" |
 | **P** publishing | the device emits it on its own schedule (poll or push): samples, `/ws/samples`, the store, the recorder | readouts, charts, dashboards, history |
-| **W** writable | accepts a demand; a controller may target it; has `limits`, `together`; keeps its last *set* value beside its read value | target entry, controllers, program steps |
+| **W** writable | accepts a demand; a controller may target it; has `limits`; keeps its last *set* value beside its read value | target entry, controllers, program steps |
 
-`P` implies `R`. Typical: a thermocouple is `RP`; a heater relay `W`; a
-setting such as a blender's `blend_flow` is `RW` (read on demand, not
-streamed); a single-register PSU voltage genuinely is `RPW`. The
-**convention** is to keep set and measured values on separate addresses
-(`psu.set_voltage [W]`, `psu.output_voltage [RP]`); `RPW` is reserved for
-hardware that really is one register.
+`P` implies `R`. Typical: a thermocouple is `RP` (`Role.OUTPUT`); a heater's
+demand is `RPW` (`Role.DEMAND`) — the readback is the committed value, so
+the target and what it settled to share one address; a setting such as a
+blender's `blend` is `RP` (`Role.SETTING`, read on demand, changed only by
+its command, never streamed as a demand would be).
 
 The **driver declares** each signal's access; a rig file may only
 *restrict* it (`publishing: false` on a noisy diagnostic), never add a flag
@@ -75,12 +101,13 @@ references, not strings.
 ## Demands are a sample in reverse
 
 A **demand** puts one or more values on `W` signals under one node, at one
-instant, applied atomically: `rig.demand(node, {name: value, ...})`.
-Signals a driver declares `together` (a blender's `dry_flow`/`wet_flow`)
-must arrive in the same demand — a lone write to one is refused. Writes are
-two-phase: `apply` records a value (no I/O), and `commit` pushes everything
-recorded to hardware once, at the end of a delivery. There is no dirty flag
-for a driver to maintain — the rig tracks which devices a delivery touched.
+instant, applied atomically: `rig.demand(node, {name: value, ...})`. Writes
+are two-phase: `apply` records a value (no I/O), and `commit` pushes
+everything recorded to hardware once, at the end of a delivery — `commit`
+returns nothing; a driver whose actual readback differs from the demand (a
+clamp, a quantised duty) pushes it itself (`signal.push(value)`). There is
+no dirty flag for a driver to maintain — the rig tracks which devices a
+delivery touched.
 
 ## Controller
 
@@ -125,10 +152,13 @@ link.
 | **structure** (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup | the rig, under its lock, as an event — a file override, a live limit change, a controller attached |
 | **values** (per instant) | `Reading`, `Sample`, `Demand`, `WriteState`, `Event` | frozen | never after the fact; recorded, streamed, compared |
 
-This is a device's own config/settings/state split applied to the whole
-graph: the structure tier is the rig's settings layer. `Signal.spec` is
-what the driver declared; `Signal.access` and its overridden metadata are
-what is in force — `rig check`, the wire and the UI can show both ("driver
-says RPW, file made it RP").
+A device's own signals echo the same split at finer grain: a role's *access*
+is the declaration tier, a `Role.CONFIG` signal is effective at the
+structure tier (merged from class defaults, config and the rig file at
+build), and a `Role.DEMAND`/`Role.SETTING`/`Role.OUTPUT` signal's readings
+are the values tier. `Signal.spec` is what the driver declared;
+`Signal.access` and its overridden metadata are what is in force —
+`rig check`, the wire and the UI can show both ("driver says RPW, file made
+it RP").
 
 Next: [The controller](loop.md).

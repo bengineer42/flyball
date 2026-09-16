@@ -4,7 +4,7 @@ import random
 from collections.abc import Iterator
 
 from flyball.core import Access, Quantity, Sample, SignalSpec
-from flyball.core.device import Device
+from flyball.core.device import Readable
 from flyball.core.units.si import Celsius, Pascal
 from flyball.runtime import Rig
 
@@ -32,7 +32,7 @@ TREE = (
 )
 
 
-class PolledWeather(Device):
+class PolledWeather(Readable):
     """The rig calls `read` on a period and delivers what comes back."""
 
     TREE = TREE
@@ -48,7 +48,7 @@ class PolledWeather(Device):
         )
 
 
-class PushedWeather(Device):
+class PushedWeather(Readable):
     """Something else produces values; this device hands them to the rig as they arrive."""
 
     TREE = TREE
