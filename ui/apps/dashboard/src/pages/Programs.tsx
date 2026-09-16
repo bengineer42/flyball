@@ -44,7 +44,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import StopIcon from "@mui/icons-material/Stop";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { useQuery, useRig } from "@flyball/react";
+import { useQuery, useRig, useRigSchema } from "@flyball/react";
 import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "@flyball/client";
 import { hashFor } from "../router.js";
 import { Confirm } from "../Confirm.js";
@@ -52,7 +52,7 @@ import { NEW, stepOf, type Programmer } from "../model.js";
 import { clickThrough, clickableSx, SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { normalisedOf, stepsSummary } from "../steps.js";
-import { asProgram, briefError, stepOfError, type ProgramTree } from "../programDoc.js";
+import { asProgram, briefError, stepOfError, type DeviceCommands, type ProgramTree } from "../programDoc.js";
 import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
 import { ProgramBuilder } from "./ProgramBuilder.js";
 import { when } from "../time.js";
@@ -461,6 +461,14 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
   const history = useQuery(async () => (creating ? [] : rig.programHistory(routeName)), [rig, routeName, creating]);
   const programSchema = useQuery(() => rig.programSchema(), [rig]);
   const loops = useQuery(async () => (await rig.loops()).map((l) => l.name), [rig]);
+  const rigSchema = useRigSchema();
+  // every device with a command of its own, for the `command` step: actuators and readers alike, as the daemon resolves them
+  const devices = useMemo<DeviceCommands | undefined>(() => {
+    if (!rigSchema.data) return undefined;
+    return Object.fromEntries(
+      [...Object.values(rigSchema.data.actuators), ...Object.values(rigSchema.data.readers)].filter((d) => Object.keys(d.commands).length > 0).map((d) => [d.name, d.commands]),
+    );
+  }, [rigSchema.data]);
   const [format, setFormat] = useState<ProgramFormat>("yaml");
   // The tree is the truth; the text is what the user sees and saves. Either side may be edited: the other follows.
   const [tree, setTree] = useState<ProgramTree>(EMPTY);
@@ -705,7 +713,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
           showing the last text that parsed; fix the text to update
         </Typography>
       )}
-      <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} loops={loops.data} stepErrors={check?.stepErrors ?? {}} revision={revision} nameEditable={creating} />
+      <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} loops={loops.data} devices={devices} stepErrors={check?.stepErrors ?? {}} revision={revision} nameEditable={creating} />
     </Box>
   );
   const textPane = (

@@ -4,7 +4,7 @@
  * schema shaped for a form, a step's arguments in and out of that form, and
  * the step an error message points at. No rendering, no fetching.
  */
-import { deref, humanise, RigError, unwrapNullable, type JsonSchema } from "@flyball/client";
+import { deref, humanise, isEmpty, RigError, unwrapNullable, type CommandSchema, type JsonSchema } from "@flyball/client";
 import type { Tree } from "./programText.js";
 
 /** One step of a program file: `{ramp: {...}}`, plus any modifier keys the dialect allows beside it. */
@@ -291,19 +291,47 @@ export interface FormShape {
   uiSchema: Record<string, unknown>;
 }
 
+/** The rig's devices that take commands, each with its commands' schemas (`GET /api/schema`), for the `command` step's picks. */
+export type DeviceCommands = Record<string, Record<string, CommandSchema>>;
+
+/** The device command a `command` step names, when `devices` knows it. */
+function deviceCommandOf(args: Record<string, unknown>, devices: DeviceCommands | undefined): CommandSchema | undefined {
+  const device = typeof args.actuator === "string" ? devices?.[args.actuator] : undefined;
+  return typeof args.device_command === "string" ? device?.[args.device_command] : undefined;
+}
+
 /**
  * The argument schema shaped for the form: `loop` as a pick from the rig's
- * loops, the composite time field and its flat keys left to their own
- * control, defaults as placeholders.
+ * loops, a `command` step's `actuator` and `device_command` as picks from the
+ * rig's devices and its `args` as that command's own arguments (from `current`,
+ * what the step says now), the composite time field and its flat keys left to
+ * their own control, defaults as placeholders.
  * Self-contained: `$defs` are copied in so `$ref`s still resolve.
  */
-export function formShape(command: CommandInfo, root: JsonSchema, loops: string[] | undefined): FormShape {
+export function formShape(command: CommandInfo, root: JsonSchema, loops: string[] | undefined, devices?: DeviceCommands, current: Record<string, unknown> = {}): FormShape {
   const properties: Record<string, JsonSchema> = {};
   const ui: Record<string, unknown> = {};
+  const deviceCommand = command.tag === "command" ? deviceCommandOf(current, devices) : undefined;
+  let defs = root.$defs;
   for (const [name, raw] of Object.entries(command.args.properties ?? {})) {
     if (command.time?.keys.includes(name)) continue; // one control of its own
     let field = withoutDefaults(deref(raw, root));
     if (name === "wait" && field.type === "boolean" && !field.description) field = { ...field, description: `wait for the ${command.title.toLowerCase()} to finish before the next step` };
+    if (command.tag === "command" && devices) {
+      if (name === "actuator") {
+        const names = Object.keys(devices);
+        if (names.length > 0) field = { ...field, enum: names };
+      } else if (name === "device_command") {
+        const names = Object.keys((typeof current.actuator === "string" && devices[current.actuator]) || {});
+        if (names.length > 0) field = { ...field, enum: names };
+      } else if (name === "args") {
+        // nothing to fill until the command is known, and nothing when it takes no arguments
+        if (!deviceCommand || isEmpty(deviceCommand.arguments)) continue;
+        const { $defs, ...args } = withoutDefaults(deviceCommand.arguments);
+        field = { ...args, title: field.title ?? "Arguments", ...(deviceCommand.description ? { description: deviceCommand.description.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ") } : {}) };
+        if ($defs) defs = { ...defs, ...$defs };
+      }
+    }
     if (name === "loop") {
       field = {
         type: "array",
@@ -319,8 +347,24 @@ export function formShape(command: CommandInfo, root: JsonSchema, loops: string[
     }
     properties[name] = field;
   }
-  const schema: JsonSchema = { type: "object", title: command.title, properties, ...(command.args.required ? { required: command.args.required.filter((r) => r in properties) } : {}), ...(root.$defs ? { $defs: withoutDefaults({ $defs: root.$defs }).$defs } : {}) };
+  const schema: JsonSchema = { type: "object", title: command.title, properties, ...(command.args.required ? { required: command.args.required.filter((r) => r in properties) } : {}), ...(defs ? { $defs: withoutDefaults({ $defs: defs }).$defs } : {}) };
   return { schema, uiSchema: ui };
+}
+
+/** A `command` step's arguments with what no longer applies dropped: a new actuator clears the command and its args, a new command its args. */
+export function onDeviceChange(args: Record<string, unknown>, before: Record<string, unknown>): { args: Record<string, unknown>; changed: boolean } {
+  if (args.actuator !== before.actuator) {
+    const { device_command: _c, args: _a, ...rest } = args;
+    void _c;
+    void _a;
+    return { args: rest, changed: true };
+  }
+  if (args.device_command !== before.device_command) {
+    const { args: _a, ...rest } = args;
+    void _a;
+    return { args: rest, changed: true };
+  }
+  return { args, changed: false };
 }
 
 /** The tree with `steps` guaranteed a list; null when `value` is not a program-shaped mapping at all. */
