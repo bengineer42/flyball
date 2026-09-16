@@ -57,7 +57,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
         for d in schema["generators"]["$defs"].values()
         if "tag" in d.get("properties", {})
     }
-    assert generators == {"linear_ramp_setpoint"}
+    assert generators == {"linear_ramp_setpoint", "hold", "profile"}
     assert schema["generators"]["discriminator"]["propertyName"] == "tag"
     assert schema["regulated"] == {} and schema["driven"] == {}
 
@@ -167,6 +167,7 @@ def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
     assert made.status_code == 201
     reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
     assert reg.status_code == 200 and reg.json()["setpoint"] == 20.0
+    assert reg.json()["arrived"] is True, "a number is already where it is going"
 
     ramp = client.put(
         f"/api/controllers/{target}/reference",
@@ -177,7 +178,8 @@ def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
     assert reference["tag"] == "linear_ramp_setpoint"
     assert reference["end"] == 30.0
     assert reference["pace"] == {"value": 10.0, "per": "minute"}
-    assert "end_time" in reference, "started: the wire view carries where it lands"
+    assert reference["end_time"] == pytest.approx(60.0), "started: the wire says where it lands"
+    assert ramp.json()["arrived"] is False
 
     # Mode and law untouched; the setpoint itself only moves once the law next ticks.
     assert ramp.json()["mode"] == "regulating" and ramp.json()["setpoint"] == 20.0
@@ -186,12 +188,85 @@ def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
     deliver(rig, daq)
     after = client.get(f"/api/controllers/{target}").json()
     assert after["setpoint"] == pytest.approx(20.0 + 10.0 / 60.0)
+    assert after["arrived"] is False
+
+    clock.advance(59.0)
+    deliver(rig, daq)
+    landed = client.get(f"/api/controllers/{target}").json()
+    assert landed["setpoint"] == 30.0 and landed["arrived"] is True
 
     bad = client.put(
         f"/api/controllers/{target}/reference", json={"at": {"tag": "no_such_generator"}}
     )
     assert bad.status_code == 422
     assert any("no_such_generator" in str(error) for error in bad.json()["detail"])
+
+
+def test_reference_can_start_a_profile(client, rig, daq, drive, clock):
+    """A profile's segments validate recursively; the wire shows them and the active index."""
+    target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
+    deliver(rig, daq)
+    client.post(
+        "/api/controllers",
+        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+    )
+    client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
+    profile = client.put(
+        f"/api/controllers/{target}/reference",
+        json={
+            "at": {
+                "tag": "profile",
+                "segments": [
+                    {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0},
+                    {"tag": "hold", "value": 30.0, "duration": {"minutes": 5}},
+                    {"tag": "profile", "segments": [{"tag": "hold", "value": 25.0}]},
+                ],
+            }
+        },
+    )
+    assert profile.status_code == 200, profile.text
+    reference = profile.json()["reference"]
+    assert reference["tag"] == "profile" and "end_time" not in reference, "endless at the end"
+    assert [s["tag"] for s in reference["segments"]] == ["linear_ramp_setpoint", "hold", "profile"]
+    assert reference["segments"][0]["pace"] == {"value": 10.0, "per": "minute"}
+    assert reference["segments"][2]["segments"] == [
+        {"tag": "hold", "value": 25.0, "duration": None}
+    ]
+    assert "active" not in reference, "not yet ticked"
+    assert profile.json()["arrived"] is False
+
+    clock.advance(30.0)
+    deliver(rig, daq)
+    ramping = client.get(f"/api/controllers/{target}").json()
+    assert ramping["setpoint"] == pytest.approx(25.0)
+    assert ramping["reference"]["active"] == 0
+
+    clock.advance(60.0)
+    deliver(rig, daq)
+    soaking = client.get(f"/api/controllers/{target}").json()
+    assert soaking["setpoint"] == 30.0 and soaking["reference"]["active"] == 1
+
+    clock.advance(300.0)
+    deliver(rig, daq)
+    last = client.get(f"/api/controllers/{target}").json()
+    assert last["setpoint"] == 25.0 and last["reference"]["active"] == 2
+    assert last["arrived"] is False, "a hold with no duration never lands"
+
+    endless_first = client.put(
+        f"/api/controllers/{target}/reference",
+        json={
+            "at": {
+                "tag": "profile",
+                "segments": [{"tag": "hold", "value": 1.0}, {"tag": "hold", "value": 2.0}],
+            }
+        },
+    )
+    assert endless_first.status_code == 422
+    assert "segment 0 (hold) never ends" in endless_first.text
+    empty = client.put(
+        f"/api/controllers/{target}/reference", json={"at": {"tag": "profile", "segments": []}}
+    )
+    assert empty.status_code == 422
 
 
 def test_regulate_can_start_a_generator_from_the_current_reading(client, rig, daq, drive, clock):

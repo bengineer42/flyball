@@ -102,17 +102,26 @@ target's address.
 | `PUT` | `/api/controllers/{address}/reference` | `{at}`; move the setpoint, or start following a generator spec (as `regulate` takes), without touching the mode |
 
 A `ControllerOut` is `{name, label, target, source, default, mode, law,
-feedforward, demand_unit, reference, setpoint, correction, demand,
+feedforward, demand_unit, reference, setpoint, arrived, correction, demand,
 expected, delivered_correction, reading}`: `name` is `target`; `label` the
 target signal's; `reference` is a number or, mid-trajectory, `{tag,
-...the generator's own arguments, end_time?}` (a `linear_ramp_setpoint`
-shows `pace`, `end` and, once started, `end_time`), `setpoint` the value
-it resolved to at the last tick (in the source's unit), and `demand`,
-`expected` and `correction` are in `demand_unit` -- the target's unit,
-which the `feedforward` (`{tag: setpoint | none | affine | table, ...}`,
-`affine`/`table` taking an optional `rate_gain` for a ramp's rate of
-change) maps the setpoint into; `reading` is `{signal, time_ns, value}` on
-the source at the last tick.
+...the generator's own arguments, end_time?}` (`end_time` in seconds from
+the rig's start, once started and unless endless), `setpoint` the value it
+resolved to at the last tick (in the source's unit), `arrived` whether the
+reference has landed (a number has; a generator once it finishes, judged
+in rig time), and `demand`, `expected` and `correction` are in
+`demand_unit` -- the target's unit, which the `feedforward` (`{tag:
+setpoint | none | affine | table, ...}`, `affine`/`table` taking an
+optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
+`reading` is `{signal, time_ns, value}` on the source at the last tick.
+
+The generators, by `tag`:
+
+| tag | arguments | on the wire once started |
+|---|---|---|
+| `linear_ramp_setpoint` | `pace` (a rate, `{per_minute: 10}`, or a duration for the whole walk), `end` | `end_time`; starts from the current setpoint or reading and walks to `end`, so a ramp to where it already is finishes at once; a descending ramp's rate is negative |
+| `hold` | `value`, `duration?` | `end_time` when it has a duration; without one it never finishes |
+| `profile` | `segments`: a list of generator specs (this union, recursively) | `segments` as given, `active` (the index of the segment in force at the last tick), `end_time` unless the last segment is endless; each segment starts where the previous landed (a ramp's `end`, a hold's `value`), the first from the profile's own start; 422 if a segment before the last never ends, or there are none |
 
 ## Waits
 

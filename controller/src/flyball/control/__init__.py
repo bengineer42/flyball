@@ -22,7 +22,10 @@ from .feedforward import (
 )
 from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
 from .setpoint import (
+    GeneratorConfig,
+    Hold,
     LinearRampSetpoint,
+    Profile,
     SetPointGenerator,
     SetPointGeneratorConfig,
     SetPointGenerators,
@@ -66,12 +69,15 @@ __all__ = [
     "Feedforward",
     "FeedforwardConfig",
     "Feedforwards",
+    "GeneratorConfig",
+    "Hold",
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "NoFeedforward",
     "OpenLoop",
     "OpenLoopTuning",
     "P",
+    "Profile",
     "RegulateResult",
     "SetPointGenerator",
     "SetPointGeneratorConfig",

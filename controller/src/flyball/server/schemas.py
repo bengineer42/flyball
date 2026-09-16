@@ -300,6 +300,9 @@ class GeneratorOut(BaseModel):
 
     Loosely typed (`extra="allow"`) rather than a union over every
     registered generator, so the shape stays put as generators are added.
+    Once started a generator also shows where it lands (`end_time`, in
+    seconds from the rig's start; absent while endless); a `profile` shows
+    its `segments` as given and `active`, the index of the one in force.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -333,6 +336,8 @@ class ControllerOut(BaseModel):
     reference: float | GeneratorOut | None
     setpoint: float | None
     """The reference as resolved at the last tick, so a ramp's current value is on the wire."""
+    arrived: bool
+    """Whether the reference has landed: a number has; a trajectory once it finishes."""
     correction: float
     demand: float | None
     expected: float | None
@@ -360,6 +365,7 @@ class ControllerOut(BaseModel):
             if isinstance(reference, float | int | type(None))
             else GeneratorOut.of(reference),
             setpoint=view.setpoint,
+            arrived=view.arrived,
             correction=view.correction,
             demand=view.demand,
             expected=view.expected,

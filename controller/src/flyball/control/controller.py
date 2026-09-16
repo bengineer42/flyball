@@ -80,6 +80,8 @@ class ControllerState:
     reference: float | SetPointGenerator | None = None
     setpoint: float | None = None
     """The reference resolved at the last tick: a ramp's value then, in the source's unit."""
+    arrived: bool = False
+    """Whether the reference has landed: a fixed one always has; a trajectory once it finishes."""
     demand: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
@@ -105,6 +107,7 @@ class ControllerView(ControllerSettings, ControllerState):
             correction=state.correction,
             reference=state.reference,
             setpoint=state.setpoint,
+            arrived=state.arrived,
             demand=state.demand,
             expected=state.expected,
             delivered_correction=state.delivered_correction,
@@ -222,12 +225,23 @@ class Controller:
             correction=self.correction,
             reference=self.reference,
             setpoint=self.setpoint,
+            arrived=self.arrived,
             demand=self.demand,
             expected=self.expected,
             delivered_correction=self.delivered_correction,
             mode=self.mode,
             reading=self.reading,
         )
+
+    @property
+    def arrived(self) -> bool:
+        """Whether the reference has landed, now: a number has; a trajectory once it finishes.
+
+        False with no reference at all -- there is nothing to have arrived at.
+        """
+        if isinstance(self.reference, SetPointGenerator):
+            return self.reference.finished(self.clock.from_start_s(self.clock.now_ns()))
+        return self.reference is not None
 
     @property
     def view(self) -> ControllerView:

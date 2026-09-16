@@ -322,6 +322,8 @@ export interface ControllerOut {
   reference: number | string | null;
   /** The reference resolved at the last tick, in the source's unit: a ramp's current value. */
   setpoint: number | null;
+  /** Whether the reference has landed: a number has; a trajectory once it finishes. */
+  arrived?: boolean;
   correction: number;
   demand: number | null;
   expected: number | null;

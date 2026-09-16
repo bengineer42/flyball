@@ -10,14 +10,18 @@ from flyball.control import (
     Affine,
     Controller,
     ControllerMode,
+    GeneratorConfig,
+    Hold,
     LinearRampSetpoint,
     NoFeedforward,
+    Profile,
     Setpoint,
+    SetPointGenerator,
     SetPointGenerators,
     Transfer,
 )
 from flyball.control.laws import P
-from flyball.core.clock import Speed, TimeUnit
+from flyball.core.clock import Duration, Speed, TimeUnit
 from flyball.core.device import Device
 from flyball.core.errors import ConflictError
 from flyball.core.quantity import Quantity
@@ -272,3 +276,180 @@ def test_linear_ramp_setpoint_serialises_its_init_args_plus_end_time_once_starte
     ramp.start(0.0, 0.0)
     after = TypeAdapter(LinearRampSetpoint).dump_python(ramp, mode="json")
     assert after == {**before, "end_time": pytest.approx(180.0)}
+
+
+def test_a_ramp_starts_where_the_setpoint_is_and_lands_at_its_end(furnace):
+    """Pinned: regulating at 20, a ramp to 100 over 60 s reads 20 at t=0, not near 100."""
+    clock = SteppedClock(0)
+    controller, _ = _regulating(furnace, clock, law=P(kp=1.0))
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 20.0))
+    controller.regulate(20.0, transfer=Transfer.RESET)
+    controller.regulate(20.0, generator=LinearRampSetpoint(Duration(60), 100.0))
+
+    assert controller.setpoint == 20.0
+    assert controller.setpoint_at(0) == 20.0 and controller.rate_at(0) == pytest.approx(80.0 / 60)
+    assert controller.setpoint_at(30_000_000_000) == pytest.approx(60.0)
+    assert controller.arrived is False
+    clock.advance(60.0)
+    assert (
+        controller.setpoint_at(clock.now_ns()) == 100.0
+        and controller.rate_at(clock.now_ns()) == 0.0
+    )
+    assert controller.arrived is True and controller.state.arrived is True
+
+    # Descending: the pace says how fast, the span says which way.
+    down = LinearRampSetpoint(Speed(10.0, TimeUnit.MINUTE), 40.0)
+    controller.set_reference(100.0, generator=down)
+    now = clock.now_ns()
+    assert controller.rate_at(now) == pytest.approx(-10.0 / 60)
+    assert controller.setpoint_at(now + 60_000_000_000) == pytest.approx(90.0)
+    assert down.end_time == pytest.approx(60.0 + 360.0)
+
+    # To where the setpoint already is: nothing to walk, so it has landed at once.
+    flat = LinearRampSetpoint(Speed(10.0, TimeUnit.MINUTE), 100.0)
+    controller.set_reference(100.0, generator=flat)
+    assert flat.finished(clock.from_start_s(clock.now_ns())) is True
+    assert controller.arrived is True and controller.rate_at(clock.now_ns()) == 0.0
+
+
+def test_a_negative_pace_is_refused():
+    """`Speed` is positive by construction: a sign on the pace would fight the span's."""
+    with pytest.raises(ValueError, match="rate must be positive"):
+        Speed(-10.0, TimeUnit.MINUTE)
+    with pytest.raises(Exception, match="greater than 0"):
+        LinearRampSetpoint.config.model_validate({
+            "tag": "linear_ramp_setpoint",
+            "pace": {"per_minute": -10},
+            "end": 30.0,
+        })
+
+
+def test_arrived_follows_the_reference(furnace):
+    clock = SteppedClock(0)
+    controller, _ = _regulating(furnace, clock, law=P(kp=1.0))
+    assert controller.arrived is False, "nothing to have arrived at"
+    controller.on_reading(Reading(furnace.signals["zone1"], 0, 20.0))
+    controller.regulate(50.0, transfer=Transfer.RESET)
+    assert controller.arrived is True and controller.view.arrived is True
+
+    class Endless(SetPointGenerator, register=False):
+        def __init__(self) -> None:
+            pass
+
+        def generate(self, time: float) -> float:
+            return 1.0
+
+    controller.set_reference(50.0, generator=Endless())
+    assert controller.arrived is False, "the base finished() is never"
+
+
+def test_hold_is_a_fixed_setpoint_that_may_end():
+    assert SetPointGenerators["hold"] is Hold
+    forever = Hold.config.model_validate({"tag": "hold", "value": 30.0}).build()
+    assert isinstance(forever, Hold) and forever.bounded is False
+    forever.start(10.0, 20.0)
+    assert forever.generate(10.0) == 30.0 and forever.generate(1e9) == 30.0
+    assert forever.end_time is None and forever.finished(1e9) is False
+    assert forever.rate(10.0) == 0.0
+    assert TypeAdapter(Hold).dump_python(forever, mode="json") == {
+        "tag": "hold",
+        "value": 30.0,
+        "duration": None,
+    }
+
+    soak = Hold(30.0, Duration(300))
+    assert soak.bounded is True
+    soak.start(10.0, 20.0)
+    assert soak.end_time == 310.0
+    assert soak.finished(309.9) is False and soak.finished(310.0) is True
+    assert TypeAdapter(Hold).dump_python(soak, mode="json")["end_time"] == 310.0
+
+
+def test_profile_runs_its_segments_back_to_back():
+    assert SetPointGenerators["profile"] is Profile
+    config = Profile.config.model_validate({
+        "tag": "profile",
+        "segments": [
+            {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0},
+            {"tag": "hold", "value": 30.0, "duration": {"minutes": 5}},
+            {"tag": "linear_ramp_setpoint", "pace": {"seconds": 60}, "end": 0.0},
+            {"tag": "hold", "value": 0.0},
+        ],
+    })
+    profile = config.build()
+    assert isinstance(profile, Profile) and profile.bounded is False
+    assert profile.active is None, "not yet asked"
+    profile.start(100.0, 20.0)
+    assert [g.end_time for g in profile.generators] == [160.0, 460.0, 520.0, None]
+    assert profile.end_time is None
+
+    # Each segment starts where the last landed: 20 -> 30 over 60 s, soak, 30 -> 0 over 60 s.
+    assert profile.generate(100.0) == pytest.approx(20.0) and profile.active == 0
+    assert profile.rate(130.0) == pytest.approx(10.0 / 60)
+    assert profile.generate(130.0) == pytest.approx(25.0)
+    assert profile.generate(200.0) == 30.0 and profile.active == 1 and profile.rate(200.0) == 0.0
+    assert profile.generate(490.0) == pytest.approx(15.0) and profile.active == 2
+    assert profile.rate(490.0) == pytest.approx(-0.5)
+    assert profile.finished(519.9) is False
+    assert profile.generate(1e6) == 0.0 and profile.active == 3
+    assert profile.finished(1e6) is False, "the last segment is endless"
+
+    wire = TypeAdapter(Profile).dump_python(profile, mode="json")
+    assert wire["tag"] == "profile" and wire["active"] == 3 and "end_time" not in wire
+    assert [segment["tag"] for segment in wire["segments"]] == [
+        "linear_ramp_setpoint",
+        "hold",
+        "linear_ramp_setpoint",
+        "hold",
+    ]
+    assert wire["segments"][1] == {
+        "tag": "hold",
+        "value": 30.0,
+        "duration": {"seconds": 300, "nanoseconds": 0},
+    }
+
+
+def test_a_bounded_profile_finishes_with_its_last_segment_and_nests():
+    inner = Profile.config(
+        segments=[
+            LinearRampSetpoint.config(pace=Duration(10), end=10.0),
+            Hold.config(value=10.0, duration=Duration(10)),
+        ]
+    )
+    outer = Profile([inner, LinearRampSetpoint.config(pace=Duration(10), end=0.0)])
+    assert outer.bounded is True
+    outer.start(0.0, 0.0)
+    assert outer.end_time == 30.0
+    assert outer.generate(5.0) == pytest.approx(5.0) and outer.active == 0
+    assert outer.generate(15.0) == 10.0
+    assert outer.generate(25.0) == pytest.approx(5.0) and outer.active == 1
+    assert outer.finished(29.9) is False and outer.finished(30.0) is True
+    assert outer.generate(31.0) == 0.0
+
+    union = TypeAdapter(GeneratorConfig)
+    nested = union.validate_python({
+        "tag": "profile",
+        "segments": [
+            {"tag": "profile", "segments": [{"tag": "hold", "value": 1.0, "duration": 1}]},
+            {"tag": "hold", "value": 2.0},
+        ],
+    })
+    assert isinstance(nested, Profile.config) and isinstance(nested.build(), Profile)
+    assert set(union.json_schema()["$defs"]) >= {
+        "HoldConfig",
+        "LinearRampSetpointConfig",
+        "ProfileConfig",
+    }
+
+
+def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():
+    with pytest.raises(
+        ValueError,
+        match=r"profile segment 0 \(hold\) never ends, so segment 1 would never start",
+    ):
+        Profile([Hold.config(value=1.0), Hold.config(value=2.0, duration=Duration(1))])
+    with pytest.raises(ValueError, match="at least one segment"):
+        Profile([])
+    with pytest.raises(Exception, match="at least 1"):
+        Profile.config.model_validate({"tag": "profile", "segments": []})

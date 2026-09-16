@@ -39,6 +39,8 @@ GeneratorConfig = Annotated[  # type: ignore[valid-type]
     Union[tuple(g.config for g in SetPointGenerators.values())],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
 ]
+"""Built here from the registry, as the law and feedforward unions are; `profile` is in it, and
+its own segments are `flyball.control.GeneratorConfig`, the same union closed at import."""
 
 
 class NewController(BaseModel):
