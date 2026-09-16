@@ -228,7 +228,7 @@ class CommandOut(BaseModel):
     commit: bool = False
     mode: Any = None
     """What the device's `mode` becomes when this runs, if it has one."""
-    owner_exempt: bool = False
+    interrupts: bool = False
     demand_of: str | None = None
     """A synthesised `set_<name>`: the demand's path."""
     links: dict[str, str] = {}
@@ -242,7 +242,7 @@ class CommandOut(BaseModel):
             simulation=spec.simulation,
             commit=spec.commit,
             mode=spec.mode,
-            owner_exempt=spec.owner_exempt,
+            interrupts=spec.interrupts,
             demand_of=spec.demand_of,
             links={n: p.link for n, p in spec.params.items() if p.link is not None},
         )

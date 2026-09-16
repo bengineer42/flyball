@@ -1,4 +1,4 @@
-"""A PWM channel as a device: one `[W]` signal `drive`, committed as the duty.
+"""A PWM channel as a device: one `[RPW]` demand `drive`, committed as the duty.
 
 With no `unit` the signal is the duty itself, 0 to 1 of full. With `unit`
 and `span` the signal is in that unit and `span = [d0, d1]` is the value
@@ -11,13 +11,12 @@ feedforward the controller's correction works around. A heater that holds
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from flyball.core.config import resolve
-from flyball.core.device import Device, DeviceSettings, DeviceState, DriverConfig, command
+from flyball.core.device import Committable, DriverConfig, Setting, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Band, Signal, SignalSpec
+from flyball.core.signal import Access, Band, Role, Signal, SignalSpec
 from flyball.core.units import DIMENSIONLESS
+from flyball.core.units.si import Hertz
 from pydantic import Field, model_validator
 
 from flyball_linux.links.pwm import PwmLink, PwmLinkConfig
@@ -25,26 +24,17 @@ from flyball_linux.links.pwm import PwmLink, PwmLinkConfig
 # The same unit `flyball.sim.devices` gives a plant's drive, defined alike so the two agree.
 Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
 DRIVE = Quantity("drive", Drive)
+FREQUENCY = Quantity("frequency", Hertz)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class PwmSettings(DeviceSettings):
-    frequency_hz: float = 1000.0
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class PwmState(DeviceState):
-    duty: float = 0.0
-    """The fraction actually driven, 0 to 1."""
-    enabled: bool = False
-
-
-class PwmChannel(Device):
-    """Drives a channel's duty from its `drive` signal. A heater, a fan, an LED.
+class PwmChannel(Committable):
+    """Drives a channel's duty from its `drive` demand. A heater, a fan, an LED.
 
     The channel is enabled at 0 % on construction, so a heater is off from
     the moment the rig has it.
     """
+
+    frequency_hz = Setting("frequency_hz", "Carrier frequency", FREQUENCY)
 
     def __init__(
         self,
@@ -65,21 +55,33 @@ class PwmChannel(Device):
             raise ValueError(f"{name}: span must be a rising pair, not {list(span)}")
         self.link = link
         self.channel = channel
-        self.frequency_hz = frequency_hz
         self.invert = invert
         self.span = span
-        self._duty = 0.0
         self._enabled = False
+        self._duty = 0.0
+        """The fraction last driven, 0 to 1: independent of `drive`'s reading, to re-apply at a
+        new `frequency_hz` even when the commit that set it pushed no readback."""
         if unit is None:
-            spec = SignalSpec(name="drive", quantity=DRIVE, access=Access.W, limits=(0.0, 1.0))
+            drive = SignalSpec(
+                name="drive",
+                quantity=DRIVE,
+                access=Access.RPW,
+                role=Role.DEMAND,
+                limits=(0.0, 1.0),
+                initial=0.0,
+            )
         else:
-            spec = SignalSpec(
+            assert span is not None  # `unit` and `span` go together, checked above
+            drive = SignalSpec(
                 name="drive",
                 quantity=Quantity(quantity or "drive", unit),
-                access=Access.W,
+                access=Access.RPW,
+                role=Role.DEMAND,
                 limits=span,
+                initial=span[0],
             )
-        self.bind((spec,))
+        self.bind((drive,))
+        self.frequency_hz.push(frequency_hz)
         self._drive(0.0)
 
     @property
@@ -88,20 +90,12 @@ class PwmChannel(Device):
         return PwmChannelConfig(
             link="",
             channel=self.channel,
-            frequency_hz=self.frequency_hz,
+            frequency_hz=self.frequency_hz.value,
             invert=self.invert,
             unit=None if self.span is None else signal.unit.symbol,
             quantity=None if self.span is None else signal.quantity.name,
             span=self.span,
         )
-
-    @property
-    def settings(self) -> PwmSettings:
-        return PwmSettings(frequency_hz=self.frequency_hz)
-
-    @property
-    def state(self) -> PwmState:
-        return PwmState(duty=self._duty, enabled=self._enabled)
 
     def fraction(self, value: float) -> float:
         """The duty a value of `drive` asks for: itself, or linear over `span`."""
@@ -110,34 +104,42 @@ class PwmChannel(Device):
         d0, d1 = self.span
         return (value - d0) / (d1 - d0)
 
-    def _drive(self, duty: float) -> None:
-        self._duty = min(1.0, max(0.0, duty))
-        period_ns = round(1e9 / self.frequency_hz)
-        fraction = 1.0 - self._duty if self.invert else self._duty
-        self.link.configure(self.channel, period_ns, round(period_ns * fraction))
+    def _drive(self, duty: float) -> float:
+        """Drive the channel at `duty` (0 to 1, clamped); returns the duty actually achieved."""
+        self._duty = duty = min(1.0, max(0.0, duty))
+        period_ns = round(1e9 / self.frequency_hz.value)
+        physical = 1.0 - duty if self.invert else duty
+        duty_ns = round(period_ns * physical)
+        self.link.configure(self.channel, period_ns, duty_ns)
         if not self._enabled:
             self.link.enable(self.channel, True)
             self._enabled = True
+        achieved = duty_ns / period_ns
+        return 1.0 - achieved if self.invert else achieved
 
     def write_signal(self, signal: Signal, value: float) -> None:
-        self._drive(self.fraction(value))
+        achieved = self._drive(self.fraction(value))
+        if self.span is not None:
+            d0, d1 = self.span
+            achieved = d0 + achieved * (d1 - d0)
+        if achieved != value:
+            signal.push(achieved)
 
     @command
-    def set_frequency(self, frequency_hz: float) -> PwmSettings:
+    def set_frequency(self, frequency_hz: float) -> None:
         """Change the carrier; the duty is re-applied at the new period."""
         if frequency_hz <= 0:
             raise ValueError("frequency must be positive")
-        self.frequency_hz = frequency_hz
+        self.frequency_hz.push(frequency_hz)
         self._drive(self._duty)
-        return self.settings
 
     @command
-    def off(self) -> PwmState:
+    def off(self) -> None:
         """Duty to zero and the channel disabled, until the next demand."""
         self._drive(0.0)
         self.link.enable(self.channel, False)
         self._enabled = False
-        return self.state
+        self.signals["drive"].push(0.0 if self.span is None else self.span[0])
 
 
 class PwmChannelConfig(DriverConfig[PwmChannel], tag="pwm_channel"):
@@ -184,4 +186,4 @@ class PwmChannelConfig(DriverConfig[PwmChannel], tag="pwm_channel"):
 PwmChannel.config_type = PwmChannelConfig  # the config is declared after the device it builds
 
 
-__all__ = ["DRIVE", "Drive", "PwmChannel", "PwmChannelConfig", "PwmSettings", "PwmState"]
+__all__ = ["DRIVE", "FREQUENCY", "Drive", "PwmChannel", "PwmChannelConfig"]

@@ -56,7 +56,7 @@ class TestI2cTable:
         assert chip.signals["temperature"].unit.symbol == "°C"
         (sample,) = chip.read(7)
         assert sample.by_name() == {"temperature": pytest.approx(25.0), "status": 42.0}
-        assert sample.time_ns == 7 and chip.state.values["status"] == 42
+        assert sample.time_ns == 7
 
     def test_only_due_signals_are_read(self):
         bus = FakeI2c(registers={0x48: {0x00: [0, 1], 0x01: [0, 2]}})
@@ -66,7 +66,7 @@ class TestI2cTable:
         assert [s.by_name() for s in chip.read(0)] == [{"a": 1.0, "b": 2.0}]
         assert [s.by_name() for s in chip.read(1 * NS)] == [{"a": 1.0}]
 
-    def test_commit_writes_the_register_and_reports_what_the_chip_holds(self):
+    def test_commit_writes_the_register_and_pushes_what_the_chip_holds(self):
         bus = FakeI2c()
         dac = I2cTable(
             "dac",
@@ -77,10 +77,10 @@ class TestI2cTable:
         out = dac.signals["out"]
         assert out.access is Access.RPW
         dac.apply(out, 1, 1.2345)
-        states = dac.commit(1)
+        dac.commit(1)
         assert bus.written == [(0x60, 0x40, [0x04, 0xD2])]
-        assert states[out].value == pytest.approx(1.234), "1234.5 LSB rounds to even"
-        assert dac.written[out].value == pytest.approx(1.234)
+        assert out.value == pytest.approx(1.234), "1234.5 LSB rounds to even; differs, so pushed"
+        assert dac.pending == {out: 1.2345}, "commit does not clear pending -- the rig does"
         (sample,) = dac.read(2)
         assert sample.by_name() == {"out": pytest.approx(1.234)}, "read back from the register"
 
@@ -90,35 +90,49 @@ class TestI2cTable:
 
 
 class TestGpioLine:
-    def test_an_output_is_one_w_signal_driven_on_commit(self):
+    def test_an_output_is_one_rpw_signal_driven_on_commit(self):
         chip = FakeGpio()
         relay = GpioLine("relay", chip, 18, invert=True)
-        assert {p: str(s.access) for p, s in relay.signals.items()} == {"on": "w"}
+        assert {p: str(s.access) for p, s in relay.signals.items()} == {
+            "conditions": "rp",
+            "on": "rpw",
+            "last.on": "rp",
+            "last.off": "rp",
+        }
         assert relay.signals["on"].limits == (0.0, 1.0)
         assert chip.claimed == {18: "output"} and chip.levels[18] is True, "off, active-low"
         on = relay.signals["on"]
+        assert on.value == 0.0, "the initial demand's readback"
         relay.apply(on, 1, 0.7)
-        states = relay.commit(1)
-        assert chip.levels[18] is False and relay.state.level is True
-        assert states[on].value == 1.0 and states[on].at_limit is None, "a switch has no rail"
+        relay.commit(1)
+        assert chip.levels[18] is False and on.value == 1.0, "0.7 quantises to on; pushed"
+        assert on.at_limit is None, "a switch has no rail"
         relay.apply(on, 2, 0.0)
-        assert relay.commit(2)[on].value == 0.0 and chip.sets[-1] == (18, True)
+        relay.commit(2)
+        assert chip.sets[-1] == (18, True)
         assert list(relay.read(0)) == [], "an output has nothing to read"
 
     def test_on_and_off_commands_drive_the_line_directly(self):
         chip = FakeGpio()
         fan = GpioLine("fan", chip, 4)
-        assert set(type(fan).commands) == {"on", "off"}
-        assert fan.on().level is True and chip.levels[4] is True
-        assert fan.off().level is False and chip.sets == [(4, True), (4, False)]
+        assert set(type(fan).commands) == {"on", "off"}, "on/off; the demand's tree is computed"
+        fan.on()
+        assert fan.signals["on"].value == 1.0 and chip.levels[4] is True
+        fan.off()
+        assert fan.signals["on"].value == 0.0 and chip.sets == [(4, True), (4, False)]
 
     def test_an_input_is_one_rp_signal(self):
         chip = FakeGpio(levels={17: True})
         door = GpioLine("door", chip, 17, direction="input", pull_up=True, invert=True)
-        assert {p: str(s.access) for p, s in door.signals.items()} == {"level": "rp"}
+        assert {p: str(s.access) for p, s in door.signals.items()} == {
+            "conditions": "rp",
+            "level": "rp",
+            "last.on": "rp",
+            "last.off": "rp",
+        }
         assert chip.claimed == {17: "input"}
         (sample,) = door.read(1)
-        assert sample.by_name() == {"level": 0.0} and door.state.level is False
+        assert sample.by_name() == {"level": 0.0}
         with pytest.raises(ConflictError, match="input line"):
             door.on()
 
@@ -139,13 +153,13 @@ class TestPwmChannel:
         pwm = FakePwm()
         led = PwmChannel("led", pwm, 1, frequency_hz=100)
         drive = led.signals["drive"]
-        assert str(drive.access) == "w" and drive.unit.symbol == "of full"
+        assert str(drive.access) == "rpw" and drive.unit.symbol == "of full"
         assert drive.limits == (0.0, 1.0)
         assert pwm.enabled[1] is True and pwm.channels[1] == (10_000_000, 0), "off from the start"
+        assert drive.value == 0.0, "the initial demand's readback"
         led.apply(drive, 1, 0.25)
-        states = led.commit(1)
+        led.commit(1)
         assert pwm.channels[1] == (10_000_000, 2_500_000)
-        assert states[drive].value == 0.25 and led.state.duty == 0.25
 
     def test_unit_and_span_map_the_signal_linearly_onto_the_duty(self):
         pwm = FakePwm()
@@ -155,9 +169,9 @@ class TestPwmChannel:
         drive = heater.signals["drive"]
         assert drive.unit.symbol == "°C" and drive.quantity.name == "temperature"
         assert drive.limits == (10.0, 40.0), "the span is what a demand is clamped to"
+        assert drive.value == 10.0, "duty 0 is the bottom of the span"
         heater.apply(drive, 1, 25.0)
         heater.commit(1)
-        assert heater.state.duty == pytest.approx(0.5)
         assert pwm.channels[0] == (1_000_000, 500_000)
         assert heater.fraction(40.0) == pytest.approx(1.0)
         assert heater.config.span == (10.0, 40.0) and heater.config.unit == "°C"
@@ -175,12 +189,14 @@ class TestPwmChannel:
         led.apply(drive, 1, 0.25)
         led.commit(1)
         assert pwm.channels[1] == (10_000_000, 7_500_000)
-        assert led.set_frequency(200).frequency_hz == 200
+        led.set_frequency(200)
+        assert led.frequency_hz.value == 200
         assert pwm.channels[1] == (5_000_000, 3_750_000), "the duty is re-applied at the new period"
         with pytest.raises(ValueError):
             led.set_frequency(0)
-        assert led.off().enabled is False and pwm.enabled[1] is False
-        assert led.state.duty == 0.0
+        led.off()
+        assert pwm.enabled[1] is False
+        assert drive.value == 0.0, "off pushes the demand's readback to the bottom of the span"
 
 
 class TestDs18b20:
@@ -197,8 +213,10 @@ class TestDs18b20:
     def test_read(self):
         bus = FakeOneWire({"28-1": self.GOOD})
         probe = Ds18b20("soil", bus, "28-1")
-        assert {p: str(s.access) for p, s in probe.signals.items()} == {"temperature": "rp"}
+        assert {p: str(s.access) for p, s in probe.signals.items()} == {
+            "conditions": "rp",
+            "temperature": "rp",
+        }
         (sample,) = probe.read(3)
         assert sample.by_name() == {"temperature": pytest.approx(21.875)}
-        assert probe.state.temperature == pytest.approx(21.875)
         assert probe.config.device == "28-1"

@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from collections.abc import Iterator
+from enum import Enum
 
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.core.device import Device, DeviceState, Level, command
+from flyball.core.device import Committable, Demand, Level, Namespace, Output, Readable, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, NodeSpec, Sample, Signal, SignalSpec, WriteState
+from flyball.core.signal import Node, Sample, Signal
 from flyball.core.trigger import Trigger
 from flyball.core.units.si import Celsius, Percent, Watt
 from flyball.server import create_app, set_rig
@@ -20,27 +20,24 @@ TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
 HUMIDITY = Quantity("humidity", Percent)
 
-# region Test drivers: a DAQ (RP zones and an RW setting) and a drive (W heaters), the
+# region Test drivers: a DAQ (RP zones and an RPW demand) and a drive (demands with limits), the
 # furnace shape from the plan's §2 example, and a sensor set with atomic namespaces.
 
 
-class Daq(Device):
-    """Two thermocouple zones `[RP]` and a setting `[RW]`; counts the reads asked of it."""
+class Daq(Readable, Committable):
+    """Two thermocouple zones `[RP]` and a demand `[RPW]`; counts the reads asked of it."""
 
-    TREE = (
-        SignalSpec(
-            name="zone1",
-            quantity=TEMP,
-            access=Access.RP,
-            label="Zone 1",
-            range=(0.0, 1200.0),
-            precision=1,
-            warn=(0.0, 1100.0),
-            alarm=(-10.0, 1150.0),
-        ),
-        SignalSpec(name="zone2", quantity=TEMP, access=Access.RP, warn=(0.0, 1100.0)),
-        SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),
+    zone1 = Output(
+        "zone1",
+        "Zone 1",
+        TEMP,
+        range=(0.0, 1200.0),
+        precision=1,
+        warn=(0.0, 1100.0),
+        alarm=(-10.0, 1150.0),
     )
+    zone2 = Output("zone2", "", TEMP, warn=(0.0, 1100.0))
+    setpoint = Demand("setpoint", "", TEMP)
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
@@ -52,12 +49,11 @@ class Daq(Device):
         self.reads += 1
         if self.broken:
             raise OSError("open circuit")
-        yield Sample(self.root, time_ns, {s: self.temps[s.name] for s in self.readable.values()})
+        yield Sample(self.root, time_ns, {self.signals[n]: v for n, v in self.temps.items()})
 
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+    def commit(self, time_ns: int) -> None:
         for signal, value in self.pending.items():
             self.temps[signal.name] = value
-        return self.flush_pending()
 
     @command
     def restore(self) -> None:
@@ -65,68 +61,65 @@ class Daq(Device):
         self.broken = False
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class DriveState(DeviceState):
-    duty: float = 0.0
+class Drive(Committable):
+    """Two heater demands with limits, and a duty command that pushes an output."""
 
-
-class Drive(Device):
-    """Two heaters `[W]` with limits, one command; keeps what it was told to put out."""
-
-    TREE = (
-        SignalSpec(
-            name="heater1", quantity=POWER, access=Access.W, label="Heater 1", limits=(0.0, 2500.0)
-        ),
-        SignalSpec(name="heater2", quantity=POWER, access=Access.W, limits=(0.0, 6000.0)),
-    )
+    heater1 = Demand("heater1", "Heater 1", POWER, limits=(0.0, 2500.0))
+    heater2 = Demand("heater2", "", POWER, limits=(0.0, 6000.0))
+    duty = Output("duty", "Duty", initial=0.0)
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
         self.inputs: dict[str, float] = {}
-        self.duty = 0.0
 
     def write_signal(self, signal: Signal, value: float) -> None:
         self.inputs[signal.name] = value
 
-    @property
-    def state(self) -> DriveState:
-        return DriveState(duty=self.duty)
-
     @command
-    def set_duty(self, duty: float, ramp_s: float = 0.0) -> DriveState:
+    def set_duty(self, duty: float, ramp_s: float = 0.0) -> float:
         """Drive the elements at a fixed duty."""
-        self.duty = duty
-        return self.state
+        self.duty.push(duty)
+        return duty
 
     @command(tag="off", simulation=True)
     def switch_off(self) -> None:
         """Stop heating."""
-        self.duty = 0.0
+        self.duty.push(0.0)
 
     @command(simulation=True)
     def kick(self, signal: str, offset: float) -> None:
         """Nudge one heater's output by `offset` W."""
 
 
-class Sensors(Device):
+class Sensors(Readable):
     """Two atomic namespaces, each read in its own transaction."""
 
-    TREE = tuple(
-        NodeSpec(
-            name=name,
-            atomic=True,
-            children=(
-                SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.RP),
-                SignalSpec(name="temperature", quantity=TEMP, access=Access.RP),
-            ),
-        )
-        for name in ("chamber", "dry")
-    )
+    chamber = Namespace("chamber", atomic=True)
+    dry = Namespace("dry", atomic=True)
+    chamber_humidity = chamber.output("humidity", "", HUMIDITY)
+    chamber_temperature = chamber.output("temperature", "", TEMP)
+    dry_humidity = dry.output("humidity", "", HUMIDITY)
+    dry_temperature = dry.output("temperature", "", TEMP)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         nodes = self.root.descendants() if node is None or node is self.root else (node,)
         for n in nodes:
             yield Sample(n, time_ns, {n.signals["humidity"]: 45.0, n.signals["temperature"]: 21.9})
+
+
+class Mode(Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+
+
+class Typed(Readable):
+    """One enum-valued output and one JSON-valued output, both `[RP]`."""
+
+    mode = Output("mode", "", TEMP, vtype=Mode)
+    config = Output("config", "", TEMP, vtype=dict)
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        yield self.sample(time_ns, mode=Mode.RUNNING, config={"gain": 2, "offset": 1})
 
 
 # endregion
@@ -144,6 +137,13 @@ def drive(rig, fresh) -> Drive:
     drive = Drive(fresh("heaters"))
     rig.add_device(drive)
     return drive
+
+
+@pytest.fixture
+def typed(rig, fresh) -> Typed:
+    typed = Typed(fresh("typed"))
+    rig.add_device(typed)
+    return typed
 
 
 @pytest.fixture
@@ -171,8 +171,14 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     assert furnace["label"] == "Tube furnace" and furnace["type"] == "Daq"
     assert furnace["kind"] == "device"
     assert furnace["driver"] is None and furnace["link"] is None and furnace["run"] is None
-    assert [s["name"] for s in furnace["signals"]] == ["zone1", "zone2", "setpoint"]
-    zone1 = furnace["signals"][0]
+    assert [s["name"] for s in furnace["signals"]] == [
+        "conditions",
+        "zone1",
+        "zone2",
+        "setpoint",
+        "last",
+    ]
+    zone1 = furnace["signals"][1]
     assert zone1 == {
         "name": "zone1",
         "address": f"{daq.name}.zone1",
@@ -189,41 +195,107 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "alarm": [-10.0, 1150.0],
         "poll_s": None,
         "limits": None,
-        "together": [],
+        "role": "output",
+        "tags": {},
+        "initial": None,
         "latest": None,
         "write": None,
     }
-    assert furnace["signals"][2]["access"] == "rw"
+    assert furnace["signals"][3]["access"] == "rpw", "a demand is readable, publishing and writable"
     assert furnace["commands"] == [
-        {"name": "restore", "description": "Mend it.", "simulation": False}
+        {
+            "name": "restore",
+            "description": "Mend it.",
+            "simulation": False,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": None,
+            "links": {},
+        },
+        {
+            "name": "set_setpoint",
+            "description": "Set setpoint.",
+            "simulation": False,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": "setpoint",
+            "links": {},
+        },
     ]
-    assert furnace["state"] == {"conditions": []} and furnace["conditions"] == []
+    assert furnace["conditions"] == []
 
     heaters = devices[drive.name]
-    heater1 = heaters["signals"][0]
-    assert heater1["access"] == "w" and heater1["limits"] == [0.0, 2500.0]
+    assert [s["name"] for s in heaters["signals"]] == [
+        "conditions",
+        "heater1",
+        "heater2",
+        "duty",
+        "last",
+    ]
+    heater1 = heaters["signals"][1]
+    assert heater1["access"] == "rpw" and heater1["limits"] == [0.0, 2500.0]
     assert heaters["commands"] == [
         {
             "name": "set_duty",
             "description": "Drive the elements at a fixed duty.",
             "simulation": False,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": None,
+            "links": {},
         },
-        {"name": "off", "description": "Stop heating.", "simulation": True},
+        {
+            "name": "off",
+            "description": "Stop heating.",
+            "simulation": True,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": None,
+            "links": {},
+        },
         {
             "name": "kick",
             "description": "Nudge one heater's output by `offset` W.",
             "simulation": True,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": None,
+            "links": {},
+        },
+        {
+            "name": "set_heater1",
+            "description": "Set Heater 1.",
+            "simulation": False,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": "heater1",
+            "links": {},
+        },
+        {
+            "name": "set_heater2",
+            "description": "Set heater2.",
+            "simulation": False,
+            "commit": False,
+            "mode": None,
+            "interrupts": False,
+            "demand_of": "heater2",
+            "links": {},
         },
     ]
-    assert heaters["state"] == {"conditions": [], "duty": 0.0}
 
     # After a delivery and a demand, the values ride along on the tree.
     sample = deliver(rig, daq, 5_000_000_000)
     rig.demand(drive.root, {"heater1": 3000.0})
     one = client.get(f"/api/devices/{daq.name}").json()
-    assert one["signals"][0]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
-    assert one["signals"][2]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
-    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
+    assert one["signals"][1]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
+    assert one["signals"][3]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
+    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][1]
     assert heater1["write"] == {
         "value": 2500.0,
         "requested": 3000.0,
@@ -237,9 +309,9 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
     sensors = Sensors(fresh("hum"))
     rig.add_device(sensors)
     tree = client.get(f"/api/devices/{sensors.name}").json()["signals"]
-    assert [n["name"] for n in tree] == ["chamber", "dry"]
-    assert tree[1]["address"] == f"{sensors.name}.dry" and tree[1]["atomic"] is True
-    assert [s["address"] for s in tree[1]["signals"]] == [
+    assert [n["name"] for n in tree] == ["conditions", "chamber", "dry"]
+    assert tree[2]["address"] == f"{sensors.name}.dry" and tree[2]["atomic"] is True
+    assert [s["address"] for s in tree[2]["signals"]] == [
         f"{sensors.name}.dry.humidity",
         f"{sensors.name}.dry.temperature",
     ]
@@ -254,6 +326,7 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
     }
     whole = client.get(f"/api/read/{sensors.name}?fresh=true").json()
     assert [s["node"] for s in whole["samples"]] == [
+        sensors.name,  # the base class's `conditions`, pushed once at build
         f"{sensors.name}.chamber",
         f"{sensors.name}.dry",
     ]
@@ -264,22 +337,25 @@ def test_device_schema_and_commands(client, rig, drive, daq):
     assert schema["type"] == "Drive" and schema["driver"] is None
     assert (
         schema["description"]
-        == "Two heaters `[W]` with limits, one command; keeps what it was told to put out."
+        == "Two heater demands with limits, and a duty command that pushes an output."
     )
-    assert set(schema["commands"]) == {"set_duty", "off", "kick"}
+    assert set(schema["commands"]) == {"set_duty", "off", "kick", "set_heater1", "set_heater2"}
     assert schema["commands"]["set_duty"]["arguments"]["properties"]["duty"]["type"] == "number"
-    assert schema["commands"]["kick"]["arguments"]["properties"]["signal"]["enum"] == [
-        "heater1",
-        "heater2",
-    ], "an argument called `signal` offers the device's own signals"
+    assert schema["commands"]["kick"]["arguments"]["properties"]["signal"]["enum"] == list(
+        drive.signals
+    ), "an argument called `signal` offers the device's own signals"
     assert schema["commands"]["off"]["simulation"] is True
     assert schema["signals"]["heater1"] == {
         "address": f"{drive.name}.heater1",
-        "access": "w",
+        "access": "rpw",
+        "role": "demand",
+        "tags": {},
         "label": "Heater 1",
         "quantity": "power",
         "unit": "W",
         "dimension": "Power",
+        "dtype": "float",
+        "value": {"type": "number"},
         "range": None,
         "precision": None,
         "limits": [0.0, 2500.0],
@@ -288,9 +364,11 @@ def test_device_schema_and_commands(client, rig, drive, daq):
     assert set(everything["devices"]) == {daq.name, drive.name}
 
     r = client.post(f"/api/devices/{drive.name}/commands/set_duty", json={"duty": 0.4})
-    assert r.status_code == 200 and r.json()["duty"] == 0.4
+    assert r.status_code == 200 and r.json() == 0.4
     assert client.post(f"/api/devices/{drive.name}/commands/off").status_code == 200
-    assert client.get(f"/api/devices/{drive.name}").json()["state"]["duty"] == 0.0
+    tree = client.get(f"/api/devices/{drive.name}").json()["signals"]
+    duty = next(s for s in tree if s["name"] == "duty")
+    assert duty["latest"]["value"] == 0.0
     assert (
         client.post(f"/api/devices/{drive.name}/commands/set_duty", json={"duty": "x"}).status_code
         == 422
@@ -381,7 +459,7 @@ def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
     assert client.put(f"/api/signals/{drive.name}.heater9", json=1.0).status_code == 404
     assert client.put(f"/api/signals/{drive.name}.heater1", json="x").status_code == 422
 
-    # A setting is written the same way, and a fresh read sees it.
+    # A demand is written the same way, and a fresh read sees it.
     client.put(f"/api/devices/{daq.name}/demand", json={"setpoint": 60.0})
     read = client.get(f"/api/read/{daq.name}.setpoint?fresh=true").json()
     assert read["reading"]["value"] == 60.0
@@ -478,20 +556,54 @@ def test_events_are_kept_and_streamed(client, rig):
 # region Streams
 
 
-def test_samples_stream_carries_only_what_publishes(client, rig, daq, clock):
-    zone1, setting = daq.signals["zone1"], daq.signals["setpoint"]
-    rig.on_samples([Sample(daq.root, 1, {zone1: 21.5, setting: 3.0})])
+def test_samples_stream_carries_only_what_publishes(rig, fresh):
+    """A config is `[R]`, not `[P]`: mixed into a sample with a zone, only the zone streams."""
+    from flyball.core.device import ConfigSignal
+
+    class Mixed(Readable):
+        zone = Output("zone", "", TEMP)
+        static = ConfigSignal("static", "", TEMP)
+
+        def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+            yield self.sample(time_ns, zone=0.0)
+
+    device = Mixed(fresh("mixed"))
+    rig.add_device(device)
+    zone, static = device.signals["zone"], device.signals["static"]
+    set_rig(rig)
+    with TestClient(create_app()) as client:
+        rig.on_samples([Sample(device.root, 1, {zone: 21.5, static: 3.0})])
+        with client.websocket_connect("/ws/samples") as ws:
+            first = ws.receive_json()
+            assert first == {
+                "samples": [{"node": device.name, "time_ns": 1, "values": {"zone": 21.5}}]
+            }
+            rig.on_samples([Sample(device.root, 2, {zone: 22.0, static: 4.0})])
+            assert ws.receive_json() == {
+                "samples": [{"node": device.name, "time_ns": 2, "values": {"zone": 22.0}}]
+            }
+            rig.on_samples([Sample(device.root, 3, {static: 5.0})])
+            rig.on_samples([Sample(device.root, 4, {zone: 23.0})])
+            frame = ws.receive_json()
+            assert frame["samples"][0]["time_ns"] == 4, "nothing published is not sent"
+    set_rig(None)
+
+
+def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
+    (sample,) = typed.read(rig.clock.now_ns())
+    rig.on_samples([sample])
+
+    mode = client.get(f"/api/read/{typed.name}.mode").json()
+    assert mode == {
+        "reading": {"signal": f"{typed.name}.mode", "time_ns": sample.time_ns, "value": "running"}
+    }
+    config = client.get(f"/api/read/{typed.name}.config").json()
+    assert config["reading"]["value"] == {"gain": 2, "offset": 1}
+
     with client.websocket_connect("/ws/samples") as ws:
         first = ws.receive_json()
-        assert first == {"samples": [{"node": daq.name, "time_ns": 1, "values": {"zone1": 21.5}}]}
-        rig.on_samples([Sample(daq.root, 2, {zone1: 22.0, setting: 4.0})])
-        assert ws.receive_json() == {
-            "samples": [{"node": daq.name, "time_ns": 2, "values": {"zone1": 22.0}}]
-        }
-        rig.on_samples([Sample(daq.root, 3, {setting: 5.0})])
-        rig.on_samples([Sample(daq.root, 4, {zone1: 23.0})])
-        frame = ws.receive_json()
-        assert frame["samples"][0]["time_ns"] == 4, "a sample with nothing published is not sent"
+        entry = next(s for s in first["samples"] if s["node"] == typed.name)
+        assert entry["values"] == {"mode": "running", "config": {"gain": 2, "offset": 1}}
 
 
 def test_writes_stream_sends_a_snapshot_then_changes(client, rig, drive):
@@ -731,7 +843,8 @@ class TestSimRoutes:
         assert client.get("/api/sim").json()["changed"] == []
         devices = {d["name"]: d for d in client.get("/api/devices").json()}
         assert devices["level"]["driver"] == "sim_daq" and devices["level"]["link"] == "tank"
-        assert devices["valve"]["signals"][0]["access"] == "w"
+        valve_open = next(s for s in devices["valve"]["signals"] if s["name"] == "open")
+        assert valve_open["access"] == "rpw"
 
 
 # endregion

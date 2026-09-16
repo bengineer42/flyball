@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 
 import pytest
 
 from flyball.control import NoFeedforward, Transfer
 from flyball.control.laws import P
-from flyball.core.device import Device
+from flyball.core.device import Committable, Readable
 from flyball.core.errors import ConflictError, NotReadyError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import (
@@ -16,6 +16,7 @@ from flyball.core.signal import (
     Node,
     NodeSpec,
     Reading,
+    Role,
     Sample,
     Signal,
     SignalSpec,
@@ -31,21 +32,33 @@ HUMIDITY = Quantity("humidity", Percent)
 FLOW = Quantity("flow", "L/min")
 
 
-class Furnace(Device):
+class Furnace(Readable, Committable):
     """RP zones and W heaters on one flat tree; counts what the rig asks of it."""
 
     TREE = (
         SignalSpec(name="zone1", quantity=TEMP, access=Access.RP),
         SignalSpec(name="zone2", quantity=TEMP, access=Access.RP),
         SignalSpec(name="sample", quantity=TEMP, access=Access.RP),
-        SignalSpec(name="heater1", quantity=POWER, access=Access.W, limits=(0.0, 2500.0)),
-        SignalSpec(name="heater2", quantity=POWER, access=Access.W, limits=(0.0, 6000.0)),
+        SignalSpec(
+            name="heater1",
+            quantity=POWER,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            limits=(0.0, 2500.0),
+        ),
+        SignalSpec(
+            name="heater2",
+            quantity=POWER,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            limits=(0.0, 6000.0),
+        ),
         SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),
     )
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
-        self.temps = dict.fromkeys(self.publishing.values(), 20.0)
+        self.temps = {self.signals[n]: 20.0 for n in ("zone1", "zone2", "sample")}
         self.inputs: dict[str, float] = {}
         self.reads = 0
         self.commits = 0
@@ -59,9 +72,9 @@ class Furnace(Device):
         if self.due:
             yield Sample(self.root, time_ns, dict(self.temps))
 
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+    def commit(self, time_ns: int) -> None:
         self.commits += 1
-        return super().commit(time_ns)
+        super().commit(time_ns)
 
     def write_signal(self, signal: Signal, value: float) -> None:
         self.inputs[signal.name] = value
@@ -79,7 +92,7 @@ def _sensor(name: str) -> NodeSpec:
     )
 
 
-class Sensors(Device):
+class Sensors(Readable):
     """Three atomic namespaces, each read in its own transaction."""
 
     TREE = (_sensor("chamber"), _sensor("dry"), _sensor("wet"))
@@ -97,17 +110,19 @@ class Sensors(Device):
             yield Sample(n, time_ns, {humidity: self.humidity[n.name], temperature: 21.9})
 
 
-class Blender(Device):
+class Blender(Readable, Committable):
     """A composite actuator: bound inputs and pending values meet in one `commit`."""
 
     TREE = (
-        SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.W, limits=(0.0, 100.0)),
         SignalSpec(
-            name="dry_flow", quantity=FLOW, access=Access.W, together=frozenset({"wet_flow"})
+            name="humidity",
+            quantity=HUMIDITY,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            limits=(0.0, 100.0),
         ),
-        SignalSpec(
-            name="wet_flow", quantity=FLOW, access=Access.W, together=frozenset({"dry_flow"})
-        ),
+        SignalSpec(name="dry_flow", quantity=FLOW, role=Role.DEMAND, access=Access.RPW),
+        SignalSpec(name="wet_flow", quantity=FLOW, role=Role.DEMAND, access=Access.RPW),
         SignalSpec(name="blend_flow", quantity=FLOW, access=Access.RW),
         SignalSpec(name="expected_humidity", quantity=HUMIDITY, access=Access.RP),
     )
@@ -115,35 +130,36 @@ class Blender(Device):
     def __init__(self, name: str) -> None:
         super().__init__(name)
         self.flow, self.expected = self.signals["blend_flow"], self.signals["expected_humidity"]
-        self.supply: dict[str, float] = {}
+        self.supply: dict[str, float | dict[str, float]] = {}
         self.target = 50.0
         self.blend_flow = 1.0
         self.commits = 0
         self.pump_writes: list[tuple[float, float]] = []
-        self.events: list[Reading | Sample | str] = []
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """A fresh read yields the setting beside what publishes; it is not streamed."""
         yield Sample(self.root, time_ns, {self.flow: self.blend_flow, self.expected: 50.0})
 
-    def observe(self, event: Reading | Sample) -> None:
-        self.events.append(event)
-        if isinstance(event, Reading):
-            for role, signal in self.bound.items():
-                if event.signal is signal:
-                    self.supply[role] = event.value
-
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+    def commit(self, time_ns: int) -> None:
+        """Pull every bound input's newest value -- there is no callback any more."""
         self.commits += 1
-        self.events.append("commit")
+        for role, target in self.bound.items():
+            if isinstance(target, Signal):
+                if (reading := target.reading) is not None:
+                    self.supply[role] = reading.value
+            else:
+                sample = self.router.sample(target)
+                published = None if sample is None else sample.published()
+                if published is not None:
+                    self.supply[role] = published.by_name()
         pending = {signal.name: value for signal, value in self.pending.items()}
         self.target = pending.get("humidity", self.target)
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
-        self.pump_writes.append((self.supply.get("dry", 0.0), self.target))
-        return self.flush_pending()
+        dry = self.supply.get("dry", 0.0)
+        self.pump_writes.append((dry if isinstance(dry, float) else 0.0, self.target))
 
 
-class Stage(Device):
+class Stage(Committable):
     """A W namespace written whole."""
 
     TREE = (
@@ -151,8 +167,12 @@ class Stage(Device):
             name="position",
             atomic=True,
             children=(
-                SignalSpec(name="x", quantity=Quantity("x", "mm"), access=Access.W),
-                SignalSpec(name="y", quantity=Quantity("y", "mm"), access=Access.W),
+                SignalSpec(
+                    name="x", quantity=Quantity("x", "mm"), role=Role.DEMAND, access=Access.RPW
+                ),
+                SignalSpec(
+                    name="y", quantity=Quantity("y", "mm"), role=Role.DEMAND, access=Access.RPW
+                ),
             ),
         ),
     )
@@ -222,6 +242,7 @@ class TestResolve:
 class TestDelivery:
     def test_a_sample_with_a_stray_key_is_refused_naming_the_node(self, rig, furnace):
         zone1, heater1 = furnace.signals["zone1"], furnace.signals["heater1"]
+        heater1.restrict(Access.W)  # a signal with nothing readable, to trigger the refusal
         with pytest.raises(
             ValueError,
             match=rf"Sample on '{furnace.name}' carries '{furnace.name}.heater1' \[w\],"
@@ -339,8 +360,10 @@ class TestRead:
         assert rig.read(zone1, fresh=True) == Reading(zone1, clock.now_ns(), 99.0)
         assert furnace.reads == 1
         assert rig.latest[zone1].value == 99.0, "delivered, not just returned"
+        heater1 = furnace.signals["heater1"]
+        heater1.restrict(Access.W)  # a signal with nothing readable
         with pytest.raises(ConflictError, match=rf"'{furnace.name}.heater1' \[w\] is not readable"):
-            rig.read(furnace.signals["heater1"])
+            rig.read(heater1)
 
     def test_an_atomic_node_reads_as_a_sample_and_a_device_as_samples(self, rig, sensors, clock):
         dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
@@ -385,15 +408,11 @@ class TestDemand:
             rig.demand(furnace.root, {})
         assert furnace.pending == {} and furnace.commits == 0
 
-    def test_together_incomplete_is_refused(self, rig, blender):
+    def test_dry_and_wet_flow_are_independent_demands(self, rig, blender):
+        """`together` is gone: each flow signal is its own demand now."""
         dry_flow, wet_flow = blender.signals["dry_flow"], blender.signals["wet_flow"]
-        with pytest.raises(ConflictError, match=f"'{blender.name}.dry_flow' is set with wet_flow"):
-            rig.demand(blender.root, {"dry_flow": 0.4})
-        with pytest.raises(ConflictError, match=f"'{blender.name}.dry_flow' is set with wet_flow"):
-            rig.demand(blender.root, {dry_flow: 0.4})
-        assert blender.pending == {} and blender.commits == 0
-        states = rig.demand(blender.root, {"dry_flow": 0.4, "wet_flow": 0.6})
-        assert states == {dry_flow: WriteState(value=0.4), wet_flow: WriteState(value=0.6)}
+        states = rig.demand(blender.root, {"dry_flow": 0.4})
+        assert states == {dry_flow: WriteState(value=0.4)}
         states = rig.demand(blender.root, {dry_flow: 0.5, "wet_flow": 0.5})
         assert states == {dry_flow: WriteState(value=0.5), wet_flow: WriteState(value=0.5)}
 
@@ -527,7 +546,7 @@ class TestControllers:
 
 
 class TestBoundInputs:
-    def test_a_bound_input_triggers_observe_then_one_commit(self, rig, sensors, blender):
+    def test_a_bound_input_s_newest_value_feeds_one_commit(self, rig, sensors, blender):
         dry, chamber = sensors.nodes["dry"], sensors.nodes["chamber"]
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         chamber_h, chamber_t = chamber.signals["humidity"], chamber.signals["temperature"]
@@ -551,7 +570,7 @@ class TestBoundInputs:
         assert blender.pump_writes[-1] == (4.0, 49.0)
         assert controller.expected == 49.0
 
-    def test_a_device_bound_to_a_node_gets_a_sample_cut_to_it_after_the_readings(
+    def test_a_device_bound_to_a_node_only_commits_when_something_under_it_publishes(
         self, rig, sensors, blender
     ):
         dry, chamber = sensors.nodes["dry"], sensors.nodes["chamber"]
@@ -559,35 +578,34 @@ class TestBoundInputs:
         wet_h = sensors.signals["wet.humidity"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
         assert blender.bound == {"dry": dry, "wet": wet_h}
-        on_dry = Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})
-        rig.on_samples([on_dry])
-        assert blender.events == [on_dry, "commit"], "the sample itself when it is the node's"
-        blender.events.clear()
+        rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
+        assert blender.commits == 1, "the sample itself when it is the node's"
+        assert blender.supply["dry"] == {"humidity": 3.0, "temperature": 20.0}
         whole = Sample(sensors.root, 6, {wet_h: 97.0, dry_h: 3.5})
         rig.on_samples([whole])
-        assert blender.events == [
-            Reading(wet_h, 6, 97.0),
-            Sample(dry, 6, {dry_h: 3.5}),
-            "commit",
-        ], "cut to the bound node, the same keys, after the readings, one commit"
-        blender.events.clear()
+        assert blender.commits == 2, "one commit for both the signal and the node binding"
+        assert blender.supply == {"dry": {"humidity": 3.5}, "wet": 97.0}, (
+            "cut to the bound node, the same keys, after the readings"
+        )
         rig.on_samples([Sample(chamber, 7, {chamber.signals["humidity"]: 45.0})])
-        assert blender.events == [], "nothing under the bound node: not called"
+        assert blender.commits == 2, "nothing under the bound node: not called"
         setting = sensors.signals["dry.heater"]
         rig.on_samples([Sample(dry, 8, {setting: 1.0, dry_h: 4.0})])
-        assert blender.events == [Sample(dry, 8, {dry_h: 4.0}), "commit"], (
-            "a subscriber hears what publishes; a fresh read of an R-only setting is not for it"
+        assert blender.commits == 3, "a subscriber hears what publishes"
+        assert blender.supply["dry"] == {"humidity": 4.0}, (
+            "a fresh read of an R-only setting is not for it"
         )
-        blender.events.clear()
         rig.on_samples([Sample(dry, 9, {setting: 2.0})])
-        assert blender.events == [], "nothing published under the bound node: not called"
+        assert blender.commits == 3, "nothing published under the bound node: not called"
 
     def test_bind_inputs_refuses_what_cannot_be_followed(self, rig, sensors, blender, fresh):
         with pytest.raises(AddressNotFoundError, match=f"no 'humidty' under {sensors.name}.dry"):
             rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidty"})
-        with pytest.raises(ConflictError, match=r"\[w\] is not publishing"):
-            rig.bind_inputs(blender, {"dry": f"{blender.name}.humidity"})
+        with pytest.raises(ConflictError, match=r"\[rw\] is not publishing"):
+            rig.bind_inputs(blender, {"dry": f"{blender.name}.blend_flow"})
         stage = Stage(fresh("stage"))
+        stage.signals["position.x"].restrict(Access.W)
+        stage.signals["position.y"].restrict(Access.W)
         rig.add_device(stage)
         with pytest.raises(
             ConflictError,

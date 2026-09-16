@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 
 from flyball.control.laws import P
-from flyball.core.device import Committable, Demand, For, Namespace, Output, Readable, command
+from flyball.core.device import Committable, Demand, Namespace, Output, Readable, command
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Role, Sample, Section
@@ -47,15 +49,15 @@ class Heater(Committable):
                 self.mode.push(Mode.AUTO, time_ns)
 
     @command(mode=Mode.HAND)
-    def set_banks(self, a: For[a], b: For[b]) -> float:
+    def set_banks(self, a: Annotated[float, a], b: Annotated[float, b]) -> float:
         """Drive each bank at a duty."""
         self.writes.append(("a", a))
         self.writes.append(("b", b))
         return a + b
 
-    @command(mode=Mode.OFF, owner_exempt=True)
+    @command(mode=Mode.OFF, interrupts=True)
     def off(self) -> None:
-        """Both banks off."""
+        """Both banks off; a controller on `power` goes to manual."""
         self.a.push(0.0)
         self.b.push(0.0)
 
@@ -147,17 +149,19 @@ class TestRun:
         with pytest.raises(NotFoundError):
             rig.run_command(heater, "explode")
 
-    def test_a_driven_device_refuses_commands_unless_exempt(self, rig: Rig, heater: Heater) -> None:
+    def test_a_driven_device_refuses_commands_unless_they_interrupt(
+        self, rig: Rig, heater: Heater
+    ) -> None:
         probe = Probe("probe")
         rig.add_device(probe)
         controller = rig.attach_controller(heater.power, probe.temperature, law=P(kp=1.0))
         controller.regulate(30.0)
         with pytest.raises(ConflictError, match="driven by controller"):
             rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0})
-        rig.run_command(heater, "reset")
+        rig.run_command(heater, "reset"), "no mode, no link: runs regardless"
         rig.run_command(heater, "off")
-        controller.manual()
-        rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0})
+        assert not controller.mode.active() and rig.recent[-1].kind == "interrupted"
+        rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0}), "manual now: allowed"
 
     def test_a_demand_puts_the_device_back_in_auto_from_within_commit(
         self, rig: Rig, heater: Heater

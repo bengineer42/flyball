@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from flyball.core.device import Device, DeviceState, Level, command
+from flyball.core.device import Committable, Demand, Level, Output, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Sample, SignalSpec
+from flyball.core.signal import Sample
 from flyball.core.units.si import Celsius, Watt
 from flyball.programmer import Command, Program, Programmer, Wait
 from flyball.programmer.errors import ProgramAlreadyRunningError
@@ -17,32 +17,21 @@ TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class HeaterState(DeviceState):
-    duty: float = 0.0
+class Heater(Committable):
+    """One output zone and one power demand, plus a command independent of any controller."""
 
-
-class Heater(Device):
-    """One RP zone and one W power signal, plus a command independent of any controller."""
-
-    TREE = (
-        SignalSpec(name="zone", quantity=TEMP, access=Access.RP),
-        SignalSpec(name="power", quantity=POWER, access=Access.W, limits=(0.0, 100.0)),
-    )
+    zone = Output("zone", "", TEMP)
+    power = Demand("power", "", POWER, limits=(0.0, 100.0))
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
         self.duty = 0.0
 
-    @property
-    def state(self) -> HeaterState:
-        return HeaterState(duty=self.duty)
-
     @command
-    def set_duty(self, duty: float) -> HeaterState:
+    def set_duty(self, duty: float) -> float:
         """Drive the element directly, independent of any controller."""
         self.duty = duty
-        return self.state
+        return duty
 
 
 @pytest.fixture

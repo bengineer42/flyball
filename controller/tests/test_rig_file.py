@@ -7,11 +7,11 @@ from collections.abc import Iterator
 import pytest
 
 from flyball import cli
-from flyball.core.device import Device, DriverConfig
+from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import loads
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, NodeSpec, Sample, Signal, SignalSpec
+from flyball.core.signal import Access, NodeSpec, Role, Sample, Signal, SignalSpec
 from flyball.core.units.si import Celsius, Percent, Watt
 from flyball.runtime.config import RigConfig, canonical, rig_schema
 
@@ -24,7 +24,7 @@ HUMIDITY = Quantity("humidity", Percent)
 # humidity rig's shape.
 
 
-class Daq(Device):
+class Daq(Readable):
     """A multi-zone thermocouple DAQ: `zone1..N`, all `[RP]`."""
 
     def __init__(self, name: str, zones: int, label: str | None = None) -> None:
@@ -35,7 +35,8 @@ class Daq(Device):
         ])
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        yield Sample(self.root, time_ns, dict.fromkeys(self.publishing.values(), 20.0))
+        temps = {s: 20.0 for s in self.publishing.values() if s is not self.conditions}
+        yield Sample(self.root, time_ns, temps)
 
 
 class DaqConfig(DriverConfig[Daq]):
@@ -45,8 +46,8 @@ class DaqConfig(DriverConfig[Daq]):
         return Daq(name, zones=self.zones, label=label)
 
 
-class Heaters(Device):
-    """A relay bank: `heater1..N`, all `[W]`."""
+class Heaters(Committable):
+    """A relay bank: `heater1..N`, all demands."""
 
     def __init__(
         self, name: str, zones: int, limits: tuple[float, ...], label: str | None = None
@@ -54,7 +55,11 @@ class Heaters(Device):
         super().__init__(name, label)
         self.bind([
             SignalSpec(
-                name=f"heater{i}", quantity=POWER, access=Access.W, limits=(0.0, limits[i - 1])
+                name=f"heater{i}",
+                quantity=POWER,
+                role=Role.DEMAND,
+                access=Access.RPW,
+                limits=(0.0, limits[i - 1]),
             )
             for i in range(1, zones + 1)
         ])
@@ -78,7 +83,7 @@ def _sensor(name: str) -> NodeSpec:
     )
 
 
-class HumSensors(Device):
+class HumSensors(Readable):
     """Three humidity namespaces on one device -- today's `HTSetReader`, as a static tree."""
 
     TREE = (_sensor("chamber"), _sensor("dry"), _sensor("wet"))
@@ -92,16 +97,18 @@ class HumSensorsConfig(DriverConfig[HumSensors]):
         return HumSensors(name, label=label)
 
 
-class Blender(Device):
+class Blender(Committable):
     """A settable humidity target, following two bound supply signals."""
 
-    TREE = (SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.W, limits=(0.0, 100.0)),)
-
-    def observe(self, reading) -> None:
-        pass
-
-    def commit(self, time_ns: int):
-        return self.flush_pending()
+    TREE = (
+        SignalSpec(
+            name="humidity",
+            quantity=HUMIDITY,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            limits=(0.0, 100.0),
+        ),
+    )
 
 
 class BlenderConfig(DriverConfig[Blender]):

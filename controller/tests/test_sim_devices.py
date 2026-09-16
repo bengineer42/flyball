@@ -66,13 +66,13 @@ class TestSimDaq:
         daq = _built(
             SimDaqConfig(link="tube", ports={"z1": "zone1", "sample": "sample"}), "f", tube
         )
-        assert [str(s) for s in daq.signals] == ["z1", "sample"]
+        assert [str(s) for s in daq.signals] == ["conditions", "z1", "sample"]
         z1 = daq.signals["z1"]
         assert z1.address == "f.z1" and z1.access == Access.RP and z1.unit.symbol == "°C"
         assert z1.quantity.name == "temperature" and z1.spec.range is None
         (sample,) = daq.read(0)
         assert sample.node is daq.root and sample.by_name() == {"z1": 20.0, "sample": 20.0}
-        assert daq.state.outputs == {"z1": 20.0, "sample": 20.0} and daq.state.broken == ()
+        assert daq.broken == ()
         assert daq.config.ports == {"z1": "zone1", "sample": "sample"} and daq.config.link == ""
 
     def test_advances_the_plant_by_the_time_since_the_last_read(self, tube):
@@ -143,14 +143,14 @@ class TestSimDaq:
     def test_fail_and_restore_one_signal(self, tube):
         daq = _built(SimDaqConfig(link="tube", ports={"z1": "zone1", "z2": "zone2"}), "f", tube)
         list(daq.read(5_000_000_000))
-        state = daq.fail("z2")
-        assert state.broken == ("z2",)
-        (condition,) = state.conditions
+        broken = daq.fail("z2")
+        assert broken == ("z2",)
+        (condition,) = daq.conditions.value
         assert condition.kind == "broken" and condition.since_ns == 5_000_000_000
         assert "z2" in condition.message
         with pytest.raises(HardwareError, match="f.z2: thermocouple open circuit"):
             list(daq.read(6_000_000_000))
-        assert daq.restore("z2").broken == () and daq.state.conditions == ()
+        assert daq.restore("z2") == () and daq.conditions.value == ()
         assert list(daq.read(6_000_000_000))
         with pytest.raises(NotFoundError, match="no signal 'z9'"):
             daq.fail("z9")
@@ -175,7 +175,7 @@ class TestNamespaces:
             tube,
         )
         rig.add_device(daq)
-        assert list(daq.signals) == ["entry.zone", "entry.sample", "exit.zone"]
+        assert list(daq.signals) == ["conditions", "entry.zone", "entry.sample", "exit.zone"]
         assert list(daq.nodes) == ["entry", "exit"] and daq.nodes["entry"].atomic
         humidity = rig.resolve("dev.entry.zone")
         assert humidity is daq.signals["entry.zone"] and humidity.address == "dev.entry.zone"
@@ -192,9 +192,12 @@ class TestNamespaces:
             "entry.zone": 20.0,
             "entry.sample": 20.0,
         }
-        assert daq.state.outputs == {"entry.zone": 20.0, "entry.sample": 20.0, "exit.zone": 20.0}
-        daq.fail("entry.sample")
-        assert daq.state.broken == ("entry.sample",)
+        assert {p: daq.signals[p].value for p in daq.ports} == {
+            "entry.zone": 20.0,
+            "entry.sample": 20.0,
+            "exit.zone": 20.0,
+        }
+        assert daq.fail("entry.sample") == ("entry.sample",)
         with pytest.raises(HardwareError, match="dev.entry.sample"):
             list(daq.read(2_000_000_000, daq.nodes["entry"]))
         assert [s.node.address for s in daq.read(2_000_000_000, daq.nodes["exit"])] == ["dev.exit"]
@@ -220,11 +223,11 @@ class TestNamespaces:
         assert isinstance(h1, Signal) and h1.limits == (0.0, 2500.0)
         states = rig.demand(drive.nodes["bank"], {"h1": 1250.0, "h2": 300.0})
         assert states[h1].value == 1250.0 and tube.inputs["heater1"] == 0.5
-        assert tube.inputs["heater2"] == 0.05 and drive.state.inputs == {
+        assert tube.inputs["heater2"] == 0.05 and drive.inputs == {
             "bank.h1": 0.5,
             "bank.h2": 0.05,
         }
-        assert drive.disturb("bank.h2", 600.0).inputs["bank.h2"] == pytest.approx(0.15), "W"
+        assert drive.disturb("bank.h2", 600.0)["bank.h2"] == pytest.approx(0.15), "W"
 
     def test_a_path_cannot_be_both_a_namespace_and_a_signal(self, tube):
         with pytest.raises(ValueError, match="d.a: both a namespace and a signal"):
@@ -280,6 +283,7 @@ class TestAnyMultiPlant:
             chamber,
         )
         assert [s.address for s in daq.root.walk()] == [
+            "hum_sensors.conditions",
             "hum_sensors.chamber.humidity",
             "hum_sensors.dry.humidity",
             "hum_sensors.wet.humidity",
@@ -305,10 +309,8 @@ class TestAnyMultiPlant:
         assert signal.unit is Drive and signal.limits == (0.0, 1.0)
         drive.apply(signal, 0, 0.5)
         drive.commit(0)
-        assert chamber.inputs == {"wet_fraction": 0.5} and drive.state.inputs == {
-            "wet_fraction": 0.5
-        }
-        assert drive.disturb("wet_fraction", 0.25).inputs == {"wet_fraction": 0.75}
+        assert chamber.inputs == {"wet_fraction": 0.5} and drive.inputs == {"wet_fraction": 0.5}
+        assert drive.disturb("wet_fraction", 0.25) == {"wet_fraction": 0.75}
 
     def test_a_long_form_drive_port_is_set_in_its_own_unit_and_mapped_onto_the_drive(self):
         chamber = Chamber()
@@ -331,13 +333,13 @@ class TestAnyMultiPlant:
         )
         rig.add_device(drive)
         humidity = rig.resolve("blender.humidity")
-        assert isinstance(humidity, Signal) and str(humidity.access) == "w"
+        assert isinstance(humidity, Signal) and str(humidity.access) == "rpw"
         assert humidity.unit.symbol == "%" and humidity.limits == (0.0, 100.0)
         assert humidity.quantity.name == "humidity"
         (state,) = rig.demand(drive.root, {"humidity": 25.0}).values()
         assert state.value == 25.0 and chamber.inputs == {"wet_fraction": 0.25}
-        assert drive.state.inputs == {"humidity": 0.25}
-        assert drive.disturb("humidity", 10.0).inputs == {"humidity": pytest.approx(0.35)}
+        assert drive.inputs == {"humidity": 0.25}
+        assert drive.disturb("humidity", 10.0) == {"humidity": pytest.approx(0.35)}
         (state,) = rig.demand(drive.root, {"humidity": 150.0}).values()
         assert state.at_limit == "high" and chamber.inputs["wet_fraction"] == 1.0
         assert drive.ports == {"humidity": "wet_fraction"}
@@ -349,7 +351,7 @@ class TestAnyMultiPlant:
 
     def test_a_furnace_heater_s_disturb_is_in_watts(self, tube):
         drive = _built(SimDriveConfig(link="tube", ports={"h1": "heater1"}), "heaters", tube)
-        assert drive.disturb("h1", 250.0).inputs == {"h1": pytest.approx(0.1)}, "of 2500 W"
+        assert drive.disturb("h1", 250.0) == {"h1": pytest.approx(0.1)}, "of 2500 W"
 
     def test_a_controller_closes_the_loop_through_a_shared_multi_plant(self):
         rig = Rig()
@@ -386,19 +388,20 @@ class TestAnyMultiPlant:
 
 class TestSimDrive:
     def test_furnace_heaters_are_w_signals_in_watts_with_the_zone_s_power_as_limits(self, tube):
+        rig = Rig()
+        rig.clock = SteppedClock(0)
         drive = _built(
             SimDriveConfig(link="tube", ports={"h1": "heater1", "h2": "heater2"}), "heaters", tube
         )
+        rig.add_device(drive)
         h1, h2 = drive.signals["h1"], drive.signals["h2"]
-        assert h1.access == Access.W and h1.unit.symbol == "W" and h1.quantity.name == "power"
+        assert h1.access == Access.RPW and h1.unit.symbol == "W" and h1.quantity.name == "power"
         assert h1.limits == (0.0, 2500.0) and h2.limits == (0.0, 6000.0)
-        drive.apply(h1, 0, 1250.0)
-        drive.apply(h2, 0, 6000.0)
-        states = drive.commit(0)
+        states = rig.demand(drive.root, {"h1": 1250.0, "h2": 6000.0})
         assert tube.inputs == {"heater1": 0.5, "heater2": 1.0, "heater3": 0.0}
         assert states[h1].value == 1250.0 and states[h1].at_limit is None
         assert states[h2].at_limit == "high" and drive.written[h2] is states[h2]
-        assert drive.state.inputs == {"h1": 0.5, "h2": 1.0}
+        assert drive.inputs == {"h1": 0.5, "h2": 1.0}
         with pytest.raises(ValueError, match="no input port 'zone1'"):
             _built(SimDriveConfig(link="tube", ports={"x": "zone1"}), "d", tube)
 
@@ -406,11 +409,11 @@ class TestSimDrive:
         plant = PlantConfig(model="lag", gain=10.0)
         drive = SimDriveConfig(link=plant, ports={"drive": "input"}).build("heater")
         signal = drive.signals["drive"]
-        assert signal.unit is Drive and signal.limits == (0.0, 1.0) and signal.access == Access.W
+        assert signal.unit is Drive and signal.limits == (0.0, 1.0) and signal.access == Access.RPW
         drive.apply(signal, 0, 0.25)
         drive.commit(0)
         assert drive.plant.input == 0.25
-        assert drive.disturb("drive", -0.05).inputs == {"drive": 0.2}
+        assert drive.disturb("drive", -0.05) == {"drive": 0.2}
         with pytest.raises(NotFoundError, match="no signal 'x'"):
             drive.disturb("x", 1.0)
         with pytest.raises(ValueError, match="no input port 'heater1'"):
@@ -440,7 +443,7 @@ class TestSmartDrive:
             },
         ).build("heater")
         signal = drive.signals["t"]
-        assert signal.access == Access.W and signal.unit.symbol == "°C"
+        assert signal.access == Access.RPW and signal.unit.symbol == "°C"
         assert signal.quantity.name == "temperature" and signal.limits == (20.0, 100.0)
 
     def test_a_negative_gain_still_sorts_ascending(self):
@@ -482,7 +485,7 @@ class TestSmartDrive:
         ).build("heater")
         drive.apply(drive.signals["t"], 0, 60.0)
         drive.commit(0)
-        assert drive.disturb("t", 8.0).inputs == {"t": pytest.approx(0.6)}, "8 / 80 more drive"
+        assert drive.disturb("t", 8.0) == {"t": pytest.approx(0.6)}, "8 / 80 more drive"
 
     def test_a_bare_plant_needs_its_quantity_spelled_out(self):
         plant = PlantConfig(model="lag", gain=80)

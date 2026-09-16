@@ -5,20 +5,19 @@ INA219, LM75, PCF8591. An [I2cTable][flyball_linux.devices.i2c_table.I2cTable]
 device's tree is its own config: `registers` maps each signal's name to a
 register, `value = raw * scale + offset` after the bytes are assembled in
 the order and signedness the table says. A register with `write: true` is
-also writable -- a DAC's output, a setpoint -- and reads back what the chip
-holds, quantised.
+also a demand `[RPW]` -- a DAC's output, a setpoint -- and reads back what
+the chip holds, quantised.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
 from typing import Literal
 
 from flyball.core.config import resolve
-from flyball.core.device import Device, DeviceState, DriverConfig
+from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec, WriteState
+from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
 from pydantic import BaseModel, ConfigDict, Field
 
 from flyball_linux.devices.scan import Scan
@@ -43,11 +42,15 @@ class Register(BaseModel):
     quantity: str | None = Field(
         default=None, description="The quantity's own name, if it differs from the signal's."
     )
-    write: bool = Field(default=False, description="Also writable: a DAC output, a setpoint.")
+    write: bool = Field(default=False, description="Also a demand: a DAC output, a setpoint.")
 
     @property
     def access(self) -> Access:
         return Access.RPW if self.write else Access.RP
+
+    @property
+    def role(self) -> Role:
+        return Role.DEMAND if self.write else Role.OUTPUT
 
     def decode(self, data: bytes) -> float:
         if len(data) != self.length:
@@ -62,13 +65,7 @@ class Register(BaseModel):
         return raw.to_bytes(self.length, self.byteorder, signed=self.signed)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class I2cTableState(DeviceState):
-    values: dict[str, float] = field(default_factory=dict)
-    """What each register last read as, by signal name; one not yet read is absent."""
-
-
-class I2cTable(Device):
+class I2cTable(Readable, Committable):
     """A table of registers at one address: each of `registers` becomes one signal."""
 
     def __init__(
@@ -89,40 +86,38 @@ class I2cTable(Device):
         # per instance, at build.
         self.blocking = not isinstance(link, FakeI2c)  # pyright: ignore[reportAttributeAccessIssue]
         self._scan = Scan()
-        self._values: dict[str, float] = {}
         self.bind([
-            SignalSpec(name=key, quantity=Quantity(r.quantity or key, r.unit), access=r.access)
+            SignalSpec(
+                name=key, quantity=Quantity(r.quantity or key, r.unit), access=r.access, role=r.role
+            )
             for key, r in self.registers.items()
         ])
+        self._signals = [self.signals[key] for key in self.registers]
 
     @property
     def config(self) -> I2cTableConfig:
         return I2cTableConfig(link="", address=self.address, registers=self.registers)
 
-    @property
-    def state(self) -> I2cTableState:
-        return I2cTableState(values=dict(self._values))
-
     def _value(self, signal: Signal) -> float:
         register = self.registers[signal.name]
         data = self.link.read_register(self.address, register.address, register.length)
-        value = self._values[signal.name] = register.decode(data)
-        return value
+        return register.decode(data)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One register read per due signal, all in one sample: one chip, one bus, in turn."""
-        due = self._scan.due(self.root if node is None else node, time_ns, whole=node is not None)
+        due = self._scan.due(self._signals, time_ns, whole=node is not None)
         if due:
             yield Sample(self.root, time_ns, {signal: self._value(signal) for signal in due})
 
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
-        """Write each pending register; report what the chip now holds, quantised."""
+    def commit(self, time_ns: int) -> None:
+        """Write each pending register; push what the chip now holds if it differs, quantised."""
         for signal, value in self.pending.items():
             register = self.registers[signal.name]
             data = register.encode(value)
             self.link.write_register(self.address, register.address, data)
-            self.pending[signal] = register.decode(data)
-        return self.flush_pending()
+            readback = register.decode(data)
+            if readback != value:
+                signal.push(readback, time_ns)
 
 
 class I2cTableConfig(DriverConfig[I2cTable], tag="i2c_table"):
@@ -151,4 +146,4 @@ class I2cTableConfig(DriverConfig[I2cTable], tag="i2c_table"):
 I2cTable.config_type = I2cTableConfig  # the config is declared after the device it builds
 
 
-__all__ = ["I2cTable", "I2cTableConfig", "I2cTableState", "Register"]
+__all__ = ["I2cTable", "I2cTableConfig", "Register"]

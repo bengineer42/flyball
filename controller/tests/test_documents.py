@@ -6,20 +6,27 @@ import json
 from collections.abc import Iterator
 
 from flyball.control import PI
-from flyball.core.device import Device
+from flyball.core.device import Committable, Readable
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, SignalSpec
+from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
 from flyball.core.units.si import Celsius, Watt
 from flyball.db.documents import documents, write_jsonl
 from flyball.db.sqlite import SqliteStore
 
 
-class Oven(Device):
-    """One RP temperature and one W heater: a source stream and a controller stream."""
+class Oven(Readable, Committable):
+    """One RP temperature and one RW heater: a source stream and a controller stream.
+
+    `heater` is `[RW]`, not `[RPW]`: it needs `R` for the rig to push its readback
+    after a commit, but stays off `P` so its commits are tracked as the controller's
+    stream, not mixed into the temperature detector's.
+    """
 
     TREE = (
         SignalSpec(name="temperature", quantity=Quantity("temperature", Celsius), access=Access.RP),
-        SignalSpec(name="heater", quantity=Quantity("power", Watt), access=Access.W),
+        SignalSpec(
+            name="heater", quantity=Quantity("power", Watt), access=Access.RW, role=Role.DEMAND
+        ),
     )
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:

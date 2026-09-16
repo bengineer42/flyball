@@ -1,6 +1,6 @@
 """A GPIO line as a device: an output switched by a demand, or an input read as 0/1.
 
-`direction: output` (the default) declares one `[W]` signal `on`, 0 or 1,
+`direction: output` (the default) declares one `[RPW]` demand `on`, 0 or 1,
 which `commit` drives onto the line -- a relay, a valve, a fan -- and the
 commands `on`/`off` for a hand on the switch. `direction: input` declares
 one `[RP]` signal `level` instead: a door switch, a float switch.
@@ -8,15 +8,14 @@ one `[RP]` signal `level` instead: a door switch, a float switch.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from collections.abc import Iterator
 from typing import Literal
 
 from flyball.core.config import resolve
-from flyball.core.device import Device, DeviceState, DriverConfig, command
+from flyball.core.device import Committable, DriverConfig, Readable, command
 from flyball.core.errors import ConflictError
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec, WriteState
+from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
 from flyball.core.units.si import One
 from pydantic import Field
 
@@ -28,13 +27,7 @@ ON = Quantity("on", One)
 LEVEL = Quantity("level", One)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GpioLineState(DeviceState):
-    level: bool | None = None
-    """The line's logical level: what an output was last driven to, or an input last read."""
-
-
-class GpioLine(Device):
+class GpioLine(Readable, Committable):
     """One line, claimed as an output or an input on construction.
 
     `invert` is for an active-low relay board or a pulled-up switch: the
@@ -59,11 +52,18 @@ class GpioLine(Device):
         self.invert = invert
         self.initial = initial
         self.pull_up = pull_up
-        self._level: bool | None = None
         if direction == "output":
-            self.bind((SignalSpec(name="on", quantity=ON, access=Access.W, limits=(0.0, 1.0)),))
+            self.bind((
+                SignalSpec(
+                    name="on",
+                    quantity=ON,
+                    access=Access.RPW,
+                    role=Role.DEMAND,
+                    limits=(0.0, 1.0),
+                    initial=float(initial),
+                ),
+            ))
             link.claim_output(line, initial != invert)
-            self._level = initial
         else:
             self.bind((
                 SignalSpec(
@@ -83,45 +83,38 @@ class GpioLine(Device):
             pull_up=self.pull_up,
         )
 
-    @property
-    def state(self) -> GpioLineState:
-        return GpioLineState(level=self._level)
-
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """An input's level, 0 or 1; an output has nothing to read."""
         if self.direction != "input":
             return
-        self._level = self.link.get(self.line) != self.invert
-        yield Sample(self.root, time_ns, {self.signals["level"]: float(self._level)})
+        level = self.link.get(self.line) != self.invert
+        yield Sample(self.root, time_ns, {self.signals["level"]: float(level)})
 
     def _drive(self, on: bool) -> None:
         if self.direction != "output":
             raise ConflictError(f"{self.name} is an input line; it cannot be driven")
-        self._level = on
         self.link.set(self.line, on != self.invert)
 
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+    def commit(self, time_ns: int) -> None:
         """Drive the line; a switch has two positions and neither is a rail, so no `at_limit`."""
-        states: dict[Signal, WriteState] = {}
         for signal, value in self.pending.items():
             on = value >= 0.5
             self._drive(on)
-            states[signal] = WriteState(value=float(on))
-        self.written.update(states)
-        self.pending.clear()
-        return states
+            readback = float(on)
+            if readback != value:
+                signal.push(readback, time_ns)
 
     @command
-    def on(self) -> GpioLineState:
+    def on(self) -> None:
         """Switch the line on, whatever was last demanded."""
         self._drive(True)
-        return self.state
+        self.signals["on"].push(1.0)
 
     @command
-    def off(self) -> GpioLineState:
+    def off(self) -> None:
         """Switch the line off, whatever was last demanded."""
         self._drive(False)
-        return self.state
+        self.signals["on"].push(0.0)
 
 
 class GpioLineConfig(DriverConfig[GpioLine], tag="gpio_line"):
@@ -154,4 +147,4 @@ class GpioLineConfig(DriverConfig[GpioLine], tag="gpio_line"):
 GpioLine.config_type = GpioLineConfig  # the config is declared after the device it builds
 
 
-__all__ = ["Direction", "GpioLine", "GpioLineConfig", "GpioLineState"]
+__all__ = ["Direction", "GpioLine", "GpioLineConfig"]

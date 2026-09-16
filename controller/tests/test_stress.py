@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from flyball.core.signal import Access
+from flyball.core.signal import Access, Role
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
 
 STRESS = Path(__file__).resolve().parents[2] / "examples" / "stress"
@@ -65,7 +65,11 @@ def test_stress_rig_samples_every_signal_and_regulates_every_controller(built):
     # Enough steps for the slowest signal to have been read at least a couple of times.
     clock.advance(period * 3 + 1)
 
-    missing = [s.address for s in publishing if s not in rig.latest]
+    # A demand only gets a reading once something sets it, never on its own
+    # schedule; the controller loop below checks the ones that are regulated.
+    # `last.<tag>` likewise only gets one once that command has run.
+    polled = [s for s in publishing if s.role is not Role.DEMAND and s.node.name != "last"]
+    missing = [s.address for s in polled if s not in rig.latest]
     assert not missing, f"no reading yet on {missing}"
 
     # Aim every controller at roughly where it already is, then give it a couple

@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
 
 from flyball.core.config import resolve
-from flyball.core.device import Device, DeviceState, DriverConfig
+from flyball.core.device import DriverConfig, Readable
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
 from pydantic import BaseModel, ConfigDict, Field
@@ -65,13 +64,7 @@ class Channel(BaseModel):
     offset: float = 0.0
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Ads1115State(DeviceState):
-    volts: dict[str, float] = field(default_factory=dict)
-    """What each channel last read at the pin, by signal name; one not yet read is absent."""
-
-
-class Ads1115(Device):
+class Ads1115(Readable):
     """Each of `channels` becomes one `[RP]` signal, read in turn when due."""
 
     def __init__(
@@ -96,19 +89,15 @@ class Ads1115(Device):
         """Whether to wait the conversion time; off in a test against a fake."""
         self.channels = dict(channels)
         self._scan = Scan()
-        self._volts: dict[str, float] = {}
         self.bind([
             SignalSpec(name=key, quantity=Quantity(c.quantity or key, c.unit), access=Access.RP)
             for key, c in self.channels.items()
         ])
+        self._signals = [self.signals[key] for key in self.channels]
 
     @property
     def config(self) -> Ads1115Config:
         return Ads1115Config(link="", channels=self.channels, address=self.address, gain=self.gain)
-
-    @property
-    def state(self) -> Ads1115State:
-        return Ads1115State(volts=dict(self._volts))
 
     def _volts_on(self, channel: int) -> float:
         _, full_scale = FULL_SCALE[self.gain]
@@ -124,12 +113,12 @@ class Ads1115(Device):
 
     def _value(self, signal: Signal) -> float:
         channel = self.channels[signal.name]
-        volts = self._volts[signal.name] = self._volts_on(channel.channel)
+        volts = self._volts_on(channel.channel)
         return volts * channel.scale + channel.offset
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One conversion per due signal, all in one sample: milliseconds apart on one chip."""
-        due = self._scan.due(self.root if node is None else node, time_ns, whole=node is not None)
+        due = self._scan.due(self._signals, time_ns, whole=node is not None)
         if due:
             yield Sample(self.root, time_ns, {signal: self._value(signal) for signal in due})
 
@@ -153,4 +142,4 @@ class Ads1115Config(DriverConfig[Ads1115], tag="ads1115"):
 Ads1115.config_type = Ads1115Config  # the config is declared after the device it builds
 
 
-__all__ = ["FULL_SCALE", "Ads1115", "Ads1115Config", "Ads1115State", "Channel", "config_word"]
+__all__ = ["FULL_SCALE", "Ads1115", "Ads1115Config", "Channel", "config_word"]

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from flyball.control import PI, Controller, NoFeedforward
 from flyball.core.device import Device
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Sample, SignalSpec, WriteState
+from flyball.core.signal import Access, Role, Sample, SignalSpec, WriteState
 from flyball.core.units.si import Celsius, Watt
 from flyball.db.sqlite import SqliteStore
 from flyball.db.types import Event, Tick
@@ -38,7 +38,11 @@ class Meter(Device):
 class Heater(Device):
     TREE = (
         SignalSpec(
-            name="power", quantity=Quantity("power", Watt), access=Access.W, limits=(0.0, 10.0)
+            name="power",
+            quantity=Quantity("power", Watt),
+            access=Access.RPW,
+            role=Role.DEMAND,
+            limits=(0.0, 10.0),
         ),
     )
 

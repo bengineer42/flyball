@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 
 import pytest
 from pydantic import ValidationError
 
 from flyball.core.config import Config
-from flyball.core.device import Device, DeviceEntry, DriverConfig
+from flyball.core.device import Committable, Device, DeviceEntry, DriverConfig, Readable
 from flyball.core.quantity import Quantity
 from flyball.core.signal import (
     Access,
     NodeSpec,
     Path,
-    Reading,
     Sample,
     Signal,
     SignalSpec,
-    WriteState,
 )
 from flyball.core.units.si import Celsius, Percent, Watt
 
@@ -39,13 +37,13 @@ def _sensor(name: str) -> NodeSpec:
     )
 
 
-class HumSensors(Device):
+class HumSensors(Readable):
     """Three SHT4x namespaces on one device: a static tree."""
 
     TREE = (_sensor("chamber"), _sensor("dry"), _sensor("wet"))
 
 
-class SimFurnace(Device):
+class SimFurnace(Readable, Committable):
     """A tree that depends on the config, bound in `__init__`; the base write side."""
 
     def __init__(
@@ -68,24 +66,21 @@ class SimFurnace(Device):
         self.bind(tree)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        yield Sample(self.root, time_ns, dict.fromkeys(self.publishing.values(), 20.0))
+        temps = {s: 20.0 for s in self.publishing.values() if s is not self.conditions}
+        yield Sample(self.root, time_ns, temps)
 
     def write_signal(self, signal: Signal, value: float) -> None:
         assert signal.limits is not None
         self.inputs[signal.name] = value / signal.limits[1]
 
 
-class Blender(Device):
+class Blender(Committable):
     """A composite actuator: every pending value and every bound input meet in `commit`."""
 
     TREE = (
         SignalSpec(name="humidity", quantity=HUMIDITY, access=Access.W, limits=(0.0, 100.0)),
-        SignalSpec(
-            name="dry_flow", quantity=FLOW, access=Access.W, together=frozenset({"wet_flow"})
-        ),
-        SignalSpec(
-            name="wet_flow", quantity=FLOW, access=Access.W, together=frozenset({"dry_flow"})
-        ),
+        SignalSpec(name="dry_flow", quantity=FLOW, access=Access.W),
+        SignalSpec(name="wet_flow", quantity=FLOW, access=Access.W),
         SignalSpec(name="blend_flow", quantity=FLOW, access=Access.RW),
         SignalSpec(name="expected_humidity", quantity=HUMIDITY, access=Access.RP),
     )
@@ -97,17 +92,14 @@ class Blender(Device):
         self.blend_flow = 1.0
         self.pump_writes: list[tuple[float, float]] = []
 
-    def observe(self, reading: Reading) -> None:
+    def commit(self, time_ns: int) -> None:
         for role, signal in self.bound.items():
-            if reading.signal is signal:
+            if isinstance(signal, Signal) and (reading := signal.reading) is not None:
                 self.supply[role] = reading.value
-
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
         pending = {signal.name: value for signal, value in self.pending.items()}
         self.target = pending.get("humidity", self.target)
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
         self.pump_writes.append((self.blend_flow, self.target))
-        return self.flush_pending()
 
 
 class TestBinding:
@@ -134,6 +126,7 @@ class TestBinding:
     def test_a_dynamic_tree_is_bound_by_the_driver(self):
         furnace = SimFurnace("furnace", zones=3, power_w=(2500.0, 6000.0, 2000.0))
         assert list(furnace.signals) == [
+            "conditions",
             "zone1",
             "zone2",
             "zone3",
@@ -149,12 +142,12 @@ class TestBinding:
 
     def test_views_by_access(self):
         furnace = SimFurnace("f", zones=2, power_w=(1.0, 1.0))
-        assert list(furnace.publishing) == ["zone1", "zone2", "sample"]
-        assert list(furnace.readable) == ["zone1", "zone2", "sample"]
-        assert list(furnace.writable) == ["heater1", "heater2"]
+        assert list(furnace.publishing) == ["conditions", "zone1", "zone2", "sample"]
+        assert list(furnace.readables) == ["conditions", "zone1", "zone2", "sample"]
+        assert list(furnace.writables) == ["heater1", "heater2"]
         blender = Blender("b")
-        assert list(blender.writable) == ["humidity", "dry_flow", "wet_flow", "blend_flow"]
-        assert list(blender.readable) == ["blend_flow", "expected_humidity"]
+        assert list(blender.writables) == ["humidity", "dry_flow", "wet_flow", "blend_flow"]
+        assert list(blender.readables) == ["blend_flow", "expected_humidity"]
         assert list(blender.publishing) == ["expected_humidity"]
 
     def test_a_namespace_two_deep(self):
@@ -190,12 +183,14 @@ class TestBinding:
         with pytest.raises(ValueError, match="'d.x' is declared twice"):
             Twice("d")
 
-    def test_a_bare_device_has_an_empty_tree(self):
+    def test_a_bare_device_has_an_empty_tree_beyond_conditions(self):
         bare = Device("bare")
-        assert bare.TREE == () and bare.pending == {} and bare.bound == {}
+        assert list(bare.signals) == ["conditions"], "every device has this much"
+        assert bare.pending == {} and bare.bound == {}
         assert bare.poll_s is None and bare.label is None
-        assert bare.root.address == "bare" and bare.signals == {} and bare.nodes == {}
-        assert list(bare.root.walk()) == [] and bare.publishing == {}
+        assert bare.root.address == "bare" and bare.nodes == {}
+        assert list(bare.root.walk()) == [bare.signals["conditions"]]
+        assert list(bare.publishing) == ["conditions"]
 
 
 class TestPollPeriod:
@@ -223,29 +218,25 @@ class TestWriteSide:
         furnace.apply(h2, 10, 6000.0)
         assert furnace.pending == {h1: 1250.0, h2: 6000.0}
         assert furnace.written == {}
-        states = furnace.commit(10)
-        assert states == {
-            h1: WriteState(value=1250.0, requested=None, at_limit=None, controller=None),
-            h2: WriteState(value=6000.0, requested=None, at_limit="high", controller=None),
-        }
-        assert furnace.pending == {}
-        assert furnace.written == states
+        assert furnace.commit(10) is None
         assert furnace.inputs == {"heater1": 0.5, "heater2": 1.0}
+        assert furnace.pending == {h1: 1250.0, h2: 6000.0}, "the rig clears pending, not the driver"
+        assert furnace.written == {}, "the rig fills it in, not the driver"
 
         furnace.apply(h1, 20, 0.0)
-        assert furnace.commit(20) == {h1: WriteState(value=0.0, at_limit="low")}
-        assert furnace.written[h1].at_limit == "low" and furnace.written[h2].value == 6000.0
+        assert furnace.commit(20) is None
+        assert furnace.inputs["heater1"] == 0.0
 
     def test_the_base_commit_holds_the_value(self):
-        class Holder(Device):
+        class Holder(Committable):
             TREE = (SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),)
 
         holder = Holder("h")
         setpoint = holder.signals["setpoint"]
         holder.apply(setpoint, 1, 50.0)
-        assert holder.commit(1) == {setpoint: WriteState(value=50.0)}
-        assert holder.written[setpoint].value == 50.0 and holder.pending == {}
-        assert holder.commit(2) == {}
+        assert holder.commit(1) is None
+        assert holder.pending == {setpoint: 50.0}, "the driver never clears it; the rig does"
+        assert holder.commit(2) is None
 
     def test_a_composite_device_sees_every_pending_value_at_once(self):
         blender = Blender("b")
@@ -254,27 +245,23 @@ class TestWriteSide:
         blender.apply(humidity, 1, 47.0)
         blender.apply(flow, 1, 1.5)
         assert blender.pump_writes == []
-        states = blender.commit(1)
+        assert blender.commit(1) is None
         assert blender.pump_writes == [(1.5, 47.0)]
-        assert states[humidity] == WriteState(value=47.0)
-        assert states[flow] == WriteState(value=1.5)
-        assert blender.pending == {}
+        assert blender.pending == {humidity: 47.0, flow: 1.5}, "the rig clears pending"
 
-    def test_observe_on_a_device_with_a_bound_input(self):
+    def test_a_bound_input_s_newest_value_is_read_in_commit(self):
         blender = Blender("b")
         sensors = HumSensors("hum")
         blender.bound = {"dry": sensors.signals["dry.humidity"]}
-        blender.observe(Reading(sensors.signals["dry.humidity"], 5, 3.0))
+        sensors.signals["dry.humidity"].push(3.0, 5)
+        assert blender.commit(5) is None
         assert blender.supply == {"dry": 3.0}
-        assert blender.commit(5) == {}
-        assert blender.pump_writes == [(1.0, 50.0)], "a new supply reading costs one pump write"
+        assert blender.pump_writes == [(1.0, 50.0)]
 
     def test_the_defaults_refuse_what_the_device_did_not_declare(self):
-        bare = Device("bare")
+        bare = Readable("bare")
         with pytest.raises(NotImplementedError, match="nothing to read"):
             next(bare.read(0))
-        with pytest.raises(NotImplementedError, match="no bound input"):
-            bare.observe(Reading(HumSensors("h").signals["dry.humidity"], 0, 0.0))
 
     def test_read_yields_samples_on_the_root(self):
         furnace = SimFurnace("f", zones=1, power_w=(1.0,))
@@ -397,7 +384,7 @@ class TestDeviceEntry:
             "signals": {
                 "zone1": {"label": "Zone 1 (entry)", "range": [0, 1200], "precision": 1},
                 "sample": {"poll_s": 2, "warn": [0, 1100]},
-                "heater2": {"limits": [0, 5000], "together": ["heater1"]},
+                "heater2": {"limits": [0, 5000]},
             },
         })
         furnace = entry.build("furnace")
@@ -410,7 +397,6 @@ class TestDeviceEntry:
         assert furnace.signals["sample"].poll_s == 2.0
         assert furnace.signals["sample"].spec.warn == (0.0, 1100.0)
         assert furnace.signals["heater2"].limits == (0.0, 5000.0)
-        assert furnace.signals["heater2"].spec.together == frozenset({"heater1"})
         assert furnace.signals["heater1"].limits == (0.0, 2500.0), "untouched"
         assert furnace.signals["zone1"].access is Access.RP, "untouched"
 
@@ -469,7 +455,7 @@ class TestDeviceEntry:
         assert furnace.signals["sample"].access is Access.R
         assert furnace.signals["sample"].spec.access is Access.RP, "the driver's stays"
         assert furnace.signals["zone2"].access is Access.R
-        assert "zone2" not in furnace.publishing and "zone2" in furnace.readable
+        assert "zone2" not in furnace.publishing and "zone2" in furnace.readables
 
         entry = DeviceEntry.model_validate({
             "driver": furnace_tag,
@@ -524,4 +510,4 @@ def test_a_device_binds_once(fresh):
         furnace.bind(())
     bare = Device(fresh("bare"))
     bare.bind((SignalSpec(name="x", quantity=TEMP, access=Access.R),))
-    assert list(bare.signals) == ["x"], "an empty tree is bound over; a driver computes its own"
+    assert list(bare.signals) == ["conditions", "x"], "the base tree is extended, not replaced"

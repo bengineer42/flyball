@@ -161,10 +161,10 @@ class Param:
     name: str
     annotation: Any
     link: str | None = None
-    """The path of the demand this argument sets: from `For[...]` in the annotation, or a
-    parameter named like a descriptor of the class. The rig fills a missing argument from its
-    current value and clamps it to the signal's limits; the schema shows its unit, limits and
-    address."""
+    """The path of the demand this argument sets: from a descriptor in an `Annotated[...]`
+    annotation, or a parameter named like a descriptor of the class. The rig fills a missing
+    argument from its current value and clamps it to the signal's limits; the schema shows its
+    unit, limits and address."""
     default: Any = inspect.Parameter.empty
 
     @property
@@ -187,8 +187,9 @@ class CommandSpec:
     own I/O and need none."""
     mode: Any = None
     """What the device's `mode` output becomes when this runs, if it has one."""
-    owner_exempt: bool = False
-    """Runs even while a controller drives one of the device's demands (`stop`)."""
+    interrupts: bool = False
+    """Puts a controller driving one of the device's demands into manual and runs (`stop`,
+    a manual flow); without it, such a command is refused while the controller is active."""
     demand_of: str | None = None
     """For a synthesised `set_<name>`: the path of the demand it sets; the rig routes it through
     its demand path."""
@@ -207,7 +208,7 @@ def command[F: Callable[..., Any]](
     simulation: bool = False,
     commit: bool = False,
     mode: Any = None,
-    owner_exempt: bool = False,
+    interrupts: bool = False,
 ) -> Callable[[F], F]: ...
 def command(
     fn: Any = None,
@@ -217,16 +218,19 @@ def command(
     simulation: bool = False,
     commit: bool = False,
     mode: Any = None,
-    owner_exempt: bool = False,
+    interrupts: bool = False,
 ) -> Any:
     """Mark a device method as a command, under its name or `tag`.
 
     `@command` or `@command(tag="stop")`. The method's signature is the
-    command's; an argument annotated `For[<descriptor>]` (or named like one)
-    is a value for that demand. `mode` is what the device's `mode` output
-    becomes when it runs. `commit=True` for a method that only records and
-    needs the device committed after. `owner_exempt=True` lets it run while
-    a controller drives the device. `simulation=True` marks one that only
+    command's; an argument annotated `Annotated[<type>, <descriptor>]` (or
+    named like a descriptor) is a value for that demand -- legal in the
+    class body, since the descriptor's name is already bound there. `mode`
+    is what the device's `mode` output becomes when it runs. `commit=True`
+    for a method that only records and needs the device committed after.
+    `interrupts=True` puts a controller
+    driving the device into manual and runs; without it the command is
+    refused while one is active. `simulation=True` marks one that only
     makes sense on a simulated device (a scripted fault, a disturbance): it
     is served like any other, but the schema says so, so a UI can keep it
     off the device's page.
@@ -238,7 +242,7 @@ def command(
             "simulation": simulation,
             "commit": commit,
             "mode": mode,
-            "owner_exempt": owner_exempt,
+            "interrupts": interrupts,
         }
         return f
 
@@ -501,19 +505,6 @@ class Input(Descriptor[BoundInput]):
         return BoundInput(device, self)
 
 
-class For:
-    """`For[descriptor]`: annotate a command argument as a value for that demand.
-
-    `def set_flows(self, dry: For[dry_flow], wet: For[wet_flow])` -- legal
-    in the class body, since the descriptor's name is already bound there.
-    """
-
-    def __class_getitem__(cls, descriptor: Any) -> Any:
-        if not isinstance(descriptor, Descriptor):
-            raise TypeError(f"For[...] takes a signal descriptor, not {descriptor!r}")
-        return Annotated[descriptor.vtype, descriptor]
-
-
 def _declare(owner: type, item: Namespace | Descriptor[Any]) -> None:
     """Note a top-level descriptor on its class, in declaration order, for `__init_subclass__`."""
     declared = owner.__dict__.get("_declared")
@@ -569,10 +560,10 @@ def _leaves(tree: Iterable[NodeSpec | SignalSpec], above: str = "") -> Iterator[
 
 
 def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
-    """Each argument of `fn` with the demand it is for: `For[...]` first, then by name.
+    """Each argument of `fn` with the demand it is for: `Annotated[...]` first, then by name.
 
-    Resolves the annotations against the class body, so `For[dry_flow]`
-    finds the descriptor, and writes the resolved ones back onto the
+    Resolves the annotations against the class body, so `Annotated[Flow,
+    dry_flow]` finds the descriptor, and writes the resolved ones back onto the
     function: whatever builds a request model from it later needs no
     class namespace.
     """

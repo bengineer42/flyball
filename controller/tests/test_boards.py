@@ -7,10 +7,10 @@ from collections.abc import Iterator
 import pytest
 
 from flyball.core.config import Config
-from flyball.core.device import Device, DriverConfig
+from flyball.core.device import Device, DriverConfig, Readable
 from flyball.core.errors import NotFoundError
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Sample, SignalSpec
+from flyball.core.signal import Access, Role, Sample, SignalSpec
 from flyball.core.units.si import Watt
 from flyball.runtime.config import (
     BOARDS_ENV,
@@ -39,7 +39,11 @@ OUT1 = { link = "bus", unit_id = 7 }
 class Relay(Device):
     """One W signal, on a bus at a unit id: what a board's pin resolves to."""
 
-    TREE = (SignalSpec(name="power", quantity=Quantity("power", Watt), access=Access.W),)
+    TREE = (
+        SignalSpec(
+            name="power", quantity=Quantity("power", Watt), access=Access.RPW, role=Role.DEMAND
+        ),
+    )
 
     def __init__(self, name: str, unit_id: int, label: str | None = None) -> None:
         super().__init__(name, label)
@@ -165,7 +169,7 @@ def test_a_link_registered_later_is_valid_in_a_file(fresh):
     assert tag in str(RigConfig.model_json_schema())
 
 
-class Daq(Device):
+class Daq(Readable):
     TREE = (SignalSpec(name="t", quantity=Quantity("temperature", "°C"), access=Access.RP),)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:

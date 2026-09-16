@@ -45,7 +45,13 @@ def test_the_overlay_keeps_every_name_and_address_on_fake_links():
 def test_the_sim_rig_builds_reads_and_regulates():
     rig = load_rig_config([REAL, SIM]).build(clock=SteppedClock(0), start=False)
     rig.devices["air"].sensor.sleep = False
-    assert {p: str(s.access) for p, s in rig.devices["heater"].signals.items()} == {"drive": "w"}
+    assert {p: str(s.access) for p, s in rig.devices["heater"].signals.items()} == {
+        "conditions": "rp",
+        "drive": "rpw",
+        "frequency_hz": "rp",
+        "last.set_frequency": "rp",
+        "last.off": "rp",
+    }
     temperature = rig.resolve("air.temperature")
     assert isinstance(temperature, Signal)
     reading = rig.read(temperature, fresh=True)
@@ -57,9 +63,13 @@ def test_the_sim_rig_builds_reads_and_regulates():
     assert controller.name == "heater.drive"
     controller.regulate(25.0)
     rig.on_samples(list(rig.devices["air"].read(1_000_000_000)))
-    assert rig.devices["heater"].state.duty == pytest.approx(0.5, abs=0.05)
+    heater = rig.devices["heater"]
+    assert heater.fraction(heater.written[heater.signals["drive"]].value) == pytest.approx(
+        0.5, abs=0.05
+    )
     fan = rig.devices["fan"]
-    assert fan.on().level is True and fan.link.levels[18] is True
+    fan.on()
+    assert fan.signals["on"].value == 1.0 and fan.link.levels[18] is True
 
 
 def test_every_board_profile_validates():

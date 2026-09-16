@@ -106,7 +106,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
                 "simulation": spec.simulation,
                 "commit": spec.commit,
                 "mode": spec.mode,
-                "owner_exempt": spec.owner_exempt,
+                "interrupts": spec.interrupts,
                 "demand_of": spec.demand_of,
             }
             for tag, spec in cls.commands.items()

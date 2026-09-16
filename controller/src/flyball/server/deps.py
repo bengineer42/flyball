@@ -107,7 +107,7 @@ def set_simulation_device(device: Device | None) -> None:
         _rig.release(_simulation_device.name)
     if device is not None and _rig is not None:
         _rig.claim(device.name, "simulation", device)
-        _rig.devices[device.name] = device
+        _rig.add_device(device)  # its values live in the rig's router, like any device's
     _simulation_device = device
 
 

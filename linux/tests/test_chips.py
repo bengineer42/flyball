@@ -28,6 +28,7 @@ class TestSht4x:
     def test_declares_humidity_and_temperature_on_the_root(self):
         air = sht4x.Sht4x("air", FakeI2c(), sleep=False)
         assert {p: str(s.access) for p, s in air.signals.items()} == {
+            "conditions": "rp",
             "humidity": "rp",
             "temperature": "rp",
         }
@@ -45,7 +46,6 @@ class TestSht4x:
             "temperature": pytest.approx(21.5, abs=0.01),
         }
         assert bus.written == [(0x44, None, [0xE0])]
-        assert air.state.humidity == pytest.approx(55.0, abs=0.01)
         assert air.config.address == 0x44 and air.config.precision == "low"
 
     def test_a_missing_chip_raises_so_the_device_goes_offline(self):
@@ -82,10 +82,6 @@ class TestSht4xSet:
             "temperature": pytest.approx(22.0, abs=0.01),
         }
         assert bus.written == [(0x44, None, [0xFD]), (0x45, None, [0xFD])]
-        assert hum.state.temperature == {
-            "chamber": pytest.approx(21.0, abs=0.01),
-            "dry": pytest.approx(22.0, abs=0.01),
-        }
 
     def test_a_namespace_is_read_on_its_own_poll_s(self):
         hum = sht4x.Sht4xSet("hum", self._bus(), {"chamber": 0x44, "dry": 0x45}, sleep=False)
@@ -131,7 +127,6 @@ class TestAds1115:
         (sample,) = adc.read(1)
         assert sample.by_name() == {"pressure": pytest.approx(2.048 * 25.0)}
         assert bus.written == [(0x48, 0x01, [0xD3, 0x83])]
-        assert adc.state.volts["pressure"] == pytest.approx(2.048)
 
     def test_only_due_signals_are_read(self):
         bus = FakeI2c(registers={0x48: {0x00: [0x40, 0x00]}})
@@ -169,5 +164,4 @@ class TestMcp3008:
         )
         (sample,) = pot.read(1)
         assert sample.by_name() == {"level": pytest.approx(3.3), "zero": 0.0}
-        assert pot.state.counts == {"level": 1023, "zero": 0}
         assert pot.config.vref == 3.3

@@ -133,6 +133,7 @@ def test_the_document_validates_against_every_registered_tag():
 
 def test_the_tree_and_the_envelope_s_overrides(rig):
     assert {p: str(s.access) for p, s in rig.devices["chip"].signals.items()} == {
+        "conditions": "rp",
         "temperature": "rp",
         "setpoint": "rpw",
     }
@@ -198,7 +199,9 @@ def test_a_controller_drives_the_heater_and_a_manual_demand_is_refused(rig):
     assert heater.written[drive].value == pytest.approx(25.0 + (25.0 - 21.5), abs=0.01), (
         "kp 1: reference plus the error, in °C"
     )
-    assert heater.state.duty == pytest.approx((28.5 - 10) / 30, abs=0.001)
+    assert heater.fraction(heater.written[drive].value) == pytest.approx(
+        (28.5 - 10) / 30, abs=0.001
+    )
     with pytest.raises(ConflictError, match="driven by controller"):
         rig.demand(heater.root, {"drive": 20.0})
     controller.regulate(60.0)

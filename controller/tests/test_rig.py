@@ -127,7 +127,9 @@ class TestRecording:
         ], "manual: the tick wrote nothing; the setting is not published"
         controller.regulate(50.0, transfer=Transfer.RESET)
         rig.on_samples([Sample(furnace.root, 6, {zone1: 40.0})])
-        samples, ticks, states, time_ns = recorder.records[-1]
+        # The delivery itself, then a follow-up delivery for heater1's own readback (it
+        # publishes now: the rig pushes what the driver did not).
+        samples, ticks, states, time_ns = recorder.records[-2]
         assert time_ns == 6 and [c for c, _ in ticks] == [controller]
         assert states == {
             heater1: WriteState(value=100.0, controller=controller.name),
@@ -140,14 +142,13 @@ class TestRecording:
         recorder = rig.start_recording(FakeStore())
         clock.advance(3.0)
         rig.demand(furnace.root, {"heater2": 7000.0})
-        assert recorder.records == [
-            (
-                [],
-                [],
-                {heater2: WriteState(value=6000.0, requested=7000.0, at_limit="high")},
-                3_000_000_000,
-            )
-        ]
+        assert recorder.records[0] == (
+            [],
+            [],
+            {heater2: WriteState(value=6000.0, requested=7000.0, at_limit="high")},
+            3_000_000_000,
+        )
+        assert len(recorder.records) == 2, "heater2's own readback is recorded as a follow-up"
 
     def test_a_failed_recorder_is_detached_and_reported(self, rig, clock, recorder_module):
         recorder = rig.start_recording(FakeStore())

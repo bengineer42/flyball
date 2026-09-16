@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from flyball.core.device import Device, Level
+from flyball.core.device import Committable, Device, Level
 from flyball.core.errors import NotFoundError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Reading, SignalSpec
@@ -34,8 +34,8 @@ def test_the_period_is_the_smallest_in_the_tree(fresh):
     assert poll_period(furnace) == 1.0
     furnace.signals["sample"].override(poll_s=0.5)
     assert poll_period(furnace) == 0.5
-    furnace.signals["heater1"].override(poll_s=0.1)
-    assert poll_period(furnace) == 0.5, "a W signal's period means nothing"
+    furnace.signals["setpoint"].override(poll_s=0.1)
+    assert poll_period(furnace) == 0.5, "a non-publishing signal's period means nothing"
     heaters = Heaters(fresh("heaters"))
     heaters.poll_s = 1.0
     assert poll_period(heaters) is None
@@ -102,9 +102,9 @@ def test_offline_on_an_exception_with_a_condition_and_an_event(rig, clock, furna
 
 
 def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh):
-    class Broken(Device):
-        def observe(self, reading):
-            raise ValueError("a bug in a driver's observe")
+    class Broken(Committable):
+        def commit(self, time_ns: int) -> None:
+            raise ValueError("a bug in a driver's commit")
 
     rig.add_device(broken := Broken(fresh("broken")))
     rig.bind_inputs(broken, {"in": f"{furnace.name}.zone1"})
@@ -114,7 +114,7 @@ def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh)
     assert run.conditions == () and run.last_read_ns == clock.now_ns(), "the device read fine"
     event = rig.recent[-1]
     assert event.kind == "delivery_failed" and event.scope == "rig"
-    assert "a bug in a driver's observe" in event.message
+    assert "a bug in a driver's commit" in event.message
     assert run.running is True
 
 

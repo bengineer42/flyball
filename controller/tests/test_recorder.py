@@ -5,15 +5,16 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Iterator
+from enum import StrEnum
 
 import pytest
 
 from flyball.control import PI
-from flyball.core.device import Device
+from flyball.core.device import Committable, Device, Readable
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, SignalSpec, WriteState
+from flyball.core.signal import Access, Node, Role, Sample, SignalSpec, WriteState
 from flyball.core.units.si import Celsius, Watt
-from flyball.db import NotDeclaredError, SqliteStore, Window
+from flyball.db import Downsample, NotDeclaredError, SqliteStore, Window
 from flyball.db.migrate import available
 from flyball.runtime.recorder import Recorder
 
@@ -21,21 +22,26 @@ TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
 
 
-class Furnace(Device):
+class Furnace(Readable, Committable):
     """RP zones, a W heater and an RW setpoint on one flat tree."""
 
     TREE = (
         SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, range=(0.0, 1200.0)),
         SignalSpec(name="zone2", quantity=TEMP, access=Access.RP),
         SignalSpec(
-            name="heater", quantity=POWER, access=Access.W, limits=(0.0, 2500.0), label="Heater"
+            name="heater",
+            quantity=POWER,
+            access=Access.RPW,
+            role=Role.DEMAND,
+            limits=(0.0, 2500.0),
+            label="Heater",
         ),
-        SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),
+        SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW, role=Role.DEMAND),
     )
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
-        self.temps = dict.fromkeys(self.publishing.values(), 20.0)
+        self.temps = {self.signals["zone1"]: 20.0, self.signals["zone2"]: 20.0}
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         yield Sample(self.root, time_ns, dict(self.temps))
@@ -101,7 +107,7 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     )
     assert zone1.device == furnace.name and zone1.dtype == "float" and zone1.shape == []
     heater = signals[f"{furnace.name}.heater"]
-    assert (heater.access, heater.limits, heater.label) == ("w", (0.0, 2500.0), "Heater")
+    assert (heater.access, heater.limits, heater.label) == ("rpw", (0.0, 2500.0), "Heater")
     heater_write, setpoint_write = store.writes(session.id)
     assert heater_write.address == heater.address and heater_write.limits == (0.0, 2500.0)
     assert setpoint_write.signal.access == "rw" and setpoint_write.limits is None
@@ -244,6 +250,60 @@ class TestRecorder:
             writer.write_states(0, {furnace.signals["heater"]: WriteState(value=1.0)})
         with pytest.raises(NotDeclaredError, match="signal"):
             store.series(writer.session.id, f"{furnace.name}.zone2")
+
+
+# endregion
+
+# region Non-float dtypes
+
+
+class Mode(StrEnum):
+    IDLE = "idle"
+    RUN = "run"
+
+
+class Recipe(Device):
+    """One RP enum-valued signal and one RP json-valued (dict) signal."""
+
+    TREE = (
+        SignalSpec(name="mode", quantity=TEMP, access=Access.RP, vtype=Mode),
+        SignalSpec(name="config", quantity=TEMP, access=Access.RP, vtype=dict),
+    )
+
+
+class TestNonFloatReadings:
+    def test_enum_and_json_values_round_trip_through_samples_and_series(self, fresh):
+        recipe = Recipe(fresh("recipe"))
+        mode, config = recipe.signals["mode"], recipe.signals["config"]
+        store = SqliteStore(":memory:")
+        writer = store.open_session(1_000)
+        writer.declare_device(recipe)
+        writer.declare_signal(mode)
+        writer.declare_signal(config)
+        writer.write_samples([
+            Sample(recipe.root, 2_000, {mode: Mode.RUN, config: {"kp": 1.0, "tags": ["a", "b"]}})
+        ])
+        session_id = writer.session.id
+
+        series = store.series(session_id, mode.address)
+        assert [p.value for p in series.points] == ["run"], "the wire value, not the member"
+
+        rows = store.samples(session_id, recipe.name)
+        assert rows[0].values == {
+            mode.address: "run",
+            config.address: {"kp": 1.0, "tags": ["a", "b"]},
+        }
+
+    def test_downsample_on_a_non_float_series_raises(self, fresh):
+        recipe = Recipe(fresh("recipe"))
+        mode = recipe.signals["mode"]
+        store = SqliteStore(":memory:")
+        writer = store.open_session(1_000)
+        writer.declare_device(recipe)
+        writer.declare_signal(mode)
+        writer.write_samples([Sample(recipe.root, 2_000, {mode: Mode.IDLE})])
+        with pytest.raises(ValueError, match="downsample"):
+            store.series(writer.session.id, mode.address, downsample=Downsample(every=2))
 
 
 # endregion

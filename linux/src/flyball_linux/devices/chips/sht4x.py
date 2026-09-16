@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
 from typing import Literal
 
 from flyball.core.config import resolve
-from flyball.core.device import Device, DeviceState, DriverConfig
+from flyball.core.device import DriverConfig, Output, Readable
 from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, NodeSpec, Sample, SignalSpec
@@ -115,16 +114,11 @@ def _tree() -> tuple[SignalSpec, ...]:
     )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Sht4xState(DeviceState):
-    temperature: float | None = None
-    humidity: float | None = None
-
-
-class Sht4x(Device):
+class Sht4x(Readable):
     """One chip on the device root: `humidity`, `temperature [RP]`, one I2C transaction."""
 
-    TREE = _tree()
+    humidity = Output("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
+    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
 
     def __init__(
         self,
@@ -138,24 +132,14 @@ class Sht4x(Device):
         super().__init__(name, label)
         self.link = link
         self.sensor = Sht4xSensor(link, address, precision, sleep)
-        self._last: tuple[float, float] | None = None
 
     @property
     def config(self) -> Sht4xConfig:
         return Sht4xConfig(link="", address=self.sensor.address, precision=self.sensor.precision)
 
-    @property
-    def state(self) -> Sht4xState:
-        t, h = self._last if self._last is not None else (None, None)
-        return Sht4xState(temperature=t, humidity=h)
-
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        temperature, humidity = self._last = self.sensor.read()
-        yield Sample(
-            self.root,
-            time_ns,
-            {self.signals["humidity"]: humidity, self.signals["temperature"]: temperature},
-        )
+        temperature, humidity = self.sensor.read()
+        yield self.sample(time_ns, humidity=humidity, temperature=temperature)
 
 
 class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
@@ -182,14 +166,7 @@ class SensorEntry(BaseModel):
     address: int = Field(default=SHT4X_ADDRESS, ge=0x03, le=0x77)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Sht4xSetState(DeviceState):
-    temperature: dict[str, float] = field(default_factory=dict)
-    """The last temperature read on each sensor, by name; one not yet read is absent."""
-    humidity: dict[str, float] = field(default_factory=dict)
-
-
-class Sht4xSet(Device):
+class Sht4xSet(Readable):
     """Several chips on one bus, one atomic namespace each, read one transaction each when due."""
 
     def __init__(
@@ -215,7 +192,6 @@ class Sht4xSet(Device):
             for sensor_name, address in sensors.items()
         }
         self._last_read_ns: dict[str, int] = {}
-        self._last: dict[str, tuple[float, float]] = {}
 
     @property
     def config(self) -> Sht4xSetConfig:
@@ -226,13 +202,6 @@ class Sht4xSet(Device):
             precision=sensor.precision,
         )
 
-    @property
-    def state(self) -> Sht4xSetState:
-        return Sht4xSetState(
-            temperature={name: t for name, (t, _) in self._last.items()},
-            humidity={name: h for name, (_, h) in self._last.items()},
-        )
-
     def _due(self, node: Node, time_ns: int) -> bool:
         last = self._last_read_ns.get(node.name)
         if last is None:
@@ -241,7 +210,7 @@ class Sht4xSet(Device):
         return period_s is None or (time_ns - last) >= 0.9 * period_s * 1e9
 
     def _sample(self, node: Node, time_ns: int) -> Sample:
-        temperature, humidity = self._last[node.name] = self.sensors[node.name].read()
+        temperature, humidity = self.sensors[node.name].read()
         self._last_read_ns[node.name] = time_ns
         return Sample(
             node,
@@ -299,8 +268,6 @@ __all__ = [
     "Sht4xSensor",
     "Sht4xSet",
     "Sht4xSetConfig",
-    "Sht4xSetState",
-    "Sht4xState",
     "crc8",
     "decode",
     "encode",

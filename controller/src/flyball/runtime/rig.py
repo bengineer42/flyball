@@ -531,15 +531,18 @@ class Rig:
         """What a commit set each pending demand to, with what the rig knows; clears `pending`.
 
         The driver may have pushed a readback in `commit` (`before` is the
-        router's count per signal from before it ran); a demand it did not
-        push gets the committed value as its reading, so every demand has a
-        current value. The rig adds what was asked for, when the clamp
-        changed it, and which controller drives the signal; the device's
-        `written` gets the filled-in state too, so the wire shows one thing.
+        router's count per signal from before it ran): that is the state's
+        value. A demand it did not push gets the committed value as its
+        reading, so every demand has a current value. The rig adds what was
+        asked for, when the clamp changed it, and which controller drives
+        the signal; the device's `written` gets the filled-in state too, so
+        the wire shows one thing.
         """
         states: dict[Signal, WriteState] = {}
         seq = self.router.seq
         for signal, value in device.pending.items():
+            if seq.get(signal, 0) != before.get(signal, 0):  # the driver pushed the readback
+                value = self.router.value(signal)
             at_limit = signal.at_limit
             if at_limit is None and (limits := signal.limits) is not None:
                 if value <= limits[0]:
@@ -557,7 +560,7 @@ class Rig:
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
-            if seq.get(signal, 0) == before.get(signal, 0):  # the driver pushed no readback
+            if seq.get(signal, 0) == before.get(signal, 0):  # no readback: the value stands
                 signal.push(value, time_ns)
         device.pending.clear()
         return states
@@ -596,13 +599,14 @@ class Rig:
     def run_command(self, device: Device, tag: str, args: Mapping[str, Any] | None = None) -> Any:
         """Run `device`'s command `tag` with `args`, as the rig: linked, clamped, owned, recorded.
 
-        An argument that is a value for a demand (`For[...]`) is filled from
+        An argument that is a value for a demand (`Annotated[..., d]`) is filled from
         that demand's current value when left out, and clamped to the
         signal's effective limits. A synthesised `set_<name>` goes through
         [demand][flyball.runtime.rig.Rig.demand]. A command that changes
         what drives the device -- one with a `mode`, or a linked argument --
         is refused while a controller drives one of the device's demands,
-        unless it is `owner_exempt`. The method runs under the rig lock; afterwards the
+        unless it `interrupts`: then the controller is put into manual first,
+        with an event. The method runs under the rig lock; afterwards the
         device's `mode` output (if it has one) becomes the command's, a
         `commit=True` command commits the device, each linked demand the
         driver did not push gets its argument as its reading, and
@@ -634,15 +638,27 @@ class Rig:
                     given[name], (int, float)
                 ):
                     given[name] = min(max(float(given[name]), limits[0]), limits[1])
-            if not spec.owner_exempt and (spec.mode is not None or linked):
+            if spec.mode is not None or linked:
                 # It changes what drives the device: not while a controller does.
                 for signal in device.signals.values():
                     holder = self.controllers.driving(signal)
-                    if holder is not None and holder.mode.active():
+                    if holder is None or not holder.mode.active():
+                        continue
+                    if not spec.interrupts:
                         raise ConflictError(
                             f"'{signal.address}' is driven by controller {holder.name!r}:"
                             f" {tag!r} would fight it; put it in manual, or detach it"
                         )
+                    holder.manual()
+                    self.event(
+                        Level.INFO,
+                        "controller",
+                        holder.name,
+                        "interrupted",
+                        f"put in manual by {device.name}.{tag}",
+                    )
+                    if self.controller_states.watched:
+                        self.controller_states.set(holder.name, holder.state)
             time_ns = self.clock.now_ns()
             outer = self._touched
             if outer is None:

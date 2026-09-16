@@ -126,7 +126,7 @@ def test_problems_for_flags_every_missing_binding_kind(furnace_rig):
             {"id": "ok-readout", "kind": "readout", "config": {"address": "zone.zone1"}},
             {"id": "bad-readout", "kind": "readout", "config": {"address": "zone.zone9"}},
             {"id": "bad-gauge", "kind": "gauge", "config": {"address": "zone9.zone1"}},
-            {"id": "setting", "kind": "readout", "config": {"address": "zone.setpoint"}},
+            {"id": "demand", "kind": "readout", "config": {"address": "zone.setpoint"}},
             {
                 "id": "mixed-chart",
                 "kind": "chart",
@@ -143,7 +143,7 @@ def test_problems_for_flags_every_missing_binding_kind(furnace_rig):
     assert problems == {
         "bad-readout": "zone.zone9",
         "bad-gauge": "zone9.zone1",
-        "setting": "zone.setpoint",  # readable, but a readout wants what publishes
+        # "demand" is not flagged: a demand is `RPW`, so it publishes like any other signal.
         "mixed-chart": "zone.humidity",
         "bad-loop": "heaters.heater2",
         "bad-device": "ghost",

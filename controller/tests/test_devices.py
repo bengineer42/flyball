@@ -18,8 +18,9 @@ class TestScpiSignal:
     def test_query_only_is_rp(self):
         assert ScpiSignal(query="V?", unit="V").access == Access.RP
 
-    def test_write_only_is_w(self):
-        assert ScpiSignal(write="V {value}", unit="V").access == Access.W
+    def test_write_only_is_rpw(self):
+        """A demand's readback is the value last committed: `RPW`, not bare `W`."""
+        assert ScpiSignal(write="V {value}", unit="V").access == Access.RPW
 
     def test_both_is_rpw(self):
         assert ScpiSignal(query="V?", write="V {value}", unit="V").access == Access.RPW
@@ -80,7 +81,7 @@ class TestScpi:
             "psu", link, {"set_voltage": ScpiSignal(write="SOUR:VOLT {value:.3f}", unit="V")}
         )
         assert list(psu.read(0)) == [], "nothing publishes"
-        assert psu.signals["set_voltage"].access is Access.W
+        assert psu.signals["set_voltage"].access is Access.RPW
 
     def test_a_dead_instrument_raises_so_the_device_goes_offline(self):
         dmm = Scpi("dmm", FakeTextLink({}), {"v": ScpiSignal(query="X?", unit="V")})
@@ -130,9 +131,9 @@ class TestModbus:
         )
         setpoint = valve.signals["setpoint"]
         valve.apply(setpoint, 1, 25.04)
-        states = valve.commit(1)
+        valve.commit(1)
         assert link.registers[200] == 250
-        assert states[setpoint].value == 25.04
+        assert setpoint.value == pytest.approx(25.0), "the quantised word actually set"
 
     def test_only_due_signals_are_read(self):
         link = FakeRegisterLink({1: 10, 2: 20})

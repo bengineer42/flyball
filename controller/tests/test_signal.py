@@ -67,7 +67,7 @@ class TestSpecs:
     def test_defaults(self):
         spec = SignalSpec(name="zone1", quantity=TEMP, access=Access.RP)
         assert spec.label == "" and spec.range is None and spec.poll_s is None
-        assert spec.limits is None and spec.together == frozenset()
+        assert spec.limits is None
         node = NodeSpec(name="dry", children=(spec,))
         assert node.atomic is False and node.poll_s is None
 
