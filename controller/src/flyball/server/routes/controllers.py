@@ -15,7 +15,8 @@ from typing import Annotated, Any, Union
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, TypeAdapter
 
-from flyball.control import ControlLaws, Feedforwards
+from flyball.control import ControlLaws, Controller, Feedforwards, SetPointGenerators
+from flyball.control.errors import LastReadingNotAvailableError
 from flyball.control.types import Transfer, ValueSource
 from flyball.core.errors import NotFoundError
 from flyball.core.signal import Access, Signal
@@ -32,6 +33,10 @@ LawConfig = Annotated[  # type: ignore[valid-type]
 ]
 FeedforwardConfig = Annotated[  # type: ignore[valid-type]
     Union[tuple(ff.config for ff in Feedforwards.values())],  # ruff: ignore[non-pep604-annotation-union]
+    Field(discriminator="tag"),
+]
+GeneratorConfig = Annotated[  # type: ignore[valid-type]
+    Union[tuple(g.config for g in SetPointGenerators.values())],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
 ]
 
@@ -53,13 +58,13 @@ class NewController(BaseModel):
 class Regulate(BaseModel):
     """Aim and hand control to the law."""
 
-    at: float | ValueSource
+    at: float | ValueSource | GeneratorConfig  # type: ignore[valid-type]
     tuning: LawConfig | str | None = None  # type: ignore[valid-type]
     transfer: Transfer = Transfer.TRACK
 
 
 class Reference(BaseModel):
-    at: float | ValueSource
+    at: float | ValueSource | GeneratorConfig  # type: ignore[valid-type]
 
 
 class SignalChoice(BaseModel):
@@ -106,6 +111,8 @@ class ControllerSchema(BaseModel):
     """JSON Schema of the law config union, discriminated on ``tag``."""
     feedforwards: dict[str, Any]
     """JSON Schema of the feedforward config union, discriminated on ``tag``."""
+    generators: dict[str, Any]
+    """JSON Schema of the set-point generator config union, discriminated on ``tag``."""
     tunings: list[TuningChoice]
     """Stored tunings a controller may name instead of a config."""
     regulated: dict[str, str]
@@ -127,6 +134,24 @@ def _signal(rig: Rig, address: str) -> Signal:
     return target
 
 
+def _generator_start(controller: Controller) -> float:
+    """Where a generator spec starts from: the controller's own setpoint, or its last reading.
+
+    The same rule the `ramp` program step uses in `programmer/loops.py`.
+
+    Raises:
+        LastReadingNotAvailableError: Neither is available yet.
+    """
+    start = (
+        controller.setpoint_at(controller.clock.now_ns())
+        if controller.reference is not None
+        else controller.last_value
+    )
+    if start is None:
+        raise LastReadingNotAvailableError
+    return start
+
+
 @router.get("")
 async def read_controllers(rig: RigDep) -> list[ControllerOut]:
     return [
@@ -142,6 +167,7 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
         targets=[SignalChoice.of(s) for s in signals if Access.W in s.access],
         laws=TypeAdapter(LawConfig).json_schema(),
         feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
+        generators=TypeAdapter(GeneratorConfig).json_schema(),
         tunings=[
             TuningChoice(name=name, law=config.tag, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()
@@ -190,16 +216,20 @@ def remove_controller(rig: RigDep, address: str) -> None:
 
 @router.post("/{address}/regulate")
 def regulate(rig: RigDep, address: str, body: Regulate) -> ControllerOut:
-    """Aim at ``at`` (a value, or ``process``/``setpoint``/``demand``) and let the law drive.
+    """Aim at ``at`` and let the law drive.
 
+    ``at`` is a value, ``process``/``setpoint``/``demand``, or a generator
+    spec, which starts from the controller's current setpoint or reading.
     The handover's demand is committed to the target's device at once.
     """
     controller = rig.controllers.resolve(address)
     tuning = body.tuning.build() if isinstance(body.tuning, BaseModel) else body.tuning  # type: ignore[union-attr]
     if isinstance(tuning, str) and (tuning := rig.tunings.get(tuning)) is None:
         raise NotFoundError(f"Tuning {body.tuning!r} not found")
+    generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
+    at = _generator_start(controller) if generator is not None else body.at
     with rig.lock:
-        controller.regulate(body.at, tuning=tuning, transfer=body.transfer)
+        controller.regulate(at, generator=generator, tuning=tuning, transfer=body.transfer)  # type: ignore[arg-type]
     return _out(rig, address)
 
 
@@ -213,7 +243,10 @@ def manual(rig: RigDep, address: str) -> ControllerOut:
 
 @router.put("/{address}/reference")
 def set_reference(rig: RigDep, address: str, body: Reference) -> ControllerOut:
-    """Move the setpoint without touching the mode or the law's state."""
+    """Move the setpoint, or start following a generator, without touching the mode."""
+    controller = rig.controllers.resolve(address)
+    generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
+    at = _generator_start(controller) if generator is not None else body.at
     with rig.lock:
-        rig.controllers.resolve(address).set_reference(body.at)
+        controller.set_reference(at, generator=generator)  # type: ignore[arg-type]
     return _out(rig, address)

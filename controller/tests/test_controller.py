@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import TypeAdapter
 
 from flyball.control import (
     PI,
     Affine,
     Controller,
     ControllerMode,
+    LinearRampSetpoint,
     NoFeedforward,
     Setpoint,
+    SetPointGenerators,
     Transfer,
 )
 from flyball.control.laws import P
+from flyball.core.clock import Speed, TimeUnit
 from flyball.core.device import Device
 from flyball.core.errors import ConflictError
 from flyball.core.quantity import Quantity
@@ -240,3 +244,31 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
     assert writes[-1] == pytest.approx(held)
     reset = controller.regulate(50.0, transfer=Transfer.RESET)
     assert reset.demand == 50.0 and reset.bump == pytest.approx(50.0 - held)
+
+
+def test_linear_ramp_setpoint_config_round_trips_and_builds():
+    assert SetPointGenerators["linear_ramp_setpoint"] is LinearRampSetpoint
+    config = LinearRampSetpoint.config.model_validate({
+        "tag": "linear_ramp_setpoint",
+        "pace": {"per_minute": 10},
+        "end": 30.0,
+    })
+    ramp = config.build()
+    assert ramp.pace == Speed(10.0, TimeUnit.MINUTE) and ramp.end == 30.0
+
+    with pytest.raises(Exception, match="tag"):
+        LinearRampSetpoint.config.model_validate({"tag": "no_such_tag", "pace": 1, "end": 1})
+
+
+def test_linear_ramp_setpoint_serialises_its_init_args_plus_end_time_once_started():
+    ramp = LinearRampSetpoint(Speed(10.0, TimeUnit.MINUTE), 30.0)
+    before = TypeAdapter(LinearRampSetpoint).dump_python(ramp, mode="json")
+    assert before == {
+        "tag": "linear_ramp_setpoint",
+        "pace": {"value": 10.0, "per": "minute"},
+        "end": 30.0,
+    }, "not yet started: no end_time on the wire"
+
+    ramp.start(0.0, 0.0)
+    after = TypeAdapter(LinearRampSetpoint).dump_python(ramp, mode="json")
+    assert after == {**before, "end_time": pytest.approx(180.0)}

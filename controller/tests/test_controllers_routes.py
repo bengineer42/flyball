@@ -52,6 +52,13 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert "PI" in tags and schema["laws"]["discriminator"]["propertyName"] == "tag"
     ff = {d["properties"]["tag"]["const"] for d in schema["feedforwards"]["$defs"].values()}
     assert ff >= {"setpoint", "none", "affine", "table"}
+    generators = {
+        d["properties"]["tag"]["const"]
+        for d in schema["generators"]["$defs"].values()
+        if "tag" in d.get("properties", {})
+    }
+    assert generators == {"linear_ramp_setpoint"}
+    assert schema["generators"]["discriminator"]["propertyName"] == "tag"
     assert schema["regulated"] == {} and schema["driven"] == {}
 
     # The units disagree (°C -> W), so the setpoint itself cannot be the feedforward.
@@ -147,6 +154,76 @@ def test_tunings_are_stored_on_the_rig(client, rig):
     assert client.get("/api/tunings/gentle").json()["kp"] == 0.5
     assert client.get("/api/tunings/nope").status_code == 404
     assert rig.tunings.get("gentle") is not None
+
+
+def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
+    """A generator spec on `/reference` shows its own params on the wire and moves the setpoint."""
+    target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
+    deliver(rig, daq)
+    made = client.post(
+        "/api/controllers",
+        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+    )
+    assert made.status_code == 201
+    reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
+    assert reg.status_code == 200 and reg.json()["setpoint"] == 20.0
+
+    ramp = client.put(
+        f"/api/controllers/{target}/reference",
+        json={"at": {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0}},
+    )
+    assert ramp.status_code == 200
+    reference = ramp.json()["reference"]
+    assert reference["tag"] == "linear_ramp_setpoint"
+    assert reference["end"] == 30.0
+    assert reference["pace"] == {"value": 10.0, "per": "minute"}
+    assert "end_time" in reference, "started: the wire view carries where it lands"
+
+    # Mode and law untouched; the setpoint itself only moves once the law next ticks.
+    assert ramp.json()["mode"] == "regulating" and ramp.json()["setpoint"] == 20.0
+
+    clock.advance(1.0)
+    deliver(rig, daq)
+    after = client.get(f"/api/controllers/{target}").json()
+    assert after["setpoint"] == pytest.approx(20.0 + 10.0 / 60.0)
+
+    bad = client.put(
+        f"/api/controllers/{target}/reference", json={"at": {"tag": "no_such_generator"}}
+    )
+    assert bad.status_code == 422
+    assert any("no_such_generator" in str(error) for error in bad.json()["detail"])
+
+
+def test_regulate_can_start_a_generator_from_the_current_reading(client, rig, daq, drive, clock):
+    """`regulate` with a generator starts it from the reading when there is no reference yet."""
+    target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
+    client.post(
+        "/api/controllers",
+        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+    )
+    deliver(rig, daq)  # zone1 reads 21.5, now that the controller is attached to see it
+    started = client.post(
+        f"/api/controllers/{target}/regulate",
+        json={"at": {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0}},
+    )
+    assert started.status_code == 200
+    body = started.json()
+    assert body["mode"] == "regulating"
+    assert body["reference"]["tag"] == "linear_ramp_setpoint" and body["reference"]["end"] == 30.0
+    assert body["setpoint"] == pytest.approx(21.5), "started from the last reading, not 0"
+
+
+def test_regulate_a_generator_refuses_without_a_reading_or_reference(client, rig, daq, drive):
+    target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
+    client.post(
+        "/api/controllers",
+        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+    )
+    refused = client.post(
+        f"/api/controllers/{target}/regulate",
+        json={"at": {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0}},
+    )
+    assert refused.status_code == 503
 
 
 def test_controllers_stream_sends_a_snapshot_then_each_tick(client, rig, daq, drive, clock):

@@ -94,23 +94,25 @@ target's address.
 | `GET` | `/api/controllers` | `[ControllerOut]` |
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
-| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `sources` and `targets` (`[{address, device, label, unit, dimension, range, limits}]`: every publishing signal, every writable one), `laws` and `feedforwards` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{source: controller}`), `driven` (`{target: controller}`) |
+| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `sources` and `targets` (`[{address, device, label, unit, dimension, range, limits}]`: every publishing signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{source: controller}`), `driven` (`{target: controller}`) |
 | `POST` | `/api/controllers` | `{target, source, law?, feedforward?, default?, min_period_s?}`; 201 `ControllerOut`; 409 if the target is already driven or the source already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
 | `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the target holds its last demand; manual demands may drive it again |
-| `POST` | `/api/controllers/{address}/regulate` | `{at, tuning?, transfer?}`; `at` a value or `process`/`setpoint`/`demand`; `demand` is converted back to the source's unit through the feedforward's inverse, 422 if it has none; the handover's demand is committed at once |
+| `POST` | `/api/controllers/{address}/regulate` | `{at, tuning?, transfer?}`; `at` a value, `process`/`setpoint`/`demand`, or a generator spec (`{tag, ...its own arguments}`, e.g. `{tag: "linear_ramp_setpoint", pace, end}`, discriminated by `tag` against the `generators` union); a generator starts from the controller's current setpoint, or its last reading if it has none yet; `demand` is converted back to the source's unit through the feedforward's inverse, 422 if it has none; the handover's demand is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
 | `POST` | `/api/controllers/{address}/manual` | stop regulating; the target keeps its last demand |
-| `PUT` | `/api/controllers/{address}/reference` | `{at}`; move the setpoint without touching the mode |
+| `PUT` | `/api/controllers/{address}/reference` | `{at}`; move the setpoint, or start following a generator spec (as `regulate` takes), without touching the mode |
 
 A `ControllerOut` is `{name, label, target, source, default, mode, law,
 feedforward, demand_unit, reference, setpoint, correction, demand,
 expected, delivered_correction, reading}`: `name` is `target`; `label` the
-target signal's; `reference` is a number or the name of the trajectory
-being followed, `setpoint` the value it resolved to at the last tick (in
-the source's unit), and `demand`, `expected` and `correction` are in
-`demand_unit` -- the target's unit, which the `feedforward` (`{tag:
-setpoint | none | affine | table, ...}`, `affine`/`table` taking an
-optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
-`reading` is `{signal, time_ns, value}` on the source at the last tick.
+target signal's; `reference` is a number or, mid-trajectory, `{tag,
+...the generator's own arguments, end_time?}` (a `linear_ramp_setpoint`
+shows `pace`, `end` and, once started, `end_time`), `setpoint` the value
+it resolved to at the last tick (in the source's unit), and `demand`,
+`expected` and `correction` are in `demand_unit` -- the target's unit,
+which the `feedforward` (`{tag: setpoint | none | affine | table, ...}`,
+`affine`/`table` taking an optional `rate_gain` for a ramp's rate of
+change) maps the setpoint into; `reading` is `{signal, time_ns, value}` on
+the source at the last tick.
 
 ## Waits
 

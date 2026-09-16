@@ -21,7 +21,12 @@ from .feedforward import (
     Table,
 )
 from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
-from .setpoint import LinearRampSetpoint, SetPointGenerator
+from .setpoint import (
+    LinearRampSetpoint,
+    SetPointGenerator,
+    SetPointGeneratorConfig,
+    SetPointGenerators,
+)
 from .types import (
     ApplyResult,
     ControlLaw,
@@ -69,6 +74,8 @@ __all__ = [
     "P",
     "RegulateResult",
     "SetPointGenerator",
+    "SetPointGeneratorConfig",
+    "SetPointGenerators",
     "Setpoint",
     "Table",
     "Transfer",

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, SerializeAsAny, TypeAdapter
+from pydantic import BaseModel, ConfigDict, SerializeAsAny, TypeAdapter
 
 from flyball.control import (
     ControlLaws,
@@ -22,6 +22,7 @@ from flyball.control import (
     ControllerState,
     ControllerView,
     FeedforwardConfig,
+    SetPointGenerator,
 )
 from flyball.core.clock import Clock
 from flyball.core.device import CommandSpec, Condition, Device
@@ -294,6 +295,22 @@ class DeviceOut(BaseModel):
 # region Controllers
 
 
+class GeneratorOut(BaseModel):
+    """A running trajectory as `ControllerOut.reference` shows it: `{tag, **its config}`.
+
+    Loosely typed (`extra="allow"`) rather than a union over every
+    registered generator, so the shape stays put as generators are added.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    tag: str
+
+    @classmethod
+    def of(cls, generator: SetPointGenerator) -> GeneratorOut:
+        return cls.model_validate(generator.wire())
+
+
 class ControllerOut(BaseModel):
     """A controller as a client sees it. Separate from `ControllerView` so the wire stays stable.
 
@@ -313,7 +330,7 @@ class ControllerOut(BaseModel):
     feedforward: SerializeAsAny[FeedforwardConfig]
     """What maps the setpoint to the demand; the law's correction is added to it."""
     demand_unit: str
-    reference: float | str | None
+    reference: float | GeneratorOut | None
     setpoint: float | None
     """The reference as resolved at the last tick, so a ramp's current value is on the wire."""
     correction: float
@@ -341,7 +358,7 @@ class ControllerOut(BaseModel):
             demand_unit=view.demand_unit or controller.target.unit.symbol,
             reference=reference
             if isinstance(reference, float | int | type(None))
-            else reference.tag,
+            else GeneratorOut.of(reference),
             setpoint=view.setpoint,
             correction=view.correction,
             demand=view.demand,
