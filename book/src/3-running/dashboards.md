@@ -40,7 +40,13 @@ pixels per row (24 by default). A widget's binding lives inside its own
 signal as `address`, a `chart` names several in `addresses`, a `loop`
 widget names a `controller`, a `device` widget a `device`. Every
 widget kind's config is documented in the app's own "Add widget" catalogue
-(hover the `?` on each field) and in `ui/DESIGN-SPEC.md` §3.
+(hover the `?` on each field), in `ui/DESIGN-SPEC.md` §3, and as data at
+`GET /api/dashboards/widgets`: every kind with its label, category, sizes
+and config schema, the rig-dependent fields marked `x-binding: signal |
+controller | device` — what a client writing a document by hand, or a
+model doing it over MCP, reads. That catalogue is generated from the
+widget registry (`npm run widgets-json` in `ui/`); run it after changing
+a widget.
 
 Server side, a dashboard is versioned per name like a program: `PUT
 /api/dashboards/{name}` writes a new version, `GET` returns the newest, `GET
