@@ -273,6 +273,19 @@ base tree. The blender starts `STOPPED`; a humidity demand puts it in
 
 Each step green: `make lint imports test` + pyright in `controller/`; linux and humidity suites; books `--strict`. UI last, separately.
 
+## 9b. Composition (built 16 Sep, evening)
+
+The rig can be built up while it runs: `Rig.add_link/remove_link/add_entry/
+remove_device` with full teardown; `Rig.document()` renders the running rig
+as a file (defaults left out; the humidity rig round-trips); every change is
+a `rig_version` row in the store (migration 0008) via `rig.on_change`, and
+a session records the version it started on. Routes in
+`server/routes/composition.py`: links, devices, a whole document,
+document/changes/versions/restore/save. `flyball-daemon` with no file
+starts bare; `--resume` starts from the last change made through the API;
+`<rig>.d/*.yaml` overlays saved by `save` load automatically. The UI's
+add-device/add-link dialogs and Rig page are in progress.
+
 ## 10. Open
 
 - Fold `/ws/writes` and `/ws/devices` into the samples stream, and
