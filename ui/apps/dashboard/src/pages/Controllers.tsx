@@ -830,15 +830,16 @@ export function Controllers({ name = null, ...charts }: ControllersProps) {
         ) : (
           <StateBlock state="empty" message="No controllers yet." action={{ label: "Add controller", onClick: () => openAdd() }} />
         ))}
-      {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
+      {/* On a very wide screen, as many cards abreast as there are controllers, up to three (DESIGN-SPEC §3.4/§7 B-6): a lone card keeps the width. */}
       <div className="grid">
         {shownActuators.map((a) => {
+          const cell = (name !== null || shownActuators.length === 1 ? "c12" : shownActuators.length === 2 ? "c12 xl6" : "c12 xl4") + " controller-cell";
           const l = loopOf(a.name);
           const state = actuatorStates[a.name];
           if (l) {
             const tag = typeof l.law?.tag === "string" ? l.law.tag : null;
             return (
-              <div key={a.name} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+              <div key={a.name} className={cell}>
                 <LoopFaceplate
                   loop={l}
                   history={history[l.name]}
@@ -857,7 +858,7 @@ export function Controllers({ name = null, ...charts }: ControllersProps) {
             );
           }
           return (
-            <div key={a.name} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+            <div key={a.name} className={cell}>
               <Actuator schema={a} state={state} />
               <Button
                 variant="contained"
