@@ -63,10 +63,13 @@ before touching anything:
    to it, dotted for a namespace (`AddressNotFoundError` if not; `ValueError`
    if a signal is named twice).
 2. Every resolved signal is `W` (`ConflictError` otherwise), and not driven
-   by a *different* controller than the one making the demand — a
-   controller may re-demand its own target; anything else attempting to
-   move a controller's target gets "is driven by controller ...: set its
-   reference, or detach it".
+   by an *active* controller other than the one making the demand — a
+   controller may re-demand its own target, and a controller in manual
+   leaves its target to direct demands; anything else attempting to move
+   a regulating controller's target gets "is driven by controller ...:
+   set its reference, put it in manual, or detach it". The same rule
+   refuses a command with a `mode` or a linked argument, unless it
+   `interrupts`.
 3. Each value is clamped to the signal's `limits` — numbers, or a reference
    to another signal of the same device, resolved live — and the original
    value kept (as `_requested`) only where the clamp changed it — that is

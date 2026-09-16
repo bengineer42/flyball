@@ -443,8 +443,9 @@ class Rig:
         A key is a bound signal under `node`, or its name relative to
         `node`, dotted for a namespace -- the wire's form, resolved here and
         nowhere below. The whole demand is checked before anything is
-        recorded -- every key a W signal, no signal another controller's --
-        then clamped to `limits` and fanned out to `device.apply`. A demand
+        recorded -- every key a W signal, none driven by an active
+        controller -- then clamped to `limits` and fanned out to
+        `device.apply`. A demand
         from outside a delivery is committed now and its states returned;
         one from inside a delivery (a controller's, a command's) is
         committed with everything else at its end, and this returns nothing.
@@ -482,10 +483,13 @@ class Rig:
         for signal, value in resolved.items():
             if Access.W not in signal.access:
                 raise ConflictError(f"'{signal.address}' [{signal.access}] is not writable")
-            if (holder := self.controllers.driving(signal)) is not None and holder is not by:
+            holder = self.controllers.driving(signal)
+            if holder is not None and holder is not by and holder.mode.active():
+                # As a command: refused while the controller drives it; in
+                # manual the target takes demands directly.
                 raise ConflictError(
                     f"'{signal.address}' is driven by controller {holder.name!r}:"
-                    " set its reference, or detach it"
+                    " set its reference, put it in manual, or detach it"
                 )
             if (limits := signal.limits) is not None:
                 held = min(max(value, limits[0]), limits[1])

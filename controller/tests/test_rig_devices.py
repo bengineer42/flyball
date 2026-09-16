@@ -484,6 +484,8 @@ class TestDemand:
     def test_a_controller_owned_signal_refuses_a_manual_demand(self, rig, furnace):
         heater1 = furnace.signals["heater1"]
         controller = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=1.0))
+        rig.demand(furnace.root, {"heater1": 0.5})  # attached but manual: takes demands
+        controller.regulate(50.0)
         with pytest.raises(
             ConflictError,
             match=f"'{heater1.address}' is driven by controller '{controller.name}'",

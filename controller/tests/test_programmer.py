@@ -263,7 +263,11 @@ def test_a_set_step_refuses_a_signal_a_controller_drives(rig, fresh):
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
-    rig.attach_controller(heater.signals["power"], heater.signals["zone"], law=P(kp=1.0))
+    controller = rig.attach_controller(
+        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0)
+    )
+    Set(device=heater.name, values={"power": 5.0}).run(rig)  # manual: the step may set it
+    controller.regulate(50.0)
     with pytest.raises(ConflictError):
         Set(device=heater.name, values={"power": 5.0}).run(rig)
 
