@@ -152,11 +152,6 @@ def _check_segment(name: str) -> None:
         raise ValueError(f"{name!r} is not an address segment: non-empty, no dots")
 
 
-def _under(path: str, name: str) -> str:
-    """`name` joined under a device-relative `path` (`""` is the root)."""
-    return f"{path}.{name}" if path else name
-
-
 class AddressNotFoundError(NotFoundError):
     """An address did not resolve: which segment failed, and under what."""
 
@@ -221,8 +216,9 @@ class Node:
     def find(self, relative: str) -> Signal | Node:
         """The signal or namespace at a dotted path under this node; `""` is the node itself.
 
-        The one rule for a relative name -- a sample's or a demand's key, the
-        rest of an address after the device.
+        The one rule for a relative name -- a wire key of a sample or a
+        demand, the rest of an address after the device -- applied at the
+        boundary; below it everything carries the bound objects.
 
         Raises:
             AddressNotFoundError: Naming the segment that failed and what
@@ -244,6 +240,28 @@ class Node:
                 raise AddressNotFoundError(address, segment, node.address)
             node = child
         return node
+
+    def contains(self, item: Signal | Node) -> bool:
+        """Whether `item` is this node or lies under it: the walk up its parents reaches here."""
+        node: Node | None = item.node if isinstance(item, Signal) else item
+        while node is not None:
+            if node is self:
+                return True
+            node = node.parent
+        return False
+
+    def relative(self, signal: Signal) -> str:
+        """`signal`'s dotted path relative to this node: the wire's key for it in a sample.
+
+        `"dry.humidity"` from the device root, `"humidity"` from
+        `hum_sensors.dry`.
+
+        Raises:
+            ValueError: `signal` is not under this node.
+        """
+        if not self.contains(signal):
+            raise ValueError(f"'{signal.address}' is not under '{self.address}'")
+        return signal.path[len(self.path) + 1 :] if self.path else signal.path
 
     def override(self, **changes: Any) -> None:
         """Replace fields of the spec in place; the bound object keeps its identity."""
@@ -342,17 +360,18 @@ class Reading:
 class Sample:
     """Signals under one node read at one instant: the node's declared tree is the message type.
 
-    `node.address` (`"hum_sensors.dry"`, `"furnace"`) is what the wire and
-    the recorder carry; `values` are keyed by dotted path relative to the
-    node (`"dry.humidity"` on the device root, `"humidity"` on
-    `hum_sensors.dry`), flat, never nested. Any readable signal under the
-    node may appear and any may be missing -- not read at this instant --
-    but there is always at least one. Only what publishes leaves the rig.
+    `values` are keyed by the bound [Signal][flyball.core.signal.Signal]
+    objects, so nothing that handles a sample looks a name up; the wire
+    gets `node.address` (`"hum_sensors.dry"`, `"furnace"`) and
+    [by_name][flyball.core.signal.Sample.by_name] -- flat, dotted paths
+    relative to the node, never nested. Any readable signal under the node
+    may appear and any may be missing -- not read at this instant -- but
+    there is always at least one. Only what publishes leaves the rig.
     """
 
     node: Node
     time_ns: int
-    values: Mapping[str, float]
+    values: Mapping[Signal, float]
 
     @property
     def seconds(self) -> float:
@@ -360,32 +379,34 @@ class Sample:
 
     def readings(self) -> Iterator[Reading]:
         """One [Reading][flyball.core.signal.Reading] per value, each on its bound signal."""
-        signals, path, time_ns = self.node.device.signals, self.node.path, self.time_ns
-        return (Reading(signals[_under(path, name)], time_ns, v) for name, v in self.values.items())
+        time_ns = self.time_ns
+        return (Reading(signal, time_ns, value) for signal, value in self.values.items())
+
+    def by_name(self, relative_to: Node | None = None) -> dict[str, float]:
+        """The wire form: each value by its dotted path relative to `relative_to` (default `node`).
+
+        Raises:
+            ValueError: A signal is not under `relative_to`.
+        """
+        node = self.node if relative_to is None else relative_to
+        return {node.relative(signal): value for signal, value in self.values.items()}
 
     def published(self) -> Sample | None:
         """Without the values on non-publishing signals: itself if none, None if nothing is left."""
-        signals, path = self.node.device.signals, self.node.path
-        kept = {n: v for n, v in self.values.items() if Access.P in signals[_under(path, n)].access}
+        kept = {s: v for s, v in self.values.items() if Access.P in s.access}
         if len(kept) == len(self.values):
             return self
         return Sample(self.node, self.time_ns, kept) if kept else None
 
     def under(self, node: Node) -> Sample | None:
-        """The values under `node`, keyed relative to it, as a sample on it; None if there are none.
+        """The values under `node`, as a sample on it; None if there are none.
 
         `node` may be this sample's, above it, or below it; anything on the
-        same device.
+        same device. The keys are the same objects: only the node changes.
         """
         if node is self.node:
             return self
-        prefix = f"{node.path}." if node.path else ""
-        path = self.node.path
-        kept = {
-            device_path[len(prefix) :]: v
-            for name, v in self.values.items()
-            if (device_path := _under(path, name)).startswith(prefix)
-        }
+        kept = {s: v for s, v in self.values.items() if node.contains(s)}
         return Sample(node, self.time_ns, kept) if kept else None
 
 
@@ -394,13 +415,14 @@ class Demand:
     """One or more values put on W signals under one node at one instant: a Sample in reverse.
 
     A rig-level object: the rig validates it whole, then fans it out to
-    `Device.apply` one signal at a time. `values` are in each signal's unit,
-    keyed as a Sample's are: a dotted path relative to the node.
+    `Device.apply` one signal at a time. `values` are keyed by the bound
+    signals, as a Sample's are, in each signal's unit; the rig resolves the
+    wire's relative names once, at entry, through `Node.find`.
     """
 
     node: Node
     time_ns: int
-    values: Mapping[str, float]
+    values: Mapping[Signal, float]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

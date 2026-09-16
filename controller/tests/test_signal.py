@@ -89,33 +89,71 @@ class Probe(Device):
 def test_sample_readings_carry_the_bound_signals():
     probe = Probe("hum")
     dry = probe.nodes["dry"]
-    sample = Sample(dry, 1_000, {"humidity": 4.1, "temperature": 21.9})
+    humidity, temperature = probe.signals["dry.humidity"], probe.signals["dry.temperature"]
+    sample = Sample(dry, 1_000, {humidity: 4.1, temperature: 21.9})
     readings = list(sample.readings())
     assert [r.signal.address for r in readings] == ["hum.dry.humidity", "hum.dry.temperature"]
-    assert readings[0] == Reading(probe.signals["dry.humidity"], 1_000, 4.1)
-    assert readings[0].signal is probe.signals["dry.humidity"]
+    assert readings[0] == Reading(humidity, 1_000, 4.1)
+    assert readings[0].signal is humidity
     assert readings[1].value == 21.9 and readings[1].time_ns == 1_000
     assert sample.node.address == "hum.dry" and sample.node.atomic is True
     assert sample.seconds == 1e-6
 
 
-def test_a_sample_may_carry_the_subtree_by_dotted_keys():
+def test_a_sample_may_carry_the_subtree_and_is_cut_without_rekeying():
     probe = Probe("hum")
-    sample = Sample(probe.root, 1_000, {"dry.humidity": 4.1, "heater": 0.0})
-    readings = list(sample.readings())
-    assert readings == [
-        Reading(probe.signals["dry.humidity"], 1_000, 4.1),
-        Reading(probe.signals["heater"], 1_000, 0.0),
+    dry = probe.nodes["dry"]
+    humidity, heater = probe.signals["dry.humidity"], probe.signals["heater"]
+    sample = Sample(probe.root, 1_000, {humidity: 4.1, heater: 0.0})
+    assert list(sample.readings()) == [
+        Reading(humidity, 1_000, 4.1),
+        Reading(heater, 1_000, 0.0),
     ]
-    assert sample.published() == Sample(probe.root, 1_000, {"dry.humidity": 4.1})
-    assert sample.under(probe.nodes["dry"]) == Sample(probe.nodes["dry"], 1_000, {"humidity": 4.1})
+    assert sample.published() == Sample(probe.root, 1_000, {humidity: 4.1})
+    assert sample.under(dry) == Sample(dry, 1_000, {humidity: 4.1})
     assert sample.under(probe.root) is sample
-    only_setting = Sample(probe.root, 1_000, {"heater": 0.0})
+    only_setting = Sample(probe.root, 1_000, {heater: 0.0})
     assert only_setting.published() is None
-    assert only_setting.under(probe.nodes["dry"]) is None
-    on_dry = Sample(probe.nodes["dry"], 2_000, {"humidity": 4.2})
+    assert only_setting.under(dry) is None
+    on_dry = Sample(dry, 2_000, {humidity: 4.2})
     assert on_dry.published() is on_dry, "the same object when nothing is cut"
-    assert on_dry.under(probe.root) == Sample(probe.root, 2_000, {"dry.humidity": 4.2})
+    assert on_dry.under(probe.root) == Sample(probe.root, 2_000, {humidity: 4.2})
+    assert next(iter(on_dry.under(probe.root).values)) is humidity, "the same key, whichever node"
+
+
+def test_by_name_is_the_wire_form_relative_to_a_node():
+    probe = Probe("hum")
+    dry = probe.nodes["dry"]
+    humidity, temperature = probe.signals["dry.humidity"], probe.signals["dry.temperature"]
+    sample = Sample(probe.root, 1_000, {humidity: 4.1, probe.signals["heater"]: 0.0})
+    assert sample.by_name() == {"dry.humidity": 4.1, "heater": 0.0}
+    on_dry = Sample(dry, 2_000, {humidity: 4.2, temperature: 21.9})
+    assert on_dry.by_name() == {"humidity": 4.2, "temperature": 21.9}
+    assert on_dry.by_name(probe.root) == {"dry.humidity": 4.2, "dry.temperature": 21.9}
+    assert on_dry.by_name(dry) == on_dry.by_name()
+    with pytest.raises(ValueError, match="'hum.heater' is not under 'hum.dry'"):
+        sample.by_name(dry)
+
+
+def test_contains_and_relative_walk_the_tree():
+    probe, other = Probe("hum"), Probe("other")
+    dry, humidity, heater = (
+        probe.nodes["dry"],
+        probe.signals["dry.humidity"],
+        probe.signals["heater"],
+    )
+    assert probe.root.contains(probe.root) and probe.root.contains(dry)
+    assert probe.root.contains(humidity) and probe.root.contains(heater)
+    assert dry.contains(dry) and dry.contains(humidity)
+    assert not dry.contains(heater) and not dry.contains(probe.root)
+    assert not probe.root.contains(other.signals["dry.humidity"]), "same tree shape, other device"
+    assert not probe.root.contains(other.nodes["dry"])
+    assert probe.root.relative(humidity) == "dry.humidity" and dry.relative(humidity) == "humidity"
+    assert probe.root.relative(heater) == "heater"
+    with pytest.raises(ValueError, match="'hum.heater' is not under 'hum.dry'"):
+        dry.relative(heater)
+    with pytest.raises(ValueError, match="'other.dry.humidity' is not under 'hum'"):
+        probe.root.relative(other.signals["dry.humidity"])
 
 
 def test_find_resolves_a_dotted_path_under_a_node():

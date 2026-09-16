@@ -310,8 +310,10 @@ class Device:
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """Poll the due signals under `node` (None: the whole device); one Sample per instant read.
 
-        Strings never reach a driver: the rig resolves an address once and
-        passes the bound object. Usually one Sample carrying every publishing
+        Strings never reach a driver, nor leave one: the rig resolves an
+        address once and passes the bound object, and a Sample's keys are
+        the bound signals (`self.signals["dry.humidity"]`, kept as handles
+        after `bind`). Usually one Sample carrying every publishing
         signal, but a slow bus may yield them at different instants, a
         buffered instrument a backlog, and per-signal `poll_s` means only
         some are due at a given call. Yield nothing if none are. Raise
@@ -327,9 +329,9 @@ class Device:
     def apply(self, signal: Signal, time_ns: int, value: float) -> None:
         """Record one W value; no hardware I/O here.
 
-        The mirror of `observe`: one signal, one instant, one value. The rig
-        has already validated the whole demand this came from -- W signals
-        under one node, in their own units, `together` groups complete,
+        The mirror of `observe`: one bound signal, one instant, one value.
+        The rig has already validated the whole demand this came from -- W
+        signals under one node, in their own units, `together` groups complete,
         controller ownership, clamped to `limits` -- and fans it out one
         signal at a time, noting that this device was touched. The default
         stores into `pending`; most drivers need not override.
@@ -341,8 +343,9 @@ class Device:
 
         A [Reading][flyball.core.signal.Reading] for a bound signal; for a
         bound node, the [Sample][flyball.core.signal.Sample] cut down to what
-        lies under it, keyed relative to it, after the readings of that
-        delivery. Only called on a device with something in `bound`; the
+        lies under it, after the readings of that delivery. Either carries
+        the bound signal objects, so `reading.signal is self.bound["dry"]`
+        is the test. Only called on a device with something in `bound`; the
         default has none.
         """
         raise NotImplementedError(f"{type(self).__name__} follows no bound input")
@@ -351,8 +354,9 @@ class Device:
         """Push everything recorded since the last commit to the hardware, once, and report it.
 
         The rig calls it once per delivery for every device it touched, and
-        immediately after a manual demand. There is no dirty flag in the
-        driver contract: the rig keeps the touched set. The default writes
+        immediately after a manual demand. Keyed by the bound signals, as
+        `pending` is. There is no dirty flag in the driver contract: the rig
+        keeps the touched set. The default writes
         `pending` straight through [write_signal][flyball.core.device.Device.write_signal];
         a composite device (a blender) recomputes from all its inputs here,
         and may skip I/O when nothing changed value.

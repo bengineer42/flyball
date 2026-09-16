@@ -47,7 +47,7 @@ class Furnace(Device):
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
-        self.temps = {"zone1": 20.0, "zone2": 20.0, "sample": 20.0}
+        self.temps = dict.fromkeys(self.publishing.values(), 20.0)
         self.inputs: dict[str, float] = {}
         self.reads = 0
         self.commits = 0
@@ -94,7 +94,8 @@ class Sensors(Device):
         self.reads.append(node)
         nodes = self.root.descendants() if node is None or node is self.root else (node,)
         for n in nodes:
-            yield Sample(n, time_ns, {"humidity": self.humidity[n.name], "temperature": 21.9})
+            humidity, temperature = n.signals["humidity"], n.signals["temperature"]
+            yield Sample(n, time_ns, {humidity: self.humidity[n.name], temperature: 21.9})
 
 
 class Blender(Device):
@@ -114,6 +115,7 @@ class Blender(Device):
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
+        self.flow, self.expected = self.signals["blend_flow"], self.signals["expected_humidity"]
         self.supply: dict[str, float] = {}
         self.target = 50.0
         self.blend_flow = 1.0
@@ -123,7 +125,7 @@ class Blender(Device):
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """A fresh read yields the setting beside what publishes; it is not streamed."""
-        yield Sample(self.root, time_ns, {"blend_flow": self.blend_flow, "expected_humidity": 50.0})
+        yield Sample(self.root, time_ns, {self.flow: self.blend_flow, self.expected: 50.0})
 
     def observe(self, event: Reading | Sample) -> None:
         self.events.append(event)
@@ -236,60 +238,72 @@ class TestResolve:
 
 class TestDelivery:
     def test_a_sample_with_a_stray_key_is_refused_naming_the_node(self, rig, furnace):
+        zone1, heater1 = furnace.signals["zone1"], furnace.signals["heater1"]
         with pytest.raises(
             ValueError,
-            match=rf"Sample on '{furnace.name}' carries 'heater1': '{furnace.name}.heater1' \[w\]"
-            " is not readable",
+            match=rf"Sample on '{furnace.name}' carries '{furnace.name}.heater1' \[w\],"
+            " which is not readable",
         ):
-            rig.on_samples([Sample(furnace.root, 0, {"zone1": 1.0, "heater1": 1.0})])
+            rig.on_samples([Sample(furnace.root, 0, {zone1: 1.0, heater1: 1.0})])
         with pytest.raises(
-            ValueError, match=f"carries 'pressure': '{furnace.name}.pressure' is not a signal"
+            ValueError, match=f"Sample on '{furnace.name}' carries 'pressure', not a bound signal"
         ):
-            rig.on_samples([Sample(furnace.root, 0, {"pressure": 1.0})])
+            rig.on_samples([Sample(furnace.root, 0, {"pressure": 1.0})])  # type: ignore[dict-item]
+        with pytest.raises(
+            ValueError, match=f"Sample on '{furnace.name}' carries 'nowhere', not a bound signal"
+        ):
+            rig.on_samples([Sample(furnace.root, 0, {"nowhere": 1.0})])  # type: ignore[dict-item]
         assert rig.latest == {}, "refused before any of it was applied"
 
-    def test_a_dotted_key_must_be_a_signal_under_the_node(self, rig, sensors):
+    def test_a_key_must_be_a_signal_under_the_node(self, rig, sensors, furnace):
         hum, dry = sensors.name, sensors.nodes["dry"]
-        with pytest.raises(
-            ValueError, match=f"Sample on '{hum}' carries 'dry': '{hum}.dry' is a namespace"
-        ):
-            rig.on_samples([Sample(sensors.root, 0, {"dry": 1.0, "wet.humidity": 1.0})])
+        dry_h, wet_h = sensors.signals["dry.humidity"], sensors.signals["wet.humidity"]
         with pytest.raises(
             ValueError,
-            match=f"Sample on '{hum}.dry' carries 'wet.humidity': '{hum}.dry.wet.humidity'"
-            " is not a signal",
+            match=f"Sample on '{hum}' carries '{hum}.dry' is a namespace, not a bound signal",
         ):
-            rig.on_samples([Sample(dry, 0, {"humidity": 1.0, "wet.humidity": 1.0})])
+            rig.on_samples([Sample(sensors.root, 0, {dry: 1.0, wet_h: 1.0})])  # type: ignore[dict-item]
+        with pytest.raises(
+            ValueError,
+            match=f"Sample on '{hum}.dry' carries '{hum}.wet.humidity', which is not under it",
+        ):
+            rig.on_samples([Sample(dry, 0, {dry_h: 1.0, wet_h: 1.0})])
+        zone1 = furnace.signals["zone1"]
+        with pytest.raises(
+            ValueError,
+            match=f"Sample on '{hum}.dry' carries '{furnace.name}.zone1', which is not under it",
+        ):
+            rig.on_samples([Sample(dry, 0, {dry_h: 1.0, zone1: 1.0})])
         assert rig.latest == {}
 
-    def test_a_sample_on_the_root_carries_its_subtree_by_dotted_keys(self, rig, sensors):
+    def test_a_sample_on_the_root_carries_its_subtree(self, rig, sensors):
         dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
-        dry_h, wet_h = sensors.signals["dry.humidity"], sensors.signals["wet.humidity"]
-        whole = Sample(sensors.root, 7, {"dry.humidity": 4.0, "wet.humidity": 96.0})
+        dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
+        wet_h = sensors.signals["wet.humidity"]
+        whole = Sample(sensors.root, 7, {dry_h: 4.0, wet_h: 96.0})
         with rig.samples.watch():
             rig.on_samples([whole])
         assert rig.latest == {dry_h: Reading(dry_h, 7, 4.0), wet_h: Reading(wet_h, 7, 96.0)}
         assert rig.samples.changed_since(0)[1] == {sensors.name: whole}, "flat, as delivered"
-        assert rig.read(rig.resolve(f"{sensors.name}.dry")) == Sample(dry, 7, {"humidity": 4.0})
-        assert rig.read(wet) == Sample(wet, 7, {"humidity": 96.0})
+        assert rig.read(rig.resolve(f"{sensors.name}.dry")) == Sample(dry, 7, {dry_h: 4.0})
+        assert rig.read(wet) == Sample(wet, 7, {wet_h: 96.0})
+        assert rig.read(wet).by_name() == {"humidity": 96.0}, "the wire key is relative"
         assert list(rig.read(sensors.root)) == [whole], "once, not again per namespace"
         # The newest instant on a node wins, whichever node it was delivered on.
-        direct = Sample(dry, 8, {"humidity": 4.5, "temperature": 20.0})
+        direct = Sample(dry, 8, {dry_h: 4.5, dry_t: 20.0})
         rig.on_samples([direct])
         assert rig.read(dry) is direct
-        rig.on_samples([Sample(sensors.root, 9, {"dry.temperature": 21.0})])
-        assert rig.read(dry) == Sample(dry, 9, {"temperature": 21.0})
+        rig.on_samples([Sample(sensors.root, 9, {dry_t: 21.0})])
+        assert rig.read(dry) == Sample(dry, 9, {dry_t: 21.0})
 
     def test_a_readable_setting_lands_in_latest_but_is_not_streamed(self, rig, blender, clock):
         flow, expected = blender.signals["blend_flow"], blender.signals["expected_humidity"]
         with rig.samples.watch():
-            rig.on_samples([
-                Sample(blender.root, 3, {"blend_flow": 1.5, "expected_humidity": 49.0})
-            ])
-            rig.on_samples([Sample(blender.root, 4, {"blend_flow": 1.6})])
+            rig.on_samples([Sample(blender.root, 3, {flow: 1.5, expected: 49.0})])
+            rig.on_samples([Sample(blender.root, 4, {flow: 1.6})])
         assert rig.latest == {flow: Reading(flow, 4, 1.6), expected: Reading(expected, 3, 49.0)}
         assert rig.samples.changed_since(0)[1] == {
-            blender.name: Sample(blender.root, 3, {"expected_humidity": 49.0})
+            blender.name: Sample(blender.root, 3, {expected: 49.0})
         }, "cut to what publishes; a sample with nothing left is not set at all"
         assert rig.recent_signal_readings(flow) == [Reading(flow, 3, 1.5), Reading(flow, 4, 1.6)]
         # A fresh read of the setting goes through the same delivery.
@@ -304,9 +318,9 @@ class TestDelivery:
         rig.on_samples([])  # no samples at all is nothing to do
 
     def test_a_partial_sample_updates_only_what_it_carries(self, rig, furnace):
-        zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
-        rig.on_samples([Sample(furnace.root, 10, {"zone1": 21.0, "zone2": 22.0, "sample": 23.0})])
-        rig.on_samples([Sample(furnace.root, 20, {"zone1": 31.0})])
+        zone1, zone2, sample = (furnace.signals[n] for n in ("zone1", "zone2", "sample"))
+        rig.on_samples([Sample(furnace.root, 10, {zone1: 21.0, zone2: 22.0, sample: 23.0})])
+        rig.on_samples([Sample(furnace.root, 20, {zone1: 31.0})])
         assert rig.latest[zone1] == Reading(zone1, 20, 31.0)
         assert rig.latest[zone2] == Reading(zone2, 10, 22.0)
         assert rig.recent_signal_readings(zone1) == [
@@ -316,11 +330,11 @@ class TestDelivery:
 
     def test_on_samples_updates_latest_and_samples(self, rig, sensors):
         dry = sensors.nodes["dry"]
-        humidity = sensors.signals["dry.humidity"]
-        first = Sample(dry, 5, {"humidity": 4.1, "temperature": 21.9})
+        humidity, temperature = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
+        first = Sample(dry, 5, {humidity: 4.1, temperature: 21.9})
         rig.on_samples([first])
         assert rig.samples.changed_since(0)[1] == {}, "built only while watched"
-        second = Sample(dry, 6, {"humidity": 4.2, "temperature": 21.9})
+        second = Sample(dry, 6, {humidity: 4.2, temperature: 21.9})
         with rig.samples.watch():
             rig.on_samples([second])
         assert rig.samples.changed_since(0)[1] == {f"{sensors.name}.dry": second}
@@ -335,9 +349,9 @@ class TestRead:
         zone1 = furnace.signals["zone1"]
         with pytest.raises(NotReadyError, match=f"Nothing has been read on '{zone1.address}' yet"):
             rig.read(zone1)
-        rig.on_samples([Sample(furnace.root, 10, {"zone1": 21.0})])
+        rig.on_samples([Sample(furnace.root, 10, {zone1: 21.0})])
         assert rig.read(zone1) == Reading(zone1, 10, 21.0) and furnace.reads == 0
-        furnace.temps["zone1"] = 99.0
+        furnace.temps[zone1] = 99.0
         clock.advance(1.0)
         assert rig.read(zone1, fresh=True) == Reading(zone1, clock.now_ns(), 99.0)
         assert furnace.reads == 1
@@ -351,7 +365,8 @@ class TestRead:
             rig.read(dry)
         sample = rig.read(dry, fresh=True)
         assert isinstance(sample, Sample) and sample.node is dry
-        assert sample.values == {"humidity": 4.1, "temperature": 21.9}
+        assert sample.by_name() == {"humidity": 4.1, "temperature": 21.9}
+        assert sample.values == {dry.signals["humidity"]: 4.1, dry.signals["temperature"]: 21.9}
         assert sensors.reads == [dry], "the bound node reaches the driver"
         assert rig.latest[sensors.signals["dry.humidity"]].value == 4.1
         assert list(rig.read(sensors.root)) == [sample], "not fresh: what is known"
@@ -374,9 +389,39 @@ class TestDemand:
         dry_flow, wet_flow = blender.signals["dry_flow"], blender.signals["wet_flow"]
         with pytest.raises(ConflictError, match=f"'{blender.name}.dry_flow' is set with wet_flow"):
             rig.demand(blender.root, {"dry_flow": 0.4})
+        with pytest.raises(ConflictError, match=f"'{blender.name}.dry_flow' is set with wet_flow"):
+            rig.demand(blender.root, {dry_flow: 0.4})
         assert blender.pending == {} and blender.commits == 0
         states = rig.demand(blender.root, {"dry_flow": 0.4, "wet_flow": 0.6})
         assert states == {dry_flow: WriteState(value=0.4), wet_flow: WriteState(value=0.6)}
+        states = rig.demand(blender.root, {dry_flow: 0.5, "wet_flow": 0.5})
+        assert states == {dry_flow: WriteState(value=0.5), wet_flow: WriteState(value=0.5)}
+
+    def test_signal_keys_and_names_are_the_same_demand(self, rig, furnace):
+        heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
+        by_name = rig.demand(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
+        by_signal = rig.demand(furnace.root, {heater1: 3000.0, heater2: 100.0})
+        assert by_name == by_signal
+        assert by_signal[heater1] == WriteState(value=2500.0, requested=3000.0, at_limit="high")
+        assert furnace.commits == 2 and furnace.inputs == {"heater1": 2500.0, "heater2": 100.0}
+        with pytest.raises(
+            ValueError, match=f"Demand on '{furnace.name}' names '{heater1.address}' twice"
+        ):
+            rig.demand(furnace.root, {"heater1": 1.0, heater1: 2.0})
+        assert furnace.commits == 2
+
+    def test_a_signal_key_must_be_under_the_node(self, rig, furnace, fresh):
+        stage = Stage(fresh("stage"))
+        rig.add_device(stage)
+        heater1, x = furnace.signals["heater1"], stage.signals["position.x"]
+        with pytest.raises(ConflictError, match=f"'{x.address}' is not under '{furnace.name}'"):
+            rig.demand(furnace.root, {heater1: 1.0, x: 1.0})
+        with pytest.raises(
+            ConflictError, match=f"'{heater1.address}' is not under '{stage.name}.position'"
+        ):
+            rig.demand(stage.nodes["position"], {heater1: 1.0})
+        assert furnace.pending == {} and stage.pending == {}
+        assert rig.demand(stage.root, {x: 1.0}) == {x: WriteState(value=1.0)}
 
     def test_a_manual_demand_commits_now_and_reports_the_clamp(self, rig, furnace):
         heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
@@ -434,7 +479,7 @@ class TestControllers:
             rig.attach_controller(heater2, zone1)
 
         # From outside a delivery -- a program, a route -- the write commits at once.
-        rig.on_samples([Sample(furnace.root, 0, {"zone1": 40.0})])
+        rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
         assert furnace.commits == 0, "manual: the tick wrote nothing"
         controller.regulate(50.0, transfer=Transfer.RESET)
         assert furnace.commits == 1 and furnace.inputs == {"heater1": 0.0}
@@ -445,13 +490,14 @@ class TestControllers:
 
     def test_two_controllers_on_one_device_coalesce_into_one_commit(self, rig, furnace):
         heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
-        c1 = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=10.0))
-        c2 = rig.attach_controller(heater2, furnace.signals["zone2"], law=P(kp=10.0))
-        rig.on_samples([Sample(furnace.root, 0, {"zone1": 40.0, "zone2": 40.0})])
+        zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
+        c1 = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+        c2 = rig.attach_controller(heater2, zone2, law=P(kp=10.0))
+        rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0, zone2: 40.0})])
         c1.regulate(50.0, transfer=Transfer.RESET)
         c2.regulate(60.0, transfer=Transfer.RESET)
         assert furnace.commits == 2, "two handovers outside a delivery: one commit each"
-        rig.on_samples([Sample(furnace.root, 1_000_000_000, {"zone1": 40.0, "zone2": 40.0})])
+        rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0, zone2: 40.0})])
         assert furnace.commits == 3, "one delivery, two controllers, one commit"
         assert furnace.inputs == {"heater1": 100.0, "heater2": 200.0}
         assert c1.expected == 100.0 and c2.expected == 200.0, "delivered() closed each tick"
@@ -460,12 +506,12 @@ class TestControllers:
         assert furnace.written[heater2].controller == c2.name
 
     def test_the_controller_gets_delivered_with_the_committed_state(self, rig, furnace):
-        heater1 = furnace.signals["heater1"]
-        controller = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=1000.0))
-        rig.on_samples([Sample(furnace.root, 0, {"zone1": 40.0})])
+        heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=1000.0))
+        rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
         controller.regulate(50.0, transfer=Transfer.RESET)
         with rig.controller_states.watch(), rig.write_states.watch():
-            rig.on_samples([Sample(furnace.root, 1_000_000_000, {"zone1": 40.0})])
+            rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0})])
         assert controller.demand == 10_000.0 and controller.expected == 2500.0, "clamped"
         assert rig.write_states.changed_since(0)[1] == {
             heater1.address: WriteState(
@@ -480,9 +526,11 @@ class TestControllers:
 class TestBoundInputs:
     def test_a_bound_input_triggers_observe_then_one_commit(self, rig, sensors, blender):
         dry, chamber = sensors.nodes["dry"], sensors.nodes["chamber"]
+        dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
+        chamber_h, chamber_t = chamber.signals["humidity"], chamber.signals["temperature"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidity"})
-        assert blender.bound == {"dry": sensors.signals["dry.humidity"]}
-        rig.on_samples([Sample(dry, 5, {"humidity": 3.0, "temperature": 20.0})])
+        assert blender.bound == {"dry": dry_h}
+        rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.supply == {"dry": 3.0} and blender.commits == 1
         assert blender.pump_writes == [(3.0, 50.0)]
 
@@ -493,8 +541,8 @@ class TestBoundInputs:
         controller.regulate(47.0, transfer=Transfer.RESET)
         assert blender.commits == 2 and blender.target == 47.0
         rig.on_samples([
-            Sample(dry, 6, {"humidity": 4.0}),
-            Sample(chamber, 6, {"humidity": 45.0, "temperature": 20.0}),
+            Sample(dry, 6, {dry_h: 4.0}),
+            Sample(chamber, 6, {chamber_h: 45.0, chamber_t: 20.0}),
         ])
         assert blender.commits == 3 and blender.supply == {"dry": 4.0}
         assert blender.pump_writes[-1] == (4.0, 49.0)
@@ -504,22 +552,23 @@ class TestBoundInputs:
         self, rig, sensors, blender
     ):
         dry, chamber = sensors.nodes["dry"], sensors.nodes["chamber"]
+        dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         wet_h = sensors.signals["wet.humidity"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
         assert blender.bound == {"dry": dry, "wet": wet_h}
-        on_dry = Sample(dry, 5, {"humidity": 3.0, "temperature": 20.0})
+        on_dry = Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})
         rig.on_samples([on_dry])
         assert blender.events == [on_dry, "commit"], "the sample itself when it is the node's"
         blender.events.clear()
-        whole = Sample(sensors.root, 6, {"wet.humidity": 97.0, "dry.humidity": 3.5})
+        whole = Sample(sensors.root, 6, {wet_h: 97.0, dry_h: 3.5})
         rig.on_samples([whole])
         assert blender.events == [
             Reading(wet_h, 6, 97.0),
-            Sample(dry, 6, {"humidity": 3.5}),
+            Sample(dry, 6, {dry_h: 3.5}),
             "commit",
-        ], "keys relative to the bound node, after the readings, one commit"
+        ], "cut to the bound node, the same keys, after the readings, one commit"
         blender.events.clear()
-        rig.on_samples([Sample(chamber, 7, {"humidity": 45.0})])
+        rig.on_samples([Sample(chamber, 7, {chamber.signals["humidity"]: 45.0})])
         assert blender.events == [], "nothing under the bound node: not called"
 
     def test_bind_inputs_refuses_what_cannot_be_followed(self, rig, sensors, blender, fresh):

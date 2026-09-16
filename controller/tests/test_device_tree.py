@@ -67,7 +67,7 @@ class SimFurnace(Device):
         self.bind(tree)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        yield Sample(self.root, time_ns, dict.fromkeys(self.publishing, 20.0))
+        yield Sample(self.root, time_ns, dict.fromkeys(self.publishing.values(), 20.0))
 
     def write_signal(self, signal: Signal, value: float) -> None:
         assert signal.limits is not None
@@ -278,7 +278,11 @@ class TestWriteSide:
         furnace = SimFurnace("f", zones=1, power_w=(1.0,))
         samples = list(furnace.read(7))
         assert len(samples) == 1 and samples[0].node is furnace.root
-        assert samples[0].values == {"zone1": 20.0, "sample": 20.0}
+        assert samples[0].values == {
+            furnace.signals["zone1"]: 20.0,
+            furnace.signals["sample"]: 20.0,
+        }
+        assert samples[0].by_name() == {"zone1": 20.0, "sample": 20.0}
         assert [r.signal.address for r in samples[0].readings()] == ["f.zone1", "f.sample"]
 
 

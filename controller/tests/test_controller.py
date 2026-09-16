@@ -97,7 +97,7 @@ def test_on_reading_ticks_and_writes(furnace):
     assert controller.setpoint == 50.0 and writes == [500.0]
 
     clock.advance(1.0)
-    sample = Sample(furnace.root, clock.now_ns(), {"zone1": 30.0})
+    sample = Sample(furnace.root, clock.now_ns(), {zone1: 30.0})
     controller.on_reading(next(sample.readings()))
     assert writes == [500.0, 500.0 + 100.0 * 20.0]
     assert controller.demand == 2500.0 and controller.expected == 2500.0

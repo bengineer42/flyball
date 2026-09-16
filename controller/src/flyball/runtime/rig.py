@@ -403,7 +403,7 @@ class Rig:
         declared later in the file. From then on, every reading on a bound
         signal reaches `device.observe` in the delivery it arrives in; for a
         bound node, every sample carrying something under it does, cut down
-        to that and keyed relative to it, after the readings.
+        to that, after the readings.
 
         Raises:
             AddressNotFoundError: An address does not resolve; names it.
@@ -499,34 +499,47 @@ class Rig:
                 self.on_read(samples)
 
     def demand(
-        self, node: Node, values: Mapping[str, float], *, by: Controller | None = None
+        self, node: Node, values: Mapping[str | Signal, float], *, by: Controller | None = None
     ) -> Mapping[Signal, WriteState]:
         """Put `values` on W signals under `node`, as one demand, in each signal's unit.
 
-        Names are relative to `node` and may be dotted. The whole demand is
-        checked before anything is recorded -- every name a W signal, no
-        signal another controller's, every `together` group complete -- then
-        clamped to `limits` and fanned out to `device.apply`. A manual
-        demand (`by` None, or from outside a delivery) is committed now and
-        its states returned; a controller's inside a delivery is committed
-        with everything else at its end, and this returns nothing.
+        A key is a bound signal under `node`, or its name relative to
+        `node`, dotted for a namespace -- the wire's form, resolved here and
+        nowhere below. The whole demand is checked before anything is
+        recorded -- every key a W signal, no signal another controller's,
+        every `together` group complete -- then clamped to `limits` and
+        fanned out to `device.apply`. A manual demand (`by` None, or from
+        outside a delivery) is committed now and its states returned; a
+        controller's inside a delivery is committed with everything else at
+        its end, and this returns nothing.
 
         Raises:
             AddressNotFoundError: A name does not resolve under `node`.
-            ConflictError: A name is not a writable signal, is driven by a
-                controller, or is set without its `together` siblings.
-            ValueError: No values.
+            ConflictError: A key is not a writable signal under `node`, is
+                driven by a controller, or is set without its `together`
+                siblings.
+            ValueError: No values, or one signal named twice.
         """
         if not values:
             raise ValueError(f"Demand on '{node.address}' carries no values")
         device = node.device
+        resolved: dict[Signal, float] = {}
+        for key, value in values.items():
+            if isinstance(key, Signal):
+                if not node.contains(key):
+                    raise ConflictError(f"'{key.address}' is not under '{node.address}'")
+                signal = key
+            else:
+                found = node.find(key)
+                if not isinstance(found, Signal):
+                    raise ConflictError(f"'{found.address}' is a namespace, not a signal")
+                signal = found
+            if signal in resolved:
+                raise ValueError(f"Demand on '{node.address}' names '{signal.address}' twice")
+            resolved[signal] = float(value)
         clamped: dict[Signal, float] = {}
         requested: dict[Signal, float] = {}
-        for name, value in values.items():
-            address = f"{node.address}.{name}"
-            signal = node.find(name)
-            if not isinstance(signal, Signal):
-                raise ConflictError(f"'{address}' is a namespace, not a signal")
+        for signal, value in resolved.items():
             if Access.W not in signal.access:
                 raise ConflictError(f"'{signal.address}' [{signal.access}] is not writable")
             if (holder := self.controllers.driving(signal)) is not None and holder is not by:
@@ -534,7 +547,6 @@ class Rig:
                     f"'{signal.address}' is driven by controller {holder.name!r}:"
                     " set its reference, or detach it"
                 )
-            value = float(value)
             if (limits := signal.limits) is not None:
                 held = min(max(value, limits[0]), limits[1])
                 if held != value:
@@ -542,6 +554,7 @@ class Rig:
                 value = held
             clamped[signal] = value
         for signal in clamped:
+            # `together` is names in the spec; each resolves among its siblings.
             missing = [
                 name
                 for name in sorted(signal.spec.together)
@@ -615,7 +628,7 @@ class Rig:
             feedforward = Feedforwards[feedforward]()
 
         def write(demand: float) -> float | None:
-            states = self.demand(target.node, {target.name: demand}, by=controller)
+            states = self.demand(target.node, {target: demand}, by=controller)
             return None if (state := states.get(target)) is None else state.value
 
         controller = Controller(
@@ -633,13 +646,13 @@ class Rig:
     def on_samples(self, samples: Sequence[NodeSample]) -> None:
         """One delivery: observers, then the controllers, one commit per touched device.
 
-        A sample's keys must be readable signals under its node, and there
-        must be some: anything else is a driver bug, refused before any of
-        the delivery is applied. Every reading lands in `latest`; only those
-        on publishing signals go on to `samples` and the recorder, so a
-        fresh read of a setting is known here without being streamed.
-        Several controllers on one device, and a bound input beside them,
-        cost that device one commit.
+        A sample's keys must be bound, readable signals under its node, and
+        there must be some: anything else is a driver bug, refused before
+        any of the delivery is applied. Every reading lands in `latest`;
+        only those on publishing signals go on to `samples` and the
+        recorder, so a fresh read of a setting is known here without being
+        streamed. Several controllers on one device, and a bound input
+        beside them, cost that device one commit.
 
         Raises:
             ValueError: A sample carries a stray key, or none.
@@ -708,20 +721,18 @@ class Rig:
         node = sample.node
         if not sample.values:
             raise ValueError(f"Sample on '{node.address}' carries no values")
-        # By the device's maps, not a walk: a key is a dotted path under the node.
-        signals, nodes = node.device.signals, node.device.nodes
-        for name in sample.values:
-            path = f"{node.path}.{name}" if node.path else name
-            address = f"{node.address}.{name}"
-            if (signal := signals.get(path)) is None:
-                what = "a namespace, not a signal" if path in nodes else "not a signal"
+        for key in sample.values:
+            if not isinstance(key, Signal):
+                what = f"'{key.address}' is a namespace" if isinstance(key, Node) else f"{key!r}"
+                raise ValueError(f"Sample on '{node.address}' carries {what}, not a bound signal")
+            if not node.contains(key):
                 raise ValueError(
-                    f"Sample on '{node.address}' carries {name!r}: '{address}' is {what}"
+                    f"Sample on '{node.address}' carries '{key.address}', which is not under it"
                 )
-            if Access.R not in signal.access:
+            if Access.R not in key.access:
                 raise ValueError(
-                    f"Sample on '{node.address}' carries {name!r}: '{address}' [{signal.access}]"
-                    " is not readable"
+                    f"Sample on '{node.address}' carries '{key.address}' [{key.access}],"
+                    " which is not readable"
                 )
 
     def recent_signal_readings(

@@ -43,7 +43,7 @@ class Daq(Device):
         ])
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        yield Sample(self.root, time_ns, dict.fromkeys(self.publishing, 20.0))
+        yield Sample(self.root, time_ns, dict.fromkeys(self.publishing.values(), 20.0))
 
 
 class DaqConfig(DriverConfig[Daq]):
