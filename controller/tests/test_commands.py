@@ -256,3 +256,15 @@ def test_a_computed_tree_s_demands_get_setters_on_the_instance(rig: Rig) -> None
     assert {t: c.demand_of for t, c in device.commands.items()} == {"set_a": "a", "set_b": "b"}
     states = rig.run_command(device, "set_a", {"value": 3.0})
     assert states[device.signals["a"]].value == pytest.approx(3.0)
+
+
+def test_the_samples_stream_merges_a_node_s_pushes_within_a_flush(rig: Rig, heater: Heater) -> None:
+    with rig.samples.watch():
+        rig.clock.advance(1)
+        heater.push(a=1.0)
+        heater.push(b=2.0)  # a second sample on the same node before any reader flushed
+        _, changed = rig.samples.changed_since(0)
+    (sample,) = changed.values()
+    assert sample.values == {heater.a: 1.0, heater.b: 2.0}, (
+        "the newest of every signal, not the last push alone"
+    )

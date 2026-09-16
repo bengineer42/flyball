@@ -1021,6 +1021,17 @@ class Rig:
                 if (streamed := sample.published()) is not None:
                     published.append(streamed)
                     if self.samples.watched:
+                        # The cell keeps one sample per node; a device pushes
+                        # several on its root within one flush (a readback,
+                        # a mode, a command's record), so merge rather than
+                        # replace: the newest value of every signal.
+                        held = self.samples.get(sample.node.address)
+                        if held is not None and held.time_ns <= streamed.time_ns:
+                            streamed = Sample(
+                                streamed.node,
+                                streamed.time_ns,
+                                {**held.values, **streamed.values},
+                            )
                         self.samples.set(sample.node.address, streamed)
                 messages: dict[tuple[Device, Node], None] = {}
                 for reading in sample.readings():

@@ -76,6 +76,11 @@ class Latest[K, V]:
         self._version += 1
         self._values[key] = (self._version, value)
 
+    def get(self, key: K) -> V | None:
+        """The newest value for `key`, or None."""
+        held = self._values.get(key)
+        return None if held is None else held[1]
+
     def discard(self, key: K) -> None:
         self._values.pop(key, None)
 
