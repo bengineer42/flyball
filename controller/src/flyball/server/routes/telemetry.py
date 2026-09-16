@@ -20,7 +20,7 @@ from flyball.control import LoopView
 from flyball.core.topic import Latest
 from flyball.runtime.reader import ReaderRun
 from flyball.runtime.rig import Rig
-from flyball.runtime.signals import SignalState
+from flyball.runtime.triggers import TriggerState
 from flyball.server.deps import current_rig, current_telemetry
 from flyball.server.schemas import LoopOut
 
@@ -122,7 +122,7 @@ def _actuator_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
     return {"name": name, "state": ANY.dump_python(state, mode="json")}
 
 
-SIGNAL = TypeAdapter(SignalState)
+SIGNAL = TypeAdapter(TriggerState)
 READER_RUN = TypeAdapter(ReaderRun)
 
 
@@ -183,7 +183,7 @@ async def signals(websocket: WebSocket) -> None:
             if rig is None:
                 await _no_rig(websocket)
                 continue
-            await _flush(websocket, rig.signals.latest, "signals", _signal_out)
+            await _flush(websocket, rig.triggers.latest, "signals", _signal_out)
 
 
 @router.websocket("/ws/readers")

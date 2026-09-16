@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from flyball.core.signal import Signal
+from flyball.core.trigger import Trigger
 from flyball.integrations.bluesky import DemandMovable, SourceReadable, Status
 from helpers import sample
 
@@ -34,7 +34,7 @@ def test_demand_movable_sets_and_reports(rig, heater):
 
 
 def test_status_callbacks_fire_once_settled_from_any_thread():
-    signal = Signal()
+    signal = Trigger()
     status = Status(signal)
     seen: list[bool] = []
     status.add_callback(lambda s: seen.append(s.success))
@@ -47,9 +47,9 @@ def test_status_callbacks_fire_once_settled_from_any_thread():
 
 
 def test_status_reports_timeout_and_interrupt():
-    timed = Status(Signal(), timeout=0.01)
+    timed = Status(Trigger(), timeout=0.01)
     assert isinstance(timed.exception(1.0), TimeoutError) and not timed.success
-    s = Signal()
+    s = Trigger()
     interrupted = Status(s)
     s.interrupt()
     assert isinstance(interrupted.exception(1.0), RuntimeError)

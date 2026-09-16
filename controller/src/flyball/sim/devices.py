@@ -27,7 +27,7 @@ from flyball.core.device import (
 from flyball.core.errors import HardwareError
 from flyball.core.reading import Measurand, Reader, Sample, Source
 from flyball.core.sink import Actuator, ActuatorState
-from flyball.core.units import DIMENSIONLESS, Quantity
+from flyball.core.units import DIMENSIONLESS, Measured
 from flyball.core.units.dimension import Unit
 from flyball.core.units.dimensions import Power
 
@@ -162,7 +162,7 @@ def _port(link: Any, port: str | None, *, output: bool) -> Any:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SimReaderState(DeviceState):
     output: float | None = None
-    input: Quantity(Drive, ge=0, le=1) | None = 0.0  # type: ignore[valid-type]
+    input: Measured(Drive, ge=0, le=1) | None = 0.0  # type: ignore[valid-type]
     """The plant's input; None for one port of a multi-port plant, which has many."""
 
 
@@ -269,7 +269,7 @@ class SimActuatorSettings(DeviceSettings):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SimActuatorState(ActuatorState):
-    input: Quantity(Drive, ge=0, le=1) = 0.0  # type: ignore[valid-type]
+    input: Measured(Drive, ge=0, le=1) = 0.0  # type: ignore[valid-type]
     """What the plant is actually being driven with: the demand, clamped."""
 
 

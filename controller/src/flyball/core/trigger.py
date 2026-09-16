@@ -27,13 +27,13 @@ class Outcome(Labelled):
         return self is not Outcome.PENDING
 
 
-class Signal:
+class Trigger:
     """Fires once, and says how it ended. Wraps an `Event`; settled only by an outcome."""
 
     __slots__ = ("_clock", "_event", "_lock", "_timer", "on_settle", "outcome")
 
     outcome: Outcome
-    on_settle: Callable[[Signal], None] | None
+    on_settle: Callable[[Trigger], None] | None
     """Called once with the signal after it settles, from the settling thread."""
 
     def __init__(self, timeout: float | None = None, clock: Clock | None = None) -> None:

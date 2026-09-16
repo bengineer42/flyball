@@ -24,7 +24,7 @@ from flyball.core.topic import Latest, Topic
 from flyball.core.typing import OrderedSet
 from flyball.db import Store
 from flyball.runtime.reader import Readers
-from flyball.runtime.signals import Signals
+from flyball.runtime.triggers import Triggers
 from flyball.runtime.writer import Writer, is_blocking
 
 from .loops import Loops
@@ -61,7 +61,7 @@ class Rig:
     """The newest state of each actuator, by name. Built only while someone watches."""
     loop_states: Latest[str, LoopState]
     """The newest state of each loop, by name, after each tick. A reader joins the spec itself."""
-    signals: Signals
+    triggers: Triggers
     """What is being waited on, by name: prompts, settle tests, holds."""
     events: Topic[Event]
     """Everything that happened, as it happens."""
@@ -90,7 +90,7 @@ class Rig:
         self.lock = RLock()
         self.actuator_states = Latest()
         self.loop_states = Latest()
-        self.signals = Signals(self.clock)
+        self.triggers = Triggers(self.clock)
         self.events = Topic()
         self.recent = deque(maxlen=500)
         self.observations = {}

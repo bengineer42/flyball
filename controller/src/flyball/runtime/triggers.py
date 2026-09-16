@@ -1,6 +1,6 @@
 """What the rig is waiting on, by name, so a person or a client can answer.
 
-Anything that blocks a program is a [Signal][flyball.core.signal.Signal].
+Anything that blocks a program is a [Trigger][flyball.core.trigger.Trigger].
 Registering it here gives it a name and a message, so the server can list,
 fire or interrupt it. Outcomes are pushed through `latest` as they settle.
 """
@@ -12,12 +12,12 @@ from threading import Lock
 
 from flyball.core.clock import Clock
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.signal import Outcome, Signal
 from flyball.core.topic import Latest
+from flyball.core.trigger import Outcome, Trigger
 
 
 @dataclass(frozen=True, slots=True)
-class SignalState:
+class TriggerState:
     name: str
     message: str | None
     outcome: Outcome
@@ -29,28 +29,28 @@ class SignalState:
 
 @dataclass(frozen=True, slots=True)
 class _Entry:
-    signal: Signal
-    state: SignalState
+    signal: Trigger
+    state: TriggerState
 
 
-class Signals:
+class Triggers:
     """The rig's named signals. One name at a time; removed when its wait is over."""
 
     def __init__(self, clock: Clock) -> None:
         self._clock = clock
         self._lock = Lock()
         self._entries: dict[str, _Entry] = {}
-        self.latest: Latest[str, SignalState] = Latest()
+        self.latest: Latest[str, TriggerState] = Latest()
         """Every registration and settlement, by name, for the telemetry flush."""
 
     def register(
         self,
         name: str,
-        signal: Signal,
+        signal: Trigger,
         message: str | None = None,
         timeout_s: float | None = None,
         prompt: bool = False,
-    ) -> SignalState:
+    ) -> TriggerState:
         """Name a signal while something waits on it.
 
         Args:
@@ -64,10 +64,10 @@ class Signals:
         Raises:
             ConflictError: `name` is already waiting on something else.
         """
-        state = SignalState(name, message, signal.outcome, self._clock.now_ns(), timeout_s, prompt)
+        state = TriggerState(name, message, signal.outcome, self._clock.now_ns(), timeout_s, prompt)
         with self._lock:
             if (existing := self._entries.get(name)) is not None and existing.signal is not signal:
-                raise ConflictError(f"Signal {name!r} is already pending")
+                raise ConflictError(f"Trigger {name!r} is already pending")
             self._entries[name] = _Entry(signal, state)
         signal.on_settle = lambda s: self._settled(name, s)
         self.latest.set(name, state)
@@ -80,12 +80,12 @@ class Signals:
         if entry is not None:
             entry.signal.on_settle = None
 
-    def _settled(self, name: str, signal: Signal) -> None:
+    def _settled(self, name: str, signal: Trigger) -> None:
         with self._lock:
             entry = self._entries.get(name)
             if entry is None or entry.signal is not signal:
                 return
-            state = SignalState(
+            state = TriggerState(
                 name,
                 entry.state.message,
                 signal.outcome,
@@ -96,7 +96,7 @@ class Signals:
             self._entries[name] = _Entry(signal, state)
         self.latest.set(name, state)
 
-    def _signal(self, name: str) -> Signal:
+    def _signal(self, name: str) -> Trigger:
         with self._lock:
             if (entry := self._entries.get(name)) is None:
                 raise NotFoundError(f"No signal {name!r} is pending")
@@ -109,13 +109,13 @@ class Signals:
     def interrupt(self, name: str) -> bool:
         return self._signal(name).interrupt()
 
-    def state(self, name: str) -> SignalState:
+    def state(self, name: str) -> TriggerState:
         with self._lock:
             if (entry := self._entries.get(name)) is None:
                 raise NotFoundError(f"No signal {name!r} is pending")
             return entry.state
 
-    def states(self) -> dict[str, SignalState]:
+    def states(self) -> dict[str, TriggerState]:
         """Everything registered, settled or not, until its wait removes it."""
         with self._lock:
             return {name: entry.state for name, entry in self._entries.items()}

@@ -169,7 +169,7 @@ class Programmer:
         self.join()
 
     def join(self, timeout: float | None = None) -> None:
-        """Wait for the running program, if any. A no-op called from the worker."""
+        """Signal for the running program, if any. A no-op called from the worker."""
         with self.lock:
             thread = self._thread
         if thread is not None and thread is not current_thread():
@@ -239,7 +239,7 @@ class Programmer:
                 program rather than treating the step as done.
         """
         name = activity.name or command.tag
-        self.rig.signals.register(
+        self.rig.triggers.register(
             name,
             activity,
             activity.message,
@@ -251,7 +251,7 @@ class Programmer:
             activity.wait()
         finally:
             activity.detach(self.rig)
-            self.rig.signals.remove(name)
+            self.rig.triggers.remove(name)
 
         if activity.error is not None:
             raise activity.error
@@ -367,7 +367,7 @@ class Programmer:
 #    wrapped so a raising activity fails its signal rather than throwing every
 #    tick -- `activity.fail(error)`.
 #
-# 3. command.parse_response tests `isinstance(value, Signal)` and puts the
+# 3. command.parse_response tests `isinstance(value, Trigger)` and puts the
 #    result in the `activity` slot. Since Activity now holds a signal rather
 #    than being one, that branch wants `Activity`, or a bare signal wrapped
 #    in one.

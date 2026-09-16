@@ -5,14 +5,14 @@ from typing import Any, ClassVar
 
 from pydantic.alias_generators import to_snake
 
-from flyball.core import Operator, Signal
+from flyball.core import Operator, Trigger
 from flyball.core.clock import Clock
 from flyball.runtime.rig import Rig
 
 Commands: dict[str, type[Command]] = {}
 
 
-class Activity(Signal):
+class Activity(Trigger):
     """A signal a program step waits on, that hooks itself into the rig.
 
     `attach` registers whatever feeds it; `detach` undoes that. `fail` fires

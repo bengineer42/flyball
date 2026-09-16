@@ -29,7 +29,7 @@ and, for absolute scales such as °C, a `zero`. Intervals and anything
 composed ignore the zero; only a point on a scale uses it. Whether a value
 is a point or an interval is the measurand's business, not the unit's.
 
-`Quantity(unit, **constraints)` annotates a float with its unit for pydantic:
+`Measured(unit, **constraints)` annotates a float with its unit for pydantic:
 the unit lands in the JSON schema, `unit_of(cls, field)` reads it back
 in-process. Values in the framework are bare floats in the declared unit;
 conversion from a device's native unit happens in the driver.

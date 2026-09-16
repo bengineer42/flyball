@@ -21,7 +21,7 @@
 
 ::: flyball.core.resource
 
-::: flyball.core.signal
+::: flyball.core.trigger
 
 ::: flyball.core.sink
 

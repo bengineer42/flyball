@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flyball.core.reading import Reader, Source
-from flyball.core.signal import Signal
+from flyball.core.trigger import Trigger
 from flyball.programmer.activities import Wait
 from flyball.server import create_app, set_rig
 from flyball.server.routes.devices import source_schema
@@ -81,13 +81,13 @@ def test_channel_carries_range_and_precision(client, probe, temperature):
 
 def test_signals_can_be_listed_fired_and_interrupted(client, rig):
     prompt = Wait("Close the lid").run(rig)
-    rig.signals.register("lid", prompt, prompt.message)
+    rig.triggers.register("lid", prompt, prompt.message)
     assert client.get("/api/signals").json()["lid"]["outcome"] == "pending"
     assert client.post("/api/signals/lid/fire").json() == {"name": "lid", "fired": True}
     assert prompt.fired
     assert client.post("/api/signals/nope/fire").status_code == 404
-    other = Signal()
-    rig.signals.register("other", other)
+    other = Trigger()
+    rig.triggers.register("other", other)
     assert (
         client.post("/api/signals/other/interrupt").json()["interrupted"] is True
         and other.interrupted
@@ -230,12 +230,12 @@ def test_program_runs_step_by_step_as_signals_are_answered(client, programmer, r
     assert list(client.get("/api/signals").json()) == ["wait"]
     assert client.post("/api/signals/wait/fire").json()["fired"] is True
     deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and "two" not in rig.signals.states():
+    while time.monotonic() < deadline and "two" not in rig.triggers.states():
         time.sleep(0.01)
     assert client.get("/api/programs/running").json()["step"] == 1
     assert client.post("/api/programs/interrupt").json()["running"] is False
     programmer.join(2)
-    assert rig.signals.states() == {}
+    assert rig.triggers.states() == {}
 
 
 def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig):

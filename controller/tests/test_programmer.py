@@ -61,9 +61,9 @@ def test_steps_after_a_wait_run_on_the_worker_and_a_failure_there_is_an_event(ri
     programmer = Programmer(rig)
     programmer.start(Program([Note("a"), Wait("go", name="go"), Note("b"), Note("boom")], name="p"))
     assert seen == ["a"] and programmer.state.step == 1 and programmer.state.command == "wait"
-    assert "go" in rig.signals.states()
-    assert rig.signals.states()["go"].prompt is True, "a wait is answered by a person"
-    rig.signals.fire("go")
+    assert "go" in rig.triggers.states()
+    assert rig.triggers.states()["go"].prompt is True, "a wait is answered by a person"
+    rig.triggers.fire("go")
     programmer.join(2)
     assert seen == ["a", "b"] and programmer.running is False
     # The programmer also narrates: started, one `step` per step, the step that
@@ -128,7 +128,7 @@ def test_interrupt_stops_at_the_wait_and_start_can_replace_a_running_program(rig
     with pytest.raises(ProgramAlreadyRunningError):
         programmer.start(Note("x"))
     programmer.start(Note("instead"), interrupt=True)
-    assert seen == ["instead"] and rig.signals.states() == {}
+    assert seen == ["instead"] and rig.triggers.states() == {}
     assert programmer.running is False
 
 
@@ -204,7 +204,7 @@ def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
     Note, seen = note
     programmer = Programmer(rig)
     programmer.start(Program([Hold(Duration(60)), Note("after")]))
-    (state,) = rig.signals.states().values()
+    (state,) = rig.triggers.states().values()
     assert state.prompt is False, "a hold settles on its own; nobody should be asked"
     programmer.start(Note("instead"), interrupt=True)
 

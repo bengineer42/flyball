@@ -102,7 +102,7 @@ async def read_health() -> dict[str, Any]:
         "loops": {name: rig.loops[name].mode.value for name in rig.loops},
         "conditions": conditions,
         "alarms": _alarm_summary(rig, conditions),
-        "signals": sorted(rig.signals.states()),
+        "signals": sorted(rig.triggers.states()),
         "recording": rig.recorder is not None,
     }
 

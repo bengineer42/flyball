@@ -15,6 +15,6 @@
 
 ::: flyball.runtime.rig
 
-::: flyball.runtime.signals
+::: flyball.runtime.triggers
 
 ::: flyball.runtime.state

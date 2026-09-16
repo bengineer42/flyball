@@ -1,6 +1,6 @@
 """Annotating a float with the unit it is reported in.
 
-`Quantity(Celsius)` is a `float` plus a
+`Measured(Celsius)` is a `float` plus a
 [UnitRef][flyball.core.units.types.UnitRef] in its `Annotated` metadata.
 Pydantic puts the unit in the JSON schema;
 [unit_of][flyball.core.units.types.unit_of] reads it back in-process. Nothing
@@ -48,11 +48,11 @@ class UnitRef:
         return f"UnitRef({self.unit.name!r}, {self.symbol!r})"
 
 
-def Quantity(unit: Unit, /, **constraints: Any) -> Any:
+def Measured(unit: Unit, /, **constraints: Any) -> Any:
     """A `float` annotated with the unit it is reported in.
 
     Keyword arguments are pydantic `Field` constraints:
-    `Quantity(Litre / Minute, ge=0)` also puts `minimum: 0` in the schema.
+    `Measured(Litre / Minute, ge=0)` also puts `minimum: 0` in the schema.
     """
     return Annotated[float, UnitRef(unit), Field(**constraints)]
 

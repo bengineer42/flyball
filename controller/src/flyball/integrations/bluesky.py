@@ -20,8 +20,8 @@ from collections.abc import Callable
 from typing import Any
 
 from flyball.core.reading import Channel, Reading, Sample, Source
-from flyball.core.signal import Signal
 from flyball.core.sink import Actuator
+from flyball.core.trigger import Trigger
 from flyball.runtime.rig import Rig
 
 DataKey = dict[str, Any]
@@ -77,12 +77,12 @@ class SourceReadable:
 
 
 class Status:
-    """A Bluesky *Status* over a [Signal][flyball.core.signal.Signal].
+    """A Bluesky *Status* over a [Trigger][flyball.core.trigger.Trigger].
 
     Done when it settles; success if it fired.
     """
 
-    def __init__(self, signal: Signal, timeout: float | None = None) -> None:
+    def __init__(self, signal: Trigger, timeout: float | None = None) -> None:
         self._signal = signal
         self._callbacks: list[Callable[[Status], None]] = []
         self._lock = threading.Lock()
@@ -145,7 +145,7 @@ class DemandMovable:
         self._actuator.set_demand(value)
         self._rig.apply(self._actuator)
         self._last = value
-        signal = Signal()
+        signal = Trigger()
         signal.fire()
         return Status(signal)
 

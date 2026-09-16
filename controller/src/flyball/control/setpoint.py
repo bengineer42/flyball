@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 from pydantic.alias_generators import to_snake
 from pydantic_core import core_schema
 
-from flyball.core import Duration, Rate, Signal, Speed
+from flyball.core import Duration, Rate, Speed, Trigger
 
 SetPointGenerators: dict[str, type[SetPointGenerator]] = {}
 """Every registered generator, keyed by the tag it crosses the wire under."""
@@ -15,7 +15,7 @@ class SetPointGenerator:
     """A reference trajectory. Registered by tag when subclassed."""
 
     tag: ClassVar[str] = ""
-    signal: Signal
+    signal: Trigger
 
     def __init_subclass__(
         cls, tag: str | None = None, register: bool = True, **kwargs: Any
@@ -68,7 +68,7 @@ class SetPointGenerator:
 class LinearRampSetpoint(SetPointGenerator):
     """A set point walking from `start` to `end` between two instants."""
 
-    signal: Signal
+    signal: Trigger
     pace: Speed | Duration
     end: float
     end_time: float
@@ -77,7 +77,7 @@ class LinearRampSetpoint(SetPointGenerator):
     def __init__(self, pace: Speed | Duration, end: float) -> None:
         self.pace = pace
         self.end = end
-        self.signal = Signal()
+        self.signal = Trigger()
 
     def start(self, time: float, value: float) -> None:
         span = self.end - value

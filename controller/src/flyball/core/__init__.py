@@ -12,9 +12,9 @@ from .errors import (
 )
 from .reading import Channel, Measurand, Point, Reading, Sample, Source
 from .resource import Arbiter, Operator, Resource
-from .signal import Signal
 from .sink import Actuator, Observer, Sink
 from .topic import Topic
+from .trigger import Trigger
 from .typing import (
     NonNegative,
     NonZero,
@@ -67,13 +67,13 @@ __all__ = [
     "RecorderNotSetError",
     "Resource",
     "Sample",
-    "Signal",
     "Sink",
     "Source",
     "Speed",
     "Time",
     "TimeUnit",
     "Topic",
+    "Trigger",
     "UnachievableError",
     "UnclampedPercent",
     "Unset",

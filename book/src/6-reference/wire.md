@@ -34,7 +34,7 @@ A field's unit rides in its JSON Schema:
 {"type": "number", "unit": "°C", "dimension": "Temperature", "minimum": 0}
 ```
 
-put there by `Quantity(unit, ...)` on the Python side. Values are bare
+put there by `Measured(unit, ...)` on the Python side. Values are bare
 floats in that unit.
 
 ## Devices

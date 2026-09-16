@@ -1,4 +1,4 @@
-"""Signals, their outcomes, and the rig's named-signal registry."""
+"""Triggers, their outcomes, and the rig's named-trigger registry."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ import pytest
 
 from flyball.core.clock import Clock
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.signal import Outcome, Signal
-from flyball.runtime.signals import Signals
+from flyball.core.trigger import Outcome, Trigger
+from flyball.runtime.triggers import Triggers
 
 
 def test_signal_settles_once_and_reports_how():
-    s = Signal()
+    s = Trigger()
     assert not s.settled
     assert s.fire() and s.fired and s.outcome is Outcome.FIRED
     assert not s.interrupt(), "a settled signal stays settled"
@@ -21,12 +21,12 @@ def test_signal_settles_once_and_reports_how():
 
 
 def test_signal_times_out():
-    s = Signal(timeout=0.02)
+    s = Trigger(timeout=0.02)
     assert s.wait_outcome(1.0) is Outcome.TIMEOUT and s.timed_out
 
 
 def test_on_settle_is_called_from_the_settling_thread():
-    s = Signal()
+    s = Trigger()
     seen: list[str] = []
     s.on_settle = lambda sig: seen.append(threading.current_thread().name)
     t = threading.Thread(target=s.fire, name="settler")
@@ -37,8 +37,8 @@ def test_on_settle_is_called_from_the_settling_thread():
 
 class TestSignals:
     def test_register_fire_and_remove(self):
-        signals = Signals(Clock())
-        s = Signal()
+        signals = Triggers(Clock())
+        s = Trigger()
         state = signals.register("lid", s, "Close the lid")
         assert (
             state.outcome is Outcome.PENDING and signals.states()["lid"].message == "Close the lid"
@@ -50,8 +50,8 @@ class TestSignals:
             signals.state("lid")
 
     def test_outcome_is_pushed_to_the_cell_when_settled_from_anywhere(self):
-        signals = Signals(Clock())
-        s = Signal()
+        signals = Triggers(Clock())
+        s = Trigger()
         signals.register("wait", s)
         version, changed = signals.latest.changed_since(0)
         assert changed["wait"].outcome is Outcome.PENDING
@@ -59,9 +59,9 @@ class TestSignals:
         assert signals.latest.changed_since(version)[1]["wait"].outcome is Outcome.INTERRUPTED
 
     def test_one_name_at_a_time(self):
-        signals = Signals(Clock())
-        signals.register("x", Signal())
+        signals = Triggers(Clock())
+        signals.register("x", Trigger())
         with pytest.raises(ConflictError):
-            signals.register("x", Signal())
+            signals.register("x", Trigger())
         with pytest.raises(NotFoundError):
             signals.fire("nope")
