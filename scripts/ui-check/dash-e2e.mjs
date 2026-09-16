@@ -97,7 +97,7 @@ await newItem.getByRole('button', { name: /widget menu/ }).click();
 await page.click('[data-testid=widget-configure]');
 await page.waitForSelector('[data-testid=configure-dialog]');
 await page.getByLabel('Signal').click();
-await page.getByRole('option', { name: /Zone 2/i }).click();
+await page.getByRole('option', { name: /Tube furnace · Zone 2/i }).click();  // the reading, not the heater demand (a demand publishes too)
 await page.click('[data-testid=configure-apply]');
 await page.waitForTimeout(300);
 const boundText = await newItem.innerText();
