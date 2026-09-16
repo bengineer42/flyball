@@ -44,8 +44,28 @@ arrangement:
 }
 ```
 
-The daemon has no authentication, for `/mcp` as for `/api`: anyone who can
-reach the port can drive the rig either way.
+## The token
+
+A daemon started with `--token` (or `FLYBALL_TOKEN`) requires it on
+everything it serves -- `/api`, `/ws` and `/mcp` alike, since any of them
+can drive the rig. An MCP client sends it as a header:
+
+```json
+{
+  "mcpServers": {
+    "rig": {
+      "type": "http",
+      "url": "http://pi:8000/mcp/operate",
+      "headers": {"Authorization": "Bearer <token>"}
+    }
+  }
+}
+```
+
+The stdio server takes `--token` or `FLYBALL_TOKEN`. Without a token on the
+daemon there is no authentication at all: anyone who can reach the port can
+drive the rig, over `/api` as much as over `/mcp`. Put a token on any daemon
+a model can drive.
 
 ## What the model sees
 
@@ -67,13 +87,21 @@ reach the port can drive the rig either way.
   document with `attach_document`; `rig_document` shows the result,
   `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
   writes it out. A change rebuilds the tool list, so a new device's
-  commands appear as tools at once.
+  commands appear as tools at once. A simulated or bare rig can always be
+  built up; a hardware rig only when the daemon runs with `--compose`.
 - New equipment: `driver_guide` (also the resource `flyball://guide/driver`)
   says how to write a driver and when not to; `driver_scaffold` gives a
   module that already runs; `check_driver` imports one where the server
-  runs and reports what it registers. `MCP.md` at the repository root
-  lists the daemon routes still to come for probing hardware and reloading
-  a drivers directory.
+  runs and reports what it registers; `reload_drivers` imports the
+  daemon's `--drivers` directory again so the tag can be attached;
+  `probe_hardware` says what buses the board has and `link_query` sends
+  one raw command down a link, to find out what an instrument is before
+  writing its entry. Most instruments need no code: the `scpi` and
+  `modbus` drivers take their signals from the rig-file entry, and the
+  guide says so first.
+- A tool that needs a daemon route is listed only while the daemon serves
+  it (from `/openapi.json`), so an older daemon shows fewer tools rather
+  than broken ones.
 
 Three routes exist for this and the CLI: `GET /api/rig/schema`, `GET
 /api/rig/config` and `POST /api/rig/check`, so a rig file can be checked

@@ -36,22 +36,21 @@ rather than broken ones. The book page is
   `attach_device` → the new device's command is a tool → `read` its
   signal.
 
+- Auth: `flyball-daemon --token` / `FLYBALL_TOKEN`; one bearer token for
+  `/api`, `/ws` (`?token=` allowed) and `/mcp`. Client, CLI and
+  `flyball-mcp` send it. No token: open, as before.
+- Hot-attach on hardware is the daemon's `--compose` opt-in (server side
+  by the other session); the attach tools say so.
+
 ## Still open
 
-- **`widgets.json` is hand-maintained** from `ui/apps/dashboard/src/widgets/*.tsx`.
-  A generator on the UI side (evaluate each kind's `configSchema` with
-  empty bindings, write the JSON) would stop it drifting; until then a
-  widget change means editing the JSON.
-- **Auth**: `/mcp/*` has the same absence of authentication as `/api/*`. A
-  bearer token on both is the natural next step once a model can drive
-  hardware; the SDK's `streamable_http_app(auth=…, token_verifier=…)`
-  takes one, or the daemon's own middleware can front both.
-- **Hot-attaching on hardware**: `attach_device` works on a hardware rig as
-  it does on a simulation. Whether that wants an explicit opt-in is an open
-  question (a device that owns a real PWM channel, added while a controller
-  runs).
-- **UI "Connect a model" card**: the three `/mcp/<mode>` URLs and the
-  `claude mcp add --transport http …` one-liner, on a settings or rig page.
+- **`widgets.json` generator** on the UI side (other session).
+- **UI**: token entry and headers; a "Connect a model" card with the three
+  `/mcp/<mode>` URLs, the `claude mcp add --transport http …` one-liner
+  and the token (other session).
+- The `x-signal` / `unit` keys in device-command schemas are passed
+  through untouched; accepted by the Python SDK client, unverified against
+  other hosts. Strip them in `_device_tools` if a host rejects the list.
 
 ## Conventions the tools assume
 

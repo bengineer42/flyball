@@ -64,6 +64,18 @@ from what its command line says -- unless you keep it:
   `"overwrite": true`.
 - `flyball-daemon --resume` starts from the last change made through the
   API instead of the files, for the morning after.
+- A simulated rig, or one started with no file, can always be built up. A
+  hardware rig -- one with a real link -- refuses the building routes with
+  409 unless the daemon runs with `--compose`: adding a device that owns a
+  PWM channel while a controller runs is something to have decided on.
+  Reading and saving are never refused.
+- `--drivers DIR` (default `drivers/` beside the first rig file) is a
+  directory of driver modules imported before serving and again on
+  `POST /api/drivers/reload`, so a driver written on the spot -- by hand or
+  by a [model](mcp.md) -- can be attached without a restart or a package.
+  `GET /api/drivers` lists every tag the daemon can build. An edited file
+  re-registers its tags; devices already built keep the class they were
+  built with.
 
 An application with hardware the file cannot describe writes its own entry
 point around [serve][flyball.daemon.serve], which is all the command does
@@ -87,6 +99,16 @@ flyball heater
 flyball controllers
 ```
 
+## The token
+
+`--token T` (or `FLYBALL_TOKEN=T`) makes every request to `/api`, `/ws` and
+`/mcp` require `Authorization: Bearer T`; a websocket may pass `?token=T`
+instead, since a browser cannot set headers on one. Anything else is 401
+with a `detail` (a socket is closed with code 4401). The CLI, the client
+and `flyball-mcp` take `--token` or the same variable; the UI asks for it.
+Without a token the daemon serves anyone who can reach the port -- fine on
+loopback, not on `--host 0.0.0.0`, and not on a rig a model can drive.
+
 ## What it exposes
 
 | | |
@@ -98,6 +120,9 @@ flyball controllers
 | `/api/controllers`, `/api/tunings`, `/api/clock` | the live rig |
 | `/api/links`, `/api/devices` (`POST`, `DELETE`), `/api/rig` | build the rig up while it runs: see above |
 | `/api/rig/document`, `/api/rig/changes`, `/api/rig/versions`, `/api/rig/save` | the running rig as a file, what changed, its versions, saving it |
+| `/api/rig/schema`, `/api/rig/config`, `/api/rig/check` | the rig file's schema, the file as loaded, validate a document without building |
+| `/api/drivers`, `/api/drivers/reload`, `/api/probe`, `/api/links/{name}/query` | what the daemon can build, load the drivers directory again, what the board has, one raw exchange on a link |
+| `/mcp/read`, `/mcp/author`, `/mcp/operate` | the rig for a model: [the MCP server](mcp.md) |
 | `/api/waits` | what a program is waiting on; fire or interrupt one |
 | `/api/programs` | check a program file, run one, see what is running |
 | `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.json` beside the rig file are imported on start |
