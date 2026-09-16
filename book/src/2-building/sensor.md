@@ -1,82 +1,97 @@
 # Writing a sensor
 
-A sensor is three declarations and one class.
+A sensor is a `Device` whose signals are `R`/`P`: readable, and published on
+its own schedule. There is no separate `Reader` class — a sensor, an
+actuator with a readback, and a multi-channel instrument are all `Device`,
+told apart by which access flags their signals carry.
 
 ## Declare what is measured
 
 ```python
---8<-- "sensor.py:11:15"
+--8<-- "sensor.py:11:13"
 ```
 
-A measurand is interned on its name: the second module to say
-`Measurand("temperature", Celsius)` gets the same object, and one that says
-`Measurand("temperature", Kelvin)` gets `MeasurandConflictError`. Declare
-them as module constants and import them.
+A [`Quantity`][flyball.core.quantity.Quantity] is a name and a unit, nothing
+else — not interned, not process-wide. Two devices may both report
+`temperature` in °C without sharing an object; range, precision and bands
+live on the *signal*, not the quantity, because two thermocouples on one
+rig can differ in all three.
 
-`range` and `precision` are for gauges and axes. They land in the schema, so
-a UI or a CLI knows how to draw the channel without being told.
+## Declare the tree
 
-A source declares every measurand it will ever report, at construction. A
-sensor that measures two things in one transaction is one source with two
-measurands; two sensors are two sources.
+```python
+--8<-- "sensor.py:15:32"
+```
+
+`TREE` is a tuple of [`SignalSpec`][flyball.core.signal.SignalSpec] (a leaf)
+and [`NodeSpec`][flyball.core.signal.NodeSpec] (a namespace grouping
+several). `Device.__init__` binds it once: every signal becomes a bound
+[`Signal`][flyball.core.signal.Signal] object with its address
+(`weather.temperature`) fixed for the device's life. `range` and
+`precision` land in the schema, so a UI or a CLI knows how to draw the
+signal without being told.
 
 ## Choose a unit
 
-Units come from `flyball.core.units`: the SI base and derived units, °C, °F,
-litres, minutes, and prefixes (`Pascal.prefixed(Kilo)`, both from `flyball.core.units.si` and `.dimension`). Anything not there
-is one line:
+Units come from `flyball.core.units`: the SI base and derived units, °C,
+°F, litres, minutes, and prefixes (`Pascal.prefixed(Kilo)`, both from
+`flyball.core.units.si` and `.dimension`). Anything not there is one line:
 
 ```python
 from flyball.core.units import DIMENSIONLESS
 PercentRH = DIMENSIONLESS.unit("percent relative humidity", "%RH", 0.01)
 ```
 
-The framework never converts. A reading is a bare float in the measurand's
+The framework never converts. A reading is a bare float in the signal's
 unit, and the driver is responsible for reporting in exactly that unit. If
-the chip speaks Kelvin and the measurand says °C, subtract 273.15 in `read`.
+the chip speaks Kelvin and the signal says °C, subtract 273.15 in `read`.
 
-## A polled reader
+## A polled device
 
-The rig calls `read(time_ns)` on the reader's period and delivers what comes
-back:
+The rig calls `read(time_ns, node)` on the device's period and delivers
+what comes back — `Device.read` yields one `Sample` per instant actually
+read, keyed by the bound signal objects, never by name:
 
 ```python
---8<-- "sensor.py:18:29"
+--8<-- "sensor.py:35:48"
 ```
 
-`time_ns` is the rig's clock at the moment of the poll; stamp every sample
-with it unless the hardware gives a better timestamp. `seq` comes from
-`source.next_seq()` so every sample of a source is one numbered series.
+`time_ns` is the rig's clock at the moment of the poll; stamp the sample
+with it unless the hardware gives a better timestamp. A device is polled on
+the smallest `poll_s` over its publishing signals — set it on the device
+(`weather.poll_s = 1.0`) or per-signal for a mixed rate; `None` (the
+default) means never polled, the shape [Assembling a rig](rig.md#devices)
+covers.
 
-## A pushed reader
+## A pushed device
 
 Some hardware delivers on its own schedule — a serial stream, a callback, a
-subscription. Then nothing polls; the reader hands samples on as they arrive:
+subscription. Then nothing polls; the device calls `rig.on_samples` itself
+as data arrives, from whatever thread that is:
 
 ```python
---8<-- "sensor.py:32:40"
+--8<-- "sensor.py:51:68"
 ```
 
-`push` is safe from any thread. Before the reader is attached to a rig, pushed
-samples are held and delivered when it is.
-
-A reader may do both. The one contract: samples reach the rig in
-non-decreasing `time_ns`. Equal stamps are allowed — a bank read in one
-transaction shares one — a step backwards is not. The rig never reorders, so
-every observer downstream inherits that guarantee.
+`on_samples` takes the rig's own lock, so it is safe from any thread. A
+device may do both — accept a poll and also push between polls — the one
+rule is that samples reach the rig in non-decreasing `time_ns` per device;
+the rig never reorders, so every observer and controller downstream
+inherits that guarantee.
 
 ## Talking to an instrument
 
-A reader that speaks to a bench instrument takes a **link** rather than
+A device that speaks to a bench instrument takes a **link** rather than
 opening a port itself: `TextLink` (`write`, `query`) for SCPI and
 line-oriented serial, `RegisterLink` (`read_registers`, `write_registers`)
-for Modbus. Each link has a real implementation that imports its driver only
-when built, and a fake for tests and hardware-free rigs. A device that takes
-the protocol can be given either. `flyball.devices` has table-driven
-readers and actuators over both; subclass those before writing a driver
-from scratch.
+for Modbus. Each link has a real implementation that imports its driver
+only when built, and a fake for tests and hardware-free rigs. A driver
+config's `link` field names one by key in the rig file's `links:` — see
+[Config and build](config.md). `flyball.hardware` and `flyball.devices`
+have table-driven devices over both; subclass those before writing a
+driver from scratch.
 
-## Several devices, one instant
+## Several signals, one instant
 
 Many sensors split a measurement into *trigger* (start converting) and
 *collect* (wait, then read). `flyball.hardware.bank.Bank` triggers every
@@ -87,14 +102,17 @@ the exception that stopped it.
 
 ## Config, settings, state, commands
 
-A reader is a device, so it may declare the three tiers and mark commands the
-same way an actuator does — see [Writing an actuator](actuator.md). A reader
-with nothing to configure or set declares nothing and still answers `view`.
+A sensor is a device like any other, so it may declare the three tiers and
+mark commands the same way a writable device does — see
+[Writing an actuator](actuator.md#the-three-tiers). One with nothing to
+configure or set declares nothing and still answers `view` with empty
+models.
 
 ## What the runtime adds
 
-The rig keeps a run record beside each reader: its period, when it last
-delivered, and an `offline` condition if a read raised. Polling continues
-after a failure, and the next successful delivery clears the condition;
-nothing else in the rig stops. `GET /api/readers/{name}` shows both the
-device's own state and the run.
+The rig keeps a run record beside each polled device: its period, when it
+last delivered, and an `offline` condition if a read raised. Polling
+continues after a failure, and the next successful delivery clears the
+condition; nothing else in the rig stops. `GET /api/devices/{name}` shows
+both the device's own state and the run (`run: {period_s, running,
+last_read_ns}`).

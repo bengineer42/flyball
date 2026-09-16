@@ -6,23 +6,38 @@ implementation.
 ## Two faces
 
 A `SessionWriter` is bound to one open session and only appends: declare
-sources, actuators and loops; write samples, ticks, events; open and close
-spans; end. A `Store` opens sessions and reads any of them. The rig holds a
-writer on its thread, the server the store on another, and either can be
-replaced without the other noticing.
+devices, signals and controllers; write samples, ticks, write states,
+events; open and close spans; end. A `Store` opens sessions and reads any of
+them. The rig holds a writer on its thread, the server the store on
+another, and either can be replaced without the other noticing.
 
 ## What a session holds
 
 | table | is |
 | --- | --- |
 | `session` | start, end, version, config, hardware, details |
-| `source`, `measurand`, `channel` | what was declared |
-| `sample`, `reading` | every reading, by channel |
-| `actuator`, `loop` | what was driven, with its config |
-| `tick` | one loop step: reading, setpoint, correction, demand, expected |
+| `device`, `signal` | what was declared: a device's driver and config, a signal's quantity, unit, access and bands |
+| `write` | the signals whose writes this session records, with the driver behind them |
+| `sample` | every reading, by signal, under one node's instant |
+| `write_state` | what a writable signal was set to: one row per commit that touched it |
+| `controller` | what was driven, named by its target's address, with its source, law and feedforward |
+| `tick` | one controller step: reading, setpoint, correction, demand, expected |
 | `event` | something non-numeric that happened: a fault, a retune, a flag |
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |
+
+Table and column names follow the device model rather than the model it
+replaced: `device` is the address of the node, `signal` the full address,
+`write`/`write_state` what a `channel`/`actuator` pair used to be,
+`controller` what a `loop` used to be. Migration `0007_devices.sql` carried
+the old rows across: a `channel` became a `signal` with access `"rp"` (all
+that was ever recorded of a reading), a `source` became a `device` with no
+config (none was recorded of it), an `actuator` became a `device` too —
+dropped instead where a `source` already held that name, since the rig
+never allowed the clash even though the old schema did. What could not
+carry across: an actuator had no signal of its own, so it gets no `write`
+declaration and no `write_state` row — its demands live on only in its
+loop's (now controller's) ticks, which are kept as they were.
 
 A run without its trace, the config that produced it, and the tuning in
 force is not an experiment, so the session records all three.
@@ -35,21 +50,53 @@ nothing is rounded on the way out.
 
 ## Reading back
 
-`series(session, source, measurand, window, downsample)` returns one channel
-over a window. `Downsample` is one of three: `every` keeps every nth sample
-(cheap, real readings, can alias); `bucket_ns` averages each bucket;
-`max_points` averages into buckets sized to fit the window, and the store
-reports the `bucket_ns` it resolved to so a client can label the axis.
+`series(session, address, window, downsample)` returns one signal over a
+window, by its full address (`"hum_sensors.dry.humidity"`). `Downsample` is
+one of three: `every` keeps every nth sample (cheap, real readings, can
+alias); `bucket_ns` averages each bucket; `max_points` averages into buckets
+sized to fit the window, and the store reports the `bucket_ns` it resolved
+to so a client can label the axis.
 
-`ticks`, `events` and `spans` read the same way. `tunings` are the newest
-version of every name; `tuning_history` every version.
+`ticks(session, controller, ...)`, `events` and `spans` read the same way.
+`tunings` are the newest version of every name; `tuning_history` every
+version.
+
+## Recording a session
+
+`flyball.runtime.Recorder(writer, signals, controllers, flush_s=0.1, on_failure=None)`
+is not an observer: it wants the whole delivery, after the controllers have
+ticked and the touched devices have committed, so it records what each tick
+produced and what each commit set. The rig holds at most one and calls
+`recorder.record(samples, ticks, states, time_ns=...)` at the end of every
+delivery ([on_samples][flyball.runtime.rig.Rig.on_samples]), and again with
+empty samples and ticks after a manual demand made outside one; a blocking
+device's deferred write states reach it the same way, through
+`Rig.written`, once its writer thread finishes the commit.
+
+What is recorded follows a signal's access: readings of publishing (`P`)
+signals go in as samples — a fresh read of an `RW` setting is for whoever
+asked for it, not the record — and write states of writable (`W`) ones go
+in as `write_state` rows; a controller's source and target are always
+included, asked for or not. Declaring (`declare_device`, `declare_signal`,
+`declare_controller`) is idempotent and happens once, at construction, over
+the signals and controllers given — which the rig defaults to every signal
+that publishes or is written, on every device, and every controller.
+
+Deliveries are buffered on the delivery path — appends to four lists under
+one lock — and written by the recorder's own thread in one transaction
+every `flush_s`: a transaction costs milliseconds on an SD card whether it
+holds one row or a hundred, and none of those milliseconds are the
+delivery's. A store that fails ends the recording (`on_failure` is called
+once; the rig turns it into a `recording_failed` event) without touching
+control. `close` stops the thread, writes what is left, and ends the
+session.
 
 ## Bluesky documents
 
 `flyball.db.documents` walks a session and yields it as Bluesky event-model
-documents — a `start`, one `descriptor` per source and per loop, an `event`
-per sample or tick, a `stop` — the shape `bluesky.callbacks` and databroker
-consume. `write_jsonl` saves them as JSON lines.
+documents — a `start`, one `descriptor` per device and per controller, an
+`event` per sample or tick, a `stop` — the shape `bluesky.callbacks` and
+databroker consume. `write_jsonl` saves them as JSON lines.
 
 ## SQLite
 

@@ -28,33 +28,26 @@ once it is installed.
 
 | device tag | what | on |
 | --- | --- | --- |
-| `i2c_reader` | a table of registers: `address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit` | `i2c` |
-| `i2c_actuator` | one register written from the demand: a DAC, a setpoint | `i2c` |
-| `sht4x` | Sensirion SHT40/41/45: temperature and humidity | `i2c` |
+| `i2c_table` | a table of registers: `address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit`, `write` | `i2c` |
+| `sht4x` | Sensirion SHT40/41/45: one chip, `humidity`, `temperature [RP]` | `i2c` |
+| `sht4x_set` | several SHT4x chips on one bus, each its own atomic namespace | `i2c` |
 | `ads1115` | TI 16-bit ADC, four single-ended channels, PGA gain | `i2c` |
 | `mcp3008` | Microchip 10-bit ADC, eight channels | `spi` |
-| `gpio_reader` | a line as a 0/1 measurand | `gpio` |
-| `gpio_actuator` | a line switched when the demand reaches `threshold`; `on`/`off` commands | `gpio` |
-| `pwm_actuator` | a channel's duty from the demand; `unit` and `span` make it a feedforward | `pwm` |
+| `gpio_line` | `direction: output` (default): one `[W]` signal `on`, plus `on`/`off` commands; `direction: input`: one `[RP]` signal `level` | `gpio` |
+| `pwm_channel` | one `[W]` signal `drive`: the duty itself (0-1), or a unit and `span` mapping it linearly (a feedforward) | `pwm` |
 | `ds18b20` | the `w1_therm` family, in °C | `onewire` |
 
-The table reader covers most register-mapped sensors (TMP117, MCP9808,
-INA219, LM75) without a driver:
+`i2c_table` covers most register-mapped sensors (TMP117, MCP9808, INA219,
+LM75) without a driver, and is its own config's tree — the same pattern as
+`scpi`'s `channels:`:
 
-```toml
-[[readers]]
-period_s = 1.0
-[readers.device]
-tag = "i2c_reader"
-name = "board_temp"
-link = "i2c1"
-address = 0x48
-[readers.device.registers.temperature]
-address = 0
-length = 2
-signed = true
-scale = 0.0078125
-unit = "°C"
+```yaml
+board_temp:
+  driver: i2c_table
+  link: i2c1
+  address: 0x48
+  registers:
+    temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
 ```
 
 A chip with a command sequence rather than registers (SHT4x: write a byte,
@@ -63,10 +56,10 @@ is a short module against the link protocol, tested to the byte on the fake.
 
 ## Board profiles
 
-A profile declares a machine's links and names its pins:
+A profile declares a machine's links and names its pins. `boards/rpi5.toml`,
+quoted in part as the file actually is:
 
 ```toml
-# boards/rpi5.toml
 name = "Raspberry Pi 5"
 
 [links.i2c1]
@@ -86,37 +79,56 @@ GPIO18 = { link = "header", line = 18 }
 PWM0   = { link = "pwm", channel = 0 }
 ```
 
-A rig file names it and then refers to pins by label:
+A rig file names it and then refers to pins by label. `linux/examples/greenhouse.yaml`,
+quoted in part:
 
-```toml
-board = "rpi5"
+```yaml
+name: greenhouse
+board: rpi5
 
-[[actuators]]
-tag = "gpio_actuator"
-name = "fan"
-pin = "GPIO18"           # becomes link = "header", line = 18
+devices:
+  heater:
+    driver: pwm_channel
+    label: Heater
+    pin: PWM0                        # the board's `pwm` link, channel 0
+    frequency_hz: 1000
+    unit: "°C"                       # `drive` is a temperature: off holds 10 °C, flat out 40;
+    quantity: temperature            # the controller corrects the rest
+    span: [10, 40]
+  fan:
+    driver: gpio_line
+    label: Fan
+    pin: GPIO18                      # becomes link: header, line: 18 -- `flyball fan on`, `flyball fan off`
+
+controllers:
+  heater.drive:
+    signal: air.temperature
+    law: { tag: PI, kp: 0.5, ki: 0.01 }
+    default: true
 ```
 
 The profile's links go underneath the file's own (the file wins on a
-clash), and `pin = "LABEL"` becomes the fields the profile gives that label,
+clash), and `pin: "LABEL"` becomes the fields the profile gives that label,
 again with the entry's own fields winning. `flyball rig check` says which
 profile file it used.
 
 Profiles are looked up in `$FLYBALL_BOARDS`, then a `boards/` directory
 beside the rig file or in any directory above it, then
-`~/.config/flyball/boards` and `/etc/flyball/boards`. `board = "./mine.toml"`
+`~/.config/flyball/boards` and `/etc/flyball/boards`. `board: ./mine.toml`
 is a path relative to the rig file. The repository's [boards/](https://github.com/bengineer42/flyball/tree/main/boards)
 directory has `rpi4`, `rpi5`, `beaglebone_black`, `generic` and `sim`; none
 is loaded until a rig file asks for it, and adding a board is adding a file.
 
 `sim` is every link as a fake. A rig file written for a real board runs on
-any machine with `board = "sim"`, its pin labels resolving to fake chips —
-which is how the example is tested:
+any machine with an overlay that sets `board: sim`, its pin labels resolving
+to fake chips — `linux/examples/sim.yaml` does exactly this over
+`greenhouse.yaml`, scripting the I²C and 1-Wire fakes to answer fixed
+readings, which is how the example is tested:
 
 ```
-cd linux
-flyball rig check examples/greenhouse.sim.toml
-flyball-daemon examples/greenhouse.sim.toml
+cd linux/examples
+flyball rig check greenhouse.yaml sim.yaml
+flyball-daemon greenhouse.yaml sim.yaml
 ```
 
 ## What is board-specific

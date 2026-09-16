@@ -5,8 +5,15 @@ A **config** is a description that builds something: a pydantic model with
 eventually described in a file rather than in code.
 
 ```python
---8<-- "device.py:11:18"
+--8<-- "device.py:20:26"
 ```
+
+A device's config is a `DriverConfig[D]` — `Config[D]` with `build(name,
+label)` instead of a bare `build()`, since the envelope (the rig file's
+`driver:`/`label:`/`poll_s:`/`signals:`/`bound:` keys, the same for every
+driver) supplies the name. A link's config is a plain `Config[Link]`; a law's
+or a feedforward's config the same shape again. `runtime.config.role_of()`
+tells the three apart by what they build.
 
 ## Why a model, not a dataclass
 
@@ -29,13 +36,39 @@ discriminated union a file validates against:
 class SerialLink(Config[Link], tag="serial"): ...
 class VisaLink(Config[Link], tag="visa"): ...
 
-class InstrumentConfig(Config[Instrument]):
+class InstrumentConfig(DriverConfig["Instrument"]):
     link: Config.union(SerialLink, VisaLink)
 ```
 
 A file then says `link: {tag: visa, address: "GPIB0::12"}`, and the schema
 says exactly which fields follow `tag: visa`. Tags are one namespace across
-the process; a clash is an error at class definition.
+the process — `Config.registry` — so `driver:`, a link's `kind:`, a law's
+`kind:` and a program step's tag all share it, and a clash is an error at
+class definition.
+
+## Envelope keys are reserved
+
+`driver label poll_s signals bound config` belong to the rig file's
+envelope, the same for every driver (§1.5 of the plan). A `DriverConfig`
+subclass may not declare a field with one of those names — checked at
+import, the same way a duplicate tag is — so a driver's own settings mean
+the same thing whether they sit flat beside the envelope or nested under
+`config:`:
+
+```yaml
+devices:
+  furnace: { driver: sim_daq, label: Tube furnace, poll_s: 1, link: tube, ports: {...} }   # flat
+
+  furnace:                                                                                  # layered
+    driver: sim_daq
+    label: Tube furnace
+    poll_s: 1
+    config: { link: tube, ports: {...} }
+```
+
+This is why a generic driver whose tree is *part of* its config (`scpi`'s
+`channels:`, `sim_daq`'s `ports:`, `sht4x_set`'s `sensors:`) cannot call
+that field `signals:` — that name is the envelope's, for overrides only.
 
 ## `ConfigOr`
 
@@ -50,38 +83,18 @@ That is what lets the same constructor serve code and files.
 
 ## In a rig file
 
-A config with a `tag` is what a rig file names. `flyball.runtime.config`
-validates a file of links, readers, actuators and loops against the tag
-registries and builds the rig:
-
-```toml
-[[actuators]]
-tag = "scpi_actuator"
-name = "psu"
-link = "bench"
-command = "SOUR:VOLT {value}"
-demand_unit = "V"
-```
-
-```python
-from flyball.runtime.config import load_rig
-rig = load_rig("rig.toml")
-```
-
-The file's unions admit the generic devices and links; a device of your own
-is not nameable from a file until it is added to them. See
-[Rig file schema](../6-reference/rig-file.md).
+A `DriverConfig` with a `tag` is what a rig file's `devices:` section names.
+`flyball.runtime.config` validates a file's `links`, `devices` and
+`controllers` against the tag registries and builds the rig — see
+[Rig file schema](../6-reference/rig-file.md) for every field and
+[Assembling a rig](rig.md#from-a-file) for loading one.
 
 ## The device's side
 
 The device keeps the config it was built from and returns it from `config`.
-Rebuilding is the only way to change it; the loop that drives an actuator
+Rebuilding is the only way to change it; a controller driving the device
 never sees its config.
 
 ```python
---8<-- "device.py:40:46"
-```
-
-```python
---8<-- "device.py:55:57"
+--8<-- "device.py:48:60"
 ```

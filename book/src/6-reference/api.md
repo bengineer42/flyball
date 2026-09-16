@@ -169,11 +169,18 @@ target address (or none for the rig's default), a device by name.
 | --- | --- | --- |
 | `GET` | `/api/programs/schema` | JSON Schema for a program file in the dialect |
 | `GET` | `/api/programs/commands` | the internally tagged request union as JSON Schema |
-| `POST` | `/api/programs/check` | normalise and validate a document; returns it internally tagged; 422 names the step |
+| `POST` | `/api/programs/check` | normalise and validate a document; 422 names the step that fails to parse; else `ProgramCheck {ok, error?, normalised, warnings}` |
 | `POST` | `/api/programs/run?interrupt=` | start a document; returns `ProgrammerState` once the first step is applied |
 | `POST` | `/api/programs/command?interrupt=` | one internally tagged command |
 | `GET` | `/api/programs/running` | `ProgrammerState` |
 | `POST` | `/api/programs/interrupt` | stop whatever is running |
+| `GET` | `/api/programs/library/{name}/check` | `ProgramCheck`, the same shape, for the newest stored version |
+
+`ProgramCheck` is `{ok, error?, normalised?, warnings}`: `warnings` maps a step
+index to a message naming a controller, tuning or device the rig lacks right
+now (`Program.missing`) -- advice, not a refusal, since the rig may gain it
+before the program runs; a document that fails to parse or validate instead
+has `ok: false` and `error` set, with no `normalised` or `warnings`.
 
 ## Dashboards
 

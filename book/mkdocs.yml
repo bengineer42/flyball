@@ -55,8 +55,8 @@ plugins:
 nav:
   - Introduction: index.md
   - Concepts:
-      - A quantity, an actuator, a source: 1-concepts/model.md
-      - The loop: 1-concepts/loop.md
+      - The device model: 1-concepts/model.md
+      - The controller: 1-concepts/loop.md
       - Programs: 1-concepts/programs.md
   - Building an application:
       - 2-building/index.md
@@ -74,7 +74,7 @@ nav:
       - Boards and Linux I/O: 3-running/boards.md
       - Autotune: 3-running/autotune.md
   - Control:
-      - The loop in detail: 4-control/loop.md
+      - The controller in detail: 4-control/loop.md
       - Control laws: 4-control/laws.md
       - Identification: 4-control/identification.md
       - Simulation: 4-control/simulation.md

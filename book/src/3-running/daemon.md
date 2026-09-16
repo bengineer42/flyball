@@ -5,15 +5,16 @@ A rig that a [rig file](equipment.md#a-rig-file) can describe needs no
 Python at all:
 
 ```
-flyball-daemon rig.toml                          # loopback, port 8000
-flyball-daemon rig.toml --host 0.0.0.0 --record  # reachable, with a session open
+flyball-daemon rig.yaml                          # loopback, port 8000
+flyball-daemon rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
 ```
 
-The file is validated first (`flyball rig check rig.toml` does the same
+The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2. With
-`recording = true` in the file, or `--record`, a session is opened in
-`--store` (default `<rig>.sqlite` beside the rig file) before serving. On shutdown the
-programmer is interrupted, the session closed and the polled readers stopped.
+`recording: true` in the file, or `--record`, a session is opened in
+`--store` (default `<rig>.sqlite` beside the rig file) before serving. On
+shutdown the programmer is interrupted, the session closed and the polled
+devices stopped.
 
 An application with hardware the file cannot describe writes its own entry
 point around [serve][flyball.daemon.serve], which is all the command does
@@ -32,33 +33,34 @@ Then, from another shell:
 
 ```
 flyball status
-flyball actuators
+flyball devices
 flyball heater
-flyball loops
+flyball controllers
 ```
 
 ## What it exposes
 
 | | |
 | --- | --- |
-| `GET /api/health` | one look: uptime, readers, loop modes, conditions, pending signals, recording |
+| `GET /api/health` | one look: uptime, devices, controllers, conditions, alarms, waits, recording |
 | `GET /api/schema` | every device's config, settings, state and command schemas |
-| `/api/actuators`, `/api/readers` | each device's view, schema, and a `POST` per command |
-| `/api/sources`, `/api/loops`, `/api/tunings`, `/api/clock` | the live rig |
-| `/api/signals` | what a program is waiting on; fire or interrupt one |
+| `/api/devices` | each device's signal tree, schema, and a `POST` per command |
+| `/api/read`, `/api/signals` | a signal's reading, a namespace's sample, or a device's samples; put a demand on a writable signal |
+| `/api/controllers`, `/api/tunings`, `/api/clock` | the live rig |
+| `/api/waits` | what a program is waiting on; fire or interrupt one |
 | `/api/programs` | check a program file, run one, see what is running |
 | `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.json` beside the rig file are imported on start |
-| `/api/events`, `/ws/events` | what has happened: a step failed, a reader went offline |
+| `/api/events`, `/ws/events` | what has happened: a step failed, a device went offline |
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives |
-| `/ws/loops`, `/ws/actuators`, `/ws/readers`, `/ws/signals` | a snapshot on connect, then what changed |
+| `/ws/controllers`, `/ws/writes`, `/ws/devices`, `/ws/waits` | a snapshot on connect, then what changed |
 | `/docs` | OpenAPI, from FastAPI |
 
 Full list: [HTTP and websocket API](../6-reference/api.md).
 
 ## Errors
 
-The server maps flyball's six error bases to status codes once, so no route
+The server maps flyball's error bases to status codes once, so no route
 decides its own:
 
 | raised | status | meaning for the caller |
@@ -76,8 +78,8 @@ The body is `{"detail": "<the exception's message>"}`.
 Nothing forks or writes a PID file. Run it under systemd `Type=simple` (or
 any supervisor that restarts a foreground process) and let uvicorn's
 `--host`/`--port` decide where it listens. On shutdown the server stops the
-rig's polled readers; anything else — parking an actuator, closing a
-session — is the application's to do.
+rig's polled devices; anything else — putting a controller in manual,
+closing a session — is the application's to do.
 
 ## Recording
 

@@ -1,34 +1,35 @@
 # Dashboards
 
-A dashboard is a saved layout of widgets on a grid: readouts, charts, loop
-faceplates, actuator cards, and a few status and layout widgets, each bound
-to something on the rig (a channel, a loop, an actuator) or to nothing (a
-health strip, a note). It is data, not code — the server stores the document
-and validates its outline; the UI owns what a `kind` means and how its
-`config` is shaped.
+A dashboard is a saved layout of widgets on a grid: readouts, charts,
+controller faceplates, device cards, and a few status and layout widgets,
+each bound to something on the rig (a signal's address, a controller, a
+device) or to nothing (a health strip, a note). It is data, not code — the
+server stores the document and validates its outline; the UI owns what a
+`kind` means and how its `config` is shaped.
 
 ## The generated overview
 
 A rig with no saved dashboards is not blank: `#/dashboards` shows
 **"Overview (generated)"**, built from the rig's schema on the fly — a health
-strip, a readout per channel, a chart per unit, a faceplate per loop, a card
-per actuator. It follows the rig as it changes and is never saved unless you
-choose **Save as…**; editing it does not touch anything on disk until then.
+strip, a readout per publishing signal, a chart per unit, a faceplate per
+controller, a card per device. It follows the rig as it changes and is never
+saved unless you choose **Save as…**; editing it does not touch anything on
+disk until then.
 
 ## The document
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
   "grid": { "cols": 24, "row_height": 24 },
   "widgets": [
-    { "id": "w1", "kind": "health", "x": 0, "y": 0, "w": 24, "h": 2, "config": { "tiles": ["rig", "recording", "readers", "loops", "conditions"] } },
-    { "id": "w2", "kind": "readout", "x": 0, "y": 2, "w": 6, "h": 5, "config": { "channel": "zone1.temperature", "sparkline": true } },
-    { "id": "w3", "kind": "chart", "x": 0, "y": 7, "w": 18, "h": 8, "config": { "channels": ["zone1.temperature", "zone2.temperature"], "window_s": 300, "every": 0, "y": "auto" } },
-    { "id": "w4", "kind": "loop", "x": 0, "y": 15, "w": 8, "h": 8, "config": { "loop": "heater1", "view": "compact" } }
+    { "id": "w1", "kind": "health", "x": 0, "y": 0, "w": 24, "h": 2, "config": { "tiles": ["rig", "recording", "devices", "controllers", "conditions"] } },
+    { "id": "w2", "kind": "readout", "x": 0, "y": 2, "w": 6, "h": 5, "config": { "address": "furnace.zone1", "sparkline": true } },
+    { "id": "w3", "kind": "chart", "x": 0, "y": 7, "w": 18, "h": 8, "config": { "addresses": ["furnace.zone1", "furnace.zone2"], "window_s": 300, "every": 0, "y": "auto" } },
+    { "id": "w4", "kind": "loop", "x": 0, "y": 15, "w": 8, "h": 8, "config": { "controller": "heaters.heater1", "view": "compact" } }
   ]
 }
 ```
@@ -36,19 +37,29 @@ choose **Save as…**; editing it does not touch anything on disk until then.
 The grid is 24 columns wide; `x`/`y`/`w`/`h` are grid units, `row_height` is
 pixels per row (24 by default). A widget's binding lives inside its own
 `config` (there is no separate `bind` field): a `readout`/`gauge` names one
-`channel` as `"source.measurand"`, a `chart` names several in `channels`, a
-`loop` widget names a `loop`, an `actuator` widget an `actuator`. Every
+signal as `address`, a `chart` names several in `addresses`, a `loop`
+widget names a `controller`, a `device` widget a `device`. Every
 widget kind's config is documented in the app's own "Add widget" catalogue
 (hover the `?` on each field) and in `ui/DESIGN-SPEC.md` §3.
 
 Server side, a dashboard is versioned per name like a program: `PUT
 /api/dashboards/{name}` writes a new version, `GET` returns the newest, `GET
 .../history` every version. `GET`/`PUT` also return `problems: [{widget_id,
-ref, reason}]` — every widget naming a channel, loop or actuator the rig does
-not currently have. The document is never refused for this: the widget shows
-the "unbound" state instead (a dashed border and the reason) so a renamed
-sensor does not cost you the rest of a twenty-widget dashboard. In edit mode,
-reconfigure or remove it from the widget's own `⋯` menu.
+ref, reason}]` — every widget naming an address, controller or device the
+rig does not currently have. The document is never refused for this: the
+widget shows the "unbound" state instead (a dashed border and the reason) so
+a renamed sensor does not cost you the rest of a twenty-widget dashboard. In
+edit mode, reconfigure or remove it from the widget's own `⋯` menu.
+
+A document saved before the device model is `schema_version: 1` (bindings
+to channels, loops and actuators); it is migrated on read, never refused,
+and what is stored on disk stays exactly as saved — `channel`
+(`"source.measurand"` or `{source, measurand}`) becomes `address`,
+`channels` becomes `addresses`, a `loop` widget's `loop` becomes
+`controller`, and an `actuator` widget becomes a `device` widget bound by
+`device`. A loop was named by its actuator and a controller by its target's
+address, so a migrated `loop` binding may show as a problem until it is
+rebound.
 
 ## Editing
 
@@ -82,8 +93,10 @@ alphabetically, alongside the generated overview. `Save ▾` offers:
 ## Presets
 
 A rig can ship dashboards beside its file: anything in a `dashboards/`
-directory next to the rig's `.toml` is imported on daemon start (unchanged
+directory next to the rig's file is imported on daemon start (unchanged
 files are skipped; an edited one becomes a new version). See
 `examples/simulated/dashboards/{overview,furnace}.json` for the furnace
 simulation's own presets — one generic overview, one curated for the
-furnace's three zones and heaters.
+furnace's three zones and heaters. Those two files still carry
+`schema_version: 1` on disk; the daemon serves them migrated, exactly as it
+would any other version-1 dashboard.

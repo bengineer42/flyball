@@ -5,11 +5,13 @@
       members: false
       show_root_heading: false
 
+::: flyball.control.controller
+
 ::: flyball.control.errors
 
-::: flyball.control.laws
+::: flyball.control.feedforward
 
-::: flyball.control.loop
+::: flyball.control.laws
 
 ::: flyball.control.setpoint
 

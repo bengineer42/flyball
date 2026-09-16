@@ -13,8 +13,8 @@
 
 ::: flyball.server.dialect
 
-::: flyball.server.schemas
+::: flyball.server.formats
 
-::: flyball.server.telemetry
+::: flyball.server.schemas
 
 ::: flyball.server.wire

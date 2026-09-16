@@ -3,8 +3,8 @@
 Working out the gains instead of guessing them. Three steps, each usable on
 its own:
 
-1. **Measure.** A `StepTest` or a `RelayTest`, driven from whatever loop
-   already reads the sensor.
+1. **Measure.** A `StepTest` or a `RelayTest`, driven from whatever
+   controller already reads the sensor.
 2. **Model.** A step test yields an `FOPDT` — gain, time constant, dead time.
    A relay test yields an `Ultimate` — the gain and period at which the loop
    just oscillates — directly.
@@ -12,19 +12,19 @@ its own:
    tuning to register.
 
 Nothing here writes to the rig. The caller drives the experiment, so a run is
-as interruptible as the loop driving it.
+as interruptible as the controller driving it.
 
 ## Set up
 
 Run an experiment with the law set to `OpenLoop` and the target moved
-directly. The step then passes through the actuator's own arithmetic, so the
-gain measured is the one the trim loop will see.
+directly. The step then passes through the device's own arithmetic, so the
+gain measured is the one the trim controller will see.
 
 ```python
 from flyball.autotune import RelayTest, StepTest, imc
 from flyball.control import OpenLoop, ValueSource
 
-loop.regulate(50.0, tuning=OpenLoop.config())
+controller.regulate(50.0, tuning=OpenLoop.config())
 ```
 
 ## Step test
@@ -35,15 +35,15 @@ gentler experiment: the rig only moves between two steady targets.
 ```python
 test = StepTest(base=50.0, size=10.0, window=120.0, band=0.3, timeout=1800.0)
 while not test.done:
-    reading = ...                                  # the latest on the loop's channel
+    reading = ...                                  # the latest on the controller's source signal
     target = test.step(reading.time_ns / 1e9, reading.value)
-    loop.set_reference(target)
+    controller.set_reference(target)
 model = test.result                                # an FOPDT
 ```
 
 | argument | choose it |
 | --- | --- |
-| `size` | well above the noise, within the range the loop will work over |
+| `size` | well above the noise, within the range the controller will work over |
 | `window` | longer than the dead time, or the flat stretch before the response reads as a plateau |
 | `band` | above the sensor noise, well below `size` |
 | `timeout` | per plateau; `None` waits forever |
@@ -81,7 +81,7 @@ push harder; below the dead time it gains nothing.
 ```python
 gains = imc(model)
 rig.tunings.add(gains.to_tuning("fitted"))
-loop.regulate(ValueSource.SETPOINT, tuning=rig.tunings.get("fitted"))   # bumpless retune
+controller.regulate(ValueSource.SETPOINT, tuning=rig.tunings.get("fitted"))   # bumpless retune
 ```
 
 Or over HTTP: `PUT /api/tunings/fitted` with the law config, then a

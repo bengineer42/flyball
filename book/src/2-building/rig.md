@@ -1,107 +1,101 @@
 # Assembling a rig
 
-A **rig** owns the clock, the readers, the actuators, the loops, the
-telemetry cells, the signals and the recorder. It has no opinion about what
-any loop controls. Assembly is four calls:
+A **rig** owns the clock, every device by name, the controllers between
+their signals, the polling, and the recorder. It has no opinion about what
+any controller regulates. Assembly is a handful of calls:
 
 ```python
---8<-- "oven.py:34:49"
+--8<-- "oven.py:53:73"
 ```
 
-## Readers
+## Devices
 
-`start_reader(reader)` attaches a reader so its pushed samples reach the rig.
-`start_reader(reader, period=1.0)` also polls it every second on a thread.
-The thread reads, delivers, and records when it last did; if `read` raises,
-the reader is marked `offline` in its run state until the next delivery.
+`rig.add_device(device)` makes it reachable by name — one namespace
+rig-wide; a second device with the same name is a `ConflictError`.
+`rig.start_polling(device)` polls it on the smallest `poll_s` over its
+publishing signals (`None` anywhere: never polled). `rig.read(node,
+fresh=True)` reads once, now, on the calling thread — the way to drive a
+rig by hand with a stepped clock, as `oven.py`'s `__main__` block does.
 
-`rig.read(reader)` polls once, now, on the calling thread — the way to drive
-a rig by hand with a stepped clock, as `oven.py` does.
+## Controllers
 
-## Loops
+```python
+rig.attach_controller(heater.signals["demand"], probe.signals["temperature"], law=PI(kp=0.5, ki=0.05), default=True)
+```
 
-`attach_loop(channel, actuator, law, default)` builds a loop, registers the
-actuator by name, and claims the channel. One loop per channel: a second
-claim is a `ConflictError`. The `default` loop is what a command means when
-it names none.
+binds one writable signal to one publishing signal through a law (and an
+optional feedforward), and registers it under the target's address — a
+controller is *named by what it drives*. A writable signal has at most one
+controller: a second `attach_controller` on the same target or source
+raises. `default=True` makes it what a command means when it names none;
+`rig.controllers.resolve(name | None)` looks one up.
 
-`law` may be a built `ControlLaw`, its config, a `Tuning`, or the name of a
-tuning already registered on the rig.
+`law` may be a built `ControlLaw`, its config, or the name of a tuning
+already registered on the rig (`rig.tunings`).
 
 ## A delivery
 
-When a reader delivers, `rig.on_read` runs under the rig's lock:
+When a device delivers — a poll, a push, or a fresh read —
+`rig.on_samples(samples)` runs under the rig's lock:
 
-1. Observers subscribed to the sample's source or channels hear it.
-2. Each loop whose channel is in the delivery ticks on its reading.
-3. Every sink touched — each ticked loop's actuator, plus whatever the
-   observers asked for — is `apply`d once.
-4. The recorder, if any, is given the samples and the ticks.
+1. Every reading lands in `rig.latest`; only signals that publish go on to
+   `rig.samples` and the recorder.
+2. Devices with a bound input on one of the signals `observe` it.
+3. Controllers whose source is in the delivery tick: the law steps, and the
+   demand is written to the target.
+4. Every device touched — by a tick's write or by `observe` — has `commit`
+   called once, however many signals on it changed.
+5. The recorder, if any, is given the published samples, the ticks, and the
+   write states.
 
-The recorder goes last so it sees what each tick produced. Nothing is
-reordered: samples reach observers, loops and the recorder in the order the
-reader delivered them.
-
-## Observers
-
-An observer hears samples or readings from the sources and channels it names,
-and can ask for sinks to be applied after it fires:
-
-```python
-class Logger(Observer[Reading]):
-    name = "logger"
-    observes = frozenset({probe[TEMPERATURE]})
-    def observe(self, reading: Reading) -> None:
-        print(reading.value)
-
-rig.attach_observer(Logger())
-```
-
-Settle tests and feedforward sources are observers.
+Nothing is reordered: samples reach observers, controllers and the recorder
+in the order the device delivered them. See
+[The delivery loop](../5-internals/runtime.md) for the full sequence.
 
 ## Recording
 
 ```python
 from flyball.db import SqliteStore
 store = SqliteStore("run.db")
-rig.start_recording(store, config={...})
+rig.start_recording(store, **session_fields)
 ...
 rig.stop_recording()
 ```
 
-Opens a session and records every source seen so far and every loop from the
-next delivery on. Deliveries are buffered and written in one transaction
-per interval, so a loop at any rate pays one list append per tick. See
-[Storage](../5-internals/db.md).
+Opens a session and records every signal that publishes or is written, and
+every controller, from the next delivery on — pass `signals=`/
+`controllers=` to record a subset instead. Deliveries are buffered and
+written in one transaction per interval, so a controller at any rate pays
+one list append per tick. See [Storage](../5-internals/db.md).
 
 ## Serving
 
 ```python
---8<-- "serve.py:1:14"
+--8<-- "serve.py:1:15"
 ```
 
-`set_rig` attaches the rig to the FastAPI app and the observer that feeds the
-websockets. `set_store(store)` does the same for history routes. Then any
-ASGI server runs `flyball.server:app`. [The daemon](../3-running/daemon.md)
-covers running it for real.
+`set_rig` attaches the rig to the FastAPI app and the observer that feeds
+the websockets. Then any ASGI server runs `flyball.server:app`.
+[The daemon](../3-running/daemon.md) covers running it for real.
 
 ## From a file
 
-Everything above, for the generic devices, is a file:
+Everything above, for the generic and registered devices, is a file:
 
 ```python
 from flyball.runtime.config import load_rig
-rig = load_rig("rig.toml")
+rig = load_rig("rig.yaml")
 ```
 
-Links are built first, then readers (and started, with their period), then
-actuators, then loops. [Supported equipment](../3-running/equipment.md) has
-a complete file; [Rig file schema](../6-reference/rig-file.md) every field.
+Links are built first, then devices (and polled, on their period), then
+controllers. [Supported equipment](../3-running/equipment.md) has a
+complete file; [Rig file schema](../6-reference/rig-file.md) every field.
 
 ## Clocks
 
-A rig has one clock; every loop, reader and signal reads it. `Clock()` is
-wall time. `flyball.sim.SteppedClock` only moves when told to, so a test
-ticks a rig at exact instants with no sleeping — but anything scheduled on
-real time (a polled reader) still runs on real time, so drive such a rig with
-`rig.read(reader)` by hand instead.
+A rig has one clock; every controller, polled device and signal reads it.
+`Clock()` is wall time. `flyball.sim.SteppedClock` only moves when told to,
+so a test ticks a rig at exact instants with no sleeping — but anything
+scheduled on real time (a polled device) still runs on real time, so drive
+such a rig with `rig.read(node, fresh=True)` by hand instead, as `oven.py`
+does with `period=None`.

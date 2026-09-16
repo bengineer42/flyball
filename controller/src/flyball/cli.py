@@ -569,7 +569,7 @@ def cmd_sim_show(rig: Rig, args: argparse.Namespace) -> None:
             print(
                 f"    reading {port:16s} {_g(reading['value'])} {reading['unit']}"
                 + (f"  {rate:+.3g}/min" if rate is not None else "")
-                + f"  via {reading['reader']}"
+                + f"  via {reading['device']}"
             )
     if state["changed"]:
         print(f"unsaved: {', '.join(state['changed'])}  (`flyball sim save`)")

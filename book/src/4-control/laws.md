@@ -26,7 +26,7 @@ class MyLaw(ControlLaw, tag="mine"):
 ```
 
 - `step` is called once per tick with seconds since the law's own start.
-  `last_applied` is the correction the actuator actually delivered last
+  `last_applied` is the correction the target actually delivered last
   tick, or `None`.
 - `reset` clears memory: a cold start.
 - `resume` seeds memory so the next `step` reproduces `correction`, and
@@ -50,5 +50,5 @@ code.
 
 A `Tuning` is a named law config. The rig holds a registry (`rig.tunings`),
 and the store keeps versions (`PUT /api/history/tunings/{name}`). A
-`regulate` may name one, so a program says `tuning: fitted` rather than
+`regulate` step may name one, so a program says `tuning: fitted` rather than
 carrying gains.

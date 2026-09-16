@@ -1,20 +1,22 @@
 # Architecture
 
-Four layers. Nothing below imports anything above.
+Four conceptual layers. Nothing below imports anything above.
 
 ```
-application     what is controlled, and with what hardware
-                a quantity, an actuator, the devices that realise them
+application     what is controlled, and with what hardware:
+                the devices that realise a rig's signals
 
-runtime         the timebase and I/O: clock, readers, the tick, telemetry,
-                recording, signals, and the sequencing of commands into programs
+runtime         the timebase and I/O: clock, polling, the delivery, telemetry,
+                recording, controllers wired to signals, and the sequencing
+                of commands into programs
 
-control         a loop, a control law, a reference trajectory, and the
+control         a controller, a control law, a reference trajectory, and the
                 arithmetic of handing control over. Beside it, identification
                 and the tuning rules
 
 core            values and infrastructure with no opinions: time, units,
-                readings, devices, errors, resources, publish/subscribe, config
+                quantities, signals, devices, errors, resources,
+                publish/subscribe, config
 ```
 
 Beside the library sit its **surfaces**: the HTTP/websocket server, the
@@ -22,28 +24,28 @@ program file dialect, and a client and CLI built from what the server
 publishes. Nothing below them knows they exist.
 
 The application layer sits *beside* the runtime, not above it: it implements
-protocols the runtime defines rather than being called by name. That is what
-makes a second application a matter of writing an actuator rather than
-editing the loop.
+protocols the runtime defines (`Device.read`/`apply`/`commit`) rather than
+being called by name. That is what makes a second application a matter of
+writing a device driver rather than editing the rig.
 
 ## Packages
 
 | package | layer | holds |
 | --- | --- | --- |
-| `flyball.core` | core | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Measurand`, `Source`, `Channel`, `Reading`, `Sample`; `Device`, `Reader`, `Actuator`, `Observer`; `Config`; errors; `Topic`, `Latest`, `Signal` |
-| `flyball.control` | control | `Loop`, `ControlLaw` and the laws, `SetPointGenerator`, `Tuning`, `Transfer` |
-| `flyball.autotune` | control | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
-| `flyball.adaptive` | control | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
-| `flyball.runtime` | runtime | `Rig`, `Readers`, `Loops`, `Signals`, `Recorder` |
-| `flyball.programmer` | runtime | `Command`, `Activity`, `Program`, `Programmer` |
-| `flyball.runtime.config` | runtime | `RigConfig`, `load_rig`, `rig_schema`: a rig as a file |
-| `flyball.db` | runtime | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
-| `flyball.devices` | application | `ScpiReader`/`ScpiActuator`, `ModbusReader`/`ModbusActuator`: table-driven devices with tagged configs |
-| `flyball.sim` | — | a stepped clock, a lag plant, a function reader, a recording actuator; `runtime` never imports it |
-| `flyball.hardware` | application | `I2CBus`, `I2CMux`, `Bank`; `links`: `TextLink` and `RegisterLink` with VISA, serial, Modbus and fake implementations |
-| `flyball.server` | surface | the FastAPI app, routes, wire models, the program dialect |
-| `flyball.client`, `flyball.cli` | surface | pure HTTP; import nothing from the rig |
-| `flyball.integrations` | surface | adapters: Bluesky documents, QCoDeS and PyMeasure instruments as devices |
+| `flyball.core` | core | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; `Config`; errors; `Topic`, `Latest`, `Trigger` |
+| `flyball.control` | control | `Controller`, `ControlLaw` and the laws (`P`, `PI`, `PID`, `OpenLoop`), `SetPointGenerator`, `Feedforward`, `Tuning`, `Transfer` |
+| `flyball.autotune` | `hardware\|adaptive\|autotune\|db` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
+| `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
+| `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2CBus`, `I2CMux`, `Bank`; `links`: `TextLink` and `RegisterLink` with VISA, serial, Modbus and fake implementations |
+| `flyball.db` | `hardware\|adaptive\|autotune\|db` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
+| `flyball.sim` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | a stepped clock, simulated plants (`Lag`, `Fopdt`, `Integrator`, `Furnace`), the generic `sim_daq`/`sim_drive` devices; `runtime` never imports it |
+| `flyball.devices` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | `Scpi`, `Modbus`: table-driven devices whose tree is declared in their own tagged config |
+| `flyball.integrations.qcodes`, `.pymeasure` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | instrument libraries wrapped as devices |
+| `flyball.runtime` | runtime | `Rig`, `Controllers`, `Polling`, `Recorder`, `Triggers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
+| `flyball.programmer` | `programmer\|integrations.bluesky` | `Command`, `Activity`, `Program`, `Programmer` |
+| `flyball.integrations.bluesky` | `programmer\|integrations.bluesky` | Bluesky documents built from a recorded session |
+| `flyball.server` | server | the FastAPI app, routes, wire models, the program dialect |
+| `flyball.client`, `flyball.cli`, `flyball.daemon`, `flyball.scaffold` | `cli\|daemon` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig |
 
 ## The pattern
 
@@ -68,29 +70,47 @@ is described twice.
 `flyball.core` has none: the pure controller, the device protocol, the
 simulated plant and the SQLite store are stdlib-only, so a downstream package
 can depend on the algorithm without pulling in a serial stack. Extras:
-`web` (FastAPI, uvicorn), `cli` (httpx, websockets), `serial`, `visa`,
-`modbus`, `bluesky`, `qcodes`, `pymeasure`. Each driver is imported only
-when a real link or wrapper is built.
+`web` (FastAPI, uvicorn, PyYAML), `cli` (httpx, websockets, PyYAML), `serial`,
+`visa`, `modbus`, `bluesky`, `qcodes`, `pymeasure`. Each driver is imported
+only when a real link or wrapper is built.
 
-## Layering enforcement
+## Layering
 
-`import-linter` is a dev dependency and `pyproject.toml` carries a layers
-contract, but the contract names packages from an earlier layout
-(`flyball.web`, `flyball.devices`, `flyball.store`, `flyball.types`) and
-does not check the current one. The layering above is a convention until it
-is updated.
+`import-linter`'s layers contract (`pyproject.toml`, checked by `make
+imports`) is enforced, and names the packages as they are, top to bottom —
+each line may import anything below it, nothing below imports anything
+above:
+
+```
+flyball.cli | flyball.daemon
+flyball.server
+flyball.programmer | flyball.integrations.bluesky
+flyball.runtime
+flyball.sim | flyball.devices | flyball.integrations.qcodes | flyball.integrations.pymeasure
+flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db
+flyball.control
+flyball.core
+```
+
+A second contract keeps `flyball.client` and `flyball.scaffold` standing
+apart from all of it: neither may import `flyball.core`, `flyball.control`,
+`flyball.runtime`, `flyball.server` or `flyball.programmer`, so a client
+built from the wire alone cannot quietly start depending on the rig's
+internals.
 
 ## Where it is going
 
 Two intentions shape the extension points:
 
-1. **Equipment and loops as packages.** A `flyball-<device>` distribution
-   defines a source, a reader or an actuator, and is usable by name the
-   moment it is installed.
+1. **Devices and control laws as packages.** A `flyball-<device>`
+   distribution defines a driver — a device, a control law, a feedforward —
+   and is usable by name (its tag) the moment it is installed.
 2. **Use through config, not code.** A rig is a file: which links, which
-   readers, which loop on which channel with which law and actuator.
+   devices, which controller on which signal with which law.
 
 The second exists for the generic devices (`flyball.runtime.config`). The
-first still needs per-rig registries instead of process-wide ones, a frozen
-public surface, and entry-point discovery. `IDEAS.md` in the repository
-carries the detail.
+first still needs per-rig registries instead of process-wide ones — driver
+tags are one process-wide namespace (`Config.registry`) today, so a second
+plugin declaring the same tag collides; see [Decisions](decisions.md) — a
+frozen public surface, and entry-point discovery. `IDEAS.md` in the
+repository carries the detail.

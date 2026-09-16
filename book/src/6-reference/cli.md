@@ -20,26 +20,40 @@ is used.
 
 | command | reads | |
 | --- | --- | --- |
+| `status` | `GET /api/health` | devices, controllers, waits, recording, in one screen |
 | `schema` | `GET /api/schema` | the whole document |
-| `actuators` | `GET /api/actuators` | name, type, summary per actuator |
-| `readers` | `GET /api/readers` | the same for readers |
-| `sources` | `GET /api/sources` | every source with its channels and latest sample |
-| `loops` | `GET /api/loops` | every loop's view |
-| `clock` | `GET /api/clock` | `start_time_ns`, `now_ns`, `elapsed_ns`, `tags` |
-| `signals` | `GET /api/signals` | what the rig is waiting on |
-| `signal fire NAME` | `POST /api/signals/NAME/fire` | settle the wait as met |
-| `signal interrupt NAME` | `POST /api/signals/NAME/interrupt` | cancel it |
-| `watch STREAM` | `/ws/STREAM` | one JSON line per frame; `samples`, `loops`, `actuators`, `readers`, `signals` |
+| `devices` | `GET /api/devices` | name, label, driver, signal tree per device |
+| `controllers` | `GET /api/controllers` | every controller's view |
+| `demand ADDRESS VALUE` | `PUT /api/signals/ADDRESS` | put a value on a writable signal |
+| `read ADDRESS [--fresh]` | `GET /api/read/ADDRESS` | a signal's reading, a namespace's sample, or a device's samples |
+| `clock` | `GET /api/clock` | `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed` |
+| `waits` | `GET /api/waits` | what the rig is waiting on |
+| `wait fire NAME` | `POST /api/waits/NAME/fire` | settle the wait as met |
+| `wait interrupt NAME` | `POST /api/waits/NAME/interrupt` | cancel it |
+| `watch STREAM` | `/ws/STREAM` | one JSON line per frame; `samples`, `controllers`, `writes`, `devices`, `waits`, `events` |
+| `sessions` / `export ID` | `/api/history/*` | recorded sessions; export as Bluesky event-model documents |
+| `program check FILE` / `program run FILE` / `program status` / `program stop` | `/api/programs/*` | validate, start, watch, stop a program |
+| `sim` / `sim clock N` / `sim set PLANT k=v` / `sim reset` / `sim config` / `sim save` | `/api/sim/*` | a simulated rig's knobs |
+
+## Without a rig
+
+| command | | |
+| --- | --- | --- |
+| `rig check FILE...` | validate one or more rig files (later overlays earlier); prints the merge |
+| `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
+| `program schema` | the program file's JSON Schema |
+| `program check --local FILE` | validate a program file against the commands installed here |
+| `new NAME` | write `NAME.py`: a complete device driver with a tag, ready to edit |
 
 ## Device subcommands
 
-One per actuator and reader, named after the device, built from the schema.
+One per device, named after it, built from the schema.
 
 | command | reads | |
 | --- | --- | --- |
-| `NAME` | `GET /api/{actuators,readers}/NAME` | config, settings, state |
+| `NAME` | `GET /api/devices/NAME` | config, settings, state |
 | `NAME schema` | the cached schema | config, settings, state and command schemas |
-| `NAME COMMAND [flags]` | `POST /api/…/NAME/COMMAND` | run a command |
+| `NAME COMMAND [flags]` | `POST /api/devices/NAME/COMMAND` | run a command |
 
 Flags per argument:
 
@@ -50,7 +64,7 @@ Flags per argument:
 | a boolean | `--x` / `--no-x` |
 | an enum, or a `oneOf` of constants | `--x` with choices; per-option titles in `--help` |
 | a discriminated `oneOf` | `--a.tag KIND` selects the branch, then that branch's flags |
-| a single argument | may also be given positionally: `set_flows 2 6` |
+| a single argument | may also be given positionally: `set_limit 0.5` |
 
 Any flag also takes a JSON literal: `--x '[1, 2]'`, `--x '{"k": 1}'`.
 `"4"` parses as the number 4; `"on"` stays a string.

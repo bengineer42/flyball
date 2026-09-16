@@ -7,8 +7,8 @@
 
 ::: flyball.sim.clock
 
+::: flyball.sim.devices
+
+::: flyball.sim.furnace
+
 ::: flyball.sim.plant
-
-::: flyball.sim.reader
-
-::: flyball.sim.sink
