@@ -9,7 +9,7 @@ A demand is the write side: `PUT /api/devices/{name}/demand` puts values on
 W signals under the device as one demand, and `PUT /api/signals/{address}`
 is the single-signal shorthand. Both answer with the write states by
 address, and refuse -- 409 -- what the rig refuses: a signal a controller
-drives, a `together` group set in part, a signal that is not writable.
+drives, a signal that is not writable.
 """
 
 from __future__ import annotations
@@ -51,14 +51,18 @@ def command_for(device: Device, tag: str) -> CommandSpec:
 
 
 def _signal_schema(signal: Signal) -> dict[str, Any]:
-    """A signal for a gauge, an axis or a target entry: unit, dimension, range, limits."""
+    """A signal for a gauge, an axis or a target entry: unit, dimension, range, limits, type."""
     return {
         "address": signal.address,
         "access": str(signal.access),
+        "role": signal.role.value,
+        "tags": signal.tags,
         "label": signal.label,
         "quantity": signal.quantity.name,
         "unit": signal.unit.symbol,
         "dimension": signal.unit.dimension.label,
+        "dtype": signal.spec.dtype,
+        "value": TypeAdapter(signal.spec.vtype).json_schema(mode="serialization"),
         "range": signal.spec.range,
         "precision": signal.spec.precision,
         "limits": signal.limits,
@@ -66,7 +70,7 @@ def _signal_schema(signal: Signal) -> dict[str, Any]:
 
 
 def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
-    """Config, settings, state, every signal and every command's request as JSON schema."""
+    """Config, every signal, every input and every command's request as JSON schema."""
     cls = type(device)
     return {
         "name": device.name,
@@ -74,22 +78,72 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
         "type": cls.__name__,
         "driver": type(device.config).config_tag,
         "description": cls.__doc__.strip().splitlines()[0] if cls.__doc__ else None,
+        "readable": cls.readable,
+        "writable": cls.writable,
         **extra,
         "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
-        "settings": TypeAdapter(cls.settings_type).json_schema(mode="validation"),
-        "state": TypeAdapter(cls.state_type).json_schema(mode="serialization"),
         "signals": {path: _signal_schema(s) for path, s in device.signals.items()},
+        "inputs": {
+            role: {
+                "label": spec.label,
+                "quantity": spec.quantity.name,
+                "unit": spec.quantity.unit.symbol,
+                "bound": None if (b := device.bound.get(role)) is None else b.address,
+            }
+            for role, spec in cls.INPUTS.items()
+        },
         "commands": {
             tag: {
                 "description": spec.doc,
-                "arguments": _naming_signals(
-                    TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"), device
+                "arguments": _linking_demands(
+                    _naming_signals(
+                        TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"),
+                        device,
+                    ),
+                    spec,
+                    device,
                 ),
                 "simulation": spec.simulation,
+                "commit": spec.commit,
+                "mode": spec.mode,
+                "owner_exempt": spec.owner_exempt,
+                "demand_of": spec.demand_of,
             }
             for tag, spec in cls.commands.items()
         },
     }
+
+
+def _linking_demands(
+    arguments: dict[str, Any], spec: CommandSpec, device: Device
+) -> dict[str, Any]:
+    """Each argument that is a value for a demand: its address, unit and effective limits.
+
+    A form prefills it from the readback, shows the unit, and bounds the
+    entry; the rig fills a missing one from the current value, so none is
+    required.
+    """
+    properties = dict(arguments.get("properties", {}))
+    required = list(arguments.get("required", []))
+    for name, param in spec.params.items():
+        if param.link is None or name not in properties:
+            continue
+        signal = device.signals[param.link]
+        field = {
+            **properties[name],
+            "x-signal": signal.address,
+            "unit": signal.unit.symbol,
+            "title": signal.label or properties[name].get("title", name),
+        }
+        if (limits := signal.limits) is not None:
+            field["minimum"], field["maximum"] = limits
+        properties[name] = field
+        if name in required:
+            required.remove(name)
+    out = {**arguments, "properties": properties}
+    if "required" in arguments:
+        out["required"] = required
+    return out
 
 
 def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]:
@@ -111,11 +165,11 @@ def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]
     }
 
 
-def run(device: Device, tag: str, body: dict[str, Any] | None) -> Any:
-    """Call the marked method with the validated body; return whatever it returns."""
+def run(rig: Rig, device: Device, tag: str, body: dict[str, Any] | None) -> Any:
+    """Run the command with the validated body, through the rig; return whatever it returns."""
     spec = command_for(device, tag)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
-    return spec.method(device, **arguments)
+    return rig.run_command(device, tag, arguments)
 
 
 def device_of(rig: Rig, name: str) -> Device:
@@ -182,7 +236,7 @@ def demand(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut
 
     Dotted for a signal under a namespace (`position.x`). Committed at
     once; the response is the write state of each signal set, by address.
-    409 for a signal a controller drives, a `together` group set in part,
+    409 for a signal a controller drives,
     or a signal that is not writable; 404 for a name that is not under the
     device.
     """
@@ -213,7 +267,7 @@ def run_command(
     still broken simply goes offline again with a fresh event.
     """
     device = device_of(rig, name)
-    result = run(device, tag, body)
+    result = run(rig, device, tag, body)
     run_ = run_of(rig, name)
     if run_ is not None and not run_.running and run_.period_s is not None:
         rig.polling.restart(name)

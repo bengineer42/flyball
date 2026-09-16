@@ -17,6 +17,8 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any
 
+from pydantic_core import to_jsonable_python
+
 from flyball.core.device import Device
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.signal import Access, Band, Sample, Signal, WriteState
@@ -64,6 +66,39 @@ def _dumps(value: Any) -> str | None:
 
 def _loads(text: str | None) -> Any:
     return None if text is None else json.loads(text)
+
+
+def _encode_reading(dtype: str, value: Any) -> Any:
+    """A reading's value as the `reading.value` column takes it: floats as themselves.
+
+    Everything else is JSON text: an enum's `.value`, bool/int/str dumped as
+    they are, a `json` value through `to_jsonable_python` first.
+    """
+    if dtype == "float":
+        return value
+    if dtype == "enum":
+        value = value.value
+    elif dtype == "json":
+        value = to_jsonable_python(value)
+    return json.dumps(value)
+
+
+def _decode_reading(dtype: str, raw: Any) -> Any:
+    """The column's value back to a reading: undoes `_encode_reading`.
+
+    SQLite's REAL affinity turns numeric-looking JSON text (an int, a bare
+    digit) into a number on the way in, so a non-float value may already be
+    numeric here rather than the str `_encode_reading` wrote.
+    """
+    if dtype == "float":
+        return raw
+    if isinstance(raw, str):
+        return json.loads(raw)
+    if dtype == "int":
+        return int(raw)
+    if dtype == "bool":
+        return bool(raw)
+    return raw
 
 
 def _band(text: str | None) -> Band | None:
@@ -302,7 +337,7 @@ class SqliteSessionWriter:
         self._open()
         session_id = self._session.id
         sample_rows: list[tuple[int, int, int, str, int]] = []
-        reading_rows: list[tuple[int, int, int, int, int, float]] = []
+        reading_rows: list[tuple[int, int, int, int, int, Any]] = []
         seqs = dict(self._seq)
         for sample in samples:
             node = sample.node
@@ -314,8 +349,19 @@ class SqliteSessionWriter:
             for signal, value in sample.values.items():
                 if (sid := self._signals.get(signal)) is None:
                     raise NotDeclaredError("signal", signal.address)
-                if value == value:  # NaN is a fault, not a reading; the writer routes those
-                    reading_rows.append((session_id, did, seq, sid, offset, value))
+                dtype = signal.spec.dtype
+                if dtype == "float":
+                    if value == value:  # NaN is a fault, not a reading; the writer routes those
+                        reading_rows.append((session_id, did, seq, sid, offset, value))
+                else:
+                    reading_rows.append((
+                        session_id,
+                        did,
+                        seq,
+                        sid,
+                        offset,
+                        _encode_reading(dtype, value),
+                    ))
         if not sample_rows:
             return
         with self._store._transaction() as connection:
@@ -579,6 +625,18 @@ class SqliteStore:
         base = " FROM reading WHERE session_id = ? AND signal_id = ?" + where
         key = [session_id, signal.id, *params]
 
+        if signal.dtype != "float":
+            if downsample is not None:
+                raise ValueError(
+                    f"signal {address!r} is {signal.dtype!r}: downsample only applies to float"
+                    " signals"
+                )
+            rows = self._query(
+                "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
+            )
+            points = tuple(Point(r["t"], _decode_reading(signal.dtype, r["v"])) for r in rows)
+            return Series(signal, points, None)
+
         match downsample:
             case None:
                 rows = self._query(
@@ -618,7 +676,7 @@ class SqliteStore:
         device = next((d for d in self.devices(session_id) if d.address == name), None)
         if device is None:
             raise NotFoundError(f"Device {name!r} not in session {session_id}")
-        signals = {s.id: s.address for s in self.signals(session_id)}
+        signals = {s.id: s for s in self.signals(session_id)}
         where, params = _window_clause(window, "s.offset_ns")
         # A namespace's address selects the samples on it and under it.
         under = "" if address == name else " AND (node = ? OR node LIKE ?)"
@@ -636,7 +694,8 @@ class SqliteStore:
             row = samples.get(r["seq"])
             if row is None:
                 row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"], r["node"], {})
-            row.values[signals[r["signal_id"]]] = r["value"]
+            signal = signals[r["signal_id"]]
+            row.values[signal.address] = _decode_reading(signal.dtype, r["value"])
         return list(samples.values())
 
     def write_states(

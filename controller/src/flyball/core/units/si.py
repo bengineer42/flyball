@@ -65,6 +65,8 @@ Katal = CatalyticActivity.unit("katal", "kat")
 # Absolute scales: same interval as the kelvin, different zero.
 Celsius = Temperature.unit("celsius", "°C", zero=273.15)
 
+Unitless = DIMENSIONLESS.unit("", "")
+
 # The unit of a count, a ratio, a status word, a duty: what "no unit" means in a table.
 One = DIMENSIONLESS.unit("one", "1")
 Percent = DIMENSIONLESS.unit("percent", "%", 0.01)

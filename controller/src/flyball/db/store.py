@@ -164,7 +164,8 @@ class Store(Protocol):
         """One signal over a window.
 
         `downsample` is a [Downsample][flyball.db.types.Downsample], or `None`
-        for every reading.
+        for every reading. Only a float signal can be downsampled; asking for
+        one on any other dtype raises `ValueError`.
         """
         ...
 

@@ -14,6 +14,7 @@ from pydantic import Field, SerializeAsAny
 
 from flyball.control import ControlLawConfig, ControlLaws, ControlLawView, Tuning
 from flyball.control.errors import TuningNotRegisteredError
+from flyball.core.device import Condition, Device
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep, current_rig
 from flyball.server.schemas import ClockOut
@@ -60,13 +61,18 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
     }
 
 
+def _device_conditions(rig: Rig, device: Device) -> tuple[Condition, ...]:
+    reading = rig.router.reading(device.conditions)
+    return () if reading is None else tuple(reading.value)
+
+
 def _conditions(rig: Rig) -> list[dict[str, Any]]:
     """What every device reports of itself, then what the runtime knows: polling, writing."""
     return (
         [
             {"device": name, **asdict(c)}
             for name, device in rig.devices.items()
-            for c in device.state.conditions
+            for c in _device_conditions(rig, device)
         ]
         + [
             {"device": name, **asdict(c)}

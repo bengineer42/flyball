@@ -25,6 +25,23 @@ Document = tuple[str, dict[str, Any]]
 TICK_KEYS = ("reading", "setpoint", "correction", "demand", "expected", "delivered_correction")
 
 
+def _descriptor_dtype(dtype: str, hint: Any = None) -> str:
+    """A signal's wire `dtype` as a Bluesky-style descriptor dtype.
+
+    `hint` is a decoded value seen for the signal, used only to tell a
+    `json` dtype's dict from its list -- the store does not carry that.
+    """
+    if dtype in ("float", "int"):
+        return "number"
+    if dtype == "bool":
+        return "boolean"
+    if dtype in ("str", "enum"):
+        return "string"
+    if dtype == "json":
+        return "object" if isinstance(hint, dict) else "array"
+    return "string"
+
+
 def documents(store: Store, session_id: int) -> Iterator[Document]:
     """The session as `(name, document)` pairs, in order."""
     session = store.session(session_id)
@@ -53,10 +70,15 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
 
     counts: dict[str, int] = {}
     for device in devices:
+        samples = store.samples(session_id, device.address)
+        hints: dict[str, Any] = {}
+        for sample in samples:
+            for address, value in sample.values.items():
+                hints.setdefault(address, value)
         keys = {
             s.address: {
                 "source": f"flyball:{s.address}",
-                "dtype": "number",
+                "dtype": _descriptor_dtype(s.dtype, hints.get(s.address)),
                 "shape": s.shape,
                 "units": s.unit,
             }
@@ -76,7 +98,7 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
             },
         )
         n = 0
-        for sample in store.samples(session_id, device.address):
+        for sample in samples:
             n += 1
             time_s = (session.start_ns + sample.offset_ns) / 1e9
             data = dict(sample.values)

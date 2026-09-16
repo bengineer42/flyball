@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from flyball.core.device import Condition, Device, DeviceState, Level
+from flyball.core.device import Condition, Device, Level, Readable
 from flyball.core.errors import NotFoundError
 from flyball.core.signal import Sample
 from flyball.core.topic import Latest
@@ -46,7 +46,6 @@ class DeviceRun:
     running: bool = False
     last_read_ns: int | None = None
     conditions: tuple[Condition, ...] = ()
-    state: DeviceState
 
 
 class Polling:
@@ -70,7 +69,7 @@ class Polling:
     def start(self, device: Device, period_s: float) -> None:
         """Poll `device` every `period_s`; one already polled is restarted on the new period."""
         self.by_name[device.name] = device
-        self._runs.setdefault(device.name, DeviceRun(state=device.state))
+        self._runs.setdefault(device.name, DeviceRun())
         if (loop := self.periodic.pop(device.name, None)) is not None:
             loop.stop()
         loop = PeriodicLoop(self._read, period_s, False, device, clock=self.rig.clock)
@@ -130,6 +129,8 @@ class Polling:
         """
         started = self.rig.clock.monotonic()  # in the rig's time, as the period is
         try:
+            if not isinstance(device, Readable):
+                raise TypeError(f"{type(device).__name__} has nothing to read")
             samples = tuple(device.read(self.rig.clock.now_ns()))
         except Exception as error:
             offline = Condition(
@@ -154,7 +155,7 @@ class Polling:
             self.rig.event(Level.WARNING, "device", device.name, "slow", slow.message)
 
     def _update(self, device: Device, **changes: Any) -> None:
-        run = replace(self._runs[device.name], state=device.state, **changes)
+        run = replace(self._runs[device.name], **changes)
         self._runs[device.name] = run
         if self.runs.watched:
             self.runs.set(device.name, run)

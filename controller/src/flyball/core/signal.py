@@ -103,9 +103,82 @@ class Access(Flag):
 
 
 _LETTERS = (("r", Access.R), ("p", Access.P), ("w", Access.W))
+_ROLE_ACCESS: dict[Any, Access] = {}
 
 
 type Band = tuple[float, float]
+
+
+class Role(Enum):
+    """What a signal is to its device: given, set, produced, or built from.
+
+    - `DEMAND`: settable, with a current value (its readback) that updates;
+      what a controller drives. Access `RPW`.
+    - `OUTPUT`: produced, never set; a measurement, a derived value, a mode. `RP`.
+    - `SETTING`: re-set by a command while the device runs, shown; not a
+      scalar a controller could drive (a blend flow, a PWM frequency). `RP`.
+    - `CONFIG`: effective at build, shown, never set at run time. `R`.
+    - `INPUT`: another device's signal, bound by the rig to a role; not in
+      the tree, but declared beside it so the schema can show what the
+      device follows.
+    """
+
+    INPUT = "input"
+    DEMAND = "demand"
+    OUTPUT = "output"
+    SETTING = "setting"
+    CONFIG = "config"
+
+    @property
+    def access(self) -> Access:
+        return _ROLE_ACCESS[self]
+
+
+_ROLE_ACCESS.update({
+    Role.INPUT: Access(0),
+    Role.DEMAND: Access.RPW,
+    Role.OUTPUT: Access.RP,
+    Role.SETTING: Access.RP,
+    Role.CONFIG: Access.R,
+})
+
+
+@dataclass(frozen=True, slots=True)
+class Section:
+    """A second grouping axis across a device's tree: `dry` / `wet` / `total`, `ch1` / `ch2`.
+
+    A tag on the signal, never part of its address: `flows.dry` and
+    `efforts.dry` share the section `dry`, so a UI can pivot the tree by
+    section as well as by namespace. `axis` names what the sections are
+    (`"line"`, `"channel"`) for a device with more than one grouping.
+    """
+
+    name: str
+    label: str = ""
+    axis: str = "line"
+
+    def __post_init__(self) -> None:
+        _check_segment(self.name)
+
+
+type Bound = float | SignalRef
+"""One end of `limits`: a number, or a reference to a signal whose current value it is."""
+
+
+class SignalRef:
+    """A reference to another signal of the same device, by path, resolved on the instance.
+
+    What a descriptor is on a class (`limits=(0.0, dry_max_flow)`): the
+    bound signal's `limits` resolve it to that signal's current value.
+    """
+
+    __slots__ = ("path",)
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    def __repr__(self) -> str:
+        return f"SignalRef({self.path!r})"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -120,6 +193,10 @@ class SignalSpec:
     """One address segment: `"voltage"` under device `psu` is `psu.voltage`."""
     quantity: Quantity
     access: Access
+    role: Role = Role.OUTPUT
+    section: Section | None = None
+    initial: Any = None
+    """A value the signal has before anything reads or sets it: a mode's starting state."""
     vtype: Any = float
     """The type of a value: `float` for a measurement, an enum for a mode, a model for a
     structure. Anything pydantic can validate and describe."""
@@ -139,16 +216,20 @@ class SignalSpec:
     poll_s: float | None = None
     """None: the enclosing node's; only meaningful with `P`."""
     # write side (W)
-    limits: Band | None = None
-    """What a demand is clamped to, in the signal's unit; today's `output_range`."""
-    together: frozenset[str] = frozenset()
-    """Sibling signals that must be set in the same demand as this one."""
+    limits: tuple[Bound, Bound] | None = None
+    """What a demand is clamped to, in the signal's unit: numbers, or references to signals of
+    the same device whose current values bound it (a config's max flow, an input's humidity)."""
 
     def __post_init__(self) -> None:
         _check_segment(self.name)
         Access.check(self.access)
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
+
+    @property
+    def tags(self) -> dict[str, str]:
+        """The section as a tag: `{"line": "dry"}`; empty without one."""
+        return {} if self.section is None else {self.section.axis: self.section.name}
 
     @property
     def dtype(self) -> str:
@@ -364,9 +445,20 @@ class Signal:
     path: Path
     """The address relative to the device: `dry.humidity`."""
     access: Access
+    at_limit: Literal["low", "high"] | None = None
+    """What the driver says of the last demand on it: railed low or high, or neither. Set in
+    `commit`; the rig puts it on the demand's reading."""
 
     def __repr__(self) -> str:
         return f"Signal({self.address} [{self.access}])"
+
+    @property
+    def role(self) -> Role:
+        return self.spec.role
+
+    @property
+    def tags(self) -> dict[str, str]:
+        return self.spec.tags
 
     @property
     def device(self) -> Device:
@@ -390,7 +482,28 @@ class Signal:
 
     @property
     def limits(self) -> Band | None:
-        return self.spec.limits
+        """The effective limits now: a referenced signal's current value stands for it.
+
+        None if there are none, or a reference has no value yet.
+        """
+        if (limits := self.spec.limits) is None:
+            return None
+        resolved: list[float] = []
+        for bound in limits:
+            if isinstance(bound, SignalRef):
+                signal = self.node.device.signals.get(bound.path)
+                reading = None if signal is None else signal.router.reading(signal)
+                if reading is None:
+                    return None
+                resolved.append(float(reading.value))
+            else:
+                resolved.append(bound)
+        return (resolved[0], resolved[1])
+
+    @property
+    def pending(self) -> float | None:
+        """The demand recorded on this signal since the last commit, if any."""
+        return self.node.device.pending.get(self)
 
     @property
     def poll_s(self) -> float | None:
@@ -436,7 +549,7 @@ class Signal:
     def write_state(self, value: float) -> WriteState:
         """What committing `value` reports: at a limit when it sits on one (the rig clamped)."""
         at_limit: Literal["low", "high"] | None = None
-        if (limits := self.spec.limits) is not None:
+        if (limits := self.limits) is not None:
             if value <= limits[0]:
                 at_limit = "low"
             elif value >= limits[1]:
@@ -446,7 +559,7 @@ class Signal:
 
 @dataclass(frozen=True, slots=True)
 class Reading:
-    """One value on one signal at one instant."""
+    """One value on one signal at one instant. On a demand, the newest is its readback."""
 
     signal: Signal
     time_ns: int

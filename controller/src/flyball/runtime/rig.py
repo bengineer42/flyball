@@ -14,15 +14,22 @@ import logging
 from collections import deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import replace
 from threading import RLock
 from typing import TYPE_CHECKING, Any, overload
 
 from flyball.control import ControlLawLike, Controller, ControllerState, Tunings
 from flyball.control.feedforward import FeedforwardLike, Feedforwards
 from flyball.core import Clock
-from flyball.core.device import RESERVED_NAMES, Condition, Device, Event, Level
-from flyball.core.errors import ConflictError, NotReadyError
+from flyball.core.device import (
+    RESERVED_NAMES,
+    Committable,
+    Condition,
+    Device,
+    Event,
+    Level,
+    Readable,
+)
+from flyball.core.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.core.router import RECENT_READINGS, Router
 from flyball.core.signal import (
     Access,
@@ -174,7 +181,10 @@ class Rig:
         """
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
-        device.router = self.router
+        own, device.router = device.router, self.router
+        if own.samples:  # what it pushed before it was added: initial values, configs
+            now = self.clock.now_ns()
+            self.on_samples([Sample(s.node, now, s.values) for s in own.samples.values()])
 
     # endregion
 
@@ -366,6 +376,8 @@ class Rig:
         time_ns = self.clock.now_ns()
         samples: list[Sample] = []
         for device, node in nodes.items():
+            if not isinstance(device, Readable):
+                raise ConflictError(f"'{device.name}' has nothing to read")
             samples.extend(device.read(time_ns, node))
         self.on_samples(samples)
 
@@ -389,7 +401,7 @@ class Rig:
 
     def start_polling(self, device: Device) -> None:
         """Poll `device` on the smallest `poll_s` in its tree; nothing publishes on one: no-op."""
-        if (period := poll_period(device)) is not None:
+        if device.readable and (period := poll_period(device)) is not None:
             self.polling.start(device, period)
 
     # endregion
@@ -404,25 +416,26 @@ class Rig:
         A key is a bound signal under `node`, or its name relative to
         `node`, dotted for a namespace -- the wire's form, resolved here and
         nowhere below. The whole demand is checked before anything is
-        recorded -- every key a W signal, no signal another controller's,
-        every `together` group complete -- then clamped to `limits` and
-        fanned out to `device.apply`. A manual demand (`by` None, or from
-        outside a delivery) is committed now and its states returned; a
-        controller's inside a delivery is committed with everything else at
-        its end, and this returns nothing. A blocking device's commit runs on
-        its writer thread, so its states arrive later, through
-        [written][flyball.runtime.rig.Rig.written]; this returns nothing.
+        recorded -- every key a W signal, no signal another controller's --
+        then clamped to `limits` and fanned out to `device.apply`. A demand
+        from outside a delivery is committed now and its states returned;
+        one from inside a delivery (a controller's, a command's) is
+        committed with everything else at its end, and this returns nothing.
+        A blocking device's commit runs on its writer thread, so its states
+        arrive later, through [written][flyball.runtime.rig.Rig.written];
+        this returns nothing.
 
         Raises:
             AddressNotFoundError: A name does not resolve under `node`.
-            ConflictError: A key is not a writable signal under `node`, is
-                driven by a controller, or is set without its `together`
-                siblings.
+            ConflictError: A key is not a writable signal under `node`, or
+                is driven by a controller.
             ValueError: No values, or one signal named twice.
         """
         if not values:
             raise ValueError(f"Demand on '{node.address}' carries no values")
         device = node.device
+        if not isinstance(device, Committable):
+            raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
             if isinstance(key, Signal):
@@ -453,15 +466,6 @@ class Rig:
                     requested[signal] = value
                 value = held
             clamped[signal] = value
-        for signal in clamped:
-            # `together` is names in the spec; each resolves among its siblings.
-            missing = [
-                name
-                for name in sorted(signal.spec.together)
-                if signal.node.signals.get(name) not in clamped
-            ]
-            if missing:
-                raise ConflictError(f"'{signal.address}' is set with {', '.join(missing)}")
         with self.lock:
             time_ns = self.clock.now_ns()
             writer = self._writer_for(device)
@@ -475,21 +479,30 @@ class Rig:
                     self._requested[signal] = requested[signal]
                 else:
                     self._requested.pop(signal, None)
-            if by is not None and self._touched is not None:
+            if self._touched is not None:  # inside a delivery: committed at its end
                 self._touched[device] = None
                 return {}
-            states = self._commit((device,), time_ns)
+            states = self._committing((device,), time_ns)
             if states and self.recorder is not None:
                 self.recorder.record((), (), states, time_ns=time_ns)
+            self._flush_pushed()
             return states
 
     def _writer_for(self, device: Device) -> Writer | None:
         """The thread in front of a device that blocks on a bus; None for one that does not."""
-        if not device.blocking:
+        if not device.blocking or not isinstance(device, Committable):
             return None
         if (writer := self._writers.get(device)) is None:
             writer = self._writers[device] = Writer(self, device)
         return writer
+
+    def _committing(self, devices: Iterable[Device], time_ns: int) -> dict[Signal, WriteState]:
+        """Commit outside a delivery: the readbacks the commits push are queued, then delivered."""
+        self._touched = {}
+        try:
+            return self._commit(devices, time_ns)
+        finally:
+            self._touched = None
 
     def _commit(self, devices: Iterable[Device], time_ns: int) -> dict[Signal, WriteState]:
         """One commit per device, and the states filled in with what the rig knows.
@@ -499,42 +512,68 @@ class Rig:
         """
         states: dict[Signal, WriteState] = {}
         for device in devices:
+            if not isinstance(device, Committable):
+                continue  # touched by an input landing; nothing to commit
             if (writer := self._writer_for(device)) is not None:
                 writer.request(time_ns)
             else:
-                states.update(self._fill(device, device.commit(time_ns)))
+                device.commit(time_ns)
+                states.update(self._states(device, time_ns))
         return states
 
-    def _fill(
-        self, device: Device, states: Mapping[Signal, WriteState]
-    ) -> dict[Signal, WriteState]:
-        """The device's states with what the rig knows: the request and the controller.
+    def _states(self, device: Committable, time_ns: int) -> dict[Signal, WriteState]:
+        """What a commit set each pending demand to, with what the rig knows; clears `pending`.
 
-        The device reports the value after limits; the rig adds what was
-        asked for, when the clamp changed it, and which controller drives
-        the signal. The device's `written` gets the filled-in state too, so
-        the wire shows one thing.
+        The driver may have pushed a readback in `commit`; a demand it did
+        not push gets the committed value as its reading, so every demand
+        has a current value. The rig adds what was asked for, when the clamp
+        changed it, and which controller drives the signal; the device's
+        `written` gets the filled-in state too, so the wire shows one thing.
         """
-        filled: dict[Signal, WriteState] = {}
-        for signal, state in states.items():
+        states: dict[Signal, WriteState] = {}
+        pushed = {s for sample in self._pushed for s in sample.values}
+        for signal, value in device.pending.items():
+            at_limit = signal.at_limit
+            if at_limit is None and (limits := signal.limits) is not None:
+                if value <= limits[0]:
+                    at_limit = "low"
+                elif value >= limits[1]:
+                    at_limit = "high"
             holder = self.controllers.driving(signal)
-            state = replace(
-                state,
+            state = WriteState(
+                value=value,
                 requested=self._requested.pop(signal, None),
+                at_limit=at_limit,
                 controller=None if holder is None else holder.name,
             )
-            device.written[signal] = filled[signal] = state
+            device.written[signal] = states[signal] = state
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
-        return filled
+            signal.at_limit = None
+            latest = self.router.reading(signal)
+            if signal not in pushed and (latest is None or latest.time_ns < time_ns):
+                self._pushed.append(Sample(signal.node, time_ns, {signal: value}))
+        device.pending.clear()
+        return states
 
-    def written(self, device: Device, states: Mapping[Signal, WriteState], time_ns: int) -> None:
+    def _flush_pushed(self) -> None:
+        """Deliver what commits pushed, each batch as one more delivery, until nothing is left."""
+        while self._pushed:
+            pushed, self._pushed = self._pushed, []
+            self._deliver_samples(pushed)
+
+    def written(self, device: Committable, time_ns: int) -> None:
         """A blocking device's writer finished a commit: publish, deliver and record its states."""
         with self.lock:
-            filled = self._fill(device, states)
+            self._touched = {}  # the context for the readbacks `_states` pushes
+            try:
+                filled = self._states(device, time_ns)
+            finally:
+                self._touched = None
             self._deliver(filled)
             if filled and self.recorder is not None:
                 self.recorder.record((), (), filled, time_ns=time_ns)
+            self._flush_pushed()
 
     def _deliver(self, states: Mapping[Signal, WriteState]) -> None:
         """Close each controller's tick with the state its target was committed to."""
@@ -543,6 +582,86 @@ class Rig:
                 controller.delivered(state)
                 if self.controller_states.watched:
                     self.controller_states.set(controller.name, controller.state)
+
+    # endregion
+
+    # region Commands
+
+    def run_command(self, device: Device, tag: str, args: Mapping[str, Any] | None = None) -> Any:
+        """Run `device`'s command `tag` with `args`, as the rig: linked, clamped, owned, recorded.
+
+        An argument that is a value for a demand (`For[...]`) is filled from
+        that demand's current value when left out, and clamped to the
+        signal's effective limits. A synthesised `set_<name>` goes through
+        [demand][flyball.runtime.rig.Rig.demand]. Unless the command is
+        `owner_exempt`, it is refused while a controller drives one of the
+        device's demands. The method runs under the rig lock; afterwards the
+        device's `mode` output (if it has one) becomes the command's, a
+        `commit=True` command commits the device, each linked demand the
+        driver did not push gets its argument as its reading, and
+        `last.<tag>` records what ran. Returns what the method returned.
+
+        Raises:
+            NotFoundError: No such command.
+            ConflictError: A controller drives the device.
+            NotReadyError: A linked argument was left out and its demand has
+                no value yet.
+        """
+        try:
+            spec = type(device).commands[tag]
+        except KeyError as e:
+            raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
+        given = dict(args or {})
+        if spec.demand_of is not None:
+            signal = device.signals[spec.demand_of]
+            return self.demand(signal.node, {signal: given["value"]})
+        with self.lock:
+            linked: dict[str, Signal] = {}
+            for name, param in spec.params.items():
+                if param.link is None:
+                    continue
+                signal = linked[name] = device.signals[param.link]
+                if name not in given:
+                    given[name] = self.router.value(signal)
+                elif (limits := signal.limits) is not None and isinstance(
+                    given[name], (int, float)
+                ):
+                    given[name] = min(max(float(given[name]), limits[0]), limits[1])
+            if not spec.owner_exempt:
+                for signal in device.signals.values():
+                    holder = self.controllers.driving(signal)
+                    if holder is not None and holder.mode.active():
+                        raise ConflictError(
+                            f"'{signal.address}' is driven by controller {holder.name!r}:"
+                            f" {tag!r} would fight it; put it in manual, or detach it"
+                        )
+            time_ns = self.clock.now_ns()
+            outer = self._touched
+            if outer is None:
+                self._touched = {}
+            try:
+                result = spec.method(device, **given)
+                if spec.mode is not None and (mode := device.signals.get("mode")) is not None:
+                    mode.push(spec.mode, time_ns)
+                pushed = {s for sample in self._pushed for s in sample.values}
+                for name, signal in linked.items():
+                    if signal not in pushed:
+                        signal.push(given[name], time_ns)
+                if (last := device.signals.get(f"last.{tag}")) is not None:
+                    last.push({"args": given, "at": time_ns}, time_ns)
+                if spec.commit:
+                    if outer is not None:
+                        outer[device] = None
+                    else:
+                        states = self._commit((device,), time_ns)
+                        if states and self.recorder is not None:
+                            self.recorder.record((), (), states, time_ns=time_ns)
+            finally:
+                if outer is None:
+                    self._touched = None
+            if outer is None:
+                self._flush_pushed()
+            return result
 
     # endregion
 
@@ -642,9 +761,7 @@ class Rig:
                 self._pushed.extend(samples)
                 return
             self._deliver_samples(samples)
-            while self._pushed:
-                pushed, self._pushed = self._pushed, []
-                self._deliver_samples(pushed)
+            self._flush_pushed()
 
     def _deliver_samples(self, samples: Sequence[Sample]) -> None:
         """One delivery, under the lock: note, observers, controllers, commits, recorder."""
@@ -663,8 +780,7 @@ class Rig:
                 for reading in sample.readings():
                     signal = reading.signal
                     for device in self._observers.get(signal, ()):
-                        device.observe(reading)
-                        touched[device] = None
+                        touched[device] = None  # it reads the router in `commit`
                     # Every node on the way up from the signal, not just
                     # the sample's, is an instant on that node: a device
                     # bound to it hears it.
@@ -680,9 +796,8 @@ class Rig:
                     # binding requires P; a fresh read of an R-only setting
                     # is for whoever asked for it.
                     if (message := sample.under(node)) is not None and (
-                        message := message.published()
+                        message.published()
                     ) is not None:
-                        device.observe(message)
                         touched[device] = None
             for controller, reading in ticks:
                 controller.on_reading(reading)

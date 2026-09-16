@@ -147,8 +147,10 @@ class DashboardRow:
 
 @dataclass(frozen=True, slots=True)
 class Point:
+    """One reading. `value` is a float for a float signal, else whatever its dtype decodes to."""
+
     offset_ns: int
-    value: float
+    value: Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +160,7 @@ class SampleRow:
     seq: int
     offset_ns: int
     node: str
-    values: dict[str, float]
+    values: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)

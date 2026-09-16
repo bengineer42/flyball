@@ -69,11 +69,7 @@ class RunCommand(Command, tag="command"):
             found = rig.devices[self.device]
         except KeyError:
             raise NotFoundError(f"device {self.device!r} not found") from None
-        try:
-            spec = type(found).commands[self.device_command]
-        except KeyError as e:
-            raise NotFoundError(f"{self.device!r} has no command {self.device_command!r}") from e
-        spec.method(found, **(self.args or {}))
+        rig.run_command(found, self.device_command, self.args)
         return None
 
     def missing(self, rig: Rig) -> list[str]:

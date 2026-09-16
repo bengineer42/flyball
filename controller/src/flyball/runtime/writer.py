@@ -16,7 +16,7 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.core.device import Condition, Device, Level
+from flyball.core.device import Committable, Condition, Level
 from flyball.core.signal import Signal
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ log = logging.getLogger("flyball.writer")
 class Writer:
     """Applies and commits to one blocking device on its own thread; the newest value wins."""
 
-    def __init__(self, rig: Rig, device: Device) -> None:
+    def __init__(self, rig: Rig, device: Committable) -> None:
         self.rig = rig
         self.device = device
         self.failed: Condition | None = None
@@ -65,7 +65,7 @@ class Writer:
             try:
                 for signal, (applied_ns, value) in queued.items():
                     self.device.apply(signal, applied_ns, value)
-                states = self.device.commit(time_ns)
+                self.device.commit(time_ns)
             except Exception as error:
                 self._failure(error)
                 continue
@@ -75,7 +75,7 @@ class Writer:
                 self.rig.event(
                     Level.INFO, "device", self.device.name, "write_recovered", "writes succeed"
                 )
-            self.rig.written(self.device, states, time_ns)
+            self.rig.written(self.device, time_ns)
 
     def _failure(self, error: Exception) -> None:
         message = f"{type(error).__name__}: {error}"

@@ -2,43 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from flyball.core.device import Device, DeviceState, command
+from flyball.core.device import Committable, Demand, Output, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, SignalSpec
 from flyball.core.units.si import Watt
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class DutyState(DeviceState):
-    duty: float = 0.0
+class DutyHeater(Committable):
+    """A heater with one demand, a duty output and two commands, for device and route tests."""
 
-
-class DutyHeater(Device):
-    """A heater with one W signal and two commands, for device and route tests."""
-
-    TREE = (
-        SignalSpec(
-            name="power", quantity=Quantity("power", Watt), access=Access.W, limits=(0.0, 100.0)
-        ),
-    )
-
-    def __init__(self, name: str, label: str | None = None) -> None:
-        super().__init__(name, label)
-        self.duty = 0.0
-
-    @property
-    def state(self) -> DutyState:
-        return DutyState(duty=self.duty)
+    power = Demand("power", "Power", Quantity("power", Watt), limits=(0.0, 100.0))
+    duty = Output("duty", "Duty", initial=0.0)
 
     @command
-    def set_duty(self, duty: float, ramp_s: float = 0.0) -> DutyState:
+    def set_duty(self, duty: float, ramp_s: float = 0.0) -> float:
         """Drive the element at a fixed duty."""
-        self.duty = duty
-        return self.state
+        self.duty.push(duty)
+        return duty
 
     @command(tag="off")
     def switch_off(self) -> None:
         """Stop heating."""
-        self.duty = 0.0
+        self.duty.push(0.0)

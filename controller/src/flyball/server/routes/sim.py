@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from flyball.core.device import Device
 from flyball.server.deps import (
+    RigDep,
     SimulationDep,
     SimulationDeviceDep,
     current_simulation,
@@ -116,9 +117,16 @@ def save_config(simulation: SimulationDep, body: SaveIn | None = None) -> dict[s
 
 
 @router.get("/device")
-def read_device(device: SimulationDeviceDep) -> Any:
-    """The device's view: config, settings and state at one instant."""
-    return device.view
+def read_device(rig: RigDep, device: SimulationDeviceDep) -> Any:
+    """The device's config, and its signals' current values."""
+    assert isinstance(device, Device)
+    return {
+        "config": device.config,
+        "values": {
+            path: None if (r := rig.router.reading(s)) is None else r.value
+            for path, s in device.signals.items()
+        },
+    }
 
 
 @router.get("/device/schema")
@@ -128,13 +136,14 @@ def read_device_schema(device: SimulationDeviceDep) -> dict[str, Any]:
 
 @router.post("/device/{command}")
 def run_device_command(
+    rig: RigDep,
     device: SimulationDeviceDep,
     command: str,
     body: Annotated[dict[str, Any] | None, Body()] = None,
 ) -> Any:
-    """Call the marked method with the validated body; respond with whatever it returns."""
+    """Run the command with the validated body; respond with whatever it returns."""
     assert isinstance(device, Device)
-    return run(device, command, body)
+    return run(rig, device, command, body)
 
 
 # endregion

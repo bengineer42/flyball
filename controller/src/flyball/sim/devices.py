@@ -13,18 +13,17 @@ rig's file, stands in for its hardware under the same names (plan §1.6).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from flyball.core.config import Config, resolve
 from flyball.core.device import (
+    Committable,
     Condition,
-    Device,
-    DeviceState,
     DriverConfig,
     Level,
+    Readable,
     command,
 )
 from flyball.core.errors import HardwareError, NotFoundError
@@ -34,12 +33,12 @@ from flyball.core.signal import (
     Band,
     Node,
     NodeSpec,
+    Role,
     Sample,
     Signal,
     SignalSpec,
-    WriteState,
 )
-from flyball.core.units import DIMENSIONLESS, Measured
+from flyball.core.units import DIMENSIONLESS
 from flyball.core.units.si import Celsius, Watt
 
 from .furnace import Furnace, MultiPlant
@@ -353,20 +352,13 @@ class DaqPort(BaseModel):
     )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SimDaqState(DeviceState):
-    outputs: dict[str, float]
-    """What was last read on each signal, by name; a signal not yet read is absent."""
-    broken: tuple[str, ...] = ()
-    """Signals failed by `fail`, until `restore`."""
-
-
-class SimDaq(Device):
+class SimDaq(Readable):
     """Reads a plant's outputs as its signals, advancing the plant by the time since the last read.
 
-    Every signal is `[RP]`. Each is read when its own `poll_s` is due, so a
-    slow sample thermocouple beside fast zone ones costs one device; what
-    is due at an instant goes out as one sample.
+    Every signal is an `[RP]` output. Each is read when its own `poll_s` is
+    due, so a slow sample thermocouple beside fast zone ones costs one
+    device; what is due at an instant goes out as one sample. A sensor
+    failed by `fail` is a condition until `restore`.
     """
 
     def __init__(
@@ -410,7 +402,6 @@ class SimDaq(Device):
         self.bind(_tree(name, leaves))
         self._last_ns: int | None = None
         self._last_read: dict[Signal, int] = {}
-        self._outputs: dict[Signal, float] = {}
         self._broken: dict[Signal, int] = {}
 
     @property
@@ -425,14 +416,16 @@ class SimDaq(Device):
         return SimDaqConfig(link="", ports=dict(self.ports))
 
     @property
-    def state(self) -> SimDaqState:
-        return SimDaqState(
-            outputs={str(s.path): v for s, v in self._outputs.items()},
-            broken=tuple(str(s.path) for s in self._broken),
-            conditions=tuple(
+    def broken(self) -> tuple[str, ...]:
+        """Signals failed by `fail`, until `restore`."""
+        return tuple(str(s.path) for s in self._broken)
+
+    def _push_conditions(self) -> None:
+        self.conditions.push(
+            tuple(
                 Condition("broken", Level.ERROR, f"{s.path}: sensor failed (simulated)", since)
                 for s, since in self._broken.items()
-            ),
+            )
         )
 
     def _advance(self, time_ns: int) -> None:
@@ -465,14 +458,15 @@ class SimDaq(Device):
         """
         asked = node is not None
         node = self.root if node is None else node
-        if broken := [s.path for s in node.walk() if s in self._broken]:
+        signals = [self.signals[path] for path in self.ports if node.contains(self.signals[path])]
+        if broken := [s.path for s in signals if s in self._broken]:
             raise HardwareError(f"{self.name}.{broken[0]}: thermocouple open circuit (simulated)")
         self._advance(time_ns)
         by_node: dict[Node, dict[Signal, float]] = {}
-        for signal in node.walk():
+        for signal in signals:
             if asked or self._due(signal, time_ns):
                 value = _read_output(self.plant, self.ports[str(signal.path)])
-                by_node.setdefault(signal.node, {})[signal] = self._outputs[signal] = value
+                by_node.setdefault(signal.node, {})[signal] = value
                 self._last_read[signal] = time_ns
         for read_node, values in by_node.items():
             yield Sample(read_node, time_ns, values)
@@ -484,16 +478,18 @@ class SimDaq(Device):
             raise NotFoundError(f"{self.name} has no signal {name!r}") from None
 
     @command(simulation=True)
-    def fail(self, signal: str) -> SimDaqState:
+    def fail(self, signal: str) -> tuple[str, ...]:
         """Break one sensor: reads raise until `restore`; what the controller does is the test."""
         self._broken.setdefault(self._signal(signal), self._last_ns or 0)
-        return self.state
+        self._push_conditions()
+        return self.broken
 
     @command(simulation=True)
-    def restore(self, signal: str) -> SimDaqState:
+    def restore(self, signal: str) -> tuple[str, ...]:
         """Mend the sensor; a command on an offline device makes the rig poll it again."""
         self._broken.pop(self._signal(signal), None)
-        return self.state
+        self._push_conditions()
+        return self.broken
 
 
 class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
@@ -559,16 +555,10 @@ class DrivePort(BaseModel):
         return self
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SimDriveState(DeviceState):
-    inputs: dict[str, Measured(Drive, ge=0, le=1)]  # type: ignore[valid-type]
-    """What the plant is actually being driven with on each signal's port, as a fraction of full."""
-
-
-class SimDrive(Device):
+class SimDrive(Committable):
     """Drives a plant's inputs from demands on its signals.
 
-    Every signal is `[W]` in the port's own unit -- watts for a furnace
+    Every signal is a demand in the port's own unit -- watts for a furnace
     heater, a fraction of full for a bare plant -- or, spelled out as a
     [DrivePort][flyball.sim.devices.DrivePort], in whatever unit the real
     device it stands in for takes: `demand: input` (the default) maps a
@@ -617,7 +607,11 @@ class SimDrive(Device):
                 _input_quantity(plant, spec.port)  # the port exists
                 quantity, limits, port = Quantity(spec.quantity, spec.unit), spec.limits, spec.port
             leaves[path] = SignalSpec(
-                name=path.rpartition(".")[2], quantity=quantity, access=Access.W, limits=limits
+                name=path.rpartition(".")[2],
+                quantity=quantity,
+                access=Access.RPW,
+                role=Role.DEMAND,
+                limits=limits,
             )
             self.ports[path] = port
             self._spans[path] = limits
@@ -638,12 +632,11 @@ class SimDrive(Device):
         return SimDriveConfig(link="", ports=dict(self.ports))  # the short form, as bound
 
     @property
-    def state(self) -> SimDriveState:
-        return SimDriveState(
-            inputs={name: _get_input(self.plant, port) for name, port in self.ports.items()}
-        )
+    def inputs(self) -> dict[str, float]:
+        """What the plant is actually driven with on each signal's port, as a fraction of full."""
+        return {name: _get_input(self.plant, port) for name, port in self.ports.items()}
 
-    def commit(self, time_ns: int) -> Mapping[Signal, WriteState]:
+    def commit(self, time_ns: int) -> None:
         for signal, value in self.pending.items():
             path = str(signal.path)
             port = self.ports[path]
@@ -653,10 +646,9 @@ class SimDrive(Device):
                 else self._fraction(path, value)
             )
             _set_drive(self.plant, port, fraction)
-        return self.flush_pending()
 
     @command(simulation=True)
-    def disturb(self, signal: str, offset: float) -> SimDriveState:
+    def disturb(self, signal: str, offset: float) -> dict[str, float]:
         """Kick the plant's drive on `signal`'s port by `offset` in the signal's unit, until re-set.
 
         A door opened, a leak: the plant sees it, the controller does not
@@ -670,7 +662,7 @@ class SimDrive(Device):
             raise NotFoundError(f"{self.name} has no signal {signal!r}") from None
         low, high = self._spans[signal]
         _set_drive(self.plant, port, _get_input(self.plant, port) + offset / (high - low))
-        return self.state
+        return self.inputs
 
 
 class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):

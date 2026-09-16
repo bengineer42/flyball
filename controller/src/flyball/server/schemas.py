@@ -25,7 +25,7 @@ from flyball.control import (
     SetPointGenerator,
 )
 from flyball.core.clock import Clock
-from flyball.core.device import CommandSpec, Condition, Device
+from flyball.core.device import CommandSpec, Condition, Device, Input
 from flyball.core.model import discriminated_union
 from flyball.core.signal import Node, Reading, Sample, Signal, WriteState
 from flyball.runtime.polling import DeviceRun
@@ -70,7 +70,7 @@ class ReadingOut(BaseModel):
 
     signal: str
     time_ns: int
-    value: float
+    value: Any
 
     @classmethod
     def of(cls, reading: Reading) -> ReadingOut:
@@ -82,7 +82,7 @@ class SampleOut(BaseModel):
 
     node: str
     time_ns: int
-    values: dict[str, float]
+    values: dict[str, Any]
 
     @classmethod
     def of(cls, sample: Sample) -> SampleOut:
@@ -93,7 +93,7 @@ class LatestOut(BaseModel):
     """The last reading on a signal, without repeating its address."""
 
     time_ns: int
-    value: float
+    value: Any
 
 
 class WriteOut(BaseModel):
@@ -150,7 +150,12 @@ class SignalOut(BaseModel):
     alarm: tuple[float, float] | None = None
     poll_s: float | None = None
     limits: tuple[float, float] | None = None
-    together: list[str]
+    """The effective limits now; a limit that follows another signal is that signal's value."""
+    role: str
+    """`demand`, `output`, `setting` or `config`."""
+    tags: dict[str, str]
+    """The section, as `{axis: name}`: `{"line": "dry"}`; empty without one."""
+    initial: Any = None
     latest: LatestOut | None = None
     write: WriteOut | None = None
 
@@ -172,8 +177,10 @@ class SignalOut(BaseModel):
             warn=spec.warn,
             alarm=spec.alarm,
             poll_s=signal.poll_s,
-            limits=spec.limits,
-            together=sorted(spec.together),
+            limits=signal.limits,
+            role=spec.role.value,
+            tags=spec.tags,
+            initial=spec.initial,
             latest=None
             if latest is None
             else LatestOut(time_ns=latest.time_ns, value=latest.value),
@@ -218,10 +225,49 @@ class CommandOut(BaseModel):
     name: str
     description: str | None = None
     simulation: bool = False
+    commit: bool = False
+    mode: Any = None
+    """What the device's `mode` becomes when this runs, if it has one."""
+    owner_exempt: bool = False
+    demand_of: str | None = None
+    """A synthesised `set_<name>`: the demand's path."""
+    links: dict[str, str] = {}
+    """Argument name -> the path of the demand it is a value for."""
 
     @classmethod
     def of(cls, spec: CommandSpec) -> CommandOut:
-        return cls(name=spec.tag, description=spec.doc, simulation=spec.simulation)
+        return cls(
+            name=spec.tag,
+            description=spec.doc,
+            simulation=spec.simulation,
+            commit=spec.commit,
+            mode=spec.mode,
+            owner_exempt=spec.owner_exempt,
+            demand_of=spec.demand_of,
+            links={n: p.link for n, p in spec.params.items() if p.link is not None},
+        )
+
+
+class InputOut(BaseModel):
+    """An input the device declares: what it is, and what the rig bound to it."""
+
+    name: str
+    label: str
+    quantity: str
+    unit: str
+    bound: str | None = None
+    """The address of the signal (or namespace) bound to this role, if any."""
+
+    @classmethod
+    def of(cls, device: Device, role: str, spec: Input) -> InputOut:
+        bound = device.bound.get(role)
+        return cls(
+            name=spec.name,
+            label=spec.label,
+            quantity=spec.quantity.name,
+            unit=spec.quantity.unit.symbol,
+            bound=None if bound is None else bound.address,
+        )
 
 
 class RunOut(BaseModel):
@@ -256,8 +302,12 @@ class DeviceOut(BaseModel):
     poll_s: float | None = None
     signals: list[SignalOut | NamespaceOut]
     commands: list[CommandOut]
-    state: Any
+    inputs: dict[str, InputOut]
+    """What the device follows, by role: the declared input and the address bound to it."""
+    readable: bool
+    writable: bool
     conditions: list[Condition]
+    """What the device says of itself (its `conditions` output), then what the runtime knows."""
     run: RunOut | None = None
 
     @classmethod
@@ -270,8 +320,8 @@ class DeviceOut(BaseModel):
         link: str | None,
         run: DeviceRun | None,
     ) -> DeviceOut:
-        state = device.state
-        conditions = list(state.conditions)
+        held = latest.get(device.conditions)
+        conditions = [] if held is None else list(held.value)
         if run is not None:
             conditions.extend(run.conditions)
         return cls(
@@ -284,7 +334,11 @@ class DeviceOut(BaseModel):
             poll_s=device.poll_s,
             signals=tree_out(device.root, latest, device.written),
             commands=[CommandOut.of(spec) for spec in type(device).commands.values()],
-            state=ANY.dump_python(state, mode="json"),
+            inputs={
+                role: InputOut.of(device, role, spec) for role, spec in type(device).INPUTS.items()
+            },
+            readable=device.readable,
+            writable=device.writable,
             conditions=conditions,
             run=None if run is None else RunOut.of(run),
         )
