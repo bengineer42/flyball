@@ -781,6 +781,22 @@ class Device:
         """Every demand, by path."""
         return {path: s for path, s in self.signals.items() if s.role is Role.DEMAND}
 
+    def sample(self, time_ns: int, **values: Value) -> Sample:
+        """A sample on the root of the values given by descriptor attribute name."""
+        return Sample(
+            self.root,
+            time_ns,
+            {self.signals[self.DESCRIPTORS[attr].path]: value for attr, value in values.items()},
+        )
+
+    def push(self, time_ns: int | None = None, /, **values: Value) -> None:
+        """Push several values at one instant by descriptor attribute: one sample, one delivery.
+
+        `self.push(dry_flow=0.4, wet_flow=0.6)`; `time_ns` None is now.
+        """
+        at = self.router.now_ns() if time_ns is None else time_ns
+        self.router.push(self.sample(at, **values))
+
     # endregion
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -860,14 +876,6 @@ class Readable(Device):
         and retries on the next poll.
         """
         raise NotImplementedError(f"{type(self).__name__} has nothing to read")
-
-    def sample(self, time_ns: int, **values: Value) -> Sample:
-        """A sample on the root of the values given by descriptor attribute name."""
-        return Sample(
-            self.root,
-            time_ns,
-            {self.signals[self.DESCRIPTORS[attr].path]: value for attr, value in values.items()},
-        )
 
 
 class Committable(Device):
