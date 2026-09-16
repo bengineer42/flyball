@@ -161,10 +161,13 @@ linked argument is optional (the rig fills it from the readback).
     def restore(self) -> None: ...
 ```
 
-`For[descriptor]` is `Annotated[<the descriptor's type>, descriptor]`, legal
-in the class body because the name is already bound; resolved with
-`get_type_hints(fn, include_extras=True, localns=vars(cls))`. Fallback: a
-parameter named exactly like a descriptor links by name (`rig check` warns).
+**As built.** Two spellings link an argument to a demand, and by-name is
+the preferred one: a parameter named exactly like a descriptor
+(`def set_flows(self, dry_flow: Flow, wet_flow: Flow)`) links to it with
+no annotation. `Annotated[<type>, <descriptor>]` is for a parameter that
+must be called something else; resolved with
+`get_type_hints(fn, include_extras=True, localns=vars(cls))`. `For[...]`
+was dropped: a checker cannot type a subscript on a value.
 
 Every scalar demand with no command linking to it gets a synthesised
 `set_<name>(value)`, so `PUT /api/signals/{address}`, a program `set` step

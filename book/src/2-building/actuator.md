@@ -85,9 +85,15 @@ once it has been committed.
 A method marked `@command` is an action the device offers. Its signature
 *is* the command: the server derives the request model from the
 parameters, the CLI derives flags, a program derives a `command` step. An
-argument annotated `Annotated[<type>, <descriptor>]` (or named like a
-descriptor) is a value for that signal — filled from its current value
-when left out, and clamped to its effective limits:
+argument is a value for one of the device's demands when it is **named
+like the descriptor** — `def set_flows(self, dry_flow: Flow, wet_flow:
+Flow)` links `dry_flow` to `self.dry_flow` with no annotation at all — or,
+when the parameter must be called something else, when it is annotated
+`Annotated[<type>, <descriptor>]` (`dry: Annotated[Flow, dry_flow]`; legal
+in the class body because the descriptor's name is already bound there).
+Either way it is filled from the demand's current value when left out,
+clamped to its effective limits, and shown in the schema with the
+demand's address, unit and limits:
 
 ```python
 --8<-- "device.py:66:69"
