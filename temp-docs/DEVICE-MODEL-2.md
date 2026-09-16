@@ -286,15 +286,30 @@ starts bare; `--resume` starts from the last change made through the API;
 `<rig>.d/*.yaml` overlays saved by `save` load automatically. The UI's
 add-device/add-link dialogs and Rig page are in progress.
 
-## 10. Open
+## 10. State at 17 Sep 2026
 
-- Fold `/ws/writes` and `/ws/devices` into the samples stream, and
-  `WriteState` into a demand's reading, when the UI moves.
-- Synthesised `set_<path>` commands exist only for demands declared at
-  class level; a computed tree (sim_drive, i2c_table) has none — the
-  demand path still serves them. Decide whether to synthesise per instance.
-- `rig.demand` refuses a manual demand under a controller even in manual
-  mode (pre-existing); commands only refuse an active one. Align.
-- Whether the killed UI edits (U4 value-or-generator) survive the wire change.
-- The UI: render by dtype, pivot by section, one card per command with
-  the linked arguments prefilled, mode highlighted; Devices tab, set step.
+Everything above is built and on `device-model-2` (last: 34d44f9). Also
+since: `/ws/writes` and `/ws/devices` folded into `/ws/samples` (a
+demand's reading carries requested / at_limit / controller; the frame
+also carries polling runs; the stream cell merges a node's pushes within a
+flush); a manual demand refused only while the controller is active;
+`set_<path>` for computed trees on the instance; `Quantity` as
+`Annotated` metadata (`Flow = Annotated[float, FLOW]`); tags on signals
+from the rig file (`signals: {dry: {tags: {line: dry}}}`, namespace tags
+apply below) and on sim ports; bearer token (`--token`), `--compose`,
+`--drivers` + `/api/drivers`, `/api/probe`, `/api/links/{name}/query`;
+the MCP server (the other session's) over all of it; the UI: rows by role
+and dtype, command cards, section pivot, Add device / Add link, a Rig page
+(document, changes, versions, restore, save, connect a model), token
+entry, the tagged-union form.
+
+Open:
+- Two high-rate rigs (zoo, torrent) intermittently hit a React
+  `removeChild` NotFoundError in the headless sweep; handed to the UI
+  session.
+- `WritePanel`'s "last reading" vs "committed" distinction, now that a
+  demand's reading is its readback.
+- Auth: `?token=` on a GET is logged where a header is not; `/mcp` shares
+  the daemon's token. An opt-in for hot-attaching hardware exists
+  (`--compose`); persistence of a hot-added device to the rig file is by
+  `save` only.
