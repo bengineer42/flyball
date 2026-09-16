@@ -20,9 +20,11 @@ from flyball.db import ProgramFormat, ProgramRow
 from flyball.db.errors import ProgramNotFoundError
 from flyball.db.store import Store
 from flyball.programmer.programmer import ProgrammerState
+from flyball.runtime.rig import Rig
 from flyball.server.deps import DialectDep, ProgrammerDep, RigDep, StoreDep, current_programs_dir
 from flyball.server.dialect import StepError, normalise_program, program_from_document
 from flyball.server.formats import MEDIA_TYPES, FormatError, detect, dump, parse
+from flyball.server.routes.program import ProgramCheck
 
 router = APIRouter(prefix="/api/programs/library", tags=["programs"])
 
@@ -36,22 +38,14 @@ class SaveProgram(BaseModel):
     notes: Any = None
 
 
-class ProgramCheck(BaseModel):
-    """What ``check`` says about a stored version."""
-
-    ok: bool
-    error: str | None = None
-    normalised: Any = None
-
-
-def _check(row: ProgramRow, dialect: Any) -> ProgramCheck:
+def _check(row: ProgramRow, dialect: Any, rig: Rig) -> ProgramCheck:
     try:
         document = parse(row.body, row.format)
         normalised = normalise_program(document, dialect)
-        program_from_document(document, dialect)
+        program = program_from_document(document, dialect)
     except (FormatError, StepError, ValidationError, TypeError, ValueError) as e:
         return ProgramCheck(ok=False, error=str(e))
-    return ProgramCheck(ok=True, normalised=normalised)
+    return ProgramCheck(ok=True, normalised=normalised, warnings=program.missing(rig))
 
 
 def import_directory(store: Store, directory: Path, now_ns: int) -> list[ProgramRow]:
@@ -111,9 +105,11 @@ async def read_program(store: StoreDep, name: str) -> ProgramRow:
 
 
 @router.get("/{name}/check")
-async def check_stored(store: StoreDep, dialect: DialectDep, name: str) -> ProgramCheck:
-    """Whether the newest version still parses and validates against this rig's dialect."""
-    return _check(store.program(name), dialect)
+async def check_stored(
+    store: StoreDep, dialect: DialectDep, rig: RigDep, name: str
+) -> ProgramCheck:
+    """Whether the newest version still parses for this rig, and what it names that it lacks."""
+    return _check(store.program(name), dialect, rig)
 
 
 @router.get("/{name}/history")

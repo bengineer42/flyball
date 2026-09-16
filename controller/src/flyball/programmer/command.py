@@ -89,3 +89,11 @@ class Command:
     @abstractmethod
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
         """Do the work; return an activity if the program must wait on it, else None."""
+
+    def missing(self, rig: Rig) -> list[str]:
+        """What this command names that `rig` does not have right now: a loop, a tuning, a device.
+
+        Advice for a check, not a verdict: the rig may gain them before the
+        program runs, and `run` raises for itself. Default: nothing named.
+        """
+        return []

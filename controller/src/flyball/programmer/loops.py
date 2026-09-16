@@ -28,6 +28,17 @@ def _loops(rig: Rig, which: Loops) -> list[Any]:
     return [rig.loops.resolve(name) for name in names]
 
 
+def _missing_loops(rig: Rig, which: Loops) -> list[str]:
+    names = which if isinstance(which, list) else [which]
+    out = []
+    for name in names:
+        if name is None and rig.loops.default is None:
+            out.append("the rig has no default loop")
+        elif name is not None and name not in rig.loops:
+            out.append(f"loop {name!r} is not on the rig")
+    return out
+
+
 @dataclass(frozen=True)
 class Regulate(Command, tag="regulate", primary="setpoint"):
     """Aim a loop at a setpoint and let its law drive; returns at once."""
@@ -44,6 +55,12 @@ class Regulate(Command, tag="regulate", primary="setpoint"):
         for loop in _loops(rig, self.loop):
             loop.regulate(self.setpoint, tuning=tuning)
         return None
+
+    def missing(self, rig: Rig) -> list[str]:
+        out = _missing_loops(rig, self.loop)
+        if self.tuning is not None and rig.tunings.get(self.tuning) is None:
+            out.append(f"tuning {self.tuning!r} is not stored")
+        return out
 
 
 @dataclass(frozen=True)
@@ -84,6 +101,9 @@ class Ramp(Command, tag="ramp", primary="to"):
             name=f"ramp:{names}",
             message=f"{names} ramping to {self.to:g} over {longest:.0f} s",
         )
+
+    def missing(self, rig: Rig) -> list[str]:
+        return _missing_loops(rig, self.loop)
 
 
 @dataclass(frozen=True)
@@ -139,6 +159,9 @@ class Arrive(Command, tag="arrive", primary="loop"):
             clock=rig.clock,
         )
 
+    def missing(self, rig: Rig) -> list[str]:
+        return _missing_loops(rig, self.loop)
+
 
 @dataclass(frozen=True)
 class Manual(Command, tag="manual", primary="loop"):
@@ -150,6 +173,9 @@ class Manual(Command, tag="manual", primary="loop"):
         for loop in _loops(rig, self.loop):
             loop.manual()
         return None
+
+    def missing(self, rig: Rig) -> list[str]:
+        return _missing_loops(rig, self.loop)
 
 
 __all__ = ["Hold", "Manual", "Ramp", "Regulate"]

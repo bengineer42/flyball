@@ -55,5 +55,13 @@ class RunCommand(Command, tag="command"):
             rig.apply(device)
         return None
 
+    def missing(self, rig: Rig) -> list[str]:
+        device = rig.actuators.get(self.actuator) or rig.readers.by_name.get(self.actuator)
+        if device is None:
+            return [f"device {self.actuator!r} is not on the rig"]
+        if self.device_command not in type(device).commands:
+            return [f"{self.actuator!r} has no command {self.device_command!r}"]
+        return []
+
 
 __all__ = ["RunCommand"]

@@ -12,6 +12,8 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
+    from flyball.runtime.rig import Rig
+
     from .command import Command
 
 
@@ -37,6 +39,14 @@ class Program(Sequence["Command"]):
         self._commands = tuple(commands)
         self.name = name
         self.description = description
+
+    def missing(self, rig: Rig) -> dict[int, str]:
+        """What each step names that `rig` lacks right now, by step index; see `Command.missing`."""
+        out = {}
+        for index, command in enumerate(self._commands):
+            if gaps := command.missing(rig):
+                out[index] = "; ".join(gaps)
+        return out
 
     def get(self, index: int, default: None = None, /) -> Command | None:
         with suppress(IndexError):

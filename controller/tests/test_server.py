@@ -198,11 +198,34 @@ def programmer(client, rig):
     set_programmer(None)
 
 
+def test_program_check_warns_of_what_the_rig_lacks(client, programmer, duty_heater):
+    """A tuning, loop or device command the rig does not have is a warning per step, not a refusal."""
+    body = {
+        "steps": [
+            {"regulate": {"setpoint": 30, "tuning": "brisk"}},  # no default loop, no such tuning
+            {"manual": "no_such_loop"},
+            {"command": {"device_command": "nope", "actuator": duty_heater.name}},
+            {"command": {"device_command": "demand", "actuator": "ghost"}},
+            {"wait": "fine"},
+        ]
+    }
+    checked = client.post("/api/programs/check", json=body).json()
+    assert checked["ok"] is True
+    assert checked["warnings"] == {
+        "0": "the rig has no default loop; tuning 'brisk' is not stored",
+        "1": "loop 'no_such_loop' is not on the rig",
+        "2": f"{duty_heater.name!r} has no command 'nope'",
+        "3": "device 'ghost' is not on the rig",
+    }
+
+
 def test_program_check_normalises_without_running(client, programmer):
     body = {"name": "t", "steps": [{"wait": "press go"}, {"wait": {"message": "m", "name": "n"}}]}
     checked = client.post("/api/programs/check", json=body).json()
-    assert checked["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
-    assert checked["steps"][1]["command"]["name"] == "n"
+    assert checked["ok"] is True and checked["warnings"] == {}
+    normalised = checked["normalised"]
+    assert normalised["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
+    assert normalised["steps"][1]["command"]["name"] == "n"
     assert client.get("/api/programs/running").json()["running"] is False
     bad = client.post("/api/programs/check", json={"steps": [{"nope": 1}]})
     assert bad.status_code == 422 and "nope" in bad.json()["detail"]
