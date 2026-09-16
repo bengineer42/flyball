@@ -142,7 +142,7 @@ def _signal(rig: Rig, address: str) -> Signal:
 
 
 def _start(controller: Controller, start: float | ValueSource | None) -> float | ValueSource:
-    """The request's `start` as given (the controller resolves a `ValueSource`), else the default rule."""
+    """The request's `start` (a `ValueSource` is the controller's to resolve), else the rule."""
     return _generator_start(controller) if start is None else start
 
 

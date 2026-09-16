@@ -333,7 +333,7 @@ def test_a_detached_controller_leaves_the_stream(client, rig, daq, drive, clock)
 
 
 def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
-    """`start`: a value, or `setpoint` / `process` for the controller to resolve; default as before."""
+    """`start`: a value, or `setpoint` / `process` for the controller to resolve."""
     target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
     deliver(rig, daq)  # the reading is 21.5
     client.post(
