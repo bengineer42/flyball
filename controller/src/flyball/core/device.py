@@ -162,10 +162,10 @@ class Param:
     name: str
     annotation: Any
     link: str | None = None
-    """The path of the demand this argument sets: from a descriptor in an `Annotated[...]`
-    annotation, or a parameter named like a descriptor of the class. The rig fills a missing
-    argument from its current value and clamps it to the signal's limits; the schema shows its
-    unit, limits and address."""
+    """The path of the demand or setting this argument is a value for: from a descriptor in an
+    `Annotated[...]` annotation, or a parameter named like a descriptor of the class. The rig
+    fills a missing argument from its current value and clamps a demand's to its limits; the
+    schema shows its unit, limits and address."""
     default: Any = inspect.Parameter.empty
 
     @property
@@ -575,6 +575,10 @@ def _leaves(tree: Iterable[NodeSpec | SignalSpec], above: str = "") -> Iterator[
             yield from _leaves(spec.children, path)
 
 
+_LINKABLE = frozenset({Role.DEMAND, Role.SETTING})
+"""What a command argument may be a value for: a demand (clamped to its limits) or a setting."""
+
+
 def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
     """Each argument of `fn` with the demand it is for: `Annotated[...]` first, then by name.
 
@@ -595,7 +599,7 @@ def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
         link: Descriptor[Any] | None = None
         if get_origin(annotation) is Annotated:
             link = next((m for m in get_args(annotation)[1:] if isinstance(m, Descriptor)), None)
-        if link is None and (d := descriptors.get(name)) is not None and d.role is Role.DEMAND:
+        if link is None and (d := descriptors.get(name)) is not None and d.role in _LINKABLE:
             link = d
         if link is not None and name not in hints:
             # No annotation: the demand's type is the argument's, for the request model.

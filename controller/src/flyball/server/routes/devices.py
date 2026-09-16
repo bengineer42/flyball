@@ -44,8 +44,10 @@ def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[Argument
         fields = wire_fields(spec.method, skip=1)
         for name, param in spec.params.items():
             if param.link is not None and name in fields:
+                # Its own type, not required: pydantic leaves a default alone, so
+                # the schema keeps the constraints and a left-out one arrives None.
                 annotation, default = fields[name]
-                fields[name] = (annotation | None, None if default is ... else default)
+                fields[name] = (annotation, None if default is ... else default)
         _ARGUMENTS[key] = create_model(
             f"{device_type.__name__}{spec.tag.title().replace('_', '')}Arguments",
             __base__=ArgumentsBase,

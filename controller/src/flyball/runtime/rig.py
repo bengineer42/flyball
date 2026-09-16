@@ -37,6 +37,7 @@ from flyball.core.signal import (
     Limit,
     Node,
     Reading,
+    Role,
     Sample,
     Signal,
     WriteState,
@@ -639,8 +640,10 @@ class Rig:
                     given[name], (int, float)
                 ):
                     given[name] = min(max(float(given[name]), limits[0]), limits[1])
-            if spec.mode is not None or linked:
+            drives = spec.mode is not None or any(s.role is Role.DEMAND for s in linked.values())
+            if drives:
                 # It changes what drives the device: not while a controller does.
+                # A setting (a blend flow) is not what a controller drives.
                 for signal in device.signals.values():
                     holder = self.controllers.driving(signal)
                     if holder is None or not holder.mode.active():
