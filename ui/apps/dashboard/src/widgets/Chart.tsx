@@ -3,6 +3,7 @@ import { MultiSeries, useTraceRef, type MultiSeriesTrace, type YScale } from "@f
 import { describeSignal, deviceOf, type SignalOut } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
+import { isNumeric } from "../valueReadout.js";
 import { Missing } from "./Missing.js";
 import { signalsSchema, EVERY_OPTIONS, pageOr, WINDOW_OPTIONS, Y_OPTIONS } from "./schema.js";
 import { useChartHeight } from "./size.js";
@@ -29,8 +30,12 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
   const host = useRef<HTMLDivElement>(null);
   const height = useChartHeight(host);
   const addresses = Array.isArray(config.addresses) ? (config.addresses as unknown[]).map(String) : [];
-  const signals = addresses.map((a) => bindings.signalAt(a)).filter((s): s is SignalOut => !!s);
-  const missing = addresses.filter((a) => !bindings.signalAt(a));
+  // A chart axis never takes a non-number: a saved address that is not numeric now counts as missing, same as one the rig lacks.
+  const signals = addresses.map((a) => bindings.signalAt(a)).filter((s): s is SignalOut => !!s && isNumeric(s));
+  const missing = addresses.filter((a) => {
+    const s = bindings.signalAt(a);
+    return !s || !isNumeric(s);
+  });
   const source = useTraceRef(useMemo(() => signals.map((s) => s.address), [addresses.join("\n"), bindings])); // eslint-disable-line react-hooks/exhaustive-deps
   const series = useMemo<MultiSeriesTrace[]>(
     () => signals.map((s) => ({ label: `${bindings.deviceLabel(deviceOf(s.address))}.${describeSignal(s)}`, unit: s.unit, key: s.address, precision: s.precision ?? undefined })),
@@ -67,7 +72,7 @@ export const chart: WidgetKind = {
   configSchema: (bindings) => ({
     type: "object",
     properties: {
-      addresses: signalsSchema(bindings),
+      addresses: signalsSchema(bindings, "Signals", true),
       window_s: pageOr("Window", WINDOW_OPTIONS, "Seconds of history shown; the trace scrolls once it is full."),
       every: pageOr("Sample", EVERY_OPTIONS, "Draw one point in n. Left to the page, a dense trace thins itself to twice the chart's width."),
       y: pageOr("Y axis", Y_OPTIONS),
@@ -76,8 +81,8 @@ export const chart: WidgetKind = {
   }),
   uiSchema: { window_s: { "ui:widget": "select" }, every: { "ui:widget": "select" }, y: { "ui:widget": "select" } },
   defaultConfig: (bindings) => {
-    const first = bindings.signals[0];
-    const same = first ? bindings.signals.filter((s) => s.unit === first.unit) : [];
+    const first = bindings.signals.find(isNumeric);
+    const same = first ? bindings.signals.filter((s) => isNumeric(s) && s.unit === first.unit) : [];
     return { addresses: same.map((s) => s.address), window_s: 0, every: 0, y: "page" };
   },
   titleFor: (config, bindings) => {

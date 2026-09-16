@@ -5,6 +5,7 @@ import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { signalSchema, SELECTS } from "./schema.js";
+import { isNumeric, useValueReadout } from "../valueReadout.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 /**
@@ -19,12 +20,17 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
   const { charts, exports } = useRigData();
   const address = String(config.address ?? "");
   const signal = bindings.signalAt(address);
+  const numeric = signal ? isNumeric(signal) : true;
   const source = useTraceRef(useMemo(() => (signal ? [address] : []), [signal, address]));
   const last = useSignal(signal ? address : undefined)?.v;
   // The B-3 stale threshold (max(3 × period_s, 5s)) with the period of the signal's device, from its run.
   const fresh = useFreshness(signal ? address : undefined);
   const showDevice = config.showDevice !== false;
-  const { level, label, footer } = signal ? readoutLevel(signal, last, fresh) : { level: undefined, label: undefined, footer: undefined };
+  const numReadout = signal ? readoutLevel(signal, last, fresh) : { level: undefined, label: undefined, footer: undefined };
+  // A non-number never reaches this `Readout` (a gauge/series widget in miniature); it gets `useValueReadout`'s chip or block instead.
+  const value = useValueReadout(signal);
+  const level = numeric ? numReadout.level : value.level;
+  const footer = numeric ? numReadout.footer : value.footer;
   const title = useMemo(
     () =>
       signal ? (
@@ -35,8 +41,13 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
     [signal, address],
   );
   const subtitle = useMemo(() => (signal && showDevice ? <Ref kind="device" name={deviceOf(address)}>{bindings.deviceLabel(deviceOf(address))}</Ref> : undefined), [signal, address, showDevice, bindings]);
-  useWidgetChrome(signal ? { title, subtitle, severity: level, severityLabel: label, footer } : null);
+  useWidgetChrome(signal ? { title, subtitle, severity: level, severityLabel: numeric ? numReadout.label : undefined, footer } : null);
   if (!signal) return <Missing what="signal" name={address} hint="Configure the widget to pick one of this rig's publishing signals." />;
+  if (!numeric) return (
+    <div className="fb-readout fb-readout-bare">
+      <div className="fb-readout-value">{value.body}</div>
+    </div>
+  );
   // The 44px sparkline needs the fifth row (body 36h − 66: 114 at h=5, 78 at h=4 -- value row and range bar only).
   return <Readout bare signal={signal} source={source} sparkline={config.sparkline !== false && widget.h >= 5} showDevice={showDevice} windowS={charts.windowS} every={charts.every} exportHref={exports.series(address)} fresh={fresh} />;
 });

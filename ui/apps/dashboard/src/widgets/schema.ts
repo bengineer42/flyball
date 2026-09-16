@@ -1,16 +1,21 @@
 /** JSON Schema pieces the config forms share: pickers bound to what the rig has, with display names as titles. */
-import type { JsonSchema } from "@flyball/client";
+import type { JsonSchema, SignalOut } from "@flyball/client";
 import type { Bindings } from "../dashboard/context.js";
+import { isNumeric } from "../valueReadout.js";
 
-/** One of the rig's publishing signals, by address, titled `Device label · Signal label (unit)`. */
-export function signalSchema(bindings: Bindings, title = "Signal"): JsonSchema {
-  const options = bindings.signals.map((s) => ({ const: s.address, title: bindings.signalLabel(s.address) }));
+/**
+ * One of the rig's publishing signals, by address, titled `Device label ·
+ * Signal label (unit)`. `numeric` narrows to float/int signals only: a
+ * gauge or a chart axis never takes a non-number.
+ */
+export function signalSchema(bindings: Bindings, title = "Signal", numeric = false): JsonSchema {
+  const options = bindings.signals.filter((s: SignalOut) => !numeric || isNumeric(s)).map((s) => ({ const: s.address, title: bindings.signalLabel(s.address) }));
   return { type: "string", title, ...(options.length ? { oneOf: options } : {}) };
 }
 
 /** Several signals, each once. */
-export function signalsSchema(bindings: Bindings, title = "Signals"): JsonSchema {
-  return { type: "array", title, items: signalSchema(bindings, ""), uniqueItems: true, default: [] };
+export function signalsSchema(bindings: Bindings, title = "Signals", numeric = false): JsonSchema {
+  return { type: "array", title, items: signalSchema(bindings, "", numeric), uniqueItems: true, default: [] };
 }
 
 /** One of the rig's controllers, by name (the address of the signal it drives). */

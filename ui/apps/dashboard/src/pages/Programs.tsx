@@ -44,8 +44,8 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import StopIcon from "@mui/icons-material/Stop";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { useDevices, useQuery, useRig, useRigSchema } from "@flyball/react";
-import { isNamespace, RigError, writable, type ProgramCheck, type ProgramFormat, type RigEvent, type TreeNode } from "@flyball/client";
+import { useQuery, useRig, useRigSchema } from "@flyball/react";
+import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "@flyball/client";
 import { hashFor } from "../router.js";
 import { Confirm } from "../Confirm.js";
 import { NEW, stepOf, type Programmer } from "../model.js";
@@ -471,33 +471,20 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
   const programSchema = useQuery(() => rig.programSchema(), [rig]);
   const controllers = useQuery(async () => (await rig.controllers()).map((c) => c.name), [rig]);
   const rigSchema = useRigSchema();
-  const trees = useDevices(); // for `together`, which the schema does not carry
-  // Every device for the `command` and `set` steps: the ones with a command of their own, and the ones with a writable signal.
+  // Every device for the `command` and `set` steps: the ones with a command of their own, and the ones with a demand.
   const devices = useMemo<DevicePicks | undefined>(() => {
-    if (!rigSchema.data || trees.loading) return undefined; // both at once, so a `set` step's form is not built twice
+    if (!rigSchema.data) return undefined;
     const all = Object.values(rigSchema.data.devices);
-    // each signal's `together` siblings, by path relative to the device (a sibling is named within the signal's namespace)
-    const together: Record<string, Record<string, string[]>> = {};
-    for (const device of trees.data ?? []) {
-      const walk = (nodes: TreeNode[], prefix: string) => {
-        for (const node of nodes) {
-          if (isNamespace(node)) walk(node.signals, `${prefix}${node.name}.`);
-          else if (node.together.length > 0) (together[device.name] ??= {})[`${prefix}${node.name}`] = node.together.map((name) => `${prefix}${name}`);
-        }
-      };
-      walk(device.signals, "");
-    }
     return {
       names: all.map((d) => d.name),
       commands: Object.fromEntries(all.filter((d) => Object.keys(d.commands).length > 0).map((d) => [d.name, d.commands])),
-      writable: Object.fromEntries(
+      demands: Object.fromEntries(
         all
-          .map((d) => [d.name, Object.fromEntries(Object.entries(d.signals).filter(([, s]) => writable(s)))] as const)
+          .map((d) => [d.name, Object.fromEntries(Object.entries(d.signals).filter(([, s]) => s.role === "demand"))] as const)
           .filter(([, signals]) => Object.keys(signals).length > 0),
       ),
-      ...(trees.data ? { together } : {}),
     };
-  }, [rigSchema.data, trees.data, trees.loading]);
+  }, [rigSchema.data]);
   const [format, setFormat] = useState<ProgramFormat>("yaml");
   // The tree is the truth; the text is what the user sees and saves. Either side may be edited: the other follows.
   const [tree, setTree] = useState<ProgramTree>(EMPTY);

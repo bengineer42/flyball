@@ -35,7 +35,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
-import { describeSignal, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
+import { describeSignal, signalsOf, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
@@ -678,7 +678,8 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const stored = useRecordingExports();
   const { controllers, history, status } = useControllers(3600, every);
   const signals = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals)).map((s) => [s.address, s])), [devices]);
-  const targets = useMemo(() => [...signals.values()].filter(writable), [signals]);
+  // A controller's target is a demand: settable, with a readback that updates.
+  const targets = useMemo(() => [...signals.values()].filter((s) => s.role === "demand"), [signals]);
   const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);
   const [adding, setAdding] = useState(false);
   const [addingFor, setAddingFor] = useState<SignalChoice | null>(null);

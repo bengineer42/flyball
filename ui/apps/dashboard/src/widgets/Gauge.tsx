@@ -3,6 +3,7 @@ import { Gauge, gaugeKindFor, useFreshness, useSignal, type GaugeKind } from "@f
 import { alarmLevel, describeSignal, deviceOf } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
+import { isNumeric } from "../valueReadout.js";
 import { Missing } from "./Missing.js";
 import { signalSchema, SELECTS } from "./schema.js";
 import { bodyPx } from "./size.js";
@@ -31,6 +32,7 @@ const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponen
   // The frame's dot and border carry the level; the gauge itself draws no stale border here (`fresh` stays for the footer age).
   useWidgetChrome(signal ? { severity: level } : null);
   if (!signal) return <Missing what="signal" name={address} />;
+  if (!isNumeric(signal)) return <Missing what="signal" name={address} hint="A gauge needs a numeric signal; this one is not." />;
   const wanted = String(config.kind ?? "auto");
   const kind: GaugeKind = wanted === "auto" ? gaugeKindFor(signal.unit) : (wanted as GaugeKind);
   // The number under the drawing: 1.3em ≈ 17px line plus the gap.
@@ -53,13 +55,13 @@ export const gauge: WidgetKind = {
   configSchema: (bindings) => ({
     type: "object",
     properties: {
-      address: signalSchema(bindings),
+      address: signalSchema(bindings, "Signal", true),
       kind: { type: "string", title: "Kind", default: "auto", oneOf: KINDS, description: "By unit: temperatures a thermometer, percentages a tank, else a dial." },
     },
     required: ["address"],
   }),
   uiSchema: { ...SELECTS, kind: { "ui:widget": "select" } },
-  defaultConfig: (bindings) => ({ address: bindings.signals[0]?.address ?? "", kind: "auto" }),
+  defaultConfig: (bindings) => ({ address: bindings.signals.find(isNumeric)?.address ?? "", kind: "auto" }),
   titleFor: (config, bindings) => {
     const address = String(config.address ?? "");
     const s = bindings.signalAt(address);

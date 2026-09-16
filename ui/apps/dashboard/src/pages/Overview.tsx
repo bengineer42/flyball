@@ -1,7 +1,7 @@
 import { memo, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Alert, Button, ButtonBase, Chip, Link, Paper, Stack, Typography } from "@mui/material";
-import { Readout, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef } from "@flyball/react";
-import { describeNamespace, deviceTitle, isNamespace, placeOf, publishes, setpointOf, signalsOf, titleFor, unitTitle, withUnit, type ControllerOut, type DeviceOut, type Place, type SignalOut } from "@flyball/client";
+import { PanelFrame, Readout, Ref, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef } from "@flyball/react";
+import { captionFor, describeNamespace, describeSignal, deviceOf, deviceTitle, isNamespace, placeOf, publishes, setpointOf, signalsOf, titleFor, unitTitle, withUnit, type ControllerOut, type DeviceOut, type Place, type SignalOut } from "@flyball/client";
 import { CircleIcon, OkIcon, SignalIcon, WarnIcon, signalIcon, PAGE_ICONS, type IconComponent } from "../icons.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor, type Page } from "../router.js";
@@ -10,6 +10,7 @@ import { useRecordingExports } from "../model.js";
 import { PageBar } from "../PageBar.js";
 import { GroupingSelect, readGrouping, writeGrouping, type Grouping } from "../grouping.js";
 import { publishingOf } from "./Inputs.js";
+import { isNumeric, useValueReadout } from "../valueReadout.js";
 
 export interface OverviewProps extends ChartSettings {
   devices: DeviceOut[];
@@ -56,17 +57,42 @@ function GoTo({ label, onClick }: { label: string; onClick(): void }) {
   );
 }
 
+/** A non-numeric signal's tile: same frame as `Readout`, its value a chip or a compact block by dtype -- never a gauge or a series. */
+function ValueTile({ signal, place, showDevice }: { signal: SignalOut; place?: Place; showDevice: boolean }) {
+  const { level, footer, body } = useValueReadout(signal);
+  return (
+    <PanelFrame
+      className="fb-readout"
+      severity={level}
+      title={
+        <Ref kind="signal" name={signal.address}>
+          {describeSignal(signal)}
+        </Ref>
+      }
+      subtitle={!showDevice ? undefined : place && captionFor(place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionFor(place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
+      footer={footer}
+    >
+      <div className="fb-readout-value">{body}</div>
+    </PanelFrame>
+  );
+}
+
 /**
  * A signal's readout tile, with its kind's icon in the corner. Reads the store itself (the
  * stale threshold from its device's run), so only the tile re-renders on its signal's samples;
- * memoised on primitives, so the page re-rendering does not touch forty tiles.
+ * memoised on primitives, so the page re-rendering does not touch forty tiles. A non-number
+ * never reaches the gauge/series `Readout`: it gets `ValueTile`'s chip or block instead.
  */
 const Tile = memo(function Tile({ signal, live, windowS, every, showDevice, place, exportHref, className }: { signal: SignalOut; live: TraceRef; windowS: number; every: number; showDevice: boolean; place?: Place; exportHref?: string; className?: string }) {
   const Icon = signalIcon(signal);
   return (
     <div className={className ?? "tile-with-icon c3"}>
       <Icon fontSize="small" className="tile-icon" />
-      <Readout signal={signal} source={live} showDevice={showDevice} place={place} windowS={windowS} every={every} exportHref={exportHref} />
+      {isNumeric(signal) ? (
+        <Readout signal={signal} source={live} showDevice={showDevice} place={place} windowS={windowS} every={every} exportHref={exportHref} />
+      ) : (
+        <ValueTile signal={signal} place={place} showDevice={showDevice} />
+      )}
     </div>
   );
 });
@@ -141,7 +167,7 @@ const ControllerCard = memo(function ControllerCard({ name, title, sourceUnit, s
         {sourceTitle} → {targetTitle}
       </Typography>
       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
-        reading {num(c.reading?.value, sourceUnit)} · target {num(setpoint, sourceUnit)} · demand {num(c.demand, c.demand_unit)}
+        reading {num(typeof c.reading?.value === "number" ? c.reading.value : null, sourceUnit)} · target {num(setpoint, sourceUnit)} · demand {num(c.demand, c.demand_unit)}
       </Typography>
     </Paper>
   );
@@ -153,6 +179,8 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   const { windowS, yScale, every } = charts;
   const publishing = useMemo(() => publishingOf(devices), [devices]);
   const signals = useMemo(() => publishing.flatMap((d) => d.signals), [publishing]);
+  // The trend charts at the foot of the section: a non-number never reaches a chart axis.
+  const numericSignals = useMemo(() => signals.filter(isNumeric), [signals]);
   const byAddress = useMemo(() => new Map(signals.map((s) => [s.address, s])), [signals]);
   // Every signal of the rig by address (a controller's target need not publish), with where it sits, for titles.
   const everySignal = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals).map((s) => [s.address, s] as const))), [devices]);
@@ -189,7 +217,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
 
   return (
     <>
-      <PageBar end={<ChartControls {...charts} unit={signals[0]?.unit} />}>
+      <PageBar end={<ChartControls {...charts} unit={numericSignals[0]?.unit} />}>
         <GroupingSelect value={grouping} onChange={group} />
       </PageBar>
       <div className="grid stats">
@@ -285,7 +313,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
               </div>
             )}
             <div className="c12 fb-charts">
-              <UnitCharts signals={signals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
+              <UnitCharts signals={numericSignals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
             </div>
           </div>
         )}

@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { Alert, Link, Paper, Typography } from "@mui/material";
 import { Form as MuiForm } from "@rjsf/mui";
 import { DevicePanel, DeviceSignals, useCommands, useControllers, useDeviceRuns, useDeviceSchema, useRig } from "@flyball/react";
-import { describeController, deviceOf, type DeviceOut } from "@flyball/client";
+import { describeController, deviceOf, humanise, type DeviceOut, type InputOut } from "@flyball/client";
 import { DeviceSummaryCard, SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { hashFor, hrefFor } from "../router.js";
@@ -28,6 +28,29 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
         </div>
       )}
     </>
+  );
+}
+
+/** What the device follows, by role: "dry ← hum_sensors.dry.humidity", one per bound (or unbound) input. */
+function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
+  const entries = Object.entries(inputs);
+  if (entries.length === 0) return null;
+  return (
+    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+      {entries.map(([role, input], i) => (
+        <Fragment key={role}>
+          {i > 0 && "  ·  "}
+          {input.label || humanise(input.name)} ←{" "}
+          {input.bound ? (
+            <Link href={hrefFor({ kind: "signal", name: input.bound })} underline="hover" title={input.bound}>
+              {input.bound}
+            </Link>
+          ) : (
+            <span className="fb-muted">not bound</span>
+          )}
+        </Fragment>
+      ))}
+    </Typography>
   );
 }
 
@@ -66,7 +89,9 @@ export function DevicePage({ devices, name, windowS, every }: { devices: DeviceO
               onRestart={() => rig.restartDevice(name)}
               busy={commands.busy}
               results={commands.results}
-            />
+            >
+              <InputsLine inputs={device.inputs} />
+            </DevicePanel>
           ) : (
             <Typography color="text.secondary">loading…</Typography>
           )}

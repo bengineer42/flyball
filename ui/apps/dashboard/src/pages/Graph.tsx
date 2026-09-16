@@ -27,6 +27,7 @@ import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { StateBlock } from "../cards.js";
 import { segmentSx } from "../WindowSelect.js";
 import { publishingOf } from "./Inputs.js";
+import { isNumeric } from "../valueReadout.js";
 
 export interface GraphProps extends ChartSettings {
   devices: DeviceOut[];
@@ -117,7 +118,14 @@ export function Graph({ devices, ...charts }: GraphProps) {
   const [pickerGroup, setPickerGroupState] = useState<PickerGroup>(readPickerGroup);
   const [search, setSearch] = useState("");
 
-  const publishing = useMemo(() => publishingOf(devices), [devices]);
+  // Every axis on this page is a `MultiSeries` line: a non-number never reaches it, so only numeric signals are offered.
+  const publishing = useMemo(
+    () =>
+      publishingOf(devices)
+        .map(({ device, signals }) => ({ device, signals: signals.filter(isNumeric) }))
+        .filter((d) => d.signals.length > 0),
+    [devices],
+  );
   const byAddress = useMemo(() => new Map<string, SignalOut>(publishing.flatMap((d) => d.signals).map((s) => [s.address, s])), [publishing]);
 
   const [order, setOrder] = useState<string[]>(() => {
