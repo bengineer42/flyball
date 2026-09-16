@@ -308,3 +308,143 @@ class TestMounted:
     def test_each_mode_has_a_route(self, http):
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
+
+
+class TestDriverTools:
+    def tool(self, client, name, mode="operate"):
+        return next(t for t in tools_for(client, mode) if t.name == name)
+
+    def test_tools_whose_routes_the_daemon_lacks_are_not_listed(self, client, monkeypatch):
+        from flyball.mcp import tools
+
+        gated = {t.name for t in tools.DRIVERS if t.route is not None}
+        monkeypatch.setattr(tools, "_served", lambda rig: set())
+        listed = names(tools_for(client, "operate"))
+        assert {"driver_guide", "driver_scaffold", "check_driver"} <= listed
+        assert not gated & listed
+        monkeypatch.setattr(tools, "_served", lambda rig: {("post", "/api/devices")})
+        assert gated & names(tools_for(client, "operate")) == {"attach_device"}
+        assert "check_driver" not in names(tools_for(client, "author")), "imports a file: drive"
+
+    def test_served_is_read_from_the_daemon_s_openapi(self, client):
+        from flyball.mcp.tools import _served
+
+        assert ("get", "/api/devices/{name}/schema") in _served(client)
+
+    def test_guide_and_scaffold(self, client):
+        guide = self.tool(client, "driver_guide", "read").run(client, {})
+        assert guide.startswith("# Writing a device driver")
+        out = self.tool(client, "driver_scaffold", "read").run(client, {"name": "foo-200"})
+        assert 'tag="foo_200"' in out["source"]
+        from flyball.client import SchemaError
+
+        with pytest.raises(SchemaError, match="identifier"):
+            self.tool(client, "driver_scaffold", "read").run(client, {"name": "1"})
+
+    def test_check_driver_imports_a_scaffold_and_reports(self, client, tmp_path, fresh):
+        name = fresh("gadget")
+        path = tmp_path / f"{name}.py"
+        path.write_text(
+            self.tool(client, "driver_scaffold", "read").run(client, {"name": name})["source"]
+        )
+        report = self.tool(client, "check_driver").run(client, {"path": str(path)})
+        assert report["ok"], report
+        (driver,) = report["drivers"]
+        assert driver["tag"] == name and driver["readable"] and not driver["writable"]
+        assert driver["descriptors"] == ["conditions", "value"] and driver["commands"] == ["reset"]
+        assert "properties" in driver["schema"]
+
+    def test_check_driver_reports_a_broken_module(self, client, tmp_path):
+        path = tmp_path / "broken.py"
+        path.write_text("import flyball.core.device\nraise RuntimeError('no such bus')\n")
+        report = self.tool(client, "check_driver").run(client, {"path": str(path)})
+        assert not report["ok"] and "no such bus" in report["errors"][0]
+        path.write_text("x = 1\n")
+        report = self.tool(client, "check_driver").run(client, {"path": str(path)})
+        assert not report["ok"] and "registers no DriverConfig" in report["errors"][0]
+
+    async def test_guide_is_a_resource_and_tool_changes_are_announced(self, client):
+        server = build(client, "read")
+        assert server.create_initialization_options().capabilities.tools.list_changed
+        async with create_client_server_memory_streams() as (client_streams, server_streams):
+
+            async def serve() -> None:
+                await server.run(*server_streams, server.create_initialization_options())
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(serve)
+                async with ClientSession(*client_streams) as session:
+                    await session.initialize()
+                    listed = await session.list_resources()
+                    assert [str(r.uri) for r in listed.resources] == ["flyball://guide/driver"]
+                    read = await session.read_resource("flyball://guide/driver")
+                    assert "attach_device" in read.contents[0].text
+                tg.cancel_scope.cancel()
+
+
+class TestComposition:
+    """Building a rig up through the tools: what an agent does from nothing."""
+
+    def tool(self, client, name):
+        return next(t for t in tools_for(client, "operate") if t.name == name)
+
+    def test_link_device_document_and_changes(self, client):
+        assert {"attach_link", "attach_device", "attach_document", "rig_versions"} <= names(
+            tools_for(client, "operate")
+        )
+        assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
+        self.tool(client, "attach_link").run(
+            client, {"name": "plant", "config": {"tag": "sim_furnace"}}
+        )
+        added = self.tool(client, "attach_device").run(
+            client,
+            {
+                "name": "spare",
+                "entry": {"driver": "sim_drive", "link": "plant", "ports": {"power": "heater1"}},
+            },
+        )
+        assert added["name"] == "spare"
+        client.refresh()  # the server does this after a tool that changes the rig
+        assert "spare" in client.schema["devices"]
+        assert "spare-disturb" not in names(tools_for(client, "operate")), "simulation-only: hidden"
+        assert isinstance(self.tool(client, "rig_changes").run(client, {}), dict)
+        self.tool(client, "detach_device").run(client, {"name": "spare"})
+        assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
+        # Versions and restore need the daemon's change hook on the store: test_composition.
+
+    async def test_attaching_announces_a_new_tool_list(self, client):
+        server = build(client, "operate")
+        seen: list[str] = []
+
+        async def handler(message: Any) -> None:
+            seen.append(type(message).__name__)
+
+        async with create_client_server_memory_streams() as (client_streams, server_streams):
+
+            async def serve() -> None:
+                await server.run(*server_streams, server.create_initialization_options())
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(serve)
+                async with ClientSession(*client_streams, message_handler=handler) as session:
+                    await session.initialize()
+                    await session.list_tools()
+                    await session.call_tool(
+                        "attach_link", {"name": "plant", "config": {"tag": "sim_furnace"}}
+                    )
+                    result = await session.call_tool(
+                        "attach_device",
+                        {
+                            "name": "spare",
+                            "entry": {
+                                "driver": "sim_drive",
+                                "link": "plant",
+                                "ports": {"power": "heater1"},
+                            },
+                        },
+                    )
+                    assert not result.is_error, result.content
+                    assert "ToolListChangedNotification" in seen
+                    described = await session.call_tool("describe_device", {"name": "spare"})
+                    assert not described.is_error
+                tg.cancel_scope.cancel()

@@ -8,14 +8,18 @@ mode chooses a tier and every tool at or below it is listed.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import IntEnum
+from pathlib import Path
 from typing import Any
 
-from flyball.client import Rig, SchemaError
+from flyball.client import Rig, RigError, SchemaError
+from flyball.scaffold import render
 
-__all__ = ["MODES", "Tier", "Tool", "tools_for"]
+__all__ = ["GUIDES", "MODES", "Tier", "Tool", "tools_for"]
 
 
 class Tier(IntEnum):
@@ -41,6 +45,10 @@ class Tool:
     run: Run
     destructive: bool = False
     """Interrupts or removes something: a controller goes to manual, a version is deleted."""
+    route: tuple[str, str] | None = None
+    """(method, path) the daemon must serve for this tool to be listed; see `MCP.md`."""
+    changes_tools: bool = False
+    """Attaches or detaches devices: the tool list is rebuilt and clients told."""
 
 
 # region Schema shorthands
@@ -749,12 +757,297 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 
 
 # endregion
+# region Drivers: new equipment, as a config entry or as code
+#
+# Most instruments need no code: the generic `scpi` and `modbus` drivers take
+# their signals from the rig-file entry. `probe_hardware` and `link_query`
+# find out what is there; `attach_device` puts an entry on the running rig.
+# Equipment that needs code gets the guide, a scaffold, a checker that
+# imports the file where this server runs, and `reload_drivers` for a
+# directory the daemon loads from. The routes these need are in `MCP.md`; a
+# tool whose route the daemon does not serve yet is not listed.
+
+GUIDES = Path(__file__).parent / "guides"
+
+_CHECK = """\
+import importlib.util, json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+out = {"path": str(path), "ok": False, "drivers": [], "errors": []}
+try:
+    from flyball.core.config import Config, discover
+    from flyball.core.device import DriverConfig
+    discover()
+    before = set(Config.registry)
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[path.stem] = module
+    spec.loader.exec_module(module)
+    for tag in sorted(set(Config.registry) - before):
+        config = Config.registry[tag]
+        if not issubclass(config, DriverConfig):
+            continue
+        entry = {"tag": tag, "config": config.__name__}
+        try:
+            entry["schema"] = config.model_json_schema()
+            generic = [
+                m for b in config.__mro__
+                if (m := getattr(b, "__pydantic_generic_metadata__", None)) and m.get("args")
+            ]
+            device = generic[0]["args"][0] if generic else None
+            if isinstance(device, type):
+                entry["device"] = device.__name__
+                entry["readable"] = getattr(device, "readable", None)
+                entry["writable"] = getattr(device, "writable", None)
+                entry["descriptors"] = sorted(getattr(device, "DESCRIPTORS", {}) or [])
+                entry["commands"] = sorted(getattr(device, "commands", {}) or [])
+        except Exception as e:
+            out["errors"].append(f"{tag}: {type(e).__name__}: {e}")
+        out["drivers"].append(entry)
+    if not out["drivers"]:
+        out["errors"].append("the module registers no DriverConfig subclass with a tag")
+    out["ok"] = not out["errors"]
+except Exception as e:
+    out["errors"].append(f"{type(e).__name__}: {e}")
+print(json.dumps(out))
+"""
+
+
+def _check_driver(rig: Rig, a: dict[str, Any]) -> Any:
+    """Import a driver module in a fresh interpreter, where this server runs, and report."""
+    path = Path(a["path"]).expanduser()
+    if not path.is_file():
+        raise SchemaError(f"check_driver: {path} is not a file here")
+    run = subprocess.run(
+        [sys.executable, "-c", _CHECK, str(path)], capture_output=True, text=True, timeout=60
+    )
+    if run.returncode != 0 or not run.stdout.strip():
+        return {"path": str(path), "ok": False, "errors": [run.stderr.strip()[-2000:]]}
+    return json.loads(run.stdout)
+
+
+def _scaffold(rig: Rig, a: dict[str, Any]) -> Any:
+    try:
+        return {"name": a["name"], "source": render(a["name"])}
+    except ValueError as e:
+        raise SchemaError(str(e)) from e
+
+
+DRIVERS: tuple[Tool, ...] = (
+    Tool(
+        "driver_guide",
+        "How to write a device driver for this rig: descriptors, read and commit, commands, "
+        "the config that registers a tag, links, and how a driver is checked and attached. "
+        "Read before writing one; most instruments need only a config entry, which it says.",
+        _object(),
+        Tier.READ,
+        lambda rig, a: (GUIDES / "driver.md").read_text(),
+    ),
+    Tool(
+        "driver_scaffold",
+        "A complete starting module for a driver called `name`: it imports, registers the tag "
+        "and works in a rig file before a line is changed. What `flyball new NAME` writes.",
+        _object({"name": _str("The driver's tag; a Python identifier is made from it.")}, "name"),
+        Tier.READ,
+        _scaffold,
+    ),
+    Tool(
+        "check_driver",
+        "Import a driver module from a file on the machine this server runs on, in a fresh "
+        "interpreter, and report: the tags it registers, each config's schema, the device's "
+        "signals and commands, or what went wrong. Runs the file's top level.",
+        _object({"path": _str("The module's path, where this server runs.")}, "path"),
+        Tier.DRIVE,
+        _check_driver,
+    ),
+    Tool(
+        "list_drivers",
+        "Every driver tag the daemon can build, with its config schema and where it came from.",
+        _object(),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/drivers"),
+        route=("get", "/api/drivers"),
+    ),
+    Tool(
+        "reload_drivers",
+        "Import (again) every module in the daemon's drivers directory, so a new or edited "
+        "driver's tag can be attached. Runs those files' top level.",
+        _object(),
+        Tier.DRIVE,
+        lambda rig, a: rig.post("/api/drivers/reload"),
+        route=("post", "/api/drivers/reload"),
+        changes_tools=True,
+    ),
+    Tool(
+        "probe_hardware",
+        "What the daemon's host has: board model, I2C/SPI/serial buses, GPIO chips; with "
+        "`scan`, the addresses answering on each I2C bus (a bus transaction: some devices "
+        "mind).",
+        _object({"scan": _bool("Scan the I2C buses.")}),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/probe" + _query(scan="true" if a.get("scan") else None)),
+        route=("get", "/api/probe"),
+    ),
+    Tool(
+        "link_query",
+        "One raw exchange on a link the daemon owns: send `text`, return the reply (`*IDN?` "
+        "to find out what is there; a guessed command to see if it works). Nothing is parsed.",
+        _object(
+            {"link": _str("The link's name in the rig file."), "text": _str("What to send.")},
+            "link",
+            "text",
+        ),
+        Tier.DRIVE,
+        lambda rig, a: rig.post(f"/api/links/{a['link']}/query", {"text": a["text"]}),
+        route=("post", "/api/links/{name}/query"),
+    ),
+    Tool(
+        "attach_device",
+        "Build a device from a rig-file entry and add it to the running rig, its links "
+        "resolved; `check_rig` the whole file first. `save_rig` keeps it.",
+        _object(
+            {
+                "name": NAME,
+                "entry": {
+                    "type": "object",
+                    "description": "The device entry: `driver`, optional `label`, `poll_s`, "
+                    "`signals`, `bound`, and the driver's own settings flat or under `config`.",
+                },
+            },
+            "name",
+            "entry",
+        ),
+        Tier.DRIVE,
+        lambda rig, a: rig.post("/api/devices", {"name": a["name"], **a["entry"]}),
+        route=("post", "/api/devices"),
+        changes_tools=True,
+    ),
+    Tool(
+        "detach_device",
+        "Stop and remove a device from the running rig; its controllers go with it.",
+        _object({"name": NAME}, "name"),
+        Tier.DRIVE,
+        lambda rig, a: rig.delete(f"/api/devices/{a['name']}"),
+        route=("delete", "/api/devices/{name}"),
+        destructive=True,
+        changes_tools=True,
+    ),
+    Tool(
+        "attach_link",
+        "Build a transport on the running rig and hold it under `name`, for devices to be "
+        "built on: the rig file's `links:` entry (`tag`, its settings).",
+        _object(
+            {"name": NAME, "config": {"type": "object", "description": "The link config."}},
+            "name",
+            "config",
+        ),
+        Tier.DRIVE,
+        lambda rig, a: rig.post("/api/links", {"name": a["name"], **a["config"]}),
+        route=("post", "/api/links"),
+    ),
+    Tool(
+        "detach_link",
+        "Drop a link no device is built on.",
+        _object({"name": NAME}, "name"),
+        Tier.DRIVE,
+        lambda rig, a: rig.delete(f"/api/links/{a['name']}"),
+        route=("delete", "/api/links/{name}"),
+        destructive=True,
+    ),
+    Tool(
+        "attach_document",
+        "Add a whole rig document -- `links`, `devices`, `controllers` -- to the running rig, "
+        "in that order; the way to build a rig from nothing. Validated whole before anything "
+        "is built; a failure part-way leaves what was built before it. `check_rig` first.",
+        _object({"document": DOCUMENT}, "document"),
+        Tier.DRIVE,
+        lambda rig, a: rig.post("/api/rig", a["document"]),
+        route=("post", "/api/rig"),
+        changes_tools=True,
+    ),
+    Tool(
+        "rig_document",
+        "The running rig as a rig file would build it: links, devices and controllers as they "
+        "are now, attached ones included.",
+        _object(),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/rig/document"),
+        route=("get", "/api/rig/document"),
+    ),
+    Tool(
+        "rig_changes",
+        "What differs between the running rig and the files it was loaded from, as an overlay: "
+        "added or changed keys with their values, removed ones as null.",
+        _object(),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/rig/changes"),
+        route=("get", "/api/rig/changes"),
+    ),
+    Tool(
+        "rig_versions",
+        "Every change made to the running rig through the API, newest first, with its reason; "
+        "`rig_version` for one's document, `restore_rig_version` to go back.",
+        _object({"limit": _int("At most this many.", minimum=1)}),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/rig/versions" + _query(limit=a.get("limit"))),
+        route=("get", "/api/rig/versions"),
+    ),
+    Tool(
+        "rig_version",
+        "One recorded rig version, with its whole document.",
+        _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
+        Tier.READ,
+        lambda rig, a: rig.get(f"/api/rig/versions/{a['version_id']}"),
+        route=("get", "/api/rig/versions/{version_id}"),
+    ),
+    Tool(
+        "restore_rig_version",
+        "Make the running rig match a recorded version: what is absent is removed, what is "
+        "missing is added, a changed device is rebuilt, controllers re-attached.",
+        _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
+        Tier.DRIVE,
+        lambda rig, a: rig.post(f"/api/rig/versions/{a['version_id']}/restore"),
+        route=("post", "/api/rig/versions/{version_id}/restore"),
+        destructive=True,
+        changes_tools=True,
+    ),
+    Tool(
+        "save_rig",
+        "Write the running rig out. No `path`: what changed since the files were loaded, to "
+        "an overlay beside the rig file the daemon loads next start. A `path`: the whole rig "
+        "to that file (`overwrite` to flatten onto one it was loaded from).",
+        _object({
+            "path": _str("Where to write; a .yaml, .toml or .json."),
+            "overwrite": _bool("Allow `path` to be a file the rig was loaded from."),
+        }),
+        Tier.AUTHOR,
+        lambda rig, a: rig.post("/api/rig/save", a),
+        route=("post", "/api/rig/save"),
+    ),
+)
+
+
+def _served(rig: Rig) -> set[tuple[str, str]]:
+    """(method, path) the daemon serves, from its OpenAPI; empty if it has none."""
+    try:
+        paths = rig.get("/openapi.json")["paths"]
+    except RigError:  # a daemon without OpenAPI lists no gated tool
+        return set()
+    return {(method, path) for path, methods in paths.items() for method in methods}
+
+
+# endregion
 
 
 def tools_for(rig: Rig, mode: str) -> list[Tool]:
     """Every tool the mode allows, fixed ones first, then the rig's own commands."""
     tier = MODES[mode]
-    tools = [t for t in (*READ, *AUTHOR, *DRIVE) if t.tier <= tier]
+    served = _served(rig)
+    tools = [
+        t
+        for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS)
+        if t.tier <= tier and (t.route is None or t.route in served)
+    ]
     if tier >= Tier.DRIVE:
         simulated = bool(rig.sim().get("simulated"))
         tools.extend(_device_tools(rig, simulated))

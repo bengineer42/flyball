@@ -63,6 +63,17 @@ reach the port can drive the rig either way.
   text and are saved whole.
 - Streams have no equivalent: `read`, `read_many` and `events` are what a
   model polls.
+- The rig can be built up: `attach_link`, `attach_device`, or a whole
+  document with `attach_document`; `rig_document` shows the result,
+  `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
+  writes it out. A change rebuilds the tool list, so a new device's
+  commands appear as tools at once.
+- New equipment: `driver_guide` (also the resource `flyball://guide/driver`)
+  says how to write a driver and when not to; `driver_scaffold` gives a
+  module that already runs; `check_driver` imports one where the server
+  runs and reports what it registers. `MCP.md` at the repository root
+  lists the daemon routes still to come for probing hardware and reloading
+  a drivers directory.
 
 Three routes exist for this and the CLI: `GET /api/rig/schema`, `GET
 /api/rig/config` and `POST /api/rig/check`, so a rig file can be checked

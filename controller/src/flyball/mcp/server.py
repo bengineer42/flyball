@@ -10,13 +10,14 @@ from collections.abc import Sequence
 from typing import Any
 
 import anyio
+from anyio import to_thread
 from mcp import types
-from mcp.server.lowlevel import Server
+from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
 from flyball.client import Rig, RigError, SchemaError
 
-from .tools import MODES, Tier, Tool, tools_for
+from .tools import GUIDES, MODES, Tier, Tool, tools_for
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 
@@ -60,11 +61,15 @@ class Registry:
         self._tools: dict[str, Tool] | None = None
         self._lock = anyio.Lock()
 
+    def reset(self) -> None:
+        """Forget the tools: the rig's devices changed, so the next call rebuilds them."""
+        self._tools = None
+
     async def get(self) -> dict[str, Tool]:
         if self._tools is None:
             async with self._lock:
                 if self._tools is None:
-                    built = await anyio.to_thread.run_sync(tools_for, self.rig, self.mode)
+                    built = await to_thread.run_sync(tools_for, self.rig, self.mode)
                     self._tools = {tool.name: tool for tool in built}
         return self._tools
 
@@ -81,20 +86,63 @@ def build(rig: Rig, mode: str) -> Server[Any]:
         if tool is None:
             return _error(f"no tool {params.name!r}")
         try:
-            result = await anyio.to_thread.run_sync(tool.run, rig, params.arguments or {})
+            result = await to_thread.run_sync(tool.run, rig, params.arguments or {})
         except (RigError, SchemaError) as e:
             return _error(str(e))
+        if tool.changes_tools:
+            registry.reset()
+            await to_thread.run_sync(rig.refresh)  # never block the loop: it serves us
+            await ctx.session.send_tool_list_changed()
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=_text(result))],
             structured_content=result if isinstance(result, dict) else None,
         )
 
-    return Server(
+    async def list_resources(ctx: Any, params: Any) -> types.ListResourcesResult:  # ruff: ignore[unused-async]
+        return types.ListResourcesResult(
+            resources=[
+                types.Resource(
+                    name=path.stem,
+                    uri=f"flyball://guide/{path.stem}",
+                    description=path.read_text().splitlines()[0].lstrip("# "),
+                    mime_type="text/markdown",
+                )
+                for path in sorted(GUIDES.glob("*.md"))
+            ]
+        )
+
+    async def read_resource(ctx: Any, params: Any) -> types.ReadResourceResult:  # ruff: ignore[unused-async]
+        uri = str(params.uri)
+        path = GUIDES / f"{uri.removeprefix('flyball://guide/')}.md"
+        if not uri.startswith("flyball://guide/") or not path.is_file():
+            raise ValueError(f"no resource {uri}")
+        return types.ReadResourceResult(
+            contents=[
+                types.TextResourceContents(
+                    uri=uri, mime_type="text/markdown", text=path.read_text()
+                )
+            ]
+        )
+
+    return _Server(
         "flyball",
         instructions=f"The rig at {rig.url}, mode `{mode}`. {INSTRUCTIONS[mode]}",
         on_list_tools=list_tools,
         on_call_tool=call_tool,
+        on_list_resources=list_resources,
+        on_read_resource=read_resource,
     )
+
+
+class _Server(Server[Any]):
+    """Says it will announce tool-list changes, whichever transport drives it."""
+
+    def create_initialization_options(
+        self, notification_options: Any = None, *args: Any, **kwargs: Any
+    ) -> Any:
+        return super().create_initialization_options(
+            NotificationOptions(tools_changed=True), *args, **kwargs
+        )
 
 
 def _error(message: str) -> types.CallToolResult:
