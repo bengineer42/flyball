@@ -181,6 +181,14 @@ class TestRun:
         assert rig.router.sample(heater.root) is not None
 
 
+def test_none_is_nothing_to_push(rig: Rig, heater: Heater) -> None:
+    heater.push(a=1.0, b=None)
+    assert heater.a.value == pytest.approx(1.0) and heater.b.reading is None
+    heater.push(a=None)
+    heater.b.push(None)
+    assert heater.a.value == pytest.approx(1.0) and heater.b.reading is None
+
+
 def test_a_batch_delivers_every_push_inside_it_as_one_sample(rig: Rig, heater: Heater) -> None:
     rig.clock.advance(5)
     with heater.batch():

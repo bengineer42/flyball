@@ -797,10 +797,14 @@ class Device:
     def push(self, time_ns: int | None = None, /, **values: Value) -> None:
         """Push several values at one instant by descriptor attribute: one sample, one delivery.
 
-        `self.push(dry_flow=0.4, wet_flow=0.6)`; `time_ns` None is now.
+        `self.push(dry_flow=0.4, wet_flow=0.6)`; `time_ns` None is now. A
+        value of None is nothing for that signal and is left out; a reading
+        never carries None.
         """
-        at = self.router.now_ns() if time_ns is None else time_ns
-        self.router.push(self.sample(at, **values))
+        values = {attr: v for attr, v in values.items() if v is not None}
+        if values:
+            at = self.router.now_ns() if time_ns is None else time_ns
+            self.router.push(self.sample(at, **values))
 
     @contextmanager
     def batch(self, time_ns: int | None = None) -> Iterator[None]:
@@ -826,7 +830,12 @@ class Device:
             self.router.push(Sample(self.root, at, values))
 
     def push_one(self, signal: Signal, value: Value, time_ns: int | None = None) -> None:
-        """One value on one signal: into the open batch, else delivered now. `Signal.push`."""
+        """One value on one signal: into the open batch, else delivered now. `Signal.push`.
+
+        None is nothing to push.
+        """
+        if value is None:
+            return
         if self._batch is not None:
             self._batch[signal] = value
         else:
