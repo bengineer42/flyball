@@ -801,7 +801,7 @@ class Device:
 
     @contextmanager
     def batch(self, time_ns: int | None = None) -> Iterator[None]:
-        """Collect every `signal.push` made inside into one sample, delivered at one instant on exit.
+        """Collect every `signal.push` made inside into one sample, delivered on exit.
 
         The other spelling of [push][flyball.core.device.Device.push], for
         when the values come from several places:
