@@ -65,7 +65,8 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
   const commands = useMemo(() => commandsOf(programSchema), [programSchema]);
   const modifierSchemas = useMemo(() => modifiersOf(programSchema), [programSchema]);
   const byTag = useMemo(() => Object.fromEntries(commands.map((c) => [c.tag, c])), [commands]);
-  // Structural edits (insert, move, delete) remount the cards' forms; argument edits do not.
+  // Structural edits (insert, move, delete) remount the cards' forms; argument edits do not. So does the dialect
+  // arriving: a card mounted before it reads a shorthand step (`manual: blender.humidity`) as no arguments at all.
   const [structure, setStructure] = useState(0);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -161,7 +162,7 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
           const { tag, value, modifiers } = splitStep(step, commands);
           const command = tag ? byTag[tag] : undefined;
           return (
-            <Box key={`${revision}-${structure}-${i}`} sx={{ position: "relative" }}>
+            <Box key={`${revision}-${structure}-${commands.length}-${i}`} sx={{ position: "relative" }}>
               {dropAt === i && <DropBar />}
               <StepCard
                 index={i}
@@ -429,8 +430,9 @@ interface StepCardProps {
 
 function StepCard({ index, count, tag, value, modifiers, command, commands, modifierSchemas, programSchema, controllers, devices, error, warning, dragging, onDragStart, onDragEnd, onArgs, onTime, onCommand, onModifier, onUp, onDown, onDuplicate, onInsertAfter, onDelete }: StepCardProps) {
   // The form's value and its schema are fixed at mount (the key changes on structural edits); the form owns the edits after that.
+  // The check's warning only words the marks on what the rig lacks, so it may arrive later without disturbing the form.
   const [initial] = useState(() => toForm(value, command));
-  const shape = useMemo(() => (command && programSchema ? formShape(command, programSchema, controllers, devices, initial) : null), [command, programSchema, controllers, devices, initial]);
+  const shape = useMemo(() => (command && programSchema ? formShape(command, programSchema, controllers, devices, initial, warning) : null), [command, programSchema, controllers, devices, initial, warning]);
   // The time control is the tree's, not the form's: it follows `value` on every render.
   const time = command?.time;
   const entries = useMemo(() => (time ? timeEntries(argsOf(value, command), time) : []), [time, value, command]);

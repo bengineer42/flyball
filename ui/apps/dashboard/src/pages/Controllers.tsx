@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Alert,
   Box,
@@ -32,11 +32,12 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
-import { describeSignal, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type SignalChoice, type SignalOut } from "@flyball/client";
+import { describeSignal, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
+import { segmentSx } from "../WindowSelect.js";
 import { PageBar } from "../PageBar.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
@@ -371,20 +372,41 @@ const AddControllerDialog = memo(function AddControllerDialog({
   );
 });
 
+/** How the target gets to the value typed: at once, at a rate per minute, or over a number of minutes. */
+type Way = "now" | "at" | "over";
+
+/**
+ * What `PUT .../reference` or `POST .../regulate` is sent for a target of
+ * `value`: the number itself for `now`, else a linear ramp at `pace` per
+ * minute or over `pace` minutes (the server starts it from the current
+ * setpoint or reading). Null while the entry is not a usable number.
+ */
+function referenceFor(way: Way, value: number | null, pace: number | null): ReferenceSpec | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  if (way === "now") return value;
+  if (pace === null || !Number.isFinite(pace) || pace <= 0) return null;
+  return { tag: "linear_ramp_setpoint", pace: way === "at" ? { per_minute: pace } : { minutes: pace }, end: value };
+}
+
 /**
  * The setpoint entry and its verb button, rendered inline in the faceplate's
  * Target row (DESIGN-SPEC §3.4): "Regulate at" hands control to the law at
  * this value (a bumpless start) while stopped, "Move target" changes the
- * target and leaves the law running while regulating. Takes primitives and a
- * stable callback so it does not re-render on every tick (its text field is
- * a MUI form control, which sets state in an effect whenever it renders in
- * development). Split from the stop/remove control below so Tab reaches
- * this field and its button before Stop, which the faceplate places in the
- * header regardless of where it sits in the DOM.
+ * target and leaves the law running while regulating. A "now / at / over"
+ * choice beside the value says how to get there: at once, or along a ramp
+ * at a rate per minute or over a number of minutes (the button then reads
+ * "Ramp"; a stopped controller ramps from its current reading as the law
+ * starts). Takes primitives and a stable callback so it does not re-render
+ * on every tick (its text field is a MUI form control, which sets state in
+ * an effect whenever it renders in development). Split from the stop/remove
+ * control below so Tab reaches this field and its button before Stop, which
+ * the faceplate places in the header regardless of where it sits in the DOM.
  */
 const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
+  const [way, setWay] = useState<Way>("now");
+  const [pace, setPace] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLaw = tag !== null && tag !== "open_loop";
@@ -403,13 +425,26 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, o
     }
   };
   const value = setpoint.trim() === "" ? null : Number(setpoint);
-  const valid = value !== null && Number.isFinite(value);
+  const at = referenceFor(way, value, pace.trim() === "" ? null : Number(pace));
+  const valid = at !== null;
+  const ramp = way !== "now";
+  const send = () => act(() => (regulating ? rig.setReference(name, at!) : rig.regulate(name, { at: at! })));
+  const onEnter = (e: KeyboardEvent) => {
+    if (e.key === "Enter" && valid && !busy && (regulating || hasLaw)) void send();
+  };
 
   // One field, one verb. Stopped: "Regulate at" hands control to the law at
   // this target (a bumpless start). Regulating: "Move target" changes the
-  // target and leaves the law running as it is. Both write the same number;
+  // target and leaves the law running as it is. Both write the same spec;
   // what differs is whether control is being started or already on.
-  const startLabel = hasLaw ? "Aim here and start the law (bumpless)" : tag === null ? "No law: give the controller a tuning first" : "Open loop: no law to regulate with";
+  const startLabel = hasLaw
+    ? ramp
+      ? "Start the law and ramp the target from the current reading to this value (bumpless)"
+      : "Aim here and start the law (bumpless)"
+    : tag === null
+      ? "No law: give the controller a tuning first"
+      : "Open loop: no law to regulate with";
+  const box = { "& .MuiInputBase-input": { py: 0.75 } } as const;
 
   return (
     <Stack component="span" direction="row" spacing={0.75} alignItems="center" useFlexGap sx={{ display: "inline-flex", flexWrap: { xs: "wrap", md: "nowrap" } }}>
@@ -418,43 +453,47 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, o
         label="target"
         value={setpoint}
         onChange={(e) => setSetpoint(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && valid && !busy) {
-            void act(() => (regulating ? rig.setReference(name, value!) : rig.regulate(name, { at: value! })));
-          }
-        }}
+        onKeyDown={onEnter}
         inputProps={{ "aria-label": `target ${name}`, step: "any", "data-testid": `regulate-at-${name}`, style: { width: "4.5em" } }}
         InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>{unit}</span> }}
-        sx={{ flexShrink: 0, "& .MuiInputBase-input": { py: 0.75 } }}
+        sx={{ flexShrink: 0, ...box }}
       />
+      <ToggleButtonGroup exclusive size="small" value={way} onChange={(_e, v: Way | null) => v && setWay(v)} aria-label={`how to reach the target of ${name}`} data-testid={`way-${name}`} sx={{ flexShrink: 0, ...segmentSx }}>
+        <ToggleButton value="now" title="Step the target there at once">
+          now
+        </ToggleButton>
+        <ToggleButton value="at" title={`Ramp the target there at a rate in ${unit} per minute`}>
+          at
+        </ToggleButton>
+        <ToggleButton value="over" title="Ramp the target there over a number of minutes">
+          over
+        </ToggleButton>
+      </ToggleButtonGroup>
+      {ramp && (
+        <TextField
+          type="number"
+          label={way === "at" ? "rate" : "minutes"}
+          value={pace}
+          onChange={(e) => setPace(e.target.value)}
+          onKeyDown={onEnter}
+          inputProps={{ "aria-label": way === "at" ? `ramp rate for ${name}` : `ramp duration for ${name}`, step: "any", min: 0, "data-testid": `pace-${name}`, style: { width: "4em" } }}
+          InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7, whiteSpace: "nowrap" }}>{way === "at" ? `${unit}/min` : "min"}</span> }}
+          sx={{ flexShrink: 0, ...box }}
+        />
+      )}
       {regulating ? (
-        <Tooltip title="Change the target; the law keeps running as it is">
+        <Tooltip title={ramp ? "Ramp the target from where it is; the law keeps running as it is" : "Change the target; the law keeps running as it is"}>
           <span>
-            <Button
-              variant="contained"
-              size="small"
-              disabled={!valid || busy}
-              onClick={() => void act(() => rig.setReference(name, value!))}
-              data-testid={`set-reference-${name}`}
-              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-            >
-              Move target
+            <Button variant="contained" size="small" disabled={!valid || busy} onClick={() => void send()} data-testid={`set-reference-${name}`} sx={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+              {ramp ? "Ramp" : "Move target"}
             </Button>
           </span>
         </Tooltip>
       ) : (
         <Tooltip title={startLabel}>
           <span>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<PlayArrowIcon />}
-              disabled={!hasLaw || !valid || busy}
-              onClick={() => void act(() => rig.regulate(name, { at: value! }))}
-              data-testid={`regulate-${name}`}
-              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-            >
-              Regulate at
+            <Button variant="contained" size="small" startIcon={<PlayArrowIcon />} disabled={!hasLaw || !valid || busy} onClick={() => void send()} data-testid={`regulate-${name}`} sx={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+              {ramp ? "Ramp & regulate" : "Regulate at"}
             </Button>
           </span>
         </Tooltip>

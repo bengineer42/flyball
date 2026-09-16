@@ -476,6 +476,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     if (!rigSchema.data) return undefined;
     const all = Object.values(rigSchema.data.devices);
     return {
+      names: all.map((d) => d.name),
       commands: Object.fromEntries(all.filter((d) => Object.keys(d.commands).length > 0).map((d) => [d.name, d.commands])),
       writable: Object.fromEntries(
         all

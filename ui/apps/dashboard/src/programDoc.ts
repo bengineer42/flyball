@@ -297,6 +297,9 @@ export interface FormShape {
  * device, for the `device` / `device_command` / `args` / `values` fields.
  */
 export interface DevicePicks {
+  /** Every device on the rig, so a saved name can be told apart from one the rig lacks. */
+  names: string[];
+  /** Every command a device has, simulation ones included: those are not offered, but a saved one is still known. */
   commands: Record<string, Record<string, CommandSchema>>;
   /** Only writable signals; a device with none takes no `set`. */
   writable: Record<string, Record<string, SignalSchema>>;
@@ -306,6 +309,46 @@ export interface DevicePicks {
 function deviceCommandOf(args: Record<string, unknown>, devices: DevicePicks | undefined): CommandSchema | undefined {
   const device = typeof args.device === "string" ? devices?.commands[args.device] : undefined;
   return typeof args.device_command === "string" ? device?.[args.device_command] : undefined;
+}
+
+/** The commands of `device` the builder offers: its own, not the simulation-only ones (those live on the Simulation page). */
+function offeredCommands(devices: DevicePicks, device: unknown): string[] {
+  const all = typeof device === "string" ? devices.commands[device] : undefined;
+  return Object.entries(all ?? {})
+    .filter(([, c]) => !c.simulation)
+    .map(([name]) => name);
+}
+
+const NOT_ON_RIG = "not on this rig";
+
+/**
+ * What the step's check warning says about `name`: the fragment of the
+ * daemon's `; `-joined message that quotes it, else the bare mark. The
+ * daemon reports exactly what the rig lacks, so its words go on the field.
+ */
+export function warningFor(warning: string | undefined, name: string): string {
+  const hit = warning?.split("; ").find((part) => part.includes(`'${name}'`));
+  return hit ? `${NOT_ON_RIG}: ${hit}` : NOT_ON_RIG;
+}
+
+/**
+ * A string field as a pick: the rig's `offered` names, and the saved value
+ * whether or not the rig has it, so the form never shows a different value
+ * from the file. A saved value the rig lacks is titled with the mark; one
+ * that is there but not offered (a simulation command) with `aside`. No
+ * options at all leaves the field free text.
+ */
+function pickField(field: JsonSchema, offered: string[], saved: unknown, has: (name: string) => boolean, aside: string): JsonSchema {
+  const options = offered.map((name) => ({ const: name, title: name }));
+  if (typeof saved === "string" && saved !== "" && !offered.includes(saved)) options.unshift({ const: saved, title: `${saved} (${has(saved) ? aside : NOT_ON_RIG})` });
+  if (options.length === 0) return field;
+  return options.every((o) => o.const === o.title) ? { ...field, enum: options.map((o) => o.const) } : { ...field, oneOf: options };
+}
+
+/** A saved value the rig has no field for: the same type it has, with `description` as its mark when given. */
+function savedField(name: string, value: unknown, description?: string): JsonSchema {
+  const type = typeof value === "number" ? "number" : typeof value === "boolean" ? "boolean" : typeof value === "string" ? "string" : Array.isArray(value) ? "array" : value === null ? "null" : "object";
+  return { type, title: humanise(name), ...(description ? { description } : {}) };
 }
 
 /** A writable signal as a number field: its label, unit and limits, the address and access as the hint. */
@@ -329,40 +372,53 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
  * pick from the devices with a writable signal and its `values` as one
  * number field per such signal, the composite time field and its flat keys
  * left to their own control, defaults as placeholders.
+ *
+ * What `current` says is always on the form, whether or not the rig has it:
+ * a device, command or signal the rig lacks is a pick option or a field of
+ * its own, marked with the step's check `warning`, so the form and the text
+ * never disagree and a save never loses what the file had. Simulation-only
+ * commands are not offered (they belong to the Simulation page) but a saved
+ * one is shown.
  * Self-contained: `$defs` are copied in so `$ref`s still resolve.
  */
-export function formShape(command: CommandInfo, root: JsonSchema, controllers: string[] | undefined, devices?: DevicePicks, current: Record<string, unknown> = {}): FormShape {
+export function formShape(command: CommandInfo, root: JsonSchema, controllers: string[] | undefined, devices?: DevicePicks, current: Record<string, unknown> = {}, warning?: string): FormShape {
   const properties: Record<string, JsonSchema> = {};
   const ui: Record<string, unknown> = {};
   const deviceCommand = command.tag === "command" ? deviceCommandOf(current, devices) : undefined;
+  const has = (name: string) => Boolean(devices?.names.includes(name));
   let defs = root.$defs;
   for (const [name, raw] of Object.entries(command.args.properties ?? {})) {
     if (command.time?.keys.includes(name)) continue; // one control of its own
     let field = withoutDefaults(deref(raw, root));
     if (name === "wait" && field.type === "boolean" && !field.description) field = { ...field, description: `wait for the ${command.title.toLowerCase()} to finish before the next step` };
-    if (command.tag === "command" && devices) {
-      if (name === "device") {
-        const names = Object.keys(devices.commands);
-        if (names.length > 0) field = { ...field, enum: names };
-      } else if (name === "device_command") {
-        const names = Object.keys((typeof current.device === "string" && devices.commands[current.device]) || {});
-        if (names.length > 0) field = { ...field, enum: names };
+    if (command.tag === "command") {
+      if (name === "device" && devices) {
+        const names = Object.keys(devices.commands).filter((d) => offeredCommands(devices, d).length > 0);
+        field = pickField(field, names, current.device, has, "only simulation commands");
+      } else if (name === "device_command" && devices) {
+        const known = (name: string) => typeof current.device === "string" && name in (devices.commands[current.device] ?? {});
+        field = pickField(field, offeredCommands(devices, current.device), current.device_command, known, "simulation");
       } else if (name === "args") {
-        // nothing to fill until the command is known, and nothing when it takes no arguments
-        if (!deviceCommand || isEmpty(deviceCommand.arguments)) continue;
-        const { $defs, ...args } = withoutDefaults(deviceCommand.arguments);
-        field = { ...args, title: field.title ?? "Arguments", ...(deviceCommand.description ? { description: deviceCommand.description.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ") } : {}) };
-        if ($defs) defs = { ...defs, ...$defs };
+        if (deviceCommand && !isEmpty(deviceCommand.arguments)) {
+          const { $defs, ...args } = withoutDefaults(deviceCommand.arguments);
+          field = { ...args, title: field.title ?? "Arguments", ...(deviceCommand.description ? { description: deviceCommand.description.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ") } : {}) };
+          if ($defs) defs = { ...defs, ...$defs };
+        } else if (isObject(current.args) && Object.keys(current.args).length > 0) {
+          // the rig cannot say what the arguments are (not known yet, or no such device or command): the saved ones, as they are
+          const saved = current.args;
+          field = { type: "object", title: field.title ?? "Arguments", description: devices && typeof current.device_command === "string" ? warningFor(warning, current.device_command) : undefined, properties: Object.fromEntries(Object.keys(saved).map((k) => [k, savedField(k, saved[k])])) };
+        } else continue; // nothing to fill until the command is known, and nothing when it takes no arguments
       }
     }
     if (command.tag === "set" && devices) {
       if (name === "device") {
-        const names = Object.keys(devices.writable);
-        if (names.length > 0) field = { ...field, enum: names };
+        field = pickField(field, Object.keys(devices.writable), current.device, has, "nothing writable");
       } else if (name === "values") {
         const signals = (typeof current.device === "string" && devices.writable[current.device]) || {};
-        // one number per writable signal, none required: the step sets the ones given
-        if (Object.keys(signals).length > 0) field = { type: "object", title: field.title ?? "Values", properties: Object.fromEntries(Object.entries(signals).map(([path, signal]) => [path, valueField(path, signal)])) };
+        // one number per writable signal, none required: the step sets the ones given; a saved signal the device lacks keeps its row
+        const saved = isObject(current.values) ? current.values : {};
+        const fields = Object.fromEntries([...Object.entries(signals).map(([path, signal]) => [path, valueField(path, signal)]), ...Object.entries(saved).filter(([path]) => !(path in signals)).map(([path, v]) => [path, savedField(path, v, warningFor(warning, path))])]);
+        if (Object.keys(fields).length > 0) field = { type: "object", title: field.title ?? "Values", properties: fields };
       }
     }
     if (name === "loop") {
