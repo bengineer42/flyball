@@ -3,7 +3,7 @@
 Two pumps that remember their effort, a chamber whose humidity chases their
 blend, and one SHT4x-shaped sensor:
 
-    python -m humidity.sim            # serve on :8000, recording to sim.db
+    python -m humidity.sim            # serve on :8000, recording to sim.sqlite
     python -m humidity.sim --tunings tunings --loop gentle --programs programs   # the demo
 """
 
@@ -353,7 +353,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--period", type=float, default=1.0, help="sensor read period, seconds")
-    p.add_argument("--db", type=Path, default=Path("sim.db"), help="record into this SQLite file")
+    p.add_argument(
+        "--store",
+        type=Path,
+        default=Path("sim.sqlite"),
+        help="where sessions, programs and dashboards are kept (default: sim.sqlite)",
+    )
     p.add_argument(
         "--noise", type=float, default=0.3, help="humidity sensor noise, one sigma, %%RH"
     )
@@ -396,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
         rig.attach_loop(
             Source.get("process")[Humidity], rig.actuators["pumps"], law=args.loop, default=True
         )
-    store = SqliteStore(args.db)
+    store = SqliteStore(args.store)
     set_store(store)  # history routes read it whether or not a session is open
     if args.programs is not None:
         set_programs_dir(args.programs)  # so the library's import button rescans it too
