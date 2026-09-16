@@ -356,7 +356,7 @@ def test_device_schema_and_commands(client, rig, drive, daq):
         "dimension": "Power",
         "dtype": "float",
         "value": {"type": "number"},
-        "range": None,
+        "range": [0.0, 2500.0],  # nothing of its own: its limits stand in for a gauge
         "precision": None,
         "limits": [0.0, 2500.0],
     }

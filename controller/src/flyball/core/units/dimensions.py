@@ -11,6 +11,8 @@ ElectricCurrent = BaseDimension("Electric Current", "I")
 AmountOfSubstance = BaseDimension("Amount of Substance", "N")
 LuminousIntensity = BaseDimension("Luminous Intensity", "J")
 
+Fraction = (DIMENSIONLESS).named("Fraction", "1")
+
 # Dimensionless in the SI, kept apart so rad/s and Hz, lm and cd, do not
 # compare equal.
 Angle = BaseDimension("Angle", "∠")

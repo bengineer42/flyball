@@ -493,6 +493,14 @@ class Signal:
         return self.spec.label
 
     @property
+    def range(self) -> Band | None:
+        """What a gauge or an axis spans: the signal's own, else its limits, else the unit's scale.
+
+        None if none of them say.
+        """
+        return self.spec.range or self.limits or self.unit.scale
+
+    @property
     def limits(self) -> Band | None:
         """The effective limits now: a referenced signal's current value stands for it.
 

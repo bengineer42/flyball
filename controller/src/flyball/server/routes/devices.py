@@ -74,7 +74,7 @@ def _signal_schema(signal: Signal) -> dict[str, Any]:
         "dimension": signal.unit.dimension.label,
         "dtype": signal.spec.dtype,
         "value": TypeAdapter(signal.spec.vtype).json_schema(mode="serialization"),
-        "range": signal.spec.range,
+        "range": signal.range,
         "precision": signal.spec.precision,
         "limits": signal.limits,
     }

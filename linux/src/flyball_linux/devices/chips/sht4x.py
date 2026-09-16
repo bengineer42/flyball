@@ -18,7 +18,7 @@ from flyball.core.device import DriverConfig, Output, Readable
 from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, NodeSpec, Sample, SignalSpec
-from flyball.core.units import DIMENSIONLESS
+from flyball.core.units.dimensions import Fraction
 from flyball.core.units.si import Celsius
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,7 +32,7 @@ COMMANDS: dict[str, tuple[int, float]] = {
 }
 """Measure command and the datasheet's maximum conversion time, by precision."""
 
-PercentRH = DIMENSIONLESS.unit("percent relative humidity", "%RH", 0.01)
+PercentRH = Fraction.unit("percent relative humidity", "%RH", 0.01, scale=(0.0, 100.0))
 HUMIDITY = Quantity("humidity", PercentRH)
 TEMPERATURE = Quantity("temperature", Celsius)
 SHT4X_ADDRESS = 0x44

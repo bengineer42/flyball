@@ -95,7 +95,7 @@ class SignalChoice(BaseModel):
             label=signal.label,
             unit=signal.unit.symbol,
             dimension=signal.unit.dimension.label,
-            range=signal.spec.range,
+            range=signal.range,
             limits=signal.limits,
         )
 

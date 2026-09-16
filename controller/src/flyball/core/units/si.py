@@ -15,6 +15,7 @@ from .dimensions import (
     ElectricPotential,
     Energy,
     Force,
+    Fraction,
     Frequency,
     Illuminance,
     Inductance,
@@ -66,10 +67,17 @@ Katal = CatalyticActivity.unit("katal", "kat")
 Celsius = Temperature.unit("celsius", "°C", zero=273.15)
 
 Unitless = DIMENSIONLESS.unit("", "")
+"""The unit of a count, a status word, a mode: what "no unit" means in a table."""
 
-# The unit of a count, a ratio, a status word, a duty: what "no unit" means in a table.
-One = DIMENSIONLESS.unit("one", "1")
-Percent = DIMENSIONLESS.unit("percent", "%", 0.01)
+# A share of full, at several scales; the scale is what a UI draws by default.
+One = Fraction.unit("one", "1", scale=(0.0, 1.0))
+Percent = Fraction.unit("percent", "%", 0.01, scale=(0.0, 100.0))
+Permillage = Fraction.unit("permillage", "‰", 0.001, scale=(0.0, 1000.0))
+PartsPerMillion = Fraction.unit("parts per million", "ppm", 1e-6)
+PartsPerBillion = Fraction.unit("parts per billion", "ppb", 1e-9)
+PartsPerTrillion = Fraction.unit("parts per trillion", "ppt", 1e-12)
+PartsPerQuadrillion = Fraction.unit("parts per quadrillion", "ppq", 1e-15)
+PartsPerSextillion = Fraction.unit("parts per sextillion", "pps", 1e-21)
 
 
 # Non-SI units accepted for use with the SI.
@@ -77,7 +85,7 @@ Minute = Time.unit("minute", "min", 60)
 Hour = Time.unit("hour", "h", 3600)
 Day = Time.unit("day", "d", 86400)
 
-Degree = Angle.unit("degree", "°", PI / 180)
+Degree = Angle.unit("degree", "°", PI / 180, scale=(0.0, 360.0))
 DegreeMinute = Angle.unit("degree minute", "′", PI / 10800)  # ruff: ignore[ambiguous-unicode-character-string]
 DegreeSecond = Angle.unit("degree second", "″", PI / 648000)
 

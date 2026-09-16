@@ -133,8 +133,15 @@ class Dimension(tuple[Term, ...]):
         label, formula = self.label, self.formula()
         return f"{label} ({formula})" if label != formula else formula
 
-    def unit(self, name: str, symbol: str, factor: float = 1.0, zero: float = 0.0) -> Unit:
-        return Unit(name, symbol, self, factor, zero)
+    def unit(
+        self,
+        name: str,
+        symbol: str,
+        factor: float = 1.0,
+        zero: float = 0.0,
+        scale: tuple[float, float] | None = None,
+    ) -> Unit:
+        return Unit(name, symbol, self, factor, zero, scale=scale)
 
     def named(self, name: str, symbol: str | None = None) -> NamedDimension:
         return NamedDimension(name, self, symbol)
@@ -213,7 +220,10 @@ class Unit:
     `factor` takes a value to the coherent base unit; `zero` is the base-unit
     value at this unit's 0, non-zero only for absolute scales (°C, °F).
     Intervals and composed units ignore `zero`: a rise of 5 °C is 5 K. The
-    quantity decides which conversion applies.
+    quantity decides which conversion applies. `scale` is the full scale a
+    UI shows by default, in this unit, when a signal says nothing of its
+    own: 0-1 for `One`, 0-100 for `Percent`, 0-360 for `Degree`; None for a
+    unit with no natural one (metres). A default for display, never a bound.
     """
 
     name: str
@@ -222,6 +232,7 @@ class Unit:
     factor: float = 1.0
     zero: float = 0.0
     prefix: Prefix | None = None
+    scale: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         # First definition of a symbol wins: a composed `L/min` built twice is

@@ -145,6 +145,7 @@ class SignalOut(BaseModel):
     dtype: str
     shape: list[int]
     range: tuple[float, float] | None = None
+    """What a gauge or axis spans: the signal's own, else its limits, else the unit's scale."""
     precision: int | None = None
     warn: tuple[float, float] | None = None
     alarm: tuple[float, float] | None = None
@@ -172,7 +173,7 @@ class SignalOut(BaseModel):
             dimension=signal.unit.dimension.label,
             dtype=spec.dtype,
             shape=list(spec.shape),
-            range=spec.range,
+            range=signal.range,
             precision=spec.precision,
             warn=spec.warn,
             alarm=spec.alarm,
