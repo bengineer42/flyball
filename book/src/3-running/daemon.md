@@ -16,6 +16,55 @@ without serving); a bad file is a one-line message and exit code 2. With
 shutdown the programmer is interrupted, the session closed and the polled
 devices stopped.
 
+## Building a rig while it runs
+
+A rig file is one way to populate a rig; the API is the other, and a daemon
+needs no file at all:
+
+```
+flyball-daemon --store lab.sqlite           # an empty rig, named `rig`
+```
+
+Then post the same things the file would say -- a link, a device with the
+file's envelope, a controller -- one at a time or as one document:
+
+```
+curl -X POST localhost:8000/api/links -d '{"name": "t1", "tag": "sim_plant", "model": "lag", "tau_s": 2}'
+curl -X POST localhost:8000/api/devices -d '{"name": "probe", "driver": "sim_daq", "poll_s": 0.5,
+     "config": {"link": "t1", "ports": {"signal": {"port": "output", "quantity": "level", "unit": "1"}}}}'
+curl -X POST localhost:8000/api/devices -d '{"name": "drive", "driver": "sim_drive",
+     "config": {"link": "t1", "ports": {"u": "input"}}}'
+curl -X POST localhost:8000/api/controllers -d '{"target": "drive.u", "source": "probe.signal", "law": {"tag": "P", "kp": 0.8}}'
+curl -X POST localhost:8000/api/rig -d @lab.yaml.json     # or all of it at once
+```
+
+A device added this way is bound, polled and, if a session is open,
+recorded from then on; `DELETE /api/devices/{name}` takes it off with
+everything that hung off it (its poll, controllers on it, inputs bound
+into it). `GET /api/rig/document` is the running rig as a file would build
+it.
+
+Every change is a **version** in the store: the rig as loaded (or started
+bare), then a row per change with a reason -- `added device probe`,
+`detached controller drive.u`, `restored 3`. A session records the version
+it started on, so its readings always have their rig beside them.
+`GET /api/rig/versions` lists them; `POST /api/rig/versions/{id}/restore`
+makes the running rig that version again.
+
+What was added does not survive a restart by itself -- the daemon starts
+from what its command line says -- unless you keep it:
+
+- `POST /api/rig/save` with no body writes what changed since this start
+  to `<rig>.d/added.yaml` beside the first rig file, and the daemon loads
+  that directory as one more overlay next time. Your own files are never
+  rewritten; delete the overlay to undo.
+- `POST /api/rig/save {"path": "lab.yaml"}` writes the whole running rig,
+  flattened, to a file of your choosing: how a rig built up from nothing
+  becomes a rig file. It refuses a file the rig was loaded from unless
+  `"overwrite": true`.
+- `flyball-daemon --resume` starts from the last change made through the
+  API instead of the files, for the morning after.
+
 An application with hardware the file cannot describe writes its own entry
 point around [serve][flyball.daemon.serve], which is all the command does
 after building the rig. For the simulated oven it is ten lines:
@@ -47,6 +96,8 @@ flyball controllers
 | `/api/devices` | each device's signal tree, schema, and a `POST` per command |
 | `/api/read`, `/api/signals` | a signal's reading, a namespace's sample, or a device's samples; put a demand on a writable signal |
 | `/api/controllers`, `/api/tunings`, `/api/clock` | the live rig |
+| `/api/links`, `/api/devices` (`POST`, `DELETE`), `/api/rig` | build the rig up while it runs: see above |
+| `/api/rig/document`, `/api/rig/changes`, `/api/rig/versions`, `/api/rig/save` | the running rig as a file, what changed, its versions, saving it |
 | `/api/waits` | what a program is waiting on; fire or interrupt one |
 | `/api/programs` | check a program file, run one, see what is running |
 | `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.json` beside the rig file are imported on start |

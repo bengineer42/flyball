@@ -31,6 +31,28 @@ a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
 
 A `LawConfig` is `{tag, ...gains}`, e.g. `{"tag": "PI", "kp": 0.5, "ki": 0.05, "tt": 0}`.
 
+### Composition
+
+The rig built up while it runs, in the rig file's own terms; every change
+is a version in the store (see [the daemon](../3-running/daemon.md#building-a-rig-while-it-runs)).
+
+| | | |
+| --- | --- | --- |
+| `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this daemon has |
+| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes) |
+| `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
+| `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
+| `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
+| `POST` | `/api/devices` | body the file's device envelope with its `name` (`driver`, `config` or flat settings, `label`, `poll_s`, `signals`, `bound`); 201 `DeviceOut`, bound, polled and recorded; 409 name taken; 404 unknown link or bound address; 422 unknown driver or a config it refuses |
+| `DELETE` | `/api/devices/{name}` | 204; its poll stops, controllers on it are detached, inputs bound into it unbound |
+| `POST` | `/api/rig` | body a rig document (`links`, `devices`, `controllers`; other keys ignored); added in that order; 201 the running document |
+| `GET` | `/api/rig/document` | the running rig as a rig file would build it, defaults left out |
+| `GET` | `/api/rig/changes` | what differs from the rig as this run started, as an overlay (a removed key is `null`); `{}` when nothing |
+| `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files}]`, newest first; `?limit=` |
+| `GET` | `/api/rig/versions/{id}` | the same with `document` |
+| `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match; records `restored {id}` |
+| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the daemon was not started from a file); a path: the whole rig, flattened (422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
+
 ## Devices
 
 Every device has one name rig-wide, whatever its driver; `/api/devices`
