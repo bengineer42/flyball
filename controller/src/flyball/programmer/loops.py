@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from flyball.control.errors import TuningNotRegisteredError
 from flyball.control.setpoint import LinearRampSetpoint
 from flyball.core import Operator
 from flyball.core.clock import Duration, Speed
@@ -37,8 +38,11 @@ class Regulate(Command, tag="regulate", primary="setpoint"):
     """A stored tuning to swap in first, bumplessly."""
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
+        tuning = None
+        if self.tuning is not None and (tuning := rig.tunings.get(self.tuning)) is None:
+            raise TuningNotRegisteredError(self.tuning)
         for loop in _loops(rig, self.loop):
-            loop.regulate(self.setpoint, tuning=self.tuning)
+            loop.regulate(self.setpoint, tuning=tuning)
         return None
 
 

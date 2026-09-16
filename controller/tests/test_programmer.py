@@ -249,3 +249,27 @@ def test_a_command_step_refuses_demand_while_a_loop_regulates(rig, heater, probe
     rig.loops[heater.name].regulate(10.0)
     with pytest.raises(ConflictError):
         RunCommand(device_command="demand", actuator=heater.name, args={"demand": 5.0}).run(rig)
+
+
+def test_regulate_swaps_in_a_stored_tuning_by_name_and_names_a_missing_one(rig, fresh):
+    """The bug this guards: `tuning: gentle` used to hand the *name* to the loop."""
+    from flyball.control import P
+    from flyball.control.errors import TuningNotRegisteredError
+    from flyball.core.reading import Measurand, Sample, Source
+    from flyball.core.units.si import Celsius
+    from flyball.programmer.loops import Regulate
+    from flyball.sim import RecordingActuator
+
+    temp = Measurand(fresh("temp"), Celsius)
+    source = Source(fresh("source"), (temp,))
+    heater = RecordingActuator(fresh("heater"))
+    rig.attach_loop(source[temp], heater, law=P(kp=1.0), default=True)
+    rig.on_read([Sample(source, 1, rig.clock.now_ns(), {temp: 20.0})])
+    rig.tunings.add(P(kp=4.0).config.to_tuning("brisk"))
+
+    programmer = Programmer(rig)
+    programmer.start(Regulate(setpoint=30.0, loop=heater.name, tuning="brisk"))
+    assert rig.loops[heater.name].law.kp == 4.0
+
+    with pytest.raises(TuningNotRegisteredError, match="no_such_tuning"):
+        programmer.start(Regulate(setpoint=30.0, loop=heater.name, tuning="no_such_tuning"))
