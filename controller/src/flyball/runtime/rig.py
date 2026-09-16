@@ -23,6 +23,7 @@ from flyball.control.feedforward import FeedforwardLike, Feedforwards
 from flyball.core import Clock
 from flyball.core.device import RESERVED_NAMES, Condition, Device, Event, Level
 from flyball.core.errors import ConflictError, NotReadyError
+from flyball.core.router import RECENT_READINGS, Router
 from flyball.core.signal import (
     Access,
     AddressNotFoundError,
@@ -46,8 +47,6 @@ if TYPE_CHECKING:
     from .recorder import Recorder
 
 log = logging.getLogger("flyball.rig")
-RECENT_READINGS = 60
-"""How many readings the rig keeps per signal, for a stat on request: noise, rate."""
 
 
 class Rig:
@@ -74,8 +73,9 @@ class Rig:
     recorder: Recorder | None
     controllers: Controllers
     polling: Polling
-    latest: dict[Signal, Reading]
-    """The last reading delivered on each signal."""
+    router: Router
+    """Every current reading and latest sample; every device the rig holds shares it, and a
+    push on it runs a delivery here."""
     samples: Latest[str, Sample]
     """The newest published sample per node address, for a watcher. Built only while watched."""
     write_states: Latest[str, WriteState]
@@ -87,12 +87,9 @@ class Rig:
     reported before it does anything harder to undo."""
     _writers: dict[Device, Writer]
     """A thread per blocking device, carrying its applies and commits to the bus."""
-    _last_samples: dict[Node, Sample]
-    """The last sample delivered on each node."""
-    _last_cut: dict[Node, Sample]
-    """The last sample delivered on another node of the tree, cut down to this atomic one: a
-    root sample carrying `dry.humidity` is the newest instant on `dry` too."""
-    _recent: dict[Signal, deque[Reading]]
+    _pushed: list[Sample]
+    """Samples pushed from inside the delivery in progress (a commit's readbacks); delivered
+    next, as one more delivery."""
     _observers: dict[Signal, OrderedSet[Device]]
     """Devices with a bound input on a signal, by that signal."""
     _node_observers: dict[Node, OrderedSet[Device]]
@@ -117,17 +114,22 @@ class Rig:
         self.recorder = None
         self.controllers = Controllers()
         self.polling = Polling(self)
-        self.latest = {}
+        self.router = Router()
+        self.router.deliver = self.on_samples
+        self.router.now_ns = lambda: self.clock.now_ns()
         self.samples = Latest()
         self.write_states = Latest()
         self.controller_states = Latest()
-        self._last_samples = {}
-        self._last_cut = {}
-        self._recent = {}
+        self._pushed = []
         self._observers = {}
         self._node_observers = {}
         self._requested = {}
         self._touched = None
+
+    @property
+    def latest(self) -> dict[Signal, Reading]:
+        """The last reading delivered on each signal: the router's."""
+        return self.router.latest
 
     # region Names
 
@@ -172,6 +174,7 @@ class Rig:
         """
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
+        device.router = self.router
 
     # endregion
 
@@ -370,22 +373,19 @@ class Rig:
         if isinstance(target, Signal):
             if Access.R not in target.access:
                 raise ConflictError(f"'{target.address}' [{target.access}] is not readable")
-            if (reading := self.latest.get(target)) is None:
+            if (reading := self.router.reading(target)) is None:
                 raise NotReadyError(f"Nothing has been read on '{target.address}' yet")
             return reading
         if target.atomic:
-            known = (self._last_samples.get(target), self._last_cut.get(target))
-            if not (samples := [s for s in known if s is not None]):
+            if (sample := self.router.sample(target)) is None:
                 raise NotReadyError(f"Nothing has been read on '{target.address}' yet")
-            return max(samples, key=lambda s: s.time_ns)  # a tie: the one delivered on it
-        nodes = (target, *target.descendants())
-        return iter([s for n in nodes if (s := self._last_samples.get(n)) is not None])
+            return sample
+        return iter(list(self.router.samples_under(target)))
 
     def recent_readings(self, signal: Signal, n: int = RECENT_READINGS) -> list[Reading]:
         """The last `n` readings on `signal`, oldest first: a copy, so compute on it unlocked."""
         with self.lock:
-            recent = self._recent.get(signal)
-            return [] if recent is None else list(recent)[-n:]
+            return self.router.recent_readings(signal, n)
 
     def start_polling(self, device: Device) -> None:
         """Poll `device` on the smallest `poll_s` in its tree; nothing publishes on one: no-op."""
@@ -635,65 +635,67 @@ class Rig:
             self._check_sample(sample)
         if not samples:
             return
+        with self.lock:
+            if self._touched is not None:
+                # Pushed from inside a delivery (a commit's readbacks): the
+                # next delivery, once this one has committed.
+                self._pushed.extend(samples)
+                return
+            self._deliver_samples(samples)
+            while self._pushed:
+                pushed, self._pushed = self._pushed, []
+                self._deliver_samples(pushed)
+
+    def _deliver_samples(self, samples: Sequence[Sample]) -> None:
+        """One delivery, under the lock: note, observers, controllers, commits, recorder."""
         ticks: list[tuple[Controller, Reading]] = []
         published: list[Sample] = []
-        with self.lock:
-            touched: dict[Device, None] = {}
-            self._touched = touched
-            try:
-                for sample in samples:
-                    self._last_samples[sample.node] = sample
-                    if (streamed := sample.published()) is not None:
-                        published.append(streamed)
-                        if self.samples.watched:
-                            self.samples.set(sample.node.address, streamed)
-                    cuts: dict[Node, None] = {}
-                    messages: dict[tuple[Device, Node], None] = {}
-                    for reading in sample.readings():
-                        signal = reading.signal
-                        self.latest[signal] = reading
-                        if (recent := self._recent.get(signal)) is None:
-                            recent = self._recent[signal] = deque(maxlen=RECENT_READINGS)
-                        recent.append(reading)
-                        for device in self._observers.get(signal, ()):
-                            device.observe(reading)
-                            touched[device] = None
-                        # Every node on the way up from the signal, not just
-                        # the sample's, is an instant on that node: an atomic
-                        # one keeps it, a device bound to it hears it.
-                        node: Node | None = signal.node
-                        while node is not None:
-                            if node.atomic and node is not sample.node:
-                                cuts[node] = None
-                            for device in self._node_observers.get(node, ()):
-                                messages[device, node] = None
-                            node = node.parent
-                        if (controller := self.controllers.find(signal)) is not None:
-                            ticks.append((controller, reading))
-                    for node in cuts:
-                        if (cut := sample.under(node)) is not None:
-                            self._last_cut[node] = cut
-                    for device, node in messages:
-                        # A subscriber hears what publishes, as a signal-level
-                        # binding requires P; a fresh read of an R-only setting
-                        # is for whoever asked for it.
-                        if (message := sample.under(node)) is not None and (
-                            message := message.published()
-                        ) is not None:
-                            device.observe(message)
-                            touched[device] = None
-                for controller, reading in ticks:
-                    controller.on_reading(reading)
-                time_ns = max(s.time_ns for s in samples)
-                states = self._commit(touched, time_ns)
-            finally:
-                self._touched = None
-            self._deliver(states)
-            if self.controller_states.watched:
-                for controller, _ in ticks:
-                    self.controller_states.set(controller.name, controller.state)
-            if self.recorder is not None:
-                self.recorder.record(published, ticks, states, time_ns=time_ns)
+        touched: dict[Device, None] = {}
+        self._touched = touched
+        try:
+            for sample in samples:
+                self.router.note(sample)
+                if (streamed := sample.published()) is not None:
+                    published.append(streamed)
+                    if self.samples.watched:
+                        self.samples.set(sample.node.address, streamed)
+                messages: dict[tuple[Device, Node], None] = {}
+                for reading in sample.readings():
+                    signal = reading.signal
+                    for device in self._observers.get(signal, ()):
+                        device.observe(reading)
+                        touched[device] = None
+                    # Every node on the way up from the signal, not just
+                    # the sample's, is an instant on that node: a device
+                    # bound to it hears it.
+                    node: Node | None = signal.node
+                    while node is not None:
+                        for device in self._node_observers.get(node, ()):
+                            messages[device, node] = None
+                        node = node.parent
+                    if (controller := self.controllers.find(signal)) is not None:
+                        ticks.append((controller, reading))
+                for device, node in messages:
+                    # A subscriber hears what publishes, as a signal-level
+                    # binding requires P; a fresh read of an R-only setting
+                    # is for whoever asked for it.
+                    if (message := sample.under(node)) is not None and (
+                        message := message.published()
+                    ) is not None:
+                        device.observe(message)
+                        touched[device] = None
+            for controller, reading in ticks:
+                controller.on_reading(reading)
+            time_ns = max(s.time_ns for s in samples)
+            states = self._commit(touched, time_ns)
+        finally:
+            self._touched = None
+        self._deliver(states)
+        if self.controller_states.watched:
+            for controller, _ in ticks:
+                self.controller_states.set(controller.name, controller.state)
+        if self.recorder is not None:
+            self.recorder.record(published, ticks, states, time_ns=time_ns)
 
     @staticmethod
     def _check_sample(sample: Sample) -> None:

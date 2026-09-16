@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from enum import Enum
 
 import pytest
 
@@ -70,13 +71,23 @@ class TestSpecs:
         node = NodeSpec(name="dry", children=(spec,))
         assert node.atomic is False and node.poll_s is None
 
-    def test_only_float_scalars_yet_but_the_type_is_on_the_wire(self):
+    def test_typed_scalars_and_the_type_is_on_the_wire(self):
         spec = SignalSpec(name="zone1", quantity=TEMP, access=Access.RP)
-        assert spec.dtype == "float" and spec.shape == ()
-        assert {f.name for f in fields(spec)} >= {"dtype", "shape"}, "on the wire, no override"
-        with pytest.raises(ValueError, match="only float scalars are supported yet"):
-            SignalSpec(name="n", quantity=TEMP, access=Access.RP, dtype="int")  # type: ignore[arg-type]
-        with pytest.raises(ValueError, match="'zone1': dtype 'float' shape \\(3,\\): only float"):
+        assert spec.vtype is float and spec.dtype == "float" and spec.shape == ()
+        assert {f.name for f in fields(spec)} >= {"vtype", "shape"}, "on the wire, no override"
+
+        class Mode(Enum):
+            A = "a"
+
+        for vtype, dtype in (
+            (int, "int"),
+            (bool, "bool"),
+            (str, "str"),
+            (Mode, "enum"),
+            (list[int], "json"),
+        ):
+            assert SignalSpec(name="n", quantity=TEMP, access=Access.RP, vtype=vtype).dtype == dtype
+        with pytest.raises(ValueError, match="'zone1': shape \\(3,\\): only scalars yet"):
             SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, shape=(3,))
 
 

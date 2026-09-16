@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from enum import Flag, auto
+from enum import Enum, Flag, auto
 from typing import TYPE_CHECKING, Any, Literal
 
 from .errors import NotFoundError
@@ -24,6 +24,27 @@ from .units import Unit
 
 if TYPE_CHECKING:
     from .device import Device
+    from .router import Router
+
+
+type Value = Any
+"""What a reading carries: a float for a measurement, an enum member for a mode, a list or a
+dataclass for a structure. The signal's `vtype` says which; the wire's `dtype` names it."""
+
+
+def dtype_of(vtype: Any) -> str:
+    """The wire's name for a value type: float, int, bool, str, enum, or json for anything else."""
+    if vtype is float:
+        return "float"
+    if vtype is bool:
+        return "bool"
+    if vtype is int:
+        return "int"
+    if vtype is str:
+        return "str"
+    if isinstance(vtype, type) and issubclass(vtype, Enum):
+        return "enum"
+    return "json"
 
 
 class Access(Flag):
@@ -99,11 +120,13 @@ class SignalSpec:
     """One address segment: `"voltage"` under device `psu` is `psu.voltage`."""
     quantity: Quantity
     access: Access
-    dtype: Literal["float"] = "float"
-    """The element type of a value; on the wire so a client can tell before one arrives."""
+    vtype: Any = float
+    """The type of a value: `float` for a measurement, an enum for a mode, a model for a
+    structure. Anything pydantic can validate and describe."""
     shape: tuple[int, ...] = ()
-    """The dimensions of a value: `()` a scalar. Only float scalars are carried yet."""
+    """The dimensions of a value: `()` a scalar. Only scalars are carried yet."""
     label: str = ""
+    """The display text; `""` shows the titlecased name. The rig file may override it."""
     # read side (R / P)
     range: Band | None = None
     """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
@@ -124,11 +147,13 @@ class SignalSpec:
     def __post_init__(self) -> None:
         _check_segment(self.name)
         Access.check(self.access)
-        if self.dtype != "float" or self.shape != ():
-            raise ValueError(
-                f"signal {self.name!r}: dtype {self.dtype!r} shape {self.shape!r}:"
-                " only float scalars are supported yet"
-            )
+        if self.shape != ():
+            raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
+
+    @property
+    def dtype(self) -> str:
+        """The wire's name for `vtype`, so a client can tell what arrives before it does."""
+        return dtype_of(self.vtype)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -372,6 +397,29 @@ class Signal:
         """This signal's period: its own, else inherited down the tree from the device."""
         return self.node.poll_s if self.spec.poll_s is None else self.spec.poll_s
 
+    @property
+    def router(self) -> Router:
+        """Where this signal's values live: the rig's router once added, the device's own before."""
+        return self.node.device.router
+
+    @property
+    def reading(self) -> Reading | None:
+        """The newest reading on this signal, from the router; None before the first."""
+        return self.router.reading(self)
+
+    @property
+    def value(self) -> Value:
+        """The newest value on this signal.
+
+        Raises:
+            NotReadyError: Nothing has been read on it yet.
+        """
+        return self.router.value(self)
+
+    def push(self, value: Value, time_ns: int | None = None) -> None:
+        """Put `value` on this signal now (or at `time_ns`): a sample of one reading, delivered."""
+        self.router.push_reading(self, value, time_ns)
+
     def override(self, **changes: Any) -> None:
         """Replace metadata fields of the spec in place; the bound object keeps its identity."""
         self.spec = replace(self.spec, **changes)
@@ -402,7 +450,7 @@ class Reading:
 
     signal: Signal
     time_ns: int
-    value: float
+    value: Value
 
     @property
     def seconds(self) -> float:
@@ -424,7 +472,7 @@ class Sample:
 
     node: Node
     time_ns: int
-    values: Mapping[Signal, float]
+    values: Mapping[Signal, Value]
 
     @property
     def seconds(self) -> float:
@@ -435,7 +483,7 @@ class Sample:
         time_ns = self.time_ns
         return (Reading(signal, time_ns, value) for signal, value in self.values.items())
 
-    def by_name(self, relative_to: Node | None = None) -> dict[str, float]:
+    def by_name(self, relative_to: Node | None = None) -> dict[str, Value]:
         """The wire form: each value by its dotted path relative to `relative_to` (default `node`).
 
         Raises:

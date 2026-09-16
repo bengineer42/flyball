@@ -41,6 +41,7 @@ from pydantic.json_schema import JsonSchemaMode
 
 from .config import Config
 from .errors import NotFoundError
+from .router import Router
 from .signal import (
     Access,
     Band,
@@ -247,6 +248,8 @@ class Device:
     """What `apply` recorded since the last `commit`."""
     written: dict[Signal, WriteState]
     """The last state each W signal was committed to, for the wire."""
+    router: Router
+    """Where this device's values live: its own until a rig adds it, then the rig's."""
     config_type: ClassVar[type[DriverConfig[Any]]]
     settings_type: ClassVar[type[DeviceSettings]] = DeviceSettings
     state_type: ClassVar[type[DeviceState]] = DeviceState
@@ -258,6 +261,7 @@ class Device:
         self.bound = {}
         self.pending = {}
         self.written = {}
+        self.router = Router()
         self.bind(self.TREE)
 
     # region Tree
