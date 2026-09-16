@@ -49,11 +49,12 @@ export function Inputs({ devices, ...charts }: InputsProps) {
       <GroupingSelect value={grouping} onChange={group} />
     </PageBar>
   );
-  if (signals.length === 0)
+  const shown = devices.filter((d) => d.kind !== "simulation");
+  if (shown.length === 0)
     return (
       <>
         {bar}
-        <StateBlock state="empty" message="No signal publishes. Add a device with a publishing signal to the rig file to see readings here." />
+        <StateBlock state="empty" message="No devices declared. Add one to the rig file to see its readings here." />
       </>
     );
   return (
@@ -95,7 +96,7 @@ export function Inputs({ devices, ...charts }: InputsProps) {
       )}
       {grouping === "device" && (
         <div className="grid">
-          {publishing.map(({ device }) => (
+          {shown.map((device) => (
             <div key={device.name} className="c6 xl4">
               <DeviceSignals device={device} windowS={windowS} every={every} exportHref={(s) => stored.series(s.address)} />
             </div>

@@ -82,10 +82,31 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
         "commands": {
             tag: {
                 "description": spec.doc,
-                "arguments": TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"),
+                "arguments": _naming_signals(
+                    TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"), device
+                ),
                 "simulation": spec.simulation,
             }
             for tag, spec in cls.commands.items()
+        },
+    }
+
+
+def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]:
+    """Narrow a string argument called `signal` to the device's own signal paths.
+
+    The convention every driver follows (`fail(signal)`, `disturb(signal, offset)`):
+    an argument by that name picks one of the device's signals, so a form can
+    offer them rather than ask for free text.
+    """
+    field = arguments.get("properties", {}).get("signal")
+    if field is None or field.get("type") != "string" or not device.signals:
+        return arguments
+    return {
+        **arguments,
+        "properties": {
+            **arguments["properties"],
+            "signal": {**field, "enum": list(device.signals)},
         },
     }
 

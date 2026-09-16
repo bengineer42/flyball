@@ -10,7 +10,7 @@ import { Dashboards } from "./pages/Dashboards.js";
 import { DashboardSwitcher } from "./dashboard/DashboardSwitcher.js";
 import { Inputs, SignalDetail } from "./pages/Inputs.js";
 import { Graph } from "./pages/Graph.js";
-import { DevicePage, Devices } from "./pages/Devices.js";
+import { DevicePage } from "./pages/Devices.js";
 import { Controllers } from "./pages/Controllers.js";
 import { Events } from "./pages/Events.js";
 import { Sessions } from "./pages/Sessions.js";
@@ -178,10 +178,9 @@ export function App() {
               <Waits />
               {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
               {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
-              {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
               {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
               {page === "graph" && <Graph devices={all} {...charts} />}
-              {page === "devices" && name === null && <Devices devices={all} />}
+              {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
               {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
               {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
               {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}

@@ -103,6 +103,10 @@ class Drive(Device):
         """Stop heating."""
         self.duty = 0.0
 
+    @command(simulation=True)
+    def kick(self, signal: str, offset: float) -> None:
+        """Nudge one heater's output by `offset` W."""
+
 
 class Sensors(Device):
     """Two atomic namespaces, each read in its own transaction."""
@@ -205,6 +209,11 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "simulation": False,
         },
         {"name": "off", "description": "Stop heating.", "simulation": True},
+        {
+            "name": "kick",
+            "description": "Nudge one heater's output by `offset` W.",
+            "simulation": True,
+        },
     ]
     assert heaters["state"] == {"conditions": [], "duty": 0.0}
 
@@ -257,8 +266,12 @@ def test_device_schema_and_commands(client, rig, drive, daq):
         schema["description"]
         == "Two heaters `[W]` with limits, one command; keeps what it was told to put out."
     )
-    assert set(schema["commands"]) == {"set_duty", "off"}
+    assert set(schema["commands"]) == {"set_duty", "off", "kick"}
     assert schema["commands"]["set_duty"]["arguments"]["properties"]["duty"]["type"] == "number"
+    assert schema["commands"]["kick"]["arguments"]["properties"]["signal"]["enum"] == [
+        "heater1",
+        "heater2",
+    ], "an argument called `signal` offers the device's own signals"
     assert schema["commands"]["off"]["simulation"] is True
     assert schema["signals"]["heater1"] == {
         "address": f"{drive.name}.heater1",

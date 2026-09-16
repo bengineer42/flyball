@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
 export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "programs" | "events" | "sessions" | "simulation";
-/** The pages in the navigation; `devices` only exists as a list and a detail page reached from the others. Dashboards leads (spec §2: dashboard identity comes first), Overview second. */
-export const PAGES: Array<{ id: Exclude<Page, "devices">; label: string }> = [
+/** The pages in the navigation; `inputs` only exists as the signal detail page (`#/inputs/<address>`) reached from readouts. Dashboards leads (spec §2: dashboard identity comes first), Overview second. */
+export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
   { id: "overview", label: "Overview" },
-  { id: "inputs", label: "Inputs" },
+  { id: "devices", label: "Devices" },
   { id: "graph", label: "Graph" },
   { id: "controllers", label: "Controllers" },
   { id: "programs", label: "Programs" },
@@ -14,7 +14,7 @@ export const PAGES: Array<{ id: Exclude<Page, "devices">; label: string }> = [
   { id: "sessions", label: "Sessions" },
   { id: "simulation", label: "Simulation" },
 ];
-const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "devices"];
+const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "inputs"];
 
 /**
  * `#/inputs` → every publishing signal; `#/inputs/furnace.zone1` → one signal
