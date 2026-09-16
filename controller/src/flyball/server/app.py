@@ -61,11 +61,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 class BearerToken:
-    """Refuse every request and websocket without the token: a header, or `?token=` on a socket.
+    """Refuse every request and websocket without the token.
 
-    One shared secret for everything the daemon serves -- `/api`, `/ws`,
-    `/mcp` -- since any of them can drive the rig. Constant-time compare;
-    401 with a `detail` like every other refusal.
+    `Authorization: Bearer`, or `?token=` where a browser cannot set a
+    header: a websocket, and a plain navigation (an export link), which is
+    a GET. One shared secret for everything the daemon serves -- `/api`,
+    `/ws`, `/mcp` -- since any of them can drive the rig. Constant-time
+    compare; 401 with a `detail` like every other refusal.
     """
 
     def __init__(self, app: Any, token: str) -> None:
@@ -77,7 +79,7 @@ class BearerToken:
         auth = headers.get(b"authorization", b"").decode(errors="replace")
         if auth.lower().startswith("bearer "):
             return auth[7:].strip()
-        if scope["type"] == "websocket":  # a browser cannot set headers on a socket
+        if scope["type"] == "websocket" or scope.get("method") == "GET":
             tokens: list[str] = parse_qs(scope.get("query_string", b"").decode()).get("token", [])
             return tokens[0] if tokens else None
         return None

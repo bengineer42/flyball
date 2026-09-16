@@ -102,8 +102,11 @@ flyball controllers
 ## The token
 
 `--token T` (or `FLYBALL_TOKEN=T`) makes every request to `/api`, `/ws` and
-`/mcp` require `Authorization: Bearer T`; a websocket may pass `?token=T`
-instead, since a browser cannot set headers on one. Anything else is 401
+`/mcp` require `Authorization: Bearer T`; a websocket, or a plain `GET`
+the browser navigates to (an export link), may pass `?token=T` instead,
+since a browser cannot set headers on either -- a URL is logged where a
+header is not, so the header is the form to use wherever it can be set.
+Anything else is 401
 with a `detail` (a socket is closed with code 4401). The CLI, the client
 and `flyball-mcp` take `--token` or the same variable; the UI asks for it.
 Without a token the daemon serves anyone who can reach the port -- fine on

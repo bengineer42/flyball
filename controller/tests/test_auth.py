@@ -45,6 +45,12 @@ def test_http_refused_without_the_token_and_served_with_it(secured):
     assert secured.get("/api/health", headers={"Authorization": "Bearer s3cret"}).status_code == 200
 
 
+def test_a_get_takes_the_token_as_a_query_parameter_but_a_post_does_not(secured):
+    assert secured.get("/api/health?token=s3cret").status_code == 200
+    assert secured.get("/api/health?token=wrong").status_code == 401
+    assert secured.post("/mcp/read?token=s3cret", json={}).status_code == 401
+
+
 def test_mcp_and_openapi_are_behind_it_too(secured):
     assert secured.post("/mcp/read", json={}).status_code == 401
     assert secured.get("/openapi.json").status_code == 401
