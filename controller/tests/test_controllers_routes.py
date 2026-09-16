@@ -330,3 +330,53 @@ def test_a_detached_controller_leaves_the_stream(client, rig, daq, drive, clock)
     with client.websocket_connect("/ws/controllers") as ws:
         names = {c["name"] for c in ws.receive_json()["controllers"]}
     assert names == {heater2.address}, "the detached controller's state cell is gone"
+
+
+def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
+    """`start`: a value, or `setpoint` / `process` for the controller to resolve; default as before."""
+    target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
+    deliver(rig, daq)  # the reading is 21.5
+    client.post(
+        "/api/controllers",
+        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+    )
+    client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
+    ramp = {"tag": "linear_ramp_setpoint", "pace": {"minutes": 1}, "end": 80.0}
+
+    from_value = client.put(
+        f"/api/controllers/{target}/reference", json={"at": ramp, "start": 50.0}
+    )
+    assert from_value.status_code == 200
+    clock.advance(30.0)
+    deliver(rig, daq)
+    assert client.get(f"/api/controllers/{target}").json()["setpoint"] == pytest.approx(65.0), (
+        "50 → 80 over a minute, half way"
+    )
+
+    from_reading = client.put(
+        f"/api/controllers/{target}/reference", json={"at": ramp, "start": "process"}
+    )
+    assert from_reading.status_code == 200
+    clock.advance(30.0)
+    deliver(rig, daq)
+    assert client.get(f"/api/controllers/{target}").json()["setpoint"] == pytest.approx(
+        (21.5 + 80.0) / 2
+    ), "from the reading"
+
+    from_setpoint = client.put(
+        f"/api/controllers/{target}/reference", json={"at": ramp, "start": "setpoint"}
+    )
+    assert from_setpoint.status_code == 200
+    before = (21.5 + 80.0) / 2
+    clock.advance(30.0)
+    deliver(rig, daq)
+    assert client.get(f"/api/controllers/{target}").json()["setpoint"] == pytest.approx(
+        (before + 80.0) / 2
+    ), "from where the setpoint was"
+
+    assert (
+        client.put(
+            f"/api/controllers/{target}/reference", json={"at": ramp, "start": "nowhere"}
+        ).status_code
+        == 422
+    )

@@ -61,12 +61,17 @@ class Regulate(BaseModel):
     """Aim and hand control to the law."""
 
     at: float | ValueSource | GeneratorConfig  # type: ignore[valid-type]
+    start: float | ValueSource | None = None
+    """Where a generator starts from: a value, `setpoint`, `process` (the reading) or `demand`.
+    Omitted: the current setpoint while regulating, else the last reading."""
     tuning: LawConfig | str | None = None  # type: ignore[valid-type]
     transfer: Transfer = Transfer.TRACK
 
 
 class Reference(BaseModel):
     at: float | ValueSource | GeneratorConfig  # type: ignore[valid-type]
+    start: float | ValueSource | None = None
+    """Where a generator starts from; see `Regulate.start`."""
 
 
 class SignalChoice(BaseModel):
@@ -134,6 +139,11 @@ def _signal(rig: Rig, address: str) -> Signal:
     if not isinstance(target, Signal):
         raise NotFoundError(f"'{address}' is a namespace, not a signal")
     return target
+
+
+def _start(controller: Controller, start: float | ValueSource | None) -> float | ValueSource:
+    """The request's `start` as given (the controller resolves a `ValueSource`), else the default rule."""
+    return _generator_start(controller) if start is None else start
 
 
 def _generator_start(controller: Controller) -> float:
@@ -229,7 +239,7 @@ def regulate(rig: RigDep, address: str, body: Regulate) -> ControllerOut:
     if isinstance(tuning, str) and (tuning := rig.tunings.get(tuning)) is None:
         raise NotFoundError(f"Tuning {body.tuning!r} not found")
     generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
-    at = _generator_start(controller) if generator is not None else body.at
+    at = _start(controller, body.start) if generator is not None else body.at
     with rig.lock:
         controller.regulate(at, generator=generator, tuning=tuning, transfer=body.transfer)  # type: ignore[arg-type]
     return _out(rig, address)
@@ -248,7 +258,7 @@ def set_reference(rig: RigDep, address: str, body: Reference) -> ControllerOut:
     """Move the setpoint, or start following a generator, without touching the mode."""
     controller = rig.controllers.resolve(address)
     generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
-    at = _generator_start(controller) if generator is not None else body.at
+    at = _start(controller, body.start) if generator is not None else body.at
     with rig.lock:
         controller.set_reference(at, generator=generator)  # type: ignore[arg-type]
     return _out(rig, address)
