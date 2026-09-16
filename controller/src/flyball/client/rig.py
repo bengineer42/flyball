@@ -5,7 +5,7 @@ validating arguments against the schema before sending:
 
     rig = Rig("http://pi:8000")
     rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
-    rig.devices.sht4x.view()["state"]
+    rig.devices.sht4x.view()["conditions"]
     rig.demand("heaters.heater1", 1200.0)
     for frame in rig.watch("controllers"):
         ...
@@ -50,7 +50,7 @@ class Device:
         return self.schema["commands"]
 
     def view(self) -> dict[str, Any]:
-        """The device's tree, state and commands now."""
+        """The device's tree with its current values, inputs, commands and conditions."""
         return self._rig.get(f"/api/devices/{self.name}")
 
     def run(self, command: str, **arguments: Any) -> Any:
@@ -62,7 +62,7 @@ class Device:
                 f"{self.name} has no command {command!r}; it has {sorted(self.commands)}"
             ) from None
         validate(spec["arguments"], arguments, where=f"{self.name}.{command}")
-        return self._rig.post(f"/api/devices/{self.name}/{command}", arguments)
+        return self._rig.post(f"/api/devices/{self.name}/commands/{command}", arguments)
 
     def __getattr__(self, command: str) -> Any:
         if command.startswith("_") or command not in self.schema.get("commands", {}):
