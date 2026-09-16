@@ -45,7 +45,9 @@ def _cache_path(url: str) -> Path:
     return root / (hashlib.sha1(url.encode()).hexdigest()[:12] + ".json")
 
 
-def load_schema(url: str, refresh: bool, offline: Path | None) -> tuple[dict[str, Any], str]:
+def load_schema(
+    url: str, refresh: bool, offline: Path | None, token: str | None = None
+) -> tuple[dict[str, Any], str]:
     """The rig's schema and where it came from: the rig, the cache, or a file."""
     if offline is not None:
         return json.loads(offline.read_text()), f"file {offline}"
@@ -55,7 +57,7 @@ def load_schema(url: str, refresh: bool, offline: Path | None) -> tuple[dict[str
             return json.loads(cache.read_text()), "cache"
         except ValueError:
             pass
-    schema = Rig(url).refresh()
+    schema = Rig(url, token=token).refresh()
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(schema))
     return schema, "rig"
@@ -222,6 +224,9 @@ def _global_options(parser: argparse.ArgumentParser) -> None:
         help=f"daemon base URL (env FLYBALL_URL, default {DEFAULT_URL})",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="seconds per request")
+    parser.add_argument(
+        "--token", default=None, help="bearer token the daemon was started with (env FLYBALL_TOKEN)"
+    )
     parser.add_argument("--json", action="store_true", help="print raw JSON, one document per line")
     parser.add_argument(
         "--refresh", action="store_true", help="fetch the schema again rather than use the cache"
@@ -720,7 +725,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     schema: dict[str, Any] | None = None
     try:
         if not local:
-            schema, _ = load_schema(pre_args.url, pre_args.refresh, pre_args.offline)
+            schema, _ = load_schema(
+                pre_args.url, pre_args.refresh, pre_args.offline, pre_args.token
+            )
     except Unreachable as e:
         cache = _cache_path(pre_args.url)
         if cache.exists():
@@ -732,7 +739,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not hasattr(args, "fn"):
         parser.print_help()
         return 0
-    rig = Rig(args.url, timeout=args.timeout, schema=schema)
+    rig = Rig(args.url, timeout=args.timeout, schema=schema, token=args.token)
     try:
         if getattr(args, "local", False) and schema is None:
             schema = {}  # a local command: no rig needed

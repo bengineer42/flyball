@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -42,6 +43,8 @@ def serve(
     tunings: Path | None = None,
     config: RigConfig | None = None,
     drivers: Path | None = None,
+    token: str | None = None,
+    compose: bool = False,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -60,6 +63,10 @@ def serve(
         config: What the rig was built from, for `/api/rig/config`.
         drivers: A directory of driver files, imported before serving and
             again on `/api/drivers/reload`. A missing directory is fine.
+        token: A bearer token every request must carry -- `/api`, `/ws` and
+            `/mcp` alike; None serves to anyone who can reach the port.
+        compose: Allow the composition API to build on a hardware rig; a
+            simulated or bare rig always may.
     """
     import uvicorn
 
@@ -67,7 +74,13 @@ def serve(
     from flyball.mcp.http import mount
     from flyball.programmer import Programmer
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
-    from flyball.server.deps import set_drivers_dir, set_programs_dir, set_rig_config, set_store
+    from flyball.server.deps import (
+        set_compose,
+        set_drivers_dir,
+        set_programs_dir,
+        set_rig_config,
+        set_store,
+    )
     from flyball.server.routes import dashboards
     from flyball.server.routes.library import import_directory, load_tunings
 
@@ -78,6 +91,7 @@ def serve(
     set_store(store)
     set_programs_dir(programs)
     set_rig_config(config)
+    set_compose(compose)
     set_drivers_dir(drivers)
     if store is not None and programs is not None and programs.is_dir():
         imported = import_directory(store, programs, rig.clock.now_ns())
@@ -89,12 +103,13 @@ def serve(
     if store is not None and boards is not None and boards.is_dir():
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
-    app = create_app()
-    mount(app, Client(f"http://127.0.0.1:{port}"))  # `/mcp/<mode>`: a model's way in
+    app = create_app(token)
+    mount(app, Client(f"http://127.0.0.1:{port}", token=token))  # `/mcp/<mode>`: a model's way in
     try:
         uvicorn.run(app, host=host, port=port, log_level=log_level)
     finally:
         programmer.interrupt()
+        set_compose(False)
         set_rig_config(None)
         set_drivers_dir(None)
         set_programs_dir(None)
@@ -207,6 +222,17 @@ def parser() -> argparse.ArgumentParser:
         " through the API and not saved comes back",
     )
     p.add_argument("--host", default="127.0.0.1", help="bind address (default: loopback only)")
+    p.add_argument(
+        "--compose",
+        action="store_true",
+        help="allow the rig to be built up over the API on a hardware rig"
+        " (a simulated or bare rig always may)",
+    )
+    p.add_argument(
+        "--token",
+        default=os.environ.get("FLYBALL_TOKEN") or None,
+        help="bearer token every request must carry (env FLYBALL_TOKEN); default: none, open",
+    )
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--log-level", default="info")
     p.add_argument("--record", action="store_true", help="open a recording session on start")
@@ -294,6 +320,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         tunings,
         config,
         drivers,
+        args.token,
+        args.compose,
     )
     return 0
 

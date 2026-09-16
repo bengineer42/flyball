@@ -764,8 +764,9 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 # find out what is there; `attach_device` puts an entry on the running rig.
 # Equipment that needs code gets the guide, a scaffold, a checker that
 # imports the file where this server runs, and `reload_drivers` for a
-# directory the daemon loads from. The routes these need are in `MCP.md`; a
-# tool whose route the daemon does not serve yet is not listed.
+# directory the daemon loads from. A tool whose route the daemon does not
+# serve is not listed. Building on a hardware rig is the daemon's
+# `--compose` opt-in: without it the attach tools are refused with 409.
 
 GUIDES = Path(__file__).parent / "guides"
 
@@ -906,7 +907,8 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "attach_device",
         "Build a device from a rig-file entry and add it to the running rig, its links "
-        "resolved; `check_rig` the whole file first. `save_rig` keeps it.",
+        "resolved; `check_rig` the whole file first. `save_rig` keeps it. On a hardware rig "
+        "only when the daemon runs with `--compose`.",
         _object(
             {
                 "name": NAME,
@@ -937,7 +939,8 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "attach_link",
         "Build a transport on the running rig and hold it under `name`, for devices to be "
-        "built on: the rig file's `links:` entry (`tag`, its settings).",
+        "built on: the rig file's `links:` entry (`tag`, its settings). On a hardware rig only "
+        "when the daemon runs with `--compose`.",
         _object(
             {"name": NAME, "config": {"type": "object", "description": "The link config."}},
             "name",
@@ -960,7 +963,8 @@ DRIVERS: tuple[Tool, ...] = (
         "attach_document",
         "Add a whole rig document -- `links`, `devices`, `controllers` -- to the running rig, "
         "in that order; the way to build a rig from nothing. Validated whole before anything "
-        "is built; a failure part-way leaves what was built before it. `check_rig` first.",
+        "is built; a failure part-way leaves what was built before it. `check_rig` first. On a "
+        "hardware rig only when the daemon runs with `--compose`.",
         _object({"document": DOCUMENT}, "document"),
         Tier.DRIVE,
         lambda rig, a: rig.post("/api/rig", a["document"]),

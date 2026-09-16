@@ -16,6 +16,7 @@ The CLI is this with argparse in front.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from typing import Any
 
@@ -107,25 +108,37 @@ class Devices:
 
 
 class Rig:
-    """A running rig, over HTTP. `schema` may be given to work from a saved one."""
+    """A running rig, over HTTP. `schema` may be given to work from a saved one.
+
+    `token` is sent as a bearer token when the daemon was started with one;
+    `FLYBALL_TOKEN` in the environment is the default.
+    """
 
     def __init__(
         self,
         url: str = "http://127.0.0.1:8000",
         timeout: float = 5.0,
         schema: dict[str, Any] | None = None,
+        token: str | None = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self._schema = schema
+        self.token = os.environ.get("FLYBALL_TOKEN") if token is None else token
 
     # region Transport
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         import httpx  # the one dependency, imported here so the schema-only paths need nothing
 
         try:
-            response = httpx.request(method, self.url + path, json=body, timeout=self.timeout)
+            response = httpx.request(
+                method, self.url + path, json=body, timeout=self.timeout, headers=self.headers
+            )
         except httpx.HTTPError as e:
             raise Unreachable(self.url, e) from e
         if response.status_code >= 400:
@@ -201,7 +214,7 @@ class Rig:
         from websockets.sync.client import connect
 
         ws_url = self.url.replace("http://", "ws://", 1).replace("https://", "wss://", 1)
-        with connect(f"{ws_url}/ws/{stream}") as socket:
+        with connect(f"{ws_url}/ws/{stream}", additional_headers=self.headers) as socket:
             for message in socket:
                 yield json.loads(message)
 

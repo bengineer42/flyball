@@ -160,6 +160,11 @@ def parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--timeout", type=float, default=30.0, help="seconds per request")
     p.add_argument(
+        "--token",
+        default=None,
+        help="bearer token the daemon was started with (env FLYBALL_TOKEN)",
+    )
+    p.add_argument(
         "--mode",
         choices=list(MODES),
         default="read",
@@ -176,7 +181,7 @@ async def _serve(server: Server[Any]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    rig = Rig(args.url, timeout=args.timeout)
+    rig = Rig(args.url, timeout=args.timeout, token=args.token)
     try:
         rig.schema  # fail now, with a message, rather than on the first tool call  # ruff: ignore[useless-expression]
     except RigError as e:

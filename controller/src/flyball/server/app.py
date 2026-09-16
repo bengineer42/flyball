@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import hmac
 from collections.abc import AsyncIterator
+from typing import Any
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,7 +60,49 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 rig.stop_recording()
 
 
-def create_app() -> FastAPI:
+class BearerToken:
+    """Refuse every request and websocket without the token: a header, or `?token=` on a socket.
+
+    One shared secret for everything the daemon serves -- `/api`, `/ws`,
+    `/mcp` -- since any of them can drive the rig. Constant-time compare;
+    401 with a `detail` like every other refusal.
+    """
+
+    def __init__(self, app: Any, token: str) -> None:
+        self.app = app
+        self.token = token
+
+    def _given(self, scope: Any) -> str | None:
+        headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
+        auth = headers.get(b"authorization", b"").decode(errors="replace")
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        if scope["type"] == "websocket":  # a browser cannot set headers on a socket
+            tokens: list[str] = parse_qs(scope.get("query_string", b"").decode()).get("token", [])
+            return tokens[0] if tokens else None
+        return None
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        given = self._given(scope)
+        if given is not None and hmac.compare_digest(given, self.token):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4401, "reason": "token required"})
+            return
+        response = JSONResponse(
+            status_code=401,
+            content={"detail": "This daemon needs a bearer token (Authorization: Bearer ...)"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        await response(scope, receive, send)
+
+
+def create_app(token: str | None = None) -> FastAPI:
+    """The app; with `token`, everything it serves needs it (see `BearerToken`)."""
     app = FastAPI(
         title="flyball",
         summary="flyball control rig",
@@ -113,6 +158,8 @@ def create_app() -> FastAPI:
     app.include_router(dashboards_router)
     app.include_router(library_router)
     app.include_router(telemetry_router)
+    if token:
+        app.add_middleware(BearerToken, token=token)
     return app
 
 
