@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from enum import Enum, Flag, auto
-from typing import TYPE_CHECKING, Any, Literal
+from enum import Enum, Flag, StrEnum, auto
+from typing import TYPE_CHECKING, Any
 
 from .errors import NotFoundError
 from .quantity import Quantity
@@ -107,6 +107,18 @@ _ROLE_ACCESS: dict[Any, Access] = {}
 
 
 type Band = tuple[float, float]
+
+
+class Limit(StrEnum):
+    """Which end of its limits a demand sits on: the rig clamped it, or the driver railed it."""
+
+    LOW = "low"
+    HIGH = "high"
+
+    @property
+    def fraction(self) -> float:
+        """The end as a fraction of the span: 0 for low, 1 for high."""
+        return 1.0 if self is Limit.HIGH else 0.0
 
 
 class Role(Enum):
@@ -445,9 +457,9 @@ class Signal:
     path: Path
     """The address relative to the device: `dry.humidity`."""
     access: Access
-    at_limit: Literal["low", "high"] | None = None
+    at_limit: Limit | None = None
     """What the driver says of the last demand on it: railed low or high, or neither. Set in
-    `commit`; the rig puts it on the demand's reading."""
+    `commit`; the rig puts it on the demand's write state."""
 
     def __repr__(self) -> str:
         return f"Signal({self.address} [{self.access}])"
@@ -548,12 +560,12 @@ class Signal:
 
     def write_state(self, value: float) -> WriteState:
         """What committing `value` reports: at a limit when it sits on one (the rig clamped)."""
-        at_limit: Literal["low", "high"] | None = None
+        at_limit: Limit | None = None
         if (limits := self.limits) is not None:
             if value <= limits[0]:
-                at_limit = "low"
+                at_limit = Limit.LOW
             elif value >= limits[1]:
-                at_limit = "high"
+                at_limit = Limit.HIGH
         return WriteState(value=value, requested=None, at_limit=at_limit, controller=None)
 
 
@@ -647,6 +659,6 @@ class WriteState:
     """What was last set, after limits."""
     requested: float | None = None
     """What was asked for, if it differed."""
-    at_limit: Literal["low", "high"] | None = None
+    at_limit: Limit | None = None
     controller: str | None = None
     """The controller driving it, if any; it refuses manual demands."""

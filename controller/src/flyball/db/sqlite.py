@@ -21,7 +21,7 @@ from pydantic_core import to_jsonable_python
 
 from flyball.core.device import Device
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.signal import Access, Band, Sample, Signal, WriteState
+from flyball.core.signal import Access, Band, Limit, Sample, Signal, WriteState
 
 from .errors import (
     DashboardNotFoundError,
@@ -705,7 +705,11 @@ class SqliteStore:
         where, params = _window_clause(window, "offset_ns")
         return [
             WriteStateRow(
-                r["offset_ns"], r["value"], r["requested"], r["at_limit"], r["controller"]
+                r["offset_ns"],
+                r["value"],
+                r["requested"],
+                None if r["at_limit"] is None else Limit(r["at_limit"]),
+                r["controller"],
             )
             for r in self._query(
                 "SELECT * FROM write_state WHERE session_id = ? AND signal_id = ?"

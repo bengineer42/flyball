@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
-from flyball.core.signal import Band
+from flyball.core.signal import Band, Limit
 from flyball.core.utils import Labelled
 
 # region Declarations
@@ -219,7 +219,7 @@ class WriteStateRow:
     offset_ns: int
     value: float | None
     requested: float | None = None
-    at_limit: Literal["low", "high"] | None = None
+    at_limit: Limit | None = None
     controller: str | None = None
 
 

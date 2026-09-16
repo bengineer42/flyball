@@ -34,6 +34,7 @@ from flyball.core.router import RECENT_READINGS, Router
 from flyball.core.signal import (
     Access,
     AddressNotFoundError,
+    Limit,
     Node,
     Reading,
     Sample,
@@ -546,9 +547,9 @@ class Rig:
             at_limit = signal.at_limit
             if at_limit is None and (limits := signal.limits) is not None:
                 if value <= limits[0]:
-                    at_limit = "low"
+                    at_limit = Limit.LOW
                 elif value >= limits[1]:
-                    at_limit = "high"
+                    at_limit = Limit.HIGH
             holder = self.controllers.driving(signal)
             state = WriteState(
                 value=value,

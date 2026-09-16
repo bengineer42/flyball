@@ -11,7 +11,7 @@ controller's (its target's). The rig resolves them once at the boundary.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, TypeAdapter
 
@@ -27,7 +27,7 @@ from flyball.control import (
 from flyball.core.clock import Clock
 from flyball.core.device import CommandSpec, Condition, Device, Input
 from flyball.core.model import discriminated_union
-from flyball.core.signal import Node, Reading, Sample, Signal, WriteState
+from flyball.core.signal import Limit, Node, Reading, Sample, Signal, WriteState
 from flyball.runtime.polling import DeviceRun
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
@@ -102,7 +102,7 @@ class WriteOut(BaseModel):
     value: float | None
     requested: float | None = None
     """What was asked for, when the clamp changed it."""
-    at_limit: Literal["low", "high"] | None = None
+    at_limit: Limit | None = None
     controller: str | None = None
     """The controller driving it; it refuses manual demands."""
 
