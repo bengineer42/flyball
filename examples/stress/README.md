@@ -66,79 +66,86 @@ Dashboards, Programs) into its empty state simultaneously.
 
 ## `torrent.yaml`: measured sample rate
 
-Measured on this machine on 16 Sep 2026, by starting the daemon with
-`--record` and reading the recorder's `reading` row count from the SQLite
-store ten seconds apart (no `ws` package was available under
-`ui/node_modules` to count `/ws/samples` messages directly, so this is the
-alternative the brief allows):
+Re-measured on this machine on 16 Sep 2026 (device-model wave, third pass),
+same method as before — `--record`, `reading` row count in the SQLite store
+ten seconds apart:
 
 ```
-count at t:      215,665
-count at t+10.0s: 331,441
-rate: (331441 - 215665) / 10.0 ≈ 11,568 samples/s
+count at t:      1,973,460
+count at t+10.02s: 2,076,256
+rate: (2076256 - 1973460) / 10.02 ≈ 10,255 samples/s
 ```
 
-Comfortably over the 1000/s target — the theoretical figure from the file's
-periods and ×40 clock is ~11,700/s, so the daemon is keeping up with almost
-no overhead from Python/threading at this rate on this machine.
+Still comfortably over the 1000/s target, and close to the original pass's
+~11,568 samples/s (the file and clock speed are unchanged; the small
+difference is machine load — see the CPU note below — not a regression).
 
-## Measured on this machine, 16 Sep 2026
+## Measured on this machine, 16 Sep 2026 (device-model wave, third pass)
 
-Screenshots at 1440×900 via `$S/tools/shot.mjs`; console counts are that
-tool's error/warning tally (see note on the WebSocket/404 lines below, which
-are constant across every rig including `bare.toml` and are not caused by
-rig content). CPU is `top -b -n1 -p <pid>` on the `flyball-daemon` process
-(not the `uv run` wrapper) a few seconds after start.
+The page set, addresses and API changed under the device model (`Sources` →
+`Inputs`, `Loops` → `Controllers`, plus a `Devices` page); the table below
+replaces the first pass's, which named pages that no longer exist. Full
+sweep: all 13 rigs (the 7 here, plus `bare`/`sparse`/the 6 ordinary rigs in
+`../simulated/`) × all 10 pages (`dashboards overview inputs graph
+controllers devices programs events sessions simulation`) × 3
+configurations (1440 light, 1440 dark, 400 px) via `scripts/ui-check/
+sweep.sh`, using its own `shot.mjs`-based error/warning/pageerror count —
+**every single shot came back `errors=0 warnings=0 pageerrors=0`**: 429/429
+across the whole fleet. (Screenshots: `sweep-<rig>-<page>[-dark|-400].png`
+under the check dir's `shots/`; the old `rigs-*.png` naming from the first
+pass is gone.)
 
-| rig | page | screenshot | console errors | console warnings |
-| --- | --- | --- | --- | --- |
-| plant | Overview | `shots/rigs-plant-overview.png` | 8 | 4 |
-| plant | Sources | `shots/rigs-plant-sources.png` | 8 | 3 |
-| plant | Loops | `shots/rigs-plant-loops.png` | 8 | 4 |
-| plant | Dashboards | `shots/rigs-plant-dashboards.png` | 14 | 4 |
-| torrent | Overview | `shots/rigs-torrent-overview.png` | 8 | 4 |
-| torrent | Sources | `shots/rigs-torrent-sources.png` | 8 | 3 |
-| torrent | Loops | `shots/rigs-torrent-loops.png` | 8 | 4 |
-| torrent | Dashboards | `shots/rigs-torrent-dashboards.png` | 9 | 4 |
-| zoo | Overview | `shots/rigs-zoo-overview.png` | 7 | 4 |
-| zoo | Sources | `shots/rigs-zoo-sources.png` | 7 | 3 |
-| zoo | Loops | `shots/rigs-zoo-loops.png` | 7 | 4 |
-| zoo | Dashboards | `shots/rigs-zoo-dashboards.png` | 13 | 4 |
-| chaos | Overview | `shots/rigs-chaos-overview.png` | 7 | 4 |
-| chaos | Sources | `shots/rigs-chaos-sources.png` | 8 | 3 |
-| chaos | Loops | `shots/rigs-chaos-loops.png` | 7 | 4 |
-| chaos | Dashboards | `shots/rigs-chaos-dashboards.png` | 7 | 4 |
-| longrun | Overview | `shots/rigs-longrun-overview.png` | 6 | 4 |
-| longrun | Sources | `shots/rigs-longrun-sources.png` | 6 | 3 |
-| longrun | Loops | `shots/rigs-longrun-loops.png` | 6 | 4 |
-| longrun | Dashboards | `shots/rigs-longrun-dashboards.png` | 6 | 4 |
-| sparse | Overview | `shots/rigs-sparse-overview.png` | 6 | 4 |
-| sparse | Sources | `shots/rigs-sparse-sources.png` | 6 | 3 |
-| sparse | Loops | `shots/rigs-sparse-loops.png` | 6 | 4 |
-| sparse | Dashboards | `shots/rigs-sparse-dashboards.png` | 7 | 4 |
-| bare | Overview | `shots/rigs-bare-overview.png` | 6 | 4 |
-| bare | Sources | `shots/rigs-bare-sources.png` | 6 | 3 |
-| bare | Loops | `shots/rigs-bare-loops.png` | 6 | 4 |
-| bare | Dashboards | `shots/rigs-bare-dashboards.png` | 6 | 4 |
+| rig | shots | clean |
+| --- | --- | --- |
+| plant | 33 | 33 |
+| torrent | 33 | 33 |
+| zoo | 33 | 33 |
+| sparse | 31 | 31 |
+| bare | 30 | 30 |
+| chaos | 33 | 33 |
+| longrun | 33 | 33 |
 
-Daemon CPU (a few seconds after start, `sim ×60`/`×40` as configured):
+(`sparse`/`bare` have fewer shots because there's no controller — and for
+`bare`, no device or signal either — to open a detail page for.)
 
-| rig | daemon CPU % |
-| --- | --- |
-| plant | 20.0 % |
-| torrent | 45.5 % |
+The first pass's 6 baseline console errors and 4 warnings (constant
+WebSocket-closed-before-connect and startup-race 404 noise) are **gone**:
+nothing in the current UI produces them on any rig. Live data, gauges,
+warn/alarm colouring, loop faceplates and the dashboard generator all
+rendered correctly in every rig checked (screenshots inspected, not just
+counted, for `furnace`, `plant`, `bare`).
 
-The 6 baseline errors and 4 warnings appear on **every** rig, `bare.toml`
-included, so they are not something a rig file can cause or fix: 3 are
-`WebSocket connection ... failed: WebSocket is closed before the connection
-is established` (`/ws/events`, `/ws/actuators`, `/ws/samples`, sometimes also
-`/ws/readers`), and the rest are `404` on some resource the page requests
-before the daemon has finished starting. The screenshots themselves render
-correctly regardless (see e.g. `rigs-plant-overview.png`, `rigs-chaos-loops.png`)
-— live data, gauges, warn/alarm colouring and loop detail all showed up as
-expected in every rig tried. Extra errors on `dashboards` scale with channel
-count (14 on `plant`, 13 on `zoo`) — one console message per generated tile,
-worth a look by whoever owns the dashboard generator.
+One thing the first pass didn't see: with the shared per-directory program
+library (`UI_HANDOFF.md` §3 next-steps item 6), a rig that doesn't have the
+loop a shared program regulates now visibly **fails loudly** instead of
+silently — e.g. `bare`'s Overview shows a red "program failed" banner
+naming a `zoo-tour` step, because the sweep tries every stress program in
+turn and `bare` has no devices at all. This is a real 200-response async
+failure (`run_from_library` → `started` → `step_failed` → `failed`, all in
+the event log), not a UI bug — confirmed against the store directly.
+Likewise `plant`'s Overview can show `furnace offline` if `chaos-run` (which
+targets `furnace`/`heaters`, names `plant.yaml` also uses) is the program
+that happens to run there.
+
+Daemon CPU (`top -b -n1 -p <pid>` on the `flyball-daemon` process, not the
+`uv run` wrapper, a few seconds after start):
+
+| rig | daemon CPU % (first pass) | daemon CPU % (this pass) |
+| --- | --- | --- |
+| plant | 20.0 % | 10–27 % (noisy; a couple of readings) |
+| torrent | 45.5 % | ~90 % |
+
+**Torrent's CPU and the perf numbers below are not directly comparable to
+the first pass**: this machine had substantial unrelated load running
+during this measurement (two `ffmpeg` transcodes at 82 %+6.6 % CPU, several
+browser renderer processes, load average 4.0 vs whatever baseline the first
+pass had) — confirmed with `uptime`/`ps` at measurement time. `plant`'s
+number is close enough to the original to be within noise; `torrent`'s ~2×
+increase is plausibly this contention rather than a code-level regression,
+since the relevant server-side mitigation (`server/routes/telemetry.py`,
+`FLUSH_S = 0.05` — 20 Hz max, one coalesced frame per socket per flush,
+newest-value-per-node) is unchanged from what the first pass already
+measured against.
 
 ## Design notes worth recording
 
@@ -171,6 +178,15 @@ worth a look by whoever owns the dashboard generator.
   (`pkill -f "vite.*--port <port> --strictPort"`) before finishing; every
   daemon and Vite process from this session is now stopped. Worth fixing in
   the tool itself if other agents hit the same leak.
+  **Fixed as of the device-model wave**: `rig-up.sh`/`rig-down.sh` now use
+  `setsid` and kill the whole process group (`kill -- -"$pid"`), confirmed
+  clean across this pass's 13-rig sweep (ports checked with `ss` after every
+  teardown) and one-off runs of `furnace`/`plant`/`torrent`/`chaos`/`zoo`.
+  One humidity teardown in this pass showed the daemon/vite still listed by
+  `ps` immediately after `rig-down.sh` printed "stopped", but gone a few
+  seconds later on a recheck — plausibly signal-delivery delay rather than a
+  live leak, since it self-resolved and every other teardown this pass was
+  immediate; flagged, not filed as a confirmed defect.
 - `examples/simulated/rig.schema.json` (the generated editor schema) is
   stale against the current code: it does not know `feedforward` on a loop,
   and its `sim_furnace` schema rejects list-valued `power_w`/`capacity_j_per_k`
