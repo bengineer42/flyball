@@ -69,12 +69,19 @@ const stem = (filename: string) => filename.replace(/\.[^.]+$/, "");
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** ok / error chip for a stored program's server-side check. */
+/** "step 3: loop 'x' is not on the rig", one line per warning, for a tooltip. */
+const warningLines = (warnings: Record<string, string>) =>
+  Object.entries(warnings)
+    .map(([i, m]) => `step ${Number(i) + 1}: ${m}`)
+    .join("\n");
+
 function CheckChip({ check }: { check: { data: ProgramCheck | undefined; error: Error | undefined } }) {
   if (check.error) return <Chip label="check failed" color="default" variant="outlined" title={check.error.message} />;
   if (!check.data) return <Chip label="…" variant="outlined" />;
+  const warnings = Object.keys(check.data.warnings ?? {}).length;
   return (
-    <Tooltip title={check.data.ok ? "The rig accepts this program" : check.data.error ?? "invalid"}>
-      <Chip label={check.data.ok ? "ok" : "error"} color={check.data.ok ? "success" : "error"} variant="outlined" />
+    <Tooltip title={check.data.ok ? (warnings ? warningLines(check.data.warnings) : "The rig accepts this program") : check.data.error ?? "invalid"}>
+      <Chip label={check.data.ok ? (warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : "ok") : "error"} color={check.data.ok ? (warnings ? "warning" : "success") : "error"} variant="outlined" />
     </Tooltip>
   );
 }
@@ -431,6 +438,8 @@ interface CheckState {
   /** The whole-program message when the error names no step (or on top of the step ones). */
   error: string | null;
   stepErrors: Record<number, string>;
+  /** What steps name that the rig lacks right now; the program is still accepted. */
+  stepWarnings: Record<number, string>;
   normalised: unknown;
 }
 
@@ -582,11 +591,11 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     const handle = window.setTimeout(async () => {
       let result: CheckState;
       try {
-        const normalised = await rig.checkProgram(tree);
-        result = { ok: true, error: null, stepErrors: {}, normalised };
+        const { normalised, warnings } = await rig.checkProgram(tree);
+        result = { ok: true, error: null, stepErrors: {}, stepWarnings: Object.fromEntries(Object.entries(warnings ?? {}).map(([i, m]) => [Number(i), m])), normalised };
       } catch (e) {
         const { index, message: why } = stepOfError(e);
-        if (index !== null) result = { ok: false, error: null, stepErrors: { [index]: briefError(why) }, normalised: null };
+        if (index !== null) result = { ok: false, error: null, stepErrors: { [index]: briefError(why) }, stepWarnings: {}, normalised: null };
         else {
           const stepErrors: Record<number, string> = {};
           if (tree.steps.length > 1 && !(e instanceof RigError && e.status !== 422)) {
@@ -602,7 +611,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
               if (m) stepErrors[i] = m;
             });
           } else if (tree.steps.length === 1) stepErrors[0] = briefError(why);
-          result = { ok: false, error: Object.keys(stepErrors).length ? null : briefError(why), stepErrors, normalised: null };
+          result = { ok: false, error: Object.keys(stepErrors).length ? null : briefError(why), stepErrors, stepWarnings: {}, normalised: null };
         }
       }
       if (!live) return;
@@ -691,12 +700,18 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
   if (!creating && !stored.data) return <Typography color="text.secondary">loading…</Typography>;
 
   const commentsLost = hasComments(text, format);
-  const normalised = check?.ok ? normalisedOf({ ok: true, error: null, normalised: check.normalised }) : null;
+  const normalised = check?.ok ? normalisedOf({ ok: true, error: null, normalised: check.normalised, warnings: {} }) : null;
+  const warningCount = check ? Object.keys(check.stepWarnings).length : 0;
   const checkChip = checking ? (
     <Chip label="checking…" variant="outlined" />
   ) : check ? (
-    <Tooltip title={check.ok ? "The rig accepts this program" : check.error ?? "a step is not accepted; see the card"}>
-      <Chip label={check.ok ? (normalised ? stepsSummary(normalised) : "ok") : `error${Object.keys(check.stepErrors).length ? ` in step ${Object.keys(check.stepErrors).map((i) => Number(i) + 1).join(", ")}` : ""}`} color={check.ok ? "success" : "error"} variant="outlined" data-testid="check-chip" />
+    <Tooltip title={check.ok ? (warningCount ? warningLines(check.stepWarnings) : "The rig accepts this program") : check.error ?? "a step is not accepted; see the card"}>
+      <Chip
+        label={check.ok ? `${normalised ? stepsSummary(normalised) : "ok"}${warningCount ? ` · ${warningCount} warning${warningCount === 1 ? "" : "s"}` : ""}` : `error${Object.keys(check.stepErrors).length ? ` in step ${Object.keys(check.stepErrors).map((i) => Number(i) + 1).join(", ")}` : ""}`}
+        color={check.ok ? (warningCount ? "warning" : "success") : "error"}
+        variant="outlined"
+        data-testid="check-chip"
+      />
     </Tooltip>
   ) : undefined;
 
@@ -713,7 +728,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
           showing the last text that parsed; fix the text to update
         </Typography>
       )}
-      <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} loops={loops.data} devices={devices} stepErrors={check?.stepErrors ?? {}} revision={revision} nameEditable={creating} />
+      <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} loops={loops.data} devices={devices} stepErrors={check?.stepErrors ?? {}} stepWarnings={check?.stepWarnings ?? {}} revision={revision} nameEditable={creating} />
     </Box>
   );
   const textPane = (
@@ -847,8 +862,12 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
             </>
           )}
           {check && (
-            <Alert severity={check.ok ? "success" : "error"} sx={{ flexGrow: 1, py: 0 }}>
-              {check.ok ? "the rig accepts this program" : check.error ?? `step ${Object.keys(check.stepErrors).map((i) => Number(i) + 1).join(", ")}: ${Object.values(check.stepErrors)[0] ?? "not accepted"}`}
+            <Alert severity={check.ok ? (warningCount ? "warning" : "success") : "error"} sx={{ flexGrow: 1, py: 0 }}>
+              {check.ok
+                ? warningCount
+                  ? `accepted, but step ${Object.keys(check.stepWarnings).map((i) => Number(i) + 1).join(", ")} name${warningCount === 1 ? "s" : ""} something the rig does not have yet`
+                  : "the rig accepts this program"
+                : check.error ?? `step ${Object.keys(check.stepErrors).map((i) => Number(i) + 1).join(", ")}: ${Object.values(check.stepErrors)[0] ?? "not accepted"}`}
             </Alert>
           )}
         </Stack>

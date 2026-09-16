@@ -417,7 +417,8 @@ export class RigClient {
   }
 
   /** Validate a document (the dialect tree, already parsed) without running it; 422 names the failing step. */
-  checkProgram(document: unknown): Promise<unknown> {
+  /** Normalise and validate a document; 422 (a `RigError`) names the step that failed. */
+  checkProgram(document: unknown): Promise<ProgramCheck> {
     return this.call({ method: "POST", path: "/api/programs/check", body: document });
   }
 

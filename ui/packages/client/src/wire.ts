@@ -401,6 +401,8 @@ export interface ProgramCheck {
   ok: boolean;
   error: string | null;
   normalised: unknown;
+  /** By step index (from zero): a loop, tuning or device the rig lacks right now. The program may still run. */
+  warnings: Record<string, string>;
 }
 
 export interface ProgrammerState {
