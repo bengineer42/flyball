@@ -348,6 +348,8 @@
 .fb-slider { display: flex; gap: 0.5rem; }
 .fb-slider-track { flex: 1 1 6rem; min-width: 4rem; accent-color: var(--fb-accent); margin: 0; }
 .fb-slider input[type="number"] { width: 5.5rem; }
+.fb-band input[type="number"] { width: 5.5rem; }
+.fb-band-sep { color: var(--fb-fg-3); }
 /* A demand's entry (`WritePanel`, `DeviceSignals`): with limits, the schema form's slider look with the limits at its
    ends; the row keeps the set value beside the entry, wrapping as one line of flex at a narrow width. */
 .fb-demand { flex-wrap: wrap; }

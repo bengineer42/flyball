@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Alert, Box, Button, Checkbox, FormControlLabel, IconButton, List, ListItem, ListItemText, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import RestoreIcon from "@mui/icons-material/Restore";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
 import { useRig, useRigChanges, useRigDocument, useRigVersions } from "@flyball/react";
 import { RigError, type RigVersion } from "@flyball/client";
 import { dumpYaml } from "../programText.js";
@@ -8,6 +10,7 @@ import { Confirm } from "../Confirm.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { when } from "../time.js";
+import { useToken } from "../token.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
@@ -130,6 +133,93 @@ function SaveBox() {
   );
 }
 
+/** A line of text with a copy-to-clipboard button, in a monospace box. */
+function CopyLine({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable (insecure context): nothing to do */
+    }
+  };
+  return (
+    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+      <Box
+        component="pre"
+        sx={{ m: 0, p: 1, flex: 1, minWidth: 0, overflow: "auto", fontFamily: "monospace", fontSize: "0.8125rem", lineHeight: 1.5, borderRadius: 1, bgcolor: "action.hover" }}
+      >
+        {value}
+      </Box>
+      <Tooltip title={copied ? "copied" : "copy to clipboard"}>
+        <IconButton size="small" aria-label="copy" onClick={() => void copy()} sx={{ mt: 0.25 }}>
+          {copied ? <CheckIcon fontSize="small" color="success" /> : <ContentCopyIcon fontSize="small" />}
+        </IconButton>
+      </Tooltip>
+    </Box>
+  );
+}
+
+/** The three tiers `mcp.md` documents, narrowest first, with the server name the book's own examples use
+ * where it gives one (`rig` for author, `rig-operate` for operate). */
+const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; server: string; note: string }> = [
+  { mode: "read", label: "Read", server: "rig-read", note: "Every GET, plus check_program/check_rig: asking the rig questions." },
+  { mode: "author", label: "Author", server: "rig", note: "Adds saving programs, dashboards and tunings to the store." },
+  { mode: "operate", label: "Operate", server: "rig-operate", note: "Adds one tool per device command, demands, controllers, running programs, recording and a simulation's knobs: driving the rig." },
+];
+
+/**
+ * `GET /mcp/{read,author,operate}`: this daemon's MCP server, one tier per mode (book's mcp.md). Shows each
+ * tier's absolute URL, the `claude mcp add` line for it, and a client config block with the app's own token
+ * filled in when it has one.
+ */
+function ConnectModelCard() {
+  const { token } = useToken();
+  const base = window.location.origin;
+  const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
+  const config = {
+    mcpServers: Object.fromEntries(
+      urls.map((m) => [m.server, { type: "http", url: m.url, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }]),
+    ),
+  };
+  return (
+    <Paper className="c12" sx={{ p: 3 }}>
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
+        Connect a model
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        This daemon serves MCP over HTTP at three tiers, narrowest first: a client in read mode is never told
+        a tool that moves anything exists.
+      </Typography>
+      <Stack spacing={2.5}>
+        {urls.map((m) => (
+          <Box key={m.mode}>
+            <Typography variant="subtitle2">{m.label}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
+              {m.note}
+            </Typography>
+            <Stack spacing={0.75}>
+              <CopyLine value={m.url} />
+              <CopyLine value={`claude mcp add --transport http ${m.server} ${m.url}`} />
+            </Stack>
+          </Box>
+        ))}
+        <Box>
+          <Typography variant="subtitle2">Client config</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
+            {token
+              ? "Its own bearer token, filled in below: every server here needs it, since any of them can drive the rig."
+              : "This daemon has no token: it is open to anyone who can reach it, so the config below carries no headers."}
+          </Typography>
+          <CopyLine value={JSON.stringify(config, null, 2)} />
+        </Box>
+      </Stack>
+    </Paper>
+  );
+}
+
 /**
  * `#/rig`: the running rig as a file would show it, what has changed since
  * the daemon started, its version history with a restore per row, and a box
@@ -203,6 +293,7 @@ export function RigPage() {
         <div className="c12 xl6">
           <SaveBox />
         </div>
+        <ConnectModelCard />
       </div>
       <Confirm
         open={restoring !== null}

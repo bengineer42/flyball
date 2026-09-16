@@ -32,13 +32,16 @@ export interface Subscription {
 export interface StreamHandlers<T = unknown> {
   onMessage(message: T): void;
   onOpen?(): void;
-  onClose?(reason: "closed" | "error"): void;
+  /** `code` is the socket's close code where known: 4401 is the daemon's "wrong or missing token". */
+  onClose?(reason: "closed" | "error", code?: number): void;
 }
 
 export interface Transport {
   request(request: Request): Promise<Response>;
   /** Where requests go, when the transport has an origin: `""` for same-origin. A download link needs the URL, not a fetch. */
   readonly base?: string;
+  /** The bearer token every request and stream carries, when the daemon was given one to start with `--token`. */
+  readonly token?: string;
   /** `path` is under the base URL, e.g. `/ws/samples`. */
   stream(path: string, handlers: StreamHandlers): Subscription;
 }
@@ -67,13 +70,19 @@ function buildUrl(base: string, path: string, query?: Request["query"]): string 
  * The browser transport: `fetch` for requests, `WebSocket` for streams, with
  * reconnection on drop (exponential backoff, capped). `base` is an absolute
  * origin, or `""` for same-origin, which is how the daemon serves the app.
+ * `token`: a daemon started with `--token` refuses everything without it --
+ * a header on a request, `?token=` on a socket (a browser cannot set headers
+ * on one). A socket the daemon closes for a wrong or missing token (4401) is
+ * not retried: nothing about reconnecting would fix it.
  */
-export function browserTransport(base: string = window.location.origin): Transport {
+export function browserTransport(base: string = window.location.origin, token?: string): Transport {
   return {
     base,
+    token,
     async request({ method, path, query, body, signal }) {
       const init: RequestInit = { method, headers: {} };
       if (signal) init.signal = signal;
+      if (token) (init.headers as Record<string, string>).authorization = `Bearer ${token}`;
       if (body !== undefined) {
         init.body = JSON.stringify(body);
         (init.headers as Record<string, string>)["content-type"] = "application/json";
@@ -91,7 +100,7 @@ export function browserTransport(base: string = window.location.origin): Transpo
     },
 
     stream(path, handlers) {
-      const url = buildUrl(base, path).replace(/^http/, "ws");
+      const url = buildUrl(base, path, token ? { token } : undefined).replace(/^http/, "ws");
       let socket: WebSocket | null = null;
       let closed = false;
       let attempt = 0;
@@ -104,9 +113,9 @@ export function browserTransport(base: string = window.location.origin): Transpo
           handlers.onOpen?.();
         };
         socket.onmessage = (event) => handlers.onMessage(JSON.parse(event.data as string));
-        socket.onclose = () => {
-          handlers.onClose?.(closed ? "closed" : "error");
-          if (!closed) {
+        socket.onclose = (event) => {
+          handlers.onClose?.(closed ? "closed" : "error", event.code);
+          if (!closed && event.code !== 4401) {
             timer = setTimeout(connect, Math.min(30_000, 500 * 2 ** attempt++));
           }
         };

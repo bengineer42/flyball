@@ -117,7 +117,10 @@ export class RigClient {
     return response.json as T;
   }
 
-  /** A route's URL under the transport's base, for a link the browser follows itself (a download). */
+  /** A route's URL under the transport's base, for a link the browser follows itself (a download). Note: the
+   * daemon's `BearerToken` only reads `?token=` for a websocket (the one place a browser cannot set a header);
+   * a plain navigation to a download link has no way to carry a token, so one is unreachable on a token-guarded
+   * daemon -- a server-side gap this client cannot paper over. */
   private url(path: string, query: Record<string, string | number | undefined> = {}): string {
     const q = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined) q.set(key, String(value));

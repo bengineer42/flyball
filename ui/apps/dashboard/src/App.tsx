@@ -1,8 +1,9 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
 import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
-import type { DeviceOut } from "@flyball/client";
+import { RigError, type DeviceOut } from "@flyball/client";
 import { Shell } from "./Shell.js";
+import { TokenChip, TokenPrompt } from "./TokenChip.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip } from "./Status.js";
 import { Overview } from "./pages/Overview.js";
@@ -77,6 +78,7 @@ function AppStatus() {
     <>
       <Status recording={recording} programmer={programmer} streams={streams} />
       {simulated && <SimChip speed={simulationSpeed} />}
+      <TokenChip />
     </>
   );
 }
@@ -145,12 +147,16 @@ export function App() {
   const ready = Boolean(devices.data);
   useScrollMemory(ready);
 
-  if (devices.error)
+  if (devices.error) {
+    // A daemon started with `--token` refuses everything without one: the first request the app makes
+    // (this one) is what discovers that, so it is where the prompt replaces the usual error.
+    if (devices.error instanceof RigError && devices.error.status === 401) return <TokenPrompt />;
     return (
       <Alert severity="error" sx={{ m: 3 }}>
         Cannot reach the rig: {devices.error.message}
       </Alert>
     );
+  }
   if (!devices.data)
     return (
       <Typography color="text.secondary" sx={{ m: 3 }}>

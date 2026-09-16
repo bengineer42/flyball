@@ -14,10 +14,12 @@ language and the reasoning behind it, see `ui/DESIGN-SPEC.md`.
 | **Dashboards** | saved and generated layouts of widgets — see [Dashboards](dashboards.md) |
 | **Overview** | the rig at a glance: a stat tile per publishing signal, a card per polled device (its run: period, last read, conditions) |
 | **Inputs** | every publishing signal charted, grouped by device or by unit |
+| **Devices** | one card per device (signals, commands, conditions); add or remove a device or a link |
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions, open one, export, delete |
+| **Rig** | the running rig as a file would show it, what has changed since the daemon started, its version history, saving it, and connecting a model over MCP |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
 
 ## The app bar
@@ -89,6 +91,24 @@ components alike) reads them from the same CSS custom properties:
   changing tile gaps, a tile's title-row height and a readout's minimum
   height.
 
+## Bearer token
+
+A **token** chip sits in the app bar beside the other status chips (a key
+icon; click it for a small form with one field). It holds the daemon's
+bearer token — see [the daemon's "The token"](daemon.md#the-token) for what
+that gets a client and what it does not — kept in this browser's
+`localStorage` (`flyball.token`) so it survives a reload, and taken once
+from `?token=…` on the page's own URL if it is there (then dropped from the
+visible address, so it is not left in history or in a copied link). The
+client puts it on every `/api` request as `Authorization: Bearer …` and on
+every `/ws` URL as `?token=…`, the one place a browser cannot set a header;
+changing it rebuilds the client and reconnects every socket at once.
+
+Without a token, or the wrong one, the daemon's first refusal — `GET
+/api/devices`, the very first thing the app asks for — replaces the whole
+page with "This rig needs a token" and the same field, front and centre
+rather than left for a person to go hunting for the small chip.
+
 ## Chart keyboard shortcuts
 
 `ChartToolbar` (`ui/packages/react/src/panels/ChartToolbar.tsx`) accepts
@@ -119,6 +139,51 @@ last-clicked row, and ctrl/⌘-click ticks one without disturbing that anchor.
 With one or more ticked, a bar offers **Delete** (through the same confirm
 dialog as a single session, naming the count and the ids) and **Clear**; the
 open session's row can't be ticked.
+
+## Devices
+
+**Devices** (`#/devices`, or `#/devices/<name>` for one alone) is a card
+per device: signals grouped by namespace, with a toggle to pivot by `tags`
+section where the device has one; commands as cards; `conditions`, `mode`
+and `last.*` drawn as the list, chip and "ran at" lines they are rather
+than raw JSON.
+
+- **Add link** builds a link — a bus, a simulated plant, anything a rig
+  file's `links:` takes — from the rig's schema (`GET /api/rig/schema`): a
+  kind picker, then a `SchemaForm` for its config.
+- **Add device** builds a device on the rig the same way: a name, a driver
+  picker, that driver's config as a `SchemaForm` (a `link` field the schema
+  names becomes a select of the rig's current links once there are any,
+  else a free-form box), a label, a poll period, and any bound inputs
+  (`role -> address`) the driver takes.
+- Removing a device or a link takes everything built on it down too, after
+  a confirmation naming what that is; a link still carrying a device
+  refuses (409) until the device is removed first.
+
+## Rig
+
+**Rig** (`#/rig`) is the running rig as a file would show it, alongside its
+history and how to reach it from outside the browser:
+
+- **Running document** (`GET /api/rig/document`) — links, devices and
+  controllers as they are now, as read-only YAML.
+- **Changed since start** (`GET /api/rig/changes`) — an overlay of what
+  differs from the files the daemon loaded (a key removed appears as
+  `null`), highlighted once it is non-empty.
+- **Versions** (`GET /api/rig/versions`) — every version the store has
+  seen, newest first, each with a **restore** button
+  (`POST /api/rig/versions/{id}/restore`): rebuilds the running rig to
+  match that version and records a new version of its own.
+- **Save** (`POST /api/rig/save`) — with no path, just what changed since
+  start, written to an overlay beside the file the rig was loaded from; a
+  path writes the whole rig there instead, with a checkbox to overwrite a
+  loaded file.
+- **Connect a model** — this daemon's [MCP](mcp.md) server, one tier per
+  mode: each row is that tier's absolute URL, a ready-made
+  `claude mcp add --transport http …` line, and (below all three) a client
+  config block naming all of them, one copy button each. The config's
+  `headers` carry the app's own bearer token (above) once it has one, and a
+  note in its place when it does not.
 
 ## Design rationale
 

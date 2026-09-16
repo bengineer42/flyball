@@ -15,6 +15,7 @@ export default defineConfig({
     proxy: {
       "/api": daemon,
       "/ws": { target: daemon, ws: true },
+      "/mcp": daemon,
     },
   },
   build: { outDir: "dist", emptyOutDir: true },

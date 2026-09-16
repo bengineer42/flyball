@@ -58,6 +58,7 @@ export function simplifyNullables(schema: JsonSchema): JsonSchema {
       out.$defs = Object.fromEntries(Object.entries(node.$defs).map(([k, v]) => [k, walk(v)]));
     }
     if (node.items) out.items = Array.isArray(node.items) ? node.items.map(walk) : walk(node.items);
+    if (node.additionalProperties && typeof node.additionalProperties === "object") out.additionalProperties = walk(node.additionalProperties as JsonSchema);
     return out;
   };
   return walk(schema);
@@ -74,6 +75,11 @@ export function isBounded(schema: JsonSchema): boolean {
   return (schema.minimum ?? schema.exclusiveMinimum) !== undefined && (schema.maximum ?? schema.exclusiveMaximum) !== undefined;
 }
 
+/** The `[low, high]` tuple `simplifyNullables` rewrites a `Band` (`tuple[float, float]`) into. */
+function isBand(schema: JsonSchema): boolean {
+  return Array.isArray(schema.items) && schema.items.length === 2 && schema.items.every((i) => i.type === "number" || i.type === "integer");
+}
+
 /**
  * The widget each field's schema calls for. Every custom widget draws its own
  * label (so it looks the same under any RJSF theme's FieldTemplate), hence
@@ -86,29 +92,42 @@ function widgetFor(schema: JsonSchema): string | undefined {
   const n = enumCount(schema);
   if (n > 0 && n <= SEGMENTED_MAX) return "segmented";
   if (n === 0 && type === "string") return "text";
+  if (isBand(schema)) return "band";
   return undefined;
 }
 
 /**
- * Point each field at its widget. Walks `properties`, following `$ref`s. A
- * union field gets one entry per branch (RJSF's `uiSchema.<field>.anyOf[i]`),
- * each with the branch's own title suppressed: the select above already names
- * it, and themes that draw object titles (mui) would show it twice.
+ * The ui hints for one field's schema: a widget, one entry per branch of a
+ * union (RJSF's `uiSchema.<field>.anyOf[i]`, each with the branch's own title
+ * suppressed -- the select above already names it, and themes that draw
+ * object titles (mui) would show it twice), nested `properties`, or -- a
+ * dict's value schema, the RJSF convention `uiSchema.<field>.additionalProperties`
+ * mirroring `uiSchema.items` for an array (`ports.<name>` in a `sim_drive`
+ * config: without this a dict's own widgets, and any union or nested object
+ * inside them, never get their hints, and RJSF falls back to its own
+ * `ArrayField` for a bounded tuple like `limits`, which does not tolerate a
+ * `null` value switched to from "leave unchanged").
  */
+function fieldUiSchema(field: JsonSchema, root: JsonSchema): UiSchema {
+  const fieldSchema = deref(field, root);
+  const widget = widgetFor(fieldSchema);
+  const union = fieldSchema.anyOf ? "anyOf" : fieldSchema.oneOf ? "oneOf" : undefined;
+  if (widget) return { "ui:widget": widget, "ui:options": { label: false } };
+  if (union) return { [union]: fieldSchema[union]!.map((b) => ({ ...fieldUiSchema(b, root), "ui:options": { label: false } })) };
+  if (fieldSchema.properties) return impliedUiSchema(fieldSchema, root);
+  if (fieldSchema.additionalProperties && typeof fieldSchema.additionalProperties === "object") {
+    return { additionalProperties: fieldUiSchema(fieldSchema.additionalProperties as JsonSchema, root) };
+  }
+  return {};
+}
+
+/** Point each field at its widget. Walks `properties`, following `$ref`s. */
 export function impliedUiSchema(schema: JsonSchema, root: JsonSchema): UiSchema {
   const ui: UiSchema = {};
   const resolved = deref(schema, root);
   for (const [name, field] of Object.entries(resolved.properties ?? {})) {
-    const fieldSchema = deref(field, root);
-    const widget = widgetFor(fieldSchema);
-    const union = fieldSchema.anyOf ? "anyOf" : fieldSchema.oneOf ? "oneOf" : undefined;
-    if (widget) {
-      ui[name] = { "ui:widget": widget, "ui:options": { label: false } };
-    } else if (union) {
-      ui[name] = { [union]: fieldSchema[union]!.map((b) => ({ ...impliedUiSchema(b, root), "ui:options": { label: false } })) };
-    } else if (fieldSchema.properties) {
-      ui[name] = impliedUiSchema(fieldSchema, root);
-    }
+    const fieldUi = fieldUiSchema(field, root);
+    if (Object.keys(fieldUi).length) ui[name] = fieldUi;
   }
   return ui;
 }

@@ -186,6 +186,56 @@ export function SliderNumberWidget(props: WidgetProps) {
   );
 }
 
+/** Two number inputs for a `[low, high]` pair (a `Band`): the RJSF `ArrayField` this replaces does not
+ * tolerate a `null` value (switched to from a nullable field's "leave unchanged"), so this widget must,
+ * rendering both boxes empty rather than throwing. */
+export function BandWidget(props: WidgetProps) {
+  const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, required, autofocus } = props;
+  const s = schema as JsonSchema;
+  const itemSchema = (Array.isArray(s.items) ? s.items[0] : undefined) as JsonSchema | undefined;
+  const step = itemSchema?.multipleOf ?? "any";
+  const off = disabled || readonly;
+  const [lo, hi]: Array<number | undefined> = Array.isArray(value) ? value : [undefined, undefined];
+  const set = (index: 0 | 1, n: number | undefined) => onChange(index === 0 ? [n, hi] : [lo, n]);
+  return (
+    <Field {...props}>
+      <span className="fb-unit-input fb-band">
+        <input
+          id={id}
+          type="number"
+          value={lo ?? ""}
+          step={step}
+          required={required}
+          disabled={off}
+          autoFocus={autofocus}
+          aria-invalid={invalid(props)}
+          aria-describedby={ariaDescribedByIds(id)}
+          onChange={(e) => set(0, e.target.value === "" ? undefined : Number(e.target.value))}
+          onBlur={(e) => onBlur(id, e.target.value)}
+          onFocus={(e) => onFocus(id, e.target.value)}
+        />
+        <span className="fb-band-sep" aria-hidden="true">
+          –
+        </span>
+        <input
+          id={`${id}-1`}
+          type="number"
+          value={hi ?? ""}
+          step={step}
+          required={required}
+          disabled={off}
+          aria-invalid={invalid(props)}
+          aria-describedby={ariaDescribedByIds(id)}
+          onChange={(e) => set(1, e.target.value === "" ? undefined : Number(e.target.value))}
+          onBlur={(e) => onBlur(id, e.target.value)}
+          onFocus={(e) => onFocus(id, e.target.value)}
+        />
+        {s.unit && <span className="fb-unit">{s.unit}</span>}
+      </span>
+    </Field>
+  );
+}
+
 /** A switch: a checkbox styled as a toggle, its label beside it. */
 export function ToggleWidget(props: WidgetProps) {
   const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, registry, options, label, required, autofocus } = props;
@@ -265,6 +315,7 @@ export const widgets = {
   text: TextWidget,
   unitNumber: UnitNumberWidget,
   slider: SliderNumberWidget,
+  band: BandWidget,
   toggle: ToggleWidget,
   segmented: SegmentedWidget,
 };
