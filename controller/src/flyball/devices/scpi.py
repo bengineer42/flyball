@@ -14,9 +14,9 @@ from collections.abc import Callable, Iterator, Mapping
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from flyball.core.config import resolve
-from flyball.core.device import Device, DriverConfig, command
+from flyball.core.device import Committable, DriverConfig, Readable, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
+from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
 from flyball.hardware.links import FakeTextLink, TextLink, TextLinkConfig
 
 Parser = Callable[[str], float]
@@ -30,9 +30,11 @@ def parse_float(reply: str) -> float:
 class ScpiSignal(BaseModel):
     """One line of a `scpi` device's tree: a query, a write template, or both.
 
-    `query` -> `[RP]`; `write` -> `[W]`; both -> `[RPW]`. Metadata such as
-    range, precision and limits are not here -- they are the envelope's
-    `signals:` overrides (plan §1.5), which apply to any driver's tree.
+    `query` alone: an output, `[RP]`. `write`, with or without `query`: a
+    demand, `[RPW]` -- its readback is the value last committed. Metadata
+    such as range, precision and limits are not here -- they are the
+    envelope's `signals:` overrides (plan §1.5), which apply to any driver's
+    tree.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,16 +60,15 @@ class ScpiSignal(BaseModel):
         return self
 
     @property
+    def role(self) -> Role:
+        return Role.DEMAND if self.write is not None else Role.OUTPUT
+
+    @property
     def access(self) -> Access:
-        access = Access(0)
-        if self.query is not None:
-            access |= Access.RP
-        if self.write is not None:
-            access |= Access.W
-        return access
+        return Access.RPW if self.write is not None else Access.RP
 
 
-class Scpi(Device):
+class Scpi(Readable, Committable):
     """SCPI signals over a text link: each of `channels` becomes one signal.
 
     Args:
@@ -98,6 +99,7 @@ class Scpi(Device):
                 name=key,
                 quantity=Quantity(sig.quantity or key, sig.unit),
                 access=sig.access,
+                role=sig.role,
             )
             for key, sig in self.channels.items()
         ])
@@ -114,14 +116,17 @@ class Scpi(Device):
 
         A slow bus never claims two queries were simultaneous, so each
         yields its own [Sample][flyball.core.signal.Sample] rather than one
-        shared dict of values.
+        shared dict of values. Walks `channels`, not the tree: `conditions`
+        and any `last.*` are in every device's tree now, and neither has a
+        query behind it.
         """
         target = node if node is not None else self.root
-        for signal in target.walk():
-            if Access.P not in signal.access or not self._due(signal, time_ns):
+        for key, channel in self.channels.items():
+            if channel.query is None:
                 continue
-            channel = self.channels[signal.name]
-            assert channel.query is not None
+            signal = self.signals[key]
+            if not target.contains(signal) or not self._due(signal, time_ns):
+                continue
             value = self.parse(self.link.query(channel.query)) * channel.scale
             self._last_read[signal] = time_ns
             yield Sample(self.root, time_ns, {signal: value})

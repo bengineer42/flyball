@@ -14,9 +14,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from flyball.core.config import resolve
-from flyball.core.device import Device, DriverConfig
+from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
+from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
 from flyball.hardware.links import FakeRegisterLink, RegisterLink, RegisterLinkConfig
 
 Kind = Literal["holding", "input", "coil"]
@@ -45,11 +45,15 @@ class ModbusRegister(BaseModel):
         return self
 
     @property
+    def role(self) -> Role:
+        return Role.DEMAND if self.write else Role.OUTPUT
+
+    @property
     def access(self) -> Access:
         return Access.RPW if self.write else Access.RP
 
 
-class Modbus(Device):
+class Modbus(Readable, Committable):
     """Modbus registers as signals: each of `registers` becomes one.
 
     Args:
@@ -76,7 +80,7 @@ class Modbus(Device):
         self.blocking = not isinstance(link, FakeRegisterLink)  # pyright: ignore[reportAttributeAccessIssue]
         self._last_read: dict[Signal, int] = {}
         self.bind([
-            SignalSpec(name=key, quantity=Quantity(key, reg.unit), access=reg.access)
+            SignalSpec(name=key, quantity=Quantity(key, reg.unit), access=reg.access, role=reg.role)
             for key, reg in self.registers.items()
         ])
 
@@ -88,20 +92,32 @@ class Modbus(Device):
         return last is None or (time_ns - last) >= poll_s * 1e9
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        """One register read per due, publishing signal under `node`: each its own instant."""
+        """One register read per due, publishing signal under `node`: each its own instant.
+
+        Walks `registers`, not the tree: `conditions` and any `last.*` are in
+        every device's tree now, and neither has a register behind it.
+        """
         target = node if node is not None else self.root
-        for signal in target.walk():
-            if Access.P not in signal.access or not self._due(signal, time_ns):
+        for key, register in self.registers.items():
+            signal = self.signals[key]
+            if Access.P not in signal.access or not target.contains(signal):
                 continue
-            register = self.registers[signal.name]
+            if not self._due(signal, time_ns):
+                continue
             (word,) = self.link.read_registers(register.address, 1, self.unit_id)
             value = word * register.scale
             self._last_read[signal] = time_ns
             yield Sample(self.root, time_ns, {signal: value})
 
-    def write_signal(self, signal: Signal, value: float) -> None:
-        register = self.registers[signal.name]
-        self.link.write_registers(register.address, [round(value / register.scale)], self.unit_id)
+    def commit(self, time_ns: int) -> None:
+        """Write every pending register once; push back what the quantised word actually set."""
+        for signal, value in self.pending.items():
+            register = self.registers[signal.name]
+            word = round(value / register.scale)
+            self.link.write_registers(register.address, [word], self.unit_id)
+            actual = word * register.scale
+            if actual != value:
+                signal.push(actual, time_ns)
 
 
 class ModbusConfig(DriverConfig[Modbus], tag="modbus"):

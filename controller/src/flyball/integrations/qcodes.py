@@ -24,9 +24,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from flyball.core.config import import_object
-from flyball.core.device import Device, DriverConfig
+from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
+from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
 from flyball.core.units.dimension import Unit
 from flyball.core.units.errors import UnitNotFoundError
 from flyball.core.units.si import One
@@ -77,8 +77,10 @@ def _parameter(instrument: Any, dotted: str) -> Any:
 class QCoDeSSignal(BaseModel):
     """One line of a `qcodes` device's tree: one parameter, wrapped as a signal.
 
-    A settable parameter is writable; a gettable one is readable on demand.
-    `publish` also streams it, and needs a getter -- see
+    A settable parameter is a demand (`RPW`: its readback is the value last
+    set, whether or not it can be read back from the instrument); a
+    gettable-only one is an output, readable on demand. `publish` streams a
+    gettable-only one too, and needs a getter -- see
     [QCoDeS][flyball.integrations.qcodes.QCoDeS].
     """
 
@@ -91,7 +93,7 @@ class QCoDeSSignal(BaseModel):
     publish: bool = False
 
 
-class QCoDeS(Device):
+class QCoDeS(Readable, Committable):
     """Chosen parameters of a QCoDeS instrument as one device.
 
     Args:
@@ -117,29 +119,30 @@ class QCoDeS(Device):
         self.instrument = instrument
         self.channels = dict(channels)
         self._parameters: dict[str, Any] = {}
+        self._gettable: dict[str, bool] = {}
         self._last_read: dict[Signal, int] = {}
         tree: list[SignalSpec] = []
         for key, channel in self.channels.items():
             parameter = _parameter(instrument, channel.property)
             self._parameters[key] = parameter
             gettable, settable = _gettable(parameter), _settable(parameter)
-            access = Access(0)
-            if gettable:
-                access |= Access.R
-            if settable:
-                access |= Access.W
-            if channel.publish:
-                if not gettable:
-                    raise ValueError(f"{key!r}: publish needs a gettable parameter")
-                access |= Access.P
-            if not access:
+            if not gettable and not settable:
                 raise ValueError(f"{key!r}: {channel.property} is neither gettable nor settable")
+            if channel.publish and not gettable:
+                raise ValueError(f"{key!r}: publish needs a gettable parameter")
+            self._gettable[key] = gettable
+            if settable:
+                role, access = Role.DEMAND, Access.RPW
+            else:
+                role, access = Role.OUTPUT, (Access.RP if channel.publish else Access.R)
             unit = (
                 Unit.get(channel.unit)
                 if channel.unit
                 else unit_for(getattr(parameter, "unit", None))
             )
-            tree.append(SignalSpec(name=key, quantity=Quantity(key, unit), access=access))
+            tree.append(
+                SignalSpec(name=key, quantity=Quantity(key, unit), access=access, role=role)
+            )
         self.bind(tree)
 
     def _due(self, signal: Signal, time_ns: int) -> bool:
@@ -150,11 +153,23 @@ class QCoDeS(Device):
         return last is None or (time_ns - last) >= poll_s * 1e9
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """One `get()` per due, published, actually-gettable channel under `node`.
+
+        Walks `channels`, not the tree: `conditions` and any `last.*` are in
+        every device's tree now, and neither has a parameter behind it. A
+        demand whose parameter has no getter is skipped here -- its reading
+        is the value last committed, not a poll.
+        """
         target = node if node is not None else self.root
-        for signal in target.walk():
-            if Access.P not in signal.access or not self._due(signal, time_ns):
+        for key in self.channels:
+            if not self._gettable[key]:
                 continue
-            value = self._parameters[signal.name].get()
+            signal = self.signals[key]
+            if Access.P not in signal.access or not target.contains(signal):
+                continue
+            if not self._due(signal, time_ns):
+                continue
+            value = self._parameters[key].get()
             self._last_read[signal] = time_ns
             yield Sample(self.root, time_ns, {signal: float(value)})
 

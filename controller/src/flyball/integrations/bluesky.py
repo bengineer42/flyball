@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, get_origin
 
 from flyball.core.signal import Access, Node, Signal
 from flyball.core.trigger import Trigger
@@ -33,10 +33,21 @@ def _publishing(node: Node) -> list[Signal]:
     return [signal for signal in node.walk() if Access.P in signal.access]
 
 
+def _dtype(signal: Signal) -> str:
+    """`signal`'s declared `dtype` as Bluesky's descriptor dtype."""
+    if signal.spec.dtype in ("float", "int"):
+        return "number"
+    if signal.spec.dtype == "bool":
+        return "boolean"
+    if signal.spec.dtype in ("str", "enum"):
+        return "string"
+    return "array" if get_origin(signal.spec.vtype) in (tuple, list, set, frozenset) else "object"
+
+
 def _describe(signal: Signal) -> DataKey:
     key: DataKey = {
         "source": f"flyball:{signal.address}",
-        "dtype": "number",
+        "dtype": _dtype(signal),
         "shape": [],
         "units": signal.unit.symbol,
     }
@@ -149,7 +160,7 @@ class SignalMovable:
         return {
             self.name: {
                 "source": f"flyball:{self.name}",
-                "dtype": "number",
+                "dtype": _dtype(self._signal),
                 "shape": [],
                 "units": self._signal.unit.symbol,
             }

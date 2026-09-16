@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from flyball.core.signal import Access, Signal
+from flyball.core.signal import Access, Role, Signal
 from flyball.integrations.pymeasure import (
     PyMeasure,
     PyMeasureSignal,
@@ -66,16 +66,19 @@ class FakeInstrument:
 
 
 class TestQCoDeS:
-    def test_a_settable_parameter_is_rw_by_default(self, fresh):
+    def test_a_settable_parameter_is_a_demand_and_rpw(self, fresh):
         inst = FakeInstrument("smu")
         device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt")})
-        assert device.signals["bias"].access is Access.RW
-        assert list(device.publishing) == [], "not streamed unless flagged"
+        assert device.signals["bias"].role is Role.DEMAND
+        assert device.signals["bias"].access is Access.RPW, "a demand, whatever `publish` says"
+        assert "bias" in device.publishing, "a demand publishes its readback"
 
-    def test_publish_true_makes_a_settable_parameter_rpw(self, fresh):
+    def test_a_read_only_parameter_is_an_output(self, fresh):
         inst = FakeInstrument("smu")
-        device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt", publish=True)})
-        assert device.signals["bias"].access is Access.RPW
+        device = QCoDeS(fresh("smu"), inst, {"temp": QCoDeSSignal(property="temp")})
+        assert device.signals["temp"].role is Role.OUTPUT
+        assert device.signals["temp"].access is Access.R
+        assert "temp" not in device.publishing, "not streamed unless published"
 
     def test_a_read_only_parameter_published_is_rp(self, fresh):
         inst = FakeInstrument("smu")
@@ -106,14 +109,20 @@ class TestQCoDeS:
         samples = list(device.read(5))
         assert [s.by_name() for s in samples] == [{"volt": 1.25}], "curr is not published"
 
+    def test_read_skips_a_demand_with_no_getter(self, fresh):
+        inst = FakeInstrument("smu")
+        inst.parameters["write_only"] = FakeParameter("write_only", gettable=False)
+        device = QCoDeS(fresh("smu"), inst, {"x": QCoDeSSignal(property="write_only")})
+        assert list(device.read(1)) == [], "a demand's reading is what was committed, not polled"
+
     def test_write_signal_sets_the_parameter(self, fresh):
         inst = FakeInstrument("smu")
         device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt")})
         bias = device.signals["bias"]
         device.apply(bias, 1, 3.0)
-        states = device.commit(1)
+        assert device.commit(1) is None
         assert inst.parameters["volt"].sets == [3.0]
-        assert states[bias].value == 3.0
+        assert device.pending[bias] == 3.0, "the rig clears pending, not the driver"
 
     def test_a_dotted_property_reaches_a_submodule_parameter(self, fresh):
         inst = FakeInstrument("smu")
@@ -205,21 +214,31 @@ class TestPyMeasure:
         assert device.signals["voltage"].access is Access.RP
         assert device.signals["voltage"].quantity.unit.symbol == "V"
 
-    def test_a_settable_property_is_rw_and_writable_via_apply_commit(self, fresh):
+    def test_a_settable_property_is_a_demand_and_writable_via_apply_commit(self, fresh):
         inst = FakePyMeasureInstrument()
         device = PyMeasure(fresh("smu"), inst, {"bias": PyMeasureSignal(property="source_voltage")})
-        assert device.signals["bias"].access is Access.RW
+        assert device.signals["bias"].role is Role.DEMAND
+        assert device.signals["bias"].access is Access.RPW
         bias = device.signals["bias"]
         device.apply(bias, 1, 2.0)
-        states = device.commit(1)
-        assert inst.written == [2.0] and states[bias].value == 2.0
+        assert device.commit(1) is None
+        assert inst.written == [2.0]
+        assert device.pending[bias] == 2.0, "the rig clears pending, not the driver"
 
-    def test_a_setter_only_property_is_write_only(self, fresh):
+    def test_a_setter_only_property_is_a_demand_too(self, fresh):
         inst = FakePyMeasureInstrument()
         device = PyMeasure(
             fresh("out"), inst, {"enable": PyMeasureSignal(property="output_enabled")}
         )
-        assert device.signals["enable"].access is Access.W
+        assert device.signals["enable"].role is Role.DEMAND
+        assert device.signals["enable"].access is Access.RPW, "its readback is the committed value"
+
+    def test_read_skips_a_demand_with_no_getter(self, fresh):
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("out"), inst, {"enable": PyMeasureSignal(property="output_enabled")}
+        )
+        assert list(device.read(1)) == [], "write-only: nothing to poll"
 
     def test_an_unknown_property_is_refused(self, fresh):
         inst = FakePyMeasureInstrument()

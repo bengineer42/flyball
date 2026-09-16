@@ -25,46 +25,26 @@ Registered as `driver: "${tag}"`, so a rig file can declare one:
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
 
-from flyball.core.device import Device, DeviceState, DriverConfig, command
+from flyball.core.device import DriverConfig, Output, Readable, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, SignalSpec
+from flyball.core.signal import Node, Sample
 from flyball.core.units import Unit
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ${Title}State(DeviceState):
-    """What the device reports now, beyond its readings."""
-
-    last: float | None = None
-
-
-class ${Title}(Device):
+class ${Title}(Readable):
     """TODO: what this measures or drives, and how."""
 
-    TREE = (
-        SignalSpec(name="value", quantity=Quantity("value", Unit.get("1")), access=Access.RP),
-    )
-
-    def __init__(self, name: str, label: str | None = None) -> None:
-        super().__init__(name, label)
-        self._last: float | None = None
-
-    @property
-    def state(self) -> ${Title}State:
-        return ${Title}State(last=self._last)
+    value = Output("value", "Value", Quantity("value", Unit.get("1")))
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """Called every `poll_s`; yield the signals due at `time_ns`."""
-        self._last = 0.0  # TODO: read the hardware
-        yield Sample(self.root, time_ns, {self.signals["value"]: self._last})
+        yield self.sample(time_ns, value=0.0)  # TODO: read the hardware
 
     @command
-    def reset(self) -> ${Title}State:
+    def reset(self) -> None:
         """TODO: something an operator or program can trigger."""
-        self._last = None
-        return self.state
+        self.value.push(0.0)
 
 
 class ${Title}Config(DriverConfig[${Title}], tag="${tag}"):

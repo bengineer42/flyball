@@ -27,9 +27,8 @@ def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
     (sample,) = device.read(5)
     assert sample.time_ns == 5 and sample.node is device.root
     assert sample.values == {device.signals["value"]: 0.0}
-    assert device.state.last == 0.0
-    state = device.reset()
-    assert state.last is None and device.state.last is None
+    assert device.reset() is None
+    assert device.signals["value"].value == 0.0, "reset pushed the output"
     assert type(device).__name__ == "".join(p.capitalize() for p in name.split("_"))
     assert module.__doc__.startswith(type(device).__name__)
     assert "reset" in type(device).commands
