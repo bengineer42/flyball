@@ -146,10 +146,10 @@ export function ProgramBuilder({ tree, onChange, programSchema, loops, stepError
         onDragOver={onDragOver}
         onDrop={onDrop}
         onDragLeave={onDragLeave}
-        sx={{ display: "flex", flexDirection: "column", gap: 1, minHeight: 56, position: "relative", borderRadius: 1, ...(dropAt !== null ? { outline: "1px dashed", outlineColor: "primary.main", outlineOffset: 4 } : {}) }}
+        sx={{ display: "flex", flexDirection: "column", gap: 1.5, minHeight: 56, position: "relative", borderRadius: 1, ...(dropAt !== null ? { outline: "1px dashed", outlineColor: "primary.main", outlineOffset: 4 } : {}) }}
       >
         {steps.length === 0 && (
-          <Typography variant="body2" color="text.secondary" sx={{ p: 1, textAlign: "center", border: "1px dashed", borderColor: "divider", borderRadius: 1 }} data-testid="drop-empty">
+          <Typography variant="body2" color="text.secondary" sx={{ p: 1.5, textAlign: "center", border: "1px dashed", borderColor: "divider", borderRadius: 1 }} data-testid="drop-empty">
             no steps yet — drop a command here, or click one above
           </Typography>
         )}
@@ -241,7 +241,7 @@ function DropBar() {
 function Palette({ commands, onPick }: { commands: CommandInfo[]; onPick(c: CommandInfo): void }) {
   return (
     <Box data-testid="palette">
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
         Commands — drag one into the list, or click to add at the end
       </Typography>
       <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
@@ -330,8 +330,8 @@ function TimeControl({ field, entries, onChange, idPrefix }: { field: TimeField;
   );
   if (entries.length > 1) {
     return (
-      <Alert severity="warning" sx={{ mt: 1, py: 0.5 }} data-testid="time-conflict">
-        <Typography variant="body2" sx={{ mb: 0.5 }}>
+      <Alert severity="warning" sx={{ mt: 1.5, py: 0.75 }} data-testid="time-conflict">
+        <Typography variant="body2" sx={{ mb: 0.75 }}>
           {field.title}: the file says it more than one way; the rig takes only one. Keep:
         </Typography>
         <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
@@ -355,7 +355,7 @@ function TimeControl({ field, entries, onChange, idPrefix }: { field: TimeField;
     );
   }
   return (
-    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mt: 1 }} data-testid="time-control">
+    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mt: 1.5 }} data-testid="time-control">
       <TextField
         id={`${idPrefix}_${field.name}`}
         label={label}
@@ -423,7 +423,7 @@ function StepCard({ index, count, tag, value, modifiers, command, commands, modi
   const [modifierAnchor, setModifierAnchor] = useState<HTMLElement | null>(null);
   const unusedModifiers = Object.keys(modifierSchemas).filter((k) => !(k in modifiers));
   return (
-    <Paper data-step={index + 1} data-command={tag ?? ""} sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1, opacity: dragging ? 0.5 : 1, ...(error ? { borderColor: "error.main" } : {}) }}>
+    <Paper data-step={index + 1} data-command={tag ?? ""} sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5, opacity: dragging ? 0.5 : 1, ...(error ? { borderColor: "error.main" } : {}) }}>
       <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
         <Tooltip title="Drag to reorder">
           <Box
@@ -517,8 +517,8 @@ function StepCard({ index, count, tag, value, modifiers, command, commands, modi
             "& .MuiGrid-container > .MuiGrid-item": { flex: "1 1 11em", maxWidth: "26em", width: "auto", pt: "6px !important" },
             "& .MuiGrid-container > .MuiGrid-item:has(.MuiFormGroup-row)": { flexBasis: "100%", maxWidth: "none" },
             "& .MuiFormControl-root": { my: 0 },
-            "& .fb-field-label": { display: "block", fontSize: "0.8rem", color: "text.secondary", mb: 0.25 },
-            "& .MuiFormHelperText-root": { mt: 0.25 },
+            "& .fb-field-label": { display: "block", fontSize: "0.8rem", color: "text.secondary", mb: 0.375 },
+            "& .MuiFormHelperText-root": { mt: 0.375 },
           }}
         >
           <SchemaForm schema={shape.schema} uiSchema={shape.uiSchema} value={initial} onChange={onArgs} idPrefix={`step${index + 1}`} form={MuiForm} />

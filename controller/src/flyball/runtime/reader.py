@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 from flyball.core.device import Condition, DeviceState, Level
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.reading import Channel, Reader, Sample
-from flyball.core.sink import RESERVED_NAMES
 from flyball.core.topic import Latest
 from flyball.core.utils import PeriodicLoop
 
@@ -46,14 +45,28 @@ class Readers:
         self._runs: dict[str, ReaderRun] = {}
 
     def add(self, reader: Reader) -> None:
-        """Attach a reader: what it emits reaches the rig from now on. `start_periodic` adds too."""
-        if reader.name in RESERVED_NAMES:
-            raise ConflictError(f"Reader name {reader.name!r} is reserved as a route segment")
-        if (existing := self.by_name.get(reader.name)) is not None and existing is not reader:
-            raise ConflictError(f"Reader {reader.name!r} is already attached")
-        if reader.name in self.by_name:
-            return
+        """Attach a reader: what it emits reaches the rig from now on. `start_periodic` adds too.
+
+        Claims the reader's name rig-wide, and each of its sources' names
+        too when a source is not simply the reader under another hat (most
+        readers have exactly one source, named the same as the reader).
+        """
+        if self.by_name.get(reader.name) is reader:
+            return  # already attached; a repeat call (start_periodic re-adds) is a no-op
+        claimed: list[str] = []
+        try:
+            self.rig.claim(reader.name, "reader", reader)
+            claimed.append(reader.name)
+            for source in reader.sources:
+                if source.name != reader.name:
+                    self.rig.claim(source.name, "source", source)
+                    claimed.append(source.name)
+        except ConflictError:
+            for name in claimed:  # leave no half-claimed reader behind
+                self.rig.release(name)
+            raise
         self.by_name[reader.name] = reader
+        self.rig.devices[reader.name] = reader
         self._runs.setdefault(reader.name, ReaderRun(state=reader.state))
         reader.attach(lambda samples: self.delivered(reader, samples))
 

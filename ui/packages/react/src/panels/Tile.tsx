@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
+import { PanelFrame, type PanelSeverity } from "./PanelFrame.js";
 
 export interface TileProps {
-  /** The heading; without one (and without a menu) the tile has no header row and the body takes the whole height. */
+  /** The heading; without one (and without a menu) the tile has no header row. */
   title?: ReactNode;
   /** After the title, muted: a unit, a name, a channel. */
   subtitle?: ReactNode;
@@ -13,29 +14,21 @@ export interface TileProps {
   handleClassName?: string;
   /** `"fill"` (default): the body is a flex column that fills the tile; `"scroll"`: it scrolls; `"none"`: no padding, the body draws its own edges. */
   body?: "fill" | "scroll" | "none";
+  /** Border + dot colour/line-type; omitted draws a plain tile (DESIGN-SPEC.md §2). */
+  severity?: PanelSeverity;
+  /** 12px fg-2 line under the body, e.g. "last sample 42 s ago". */
+  footer?: ReactNode;
   className?: string;
   children: ReactNode;
 }
 
 /**
- * The chrome every dashboard widget sits in: a header row with title,
- * subtitle, status and a menu slot, and a body that fills the rest of the
- * tile. Nothing here knows what a widget is; `--fb-*` variables style it.
+ * A thin adapter over `PanelFrame` (its `menu` is `PanelFrame`'s `actions`),
+ * kept for call sites written against the older name. One frame per widget
+ * (DESIGN-SPEC.md §10): never mount a `Tile` inside another `PanelFrame` or
+ * `WidgetFrame` -- a dashboard widget is a body, and the frame is drawn once
+ * by `WidgetFrame`.
  */
-export function Tile({ title, subtitle, status, menu, handleClassName, body = "fill", className, children }: TileProps) {
-  const header = title !== undefined && title !== null && title !== "" ? true : Boolean(status || menu);
-  const cls = ["fb-tile", `fb-tile-body-${body}`, className].filter(Boolean).join(" ");
-  return (
-    <section className={cls}>
-      {header && (
-        <header className={["fb-tile-head", handleClassName].filter(Boolean).join(" ")}>
-          {title !== undefined && title !== null && title !== "" && <h3 className="fb-tile-title">{title}</h3>}
-          {subtitle && <span className="fb-tile-subtitle fb-muted">{subtitle}</span>}
-          {status && <span className="fb-tile-status">{status}</span>}
-          {menu && <span className="fb-tile-menu">{menu}</span>}
-        </header>
-      )}
-      <div className="fb-tile-body">{children}</div>
-    </section>
-  );
+export function Tile({ menu, ...rest }: TileProps) {
+  return <PanelFrame {...rest} actions={menu} />;
 }

@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
+/** Structurally equal, for the small JSON documents the rig serves; `false` for anything that cannot be serialised. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 export interface QueryState<T> {
   data: T | undefined;
   error: Error | undefined;
@@ -29,7 +39,8 @@ export function useQuery<T>(
     fetcher(controller.signal).then(
       (result) => {
         if (controller.signal.aborted) return;
-        setData(result);
+        // A poll that brought back the same document must not re-render everything under it.
+        setData((prev) => (prev !== undefined && same(prev, result) ? prev : result));
         setError(undefined);
         setLoading(false);
       },

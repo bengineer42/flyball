@@ -1,12 +1,21 @@
-import { alarmLevel, type ChannelOut } from "@flyball/client";
+import { alarmLevel, staleAfterS, type ChannelOut, type Freshness } from "@flyball/client";
 import { TimeSeries } from "./TimeSeries.js";
 import { Ref } from "../links.js";
+import { useFreshness, useLatest, type TraceRef } from "../store/hooks.js";
+import { channelKey } from "../store/telemetry.js";
+import { PanelFrame } from "./PanelFrame.js";
 
 export interface ReadoutProps {
   channel: ChannelOut;
-  /** Recent trace; the last point is the value shown. */
-  t: number[];
-  v: number[];
+  /** Recent trace; the last point is the value shown. Omit with `source`. */
+  t?: number[];
+  v?: number[];
+  /**
+   * Read the channel from the telemetry store instead (`useTraceRef`): the
+   * value re-renders this tile alone, at most four times a second, and the
+   * sparkline draws itself twice a second while on screen.
+   */
+  source?: TraceRef;
   /** Show a sparkline of the trace under the value. */
   sparkline?: boolean;
   /** Show the source name beside the label; off when tiles are already grouped by source. */
@@ -17,11 +26,43 @@ export interface ReadoutProps {
   every?: number;
   /** The same channel in the store, as an export URL; offered by the download menu of the chart the sparkline opens as. */
   exportHref?: string;
+  /**
+   * Rig-time freshness for stale detection (DESIGN-SPEC.md §2/B-3): the
+   * channel's reader period, its last sample time and the rig's current
+   * time, all in rig seconds. Omitted, or with `nowS`/`lastSampleS` unset,
+   * the readout is never stale.
+   */
+  fresh?: Freshness;
+  /**
+   * Body only -- value, range bar, sparkline -- with no `PanelFrame` of its
+   * own: for a dashboard widget, whose frame is drawn once by `WidgetFrame`
+   * (the one-frame rule, DESIGN-SPEC.md §10). The caller shows the severity
+   * and the stale footer in that frame; `readoutLevel` computes them.
+   */
+  bare?: boolean;
+}
+
+/** The severity and stale age a `Readout` would show, for a caller that draws the frame itself (`bare`). */
+export function readoutLevel(channel: ChannelOut, last: number | undefined, fresh: Freshness | undefined) {
+  const level = alarmLevel(last, channel, fresh);
+  const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
+  const stale = level === "stale";
+  return {
+    level,
+    ageS,
+    label: stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : undefined,
+    footer: stale ? `last sample ${ageS} s ago` : undefined,
+  };
 }
 
 /** One channel as a tile: label, current value with unit, position in range, sparkline. */
-export function Readout({ channel, t, v, sparkline = true, showSource = true, windowS, every, exportHref }: ReadoutProps) {
-  const last = v.length ? v[v.length - 1] : undefined;
+export function Readout({ channel, t, v, source, sparkline = true, showSource = true, windowS, every, exportHref, fresh, bare = false }: ReadoutProps) {
+  const point = useLatest(source ? channelKey(channel) : undefined);
+  const last = source ? point?.v : v && v.length ? v[v.length - 1] : undefined;
+  // In source mode the caller passes the reader period only; the sample times come from the store.
+  const own = source !== undefined && fresh !== undefined && (fresh.lastSampleS == null || fresh.nowS == null);
+  const freshness = useFreshness(own ? channelKey(channel) : undefined, fresh?.periodS);
+  if (own) fresh = freshness;
   const range = channel.range;
   const precision = channel.precision ?? 2;
   // Reserve the width of the widest value the range allows, so the number and
@@ -30,7 +71,7 @@ export function Readout({ channel, t, v, sparkline = true, showSource = true, wi
   const width = String(Math.floor(widest)).length + (range && range[0] < 0 ? 1 : 0) + (precision ? precision + 1 : 0);
   const fraction =
     last !== undefined && range ? Math.min(1, Math.max(0, (last - range[0]) / (range[1] - range[0]))) : null;
-  const level = alarmLevel(last, channel);
+  const { level, label, footer } = readoutLevel(channel, last, fresh);
   // Band edges that fall inside the range, as ticks on the bar.
   const ticks = range
     ? (["warn", "alarm"] as const).flatMap((band) =>
@@ -39,12 +80,8 @@ export function Readout({ channel, t, v, sparkline = true, showSource = true, wi
           .map((edge) => ({ band, left: ((edge - range[0]) / (range[1] - range[0])) * 100 })),
       )
     : [];
-  return (
-    <div className={`fb-readout fb-alarm-${level}`}>
-      <div className="fb-readout-label">
-        <Ref kind="channel" name={channel.source} measurand={channel.measurand}>{channel.label}</Ref>
-        {showSource && <Ref kind="source" name={channel.source} className="fb-muted" />}
-      </div>
+  const body = (
+    <>
       <div className="fb-readout-value">
         <span className="fb-readout-number" style={{ minWidth: `${width}ch` }}>
           {last === undefined ? "—" : last.toFixed(precision)}
@@ -59,7 +96,20 @@ export function Readout({ channel, t, v, sparkline = true, showSource = true, wi
           ))}
         </div>
       )}
-      {sparkline && <TimeSeries channel={channel} t={t} v={v} height={44} compact windowS={windowS} every={every} exportHref={exportHref} />}
-    </div>
+      {sparkline && <TimeSeries channel={channel} source={source} {...(source ? {} : { t: t ?? [], v: v ?? [] })} height={44} compact windowS={windowS} every={every} exportHref={exportHref} />}
+    </>
+  );
+  if (bare) return <div className={`fb-readout fb-readout-bare fb-alarm-${level}`}>{body}</div>;
+  return (
+    <PanelFrame
+      className="fb-readout"
+      severity={level}
+      severityLabel={label}
+      title={<Ref kind="channel" name={channel.source} measurand={channel.measurand}>{channel.label}</Ref>}
+      subtitle={showSource ? <Ref kind="source" name={channel.source} /> : undefined}
+      footer={footer}
+    >
+      {body}
+    </PanelFrame>
   );
 }

@@ -40,8 +40,16 @@ const absent =
 export function useSimulation(refreshMs = 2000): SimulationHook {
   const rig = useRig();
   const doc = useQuery<Simulation | null>(() => rig.simulation().catch(absent(404)), [rig], { refreshMs });
-  const schema = useQuery<DeviceSchema | null>(() => rig.simulationDeviceSchema().catch(absent(404, 409)), [rig]);
-  const view = useQuery<DeviceView | null>(() => rig.simulationDevice().catch(absent(404, 409)), [rig], { refreshMs });
+  // Whether there is a device to ask for: `/api/sim` says (`device`); an older daemon does not, so probe
+  // once then; a real rig or one still loading has none. Rigs without one (most) make no request at all.
+  const sim = doc.data && doc.data.simulated ? doc.data : undefined;
+  const probe = doc.data === undefined ? null : sim === undefined ? false : sim.device === undefined ? "probe" : sim.device;
+  const schema = useQuery<DeviceSchema | null>(
+    () => (probe === false || probe === null ? Promise.resolve(null) : rig.simulationDeviceSchema().catch(absent(404, 409))),
+    [rig, probe],
+  );
+  const hasDevice = !!schema.data;
+  const view = useQuery<DeviceView | null>(() => (hasDevice ? rig.simulationDevice().catch(absent(404, 409)) : Promise.resolve(null)), [rig, hasDevice], { refreshMs: hasDevice ? refreshMs : undefined });
   const [results, setResults] = useState<CommandRunner["results"]>({});
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -86,8 +94,8 @@ export function useSimulation(refreshMs = 2000): SimulationHook {
     setSpeed,
     schema: schema.data ?? undefined,
     view: view.data ?? undefined,
-    hasDevice: !!schema.data,
-    loading: doc.loading || schema.loading,
+    hasDevice,
+    loading: doc.loading || (probe !== false && schema.loading),
     error: doc.error ?? schema.error ?? view.error,
     run,
     busy,

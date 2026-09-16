@@ -45,6 +45,12 @@ def start_recording(rig: RigDep, store: StoreDep, body: StartRecording | None = 
     if _current(rig) is not None:
         raise ConflictError("already recording; end the open session first")
     fields = (body or StartRecording()).model_dump(exclude_none=True)
+    # A daemon started with `--record` stores the whole rig file as `config`,
+    # which is where the sessions list reads the rig's name from. A session
+    # opened from here otherwise carries none at all: give it at least the
+    # name, so it doesn't look unnamed next to a daemon-recorded session.
+    if "config" not in fields and rig.name:
+        fields["config"] = {"name": rig.name}
     return rig.start_recording(store, **fields).writer.session
 
 

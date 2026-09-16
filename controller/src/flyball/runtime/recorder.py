@@ -101,7 +101,11 @@ class Recorder:
         for source in self.sources:
             writer.declare_source(source)
         for channel, loop in loops:
-            writer.declare_actuator(loop.actuator.name, type(loop.actuator).__name__)
+            writer.declare_actuator(
+                loop.actuator.name,
+                type(loop.actuator).__name__,
+                loop.actuator.config.model_dump(mode="json"),
+            )
             writer.declare_loop(
                 loop.name,
                 channel,

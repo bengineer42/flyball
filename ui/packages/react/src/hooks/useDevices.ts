@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import type { DeviceKind, DeviceState, DeviceView, Health, RigSchema, RigError } from "@flyball/client";
-import { useRig } from "../provider.js";
+import { useRig, useTelemetry } from "../provider.js";
 import { useQuery, type QueryState } from "./useQuery.js";
-import { useStream } from "./useStream.js";
+import type { StreamStatus } from "./useStream.js";
+import { READOUT_MS, useStoreStatus } from "../store/hooks.js";
 
 /** `GET /api/schema` once; the document every panel is a function of. */
 export function useRigSchema(): QueryState<RigSchema> {
@@ -22,14 +23,18 @@ export function useDeviceView(kind: DeviceKind, name: string): QueryState<Device
   return useQuery(() => rig.device(kind as "actuators", name), [rig, kind, name]);
 }
 
-/** Latest state of every actuator, from `/ws/actuators`; the initial message carries all of them. */
-export function useActuatorStates(): { states: Record<string, DeviceState>; status: string } {
-  const { state, status } = useStream("actuators", {} as Record<string, DeviceState>, (held, message) => {
-    const next = { ...held };
-    for (const { name, state: s } of message.actuators) next[name] = s;
-    return next;
-  });
-  return { states: state, status };
+/**
+ * Latest state of every actuator, from `/ws/actuators` through the telemetry
+ * store; the initial message carries all of them. The object keeps its
+ * identity until a state changes, and changes reach the caller at most four
+ * times a second. One actuator: `useActuatorState(name)`.
+ */
+export function useActuatorStates(): { states: Record<string, DeviceState>; status: StreamStatus } {
+  const store = useTelemetry();
+  const subscribe = useCallback((cb: () => void) => store.subscribeActuators(null, cb, READOUT_MS), [store]);
+  useSyncExternalStore(subscribe, () => store.actuatorVersion());
+  const status = useStoreStatus("actuators");
+  return { states: store.actuators(), status };
 }
 
 export interface CommandRunner {

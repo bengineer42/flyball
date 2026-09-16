@@ -8,10 +8,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.core.reading import Reader
+from flyball.core.reading import Reader, Source
 from flyball.core.signal import Signal
 from flyball.programmer.activities import Wait
 from flyball.server import create_app, set_rig
+from flyball.server.routes.devices import source_schema
 from helpers import sample
 
 
@@ -45,7 +46,13 @@ def test_schema_lists_every_device(client, duty_heater):
     assert heater["commands"]["set_duty"]["arguments"]["properties"]["duty"]["type"] == "number"
     (reader,) = schema["readers"].values()
     (source,) = reader["sources"]
+    assert source["label"] is None  # the fixture's Source has none
     assert source["measurands"][next(iter(source["measurands"]))]["range"] == [-40.0, 125.0]
+
+
+def test_source_schema_carries_its_label(fresh, temperature):
+    source = Source(fresh("thermocouple"), (temperature,), label="Zone 1 thermocouple")
+    assert source_schema(source)["label"] == "Zone 1 thermocouple"
 
 
 def test_actuator_view_and_commands(client, duty_heater):
@@ -118,7 +125,42 @@ def test_health_is_one_look_at_the_rig(client, rig, duty_heater):
     body = client.get("/api/health").json()
     assert body["ok"] is True and body["recording"] is False
     assert body["loops"] == {} and body["conditions"] == []
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "max_level": 0}
     assert set(body["readers"]) == set(rig.readers.by_name)
+
+
+def test_health_counts_channels_outside_their_warn_and_alarm_bands(client, rig, fresh):
+    from flyball.core.reading import Measurand, Sample, Source
+    from flyball.core.units.si import Celsius
+
+    warn_m = Measurand(fresh("warn_temp"), Celsius, warn=(0.0, 50.0), alarm=(-10.0, 80.0))
+    alarm_m = Measurand(fresh("alarm_temp"), Celsius, warn=(0.0, 50.0), alarm=(-10.0, 80.0))
+    fine_m = Measurand(fresh("fine_temp"), Celsius, warn=(0.0, 50.0), alarm=(-10.0, 80.0))
+    bay = Source(fresh("bay"), (warn_m, alarm_m, fine_m))
+    values = {warn_m: 60.0, alarm_m: 90.0, fine_m: 20.0}
+    rig.on_read([Sample(bay, bay.next_seq(), rig.clock.now_ns(), values)])
+    body = client.get("/api/health").json()
+    assert body["alarms"] == {"warn": 1, "alarm": 1, "max_level": 40}
+
+
+def test_health_alarms_include_device_conditions_at_or_above_warning(
+    client, rig, probe, temperature, fresh
+):
+    from flyball.core.reading import Reader
+
+    class Flaky(Reader):
+        def __init__(self):
+            super().__init__(fresh("flaky"), (probe,))
+
+        def read(self, time_ns):
+            raise RuntimeError("open circuit")
+
+    reader = Flaky()
+    rig.start_reader(reader, period=0.5)
+    rig.readers._read(reader)  # fails: an ERROR-level "offline" condition
+    body = client.get("/api/health").json()
+    assert body["alarms"] == {"warn": 0, "alarm": 1, "max_level": 40}
+    rig.readers.stop_all()
 
 
 def test_health_without_a_rig_says_so():
@@ -177,7 +219,14 @@ def test_program_check_normalises_without_running(client, programmer):
 def test_program_runs_step_by_step_as_signals_are_answered(client, programmer, rig):
     body = {"name": "go", "steps": [{"wait": "one"}, {"wait": {"message": "two", "name": "two"}}]}
     state = client.post("/api/programs/run", json=body).json()
-    assert state == {"running": True, "step": 0, "steps": 2, "command": "wait"}
+    assert state == {
+        "running": True,
+        "step": 0,
+        "steps": 2,
+        "command": "wait",
+        "failed": False,
+        "error": None,
+    }
     assert list(client.get("/api/signals").json()) == ["wait"]
     assert client.post("/api/signals/wait/fire").json()["fired"] is True
     deadline = time.monotonic() + 2
@@ -214,6 +263,23 @@ def test_program_with_an_unknown_step_is_refused_before_anything_runs(client, pr
     r = client.post("/api/programs/run", json={"steps": [{"wait": "ok"}, {"bogus": 1}]})
     assert r.status_code == 422
     assert client.get("/api/signals").json() == {}
+
+
+def test_a_step_naming_a_missing_loop_fails_the_run_instead_of_finishing_it(client, programmer):
+    """The bug this guards: the route returned the 404 but the run still narrated `finished`."""
+    body = {"name": "p3", "steps": [{"regulate": {"loop": "heater1", "setpoint": 20}}]}
+    r = client.post("/api/programs/run", json=body)
+    assert r.status_code == 404 and r.json() == {"detail": "Loop 'heater1' not found"}
+
+    state = client.get("/api/programs/running").json()
+    assert state["running"] is False and state["failed"] is True
+    assert state["error"] is not None and "heater1" in state["error"]
+
+    events = client.get("/api/events").json()
+    kinds = [e["kind"] for e in events]
+    assert kinds[-1] == "failed" and "finished" not in kinds
+    (finish_event,) = [e for e in events if e["kind"] == "failed"]
+    assert finish_event["level"] == "ERROR" and "heater1" in finish_event["message"]
 
 
 class TestSimRoutes:

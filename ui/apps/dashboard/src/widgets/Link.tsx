@@ -19,8 +19,9 @@ const LinkWidget = memo(function LinkWidget({ config }: WidgetComponentProps) {
       target={external ? "_blank" : undefined}
       rel={external ? "noopener noreferrer" : undefined}
       variant={config.variant === "text" ? "text" : "outlined"}
+      size="small"
       startIcon={<Icon />}
-      sx={{ flex: "1 1 auto", justifyContent: "flex-start", minHeight: 0, textAlign: "left" }}
+      className="dash-link"
     >
       {label}
     </Button>
@@ -32,8 +33,8 @@ export const link: WidgetKind = {
   label: "Link",
   description: "A button to a page of the app -- a source, a loop, a program -- or to a URL.",
   category: "layout",
-  defaultSize: { w: 2, h: 1 },
-  minSize: { w: 1, h: 1 },
+  defaultSize: { w: 4, h: 1 },
+  minSize: { w: 2, h: 1 },
   cost: "cheap",
   configSchema: () => ({
     type: "object",

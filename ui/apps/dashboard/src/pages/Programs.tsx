@@ -49,7 +49,8 @@ import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "
 import { hashFor } from "../router.js";
 import { Confirm } from "../Confirm.js";
 import { NEW, stepOf, type Programmer } from "../model.js";
-import { clickThrough, clickableSx } from "../cards.js";
+import { clickThrough, clickableSx, SectionHead, StateBlock } from "../cards.js";
+import { PAGE_ICONS } from "../icons.js";
 import { normalisedOf, stepsSummary } from "../steps.js";
 import { asProgram, briefError, stepOfError, type ProgramTree } from "../programDoc.js";
 import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
@@ -81,7 +82,7 @@ function CheckChip({ check }: { check: { data: ProgramCheck | undefined; error: 
 /** A section heading in the Overview's style. */
 export function Heading({ children, end }: { children: ReactNode; end?: ReactNode }) {
   return (
-    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
+    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.125 }}>
       <Typography variant="h2" component="h2" color="text.secondary">
         {children}
       </Typography>
@@ -98,9 +99,19 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
     .slice(-6)
     .reverse();
   const running = p?.running ?? false;
-  const explanation = !p ? "…" : p.running ? `running: step ${stepOf(p)}${p.command ? ` · ${p.command}` : ""}` : "idle — nothing is running";
+  // `failed` stays set (with the error that stopped it) until the next run clears it, even
+  // once `running` goes false -- so a failure is still visible after the fact, not just for
+  // the instant it happened.
+  const failed = p?.failed ?? false;
+  const explanation = !p
+    ? "…"
+    : p.running
+      ? `running: step ${stepOf(p)}${p.command ? ` · ${p.command}` : ""}`
+      : failed
+        ? `failed${p.error ? ` · ${p.error}` : ""}`
+        : "idle — nothing is running";
   return (
-    <Paper sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+    <Paper sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5 }}>
       <Heading
         end={
           running && onInterrupt ? (
@@ -111,14 +122,18 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
         }
       >
         {name ? "Status" : "Programmer"}
-        <Chip label={p ? (running ? "running" : "idle") : "…"} color={running ? "success" : "default"} sx={{ ml: 1, verticalAlign: "middle" }} />
+        <Chip
+          label={p ? (running ? "running" : failed ? "failed" : "idle") : "…"}
+          color={running ? "success" : failed ? "error" : "default"}
+          sx={{ ml: 1.5, verticalAlign: "middle" }}
+        />
       </Heading>
-      <Typography>{explanation}</Typography>
+      <Typography color={failed ? "error" : undefined}>{explanation}</Typography>
       {p?.running && p.steps > 0 && <LinearProgress variant="determinate" value={(100 * Math.min(p.step + 1, p.steps)) / p.steps} />}
-      <Box sx={{ mt: 0.5 }}>
+      <Box sx={{ mt: 0.75 }}>
         <Heading>{name ? "Recent events" : "Recent program events"}</Heading>
         {recent.length > 0 ? (
-          <Table size="small" sx={{ "& td": { border: 0, py: 0.25, px: 0.5 } }}>
+          <Table size="small" sx={{ "& td": { border: 0, py: 0.375, px: 0.75 } }}>
             <TableBody>
               {recent.map((e, i) => (
                 <TableRow key={`${e.time_ns}-${i}`}>
@@ -225,6 +240,7 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
   const [busy, setBusy] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   const running = programmer.data?.running ?? false;
+  const failed = programmer.data?.failed ?? false;
 
   const act = async (op: () => Promise<unknown>) => {
     setBusy(true);
@@ -254,7 +270,7 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
 
   return (
     <>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2.25 }}>
         <input ref={file} type="file" accept=".yaml,.yml,.toml,.json" hidden onChange={(e) => void upload(e)} aria-label="upload program file" />
         <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => file.current?.click()} disabled={busy}>
           Upload
@@ -275,16 +291,24 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
         </Tooltip>
         {imported && imported.length > 0 && <Chip label={`imported ${imported.join(", ")}`} color="info" variant="outlined" onDelete={() => setImported(null)} />}
         <Box sx={{ flexGrow: 1 }} />
-        <Chip label={running ? `running: ${programmer.data?.command ?? ""} step ${stepOf(programmer.data!)}` : "programmer idle"} color={running ? "success" : "default"} variant="outlined" />
+        <Chip
+          label={running ? `running: ${programmer.data?.command ?? ""} step ${stepOf(programmer.data!)}` : failed ? `failed${programmer.data?.error ? ` · ${programmer.data.error}` : ""}` : "programmer idle"}
+          color={running ? "success" : failed ? "error" : "default"}
+          variant="outlined"
+        />
       </Stack>
       {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 1.5 }}>
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2.25 }}>
           {error}
         </Alert>
       )}
       {programs.error && <Alert severity="error">{programs.error.message}</Alert>}
-      {!programs.data && !programs.error && <Typography color="text.secondary">loading…</Typography>}
-      {programs.data && (
+      <SectionHead icon={PAGE_ICONS.programs} title="Programs" count={programs.data?.length} />
+      {!programs.data && !programs.error && <StateBlock state="loading" message="Loading programs…" />}
+      {programs.data && programs.data.length === 0 && (
+        <StateBlock state="empty" message="No programs stored yet. Upload one or start from a template." action={{ label: "New program", onClick: () => onOpen(NEW) }} />
+      )}
+      {programs.data && programs.data.length > 0 && (
         <TableContainer component={Paper}>
           <Table>
             <TableHead>
@@ -304,18 +328,11 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
               {programs.data.map((p) => (
                 <ProgramRow key={p.name} program={p} running={running} busy={busy} onRun={() => setToRun(p.name)} onDelete={() => setToDelete(p.name)} />
               ))}
-              {programs.data.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={9} sx={{ color: "text.secondary" }}>
-                    no programs stored
-                  </TableCell>
-                </TableRow>
-              )}
             </TableBody>
           </Table>
         </TableContainer>
       )}
-      <Box sx={{ mt: 1.5 }}>
+      <Box sx={{ mt: 2.25 }}>
         <ProgramStatus programmer={programmer} events={events} onInterrupt={() => void act(() => rig.interruptProgram()).then(programmer.refresh)} />
       </Box>
       <Confirm
@@ -371,7 +388,7 @@ function NameDialog({ open, title, text, action, initial, busy, onClose, onSubmi
   return (
     <Dialog open={open} onClose={() => (busy ? undefined : onClose())} fullWidth maxWidth="xs">
       <DialogTitle>{title}</DialogTitle>
-      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2.25 }}>
         <DialogContentText>{text}</DialogContentText>
         <TextField
           autoFocus
@@ -679,12 +696,12 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     <Box data-testid="steps" sx={{ minWidth: 0 }}>
       <Heading end={checkChip}>Steps</Heading>
       {check && !check.ok && check.error && (
-        <Alert severity="error" sx={{ mb: 1 }} data-testid="check-error">
+        <Alert severity="error" sx={{ mb: 1.5 }} data-testid="check-error">
           {check.error}
         </Alert>
       )}
       {parseError && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           showing the last text that parsed; fix the text to update
         </Typography>
       )}
@@ -701,7 +718,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                 {FORMATS.map((f) => (
                   <Tooltip key={f} title={SUPPORTED[f] ? "" : `${f} is not available in this build`}>
                     <span>
-                      <ToggleButton value={f} sx={{ py: 0.25 }} disabled={!SUPPORTED[f] || Boolean(parseError)}>
+                      <ToggleButton value={f} sx={{ py: 0.375 }} disabled={!SUPPORTED[f] || Boolean(parseError)}>
                         {f}
                       </ToggleButton>
                     </span>
@@ -739,11 +756,11 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     <>
       <Crumbs items={[{ label: "programs", href: hashFor("programs") }, { label: creating ? "new" : routeName }]} />
       {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 1.5 }}>
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2.25 }}>
           {error}
         </Alert>
       )}
-      <Paper sx={{ p: 1.5, mb: 1.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
+      <Paper sx={{ p: 2.25, mb: 2.25, display: "flex", flexDirection: "column", gap: 2.25 }}>
         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
           <Typography fontWeight={600}>{creating ? programName || "new program" : routeName}</Typography>
           <Chip label={format} variant="outlined" />
@@ -783,7 +800,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
           )}
         </Stack>
         {wide ? (
-          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", alignItems: "start" }}>
+          <Box sx={{ display: "grid", gap: 2.25, gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", alignItems: "start" }}>
             {stepsPane}
             {textPane}
           </Box>
@@ -835,13 +852,13 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       <NameDialog open={rename} title={`Rename ${routeName}`} text="Moves every version under the new name." action="Rename" initial={routeName} busy={busy} onClose={() => setRename(false)} onSubmit={renameTo} />
 
       {!creating && (
-        <Box sx={{ mb: 1.5 }}>
+        <Box sx={{ mb: 2.25 }}>
           <ProgramStatus programmer={programmer} events={events} name={routeName} onInterrupt={() => void act(() => rig.interruptProgram()).then(programmer.refresh)} />
         </Box>
       )}
 
       {!creating && (
-        <TableContainer component={Paper} sx={{ p: 1.5 }}>
+        <TableContainer component={Paper} sx={{ p: 2.25 }}>
           <Heading>Versions</Heading>
           <Table>
             <TableHead>

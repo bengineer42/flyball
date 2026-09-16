@@ -6,10 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from flyball.control.feedforward import NoFeedforward, Table
 from flyball.core.reading import Source
 from flyball.programmer import Hold, Manual, Program, Programmer, Ramp, Regulate
 from flyball.runtime.config import RigConfig, resolve_document
 from flyball.sim import Furnace, Port, SteppedClock
+from flyball.sim.furnace import KELVIN, STEFAN_BOLTZMANN
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -128,6 +130,73 @@ def test_a_failed_thermocouple_goes_offline_with_an_event(furnace_rig):
     assert rig.readers.by_name["zone3"].state.conditions == ()
 
 
+# The single-zone losses curve for the furnace's shared loss model
+# (`[links.tube]`: loss_w_per_k = 1.5, emissivity = 0.8, area_m2 = 0.01,
+# ambient_c = 20), independent of which zone: `_losses` takes no zone index.
+def _zone_losses(temperature_c: float) -> float:
+    kelvin = max(temperature_c + KELVIN, 0.0)
+    radiative = 0.8 * STEFAN_BOLTZMANN * 0.01 * (kelvin**4 - (20.0 + KELVIN) ** 4)
+    return 1.5 * (temperature_c - 20.0) + radiative
+
+
+def _fresh_furnace_rig():
+    for name in ("zone1", "zone2", "zone3", "sample"):
+        Source.forget(name)
+    document, _ = resolve_document(EXAMPLES / "furnace.toml")
+    document["clock"] = {"stepped": True}
+    return RigConfig.model_validate(document).build()
+
+
+def _run_ramp_to_700(rig, feedforward) -> float:
+    """Ramp all three zones to 700 at 15 degC/min, hold 20 min; zone2's peak overshoot."""
+    loop = rig.loops["heater2"]
+    loop.feedforward = feedforward
+    peak = float("-inf")
+
+    def record(_loop, reading):
+        nonlocal peak
+        if reading is not None:
+            peak = max(peak, reading.value)
+
+    loop.attach_on_tick(record)
+    programmer = Programmer(rig)
+    programmer.start(
+        Program([
+            Regulate(20, loop=["heater1", "heater2", "heater3"]),
+            Ramp(700, pace=Rate_per_minute(15), loop=["heater1", "heater2", "heater3"]),
+            Hold(Duration_minutes(20)),
+            Manual(loop=["heater1", "heater2", "heater3"]),
+        ])
+    )
+    programmer.join(60)
+    assert programmer.running is False, "program did not finish"
+    loop.detach_on_tick(record)
+    return peak - 700.0
+
+
+def test_rate_feedforward_beats_plain_pi_which_beats_a_static_table(furnace_rig):
+    """The handoff's principled fix, checked: a rate term earns its keep on a ramp.
+
+    Measured on zone 2 (heater2, 6000 W, capacity 3000 J/K): a static `table`
+    feedforward of the losses curve alone makes a 15 degC/min ramp to 700 *worse*
+    than plain PI (it adds hold power on top of an already wound-up integral,
+    as `furnace.toml` warns); adding `rate_gain` -- the extra power to charge
+    the zone's thermal mass at the ramp's rate, `capacity_j_per_k` itself
+    since the loop hands the feedforward a rate in degC *per second*, not per
+    minute -- fixes that and beats plain PI too. Observed overshoot: plain PI
+    ~4.0 degC, table alone ~7.6 degC, table + rate_gain ~2.2 degC.
+    """
+    points = [(t, _zone_losses(t)) for t in (20, *range(100, 1101, 100))]
+    plain = _run_ramp_to_700(furnace_rig, NoFeedforward())
+    static_table = _run_ramp_to_700(_fresh_furnace_rig(), Table(points))
+    rated_table = _run_ramp_to_700(_fresh_furnace_rig(), Table(points, rate_gain=3000.0))
+    for name in ("zone1", "zone2", "zone3", "sample"):
+        Source.forget(name)  # the last _fresh_furnace_rig(); furnace_rig forgets its own
+
+    assert static_table > plain, "a static table adds to an already wound-up integral"
+    assert rated_table < plain - 1.0, "the rate term should clearly beat plain PI"
+
+
 def Rate_per_minute(value: float):  # noqa: N802  a test helper reading like the file
     from flyball.core.clock import Speed, TimeUnit
 
@@ -138,3 +207,40 @@ def Duration_minutes(value: float):  # noqa: N802
     from flyball.core.clock import Duration
 
     return Duration.from_seconds(value * 60)
+
+
+def test_api_devices_lists_every_reader_and_actuator_once(furnace_rig):
+    """`GET /api/devices` names the whole rig, whatever kind each device is."""
+    from fastapi.testclient import TestClient
+
+    from flyball.server import create_app, set_rig
+
+    rig = furnace_rig
+    set_rig(rig)
+    try:
+        with TestClient(create_app()) as client:
+            devices = client.get("/api/devices").json()
+            assert set(devices) == {
+                "zone1",
+                "zone2",
+                "zone3",
+                "sample",
+                "heater1",
+                "heater2",
+                "heater3",
+            }
+            for name in ("zone1", "zone2", "zone3", "sample"):
+                assert devices[name]["kind"] == "reader"
+                assert devices[name]["type"] == "SimReader"
+            for name in ("heater1", "heater2", "heater3"):
+                assert devices[name]["kind"] == "actuator"
+                assert devices[name]["type"] == "SimActuator"
+                # A sim device binds its plant directly (`.plant`, not `.link`), so it
+                # names no link here; see test_devices.py for a device that does.
+                assert devices[name]["link"] is None
+
+            single = client.get("/api/devices/heater2").json()
+            assert single == devices["heater2"]
+            assert client.get("/api/devices/nonesuch").status_code == 404
+    finally:
+        set_rig(None)

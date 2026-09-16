@@ -6,7 +6,8 @@
     "dev": "npm --workspace apps/dashboard run dev",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc -b",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

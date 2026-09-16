@@ -39,6 +39,7 @@ link = "psu"
 command = "SOUR:VOLT {value:.3f}"
 demand_unit = "V"
 readback = "MEAS:VOLT?"
+output_range = [0, 30]
 
 [[loops]]
 channel = "dmm.voltage"

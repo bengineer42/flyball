@@ -1,9 +1,9 @@
 import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
-import { useHealth, useQuery, useRig, type StreamStatus } from "@flyball/react";
-import type { ActuatorSchema, DeviceState } from "@flyball/client";
+import { useAlarmSummary, useHealth, useQuery, useReaderPeriods, useRig, useRigSchema, useSources, type StreamStatus } from "@flyball/react";
+import type { ActuatorSchema, ChannelOut, DeviceState } from "@flyball/client";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
-import { PAGE_ICONS, SourceIcon, type IconComponent } from "./icons.js";
+import { PAGE_ICONS, SourceIcon, WarnIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
 
 type Colour = NonNullable<ChipProps["color"]>;
@@ -52,20 +52,22 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href }: { icon: Ic
   );
 }
 
-/** A stream's state: green dot open, red dot otherwise. */
-export const StreamChip = ({ status, label }: { status: StreamStatus | string; label: string }) => {
-  const ok = status === "open";
+/** A chip with its own coloured dot, for the two states no MUI `color` reads as "quiet": recording (red dot or none) and stream health (grey/amber/red dot). */
+function DotChip({ dotColour, label, href, title }: { dotColour: string; label: string; href?: string; title: string }) {
   return (
-    <Tooltip title={`${label} stream ${status}`}>
+    <Tooltip title={title}>
       <Chip
         variant="outlined"
+        color="default"
+        icon={<FiberManualRecordIcon sx={{ fontSize: 10, "&&": { color: dotColour } }} />}
         label={label}
-        icon={<FiberManualRecordIcon sx={{ fontSize: 10, "&&": { color: ok ? "success.main" : "error.main" } }} />}
-        sx={{ display: { xs: "none", md: "inline-flex" } }}
+        component={href ? "a" : "div"}
+        href={href}
+        clickable={Boolean(href)}
       />
     </Tooltip>
   );
-};
+}
 
 /** The simulated clock's speed when it is not real time; a link to the Simulation page. */
 export const SimChip = ({ speed }: { speed: number | undefined }) => {
@@ -73,7 +75,7 @@ export const SimChip = ({ speed }: { speed: number | undefined }) => {
   const label = `sim ×${Number.isInteger(speed) ? speed : speed.toFixed(1).replace(/\.0$/, "")}`;
   return (
     <Tooltip title={`simulated clock runs at ${label.slice(4)} real time`}>
-      <Chip variant="outlined" color="info" icon={<PAGE_ICONS.simulation fontSize="small" />} label={label} component="a" href={hashFor("simulation")} clickable />
+      <Chip variant="outlined" color="default" icon={<PAGE_ICONS.simulation fontSize="small" />} label={label} component="a" href={hashFor("simulation")} clickable />
     </Tooltip>
   );
 };
@@ -83,71 +85,102 @@ export interface StatusProps {
   states: Record<string, DeviceState>;
   recording: Recording;
   programmer: Programmer;
+  /** Every stream the app opens; folded into one live/reconnecting/offline chip. */
+  streams: StreamStatus[];
 }
 
-/** What is running, at a glance: actuators, readers, recording, loops. All from the library's hooks. */
-export function Status({ actuators, states, recording, programmer }: StatusProps) {
+/**
+ * The app bar's condition summary: an always-present alarm chip, one folded
+ * stream-health chip, recording, the running program, and readers only when
+ * one is not running. Every healthy state is `color="default"` outlined —
+ * colour is reserved for abnormal conditions (ISA-101 §0).
+ */
+export function Status({ recording, programmer, streams }: StatusProps) {
   const rig = useRig();
   const health = useHealth(5000);
-  const loops = useQuery(() => rig.loops(), [rig], { refreshMs: 5000 });
+  // Kept warm so the loops/actuators pages open with a populated cache; no chip reads it any more.
+  useQuery(() => rig.loops(), [rig], { refreshMs: 5000 });
 
-  // Actuators: n of m without an ERROR-level condition; amber on any WARNING, red on any ERROR.
-  const levels = actuators.map((a) => ({ name: a.name, level: Math.max(0, ...(states[a.name]?.conditions ?? []).map((c) => c.level)) }));
-  const okCount = levels.filter((l) => l.level < 40).length;
-  const worst = Math.max(0, ...levels.map((l) => l.level));
-  const actuatorColour: Colour = worst >= 40 ? "error" : worst >= 30 ? "warning" : okCount === actuators.length ? "success" : "default";
-  const actuatorLines: Line[] = levels.map((l) => ({
-    name: l.name,
-    href: hrefFor({ kind: "actuator", name: l.name }),
-    state: l.level >= 40 ? "error" : l.level >= 30 ? "warning" : states[l.name] ? "ok" : "no state yet",
-  }));
+  // Alarm summary (research §6): device conditions plus channels outside their warn/alarm band —
+  // `plant.toml`'s 18 amber channels must not read "0" here just because no device condition
+  // fired. `/api/health.alarms` now carries this (backend, and already folds device conditions
+  // into its warn/alarm counts — do not add `active.length` again on top of it); a client-side
+  // fallback (from the store, device conditions added separately) covers an older daemon.
+  const schema = useRigSchema();
+  const sources = useSources();
+  const channels = (sources.data ?? []).flatMap((s) => s.channels);
+  // Periods only (not full reader runs): re-renders this chip less often — DESIGN-SPEC.md §2/B-3.
+  const periods = useReaderPeriods();
+  const readerOfSource = new Map<string, string>();
+  for (const reader of Object.values(schema.data?.readers ?? {})) for (const src of reader.sources) readerOfSource.set(src.name, reader.name);
+  const periodOf = (c: ChannelOut) => periods[readerOfSource.get(c.source) ?? ""] ?? undefined;
+  // No channels (empty array) when the server already supplies `alarms`: this stops
+  // `useAlarmSummary` subscribing every channel on the samples socket for a chip that would
+  // then ignore it — otherwise `/ws/samples` stays open on every page, even ones with no chart.
+  const clientSummary = useAlarmSummary(health.data?.alarms ? [] : channels, periodOf);
+  const active = (health.data?.conditions ?? []).filter((c) => c.level >= 30);
+  const amberChannels = health.data?.alarms?.warn ?? clientSummary.warn;
+  const redChannels = health.data?.alarms?.alarm ?? clientSummary.alarm;
+  const conditionCount = health.data?.alarms ? amberChannels + redChannels : active.length + amberChannels + redChannels;
+  const worst = health.data?.alarms?.max_level ?? Math.max(0, ...active.map((c) => c.level));
+  const alarmColour: Colour = redChannels > 0 || worst >= 40 ? "error" : amberChannels > 0 || worst >= 30 ? "warning" : "default";
+
+  const offline = streams.some((s) => s === "closed");
+  const reconnecting = !offline && streams.some((s) => s !== "open");
+  const liveState = offline ? "offline" : reconnecting ? "reconnecting" : "live";
+  const liveDot = offline ? "error.main" : reconnecting ? "warning.main" : "text.disabled";
 
   const readers = Object.entries(health.data?.readers ?? {});
   const running = readers.filter(([, r]) => r.running).length;
   const readerLines: Line[] = readers.map(([name, r]) => ({ name, href: hrefFor({ kind: "reader", name }), state: r.running ? "running" : "stopped" }));
 
-  const regulating = loops.data?.filter((l) => l.mode === "regulating").length ?? 0;
-  const loopLines: Line[] = loops.data?.map((l) => ({ name: l.name, href: hrefFor({ kind: "loop", name: l.name }), state: l.mode })) ?? [];
-
   const open = recording.data;
 
   return (
     <>
-      <StatusChip icon={PAGE_ICONS.actuators} full={`actuators ${okCount}/${actuators.length}`} short={`${okCount}/${actuators.length}`} colour={actuatorColour} lines={actuatorLines} href={hashFor("actuators")} />
       <StatusChip
-        icon={SourceIcon}
-        full={`readers ${running}/${readers.length} running`}
-        short={`${running}/${readers.length}`}
-        colour={health.data ? (running === readers.length ? "success" : "error") : "default"}
-        lines={readerLines}
-        href={hashFor("readers")}
+        icon={WarnIcon}
+        full={`${conditionCount} condition${conditionCount === 1 ? "" : "s"}`}
+        short={`${conditionCount}`}
+        colour={alarmColour}
+        lines={[
+          ...active.map((c) => ({ name: c.kind, state: c.message })),
+          ...(amberChannels > 0 ? [{ name: "channels", state: `${amberChannels} outside their warn band` }] : []),
+          ...(redChannels > 0 ? [{ name: "channels", state: `${redChannels} outside their alarm band` }] : []),
+        ]}
+        href={hashFor("events")}
       />
-      <StatusChip
-        icon={PAGE_ICONS.sessions}
-        full={open ? `recording ${sessionName(open)}` : "not recording"}
-        short={open ? "rec" : "—"}
-        colour={open ? "success" : "default"}
-        lines={open ? [{ name: sessionName(open), href: hrefFor({ kind: "session", name: String(open.id) }), state: `since ${new Date(open.start_ns / 1e6).toLocaleTimeString()}` }] : []}
+      <DotChip
+        dotColour={open ? "error.main" : "text.disabled"}
+        label={open ? sessionName(open) : "not recording"}
+        title={open ? `recording ${sessionName(open)}` : "not recording"}
         href={hashFor("sessions")}
       />
-      {programmer.data?.running && (
+      {(programmer.data?.running || programmer.data?.failed) && (
         <StatusChip
           icon={PAGE_ICONS.programs}
-          full={`program: ${programmer.data.command ?? "…"} step ${stepOf(programmer.data)}`}
-          short={stepOf(programmer.data)}
-          colour="success"
-          lines={[]}
+          full={
+            programmer.data.running
+              ? `program: ${programmer.data.command ?? "…"} step ${stepOf(programmer.data)}`
+              : `program failed${programmer.data.error ? ` · ${programmer.data.error}` : ""}`
+          }
+          short={programmer.data.running ? stepOf(programmer.data) : "failed"}
+          colour={programmer.data.failed ? "error" : "default"}
+          lines={!programmer.data.running && programmer.data.error ? [{ name: "error", state: programmer.data.error }] : []}
           href={hashFor("programs")}
         />
       )}
-      <StatusChip
-        icon={PAGE_ICONS.loops}
-        full={`loops ${regulating} regulating`}
-        short={`${regulating}`}
-        colour={regulating > 0 ? "success" : "default"}
-        lines={loopLines.length ? loopLines : [{ name: "no loops", state: loops.data ? "none attached" : "…" }]}
-        href={hashFor("loops")}
-      />
+      <DotChip dotColour={liveDot} label={liveState} title={`streams ${liveState}`} />
+      {readers.length > 0 && running < readers.length && (
+        <StatusChip
+          icon={SourceIcon}
+          full={`readers ${running}/${readers.length} running`}
+          short={`${running}/${readers.length}`}
+          colour="error"
+          lines={readerLines}
+          href={hashFor("readers")}
+        />
+      )}
     </>
   );
 }

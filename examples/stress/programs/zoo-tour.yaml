@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=program.schema.json
+# Exercise the four loops `zoo.toml` has (the rest are gauges with nothing
+# driving them), one after another, so every loop mode shows up at least
+# once: regulating, holding, manual.
+name: zoo-tour
+description: Step each of the four looped channels through a small setpoint change.
+steps:
+  - regulate: { loop: celsius_drive, setpoint: 35 }
+  - regulate: { loop: voltage_drive, setpoint: 18 }
+  - regulate: { loop: length_drive, setpoint: 3 }
+  - regulate: { loop: flow_drive, setpoint: 20 }
+  - hold: { minutes: 2, message: "all four loops regulating" }
+  - manual: [celsius_drive, voltage_drive, length_drive, flow_drive]

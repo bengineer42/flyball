@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from flyball.core.config import resolve
 from flyball.core.device import DeviceConfig, DeviceState
 from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.sink import Actuator, ActuatorState
+from flyball.core.sink import Actuator, ActuatorConfig, ActuatorState
 from flyball.core.units.dimension import Unit
 from flyball.core.units.si import One
 from flyball.hardware.links import RegisterLink, RegisterLinkConfig
@@ -153,7 +153,9 @@ class ModbusActuator(Actuator):
 
     @property
     def state(self) -> ModbusActuatorState:
-        return ModbusActuatorState(demand=self._demand, written=list(self._written))
+        return ModbusActuatorState(
+            demand=self._demand, output_range=self.output_range, written=list(self._written)
+        )
 
     def set_demand(self, demand: float) -> float | None:
         self._demand = demand
@@ -162,7 +164,7 @@ class ModbusActuator(Actuator):
         return self.register.decode(self._written)  # what the controller will hold, quantised
 
 
-class ModbusActuatorConfig(DeviceConfig[ModbusActuator], tag="modbus_actuator"):
+class ModbusActuatorConfig(ActuatorConfig[ModbusActuator], tag="modbus_actuator"):
     name: str
     link: RegisterLinkConfig | str  # type: ignore[valid-type]
     output: Register  # `register` would shadow ABC.register on the config

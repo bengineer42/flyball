@@ -12,7 +12,12 @@ from fastapi import APIRouter, Body
 from pydantic import BaseModel, Field
 
 from flyball.core.device import Device
-from flyball.server.deps import SimulationDep, SimulationDeviceDep, current_simulation
+from flyball.server.deps import (
+    SimulationDep,
+    SimulationDeviceDep,
+    current_simulation,
+    current_simulation_device,
+)
 
 from .devices import device_schema, run
 
@@ -42,12 +47,18 @@ class SaveIn(BaseModel):
 async def read_simulation() -> dict[str, Any]:
     """The clock, every plant with its config and state, and what has changed since the last save.
 
-    `{"simulated": false}` for a rig with real hardware.
+    `{"simulated": false}` for a rig with real hardware. `device` says
+    whether `/api/sim/device` exists, so a client need not probe it and get
+    a 404 on every simulated rig that has no application device of its own.
     """
     simulation = current_simulation()
     if simulation is None:
         return {"simulated": False}
-    return {"simulated": True, **simulation.describe()}
+    return {
+        "simulated": True,
+        "device": current_simulation_device() is not None,
+        **simulation.describe(),
+    }
 
 
 @router.put("/clock")

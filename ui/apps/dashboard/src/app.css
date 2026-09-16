@@ -1,10 +1,17 @@
 /* Layout only. Colours, type and controls come from the MUI theme; the library panels from --fb-* (set in theme.tsx). */
 
-/* One spacing scale, in 8px steps: gutters between cards and sections; padding inside a card is the library's --fb-gap. */
+/* Controllers page (pages/Controllers.tsx): three cards abreast at xl width must read as one row --
+   equal height, not each sized to its own content (CSS Grid's default `align-items: stretch`
+   already stretches the cell; this makes the visible card inside actually fill that height). */
+.controller-cell { display: flex; flex-direction: column; }
+.controller-cell > .fb-loop, .controller-cell > .fb-tile, .controller-cell > .fb-actuator { flex: 1 1 auto; }
+
+/* One spacing scale (DESIGN-SPEC.md §1.4, the library's --fb-space-*): gutters between cards and
+   sections; padding inside a card is the library's --fb-gap (--fb-space-3, 12px). */
 :root {
-  --gutter: 16px;
-  --gutter-half: 8px;
-  --section-gap: 24px;
+  --gutter: var(--fb-space-4);       /* 16px */
+  --gutter-half: var(--fb-space-2);  /* 8px */
+  --section-gap: var(--fb-space-5);  /* 24px */
 }
 
 section + section { margin-top: var(--section-gap); }
@@ -51,7 +58,7 @@ section + section { margin-top: var(--section-gap); }
 .source-group, .unit-group { display: flex; flex-direction: column; gap: var(--gutter-half); }
 .source-head { min-height: 24px; }
 .tile-with-icon { position: relative; }
-.tile-icon { position: absolute; top: 0.6rem; right: 0.75rem; color: var(--fb-muted); opacity: 0.6; }
+.tile-icon { position: absolute; top: 0.6rem; right: 0.75rem; color: var(--fb-fg-2); opacity: 0.6; }
 
 /* A section heading and the controls that belong to it: one row, controls on the right edge, wrapping under on a phone. */
 .section-head { min-height: 40px; margin-bottom: var(--gutter-half); }
@@ -68,14 +75,14 @@ td .fb-state { max-height: 9rem; overflow: auto; }
 .dash-item > .fb-tile { height: 100%; }
 .dash-grid .react-grid-item.react-grid-placeholder { background: var(--fb-accent); opacity: 0.15; border-radius: var(--fb-radius); }
 .dash-grid .react-grid-item > .react-resizable-handle { z-index: 2; }
-.dash-grid .react-grid-item > .react-resizable-handle::after { border-color: var(--fb-muted); }
+.dash-grid .react-grid-item > .react-resizable-handle::after { border-color: var(--fb-fg-2); }
 .dash-grid .react-grid-item > .react-resizable-handle-e::after, .dash-grid .react-grid-item > .react-resizable-handle-s::after { display: none; }
 .dash-grid .react-grid-item.react-draggable-dragging > .fb-tile { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); }
 /* Edit mode: the header is the handle, and the tile's edge says so. */
 .dash-editing .fb-tile-editing { border-style: dashed; }
 .dash-editing .fb-tile-drag { cursor: grab; user-select: none; }
 .dash-editing .fb-tile-drag:active, .dash-editing .react-draggable-dragging .fb-tile-drag { cursor: grabbing; }
-.dash-editing .fb-tile-editing .fb-tile-head { background: var(--fb-bg); }
+.dash-editing .fb-tile-editing .fb-tile-head { background: var(--fb-bg-2); }
 .fb-tile-grip { cursor: grab; }
 /* The tile's own content fills it. */
 .fb-fill { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -86,9 +93,17 @@ td .fb-state { max-height: 9rem; overflow: auto; }
 .fb-tile .fb-readout-value { font-size: clamp(1.4em, 9cqi, 2.6em); }
 .dash-widget-heading > .fb-tile-body { justify-content: flex-end; }
 .dash-widget-heading, .dash-widget-spacer, .dash-widget-link { background: transparent; border-color: transparent; }
-.dash-editing .dash-widget-heading, .dash-editing .dash-widget-spacer, .dash-editing .dash-widget-link { border-color: var(--fb-border); }
+.dash-editing .dash-widget-heading, .dash-editing .dash-widget-spacer, .dash-editing .dash-widget-link { border-color: var(--fb-border-1); }
 .dash-widget-link > .fb-tile-body { padding: 0; }
 .dash-widget-link > .fb-tile-body > a { height: 100%; }
 /* Inside a tile, the loop faceplate's charts follow the tile, not the viewport. */
 .fb-tile .fb-loop.fb-loop-compact > .fb-loop-charts { grid-template-columns: minmax(0, 1fr); }
 .fb-tile .fb-actuator .fb-commands { grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr)); }
+
+/* Graph page (#/graph): a channel picker beside a chart that fills the rest of the viewport height (measured, not eyeballed — see ui.md). */
+.fb-graph-body { display: flex; gap: var(--gutter); align-items: stretch; height: calc(100vh - 128px); min-height: 320px; }
+.fb-graph-picker { flex: 0 0 260px; min-width: 220px; min-height: 0; border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); background: var(--fb-bg-1); overflow: hidden; display: flex; }
+.fb-graph-chart { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 599.98px) {
+  .fb-graph-body { height: calc(100vh - 176px); }
+}

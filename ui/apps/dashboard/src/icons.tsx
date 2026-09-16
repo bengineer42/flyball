@@ -4,6 +4,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import LoopIcon from "@mui/icons-material/Loop";
+import MultilineChartIcon from "@mui/icons-material/MultilineChart";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import PlaylistPlayIcon from "@mui/icons-material/PlaylistPlay";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -23,9 +24,13 @@ import type { Page } from "./router.js";
 export type IconComponent = typeof SvgIcon;
 
 export const PAGE_ICONS: Record<Page, IconComponent> = {
-  overview: DashboardOutlinedIcon,
-  dashboards: SpaceDashboardOutlinedIcon,
+  overview: SpaceDashboardOutlinedIcon,
+  dashboards: DashboardOutlinedIcon,
   sources: ShowChartIcon,
+  graph: MultilineChartIcon,
+  controllers: LoopIcon,
+  // Legacy page ids kept only so `Record<Page, IconComponent>` stays total; `#/actuators`/`#/loops`
+  // redirect to `#/controllers` before either icon would be shown (see `legacyControllerRedirect`).
   actuators: TuneIcon,
   loops: LoopIcon,
   programs: PlaylistPlayIcon,

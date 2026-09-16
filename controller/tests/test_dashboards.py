@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +12,7 @@ from flyball.db.sqlite import SqliteStore
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
 from flyball.server.deps import set_store
-from flyball.server.routes.dashboards import import_directory
+from flyball.server.routes.dashboards import import_directory, problems_for
 
 DOC = {
     "rig": "t",
@@ -49,7 +50,7 @@ def test_save_read_history_list(client):
     assert saved.status_code == 201
     body = saved.json()
     assert body["name"] == "main" and body["rig"] == "t" and body["body"]["name"] == "main"
-    assert body["body"]["grid"] == {"cols": 12, "row_height": 40}
+    assert body["body"]["grid"] == {"cols": 24, "row_height": 24}
     assert body["body"]["widgets"][1]["config"] == {}
 
     again = c.put("/api/dashboards/main", json={**DOC, "name": "main", "description": "v2"})
@@ -105,3 +106,93 @@ def test_import_directory_is_idempotent_and_versions_changed_files(tmp_path):
     (boards / "overview.json").write_text(json.dumps({**DOC, "description": "edited"}))
     assert len(import_directory(store, boards, "furnace", 3)) == 1
     assert len(store.dashboard_history("overview")) == 2
+
+
+@dataclass
+class _Measurand:
+    """A bare stand-in: `problems_for` reads only `.name`."""
+
+    name: str
+
+
+@dataclass
+class _Channel:
+    measurand: _Measurand
+
+    def __init__(self, measurand: str) -> None:
+        self.measurand = _Measurand(measurand)
+
+
+@dataclass
+class _Source:
+    name: str
+    channels: list[_Channel] = field(default_factory=list)
+
+    def __init__(self, name: str, measurands: list[str]) -> None:
+        self.name = name
+        self.channels = [_Channel(m) for m in measurands]
+
+
+@dataclass
+class _FakeRig:
+    """Just enough of `Rig` for `problems_for`: sources with channels, `in` on loops/actuators."""
+
+    sources: list[_Source]
+    loops: set[str]
+    actuators: dict[str, None] = field(default_factory=dict)
+
+    def __init__(self, sources: list[_Source], loops: set[str], actuators: set[str]) -> None:
+        self.sources = sources
+        self.loops = loops
+        self.actuators = dict.fromkeys(actuators)
+
+
+def test_problems_for_flags_every_missing_binding_kind():
+    rig = _FakeRig(
+        sources=[_Source("zone1", ["temperature"])], loops={"heater1"}, actuators={"heater1"}
+    )
+    doc = {
+        "widgets": [
+            {"id": "ok-readout", "kind": "readout", "config": {"channel": "zone1.temperature"}},
+            {"id": "bad-readout", "kind": "readout", "config": {"channel": "zone9.temperature"}},
+            {
+                "id": "bad-gauge",
+                "kind": "gauge",
+                "config": {"channel": {"source": "zone9", "measurand": "temperature"}},
+            },
+            {
+                "id": "mixed-chart",
+                "kind": "chart",
+                "config": {"channels": ["zone1.temperature", "zone9.humidity"]},
+            },
+            {"id": "ok-loop", "kind": "loop", "config": {"loop": "heater1"}},
+            {"id": "bad-loop", "kind": "loop", "config": {"loop": "ghost"}},
+            {"id": "ok-actuator", "kind": "actuator", "config": {"actuator": "heater1"}},
+            {"id": "bad-actuator", "kind": "actuator", "config": {"actuator": "ghost"}},
+            {"id": "no-binding", "kind": "health", "config": {}},
+        ]
+    }
+    problems = {p.widget_id: p.ref for p in problems_for(doc, rig)}
+    assert problems == {
+        "bad-readout": "zone9.temperature",
+        "bad-gauge": "zone9.temperature",
+        "mixed-chart": "zone9.humidity",
+        "bad-loop": "ghost",
+        "bad-actuator": "ghost",
+    }
+    reasons = {p.ref: p.reason for p in problems_for(doc, rig)}
+    assert reasons["ghost"] == "ghost is not on this rig"
+
+
+def test_save_and_read_report_problems(client):
+    """`PUT`/`GET` return `problems[]` beside the document rather than refusing it (§4.8).
+
+    The fixture's bare rig has no sources, so widget "a"'s channel `p.t` is always unresolved.
+    """
+    c, _ = client
+    saved = c.put("/api/dashboards/main", json={**DOC, "name": "main"})
+    expected = [{"widget_id": "a", "ref": "p.t", "reason": "p.t is not on this rig"}]
+    assert saved.json()["problems"] == expected
+    assert c.get("/api/dashboards/main").json()["problems"] == expected
+    # Widget "b" (a chart with no `channels` configured) has nothing to flag.
+    assert all(p["widget_id"] != "b" for p in saved.json()["problems"])

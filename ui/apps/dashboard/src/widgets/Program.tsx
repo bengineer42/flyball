@@ -1,22 +1,35 @@
 import { memo, useState } from "react";
-import { Button, Chip, LinearProgress, Stack, Typography } from "@mui/material";
+import { Button, Chip, LinearProgress, Typography } from "@mui/material";
 import StopIcon from "@mui/icons-material/Stop";
 import { useRig } from "@flyball/react";
 import { humanise } from "@flyball/client";
 import { stepOf } from "../model.js";
 import { hashFor } from "../router.js";
 import { useEventsData, useRigData } from "../dashboard/context.js";
-import { humaniseSubject } from "./Events.js";
+import { humaniseSubject, TIME } from "./Events.js";
+import { rowsThatFit } from "./size.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
-const ProgramWidget = memo(function ProgramWidget({ config }: WidgetComponentProps) {
+/** The status row (28px), the progress bar (4px) and the two gaps between them and the list (dashboard.css `.dash-program`). */
+const HEAD_PX = 28 + 8 + 4 + 8;
+/** One event line: 20px line-height, no padding. */
+const ROW_PX = 20;
+
+/**
+ * State chip · program · step, an Interrupt button while running, the
+ * progress bar, then as many recent program events as the body holds (never
+ * a scrollbar). Body only; the frame is `WidgetFrame`'s.
+ */
+const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComponentProps) {
   const rig = useRig();
-  const { programmer } = useRigData();
+  const { programmer, rowHeight } = useRigData();
   const events = useEventsData();
   const [busy, setBusy] = useState(false);
   const p = programmer.data;
   const running = p?.running ?? false;
-  const shown = Math.max(0, Number(config.events ?? 5));
+  // Stays set (with the error) until the next run clears it, even once `running` goes false.
+  const failed = p?.failed ?? false;
+  const shown = Math.min(Math.max(0, Number(config.events ?? 5)), rowsThatFit(widget.h, rowHeight, true, HEAD_PX, ROW_PX));
   const recent = events.filter((e) => e.scope === "program").slice(-shown).reverse();
   // The programmer says step and command; the program's name is in the step events' subject (`anneal[4]`).
   const latest = [...events].reverse().find((e) => e.scope === "program" && e.kind === "step");
@@ -32,47 +45,45 @@ const ProgramWidget = memo(function ProgramWidget({ config }: WidgetComponentPro
       });
   };
   return (
-    <Stack spacing={1} sx={{ minHeight: 0, flex: "1 1 auto" }}>
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <Chip label={p ? (running ? "running" : "idle") : "…"} color={running ? "success" : "default"} />
+    <div className="dash-program">
+      <div className="dash-program-status">
+        <Chip size="small" label={p ? (running ? "running" : failed ? "failed" : "idle") : "…"} color={running ? "success" : failed ? "error" : "default"} />
         {running && name && (
-          <Typography fontWeight={600} component="a" href={hashFor("programs", name)} sx={{ color: "inherit", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>
+          <Typography fontWeight={600} noWrap component="a" href={hashFor("programs", name)} sx={{ color: "inherit", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>
             {name}
           </Typography>
         )}
-        <Typography variant="body2" color="text.secondary">
-          {!p ? "…" : running ? `step ${stepOf(p)}${p.command ? ` · ${humanise(p.command)}` : ""}` : "nothing is running"}
+        <Typography variant="body2" noWrap color={failed ? "error" : "text.secondary"} sx={{ minWidth: 0 }}>
+          {!p ? "…" : running ? `step ${stepOf(p)}${p.command ? ` · ${humanise(p.command)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
         </Typography>
         {running && config.interrupt !== false && (
-          <Button variant="outlined" color="error" startIcon={<StopIcon />} onClick={interrupt} disabled={busy} sx={{ ml: "auto" }}>
+          <Button size="small" variant="outlined" color="error" startIcon={<StopIcon />} onClick={interrupt} disabled={busy} sx={{ ml: "auto", flex: "none" }}>
             Interrupt
           </Button>
         )}
-      </Stack>
-      {running && p && p.steps > 0 && <LinearProgress variant="determinate" value={(100 * Math.min(p.step + 1, p.steps)) / p.steps} />}
+      </div>
+      <LinearProgress className="dash-program-progress" variant="determinate" value={running && p && p.steps > 0 ? (100 * Math.min(p.step + 1, p.steps)) / p.steps : 0} sx={{ visibility: running ? "visible" : "hidden" }} />
       {shown > 0 && (
-        <Stack spacing={0.25} sx={{ overflow: "auto", minHeight: 0 }}>
+        <div className="dash-program-events">
           {recent.length === 0 && (
             <Typography variant="body2" color="text.secondary">
               no program events yet
             </Typography>
           )}
           {recent.map((e, i) => (
-            <Stack key={`${e.time_ns}-${i}`} direction="row" spacing={1} alignItems="baseline" sx={{ fontSize: "0.85rem" }}>
-              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                {new Date(e.time_ns / 1e6).toLocaleTimeString()}
-              </Typography>
-              <Typography variant="body2" color={e.level === "ERROR" ? "error" : e.level === "WARNING" ? "warning.main" : "text.secondary"} sx={{ whiteSpace: "nowrap" }}>
+            <div key={`${e.time_ns}-${i}`} className="dash-program-event" title={`${humaniseSubject(e.subject)}: ${e.message}`}>
+              <span className="dash-program-time fb-muted">{TIME.format(new Date(e.time_ns / 1e6))}</span>
+              <Typography variant="body2" component="span" color={e.level === "ERROR" ? "error" : e.level === "WARNING" ? "warning.main" : "text.secondary"} noWrap>
                 {humanise(e.kind)}
               </Typography>
-              <Typography variant="body2" noWrap title={`${humaniseSubject(e.subject)}: ${e.message}`}>
+              <Typography variant="body2" component="span" noWrap>
                 {e.message}
               </Typography>
-            </Stack>
+            </div>
           ))}
-        </Stack>
+        </div>
       )}
-    </Stack>
+    </div>
   );
 });
 
@@ -81,8 +92,9 @@ export const program: WidgetKind = {
   label: "Program",
   description: "What the programmer is running: the program, its step, progress, and the last few program events.",
   category: "control",
-  defaultSize: { w: 4, h: 5 },
-  minSize: { w: 3, h: 2 },
+  // 8×6: a 150px body holds the status row, the bar and five 20px event lines; 6×3 the status row and one line (DESIGN-SPEC.md §10).
+  defaultSize: { w: 8, h: 6 },
+  minSize: { w: 6, h: 3 },
   cost: "cheap",
   configSchema: () => ({
     type: "object",

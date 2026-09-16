@@ -35,7 +35,7 @@ def tick(self, reading):
             self.correction = self.law.step(
                 self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
             )
-        base = self.feedforward(setpoint)
+        base = self.feedforward(setpoint, self.rate_at(time_ns))
         self.demand = base + self.correction
         self.expected = self.actuator.set_demand(self.demand)
         self.delivered_correction = None if self.expected is None else self.expected - base
@@ -55,13 +55,53 @@ config and registers the tag), and a rig file names one per loop:
 | --- | --- | --- |
 | `setpoint` | `setpoint` | an actuator that takes the channel's unit; the default when the units agree |
 | `none` | `0` | a bare actuator under PID; the default when they differ |
-| `affine` | `gain · setpoint + bias` | a plant that is linear near one point |
-| `table` | interpolated `(setpoint, demand)` points, flat past the ends | a static curve measured at commissioning |
+| `affine` | `gain · setpoint + bias [+ rate_gain · rate]` | a plant that is linear near one point |
+| `table` | interpolated `(setpoint, demand)` points, flat past the ends`[+ rate_gain · rate]` | a static curve measured at commissioning |
+
+### The setpoint's rate
+
+`rate` is `dSP/dt`, in the channel's unit per *second*: the loop asks the
+reference for it (`Loop.rate_at`, `SetPointGenerator.rate`), rather than
+differencing successive setpoints, which would carry the reading noise a
+real trajectory does not have. `LinearRampSetpoint` reports its
+`per_second` while ramping and `0` once it has landed; every other
+reference is `0` always, since it is not moving.
+
+`affine` and `table` take an optional `rate_gain`, actuator unit per
+channel-unit-per-second, adding `rate_gain * rate` on top of the static
+curve. It models a plant with *capacity*: a `table` of a furnace zone's
+static losses gets the steady-state hold power right but, on a ramp, only
+adds to a correction the law's integral is already winding up to cover the
+same shortfall (see `examples/simulated/furnace.toml`'s comment: this
+measured *worse* than plain PI). `rate_gain` covers the extra power a ramp
+spends charging the zone's thermal mass -- `capacity_j_per_k` itself,
+because it is J/K, i.e. W per °C/s, the same unit `rate_gain` wants. On
+furnace zone 2 (6000 W, 3000 J/K), a 15 °C/min ramp to 700 °C then a hold
+measured 4.0 °C overshoot plain PI, 7.6 °C with the static table alone, and
+2.2 °C with `rate_gain = 3000` -- clearly better than plain PI, so that
+loop ships with it. Not on `setpoint`: it already hands the actuator the
+channel's own unit, so a rate term there would be a lead compensator, a
+different job from the plant-capacity model this is; nothing needs it yet.
+
+`resolve_value` and the bumpless seed use the same `feedforward(setpoint,
+rate)` and its inverse (below), so a handover mid-ramp accounts for the
+rate term rather than momentarily forgetting it.
+
+### Inverting it
+
+`Feedforward.invert(demand, rate)` is the setpoint behind a demand: `regulate(at=DEMAND)`
+needs it, since `demand` is in the actuator's unit but the aim it sets must
+be in the channel's like every other source. `setpoint` inverts to the
+identity; `affine` solves the line (`ValueError`-family
+`FeedforwardNotInvertibleError` if `gain` is 0); `table` reads its points
+backwards where they are monotonic (rising or falling), the same error
+otherwise. `none` has no inverse at all: every setpoint gives the same
+demand (0), so a demand does not identify one.
 
 `attach_loop` refuses `setpoint` when the units differ: handing a heater
 "300" meaning °C when it reads watts would run happily and do nonsense.
-The bumpless seed on `regulate` is `held − feedforward(setpoint)`, so a
-handover from manual holds the output whatever the units.
+The bumpless seed on `regulate` is `held − feedforward(setpoint, rate)`, so a
+handover from manual holds the output whatever the units, mid-ramp included.
 
 `to_law_time` is `(time_ns − offset_ns) / 1e9`: seconds since the law's own
 start. The law keeps no clock; it derives its interval from the previous

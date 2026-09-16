@@ -1,5 +1,5 @@
 import { memo, useState, type FormEvent } from "react";
-import { Alert, Button, Chip, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Button, Chip, TextField, Typography } from "@mui/material";
 import StopCircleOutlinedIcon from "@mui/icons-material/StopCircleOutlined";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import { Confirm } from "../Confirm.js";
@@ -35,49 +35,50 @@ const RecordingWidget = memo(function RecordingWidget({ config }: WidgetComponen
     void run(() => recording.start(details)).then(() => setName(""));
   };
   const controls = config.controls !== false;
-  return (
-    <Stack spacing={1} sx={{ flex: "1 1 auto", minHeight: 0, justifyContent: "center" }}>
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)}>
+  // One row, always (dashboard.css `.dash-recording`): a 6×3 body is 42px, which holds a small field and button and nothing more.
+  // An error replaces the row rather than stacking under it.
+  if (error)
+    return (
+      <div className="dash-recording">
+        <Alert severity="error" onClose={() => setError(null)} sx={{ py: 0, flex: "1 1 auto", minWidth: 0, alignItems: "center" }}>
           {error}
         </Alert>
+      </div>
+    );
+  return open ? (
+    <div className="dash-recording">
+      <Chip size="small" label="recording" color="success" icon={<FiberManualRecordIcon />} />
+      <Typography fontWeight={600} noWrap component="a" href={hashFor("sessions", open.id)} sx={{ color: "inherit", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>
+        {sessionName(open)}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" noWrap sx={{ minWidth: 0, flex: "1 1 auto" }}>
+        since {when(open.start_ns)} · {duration(((open.end_ns ?? now * 1e6) - open.start_ns) / 1e9)}
+      </Typography>
+      {controls && (
+        <Button size="small" variant="outlined" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setConfirmEnd(true)} disabled={busy} sx={{ flex: "none" }}>
+          End
+        </Button>
       )}
-      {open ? (
-        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Chip label="recording" color="success" icon={<FiberManualRecordIcon />} />
-          <Typography fontWeight={600} component="a" href={hashFor("sessions", open.id)} sx={{ color: "inherit", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>
-            {sessionName(open)}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            since {when(open.start_ns)} · {duration(((open.end_ns ?? now * 1e6) - open.start_ns) / 1e9)}
-          </Typography>
-          {controls && (
-            <Button variant="outlined" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setConfirmEnd(true)} disabled={busy} sx={{ ml: "auto" }}>
-              End
-            </Button>
-          )}
-          <Confirm
-            open={confirmEnd}
-            title={`End ${sessionName(open)}?`}
-            text="Recording stops and the session is closed. Its data is kept."
-            action="End recording"
-            busy={busy}
-            onClose={() => setConfirmEnd(false)}
-            onConfirm={() => void run(() => recording.end()).then(() => setConfirmEnd(false))}
-          />
-        </Stack>
-      ) : (
-        <Stack component="form" direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap onSubmit={start}>
-          <Chip label={recording.loading && !recording.error ? "…" : "not recording"} />
-          {controls && <TextField label="name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "session name" }} sx={{ flexGrow: 1, minWidth: 120 }} />}
-          {controls && (
-            <Button type="submit" variant="contained" disabled={busy} startIcon={<FiberManualRecordIcon />}>
-              Start
-            </Button>
-          )}
-        </Stack>
+      <Confirm
+        open={confirmEnd}
+        title={`End ${sessionName(open)}?`}
+        text="Recording stops and the session is closed. Its data is kept."
+        action="End recording"
+        busy={busy}
+        onClose={() => setConfirmEnd(false)}
+        onConfirm={() => void run(() => recording.end()).then(() => setConfirmEnd(false))}
+      />
+    </div>
+  ) : (
+    <form className="dash-recording" onSubmit={start}>
+      <Chip size="small" label={recording.loading && !recording.error ? "…" : "not recording"} />
+      {controls && <TextField size="small" label="name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "session name" }} sx={{ flex: "1 1 auto", minWidth: 0 }} />}
+      {controls && (
+        <Button size="small" type="submit" variant="contained" disabled={busy} startIcon={<FiberManualRecordIcon />} sx={{ flex: "none" }}>
+          Start
+        </Button>
       )}
-    </Stack>
+    </form>
   );
 });
 
@@ -86,8 +87,9 @@ export const recording: WidgetKind = {
   label: "Recording",
   description: "The open session, and buttons to start or end one.",
   category: "control",
-  defaultSize: { w: 4, h: 2 },
-  minSize: { w: 3, h: 2 },
+  // 6×3: one 40px row (chip · name · Start) in a 42px body; below 3 rows the controls cannot fit (DESIGN-SPEC.md §10).
+  defaultSize: { w: 6, h: 3 },
+  minSize: { w: 4, h: 3 },
   cost: "cheap",
   configSchema: () => ({
     type: "object",

@@ -1,15 +1,12 @@
 import { memo } from "react";
-import { Box, Typography } from "@mui/material";
+import { Typography } from "@mui/material";
 import { Markdown } from "./markdown.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 const TextWidget = memo(function TextWidget({ config }: WidgetComponentProps) {
   const text = String(config.text ?? "");
-  return (
-    <Box sx={{ overflow: "auto", minHeight: 0, flex: "1 1 auto", fontSize: "0.9rem", "& .fb-markdown > :first-of-type": { mt: 0 }, "& .fb-markdown > :last-child": { mb: 0 }, "& h2, & h3, & h4": { mt: 1.5, mb: 0.5 }, "& p": { my: 0.75 }, "& code": { fontSize: "0.85em", px: 0.5, bgcolor: "action.hover", borderRadius: 0.5 } }}>
-      {config.markdown === false ? <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{text}</Typography> : <Markdown text={text} />}
-    </Box>
-  );
+  // Spacing and type come from dashboard.css `.dash-text`; the body clips rather than scrolls -- size the widget to the note.
+  return <div className="dash-text">{config.markdown === false ? <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{text}</Typography> : <Markdown text={text} />}</div>;
 });
 
 export const text: WidgetKind = {
@@ -17,8 +14,9 @@ export const text: WidgetKind = {
   label: "Text",
   description: "A note: markdown (headings, lists, bold, links) or plain text.",
   category: "layout",
-  defaultSize: { w: 4, h: 4 },
-  minSize: { w: 2, h: 1 },
+  // 6×4: a 78px body holds the default note (a heading and two lines) (DESIGN-SPEC.md §10).
+  defaultSize: { w: 6, h: 4 },
+  minSize: { w: 3, h: 2 },
   cost: "cheap",
   configSchema: () => ({
     type: "object",

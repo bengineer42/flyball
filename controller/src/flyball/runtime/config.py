@@ -39,11 +39,11 @@ import flyball.sim.devices  # ruff: ignore[unused-import]
 from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock
 from flyball.core.config import Config, discover
-from flyball.core.errors import NotFoundError
+from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import SUFFIXES, load_document
 from flyball.core.model import discriminated_union
 from flyball.core.reading import Measurand, Reader, Source
-from flyball.core.sink import Actuator
+from flyball.core.sink import RESERVED_NAMES, Actuator
 from flyball.runtime.rig import Rig
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
@@ -178,14 +178,38 @@ class RigConfig(BaseModel):
 
     @model_validator(mode="after")
     def _consistent(self) -> RigConfig:
-        """Everything named in the file is declared in it, once."""
+        """Everything named in the file is declared in it, once, in one namespace.
+
+        A reader, an actuator and a source (most readers' is just their own
+        name under another hat, but `source` may say otherwise) all draw
+        from the same names: no two may collide, rig-wide, and none may be a
+        reserved route segment. Checked here, before anything is built, so
+        the file fails with one clear message instead of a build-time error
+        part-way through.
+        """
         devices = [*(r.device for r in self.readers), *self.actuators]
         for link in (getattr(d, "link", None) for d in devices):
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
-        names = [d.name for d in devices]
-        if dupes := sorted({n for n in names if names.count(n) > 1}):
-            raise ValueError(f"device names must be unique; {dupes} appear more than once")
+        claimed: dict[str, str] = {}
+
+        def claim(name: str, kind: str) -> None:
+            if name in RESERVED_NAMES:
+                raise ConflictError(f"Name {name!r} is reserved as a route segment")
+            if (existing := claimed.get(name)) is not None:
+                raise ConflictError(
+                    f"Name {name!r} is already used by {existing} {name!r}"
+                    f" (cannot also be {kind} {name!r})"
+                )
+            claimed[name] = kind
+
+        for entry in self.readers:
+            claim(entry.device.name, "reader")
+            source = getattr(entry.device, "source", None)
+            if source is not None and source != entry.device.name:
+                claim(source, "source")
+        for actuator in self.actuators:
+            claim(actuator.name, "actuator")
         actuators = {a.name for a in self.actuators}
         driven: list[str] = []
         for loop in self.loops:
@@ -251,6 +275,11 @@ class RigConfig(BaseModel):
             for config in self.actuators:
                 actuator = with_link(config).build()
                 actuator.label = config.label
+                # A real actuator that cannot work out its own output_range (a sim one
+                # does, from its limits) may state it in its config; generic by
+                # attribute, since not every actuator config derives from ActuatorConfig.
+                if (output_range := getattr(config, "output_range", None)) is not None:
+                    actuator.output_range = output_range
                 rig.add_actuator(actuator)
             for loop in self.loops:
                 source_name, _, measurand_name = loop.channel.partition(".")

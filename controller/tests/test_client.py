@@ -131,3 +131,46 @@ class TestProgramCommands:
         assert calls[2] == ("/api/programs/interrupt", None)
         out = capsys.readouterr().out.splitlines()
         assert out == ["running: step 1 of 1 (wait)", "idle", "running: step 1 of 1 (wait)"]
+
+
+def _rig_toml(reader_name: str, actuator_name: str) -> str:
+    return f"""
+[links.bench]
+tag = "fake_text"
+replies = {{}}
+
+[[readers]]
+[readers.device]
+tag = "scpi_reader"
+name = "{reader_name}"
+link = "bench"
+measurands = {{}}
+
+[[actuators]]
+tag = "scpi_actuator"
+name = "{actuator_name}"
+link = "bench"
+command = "SOUR:VOLT {{value}}"
+"""
+
+
+class TestRigCheck:
+    """`flyball rig check` validates a file with no rig, and reports a name collision."""
+
+    def test_reports_a_name_collision(self, tmp_path):
+        from flyball import cli
+        from flyball.client import SchemaError
+
+        path = tmp_path / "rig.toml"
+        path.write_text(_rig_toml("x", "x"))
+        with pytest.raises(SchemaError, match="already used by reader 'x'"):
+            cli.cmd_rig_check(None, argparse.Namespace(path=path))
+
+    def test_a_consistent_file_prints_a_summary(self, tmp_path, capsys):
+        from flyball import cli
+
+        path = tmp_path / "rig.toml"
+        path.write_text(_rig_toml("x", "y"))
+        cli.cmd_rig_check(None, argparse.Namespace(path=path))
+        out = capsys.readouterr().out
+        assert "ok" in out and "1 readers, 1 actuators" in out

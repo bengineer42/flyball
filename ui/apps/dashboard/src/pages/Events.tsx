@@ -1,6 +1,7 @@
 import { Alert } from "@mui/material";
-import { EventsPanel, EVENT_LEVELS } from "@flyball/react";
+import { EventsPanel, EVENT_LEVELS, useNowS } from "@flyball/react";
 import type { EventLevel, RigEvent } from "@flyball/client";
+import { StateBlock } from "../cards.js";
 
 export interface EventsProps {
   events: RigEvent[];
@@ -13,15 +14,20 @@ export interface EventsProps {
 export function Events({ events, error, level }: EventsProps) {
   const from = EVENT_LEVELS.indexOf((level ?? "").toUpperCase() as EventLevel);
   const levels = from > 0 ? EVENT_LEVELS.slice(from) : undefined;
+  const nowS = useNowS();
   return (
     <>
       {error && (
-        <Alert severity="error" sx={{ mb: 1.5 }}>
+        <Alert severity="error" sx={{ mb: 2.25 }}>
           {error.message}
         </Alert>
       )}
-      {/* Keyed so arriving with another level resets the panel's own filter. */}
-      <EventsPanel key={levels?.join() ?? "all"} events={events} levels={levels} />
+      {events.length === 0 ? (
+        <StateBlock state="empty" message="No events yet — nothing has happened on this rig since it started." />
+      ) : (
+        // Keyed so arriving with another level resets the panel's own filter.
+        <EventsPanel key={levels?.join() ?? "all"} events={events} levels={levels} nowS={nowS} />
+      )}
     </>
   );
 }

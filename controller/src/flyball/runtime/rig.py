@@ -16,7 +16,7 @@ from flyball.control.feedforward import (
     Setpoint,
 )
 from flyball.core import Clock
-from flyball.core.device import Condition, Event, Level
+from flyball.core.device import Condition, Device, Event, Level
 from flyball.core.errors import ConflictError
 from flyball.core.reading import Channel, Reader, Reading, Sample, Source
 from flyball.core.sink import RESERVED_NAMES, Actuator, ActuatorState, Observer, Sink
@@ -39,6 +39,17 @@ class Rig:
     clock: Clock
     loops: Loops
     actuators: dict[str, Actuator]
+    devices: dict[str, Device]
+    """Every reader, actuator and application device, by name: one namespace rig-wide.
+
+    A source is not a `Device` -- it has no config or commands -- but its
+    name lives in the same namespace (a reader's source appears beside
+    device names in the same UI and API), so it is claimed here too even
+    though it is not a value in this dict. Links and plants are not: they
+    are declared in their own `links` section of a rig file and addressed
+    through their own routes (`/api/sim/plants/{name}`), not alongside
+    devices, so a link and a device may share a name.
+    """
     name: str | None
     """What the rig file called it, if it came from one."""
     links: dict[str, Any]
@@ -63,6 +74,9 @@ class Rig:
     _samples: dict[Source, Sample]
     _readings: dict[Channel, Reading]
     _recent: dict[Channel, deque[Reading]]
+    _claims: dict[str, tuple[str, object]]
+    """Every name claimed rig-wide, with who claimed it and as what -- devices and sources
+    both, so a collision can be reported before it does anything harder to undo."""
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
@@ -71,6 +85,8 @@ class Rig:
         self.clock = Clock()
         self.loops = Loops()
         self.actuators = {}
+        self.devices = {}
+        self._claims = {}
         self.lock = RLock()
         self.actuator_states = Latest()
         self.loop_states = Latest()
@@ -116,12 +132,45 @@ class Rig:
             if (observers := self.observations.get(key)) is not None:
                 observers.pop(observer, None)
 
+    def claim(self, name: str, kind: str, owner: object) -> None:
+        """Reserve `name` for `kind` (a reader, an actuator, a source, ...) rig-wide.
+
+        Re-claiming `name` for the same `owner` is a no-op -- a loop may
+        reattach an actuator it already added. Claiming it for anything else
+        is a collision: no reader, actuator, source or application device
+        may share a name with another, regardless of kind.
+
+        Raises:
+            ConflictError: `name` is reserved as a route segment, or already
+                claimed by something else.
+        """
+        if name in RESERVED_NAMES:
+            raise ConflictError(f"Name {name!r} is reserved as a route segment")
+        existing = self._claims.get(name)
+        if existing is not None:
+            existing_kind, existing_owner = existing
+            if existing_owner is owner:
+                return
+            raise ConflictError(
+                f"Name {name!r} is already used by {existing_kind} {name!r}"
+                f" (cannot also be {kind} {name!r})"
+            )
+        self._claims[name] = (kind, owner)
+
+    def release(self, name: str) -> None:
+        """Free a claimed name, e.g. when an application detaches its own device. For tests too."""
+        self._claims.pop(name, None)
+        self.devices.pop(name, None)
+
+    def kind_of(self, name: str) -> str | None:
+        """What claimed `name` -- "reader", "actuator", "source", "simulation", ... -- or None."""
+        claim = self._claims.get(name)
+        return None if claim is None else claim[0]
+
     def add_actuator(self, actuator: Actuator) -> None:
         """Make an actuator reachable by name, for commands. Loops add theirs."""
-        if actuator.name in RESERVED_NAMES:
-            raise ConflictError(f"Actuator name {actuator.name!r} is reserved as a route segment")
-        if (existing := self.actuators.get(actuator.name)) is not None and existing is not actuator:
-            raise ConflictError(f"Actuator {actuator.name!r} is already attached")
+        self.claim(actuator.name, "actuator", actuator)
+        self.devices[actuator.name] = actuator
         self.actuators[actuator.name] = actuator
 
     def event(

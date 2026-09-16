@@ -67,7 +67,7 @@ export const YScaleSelect = memo(function YScaleSelect({ value, onChange, unit }
     />
   );
   return (
-    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+    <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
       <Labelled label="y">
         <ToggleButtonGroup exclusive size="small" value={choice} onChange={(_e, v: Choice | null) => v && choose(v)} aria-label="y axis scale" sx={segmentSx}>
           <ToggleButton value="auto" title="Fit the y axis to the data">auto</ToggleButton>
@@ -133,7 +133,7 @@ export const EverySelect = memo(function EverySelect({ value, onChange }: { valu
 /** The chart controls side by side, on one baseline; memoised for the same reason as `WindowSelect`. Lives once per page, in the page bar. */
 export const ChartControls = memo(function ChartControls({ windowS, onWindow, yScale, onYScale, every, onEvery, unit }: ChartSettings & { unit?: string }) {
   return (
-    <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
+    <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
       <WindowSelect value={windowS} onChange={onWindow} />
       <EverySelect value={every} onChange={onEvery} />
       <YScaleSelect value={yScale} onChange={onYScale} unit={unit} />

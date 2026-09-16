@@ -23,7 +23,7 @@ export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClo
   );
   return (
     <Drawer anchor="right" open={open} onClose={onClose} PaperProps={{ sx: { width: 340, maxWidth: "100vw" } }} data-testid="add-widget-drawer">
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: "divider" }}>
         <Typography variant="h1" component="h2" sx={{ flexGrow: 1 }}>
           Add a widget
         </Typography>
@@ -31,7 +31,7 @@ export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClo
           <CloseIcon fontSize="small" />
         </IconButton>
       </Stack>
-      <Box sx={{ px: 2, py: 1 }}>
+      <Box sx={{ px: 3, py: 1.5 }}>
         <TextField fullWidth placeholder="search" value={search} onChange={(e) => setSearch(e.target.value)} inputProps={{ "aria-label": "search widgets" }} autoFocus />
       </Box>
       <List dense disablePadding sx={{ overflow: "auto" }}>
@@ -45,7 +45,7 @@ export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClo
                 <ListItemButton key={k.kind} onClick={() => onAdd(k)} data-testid={`add-${k.kind}`} sx={{ alignItems: "flex-start" }}>
                   <ListItemText
                     primary={
-                      <Stack direction="row" alignItems="center" spacing={1}>
+                      <Stack direction="row" alignItems="center" spacing={1.5}>
                         <span style={{ fontWeight: 600 }}>{k.label}</span>
                         <Tooltip title={COST[k.cost].hint}>
                           <Chip label={COST[k.cost].label} color={COST[k.cost].colour} variant="outlined" size="small" sx={{ height: 18, fontSize: "0.7rem" }} />
@@ -64,7 +64,7 @@ export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClo
           </li>
         ))}
         {groups.length === 0 && (
-          <Typography color="text.secondary" sx={{ px: 2, py: 1 }}>
+          <Typography color="text.secondary" sx={{ px: 3, py: 1.5 }}>
             nothing matches “{search}”
           </Typography>
         )}

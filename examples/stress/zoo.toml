@@ -1,0 +1,525 @@
+#:schema ../simulated/rig.schema.json
+# One channel per unit the units registry knows how to display, so every
+# gauge kind and one unit-chart per unit gets exercised: temperatures on two
+# different scales, a percentage, volumes, electrical units, pressure in two
+# different prefixes of the same unit, a frequency, a speed, a mass, a
+# length, a bare drive fraction, resistance, energy, charge, an amount of
+# substance, an angle, a volume flow and a rotational rate. Most are a lag
+# with nothing driving it (a gauge with a value and a band); four have a
+# loop, so the UI's "has a loop" and "does not" both show up per unit.
+
+name = "zoo"
+
+# ------------------------------------------------------- temperature: °C --
+[links.celsius_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 5.0
+gain = 1.0
+ambient = 20.0
+initial = 20.0
+noise = 0.2
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "celsius"
+label = "Temperature (°C)"
+link = "celsius_cell"
+measurand = "zoo_celsius"
+unit = "°C"
+range = [-20, 150]
+precision = 1
+warn = [0, 100]
+alarm = [-10, 120]
+
+[[actuators]]
+tag = "sim_actuator"
+name = "celsius_drive"
+label = "Temperature drive"
+link = "celsius_cell"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "celsius.zoo_celsius"
+actuator = "celsius_drive"
+law = { tag = "PI", kp = 0.05, ki = 0.002 }
+default = true
+
+# ---------------------------------------------------------- temperature: K --
+[links.kelvin_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 5.0
+gain = 1.0
+ambient = 293.15
+initial = 293.15
+noise = 0.2
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "kelvin"
+label = "Temperature (K)"
+link = "kelvin_cell"
+measurand = "zoo_kelvin"
+unit = "K"
+range = [250, 400]
+precision = 2
+
+# ------------------------------------------------------------- percent: % --
+[links.percent_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 4.0
+gain = 1.0
+ambient = 50.0
+initial = 50.0
+noise = 1.0
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "percent"
+label = "Humidity (%)"
+link = "percent_cell"
+measurand = "zoo_percent"
+unit = "%"
+range = [0, 100]
+precision = 1
+warn = [10, 90]
+
+# -------------------------------------------------------------- volume: L --
+[links.volume_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 6.0
+gain = 1.0
+ambient = 10.0
+initial = 10.0
+noise = 0.3
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "volume"
+label = "Volume (L)"
+link = "volume_cell"
+measurand = "zoo_volume"
+unit = "L"
+range = [0, 50]
+precision = 2
+
+# ------------------------------------------------------------ voltage: V --
+[links.voltage_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 2.0
+gain = 30.0
+ambient = 12.0            # rests here in manual mode, rather than decaying to 0 V
+initial = 12.0
+noise = 0.05
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "voltage"
+label = "Voltage (V)"
+link = "voltage_cell"
+measurand = "zoo_voltage"
+unit = "V"
+range = [0, 30]
+precision = 3
+
+[[actuators]]
+tag = "sim_actuator"
+name = "voltage_drive"
+label = "Voltage drive"
+link = "voltage_cell"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "voltage.zoo_voltage"
+actuator = "voltage_drive"
+law = { tag = "PI", kp = 0.03, ki = 0.01 }
+
+# ------------------------------------------------------------ current: A --
+[links.current_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 2.0
+gain = 1.0
+ambient = 1.0             # no actuator ever moves this: rest there permanently
+initial = 1.0
+noise = 0.02
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "current"
+label = "Current (A)"
+link = "current_cell"
+measurand = "zoo_current"
+unit = "A"
+range = [0, 10]
+precision = 3
+
+# -------------------------------------------------------------- power: W --
+[links.power_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 3.0
+gain = 1000.0
+ambient = 100.0           # no actuator ever moves this: rest there permanently
+initial = 100.0
+noise = 2.0
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "power"
+label = "Power (W)"
+link = "power_cell"
+measurand = "zoo_power"
+unit = "W"
+range = [0, 1000]
+precision = 0
+
+# ----------------------------------------------------------- pressure: Pa --
+[links.pressure_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 4.0
+gain = 1.0
+ambient = 101325.0
+initial = 101325.0
+noise = 20.0
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "pressure_pa"
+label = "Pressure (Pa)"
+link = "pressure_cell"
+measurand = "zoo_pressure_pa"
+unit = "Pa"
+range = [90000, 110000]
+precision = 0
+
+# --------------------------------------------------- pressure, prefixed: kPa --
+[links.pressure_kpa_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 4.0
+gain = 1.0
+ambient = 101.325
+initial = 101.325
+noise = 0.02
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "pressure_kpa"
+label = "Pressure (kPa)"
+link = "pressure_kpa_cell"
+measurand = "zoo_pressure_kpa"
+unit = "kPa"
+range = [90, 110]
+precision = 2
+
+# ----------------------------------------------------------- frequency: Hz --
+[links.frequency_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 2.0
+gain = 1.0
+ambient = 50.0
+initial = 50.0
+noise = 0.5
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "frequency"
+label = "Frequency (Hz)"
+link = "frequency_cell"
+measurand = "zoo_frequency"
+unit = "Hz"
+range = [0, 100]
+precision = 1
+
+# -------------------------------------------------------------- speed: m/s --
+[links.speed_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 3.0
+gain = 1.0
+ambient = 0.0
+initial = 0.0
+noise = 0.05
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "speed"
+label = "Speed (m/s)"
+link = "speed_cell"
+measurand = "zoo_speed"
+unit = "m/s"
+range = [-5, 5]
+precision = 3
+
+# --------------------------------------------------------------- mass: kg --
+[links.mass_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 8.0
+gain = 1.0
+ambient = 5.0
+initial = 5.0
+noise = 0.1
+
+[[readers]]
+period_s = 2.0
+[readers.device]
+tag = "sim_reader"
+name = "mass"
+label = "Mass (kg)"
+link = "mass_cell"
+measurand = "zoo_mass"
+unit = "kg"
+range = [0, 50]
+precision = 2
+
+# ------------------------------------------------------------- length: m --
+[links.length_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 3.0
+gain = 5.0
+ambient = 0.0
+initial = 1.0
+noise = 0.01
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "length"
+label = "Length (m)"
+link = "length_cell"
+measurand = "zoo_length"
+unit = "m"
+range = [0, 10]
+precision = 3
+
+[[actuators]]
+tag = "sim_actuator"
+name = "length_drive"
+label = "Length drive"
+link = "length_cell"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "length.zoo_length"
+actuator = "length_drive"
+law = { tag = "P", kp = 0.5 }
+
+# -------------------------------------------------- drive fraction: of full --
+[links.fraction_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 1.0
+gain = 1.0
+ambient = 0.0
+initial = 0.5
+noise = 0.005
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "fraction"
+label = "Drive fraction"
+link = "fraction_cell"
+measurand = "zoo_fraction"
+unit = "of full"
+range = [0, 1]
+precision = 3
+
+# --------------------------------------------------------- resistance: Ω --
+[links.resistance_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 4.0
+gain = 1.0
+ambient = 100.0
+initial = 100.0
+noise = 1.0
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "resistance"
+label = "Resistance (Ω)"
+link = "resistance_cell"
+measurand = "zoo_resistance"
+unit = "Ω"
+range = [0, 1000]
+precision = 1
+
+# ------------------------------------------------------------- energy: J --
+[links.energy_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 3.0
+gain = 1.0
+ambient = 500.0
+initial = 500.0
+noise = 5.0
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "energy"
+label = "Energy (J)"
+link = "energy_cell"
+measurand = "zoo_energy"
+unit = "J"
+range = [0, 5000]
+precision = 0
+
+# ------------------------------------------------------------- charge: C --
+[links.charge_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 2.0
+gain = 1.0
+ambient = 0.0
+initial = 0.0
+noise = 0.01
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "charge"
+label = "Charge (C)"
+link = "charge_cell"
+measurand = "zoo_charge"
+unit = "C"
+range = [-1, 1]
+precision = 4
+
+# ----------------------------------------------------- amount of substance: mol --
+[links.amount_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 5.0
+gain = 1.0
+ambient = 1.0
+initial = 1.0
+noise = 0.01
+
+[[readers]]
+period_s = 2.0
+[readers.device]
+tag = "sim_reader"
+name = "amount"
+label = "Amount of substance (mol)"
+link = "amount_cell"
+measurand = "zoo_amount"
+unit = "mol"
+range = [0, 5]
+precision = 3
+
+# -------------------------------------------------------------- angle: rad --
+[links.angle_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 1.0
+gain = 1.0
+ambient = 0.0
+initial = 0.0
+noise = 0.02
+
+[[readers]]
+period_s = 0.5
+[readers.device]
+tag = "sim_reader"
+name = "angle"
+label = "Angle (rad)"
+link = "angle_cell"
+measurand = "zoo_angle"
+unit = "rad"
+range = [-3.2, 3.2]
+precision = 3
+
+# --------------------------------------------------------- volume flow: L/min --
+[links.flow_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 3.0
+gain = 40.0
+ambient = 0.0
+initial = 5.0
+noise = 0.2
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "flow"
+label = "Flow (L/min)"
+link = "flow_cell"
+measurand = "zoo_flow"
+unit = "L/min"
+range = [0, 50]
+precision = 2
+
+[[actuators]]
+tag = "sim_actuator"
+name = "flow_drive"
+label = "Flow drive"
+link = "flow_cell"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "flow.zoo_flow"
+actuator = "flow_drive"
+law = { tag = "PI", kp = 0.02, ki = 0.005 }
+
+# -------------------------------------------------------- rotational rate: 1/min --
+[links.speed_rpm_cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 4.0
+gain = 1.0
+ambient = 0.0
+initial = 1000.0
+noise = 10.0
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "rotation"
+label = "Rotational rate (1/min)"
+link = "speed_rpm_cell"
+measurand = "zoo_rotation"
+unit = "1/min"
+range = [0, 3000]
+precision = 0

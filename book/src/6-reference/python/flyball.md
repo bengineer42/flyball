@@ -7,8 +7,6 @@
 
 ::: flyball.cli
 
-::: flyball.commands
-
-::: flyball.consts
-
 ::: flyball.daemon
+
+::: flyball.scaffold

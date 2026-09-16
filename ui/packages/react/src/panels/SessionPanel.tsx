@@ -1,10 +1,37 @@
 import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
 import { useState } from "react";
+import { describeDevice, describeEventKind, describeStateKey, describeSubject } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
 import { ValueView } from "./ValueView.js";
 import { Ref } from "../links.js";
+
+/** An actuator's recorded config, if any, as a plain object minus what the row already says. */
+function actuatorConfig(config: unknown): { label: string | null; rest: Record<string, unknown> } {
+  if (!config || typeof config !== "object") return { label: null, rest: {} };
+  const { label, tag: _tag, name: _name, ...rest } = config as Record<string, unknown>;
+  return { label: typeof label === "string" ? label : null, rest };
+}
+
+/** A law config (`{tag, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
+function lawSummary(config: unknown): { tag: string | null; gains: string } {
+  if (!config || typeof config !== "object") return { tag: null, gains: "" };
+  const { tag, ...gains } = config as Record<string, unknown>;
+  const gains_ = Object.entries(gains)
+    .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
+    .map(([k, v]) => `${k} ${String(v)}${k === "tt" ? " s" : ""}`)
+    .join(" · ");
+  return { tag: typeof tag === "string" ? tag : null, gains: gains_ };
+}
+
+/** `recorder.py`'s `event()` wraps the level, scope and message around the emitter's own `details`. */
+const LEVEL_NAME: Record<number, string> = { 10: "DEBUG", 20: "INFO", 30: "WARNING", 40: "ERROR" };
+function storedEvent(detail: unknown): { level?: string; message?: string; details: unknown } {
+  if (!detail || typeof detail !== "object" || !("message" in detail)) return { details: detail };
+  const { level, message, details } = detail as { level?: number; message?: string; details?: unknown };
+  return { level: typeof level === "number" ? LEVEL_NAME[level] : undefined, message, details };
+}
 
 export type SessionGrouping = "unit" | "channel";
 
@@ -51,6 +78,13 @@ export interface SessionPanelProps {
   every?: number;
   /** URL builders for the store's own files; without them the panel shows no download links. */
   exports?: SessionExports;
+  /**
+   * The rig's clock, in seconds (e.g. `useNowS()`), for an open session's
+   * elapsed time. A simulated clock can run far ahead of (or independent of)
+   * the wall clock, so `Date.now()` would show a nonsensical duration.
+   * Omit to fall back to the wall clock.
+   */
+  nowS?: number;
 }
 
 const when = (s: number) => new Date(s * 1000).toLocaleString();
@@ -67,18 +101,20 @@ const duration = (s: number) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
   return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
 };
+/** `duration()`, but never negative: a `nowS` that hasn't caught up to `start_ns` yet reads "just started". */
+const fmtDuration = (s: number) => (s < 0 ? "just started" : duration(s));
 
 /**
  * One recorded session, top to bottom: header, a chart per channel over the
  * whole session (with spans as annotations under it), loops and actuators as
  * recorded, then events. Pure: `useSession` supplies the detail.
  */
-export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports }: SessionPanelProps) {
+export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports, nowS }: SessionPanelProps) {
   const [own, setOwn] = useState<SessionGrouping>("unit");
   const mode = grouping ?? own;
   const setMode = (g: SessionGrouping) => (onGrouping ? onGrouping(g) : setOwn(g));
   const { session, traces, actuators, loops, events, spans, startS } = detail;
-  const endS = session.end_ns ? session.end_ns / 1e9 : Date.now() / 1000;
+  const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
   const details = session.details as Record<string, unknown> | null;
   const name = details && typeof details.name === "string" ? details.name : `session ${session.id}`;
 
@@ -87,7 +123,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
       <header className="fb-source-head">
         <h3>{name}</h3>
         <span className="fb-muted">
-          #{session.id} · {when(startS)} → {session.end_ns ? when(endS) : "open"} · {duration(endS - startS)}
+          #{session.id} · {when(startS)} → {session.end_ns ? when(endS) : "open"} · {fmtDuration(endS - startS)}
           {session.hardware ? ` · ${String(session.hardware)}` : ""}
         </span>
       </header>
@@ -218,25 +254,33 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
         <section className="fb-session-section">
           <h4>Equipment</h4>
           <dl className="fb-state">
-            {actuators.map((a) => (
-              <div key={a.name} className="fb-state-row">
-                <dt><Ref kind="actuator" name={a.name} /></dt>
-                <dd>
-                  {a.kind} <ValueView value={a.config} />
-                </dd>
-              </div>
-            ))}
+            {actuators.map((a) => {
+              const { label, rest } = actuatorConfig(a.config);
+              return (
+                <div key={a.name} className="fb-state-row">
+                  <dt><Ref kind="actuator" name={a.name} /></dt>
+                  <dd>
+                    {describeDevice(a.kind)}
+                    {label && <> · {label}</>}
+                    {Object.keys(rest).length > 0 && <ValueView value={rest} describeKey={describeStateKey} />}
+                  </dd>
+                </div>
+              );
+            })}
             {loops.map((l, i) => {
               const loopName = l.name ?? l.actuator.name ?? String(i);
+              const { tag, gains } = lawSummary(l.config);
               return (
               <div key={i} className="fb-state-row">
                 <dt>
-                  loop {loopName}
+                  controller {loopName}
                   {exports && <Download what={`${loopName}'s ticks`} href={(f) => exports.ticks(loopName, f)} />}
                 </dt>
                 <dd>
                   <Ref kind="channel" name={l.channel.source.name} measurand={l.channel.measurand.name} /> →{" "}
-                  <Ref kind="actuator" name={l.actuator.name} /> <ValueView value={l.config} />
+                  <Ref kind="actuator" name={l.actuator.name} />
+                  {tag && <> · <span className="fb-tag">{tag}</span></>}
+                  {gains && <span className="fb-muted"> · {gains}</span>}
                 </dd>
               </div>
               );
@@ -255,18 +299,26 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
         ) : (
           <table className="fb-table">
             <tbody>
-              {events.map((e, i) => (
+              {events.map((e, i) => {
+                const { level, message, details } = storedEvent(e.detail);
+                return (
                 <tr key={e.id ?? i}>
                   <td className="fb-muted">+{duration(e.offset_ns / 1e9)}</td>
-                  <td>
-                    <span className="fb-tag">{e.kind}</span>
+                  <td title={e.kind}>
+                    {level && <span className={`fb-badge fb-event-${level}`}>{level}</span>} <span className="fb-tag">{describeEventKind(e.kind)}</span>
                   </td>
-                  <td>{e.source ?? ""}</td>
+                  <td>{e.source ? describeSubject(e.source) : ""}</td>
                   <td>
-                    <ValueView value={e.detail} />
+                    {message}
+                    {details !== undefined && details !== null && (
+                      <div style={{ fontFamily: "var(--fb-mono, monospace)" }}>
+                        <ValueView value={details} />
+                      </div>
+                    )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

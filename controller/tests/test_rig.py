@@ -22,10 +22,36 @@ def test_add_actuator_refuses_clashes_and_reserved_names(rig, fresh):
     a = RecordingActuator(fresh("a"))
     rig.add_actuator(a)
     rig.add_actuator(a)  # the same object again is fine
-    with pytest.raises(ConflictError, match="already attached"):
+    with pytest.raises(ConflictError, match="already used by actuator"):
         rig.add_actuator(RecordingActuator(a.name))
     with pytest.raises(ConflictError, match="reserved"):
         rig.add_actuator(RecordingActuator("schema"))
+
+
+def test_every_device_shares_one_namespace_rig_wide(rig, fresh):
+    """No reader, actuator or source may share a name with another, whatever the mix."""
+    a = RecordingActuator(fresh("shared"))
+    rig.add_actuator(a)
+    assert rig.devices[a.name] is a
+
+    # A reader named after an actuator that already exists.
+    with pytest.raises(ConflictError, match="already used by actuator"):
+        rig.readers.add(Reader(a.name, ()))
+
+    # A reader whose *source* (not its own name) collides with an actuator.
+    clashing_source = Source(a.name, ())
+    other = fresh("probe_reader")
+    with pytest.raises(ConflictError, match="already used by actuator"):
+        rig.readers.add(Reader(other, (clashing_source,)))
+    assert other not in rig.devices, "the reader was never attached"
+    assert rig.kind_of(other) is None, "a failed add claims nothing, not even its own name"
+
+    # An actuator named after an already-attached reader.
+    reader_name = fresh("reader")
+    rig.readers.add(Reader(reader_name, (Source(fresh("src"), ()),)))
+    assert rig.devices[reader_name].name == reader_name
+    with pytest.raises(ConflictError, match="already used by reader"):
+        rig.add_actuator(RecordingActuator(reader_name))
 
 
 def test_a_delivery_ticks_the_loop_and_applies_the_actuator(rig, probe, temperature, heater, clock):

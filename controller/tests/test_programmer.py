@@ -44,8 +44,16 @@ def test_a_failing_first_step_raises_and_leaves_the_programmer_idle(rig, note):
     with pytest.raises(RuntimeError, match="no such thing"):
         programmer.start(Program([Note("boom"), Note("never")]))
     assert seen == [] and programmer.running is False
+    # A step failing on the calling thread is still a `failed` program, not a
+    # silent `finished` one: an ERROR event, and `state` says so until the next start.
+    kinds = [e.kind for e in rig.recent]
+    assert kinds == ["started", "step", "step_failed", "failed"]
+    state = programmer.state
+    assert state.running is False and state.failed is True
+    assert state.error is not None and "no such thing" in state.error
     programmer.start(Note("after"))  # not "already running"
     assert seen == ["after"]
+    assert programmer.state.failed is False, "starting again clears the previous failure"
 
 
 def test_steps_after_a_wait_run_on_the_worker_and_a_failure_there_is_an_event(rig, note):
@@ -58,12 +66,59 @@ def test_steps_after_a_wait_run_on_the_worker_and_a_failure_there_is_an_event(ri
     rig.signals.fire("go")
     programmer.join(2)
     assert seen == ["a", "b"] and programmer.running is False
-    # The programmer also narrates: started, one `step` per step, finished.
+    # The programmer also narrates: started, one `step` per step, the step that
+    # raised, and a `failed` finish rather than a `finished` one.
     kinds = [e.kind for e in rig.recent]
-    assert kinds[0] == "started" and kinds[-1] == "finished" and kinds.count("step") == 4
-    (event,) = [e for e in rig.recent if e.level == Level.ERROR]
-    assert event.scope == "program" and event.subject == "p[3]"
-    assert event.kind == "step_failed" and event.details["error"] == "RuntimeError: no such thing"
+    assert kinds[0] == "started" and kinds[-1] == "failed" and kinds.count("step") == 4
+    (step_event, finish_event) = [e for e in rig.recent if e.level == Level.ERROR]
+    assert step_event.scope == "program" and step_event.subject == "p[3]"
+    assert (
+        step_event.kind == "step_failed"
+        and step_event.details["error"] == "RuntimeError: no such thing"
+    )
+    assert finish_event.scope == "program" and finish_event.subject == "p"
+    assert finish_event.kind == "failed" and "no such thing" in finish_event.message
+    state = programmer.state
+    assert state.running is False and state.failed is True and "no such thing" in state.error
+
+
+def test_a_later_step_naming_a_missing_loop_fails_the_program_without_running_what_follows(
+    rig, note, fresh
+):
+    """The bug this guards: `regulate` on a real loop then a typo'd one used to finish clean."""
+    from flyball.control import P
+    from flyball.core.reading import Measurand, Sample, Source
+    from flyball.core.units.si import Celsius
+    from flyball.programmer.loops import Regulate
+    from flyball.runtime.loops import LoopNotFoundError
+    from flyball.sim import RecordingActuator
+
+    Note, seen = note
+    temp = Measurand(fresh("temp"), Celsius)
+    source = Source(fresh("source"), (temp,))
+    heater = RecordingActuator(fresh("heater"))
+    rig.attach_loop(source[temp], heater, law=P(kp=1.0), default=True)
+    rig.on_read([Sample(source, 1, rig.clock.now_ns(), {temp: 20.0})])
+
+    programmer = Programmer(rig)
+    program = Program(
+        [
+            Regulate(setpoint=30.0, loop=heater.name),  # applies fine
+            Regulate(setpoint=10.0, loop="no_such_loop"),  # step 1: fails
+            Note("never"),  # step 2: must not run
+        ],
+        name="p2",
+    )
+    with pytest.raises(LoopNotFoundError, match="no_such_loop"):
+        programmer.start(program)
+    assert seen == [] and programmer.running is False
+    assert rig.loops[heater.name].reference is not None  # step 0 did apply
+    kinds = [e.kind for e in rig.recent]
+    assert kinds == ["started", "step", "step", "step_failed", "failed"]
+    (step_event,) = [e for e in rig.recent if e.kind == "step_failed"]
+    assert step_event.subject == "p2[1]" and "no_such_loop" in step_event.message
+    state = programmer.state
+    assert state.failed is True and "no_such_loop" in state.error
 
 
 def test_interrupt_stops_at_the_wait_and_start_can_replace_a_running_program(rig, note):
@@ -152,3 +207,45 @@ def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
     (state,) = rig.signals.states().values()
     assert state.prompt is False, "a hold settles on its own; nobody should be asked"
     programmer.start(Note("instead"), interrupt=True)
+
+
+def test_a_hold_can_time_out_like_a_wait(rig, note):
+    from flyball.core.clock import Duration
+    from flyball.programmer.loops import Hold
+
+    Note, seen = note
+    programmer = Programmer(rig)
+    programmer.start(Program([Hold(Duration(60), timeout=0.05), Note("after")]))
+    programmer.join(2)
+    assert seen == [] and programmer.running is False
+    (event,) = [e for e in rig.recent if e.level == Level.WARNING]
+    assert event.kind == "step_timed_out"
+
+
+def test_a_command_step_calls_a_device_s_own_command(rig, heater):
+    from flyball.core.errors import NotFoundError
+    from flyball.programmer import RunCommand
+    from helpers import DutyHeater
+
+    rig.add_actuator(heater)
+    RunCommand(device_command="demand", actuator=heater.name, args={"demand": 42.0}).run(rig)
+    assert heater.demands == [42.0] and heater.applied == 1, "the same commit the route makes"
+
+    duty = DutyHeater(f"{heater.name}_duty")
+    rig.add_actuator(duty)
+    RunCommand(device_command="set_duty", actuator=duty.name, args={"duty": 0.5}).run(rig)
+    assert duty.duty == 0.5
+
+    with pytest.raises(NotFoundError):
+        RunCommand(device_command="demand", actuator="nowhere", args={"demand": 1.0}).run(rig)
+
+
+def test_a_command_step_refuses_demand_while_a_loop_regulates(rig, heater, probe, temperature):
+    from flyball.control import P
+    from flyball.core.errors import ConflictError
+    from flyball.programmer import RunCommand
+
+    rig.attach_loop(probe[temperature], heater, law=P(kp=1.0))
+    rig.loops[heater.name].regulate(10.0)
+    with pytest.raises(ConflictError):
+        RunCommand(device_command="demand", actuator=heater.name, args={"demand": 5.0}).run(rig)

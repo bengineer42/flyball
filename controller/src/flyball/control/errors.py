@@ -3,6 +3,7 @@ from flyball.core import (
     FlyballError,
     NotFoundError,
     NotReadyError,
+    UnachievableError,
 )
 
 
@@ -48,3 +49,11 @@ class ControllerNotStartedError(ControllerError, NotReadyError):
 
     def __init__(self) -> None:
         super().__init__("Controller has not been started.")
+
+
+class FeedforwardNotInvertibleError(ControllerError, UnachievableError):
+    """Asked for the setpoint behind a demand, but this feedforward has no inverse."""
+
+    def __init__(self, tag: str, reason: str | None = None) -> None:
+        detail = f" ({reason})" if reason else ""
+        super().__init__(f"Feedforward {tag!r} cannot be inverted{detail}.")

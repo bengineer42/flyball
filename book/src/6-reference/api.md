@@ -13,7 +13,7 @@ are JSON. OpenAPI is served at `/docs`.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, readers, loops, conditions, signals, recording}`; `conditions` includes readers' (`offline`, `slow`), actuators' own, and writers' `write_failed`; `{ok: false, rig: null}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, readers, loops, conditions, alarms, signals, recording}`; `conditions` includes readers' (`offline`, `slow`), actuators' own, and writers' `write_failed`; `alarms` is `{warn, alarm, max_level}`: every source's latest sample, channels outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus device conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `{ok: false, rig: null}` with no rig |
 | `GET` | `/api/schema` | `{actuators: {name: DeviceSchema}, readers: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut` |
 | `GET` | `/api/sources` | `[SourceOut]` |
@@ -25,7 +25,7 @@ are JSON. OpenAPI is served at `/docs`.
 | `GET` | `/api/loops/schema` | what a form needs to make a loop: `channels` (with `dimension`), `actuators` (`demand_unit`, which channels each may drive), `laws` and `feedforwards` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` |
 | `POST` | `/api/loops` | `{channel, actuator, law?, feedforward?, default?, min_period_s?}`; 201 `LoopOut`; 409 if the actuator already drives a loop, or `feedforward: "setpoint"` across units |
 | `DELETE` | `/api/loops/{name}` | 204; put in manual first, so the actuator holds its last demand |
-| `POST` | `/api/loops/{name}/regulate` | `{at, tuning?, transfer?}`; `at` a value or `process`/`setpoint`/`demand` |
+| `POST` | `/api/loops/{name}/regulate` | `{at, tuning?, transfer?}`; `at` a value or `process`/`setpoint`/`demand`; `demand` is converted back to the channel's unit through the feedforward's inverse, 422 if it has none |
 | `POST` | `/api/loops/{name}/manual` | stop regulating; the actuator keeps its last demand |
 | `PUT` | `/api/loops/{name}/reference` | `{at}`; move the setpoint without touching the mode |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
@@ -37,13 +37,26 @@ commands: {tag: {description, arguments, simulation}}}`, each schema a JSON
 Schema; actuators add `demand_unit`, readers add `sources`. `label` is the
 display name from the rig file, or null.
 
+A `SourceOut` is `{name, label, channels: [ChannelOut], latest}`; `label` is
+the source's display name from the rig file, or null (show `name`). A
+`ChannelOut` is `{source, measurand, unit, label, range, precision, warn,
+alarm, dimension}`; `label` here is the measurand's own display label, always
+present.
+
+Every actuator's `state` carries `output_range`: `[min, max]` in
+`demand_unit`, or null if not known. A sim actuator works it out from its
+drive `limits` (null in "smart" mode, where the actuator models the plant
+and the range is not a fixed scale); a real one states it in its config, or
+it is null.
+
 A `LoopOut` is `{name, label, channel, default, mode, law, feedforward,
 demand_unit, reference, setpoint, correction, demand, expected,
 delivered_correction, reading}`: `reference` is a number or the name of the
 trajectory being followed, `setpoint` the value it resolved to at the last
 tick, and `demand`, `expected` and `correction` are in `demand_unit` -- the
 actuator's unit, which the `feedforward` (`{tag: setpoint | none | affine |
-table, ...}`) maps the setpoint into.
+table, ...}`, `affine`/`table` taking an optional `rate_gain` for a ramp's
+rate of change) maps the setpoint into.
 
 A `LawConfig` is `{tag, ...gains}`, e.g. `{"tag": "PI", "kp": 0.5, "ki": 0.05, "tt": 0}`.
 A `SignalState` is `{name, message, outcome, since_ns, timeout_s, prompt}` with
@@ -58,13 +71,25 @@ The same shape under `/api/actuators` and `/api/readers`.
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/actuators` | `{name: {name, type, description}}` |
-| `GET` | `/api/actuators/{name}` | `{config, settings, state}` |
+| `GET` | `/api/actuators/{name}` | `{config, settings, state}`; `state.output_range` is `[min, max]` in `demand_unit`, or null |
 | `GET` | `/api/actuators/{name}/schema` | the `DeviceSchema` |
 | `POST` | `/api/actuators/{name}/{command}` | body: the command's arguments; returns what the method returns |
 | `POST` | `/api/readers/{name}/restart` | poll an offline reader again on its period; a command that succeeds on an offline reader (`restore`, a reset) restarts it the same way |
 
 A reader's view also carries its `run`: `{period_s, running, last_read_ns,
 conditions}`.
+
+Every reader, actuator and application device (see [Simulation](#simulation))
+has one name rig-wide; `/api/devices` lists them together instead of by kind.
+
+| | | |
+| --- | --- | --- |
+| `GET` | `/api/devices` | `{name: {name, label, kind, type, link}}`; `kind` is `reader`, `actuator`, `simulation` (an application's own device) or another an application registers; `link` is the rig file's link name, or null when the device has none (a sim device, e.g.) |
+| `GET` | `/api/devices/{name}` | the same shape for one device, whichever kind it is; 404 if no device has that name |
+
+A name collision -- two devices declared with the same name -- is a 409
+naming both of them; a rig file with one fails to load in the first place
+(see [Rig file schema](rig-file.md)).
 
 ## Signals
 
@@ -84,9 +109,9 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions?limit=` | `[SessionRow]`, newest first |
 | `GET` | `/api/history/sessions/{id}` | `SessionRow` |
 | `DELETE` | `/api/history/sessions/{id}` | 204; everything the session recorded goes; tunings survive |
-| `GET` | `/api/history/sessions/{id}/sources` | `[SourceRow]` |
+| `GET` | `/api/history/sessions/{id}/sources` | `[SourceRow]`; `label` is the source's display name, or null |
 | `GET` | `/api/history/sessions/{id}/channels` | `[ChannelRow]` |
-| `GET` | `/api/history/sessions/{id}/actuators` | `[ActuatorRow]` |
+| `GET` | `/api/history/sessions/{id}/actuators` | `[ActuatorRow]`; `config` is the actuator's config as built, or null |
 | `GET` | `/api/history/sessions/{id}/loops` | `[LoopRow]` |
 | `GET` | `/api/history/sessions/{id}/series/{source}/{measurand}` | `Series`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
 | `GET` | `/api/history/sessions/{id}/ticks/{loop}` | `[Tick]`; query `start_ns`, `end_ns` |
@@ -124,18 +149,26 @@ A program is a document in the server's [dialect](../3-running/programs.md);
 What the UI shows and how, saved per rig. The server keeps every version
 under a name, as it does for programs; the document's `widgets` are the
 UI's to define, validated only in outline (`{id, kind, title?, x, y, w, h,
-config}` on a `grid` of `cols` × `row_height`). A rig can ship
+config}` on a `grid` of `cols` (12 or 24) × `row_height`). A rig can ship
 `dashboards/*.json` beside its file; they are imported on start.
 
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/dashboards?every=` | `[DashboardRow]`, newest version of each name, this rig's unless `every` |
 | `GET` | `/api/dashboards/schema` | JSON Schema of the document |
-| `GET` | `/api/dashboards/{name}` | `DashboardRow` |
+| `GET` | `/api/dashboards/{name}` | `DashboardWithProblems` |
 | `GET` | `/api/dashboards/{name}/history` | `[DashboardRow]`, newest first |
-| `PUT` | `/api/dashboards/{name}` | body the document; 201; adds a version; `name` and `rig` are set from the key and the rig |
+| `PUT` | `/api/dashboards/{name}` | body the document; 201 `DashboardWithProblems`; adds a version; `name` and `rig` are set from the key and the rig |
 | `POST` | `/api/dashboards/{name}/rename` | `{name}`; every version moves; 409 if taken |
 | `DELETE` | `/api/dashboards/{name}` | 204; every version |
+
+A `DashboardRow` is `{id, name, rig, body, created_ns, sha256}`; a
+`DashboardWithProblems` is the same plus `problems: [{widget_id, ref,
+reason}]` — every widget whose binding (a `readout`/`gauge`'s `channel`, a
+`chart`'s `channels`, a `loop`'s `loop`, an `actuator`'s `actuator`, all
+inside the widget's own `config`) names something this rig does not
+currently have. The document is saved and returned as given; nothing is
+refused for this.
 
 ## Simulation
 
@@ -143,7 +176,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/sim` | `{simulated, name, path, clock: {speed, measured, stepped, now_ns}, plants: {name: {config, links, live, readings, stats, input, output}}, changed}`; `inputs`/`outputs` for a multi-port plant |
+| `GET` | `/api/sim` | `{simulated, device, name, path, clock: {speed, measured, stepped, now_ns}, plants: {name: {config, links, live, readings, stats, input, output}}, changed}`; `inputs`/`outputs` for a multi-port plant; `device` says whether `/api/sim/device` exists (an application's own simulation device, e.g. a `disturb`), so a client need not probe it and 404 on a rig without one |
 | `PUT` | `/api/sim/clock` | `{speed}`; the rig's time runs at `speed`× from now on |
 | `POST` | `/api/sim/clock/step` | `{seconds}`; a stepped clock only |
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |

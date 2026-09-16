@@ -68,6 +68,7 @@ nav:
       - The daemon: 3-running/daemon.md
       - The CLI: 3-running/cli.md
       - The UI: 3-running/ui.md
+      - Dashboards: 3-running/dashboards.md
       - Writing programs: 3-running/programs.md
       - Supported equipment: 3-running/equipment.md
       - Boards and Linux I/O: 3-running/boards.md

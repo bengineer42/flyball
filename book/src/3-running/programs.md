@@ -103,8 +103,19 @@ an unapplicable command raises there rather than disappearing into a log.
 Over HTTP the same document goes to `POST /api/programs/run`;
 `POST /api/programs/check` normalises and validates it without running, and
 `flyball program check FILE` is that from the shell. A step that fails, or a
-wait that times out, ends the program and is recorded as an event
+wait or hold that times out, ends the program and is recorded as an event
 (`/api/events`, `/ws/events`) with the program name and step index.
+
+A step that raises -- a loop, actuator or device not found, a conflict with
+the rig's state, or any other exception from the step itself -- ends the
+program in a distinct `failed` state rather than finishing quietly: an ERROR
+`step_failed` event names the step, and a second ERROR `failed` event (in
+place of the usual `finished`/`interrupted`) closes the run, both carrying the
+exception's text. Steps after the one that raised do not run. `GET
+/api/programs/running` keeps reporting `failed: true` and the error, even
+after the run has ended, until the next `run`/`start` clears it; a run
+started over HTTP still gets the failure back as the request's error detail,
+same as it always has for a step that cannot even be applied.
 
 ## The commands every rig has
 
@@ -112,9 +123,10 @@ wait that times out, ends the program and is recorded as an event
 | --- | --- | --- |
 | `regulate` | `setpoint` (primary), `loop?`, `tuning?` | aim a loop and let its law drive; returns at once |
 | `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `loop?` | walk the setpoint there and wait until it arrives |
-| `hold` | `duration` (primary, `minutes: 10` flat), `message?` | keep everything as it is; the loops go on regulating |
+| `hold` | `duration` (primary, `minutes: 10` flat), `message?`, `timeout?` | keep everything as it is; the loops go on regulating |
 | `manual` | `loop` (primary) | stop a loop; its actuator keeps its demand |
 | `wait` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/signals/{name}/fire`; a timeout ends the program |
+| `command` | `device_command`, `actuator`, `args?` | call one of `actuator`'s own commands, exactly as `POST /api/actuators/{name}/{command}` would |
 
 `loop` is a name, a list of names, or absent for the rig's default. A ramp
 over several loops returns when the longest arrives. Durations and rates
@@ -122,12 +134,26 @@ count in the rig's clock: on a simulation at 60× a ten-minute hold takes ten
 seconds, and on a stepped clock it takes no time at all with every poll in
 between still happening.
 
+`hold`'s `timeout` ends the program if `duration` itself never elapses (a
+stalled clock, say), exactly like `wait`'s -- but as a plain number of
+seconds, not a `Duration`: `duration` is already the one field TOML/YAML may
+write flat (`hold: {minutes: 10}`), and a second `Duration`-typed field would
+make that ambiguous.
+
+`command`'s `actuator` names any device on the rig, not only an actuator: an
+actuator or a reader, since names are unique rig-wide. This is also how a
+program reaches a simulated device's own commands (`fail`, `restore`,
+`disturb`, `set_limits`) -- ordinary commands on the device, just as the
+Simulation tab calls them by hand. `device_command`, not `command`: every
+step's wire form reserves `command` for the step's own tag.
+
 ```yaml
 name: firing
 steps:
   - regulate: { loop: [heater1, heater2, heater3], setpoint: 20 }
   - ramp: { loop: [heater1, heater2, heater3], to: 600, per_minute: 10 }
-  - hold: { minutes: 20, message: "soak at 600" }
+  - hold: { minutes: 20, message: "soak at 600", timeout: 1800 }
+  - command: { device_command: disturb, actuator: heater2, args: { offset: -0.2 } }
   - ramp: { loop: heater2, to: 900, per_minute: 5 }
   - manual: [heater1, heater2, heater3]
   - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }

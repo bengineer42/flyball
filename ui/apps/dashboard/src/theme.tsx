@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CssBaseline, ThemeProvider, createTheme, darken, lighten, useMediaQuery, useTheme, type PaletteMode } from "@mui/material";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { CssBaseline, ThemeProvider, createTheme, useMediaQuery, type PaletteMode } from "@mui/material";
 
 const STORAGE_KEY = "flyball.theme";
 
@@ -20,26 +20,54 @@ const writeStored = (mode: PaletteMode) => {
   }
 };
 
+/**
+ * Read a `--fb-*` token as `<html>` has it resolved right now. The library's
+ * `styles.css` is the one source of truth for colour (DESIGN-SPEC.md §1.1);
+ * MUI reads it rather than writing it, so an embedder with no MUI at all
+ * gets the same look. Falls back to the light-mode value so SSR/tests
+ * without the stylesheet loaded still get a usable theme.
+ */
+function token(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
 /** Dense, engineering-flavoured theme: small controls by default, tabular numerals, system font. */
 export function makeTheme(mode: PaletteMode) {
   return createTheme({
     palette: {
       mode,
-      primary: { main: mode === "light" ? "#2557a7" : "#7aa7e6" },
-      error: { main: mode === "light" ? "#b3261e" : "#f2726a" },
-      warning: { main: mode === "light" ? "#d97706" : "#f5b342" },
-      success: { main: mode === "light" ? "#059669" : "#34d399" },
-      background:
-        mode === "light" ? { default: "#f3f4f6", paper: "#ffffff" } : { default: "#0f1419", paper: "#181d24" },
+      primary: { main: token("--fb-accent", mode === "light" ? "#2557a7" : "#78a6ea") },
+      error: { main: token("--fb-alarm", mode === "light" ? "#c62828" : "#f0616a") },
+      warning: { main: token("--fb-warn", mode === "light" ? "#a8690f" : "#f0b429") },
+      success: { main: token("--fb-ok", mode === "light" ? "#1a8a56" : "#3fb27f") },
+      background: {
+        default: token("--fb-bg-0", mode === "light" ? "#f2f4f7" : "#0e1116"),
+        paper: token("--fb-bg-1", mode === "light" ? "#ffffff" : "#161a21"),
+      },
+      divider: token("--fb-border-1", mode === "light" ? "rgba(20, 28, 40, 0.10)" : "rgba(204, 212, 228, 0.10)"),
+      text: {
+        primary: token("--fb-fg", mode === "light" ? "#1b2330" : "#d7dce6"),
+        secondary: token("--fb-fg-2", mode === "light" ? "#4f5a6b" : "#9aa3b2"),
+      },
     },
     shape: { borderRadius: 6 },
-    spacing: 6,
+    spacing: 4,
     typography: {
       fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
       fontSize: 13,
-      h1: { fontSize: "1.1rem", fontWeight: 600 },
-      h2: { fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" },
-      overline: { fontSize: "0.72rem", letterSpacing: "0.06em", lineHeight: 1.6 },
+      // DESIGN-SPEC.md §1.3's scale, on the nearest MUI slot: MUI has no
+      // "page"/"title"/"label" variant of its own, so h1 stands for the
+      // app-bar page title (16/600), subtitle2 for panel/card titles
+      // (14/600), and h2/overline both stand for the 11px uppercase label.
+      h1: { fontSize: 16, fontWeight: 600 },
+      h2: { fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" },
+      subtitle2: { fontSize: 14, fontWeight: 600 },
+      overline: { fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", lineHeight: 1.6 },
+      body1: { fontSize: 13 },
+      body2: { fontSize: 13 },
+      caption: { fontSize: 12 },
       button: { textTransform: "none" },
     },
     components: {
@@ -56,48 +84,56 @@ export function makeTheme(mode: PaletteMode) {
       MuiPaper: { defaultProps: { variant: "outlined" } },
       MuiAlert: { styleOverrides: { root: { padding: "0 10px" } } },
       MuiListItemIcon: { styleOverrides: { root: { minWidth: 36 } } },
+      // One focus ring everywhere (DESIGN-SPEC.md §1.6): a surface gap plus an accent ring,
+      // visible in both themes and over a coloured border.
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            "&.Mui-focusVisible": { boxShadow: "var(--fb-focus)" },
+          },
+        },
+      },
     },
   });
-}
-
-/**
- * Write the library's `--fb-*` variables from the palette so `@flyball/react`
- * panels follow light/dark without knowing MUI exists.
- */
-function FbVars() {
-  const theme = useTheme();
-  useEffect(() => {
-    const p = theme.palette;
-    const paper = p.background.paper;
-    const vars: Record<string, string> = {
-      "--fb-fg": p.text.primary,
-      "--fb-muted": p.text.secondary,
-      "--fb-panel": paper,
-      "--fb-bg": p.mode === "light" ? darken(paper, 0.025) : lighten(paper, 0.045),
-      "--fb-border": p.divider,
-      "--fb-accent": p.primary.main,
-      "--fb-error": p.error.main,
-      "--fb-ok": p.success.main,
-      "--fb-warn": p.warning.main,
-      "--fb-alarm": p.error.main,
-      "--fb-radius": `${theme.shape.borderRadius}px`,
-      "--fb-gap": "0.75rem",
-    };
-    const root = document.documentElement.style;
-    for (const [k, v] of Object.entries(vars)) root.setProperty(k, v);
-  }, [theme]);
-  return null;
 }
 
 const ColorModeContext = createContext<{ mode: PaletteMode; toggle(): void }>({ mode: "light", toggle() {} });
 
 export const useColorMode = () => useContext(ColorModeContext);
 
+export type Density = "comfortable" | "compact";
+const DENSITY_KEY = "flyball.density";
+
+const readDensity = (): Density => {
+  try {
+    return window.localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable";
+  } catch {
+    return "comfortable";
+  }
+};
+
+const writeDensity = (d: Density) => {
+  try {
+    window.localStorage.setItem(DENSITY_KEY, d);
+  } catch {
+    /* not persisted */
+  }
+};
+
+const DensityContext = createContext<{ density: Density; toggle(): void }>({ density: "comfortable", toggle() {} });
+
+/** `comfortable`/`compact`, stored beside the theme; sets `data-density` on `<html>` (DESIGN-SPEC.md §2 "Density"). */
+export const useDensity = () => useContext(DensityContext);
+
 /** Theme + baseline + the stored light/dark choice (system preference until the user picks). */
 export function AppTheme({ children }: { children: ReactNode }) {
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
   const [chosen, setChosen] = useState<PaletteMode | null>(readStored);
   const mode: PaletteMode = chosen ?? (prefersDark ? "dark" : "light");
+  // Set synchronously (not in an effect): `makeTheme` below reads `--fb-*` from computed
+  // style on this render, and that only reflects `mode` once this attribute is applied —
+  // an effect would run one paint too late and hand the theme stale tokens.
+  if (typeof document !== "undefined") document.documentElement.setAttribute("data-theme", mode);
   const theme = useMemo(() => makeTheme(mode), [mode]);
   const ctx = useMemo(
     () => ({
@@ -110,13 +146,29 @@ export function AppTheme({ children }: { children: ReactNode }) {
     }),
     [mode],
   );
+
+  const [density, setDensity] = useState<Density>(readDensity);
+  if (typeof document !== "undefined") document.documentElement.setAttribute("data-density", density);
+  const densityCtx = useMemo(
+    () => ({
+      density,
+      toggle() {
+        const next: Density = density === "comfortable" ? "compact" : "comfortable";
+        setDensity(next);
+        writeDensity(next);
+      },
+    }),
+    [density],
+  );
+
   return (
     <ColorModeContext.Provider value={ctx}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline enableColorScheme />
-        <FbVars />
-        {children}
-      </ThemeProvider>
+      <DensityContext.Provider value={densityCtx}>
+        <ThemeProvider theme={theme}>
+          <CssBaseline enableColorScheme />
+          {children}
+        </ThemeProvider>
+      </DensityContext.Provider>
     </ColorModeContext.Provider>
   );
 }

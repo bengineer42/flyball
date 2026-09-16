@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "name": "overview",
+  "rig": "furnace",
+  "description": "Health, every reading, and the loops driving the heaters.",
+  "grid": {
+    "cols": 24,
+    "row_height": 24
+  },
+  "widgets": [
+    {
+      "id": "w1",
+      "kind": "health",
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2,
+      "config": {
+        "tiles": [
+          "rig",
+          "recording",
+          "readers",
+          "loops",
+          "conditions"
+        ]
+      }
+    },
+    {
+      "id": "w2",
+      "kind": "readout",
+      "x": 0,
+      "y": 2,
+      "w": 6,
+      "h": 5,
+      "config": {
+        "channel": "zone1.temperature",
+        "sparkline": true,
+        "showSource": true
+      }
+    },
+    {
+      "id": "w3",
+      "kind": "readout",
+      "x": 6,
+      "y": 2,
+      "w": 6,
+      "h": 5,
+      "config": {
+        "channel": "zone2.temperature",
+        "sparkline": true,
+        "showSource": true
+      }
+    },
+    {
+      "id": "w4",
+      "kind": "readout",
+      "x": 12,
+      "y": 2,
+      "w": 6,
+      "h": 5,
+      "config": {
+        "channel": "zone3.temperature",
+        "sparkline": true,
+        "showSource": true
+      }
+    },
+    {
+      "id": "w5",
+      "kind": "readout",
+      "x": 18,
+      "y": 2,
+      "w": 6,
+      "h": 5,
+      "config": {
+        "channel": "sample.temperature",
+        "sparkline": true,
+        "showSource": true
+      }
+    },
+    {
+      "id": "w6",
+      "kind": "chart",
+      "title": "Zones",
+      "x": 0,
+      "y": 7,
+      "w": 24,
+      "h": 8,
+      "config": {
+        "channels": [
+          "zone1.temperature",
+          "zone2.temperature",
+          "zone3.temperature",
+          "sample.temperature"
+        ],
+        "window_s": 0,
+        "every": 0,
+        "y": "page"
+      }
+    },
+    {
+      "id": "w7",
+      "kind": "loop",
+      "x": 0,
+      "y": 15,
+      "w": 8,
+      "h": 8,
+      "config": {
+        "loop": "heater1",
+        "view": "full"
+      }
+    },
+    {
+      "id": "w8",
+      "kind": "loop",
+      "x": 8,
+      "y": 15,
+      "w": 8,
+      "h": 8,
+      "config": {
+        "loop": "heater2",
+        "view": "full"
+      }
+    },
+    {
+      "id": "w9",
+      "kind": "loop",
+      "x": 16,
+      "y": 15,
+      "w": 8,
+      "h": 8,
+      "config": {
+        "loop": "heater3",
+        "view": "full"
+      }
+    },
+    {
+      "id": "w10",
+      "kind": "program",
+      "x": 0,
+      "y": 23,
+      "w": 12,
+      "h": 6,
+      "config": {
+        "events": 5,
+        "interrupt": true
+      }
+    },
+    {
+      "id": "w11",
+      "kind": "events",
+      "x": 12,
+      "y": 23,
+      "w": 12,
+      "h": 6,
+      "config": {
+        "level": "INFO",
+        "limit": 20,
+        "scope": ""
+      }
+    }
+  ]
+}

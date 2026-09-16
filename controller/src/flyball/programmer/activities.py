@@ -130,15 +130,21 @@ class Timed(Activity):
     """Fires after `duration` seconds of the rig's clock: a hold, a soak, a ramp's end.
 
     On a scaled clock it passes proportionally sooner; on a stepped one it
-    steps the clock past itself at once.
+    steps the clock past itself at once. `timeout`, like `Wait`'s, ends the
+    program instead if `duration` itself never elapses.
     """
 
     __slots__ = ("_thread", "duration_s")
 
     def __init__(
-        self, duration_s: float, name: str | None = None, message: str | None = None
+        self,
+        duration_s: float,
+        name: str | None = None,
+        message: str | None = None,
+        timeout: float | None = None,
+        clock: Clock | None = None,
     ) -> None:
-        super().__init__(None, name=name, message=message or f"{duration_s:g} s")
+        super().__init__(timeout, name=name, message=message or f"{duration_s:g} s", clock=clock)
         self.duration_s = duration_s
         self._thread: Thread | None = None
 

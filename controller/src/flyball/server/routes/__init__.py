@@ -2,6 +2,7 @@
 
 from .actuators import router as actuators_router
 from .dashboards import router as dashboards_router
+from .devices import router as devices_router
 from .events import router as events_router
 from .export import router as export_router
 from .history import router as history_router
@@ -19,6 +20,7 @@ from .telemetry import router as telemetry_router
 __all__ = [
     "actuators_router",
     "dashboards_router",
+    "devices_router",
     "events_router",
     "export_router",
     "history_router",

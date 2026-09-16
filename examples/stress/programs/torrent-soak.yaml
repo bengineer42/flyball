@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=program.schema.json
+# Nothing to regulate here really -- `torrent.toml` exists to be polled fast
+# -- but one loop is under load too, so hold it at a setpoint while the rest
+# of the rig fires samples as fast as it can.
+name: torrent-soak
+description: Hold channel 1's loop at a setpoint while every channel free-runs.
+steps:
+  - regulate: { loop: drive1, setpoint: 2 }
+  - hold: { minutes: 2, message: "under load" }
+  - manual: [drive1]

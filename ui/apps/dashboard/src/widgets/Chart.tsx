@@ -1,16 +1,12 @@
 import { memo, useMemo, useRef } from "react";
-import { MultiSeries, useVisible, type MultiSeriesTrace, type Trace, type YScale } from "@flyball/react";
+import { MultiSeries, useTraceRef, type MultiSeriesTrace, type YScale } from "@flyball/react";
 import type { ChannelOut } from "@flyball/client";
-import { useBindings, useRigData, useTraces } from "../dashboard/context.js";
+import { useBindings, useRigData } from "../dashboard/context.js";
+import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { channelKeyOf, channelsSchema, EVERY_OPTIONS, pageOr, WINDOW_OPTIONS, Y_OPTIONS } from "./schema.js";
-import { bodyPx, useFrozen } from "./size.js";
+import { useChartHeight } from "./size.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
-
-/** Past this many points held, the chart thins to one in `every` on its own unless told otherwise. */
-const DENSE = 2000;
-
-const EMPTY: Trace = { channel: { source: "", measurand: "", unit: "", label: "", range: null, precision: null }, t: [], v: [] };
 
 /** The widest declared range among channels, for a shared axis. */
 function widest(channels: ChannelOut[]): [number, number] | null {
@@ -18,38 +14,43 @@ function widest(channels: ChannelOut[]): [number, number] | null {
   return ranges.length ? [Math.min(...ranges.map((r) => r[0])), Math.max(...ranges.map((r) => r[1]))] : null;
 }
 
-/** The series prop, rebuilt only when one of *these* channels' traces changes -- not on every other source's sample. */
-function useSeries(channels: ChannelOut[], traces: Record<string, Trace>, label: (c: ChannelOut) => string): MultiSeriesTrace[] {
-  const picked = channels.map((c) => traces[channelKeyOf(c)] ?? EMPTY);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => channels.map((c, i) => ({ label: label(c), unit: c.unit, t: picked[i]!.t, v: picked[i]!.v, precision: c.precision ?? undefined })), picked);
-}
-
+/**
+ * Channels over time, drawn straight from the telemetry store: the chart
+ * subscribes to its channels itself (`source`), redraws at most ten times a
+ * second while on screen and in a shown tab, and thins to twice its width
+ * in points. This component renders on configuration and size changes
+ * only, never on samples. `window.__fb.chartsById[widget.id]` counts its
+ * redraws for the performance budget (DESIGN-SPEC.md §6).
+ */
 const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponentProps) {
   const bindings = useBindings();
-  const { charts, exports, rowHeight } = useRigData();
-  const traces = useTraces();
+  const { charts, exports } = useRigData();
+  // The canvas: the body as measured, less the legend under it (a legend that wraps to two rows takes it from the plot, never from the frame).
   const host = useRef<HTMLDivElement>(null);
-  const visible = useVisible(host);
-  // The canvas: the tile's body less the legend row (one line; a wrapped legend eats into the plot).
-  const height = Math.max(72, bodyPx(widget.h, rowHeight, Boolean(widget.title ?? true)) - 30);
+  const height = useChartHeight(host);
   const keys = Array.isArray(config.channels) ? (config.channels as unknown[]).map(String) : [];
   const channels = keys.map((k) => bindings.channels.find((c) => channelKeyOf(c) === k)).filter((c): c is ChannelOut => !!c);
   const missing = keys.filter((k) => !bindings.channels.some((c) => channelKeyOf(c) === k));
-  const live = useSeries(channels, traces, (c) => `${bindings.sourceLabel(c.source)}.${c.label || c.measurand}`);
-  // Off screen or in a hidden tab the chart keeps its last data: no `setData` per sample until it is seen again.
-  const series = useFrozen(live, visible);
+  const source = useTraceRef(channels);
+  const series = useMemo<MultiSeriesTrace[]>(
+    () => channels.map((c) => ({ label: `${bindings.sourceLabel(c.source)}.${c.label || c.measurand}`, unit: c.unit, key: channelKeyOf(c), precision: c.precision ?? undefined })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bindings, source],
+  );
   const windowS = Number(config.window_s) || charts.windowS;
-  const held = Math.max(0, ...series.map((s) => s.t.length));
-  const every = Number(config.every) || (charts.every > 1 ? charts.every : held > DENSE ? Math.ceil(held / DENSE) : 1);
+  // Density is the chart's own business now (it thins to its width); `every` is only ever what someone asked for.
+  const every = Number(config.every) || (charts.every > 1 ? charts.every : 1);
   const y: YScale = config.y === "auto" || config.y === "range" ? config.y : charts.yScale;
   const unit = channels[0]?.unit;
+  // Title row: the unit is the title (`titleFor`); the channels' sources are the subtitle, as the spec's "°C  zone1 · zone2 · zone3" (§3.3).
+  const subtitle = useMemo(() => (channels.length ? channels.map((c) => bindings.sourceLabel(c.source)).join(" · ") : undefined), [bindings, source]); // eslint-disable-line react-hooks/exhaustive-deps
+  useWidgetChrome(channels.length ? { subtitle } : null);
   if (!keys.length) return <Missing what="channels" name="" hint="Configure the widget to pick channels." />;
   if (!channels.length) return <Missing what="channels" name={missing.join(", ")} />;
   return (
     <div ref={host} className="fb-fill fb-chart-host">
       {missing.length > 0 && <div className="fb-muted fb-chart-title">missing: {missing.join(", ")}</div>}
-      <MultiSeries series={series} unit={unit} title={widget.title ?? unit} height={height} windowS={windowS} yScale={y} range={widest(channels)} every={every} exportHref={exports.channels(channels)} />
+      <MultiSeries series={series} source={source} id={widget.id} unit={unit} title={widget.title ?? unit} height={height} windowS={windowS} yScale={y} range={widest(channels)} every={every} exportHref={exports.channels(channels)} />
     </div>
   );
 });
@@ -59,15 +60,16 @@ export const chart: WidgetKind = {
   label: "Chart",
   description: "Channels over time on one axis; a channel in another unit gets its own axis on the right.",
   category: "readings",
-  defaultSize: { w: 6, h: 7 },
-  minSize: { w: 3, h: 4 },
+  // 12×8: a 222px body gives a 190px plot over a one-line legend; 8×5 is the floor at which axes and legend still read (DESIGN-SPEC.md §10).
+  defaultSize: { w: 12, h: 8 },
+  minSize: { w: 8, h: 5 },
   cost: "chart",
   configSchema: (bindings) => ({
     type: "object",
     properties: {
       channels: channelsSchema(bindings),
       window_s: pageOr("Window", WINDOW_OPTIONS, "Seconds of history shown; the trace scrolls once it is full."),
-      every: pageOr("Sample", EVERY_OPTIONS, "Draw one point in n. Left to the page, a dense trace (over 2000 points) thins itself."),
+      every: pageOr("Sample", EVERY_OPTIONS, "Draw one point in n. Left to the page, a dense trace thins itself to twice the chart's width."),
       y: pageOr("Y axis", Y_OPTIONS),
     },
     required: ["channels"],

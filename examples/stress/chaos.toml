@@ -1,0 +1,224 @@
+#:schema ../simulated/rig.schema.json
+# A furnace tuned to misbehave: small zones (fast dynamics), heavy
+# inter-zone coupling, a long thermocouple lag and heavy noise. One zone's
+# law is deliberately too aggressive for this plant and rings; one zone's
+# heater is clamped to 40 % of its rated power so a setpoint it cannot reach
+# stays visibly clamped; one zone runs open-loop (a real `ControlLaw`, but
+# `open_loop`'s correction is always zero -- pure feedforward, nothing
+# reacts to the reading). `programs/chaos-run.yaml` then ramps far faster
+# than any of this can follow.
+#
+# Mid-run disturbance (failing a thermocouple, kicking a heater) has no
+# program step for it -- `programmer/loops.py` only has `regulate`, `ramp`,
+# `hold`, `arrive`, `manual`, `wait` -- so `scripts/chaos-disturb.sh` drives
+# it through the same HTTP routes the CLI and UI use, timed against the
+# program's known schedule. Run it alongside `chaos-run.yaml`.
+
+name = "chaos"
+clock = { speed = 60 }
+
+[links.tube]
+tag = "sim_furnace"
+zones = 6
+power_w = [800, 1000, 1200, 1000, 900, 700]
+capacity_j_per_k = [300, 320, 350, 320, 300, 280]   # small: fast dynamics
+coupling_w_per_k = 30.0                              # strong: the zones fight each other
+loss_w_per_k = 2.0
+emissivity = 0.8
+area_m2 = 0.01
+ambient_c = 20.0
+sample_zone = 3
+sample_capacity_j_per_k = 200
+sample_coupling_w_per_k = 10.0
+sensor_lag_s = 15.0                                  # long: the reading is well behind the truth
+noise = 3.0                                          # big
+seed = 99
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone1"
+label = "Zone 1"
+link = "tube"
+port = "zone1"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone2"
+label = "Zone 2 (bad tuning)"
+link = "tube"
+port = "zone2"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone3"
+label = "Zone 3 (sample)"
+link = "tube"
+port = "zone3"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone4"
+label = "Zone 4"
+link = "tube"
+port = "zone4"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone5"
+label = "Zone 5 (clamped heater)"
+link = "tube"
+port = "zone5"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "zone6"
+label = "Zone 6 (open loop)"
+link = "tube"
+port = "zone6"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[readers]]
+period_s = 2.0
+[readers.device]
+tag = "sim_reader"
+name = "sample"
+label = "Sample (zone 3)"
+link = "tube"
+port = "sample"
+measurand = "temperature"
+unit = "°C"
+range = [0, 1300]
+precision = 1
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater1"
+label = "Zone 1 heater"
+link = "tube"
+port = "heater1"
+unit = "W"
+power_w = 800
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater2"
+label = "Zone 2 heater"
+link = "tube"
+port = "heater2"
+unit = "W"
+power_w = 1000
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater3"
+label = "Zone 3 heater"
+link = "tube"
+port = "heater3"
+unit = "W"
+power_w = 1200
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater4"
+label = "Zone 4 heater"
+link = "tube"
+port = "heater4"
+unit = "W"
+power_w = 1000
+
+# Only 40 % of this heater's power ever gets through: a setpoint above what
+# that can hold saturates the loop's demand at the clamp, visibly.
+[[actuators]]
+tag = "sim_actuator"
+name = "heater5"
+label = "Zone 5 heater (clamped to 40 %)"
+link = "tube"
+port = "heater5"
+unit = "W"
+power_w = 900
+limits = [0.0, 0.4]
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater6"
+label = "Zone 6 heater"
+link = "tube"
+port = "heater6"
+unit = "W"
+power_w = 700
+
+[[loops]]
+channel = "zone1.temperature"
+actuator = "heater1"
+law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
+feedforward = { tag = "table", points = [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+default = true
+
+# Deliberately bad: a kp this large on a small, heavily-coupled, long-lag
+# zone rings and does not settle.
+[[loops]]
+channel = "zone2.temperature"
+actuator = "heater2"
+law = { tag = "PID", kp = 800, ki = 5, kd = 0 }
+feedforward = { tag = "none" }
+
+[[loops]]
+channel = "zone3.temperature"
+actuator = "heater3"
+law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
+feedforward = { tag = "table", points = [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+
+[[loops]]
+channel = "zone4.temperature"
+actuator = "heater4"
+law = { tag = "P", kp = 150 }
+feedforward = { tag = "affine", gain = 2.0, bias = 50 }
+
+[[loops]]
+channel = "zone5.temperature"
+actuator = "heater5"
+law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
+feedforward = { tag = "none" }
+
+# `open_loop`'s correction is always zero: the demand is pure feedforward,
+# nothing reacts to what the thermocouple reads.
+[[loops]]
+channel = "zone6.temperature"
+actuator = "heater6"
+law = { tag = "open_loop" }
+feedforward = { tag = "table", points = [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }

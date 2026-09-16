@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { JsonSchema } from "@flyball/client";
 import { fields, formatNumber, formatValue, liveOf, resolveLive } from "@flyball/client";
 
@@ -12,6 +13,8 @@ export interface ObjectViewProps {
    * where the quantity is now. Nothing is shown without it.
    */
   live?: unknown;
+  /** Extra content appended after a field's value, keyed by field name (an "at limit" marker, say). */
+  extra?: Record<string, ReactNode>;
 }
 
 /**
@@ -19,7 +22,7 @@ export interface ObjectViewProps {
  * unit-suffixed by the schema; nested objects indent. Config, settings and
  * state all render through this.
  */
-export function ObjectView({ schema, value, omit = [], live }: ObjectViewProps) {
+export function ObjectView({ schema, value, omit = [], live, extra }: ObjectViewProps) {
   if (!value) return <div className="fb-muted">—</div>;
   const rows = fields(schema).filter(([name]) => !omit.includes(name));
   if (rows.length === 0) return <div className="fb-muted">nothing to show</div>;
@@ -45,6 +48,7 @@ export function ObjectView({ schema, value, omit = [], live }: ObjectViewProps) 
                 formatValue(v, field)
               )}
               {now && <span className="fb-muted"> (now {now})</span>}
+              {extra?.[name]}
             </dd>
           </div>
         );

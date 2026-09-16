@@ -1,4 +1,4 @@
-import { alarmLevel, type AlarmLevel, type ChannelOut } from "@flyball/client";
+import { alarmLevel, staleAfterS, type AlarmLevel, type ChannelOut, type Freshness } from "@flyball/client";
 
 export type GaugeKind = "thermometer" | "tank" | "dial" | "bar";
 
@@ -10,6 +10,13 @@ export interface GaugeProps {
   kind?: GaugeKind;
   /** Pixel height of the drawing (bars: of the strip). */
   height?: number;
+  /**
+   * Rig-time freshness for stale detection (DESIGN-SPEC.md §2/B-3), same
+   * shape as `Readout`'s. A gauge is always embedded in another panel's
+   * chrome, so stale only adds a dashed border and a footer line, not a
+   * full title row.
+   */
+  fresh?: Freshness;
 }
 
 /** Zone and fill colours; an embedding page sets the variables. */
@@ -17,6 +24,7 @@ const COLOUR: Record<AlarmLevel, string> = {
   ok: "var(--fb-ok, #2e8b57)",
   warn: "var(--fb-warn, #e0a100)",
   alarm: "var(--fb-alarm, #b3261e)",
+  stale: "var(--fb-stale, #8a93a2)",
 };
 const NEUTRAL = "var(--fb-border, #d8d8d8)";
 const ACCENT = "var(--fb-accent, #2557a7)";
@@ -70,27 +78,33 @@ export function numberWidth(range: [number, number] | null, precision: number): 
 const zoneColour = (zone: GaugeZone) => (zone.level === null ? NEUTRAL : COLOUR[zone.level]);
 
 /** One channel as a picture: its range with the warn/alarm zones, the value as a fill or needle, the number under it. */
-export function Gauge({ channel, value, kind = gaugeKindFor(channel.unit), height }: GaugeProps) {
+export function Gauge({ channel, value, kind = gaugeKindFor(channel.unit), height, fresh }: GaugeProps) {
   const range = gaugeRange(channel);
   const zones = gaugeZones(channel);
-  const level = alarmLevel(value, channel);
+  const level = alarmLevel(value, channel, fresh);
+  const stale = level === "stale";
+  const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
   const hasBands = !!(channel.warn || channel.alarm);
   const fill = hasBands ? COLOUR[level] : ACCENT;
   const fraction = value === undefined ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
   const precision = channel.precision ?? 2;
   const drawing = { range, zones, fraction, fill, height };
   return (
-    <div className={`fb-gauge fb-gauge-${kind} fb-alarm-${level}`} title={`${range[0]} – ${range[1]} ${channel.unit}`}>
+    <div
+      className={`fb-gauge fb-gauge-${kind} fb-alarm-${level}`}
+      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : `${range[0]} – ${range[1]} ${channel.unit}`}
+    >
       {kind === "thermometer" && <Thermometer {...drawing} />}
       {kind === "tank" && <Tank {...drawing} />}
       {kind === "dial" && <Dial {...drawing} />}
       {kind === "bar" && <Bar {...drawing} />}
-      <div className="fb-gauge-value" style={{ color: hasBands && level !== "ok" ? COLOUR[level] : undefined }}>
+      <div className="fb-gauge-value" style={{ color: hasBands && level !== "ok" && level !== "stale" ? COLOUR[level] : undefined }}>
         <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }}>
           {value === undefined ? "—" : value.toFixed(precision)}
         </span>
         <span className="fb-gauge-unit">{channel.unit}</span>
       </div>
+      {stale && <div className="fb-gauge-footer">last sample {ageS} s ago</div>}
     </div>
   );
 }

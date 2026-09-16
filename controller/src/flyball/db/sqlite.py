@@ -169,8 +169,8 @@ class SqliteSessionWriter:
         with self._store._transaction() as connection:
             sid = len(self._sources) + 1
             connection.execute(
-                "INSERT INTO source (session_id, id, name, kind) VALUES (?, ?, ?, ?)",
-                (self._session.id, sid, str(source.name), kind),
+                "INSERT INTO source (session_id, id, name, kind, label) VALUES (?, ?, ?, ?, ?)",
+                (self._session.id, sid, str(source.name), kind, source.label),
             )
             connection.executemany(
                 "INSERT INTO channel (session_id, source_id, measurand_id) VALUES (?, ?, ?)",
@@ -424,7 +424,7 @@ class SqliteStore:
 
     def sources(self, session_id: int) -> list[SourceRow]:
         return [
-            SourceRow(r["id"], r["name"], r["kind"])
+            SourceRow(r["id"], r["name"], r["kind"], r["label"])
             for r in self._query(
                 "SELECT * FROM source WHERE session_id = ? ORDER BY id", (session_id,)
             )
@@ -444,8 +444,8 @@ class SqliteStore:
 
     def _channel(self, session_id: int, source: str, measurand: str) -> ChannelRow:
         rows = self._query(
-            "SELECT s.id AS sid, s.name AS sname, s.kind, q.id AS qid, q.name AS qname,"
-            " q.unit, q.label FROM channel c"
+            "SELECT s.id AS sid, s.name AS sname, s.kind, s.label AS slabel, q.id AS qid,"
+            " q.name AS qname, q.unit, q.label FROM channel c"
             " JOIN source s ON s.session_id = c.session_id AND s.id = c.source_id"
             " JOIN measurand q ON q.session_id = c.session_id AND q.id = c.measurand_id"
             " WHERE c.session_id = ? AND s.name = ? AND q.name = ?",
@@ -455,7 +455,7 @@ class SqliteStore:
             raise NotDeclaredError("channel", f"{source}.{measurand}")
         r = rows[0]
         return ChannelRow(
-            SourceRow(r["sid"], r["sname"], r["kind"]),
+            SourceRow(r["sid"], r["sname"], r["kind"], r["slabel"]),
             MeasurandRow(r["qid"], r["qname"], r["unit"], r["label"]),
         )
 

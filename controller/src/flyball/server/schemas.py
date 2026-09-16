@@ -90,6 +90,23 @@ class SampleOut(BaseModel):
         )
 
 
+class DeviceOut(BaseModel):
+    """One entry of `GET /api/devices`: a reader, an actuator or an application's own device.
+
+    Every device in a rig has one name, whichever kind it is; this is the
+    shape that lists them together. `link` is the rig file's link name, when
+    the device has one (a sim device or an application's own may not).
+    """
+
+    name: str
+    label: str | None = None
+    kind: str
+    """"reader", "actuator", "simulation" (an application's own device), or another kind
+    an application registers."""
+    type: str
+    link: str | None = None
+
+
 class SourceOut(BaseModel):
     name: str
     label: str | None = None

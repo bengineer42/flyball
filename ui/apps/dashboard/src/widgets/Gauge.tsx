@@ -1,7 +1,8 @@
 import { memo, useRef } from "react";
-import { Gauge, gaugeKindFor, type GaugeKind } from "@flyball/react";
+import { Gauge, gaugeKindFor, useFreshness, useLatest, type GaugeKind, useReaderPeriods } from "@flyball/react";
 import { alarmLevel } from "@flyball/client";
-import { useBindings, useRigData, useTraces } from "../dashboard/context.js";
+import { useBindings, useRigData } from "../dashboard/context.js";
+import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { channelKeyOf, channelSchema, SELECTS } from "./schema.js";
 import { bodyPx } from "./size.js";
@@ -17,22 +18,27 @@ const KINDS: Array<{ const: string; title: string }> = [
 
 const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponentProps) {
   const bindings = useBindings();
-  const traces = useTraces();
   const { rowHeight } = useRigData();
+  const periods = useReaderPeriods();
   const host = useRef<HTMLDivElement>(null);
   // The drawing takes the tile's body less the number under it.
   const height = bodyPx(widget.h, rowHeight, true);
   const key = String(config.channel ?? "");
   const channel = bindings.channels.find((c) => channelKeyOf(c) === key);
+  // From the store: this tile alone re-renders on its channel, at most four times a second.
+  const value = useLatest(channel ? key : undefined)?.v;
+  const reader = channel && Object.values(bindings.schema.readers).find((r) => r.sources.some((s) => s.name === channel.source));
+  const fresh = useFreshness(channel ? key : undefined, reader ? periods[reader.name] : undefined);
+  const level = channel ? alarmLevel(value, channel, fresh) : undefined;
+  // The frame's dot and border carry the level; the gauge itself draws no stale border here (`fresh` stays for the footer age).
+  useWidgetChrome(channel ? { severity: level } : null);
   if (!channel) return <Missing what="channel" name={key} />;
-  const trace = traces[key];
-  const value = trace && trace.v.length ? trace.v[trace.v.length - 1] : undefined;
   const wanted = String(config.kind ?? "auto");
   const kind: GaugeKind = wanted === "auto" ? gaugeKindFor(channel.unit) : (wanted as GaugeKind);
-  const level = alarmLevel(value, channel);
+  // The number under the drawing: 1.3em ≈ 17px line plus the gap.
   return (
     <div ref={host} className={`fb-fill fb-gauge-host fb-gauge-host-${kind} fb-alarm-${level}`}>
-      <Gauge channel={channel} value={value} kind={kind} height={kind === "bar" ? 14 : Math.max(48, height - 34)} />
+      <Gauge channel={channel} value={value} kind={kind} height={kind === "bar" ? 14 : Math.max(48, height - 26)} fresh={fresh} />
     </div>
   );
 });
@@ -42,8 +48,9 @@ export const gauge: WidgetKind = {
   label: "Gauge",
   description: "One channel as a picture: a dial, bar, thermometer or tank with its warn and alarm zones.",
   category: "readings",
-  defaultSize: { w: 2, h: 5 },
-  minSize: { w: 2, h: 3 },
+  // 6×6: a 150px body holds a 124px drawing and the number under it (measured, DESIGN-SPEC.md §10).
+  defaultSize: { w: 6, h: 6 },
+  minSize: { w: 4, h: 4 },
   cost: "cheap",
   configSchema: (bindings) => ({
     type: "object",

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+from pydantic import Field
+
 from .device import (
     RESERVED_NAMES,
     CommandSpec,
@@ -75,6 +77,13 @@ class ActuatorState(DeviceState):
 
     demand: float | None = None
     """The last demand handed over by the loop, in the loop's measurand unit."""
+    output_range: tuple[float, float] | None = None
+    """What the demand can achieve, in the actuator's own unit; None if unknown.
+
+    A sim actuator derives it from its drive `limits` and its Watt-or-`of
+    full` scale; a real one states it in its config, since there is no
+    generic way to derive a physical range from an arbitrary instrument.
+    """
 
 
 class ActuatorSettings(DeviceSettings):
@@ -83,6 +92,12 @@ class ActuatorSettings(DeviceSettings):
 
 class ActuatorConfig[A: "Actuator"](DeviceConfig[A]):
     """What an actuator is built from, and what builds it."""
+
+    output_range: tuple[float, float] | None = Field(
+        default=None,
+        description="The demand's achievable range, in the actuator's own unit."
+        " A sim actuator works this out itself; a real one that cannot states it here.",
+    )
 
 
 ActuatorView = DeviceView
@@ -99,6 +114,10 @@ class Actuator(Device, Sink):
     settings_type: ClassVar[type[DeviceSettings]] = ActuatorSettings
     state_type: ClassVar[type[DeviceState]] = ActuatorState
     demand_unit: ClassVar[Unit | None] = None
+    output_range: ClassVar[tuple[float, float] | None] = None
+    """The demand's achievable range, in `demand_unit`; None if unknown. Per instance,
+    like `demand_unit`: a sim actuator works it out, a rig file may state it for a real
+    one (`runtime.config` copies a config's `output_range` onto the actuator it builds)."""
 
     def __init__(self, name: str) -> None:
         Device.__init__(self, name)
@@ -121,4 +140,4 @@ class Actuator(Device, Sink):
     @property
     def state(self) -> ActuatorState:
         """Default: just the demand is unknown. Override with what the device knows now."""
-        return ActuatorState()
+        return ActuatorState(output_range=self.output_range)

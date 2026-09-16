@@ -2,11 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import type { ChannelOut } from "@flyball/client";
 import { yRange, type YScale } from "./yscale.js";
-import { thin } from "./thin.js";
+import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
 import { ChartToolbar } from "./ChartToolbar.js";
 import { ChartOverlay, plotHeight } from "./ChartOverlay.js";
 import { saveTable, seriesTable } from "./download.js";
+import { useChartLifecycle } from "./useChartLifecycle.js";
+import { pageSyncKey } from "./MultiSeries.js";
+import type { TraceRef } from "../store/hooks.js";
+import { channelKey, emptyTrace } from "../store/telemetry.js";
+
+const EMPTY: number[] = [];
 
 /** Canvas cannot resolve CSS variables, so read the palette off the element and pass real colours. */
 export function chartPalette(el: Element): { accent: string; fg: string; muted: string; border: string } {
@@ -33,9 +39,21 @@ export function useThemeVersion(): number {
 
 export interface TimeSeriesProps {
   channel: ChannelOut;
-  /** Seconds since the epoch, ascending. */
-  t: number[];
-  v: number[];
+  /** Seconds since the epoch, ascending. Omitted when the chart draws from a `source`. */
+  t?: number[];
+  v?: number[];
+  /**
+   * Draw the channel straight from the telemetry store (`useTraceRef`): the
+   * chart subscribes itself, redraws at most ten times a second (twice for a
+   * sparkline) while on screen, and never re-renders on samples.
+   */
+  source?: TraceRef;
+  /** Hold every redraw (the editor is dragging); one follows when released. */
+  paused?: boolean;
+  /** `cursor.sync.key`: charts sharing a key share a cursor. Default: the page (the location hash). */
+  syncKey?: string;
+  /** Names this chart in the redraw counter (`window.__fb.chartsById`); default `source.measurand`. */
+  id?: string;
   /** Plot height in pixels, or `"auto"`: follows the width (0.3 of it, between 160 and 360). */
   height?: number | "auto";
   /** Fix the y axis to the channel's declared range rather than autoscaling. Shorthand for `yScale="range"`. */
@@ -72,7 +90,7 @@ export interface TimeSeriesProps {
  * per channel and fed new data on every render, so a live trace at 10 Hz
  * costs a `setData`, not a rebuild. Axis label and unit come from the channel.
  */
-export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, compact: compactProp = false, windowS, yScale, every, navigable, title, expanded, onExpandChange, exportHref }: TimeSeriesProps) {
+export function TimeSeries({ channel, t: tProp, v: vProp, source, paused, syncKey, id, height = 160, fixedRange = false, compact: compactProp = false, windowS, yScale, every, navigable, title, expanded, onExpandChange, exportHref }: TimeSeriesProps) {
   const nav = useRef(navigation()).current;
   const [following, setFollowing] = useState(true);
   nav.onChange = setFollowing;
@@ -98,6 +116,8 @@ export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, co
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
   const theme = useThemeVersion();
+  const t = tProp ?? EMPTY;
+  const v = vProp ?? EMPTY;
 
   useEffect(() => {
     if (!host.current) return;
@@ -142,7 +162,7 @@ export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, co
         y: y ? { range: y } : {},
       },
       legend: { show: !compact },
-      cursor: compact ? { show: false } : { drag: { x: true, y: false } },
+      cursor: compact ? { show: false } : { drag: { x: true, y: false }, sync: { key: syncKey ?? pageSyncKey() ?? "", scales: ["x", null] } },
       padding: compact ? [4, 4, 4, 4] : undefined,
       plugins: interactive ? [nav.plugin()] : [],
     };
@@ -164,13 +184,37 @@ export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, co
       chart.current?.destroy();
       chart.current = null;
     };
-  }, [channel, height, yKey, compact, windowS, theme, interactive, open]);
+  }, [channel, height, yKey, compact, windowS, theme, interactive, open, syncKey]);
 
   const latest = useRef({ t: thin(t, every), v: thin(v, every) });
-  latest.current = { t: thin(t, every), v: thin(v, every) };
+  if (!source) latest.current = { t: thin(t, every), v: thin(v, every) };
+  // Store-fed: one view reused between draws.
+  const view = useRef(emptyTrace());
+  const everyRef = useRef(every);
+  everyRef.current = every;
+  const key = channelKey(channel);
+  const { redraw } = useChartLifecycle({
+    host,
+    source,
+    everyMs: compact ? 500 : 100,
+    paused,
+    id: id ?? key,
+    draw: () => {
+      const u = chart.current;
+      if (source) {
+        const maxPoints = pointCap(u?.width ?? host.current?.clientWidth ?? 400);
+        source.store.read(key, view.current, { every: everyRef.current, maxPoints });
+        latest.current = view.current;
+      }
+      u?.setData([latest.current.t, latest.current.v]);
+    },
+  });
   useEffect(() => {
-    chart.current?.setData([latest.current.t, latest.current.v]);
-  }, [t, v, every]);
+    if (source) return;
+    redraw();
+  }, [t, v, every, source, redraw]);
+  /** Everything held for the download: the store's rows unthinned, or the props. */
+  const held = () => (source ? source.store.read(key, emptyTrace()) : { t, v });
 
   // A sparkline opens on a click, so its double-click must not toggle straight back.
   const plot = <div ref={host} className={`fb-chart${open ? " fb-chart-fill" : ""}`} onDoubleClick={compact ? undefined : () => setOpen(!open)} />;
@@ -186,7 +230,7 @@ export function TimeSeries({ channel, t, v, height = 160, fixedRange = false, co
         expanded={open}
         onDownload={(format) =>
           // Everything held, not the thinned trace the canvas draws.
-          saveTable(`${channel.source}.${channel.measurand}`, seriesTable([{ label: `${channel.source}.${channel.measurand}`, unit: channel.unit, t, v }]), format)
+          saveTable(`${channel.source}.${channel.measurand}`, seriesTable([{ label: `${channel.source}.${channel.measurand}`, unit: channel.unit, ...held() }]), format)
         }
         exportHref={exportHref}
       />

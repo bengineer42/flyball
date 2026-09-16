@@ -13,6 +13,7 @@ import type {
   ChannelRow,
   ClockOut,
   ChannelOut,
+  DeviceOut,
   DeviceSchema,
   DeviceSummary,
   DeviceView,
@@ -248,6 +249,28 @@ export class RigClient {
 
   deleteSession(id: number): Promise<void> {
     return this.call({ method: "DELETE", path: `/api/history/sessions/${id}` });
+  }
+
+  /**
+   * Delete several sessions; there is no bulk route, so each is its own
+   * request, a few at a time (`concurrency`). Resolves to the ones that
+   * failed, each with its error message — the ones not listed succeeded.
+   */
+  async deleteSessions(ids: number[], concurrency = 4): Promise<Array<{ id: number; error: string }>> {
+    const queue = [...ids];
+    const failed: Array<{ id: number; error: string }> = [];
+    const worker = async () => {
+      let id: number | undefined;
+      while ((id = queue.shift()) !== undefined) {
+        try {
+          await this.deleteSession(id);
+        } catch (e) {
+          failed.push({ id, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
+    return failed;
   }
 
   /** Close an open session: the live one through the rig, an orphaned one in the store. 409 if already ended. */
@@ -519,6 +542,24 @@ export class RigClient {
   /** JSON Schema of the document, for checking an import before it is shown. */
   dashboardSchema(): Promise<JsonSchema> {
     return this.get("/api/dashboards/schema");
+  }
+
+  // endregion
+
+  // region All devices -- one namespace: readers, actuators and an application's own device
+
+  /**
+   * `GET /api/devices`: every reader, actuator and application device, once,
+   * by name -- not `devices(kind)` above, which is the `/api/actuators` or
+   * `/api/readers` shape for one kind at a time. Use this to list or resolve
+   * a name without knowing its kind first.
+   */
+  allDevices(): Promise<Record<string, DeviceOut>> {
+    return this.get("/api/devices");
+  }
+
+  resolveDevice(name: string): Promise<DeviceOut> {
+    return this.get(`/api/devices/${encodeURIComponent(name)}`);
   }
 
   // endregion

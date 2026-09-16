@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Box,
@@ -31,13 +31,15 @@ import StopIcon from "@mui/icons-material/Stop";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
-import { LoopPanel, SchemaForm, useLoops, useQuery, useRig, useRigSchema, useSources } from "@flyball/react";
-import type { ActuatorChoice, ChannelOut, FeedforwardConfig, JsonSchema, LawConfig, LoopOut, LoopSchema } from "@flyball/client";
+import { LoopPanel, SchemaForm, channelKey, useActuatorStates, useFreshness, useLoops, useQuery, useReaderPeriods, useRig, useRigSchema, useSources, type LoopTrace } from "@flyball/react";
+import { alarmLevel, type ActuatorChoice, type ChannelOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type LoopOut, type LoopSchema, type ReaderSchema } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { PageBar } from "../PageBar.js";
+import { SectionHead, StateBlock } from "../cards.js";
+import { PAGE_ICONS } from "../icons.js";
 import { Crumbs } from "./Sources.js";
 import { hashFor } from "../router.js";
 
@@ -226,7 +228,7 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, labels, onClos
                         <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
                           {sourceLabel(source)}
                           {labels?.sources[source] && (
-                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
                               {source}
                             </Typography>
                           )}
@@ -286,7 +288,7 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, labels, onClos
                   )}
                   {draft.lawChoice === "configure" && lawSchema && (
                     <Box data-testid="law-form">
-                      {draft.config && <Chip label={`law set: ${String(draft.config.tag)}`} color="success" variant="outlined" sx={{ mb: 1 }} />}
+                      {draft.config && <Chip label={`law set: ${String(draft.config.tag)}`} color="success" variant="outlined" sx={{ mb: 1.5 }} />}
                       <SchemaForm
                         key={formKey}
                         schema={lawSchema}
@@ -346,7 +348,7 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, labels, onClos
           </Stepper>
         )}
         {error && (
-          <Alert severity="error" onClose={() => setError(null)} sx={{ mt: 1.5 }}>
+          <Alert severity="error" onClose={() => setError(null)} sx={{ mt: 2.25 }}>
             {error}
           </Alert>
         )}
@@ -364,32 +366,34 @@ const AddLoopDialog = memo(function AddLoopDialog({ open, schema, labels, onClos
 });
 
 /**
- * The loop's own commands, in the panel's header: regulate at, manual, set
- * reference, remove. Takes primitives and a stable callback so that it does
- * not re-render on every tick (its text fields are MUI form controls, which
- * set state in an effect whenever they render in development).
+ * The setpoint entry and its verb button, rendered inline in the faceplate's
+ * SP row (DESIGN-SPEC §3.4): "Regulate at" hands control to the law at this
+ * value (a bumpless start) while stopped, "Move setpoint" changes the target
+ * and leaves the law running while regulating. Takes primitives and a
+ * stable callback so it does not re-render on every tick (its text field is
+ * a MUI form control, which sets state in an effect whenever it renders in
+ * development). Split from the stop/remove control below so Tab reaches
+ * this field and its button before Stop, which the faceplate places in the
+ * header regardless of where it sits in the DOM.
  */
-const LoopControls = memo(function LoopControls({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: LoopOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
+const LoopSetpointControl = memo(function LoopSetpointControl({ name, unit, mode, tag, onEvent }: { name: string; unit: string; mode: LoopOut["mode"]; tag: string | null; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState(false);
   const hasLaw = tag !== null && tag !== "open_loop";
   const regulating = mode === "regulating";
 
-  const act = async (what: string, op: () => Promise<unknown>) => {
-    setBusy(what);
+  const act = async (op: () => Promise<unknown>) => {
+    setBusy(true);
     try {
       await op();
       setError(null);
       onEvent(name, "changed");
-      return true;
     } catch (e) {
       setError(message(e));
-      return false;
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
   const value = setpoint.trim() === "" ? null : Number(setpoint);
@@ -409,23 +413,21 @@ const LoopControls = memo(function LoopControls({ name, unit, mode, tag, onEvent
         value={setpoint}
         onChange={(e) => setSetpoint(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && valid && busy === null) {
-            void act(regulating ? "reference" : "regulate", () =>
-              regulating ? rig.setReference(name, value!) : rig.regulate(name, { at: value! }),
-            );
+          if (e.key === "Enter" && valid && !busy) {
+            void act(() => (regulating ? rig.setReference(name, value!) : rig.regulate(name, { at: value! })));
           }
         }}
         inputProps={{ "aria-label": `setpoint ${name}`, step: "any", "data-testid": `regulate-at-${name}`, style: { width: "6em" } }}
         InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>{unit}</span> }}
-        sx={{ "& .MuiInputBase-input": { py: 0.5 } }}
+        sx={{ "& .MuiInputBase-input": { py: 0.75 } }}
       />
       {regulating ? (
         <Tooltip title="Change the target; the law keeps running as it is">
           <span>
             <Button
               variant="contained"
-              disabled={!valid || busy !== null}
-              onClick={() => void act("reference", () => rig.setReference(name, value!))}
+              disabled={!valid || busy}
+              onClick={() => void act(() => rig.setReference(name, value!))}
               data-testid={`set-reference-${name}`}
             >
               Move setpoint
@@ -438,8 +440,8 @@ const LoopControls = memo(function LoopControls({ name, unit, mode, tag, onEvent
             <Button
               variant="contained"
               startIcon={<PlayArrowIcon />}
-              disabled={!hasLaw || !valid || busy !== null}
-              onClick={() => void act("regulate", () => rig.regulate(name, { at: value! }))}
+              disabled={!hasLaw || !valid || busy}
+              onClick={() => void act(() => rig.regulate(name, { at: value! }))}
               data-testid={`regulate-${name}`}
             >
               Regulate at
@@ -447,14 +449,51 @@ const LoopControls = memo(function LoopControls({ name, unit, mode, tag, onEvent
           </span>
         </Tooltip>
       )}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ py: 0, width: "100%" }}>
+          {error}
+        </Alert>
+      )}
+    </Stack>
+  );
+});
+
+/**
+ * Stop and remove, rendered in the faceplate's header (DESIGN-SPEC §3.4)
+ * even though the panel places them after the SP row in the DOM, so Tab
+ * reaches setpoint -> Move -> Stop in that order.
+ */
+const LoopStopControl = memo(function LoopStopControl({ name, mode, onEvent }: { name: string; mode: LoopOut["mode"]; onEvent(name: string, kind: "changed" | "removed"): void }) {
+  const rig = useRig();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const regulating = mode === "regulating";
+
+  const act = async (op: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await op();
+      setError(null);
+      return true;
+    } catch (e) {
+      setError(message(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Stack component="span" direction="row" spacing={0.5} alignItems="center" sx={{ display: "inline-flex" }}>
       <Tooltip title="Stop regulating: the actuator holds its last demand and takes commands directly">
         <span>
           <Button
             variant="outlined"
             color="error"
             startIcon={<StopIcon />}
-            disabled={mode === "manual" || busy !== null}
-            onClick={() => void act("manual", () => rig.manual(name))}
+            disabled={mode === "manual" || busy}
+            onClick={() => void act(() => rig.manual(name)).then((ok) => ok && onEvent(name, "changed"))}
             data-testid={`manual-${name}`}
           >
             Stop
@@ -463,7 +502,7 @@ const LoopControls = memo(function LoopControls({ name, unit, mode, tag, onEvent
       </Tooltip>
       <Tooltip title="Remove the loop from the rig">
         <span>
-          <IconButton aria-label={`remove loop ${name}`} disabled={busy !== null} onClick={() => setConfirmRemove(true)}>
+          <IconButton aria-label={`remove loop ${name}`} disabled={busy} onClick={() => setConfirmRemove(true)}>
             <DeleteOutlineIcon fontSize="small" />
           </IconButton>
         </span>
@@ -479,18 +518,71 @@ const LoopControls = memo(function LoopControls({ name, unit, mode, tag, onEvent
         action={regulating ? "Stop and remove" : "Remove"}
         onClose={() => setConfirmRemove(false)}
         onConfirm={() => {
-          void act("remove", () => rig.removeLoop(name)).then((ok) => {
+          void act(() => rig.removeLoop(name)).then((ok) => {
             setConfirmRemove(false);
             if (ok) onEvent(name, "removed");
           });
         }}
       />
       {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ py: 0, width: "100%" }}>
+        <Alert severity="error" onClose={() => setError(null)} sx={{ py: 0 }}>
           {error}
         </Alert>
       )}
     </Stack>
+  );
+});
+
+/**
+ * One loop's faceplate, wrapping `LoopPanel` so `useFreshness` runs once per
+ * loop rather than a variable number of times inside a list's `.map` (which
+ * would break the rules of hooks as loops come and go). Reader-offline
+ * (B-3) is the channel's own staleness: its reader's period against the
+ * time since its last sample, in rig time.
+ */
+const LoopFaceplate = memo(function LoopFaceplate({
+  loop,
+  history,
+  periods,
+  readers,
+  outputRange,
+  windowS,
+  yScale,
+  every,
+  exportHref,
+  controls,
+  headerControls,
+}: {
+  loop: LoopOut;
+  history: LoopTrace | undefined;
+  periods: Record<string, number | null>;
+  readers: ReaderSchema[];
+  outputRange: [number, number] | null;
+  windowS?: number;
+  yScale?: ChartSettings["yScale"];
+  every?: number;
+  exportHref?: string;
+  controls?: ReactNode;
+  headerControls?: ReactNode;
+}) {
+  const reader = readers.find((r) => r.sources.some((s) => s.name === loop.channel.source));
+  const fresh = useFreshness(channelKey(loop.channel), reader ? periods[reader.name] : undefined);
+  const readerOffline = alarmLevel(null, {}, fresh) === "stale";
+  return (
+    <LoopPanel
+      loop={loop}
+      history={history}
+      windowS={windowS}
+      yScale={yScale}
+      every={every}
+      exportHref={exportHref}
+      outputRange={outputRange}
+      readerOffline={readerOffline}
+      trends
+      detail
+      controls={controls}
+      headerControls={headerControls}
+    />
   );
 });
 
@@ -507,6 +599,9 @@ export function Loops({ name = null, ...charts }: LoopsProps) {
   const rigSchema = useRigSchema();
   const sources = useSources();
   const { loops, history, status } = useLoops(3600, every);
+  const { states: actuatorStates } = useActuatorStates();
+  const periods = useReaderPeriods();
+  const readers = useMemo(() => Object.values(rigSchema.data?.readers ?? {}), [rigSchema.data]);
   const labels = useMemo<Labels>(
     () => ({
       actuators: Object.fromEntries(Object.values(rigSchema.data?.actuators ?? {}).map((a) => [a.name, a.label])),
@@ -574,24 +669,39 @@ export function Loops({ name = null, ...charts }: LoopsProps) {
   return (
     <>
       {toolbar}
-      {shown.length === 0 && (
-        <Typography color="text.secondary">{status === "connecting" ? "loading…" : "This rig has no loops attached."}</Typography>
-      )}
-      {/* Two loops abreast on a wide screen, each a faceplate with its charts beside the readouts; one per row otherwise. */}
-      <div className="grid">
-        {shown.map((l) => (
-          <div key={l.name} className={name === null ? "c12 xl6" : "c12"}>
-          <LoopPanel
-            loop={l}
-            history={history[l.name]}
-            windowS={windowS}
-            yScale={yScale}
-            every={every}
-            exportHref={stored.ticks(l.name)}
-            controls={<LoopControls name={l.name} unit={l.channel.unit} mode={l.mode} tag={typeof l.law?.tag === "string" ? l.law.tag : null} onEvent={onEvent} />}
+      {name === null && <SectionHead icon={PAGE_ICONS.loops} title="Loops" count={shown.length} />}
+      {shown.length === 0 &&
+        (status === "connecting" ? (
+          <StateBlock state="loading" message="Loading loops…" />
+        ) : (
+          <StateBlock
+            state="empty"
+            message={name === null ? "This rig has no loops attached." : `No loop named ${name}.`}
+            action={name === null ? { label: "Add loop", onClick: () => setAdding(true) } : undefined}
           />
-          </div>
         ))}
+      {/* Three faceplates abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
+      <div className="grid">
+        {shown.map((l) => {
+          const tag = typeof l.law?.tag === "string" ? l.law.tag : null;
+          return (
+            <div key={l.name} className={name === null ? "c12 xl4" : "c12"}>
+              <LoopFaceplate
+                loop={l}
+                history={history[l.name]}
+                periods={periods}
+                readers={readers}
+                windowS={windowS}
+                yScale={yScale}
+                every={every}
+                exportHref={stored.ticks(l.name)}
+                outputRange={actuatorStates[l.name]?.output_range ?? null}
+                controls={<LoopSetpointControl name={l.name} unit={l.channel.unit} mode={l.mode} tag={tag} onEvent={onEvent} />}
+                headerControls={<LoopStopControl name={l.name} mode={l.mode} onEvent={onEvent} />}
+              />
+            </div>
+          );
+        })}
       </div>
       {dialog}
     </>

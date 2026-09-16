@@ -107,8 +107,18 @@ def current_simulation() -> Simulation | None:
 
 
 def set_simulation_device(device: Device | None) -> None:
-    """Attach the device an application puts its simulation-only knobs on: `/api/sim/device`."""
+    """Attach the device an application puts its simulation-only knobs on: `/api/sim/device`.
+
+    Claims its name in the attached rig's device namespace too -- it shows up
+    in `GET /api/devices` beside the readers and actuators, and cannot share
+    a name with one. ConflictError if it does.
+    """
     global _simulation_device
+    if _simulation_device is not None and _rig is not None:
+        _rig.release(_simulation_device.name)
+    if device is not None and _rig is not None:
+        _rig.claim(device.name, "simulation", device)
+        _rig.devices[device.name] = device
     _simulation_device = device
 
 

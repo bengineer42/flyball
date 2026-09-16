@@ -47,6 +47,7 @@ class SourceRow:
     id: int
     name: str
     kind: str | None
+    label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

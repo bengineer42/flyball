@@ -54,6 +54,16 @@ class SetPointGenerator:
         """The set point at `time`."""
         raise NotImplementedError
 
+    def rate(self, time: float) -> float:
+        """How fast the set point is moving at `time`, per second.
+
+        Zero unless overridden: a generator with no notion of a rate (or one
+        that has landed) is not moving. A rate feedforward uses this rather
+        than differencing successive `generate()` values, which would carry
+        the reading noise a real trajectory does not have.
+        """
+        return 0.0
+
 
 class LinearRampSetpoint(SetPointGenerator):
     """A set point walking from `start` to `end` between two instants."""
@@ -84,3 +94,6 @@ class LinearRampSetpoint(SetPointGenerator):
         if time >= self.end_time:
             return self.end
         return self.end - (self.end_time - time) * self.per_second
+
+    def rate(self, time: float) -> float:
+        return 0.0 if time >= self.end_time else self.per_second

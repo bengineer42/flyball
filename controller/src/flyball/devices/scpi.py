@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from flyball.core.config import resolve
 from flyball.core.device import DeviceConfig, DeviceSettings, DeviceState, command
 from flyball.core.reading import Measurand, Reader, Sample, Source
-from flyball.core.sink import Actuator, ActuatorState
+from flyball.core.sink import Actuator, ActuatorConfig, ActuatorState
 from flyball.core.units.dimension import Unit
 from flyball.hardware.links import TextLink, TextLinkConfig
 
@@ -169,7 +169,9 @@ class ScpiActuator(Actuator):
 
     @property
     def state(self) -> ScpiActuatorState:
-        return ScpiActuatorState(demand=self._demand, readback=self._readback)
+        return ScpiActuatorState(
+            demand=self._demand, output_range=self.output_range, readback=self._readback
+        )
 
     def set_demand(self, demand: float) -> float | None:
         self._demand = demand
@@ -185,7 +187,7 @@ class ScpiActuator(Actuator):
         self.link.write(text)
 
 
-class ScpiActuatorConfig(DeviceConfig[ScpiActuator], tag="scpi_actuator"):
+class ScpiActuatorConfig(ActuatorConfig[ScpiActuator], tag="scpi_actuator"):
     name: str
     link: TextLinkConfig | str  # type: ignore[valid-type]
     command: str = Field(description="Sent on each demand, with {value} formatted in.")

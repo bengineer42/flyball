@@ -1,17 +1,29 @@
-"""What every device route shares: argument models, the schema, running a command."""
+"""What every device route shares: argument models, the schema, running a command.
+
+Also `GET /api/devices`: every reader, actuator and application device listed
+once, since a rig gives them all one name rig-wide. `/api/readers` and
+`/api/actuators` keep their own shapes; this is for a client that wants to
+resolve a name without knowing what kind of device it names first.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
+from fastapi import APIRouter
 from pydantic import TypeAdapter
 
 from flyball.core.device import CommandSpec, Device
 from flyball.core.errors import NotFoundError
 from flyball.core.reading import Measurand, Source
+from flyball.runtime.rig import Rig
+from flyball.server.deps import RigDep
+from flyball.server.schemas import DeviceOut
 from flyball.server.wire import ArgumentsBase, arguments_model
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
+
+router = APIRouter(prefix="/api/devices", tags=["devices"])
 
 
 def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[ArgumentsBase]:
@@ -45,6 +57,7 @@ def measurand_schema(measurand: Measurand) -> dict[str, Any]:
 def source_schema(source: Source) -> dict[str, Any]:
     return {
         "name": str(source.name),
+        "label": source.label,
         "measurands": {ch.measurand.name: measurand_schema(ch.measurand) for ch in source.channels},
     }
 
@@ -107,3 +120,42 @@ def run(device: Device, tag: str, body: dict[str, Any] | None) -> Any:
     spec = command_for(device, tag)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
     return spec.method(device, **arguments)
+
+
+def _link_name(rig: Rig, device: Device) -> str | None:
+    """The rig file's name for `device`'s link, if it has one built from a link."""
+    link = getattr(device, "link", None)
+    if link is None:
+        return None
+    return next((name for name, built in rig.links.items() if built is link), None)
+
+
+def _device_out(rig: Rig, name: str, device: Device) -> DeviceOut:
+    return DeviceOut(
+        name=name,
+        label=device.label,
+        kind=rig.kind_of(name) or "device",
+        type=type(device).__name__,
+        link=_link_name(rig, device),
+    )
+
+
+@router.get("")
+def read_devices(rig: RigDep) -> dict[str, DeviceOut]:
+    """Every reader, actuator and application device, once, by name.
+
+    `/api/readers` and `/api/actuators` still carry their own full views;
+    this is the one list that names everything the rig has, regardless of
+    kind, since no two of them may share a name.
+    """
+    return {name: _device_out(rig, name, device) for name, device in rig.devices.items()}
+
+
+@router.get("/{name}")
+def read_device(rig: RigDep, name: str) -> DeviceOut:
+    """Resolve `name` to whichever kind of device it is."""
+    try:
+        device = rig.devices[name]
+    except KeyError as e:
+        raise NotFoundError(f"Device {name!r} not found") from e
+    return _device_out(rig, name, device)

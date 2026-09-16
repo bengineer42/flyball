@@ -42,6 +42,23 @@ def test_start_read_end(client):
     assert store.session(session["id"]).end_ns is not None
 
 
+def test_start_recording_names_the_rig_in_config(tmp_path):
+    """A session opened via the API should show a rig name too, like a `--record` daemon session."""
+    rig = Rig("furnace")
+    store = SqliteStore(tmp_path / "t.db")
+    set_rig(rig)
+    set_store(store)
+    with TestClient(create_app()) as c:
+        started = c.post("/api/recording").json()
+        assert started["config"] == {"name": "furnace"}
+
+        c.post("/api/recording/end")
+        explicit = c.post("/api/recording", json={"config": {"name": "override"}}).json()
+        assert explicit["config"] == {"name": "override"}  # an explicit config is never overwritten
+    set_rig(None)
+    set_store(None)
+
+
 def test_shutdown_closes_the_session(tmp_path):
     rig = Rig()
     store = SqliteStore(tmp_path / "t.db")

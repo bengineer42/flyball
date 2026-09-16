@@ -8,7 +8,7 @@
 import type { Nanoseconds } from "./wire.js";
 
 export interface DashboardGrid {
-  /** Columns across; 12 unless a dashboard says otherwise. */
+  /** Columns across: 24, or 12 for a document saved before the 24-column grid (scaled on read). */
   cols: number;
   /** Pixels per grid row. */
   row_height: number;
@@ -38,6 +38,17 @@ export interface DashboardDocument {
   widgets: DashboardWidget[];
 }
 
+/**
+ * A widget naming a channel, loop or actuator the rig does not have (DESIGN-SPEC.md §4.8).
+ * The document is kept and returned anyway; the widget renders the "unbound" state instead of
+ * being dropped.
+ */
+export interface DashboardProblem {
+  widget_id: string;
+  ref: string;
+  reason: string;
+}
+
 /** A stored version: the document plus when it was saved and a digest of it. */
 export interface DashboardRow {
   id: number;
@@ -46,4 +57,6 @@ export interface DashboardRow {
   body: DashboardDocument;
   created_ns: Nanoseconds;
   sha256: string;
+  /** What it names that this rig lacks; empty when everything resolves. */
+  problems?: DashboardProblem[];
 }

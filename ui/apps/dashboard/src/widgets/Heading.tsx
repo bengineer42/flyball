@@ -4,16 +4,8 @@ import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 const HeadingWidget = memo(function HeadingWidget({ config }: WidgetComponentProps) {
   const size = String(config.size ?? "section");
-  return (
-    <Typography
-      component={size === "page" ? "h2" : "h3"}
-      variant={size === "page" ? "h1" : "h2"}
-      color={size === "page" ? "text.primary" : "text.secondary"}
-      sx={{ alignSelf: "flex-end", m: 0, fontSize: size === "page" ? "1.3rem" : undefined, borderBottom: 1, borderColor: "divider", pb: 0.5, width: "100%" }}
-    >
-      {String(config.text ?? "")}
-    </Typography>
-  );
+  // A section head as on every list page (DESIGN-SPEC.md §2): 11px uppercase label, or 16/600 for `page`; sits on the cell's bottom edge (dashboard.css `.dash-heading`).
+  return <Typography component={size === "page" ? "h2" : "h3"} className={`dash-heading dash-heading-${size}`}>{String(config.text ?? "")}</Typography>;
 });
 
 export const heading: WidgetKind = {
@@ -21,7 +13,7 @@ export const heading: WidgetKind = {
   label: "Heading",
   description: "A section title across the grid, to group the tiles under it.",
   category: "layout",
-  defaultSize: { w: 12, h: 1 },
+  defaultSize: { w: 24, h: 1 },
   minSize: { w: 2, h: 1 },
   cost: "cheap",
   configSchema: () => ({
@@ -47,7 +39,7 @@ export const spacer: WidgetKind = {
   label: "Spacer",
   description: "Empty room, to push tiles apart or start a new row.",
   category: "layout",
-  defaultSize: { w: 3, h: 1 },
+  defaultSize: { w: 6, h: 1 },
   minSize: { w: 1, h: 1 },
   cost: "cheap",
   configSchema: () => ({ type: "object", properties: {} }),

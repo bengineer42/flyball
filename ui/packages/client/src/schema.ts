@@ -65,6 +65,10 @@ export function formatValue(value: unknown, schema?: JsonSchema): string {
     const text = formatNumber(value, schema);
     return schema?.unit ? `${text} ${schema.unit}` : text;
   }
+  if (Array.isArray(value) && value.length === 2 && typeof value[0] === "number" && typeof value[1] === "number") {
+    const text = `${formatNumber(value[0], schema)} – ${formatNumber(value[1], schema)}`;
+    return schema?.unit ? `${text} ${schema.unit}` : text;
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
@@ -188,17 +192,173 @@ export function humanise(tag: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-export type AlarmLevel = "ok" | "warn" | "alarm";
+/**
+ * Every event `kind` the backend emits, worded for a log reader. Enumerated
+ * from the `rig.event(...)` call sites (`runtime/{writer,reader,rig}.py`,
+ * `programmer/programmer.py`, `server/routes/library.py`) -- not guessed.
+ */
+const EVENT_KINDS: Record<string, string> = {
+  started: "Started",
+  step: "Step",
+  step_timed_out: "Step timed out",
+  step_failed: "Step failed",
+  failed: "Failed",
+  finished: "Finished",
+  interrupted: "Interrupted",
+  run_from_library: "Run from library",
+  restarted: "Restarted",
+  offline: "Went offline",
+  slow: "Running slow",
+  delivery_failed: "Delivery failed",
+  write_recovered: "Writes recovered",
+  write_failed: "Write failed",
+  recording_failed: "Recording failed",
+};
+
+/** An event's `kind` (`step_timed_out`, `run_from_library`) as a phrase for a person. Unknown kinds fall through to `humanise`. */
+export function describeEventKind(kind: string): string {
+  return EVENT_KINDS[kind] ?? humanise(kind);
+}
+
+/**
+ * A program-step subject as the programmer names it: `name[step]`, `step`
+ * 0-based (`programmer.py`'s `self._step`). `anneal[2]` → `anneal · step 3`.
+ * Any other subject (a loop, a reader, a device name) is returned unchanged.
+ */
+export function describeSubject(subject: string): string {
+  const m = /^(.+)\[(\d+)\]$/.exec(subject);
+  if (!m) return subject;
+  return `${m[1]} · step ${Number(m[2]) + 1}`;
+}
+
+/** A law or feedforward state/gain key, labelled with a hover hint. See `control/laws.py`. */
+const STATE_KEYS: Record<string, { label: string; hint: string }> = {
+  last_raw: { label: "last raw output", hint: "the law's output before clamping" },
+  last_elapsed: { label: "elapsed", hint: "seconds since the law last ran, used to integrate the error" },
+  integral: { label: "integral term", hint: "the accumulated error the integral gain multiplies" },
+  kp: { label: "proportional gain", hint: "output per unit of error" },
+  ki: { label: "integral gain", hint: "output per unit of accumulated error, over a second" },
+  kd: { label: "derivative gain", hint: "output per unit of the error's rate of change" },
+  tt: { label: "tracking time", hint: "how fast the integral unwinds once the actuator clamps" },
+};
+
+/** A law/feedforward state or gain key (`last_raw`, `kp`, `tt`) as a label and a hover hint. Unknown keys fall through to `humanise`, with no hint. */
+export function describeStateKey(key: string): { label: string; hint?: string } {
+  return STATE_KEYS[key] ?? { label: humanise(key) };
+}
+
+/**
+ * A device or plant tag as words: the Python class name the server puts in
+ * `DeviceSchema.type` (`SimActuator`), or a config `kind`/`tag` discriminator
+ * (`sim_reader`, `sim_furnace`). From the device classes under
+ * `flyball/{sim,devices,integrations}` and the tags in
+ * `examples/simulated/rig.schema.json`; unknown tags fall through to `humanise`.
+ */
+const DEVICE_TAGS: Record<string, string> = {
+  SimActuator: "Simulated actuator",
+  SimReader: "Simulated reader",
+  FunctionReader: "Simulated reader",
+  RecordingActuator: "Recording actuator",
+  BlockReader: "Reader",
+  ModbusActuator: "Modbus actuator",
+  ModbusReader: "Modbus reader",
+  ScpiActuator: "SCPI actuator",
+  ScpiReader: "SCPI reader",
+  QCoDeSActuator: "QCoDeS actuator",
+  QCoDeSReader: "QCoDeS reader",
+  PyMeasureActuator: "PyMeasure actuator",
+  PyMeasureReader: "PyMeasure reader",
+  sim_actuator: "Simulated actuator",
+  sim_reader: "Simulated reader",
+  sim_furnace: "Simulated furnace",
+  sim_plant: "Simulated plant",
+  modbus_actuator: "Modbus actuator",
+  modbus_reader: "Modbus reader",
+  scpi_actuator: "SCPI actuator",
+  scpi_reader: "SCPI reader",
+  qcodes_actuator: "QCoDeS actuator",
+  qcodes_reader: "QCoDeS reader",
+  pymeasure_reader: "PyMeasure reader",
+  pymeasure_actuator: "PyMeasure actuator",
+};
+
+export function describeDevice(tag: string): string {
+  return DEVICE_TAGS[tag] ?? humanise(tag);
+}
+
+/** Unit derived from a simulated-plant config key's suffix, longest first so `_w_per_k`/`_j_per_k` win over a bare `_k`. */
+const PARAM_UNIT_SUFFIXES: Array<[string, string]> = [
+  ["_w_per_k", "W/K"],
+  ["_j_per_k", "J/K"],
+  ["_m2", "m²"],
+  ["_c", "°C"],
+  ["_s", "s"],
+];
+
+/**
+ * A simulated plant's raw config key (`coupling_w_per_k`, `sensor_lag_s`) as
+ * a label with the unit its suffix names, so the value can be shown beside
+ * it instead of folded into the key. The raw key is kept as the hint. A key
+ * with no recognised suffix falls through to `humanise`, with no unit.
+ */
+export function describeSimParam(key: string): { label: string; unit?: string; hint: string } {
+  for (const [suffix, unit] of PARAM_UNIT_SUFFIXES) {
+    if (key.endsWith(suffix)) return { label: humanise(key.slice(0, -suffix.length)), unit, hint: key };
+  }
+  return { label: humanise(key), hint: key };
+}
+
+export type AlarmLevel = "ok" | "warn" | "alarm" | "stale";
+
+/** How long a channel may go without a sample before it reads "stale" — DESIGN-SPEC.md §2: `max(3 × period_s, 5s)`. */
+export function staleAfterS(periodS: number | null | undefined): number {
+  return Math.max(3 * (periodS ?? 0), 5);
+}
+
+/**
+ * Freshness for one channel, in RIG time (a simulated rig's clock runs
+ * faster than the wall clock, so `nowS` must come from `/api/clock` or the
+ * newest sample across the rig, never `Date.now()`).
+ */
+export interface Freshness {
+  /** Seconds of the channel's own reader; unknown treated as 0 (only the 5s floor applies). */
+  periodS?: number | null;
+  /** The last sample's time, in rig seconds; null/undefined skips the stale check. */
+  lastSampleS?: number | null;
+  /** The rig's current time, in rig seconds; null/undefined skips the stale check. */
+  nowS?: number | null;
+}
+
+/**
+ * The freshest of a set of traces' last points, in seconds — a live proxy
+ * for the rig's current time when nothing is polling `/api/clock`
+ * continuously (DESIGN-SPEC.md §2: "the newest sample time across the
+ * rig"). At least one channel elsewhere on the rig must still be sampling
+ * for this to track real time; a rig gone completely silent freezes it,
+ * same as every channel on it going stale together.
+ */
+export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null {
+  let latest: number | null = null;
+  for (const trace of traces) {
+    const last = trace.t.length ? trace.t[trace.t.length - 1] : undefined;
+    if (last !== undefined && (latest === null || last > latest)) latest = last;
+  }
+  return latest;
+}
 
 /**
  * Where `value` sits against a channel's bands: outside `alarm` is "alarm",
- * outside `warn` is "warn", else "ok". A channel with no bands, or no value,
- * is always "ok".
+ * outside `warn` is "warn", else "ok" — unless `fresh` says no sample has
+ * arrived recently enough, in which case the level is "stale" regardless of
+ * the last value (a stuck reading is not a healthy one). A channel with no
+ * bands, or no value, is "ok" unless stale.
  */
 export function alarmLevel(
   value: number | null | undefined,
   channel: { warn?: [number, number] | null; alarm?: [number, number] | null },
+  fresh?: Freshness | null,
 ): AlarmLevel {
+  if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(fresh.periodS)) return "stale";
   if (value === null || value === undefined || Number.isNaN(value)) return "ok";
   const outside = (band: [number, number] | null | undefined) =>
     !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));

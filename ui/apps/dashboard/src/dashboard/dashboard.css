@@ -1,0 +1,163 @@
+/*
+ * View mode: a plain CSS grid (DESIGN-SPEC.md §4.2). No drag library here --
+ * react-grid-layout is mounted only in edit mode (see Grid.tsx). Row height
+ * and column count come from the document via CSS custom properties; the
+ * gutter is --fb-gap (12 comfortable / 8 compact), the same value Grid.tsx
+ * reads for react-grid-layout's margin so the two modes lay out identically.
+ */
+.dash-view-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--dash-cols), minmax(0, 1fr));
+  grid-auto-rows: var(--dash-row);
+  gap: var(--fb-gap);
+}
+.dash-view-item {
+  min-width: 0;
+  min-height: 0;
+}
+.dash-view-item > .fb-tile {
+  height: 100%;
+}
+/* Below 900px, view mode stacks full-width in (y, x) order -- the DOM order
+   DashboardViewGrid already lays the tiles out in -- rather than following
+   the saved grid coordinates. */
+@media (max-width: 900px) {
+  .dash-view-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+  }
+  .dash-view-grid > .dash-view-item {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    /* At least the height the grid would give it (a chart needs a definite height to draw into); taller if the content wraps. */
+    min-height: calc(var(--dash-span) * (var(--dash-row) + var(--fb-gap)) - var(--fb-gap));
+  }
+}
+
+/*
+ * ONE frame per widget (DESIGN-SPEC.md §2, §10). `WidgetFrame` is the
+ * `PanelFrame`; widgets are bodies. Everything below is body layout, and every
+ * length is a --fb-space-* token so the left edge of a title, a value, a table
+ * and a plot axis label are the same 12px in from the frame, and title
+ * baselines line up across a row.
+ */
+/* The frame's action buttons fit the 28px title row (MUI's small IconButton is 30px). */
+.dash-widget .fb-tile-menu .MuiIconButton-root { padding: var(--fb-space-1); }
+.dash-widget .fb-tile-menu .fb-tile-grip { font-size: 18px; }
+/* readout-m per §1.3 (overrides app.css's older clamp; dashboard.css loads after it). */
+.dash-widget .fb-readout-value { font-size: clamp(22px, 11cqi, 40px); }
+/* The frame carries stale; the gauge draws no second dashed border inside it. */
+.dash-widget .fb-gauge.fb-alarm-stale { border: 0; padding: 0; }
+
+/* Health strip (§3.9): equal columns split by hairlines, label over value, centred in the 2-row body. */
+.dash-health { display: grid; grid-template-columns: repeat(var(--dash-health-n, 5), minmax(0, 1fr)); align-items: center; flex: 1 1 auto; min-height: 0; }
+.dash-health-stat { display: flex; align-items: center; gap: var(--fb-space-2); min-width: 0; padding: 0 var(--fb-space-3); border-left: 1px solid var(--fb-border-1); border-radius: var(--fb-radius-1); }
+.dash-health-stat:first-child { padding-left: 0; border-left: 0; }
+.dash-health-text { display: flex; flex-direction: column; min-width: 0; }
+.dash-health .dash-health-label { line-height: 1.2; font-size: var(--fb-text-xs, 11px); letter-spacing: 0.06em; }
+.dash-health .dash-health-value { font-size: var(--fb-text-md, 13px); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.dash-health-stat:hover { background: var(--fb-bg-hover, var(--fb-bg-2)); }
+@media (max-width: 900px) {
+  .dash-health { grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); row-gap: var(--fb-space-2); }
+  .dash-health-stat { border-left: 0; padding-left: 0; }
+}
+
+/* Events (§3.7): one 25px row per event -- 20px line, 2px each side, a hairline -- as many as the body holds (Events.tsx counts them). */
+.dash-events { flex: 1 1 auto; min-height: 0; overflow: hidden; font-size: var(--fb-text-md, 13px); }
+.dash-events table { border-collapse: collapse; width: 100%; table-layout: auto; }
+.dash-events td { padding: 2px var(--fb-space-2) 2px 0; line-height: 20px; vertical-align: baseline; border-bottom: 1px solid var(--fb-border-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-events tr:last-child td { border-bottom: 0; }
+.dash-events-time, .dash-events-subject { color: var(--fb-fg-2); width: 1%; }
+.dash-events-time { font-variant-numeric: tabular-nums; }
+.dash-events-kind { width: 1%; }
+.dash-events-message { max-width: 0; }
+.dash-events-more { display: block; line-height: 20px; font-size: var(--fb-text-sm, 12px); text-decoration: none; }
+.dash-events-more:hover { text-decoration: underline; }
+
+/* Program (§3.6): a 28px status row, the bar, then 20px event lines. */
+.dash-program { display: flex; flex-direction: column; gap: var(--fb-space-2); flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.dash-program-status { display: flex; align-items: center; gap: var(--fb-space-2); height: 28px; min-width: 0; }
+.dash-program-progress { flex: none; height: 4px; border-radius: 2px; }
+.dash-program-events { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.dash-program-event { display: flex; align-items: baseline; gap: var(--fb-space-2); line-height: 20px; height: 20px; min-width: 0; }
+.dash-program-event > * { line-height: 20px; }
+.dash-program-time { font-size: var(--fb-text-sm, 12px); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Recording (§3.10): one row; the body is 42px at the default 6×3. */
+.dash-recording { display: flex; align-items: center; gap: var(--fb-space-2); flex: 1 1 auto; min-height: 0; min-width: 0; margin: 0; }
+
+/* Text (§3.11): a note. Type sizes from the scale; the body clips, so the widget is sized to the note. */
+.dash-text { flex: 1 1 auto; min-height: 0; overflow: hidden; font-size: var(--fb-text-md, 13px); line-height: 1.45; }
+.dash-text .fb-markdown > :first-child { margin-top: 0; }
+.dash-text .fb-markdown > :last-child { margin-bottom: 0; }
+.dash-text h1, .dash-text h2, .dash-text h3, .dash-text h4 { font-size: var(--fb-text-lg, 14px); font-weight: 600; line-height: 1.25; margin: var(--fb-space-3) 0 var(--fb-space-1); }
+.dash-text p, .dash-text ul, .dash-text ol { margin: var(--fb-space-2) 0; }
+.dash-text code { font-size: 0.9em; padding: 0 var(--fb-space-1); background: var(--fb-bg-2); border-radius: var(--fb-radius-1); }
+
+/* Heading (§3.12): the list pages' section head, on the cell's bottom edge; the frame is transparent (below). */
+.dash-heading { align-self: flex-end; width: 100%; margin: 0; padding-bottom: var(--fb-space-1); border-bottom: 1px solid var(--fb-border-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-heading-section { font-size: var(--fb-text-xs, 11px); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fb-fg-2); line-height: 1.25; }
+.dash-heading-page { font-size: var(--fb-text-xl, 16px); font-weight: 600; color: var(--fb-fg); line-height: 1.25; }
+
+/* Link (§3.13): the button is the whole cell. */
+.dash-widget-link > .fb-tile-body > .dash-link { flex: 1 1 auto; height: 100%; min-height: 0; justify-content: flex-start; text-align: left; padding-top: 0; padding-bottom: 0; }
+
+/* Edit mode, widgets without a title of their own: the grip and menu float over the top-right corner, the body keeps its height. */
+.dash-widget { position: relative; }
+.dash-editing .fb-tile-editing-float > .fb-tile-head { position: absolute; top: 0; right: 0; z-index: 2; width: auto; max-width: 100%; height: var(--fb-tile-head-h); padding-left: var(--fb-space-2); border: 1px solid var(--fb-border-1); border-top: 0; border-right: 0; border-radius: 0 0 0 var(--fb-radius); background: var(--fb-bg-2); opacity: 0.92; }
+.dash-editing .fb-tile-editing-float > .fb-tile-head .fb-tile-title { font-size: var(--fb-text-sm, 12px); font-weight: 600; color: var(--fb-fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.dash-editing .fb-tile-editing-float > .fb-tile-head .fb-tile-subtitle { display: none; }
+
+/* Frameless layout kinds in view mode; edit mode gives them a border so they can be found and dragged. */
+.dash-widget-heading, .dash-widget-spacer, .dash-widget-link { background: transparent; border-color: transparent; }
+.dash-editing .dash-widget-heading, .dash-editing .dash-widget-spacer, .dash-editing .dash-widget-link { border-color: var(--fb-border-1); }
+
+/*
+ * Loop and Actuator widgets take `bare` and hand their chrome (name, channel, mode badge,
+ * severity) up through `useWidgetChrome` -- `WidgetFrame`'s `PanelFrame` is their only frame,
+ * so nothing here needs to fight a nested one any more (the interim shim that used to live
+ * here, flattening a second frame, is gone with it).
+ */
+.dash-widget-actuator .fb-tile-body > .fb-actuator { overflow: hidden; }
+.dash-widget-actuator .fb-state { margin: 0; grid-template-columns: max-content 1fr; row-gap: var(--fb-space-1); }
+.dash-widget-loop .fb-tile-body > .fb-loop { overflow: hidden; }
+
+/*
+ * Loop faceplate, trends on (`view: "full"`, the 8x8 default): the shared grid (now on
+ * `.fb-loop-frame`, one level inside `.fb-loop` -- see packages/react/src/styles.css, an
+ * element cannot be its own container-query container) gives the trends column a fixed
+ * `minmax(13rem, 19rem)` (208-304px) -- fine on the #/loops page, which has the whole
+ * content column to work with, but an 8-of-24 dashboard tile is often narrower than that
+ * *plus* a usable rows column, so the rows column (`minmax(14rem, 1fr)`) is squeezed below
+ * its own minimum and overflows into the trends column -- the same class of bug as the
+ * head/badge one above, same fix: give the fixed column a share of the tile instead of a
+ * fixed size, so there is always room left for the rows; below that, stack instead.
+ */
+.dash-widget-loop .fb-loop-frame:not(.fb-loop-no-trends) {
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 38%) !important;
+}
+@container (max-width: 420px) {
+  .dash-widget-loop .fb-loop-frame:not(.fb-loop-no-trends) {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas: "head" "stop" "banner" "rows" "trends" "law" !important;
+  }
+  .dash-widget-loop .fb-loop-frame:not(.fb-loop-no-trends) > .fb-loop-trends {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--fb-border-1);
+    padding-top: var(--fb-gap);
+  }
+}
+
+/*
+ * Missing-binding tiles (DESIGN-SPEC.md §2, §4.8): a dashed border and the
+ * ⚠ message, never a silently blank tile.
+ */
+.dash-widget-missing {
+  border-style: dashed !important;
+}
+.fb-tile-missing-actions {
+  display: flex;
+  gap: var(--fb-space-2);
+  margin-top: var(--fb-space-1);
+}

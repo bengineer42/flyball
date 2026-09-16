@@ -332,7 +332,16 @@ class SimActuator(Actuator):
 
     @property
     def state(self) -> SimActuatorState:
-        return SimActuatorState(demand=self._demand, input=self.plant.input)
+        return SimActuatorState(
+            demand=self._demand, input=self.plant.input, output_range=self._output_range()
+        )
+
+    def _output_range(self) -> tuple[float, float] | None:
+        """`limits`, scaled to the demand unit; None in smart mode (no fixed scale)."""
+        if self.scale is None:
+            return None
+        lo, hi = self.limits
+        return (lo * self.scale, hi * self.scale)
 
     def set_demand(self, demand: float) -> float | None:
         """Drive the plant's input for `demand`; report the demand actually deliverable.

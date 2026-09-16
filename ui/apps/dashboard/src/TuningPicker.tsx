@@ -39,8 +39,8 @@ export function TuningPicker({ tunings, value, onChange, onConfigure, laws }: Tu
   const chosen = offered.find((t) => t.name === value) ?? null;
 
   return (
-    <Stack spacing={1} data-testid="tuning-picker">
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+    <Stack spacing={1.5} data-testid="tuning-picker">
+      <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
         <TextField
           size="small"
           placeholder="filter by name or gain"
@@ -50,7 +50,7 @@ export function TuningPicker({ tunings, value, onChange, onConfigure, laws }: Tu
           sx={{ minWidth: 180 }}
         />
         {tags.length > 1 && (
-          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap aria-label="filter by law">
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap aria-label="filter by law">
             <Chip label="all" size="small" variant={law === null ? "filled" : "outlined"} onClick={() => setLaw(null)} />
             {tags.map((t) => (
               <Chip key={t} label={t} size="small" variant={law === t ? "filled" : "outlined"} color={law === t ? "primary" : "default"} onClick={() => setLaw(law === t ? null : t)} />
@@ -67,13 +67,13 @@ export function TuningPicker({ tunings, value, onChange, onConfigure, laws }: Tu
         {shown.map((t) => (
           <ListItemButton key={t.name} selected={t.name === value} onClick={() => onChange(t.name)} data-tuning={t.name}>
             <ListItemText primary={t.name} secondary={gainsSummary(t.config)} primaryTypographyProps={{ fontWeight: t.name === value ? 600 : undefined }} />
-            <Chip label={t.law} size="small" variant="outlined" sx={{ ml: 1 }} />
+            <Chip label={t.law} size="small" variant="outlined" sx={{ ml: 1.5 }} />
           </ListItemButton>
         ))}
       </List>
       {chosen && (
-        <Box sx={{ px: 1, py: 0.5, bgcolor: "action.hover", borderRadius: 1 }} data-testid="tuning-detail">
-          <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
+        <Box sx={{ px: 1.5, py: 0.75, bgcolor: "action.hover", borderRadius: 1 }} data-testid="tuning-detail">
+          <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
             <Typography variant="subtitle2">
               {chosen.name} <Chip label={chosen.law} size="small" variant="outlined" />
             </Typography>

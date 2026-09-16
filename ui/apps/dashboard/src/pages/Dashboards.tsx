@@ -9,13 +9,11 @@ import {
   DialogContentText,
   DialogTitle,
   Divider,
-  FormControl,
   IconButton,
   ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
-  Select,
   Stack,
   TextField,
   Tooltip,
@@ -36,7 +34,7 @@ import SaveAsIcon from "@mui/icons-material/SaveAs";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import UndoIcon from "@mui/icons-material/Undo";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { download, fileName, useDashboards, useHealth, useLoops, useRig, type Traces } from "@flyball/react";
+import { download, fileName, invalidateDashboards, useDashboards, useHealth, useLoops, useRig, type Traces } from "@flyball/react";
 import { RigError, type DashboardDocument, type DashboardWidget, type DeviceState, type JsonSchema, type RigEvent, type RigSchema, type SourceOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { PageBar } from "../PageBar.js";
@@ -48,7 +46,8 @@ import { ConfigureDialog } from "../dashboard/ConfigureDialog.js";
 import { EventsContext, LoopsContext, RigDataContext, StatesContext, TracesContext, makeBindings, type RigData } from "../dashboard/context.js";
 import { DEFAULT_GRID, bottomOf, duplicateWidget, emptyDocument, exportJson, newId, normalise, sameDocument } from "../dashboard/document.js";
 import { GENERATED_NAME, generateOverview } from "../dashboard/generate.js";
-import { DashboardGrid, type Placement } from "../dashboard/Grid.js";
+import { DashboardEditGrid, DashboardViewGrid, type Placement } from "../dashboard/Grid.js";
+import "../dashboard/dashboard.css";
 import { useHistory } from "../dashboard/history.js";
 import { readHome, writeHome } from "../dashboard/home.js";
 import { useStableLoops, useStableTraces, useThrottled } from "../dashboard/throttle.js";
@@ -99,10 +98,10 @@ function NameDialog({ open, title, action, initial, taken, busy, error, onClose,
           }}
           helperText={exists ? `“${trimmed}” exists; ${action.toLowerCase()} replaces it with a new version.` : "How this dashboard is listed and linked."}
           inputProps={{ "aria-label": "dashboard name" }}
-          sx={{ mt: 1 }}
+          sx={{ mt: 1.5 }}
         />
         {error && (
-          <Alert severity="error" sx={{ mt: 1 }}>
+          <Alert severity="error" sx={{ mt: 1.5 }}>
             {error}
           </Alert>
         )}
@@ -125,13 +124,44 @@ function NameDialog({ open, title, action, initial, taken, busy, error, onClose,
  * through contexts fed here at a steady 10 Hz; the generated overview is a
  * function of the rig's schema and is never saved unless someone saves it.
  */
-export function Dashboards({ name, generated, schema, sources, traces, states, events, recording, programmer, onOpen, ...charts }: DashboardsProps) {
+export function Dashboards({ name, generated, schema, sources, traces, states, events, recording: recordingIn, programmer: programmerIn, onOpen, ...charts }: DashboardsProps) {
   const rig = useRig();
   const list = useDashboards();
-  const health = useHealth(5000);
+  const healthIn = useHealth(5000);
   const exports = useRecordingExports();
   const loopsLive = useLoops(3600, charts.every);
-  const rigName = health.data?.rig ?? "";
+  const rigName = healthIn.data?.rig ?? "";
+
+  // `useHealth`/`programmer` are `useQuery` results and `recording` wraps one too: each is a
+  // freshly-built object on every render of its owner (App.tsx, or `useQuery` itself), whether
+  // or not the data inside actually changed. Traces/states/events (below) update at up to the
+  // reader rate, so this component's own render runs at that rate too; without this, `rigData`'s
+  // memo would recompute -- and every widget's context would change -- on every one of them,
+  // which is what turned "several widget kinds on the page" into React's own
+  // "Maximum update depth exceeded" (the commit falling behind the incoming rate). Kept stable
+  // by field, not by the wrapper's identity; `recording`'s methods dispatch through a ref so
+  // they never go stale.
+  const recordingRef = useRef(recordingIn);
+  recordingRef.current = recordingIn;
+  const health = useMemo(
+    () => ({ data: healthIn.data, error: healthIn.error, loading: healthIn.loading, refresh: healthIn.refresh }),
+    [healthIn.data, healthIn.error, healthIn.loading, healthIn.refresh],
+  );
+  const programmer = useMemo(
+    () => ({ data: programmerIn.data, error: programmerIn.error, loading: programmerIn.loading, refresh: programmerIn.refresh }),
+    [programmerIn.data, programmerIn.error, programmerIn.loading, programmerIn.refresh],
+  );
+  const recording = useMemo<Recording>(
+    () => ({
+      data: recordingIn.data,
+      error: recordingIn.error,
+      loading: recordingIn.loading,
+      refresh: () => recordingRef.current.refresh(),
+      start: (details?: unknown) => recordingRef.current.start(details),
+      end: () => recordingRef.current.end(),
+    }),
+    [recordingIn.data, recordingIn.error, recordingIn.loading],
+  );
 
   // The live data, on a beat and with identities kept where nothing moved (see `throttle.ts`).
   const stableTraces = useStableTraces(traces);
@@ -317,7 +347,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
       const saved = normalise(row.body);
       hist.reset(saved);
       setBaseline(saved);
-      list.refresh();
+      invalidateDashboards();
       setNotice(`Saved “${as}”.`);
     });
     if (ok) {
@@ -333,7 +363,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
     const ok = await act(() => rig.renameDashboard(wanted, to));
     if (ok) {
       setRenaming(false);
-      list.refresh();
+      invalidateDashboards();
       if (homeName === wanted) {
         writeHome(to);
         setHomeName(to);
@@ -352,7 +382,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
     const ok = await act(() => rig.deleteDashboard(wanted));
     if (ok) {
       setDeleting(false);
-      list.refresh();
+      invalidateDashboards();
       if (homeName === wanted) {
         writeHome(null);
         setHomeName(null);
@@ -417,38 +447,13 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
     setMenu(null);
   };
 
-  const selector = (
-    <FormControl size="small" sx={{ minWidth: 200 }}>
-      <Select
-        value={isGenerated ? "" : wanted}
-        displayEmpty
-        onChange={(e) => {
-          const v = e.target.value;
-          onOpen(v === "" ? null : v, v === "");
-        }}
-        inputProps={{ "aria-label": "dashboard" }}
-        data-testid="dashboard-select"
-        renderValue={(v) => (v === "" ? GENERATED_NAME : v)}
-      >
-        <MenuItem value="">
-          <ListItemText primary={GENERATED_NAME} secondary="from the rig's schema" />
-        </MenuItem>
-        {names.length > 0 && <Divider />}
-        {(list.data ?? []).map((d) => (
-          <MenuItem key={d.name} value={d.name}>
-            <ListItemText primary={d.name} secondary={`saved ${new Date(d.created_ns / 1e6).toLocaleString()}`} />
-            {homeName === d.name && <HomeIcon fontSize="small" sx={{ ml: 1, color: "text.disabled" }} />}
-          </MenuItem>
-        ))}
-      </Select>
-    </FormControl>
-  );
+  // The dashboard switcher itself lives in the app bar (`DashboardSwitcher`, via `Shell`'s
+  // `startSlot` -- DESIGN-SPEC.md §2: "dashboard identity at the top, not in the sidebar").
 
   const canUndo = hist.canUndo;
   const canRedo = hist.canRedo;
   const bar = (
     <PageBar end={<ChartControls {...charts} unit={sources[0]?.channels[0]?.unit} />}>
-      {selector}
       {dirty && <Chip label="unsaved" color="warning" variant="outlined" data-testid="dirty" />}
       <Button variant={editing ? "contained" : "outlined"} startIcon={editing ? <CheckIcon /> : <EditOutlinedIcon />} onClick={() => setEditing((e) => !e)} data-testid="edit-toggle" disabled={!doc}>
         {editing ? "Done" : "Edit"}
@@ -486,6 +491,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
       </IconButton>
       <Menu open={Boolean(menu)} anchorEl={menu} onClose={() => setMenu(null)}>
         <MenuItem
+          data-testid="menu-save-as"
           onClick={() => {
             setMenu(null);
             setSaveAs(true);
@@ -498,6 +504,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
           <ListItemText>Save as…</ListItemText>
         </MenuItem>
         <MenuItem
+          data-testid="menu-rename"
           onClick={() => {
             setMenu(null);
             setRenaming(true);
@@ -510,6 +517,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
           <ListItemText>Rename…</ListItemText>
         </MenuItem>
         <MenuItem
+          data-testid="menu-delete"
           onClick={() => {
             setMenu(null);
             setDeleting(true);
@@ -536,6 +544,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
         </MenuItem>
         <Divider />
         <MenuItem
+          data-testid="menu-export"
           onClick={() => {
             setMenu(null);
             exportFile();
@@ -548,6 +557,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
           <ListItemText>Export JSON</ListItemText>
         </MenuItem>
         <MenuItem
+          data-testid="menu-import"
           onClick={() => {
             setMenu(null);
             fileInput.current?.click();
@@ -559,7 +569,7 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
           <ListItemText>Import JSON…</ListItemText>
         </MenuItem>
         <Divider />
-        <MenuItem onClick={toggleHome} disabled={isGenerated}>
+        <MenuItem data-testid="menu-home" onClick={toggleHome} disabled={isGenerated}>
           <ListItemIcon>{homeName === wanted && wanted !== null ? <HomeIcon fontSize="small" /> : <HomeOutlinedIcon fontSize="small" />}</ListItemIcon>
           <ListItemText>{homeName === wanted && wanted !== null ? "Unset as home" : "Set as home"}</ListItemText>
         </MenuItem>
@@ -576,17 +586,17 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
             <EventsContext.Provider value={beatEvents}>
               {bar}
               {error && (
-                <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 1.5 }}>
+                <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2.25 }}>
                   {error}
                 </Alert>
               )}
               {notice && (
-                <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 1.5 }}>
+                <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 2.25 }}>
                   {notice}
                 </Alert>
               )}
               {importErrors && (
-                <Alert severity="error" onClose={() => setImportErrors(null)} sx={{ mb: 1.5 }}>
+                <Alert severity="error" onClose={() => setImportErrors(null)} sx={{ mb: 2.25 }}>
                   <strong>Not a dashboard document.</strong>
                   <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
                     {importErrors.slice(0, 12).map((p) => (
@@ -596,22 +606,22 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
                 </Alert>
               )}
               {loadError && (
-                <Alert severity="warning" sx={{ mb: 1.5 }} action={<Button color="inherit" onClick={() => onOpen(null, true)}>{GENERATED_NAME}</Button>}>
+                <Alert severity="warning" sx={{ mb: 2.25 }} action={<Button color="inherit" onClick={() => onOpen(null, true)}>{GENERATED_NAME}</Button>}>
                   {loadError}
                 </Alert>
               )}
               {doc && doc.rig && rigName && doc.rig !== rigName && (
-                <Alert severity="info" sx={{ mb: 1.5 }}>
+                <Alert severity="info" sx={{ mb: 2.25 }}>
                   Made for the rig “{doc.rig}”; this is “{rigName}”. Widgets naming things this rig lacks show as missing.
                 </Alert>
               )}
               {doc && doc.description && !editing && (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.25 }}>
                   {doc.description}
                 </Typography>
               )}
               {doc && doc.widgets.length === 0 && (
-                <Stack alignItems="center" spacing={1} sx={{ py: 6, color: "text.secondary" }}>
+                <Stack alignItems="center" spacing={1.5} sx={{ py: 9, color: "text.secondary" }}>
                   <Typography>This dashboard is empty.</Typography>
                   <Button
                     variant="outlined"
@@ -625,7 +635,12 @@ export function Dashboards({ name, generated, schema, sources, traces, states, e
                   </Button>
                 </Stack>
               )}
-              {doc && <DashboardGrid widgets={doc.widgets} grid={doc.grid} editing={editing} onLayout={onLayout} renderWidget={renderWidget} />}
+              {doc &&
+                (editing ? (
+                  <DashboardEditGrid widgets={doc.widgets} grid={doc.grid} onLayout={onLayout} renderWidget={renderWidget} />
+                ) : (
+                  <DashboardViewGrid widgets={doc.widgets} grid={doc.grid} renderWidget={renderWidget} />
+                ))}
               {!doc && !loadError && <Typography color="text.secondary">loading…</Typography>}
               <AddWidgetDrawer open={adding} onClose={() => setAdding(false)} onAdd={add} />
               {configuring && (

@@ -7,6 +7,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from flyball.core.errors import ConflictError
 from flyball.core.files import load_document, loads
 from flyball.devices import (
     ModbusActuator,
@@ -63,6 +64,23 @@ class TestScpi:
         with pytest.raises(OSError):
             dmm.read(0)
 
+    def test_config_accepts_output_range(self, fresh):
+        document = {
+            "links": {"bench": {"tag": "fake_text", "replies": {}}},
+            "actuators": [
+                {
+                    "tag": "scpi_actuator",
+                    "name": fresh("psu"),
+                    "link": "bench",
+                    "command": "SOUR:VOLT {value}",
+                    "output_range": [0, 30],
+                }
+            ],
+        }
+        rig = RigConfig.model_validate(document).build(start=False)
+        (psu,) = rig.actuators.values()
+        assert psu.state.output_range == (0, 30)
+
 
 class TestModbus:
     @pytest.mark.parametrize(
@@ -109,6 +127,23 @@ class TestModbus:
         )
         assert setpoint.set_demand(25.04) == pytest.approx(25.0), "quantised to the register"
         assert link.registers[200] == 250 and setpoint.state.written == [250]
+
+    def test_config_accepts_output_range(self, fresh):
+        document = {
+            "links": {"chiller": {"tag": "fake_registers", "registers": {}}},
+            "actuators": [
+                {
+                    "tag": "modbus_actuator",
+                    "name": fresh("valve"),
+                    "link": "chiller",
+                    "output": {"address": 200, "scale": 0.1, "unit": "°C"},
+                    "output_range": [0, 100],
+                }
+            ],
+        }
+        rig = RigConfig.model_validate(document).build(start=False)
+        (valve,) = rig.actuators.values()
+        assert valve.state.output_range == (0, 100)
 
 
 TOML = """
@@ -178,6 +213,53 @@ class TestRigFile:
         finally:
             rig.readers.stop_all()
 
+    def test_devices_route_lists_readers_and_actuators_with_their_link(self, fresh):
+        """`GET /api/devices` names the link a real (non-simulated) device was built from."""
+        from fastapi.testclient import TestClient
+
+        from flyball.server import create_app, set_rig
+
+        document = {
+            "links": {"bench": {"tag": "fake_text", "replies": {"MEAS:VOLT?": "1.0"}}},
+            "readers": [
+                {
+                    "device": {
+                        "tag": "scpi_reader",
+                        "name": fresh("dmm"),
+                        "link": "bench",
+                        "measurands": {"voltage": {"query": "MEAS:VOLT?", "unit": "V"}},
+                    }
+                }
+            ],
+            "actuators": [
+                {
+                    "tag": "scpi_actuator",
+                    "name": fresh("psu"),
+                    "link": "bench",
+                    "command": "SOUR:VOLT {value}",
+                }
+            ],
+        }
+        rig = RigConfig.model_validate(document).build(start=False)
+        (reader_name,) = rig.readers.by_name
+        (actuator_name,) = rig.actuators
+        set_rig(rig)
+        try:
+            with TestClient(create_app()) as client:
+                devices = client.get("/api/devices").json()
+                assert devices[reader_name] == {
+                    "name": reader_name,
+                    "label": None,
+                    "kind": "reader",
+                    "type": "ScpiReader",
+                    "link": "bench",
+                }
+                assert devices[actuator_name]["kind"] == "actuator"
+                assert devices[actuator_name]["link"] == "bench"
+                assert client.get(f"/api/devices/{actuator_name}").json() == devices[actuator_name]
+        finally:
+            set_rig(None)
+
     def test_the_same_document_in_json_and_yaml(self, tmp_path):
         import yaml
 
@@ -216,7 +298,7 @@ class TestRigFileChecks:
     @pytest.mark.parametrize(
         ("mutate", "message"),
         [
-            (lambda d: d["actuators"].append(dict(d["actuators"][0])), "must be unique"),
+            (lambda d: d["actuators"].append(dict(d["actuators"][0])), "already used by actuator"),
             (
                 lambda d: d["loops"].__setitem__(0, {**d["loops"][0], "actuator": "ghost"}),
                 "not declared",
@@ -241,5 +323,21 @@ class TestRigFileChecks:
     def test_inconsistent_files_are_refused_with_their_own_names(self, mutate, message):
         document = loads(TOML, ".toml")
         mutate(document)
-        with pytest.raises(ValidationError, match=message):
+        # A name collision is a ConflictError -- a well-formed file that conflicts with
+        # itself, not malformed input; everything else here is a plain validation error.
+        with pytest.raises((ValidationError, ConflictError), match=message):
+            RigConfig.model_validate(document)
+
+    def test_a_reader_and_an_actuator_cannot_share_a_name(self):
+        """Every device in a rig has one name, whichever kind it is."""
+        document = loads(TOML, ".toml")
+        document["readers"][0]["device"]["name"] = "x"
+        document["actuators"][0]["name"] = "x"
+        with pytest.raises(ConflictError, match="Name 'x' is already used by reader 'x'"):
+            RigConfig.model_validate(document)
+
+    def test_a_device_cannot_use_a_reserved_name(self):
+        document = loads(TOML, ".toml")
+        document["actuators"][0]["name"] = "schema"
+        with pytest.raises(ConflictError, match="reserved"):
             RigConfig.model_validate(document)

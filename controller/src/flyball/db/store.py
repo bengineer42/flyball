@@ -43,7 +43,7 @@ class SessionWriter(Protocol):
     # region Declarations
 
     def declare_source(self, source: Source, kind: str | None = None) -> None:
-        """Register a source and every measurand it carries. Idempotent."""
+        """Register a source, its display label and every measurand it carries. Idempotent."""
         ...
 
     def declare_actuator(self, name: str, kind: str, config: Any = None) -> None:

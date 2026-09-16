@@ -1,0 +1,28 @@
+#:schema ../simulated/rig.schema.json
+# The opposite of `plant.toml`: as little as a rig can be and still measure
+# something. One reader, one channel, no actuators, no loops, no programs --
+# every list and empty state in the UI (Actuators, Loops, Dashboards,
+# Programs) should show its "nothing here" state on this rig.
+
+name = "sparse"
+
+[links.cell]
+tag = "sim_plant"
+kind = "lag"
+tau_s = 10.0
+gain = 1.0
+ambient = 20.0
+initial = 20.0
+noise = 0.1
+
+[[readers]]
+period_s = 1.0
+[readers.device]
+tag = "sim_reader"
+name = "only"
+label = "The only channel"
+link = "cell"
+measurand = "temperature"
+unit = "°C"
+range = [0, 100]
+precision = 1

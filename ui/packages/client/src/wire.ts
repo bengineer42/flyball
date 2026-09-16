@@ -88,6 +88,8 @@ export interface Condition {
 /** Every device state carries `conditions`; the rest is the device's own, described by its schema. */
 export interface DeviceState {
   conditions: Condition[];
+  /** Actuators only: the demand's achievable range, in the actuator's unit (`demand_unit`); null if unknown. */
+  output_range?: [number, number] | null;
   [field: string]: unknown;
 }
 
@@ -123,6 +125,8 @@ export interface ActuatorSchema extends DeviceSchema {
 /** What a reader declares about one of its sources: the measurands with their display metadata. */
 export interface SourceDeclaration {
   name: string;
+  /** A display name; null when the rig gave none, in which case show `name`. */
+  label: string | null;
   measurands: Record<string, { label: string; unit: string; dimension: string; range: [number, number] | null; precision: number | null }>;
 }
 
@@ -151,6 +155,22 @@ export interface DeviceSummary {
   name: string;
   type: string;
   description: string | null;
+}
+
+/**
+ * One entry of `GET /api/devices`: every reader, actuator and application
+ * device, listed once regardless of kind, since a rig gives them all one
+ * name. `/api/readers` and `/api/actuators` keep their own full shapes;
+ * this is for resolving a name without knowing its kind first.
+ */
+export interface DeviceOut {
+  name: string;
+  label: string | null;
+  /** "reader", "actuator", "simulation" (an application's own device, e.g. `/api/sim/device`), or another an application registers. */
+  kind: string;
+  type: string;
+  /** The rig file's link name, when the device has one; null for a sim device or an application's own. */
+  link: string | null;
 }
 
 export type LoopMode = "manual" | "open" | "regulating";
@@ -251,6 +271,14 @@ export interface Health {
   readers: Record<string, { running: boolean; last_read_ns: Nanoseconds | null }>;
   loops: Record<string, unknown>;
   conditions: Condition[];
+  /**
+   * Channels outside their warn/alarm band, plus the worst active condition
+   * level — the alarm summary (DESIGN-SPEC.md §2/research §6) counts device
+   * conditions ≥ 30 *and* channel bands, which `conditions` alone does not
+   * carry. Optional: absent on an older daemon, in which case a client
+   * derives channel bands itself from the sources' latest values.
+   */
+  alarms?: { warn: number; alarm: number; max_level: number };
   signals: SignalState[];
   recording: boolean;
 }
@@ -281,6 +309,8 @@ export interface SourceRow {
   id: number;
   name: string;
   kind: string | null;
+  /** Display name, e.g. "Zone 1 heater"; null before sessions recorded it. */
+  label?: string | null;
 }
 
 export interface MeasurandRow {
@@ -378,6 +408,8 @@ export interface ProgrammerState {
   step: number;
   steps: number;
   command: string | null;
+  failed: boolean;
+  error: string | null;
 }
 
 // Making loops.
@@ -496,4 +528,6 @@ export type Simulation =
       plants: Record<string, SimulationPlant>;
       /** What has changed since the last save: `clock`, `links.<plant>`. */
       changed: string[];
+      /** Whether the application attached a device of its own at `/api/sim/device`; absent on older daemons (probe). */
+      device?: boolean;
     };

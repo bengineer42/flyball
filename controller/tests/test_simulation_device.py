@@ -91,7 +91,8 @@ def test_without_a_device_the_route_is_404_but_the_simulation_answers(scaled_rig
     set_simulation(Simulation(rig, RigConfig(name="test")))
     try:
         with TestClient(create_app()) as c:
-            assert c.get("/api/sim").json()["simulated"] is True
+            body = c.get("/api/sim").json()
+            assert body["simulated"] is True and body["device"] is False
             assert c.get("/api/sim/device").status_code == 404
             assert c.get("/api/sim/device/schema").status_code == 404
             assert c.post("/api/sim/device/set_tau", json={"tau_s": 1}).status_code == 404
@@ -101,6 +102,7 @@ def test_without_a_device_the_route_is_404_but_the_simulation_answers(scaled_rig
 
 
 def test_schema_view_and_commands_go_through_the_device_routes(client):
+    assert client.get("/api/sim").json()["device"] is True
     schema = client.get("/api/sim/device/schema").json()
     assert schema["name"] == "simulation" and schema["type"] == "OvenSim"
     assert set(schema["commands"]) == {"set_tau"}

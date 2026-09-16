@@ -17,9 +17,11 @@ import {
 import MenuIcon from "@mui/icons-material/Menu";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import DensitySmallIcon from "@mui/icons-material/DensitySmall";
+import DensityMediumIcon from "@mui/icons-material/DensityMedium";
 import { PAGES, hashFor, type Page } from "./router.js";
 import { PAGE_ICONS } from "./icons.js";
-import { useColorMode } from "./theme.js";
+import { useColorMode, useDensity } from "./theme.js";
 
 export interface ShellProps {
   page: Page;
@@ -28,6 +30,12 @@ export interface ShellProps {
   status: ReactNode;
   /** Show the Simulation page in the navigation (`/api/sim` says the rig is simulated). */
   simulated?: boolean;
+  /**
+   * Left-of-centre in the app bar, after the page title: the dashboard
+   * switcher ("Overview ▾" + this rig's dashboards + "Manage…", spec §2).
+   * The dashboards-engine agent fills this in from `Dashboards.tsx`; empty here on purpose.
+   */
+  startSlot?: ReactNode;
   children: ReactNode;
 }
 
@@ -80,12 +88,13 @@ function Nav({ page, mini, simulated, onNavigate }: { page: Page; mini: boolean;
  * drawer that shrinks to icons on narrow screens and becomes a temporary
  * drawer on phones.
  */
-export function Shell({ page, onNavigate, title, status, simulated = false, children }: ShellProps) {
+export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, children }: ShellProps) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
   const [open, setOpen] = useState(false);
   const { mode, toggle } = useColorMode();
+  const { density, toggle: toggleDensity } = useDensity();
   const width = phone ? 0 : mini ? MINI_W : DRAWER_W;
 
   const brand = (
@@ -110,13 +119,20 @@ export function Shell({ page, onNavigate, title, status, simulated = false, chil
               <MenuIcon />
             </IconButton>
           )}
-          <Typography variant="h1" component="h1" noWrap sx={{ flexGrow: 1, flexShrink: 0, minWidth: 0, maxWidth: { xs: "40%", sm: "none" } }}>
+          <Typography variant="h1" component="h1" noWrap sx={{ flexShrink: 0, minWidth: 0, maxWidth: { xs: "40%", sm: "none" } }}>
             {title}
           </Typography>
+          {startSlot}
+          <Box sx={{ flexGrow: 1 }} />
           {/* The chips scroll sideways rather than push the toggle off a phone screen. */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" }, "& > *": { flexShrink: 0 } }}>
             {status}
           </Box>
+          <Tooltip title={density === "comfortable" ? "Compact density" : "Comfortable density"}>
+            <IconButton aria-label="toggle density" onClick={toggleDensity}>
+              {density === "comfortable" ? <DensityMediumIcon fontSize="small" /> : <DensitySmallIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
           <Tooltip title={mode === "light" ? "Dark mode" : "Light mode"}>
             <IconButton edge="end" aria-label="toggle theme" onClick={toggle}>
               {mode === "light" ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}

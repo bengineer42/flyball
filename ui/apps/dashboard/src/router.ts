@@ -1,25 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
-export type Page = "overview" | "dashboards" | "sources" | "actuators" | "loops" | "programs" | "events" | "sessions" | "simulation" | "readers";
-/** The pages in the navigation; `readers` only exists as a detail page. */
-export const PAGES: Array<{ id: Exclude<Page, "readers">; label: string }> = [
-  { id: "overview", label: "Overview" },
+export type Page = "overview" | "dashboards" | "sources" | "graph" | "actuators" | "loops" | "controllers" | "programs" | "events" | "sessions" | "simulation" | "readers";
+/** The pages in the navigation; `readers` only exists as a detail page. Dashboards leads (spec §2: dashboard identity comes first), Overview second.
+ * `actuators` and `loops` are no longer navigated to directly -- a loop is always bound to exactly one actuator, so the
+ * two pages merged into one "Controllers" page (one card per actuator). Their ids stay in `Page`/`ALL_PAGES` only so an
+ * old `#/loops`/`#/actuators` link still parses and `App.tsx` can redirect it to the equivalent `#/controllers` one. */
+export const PAGES: Array<{ id: Exclude<Page, "readers" | "actuators" | "loops">; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
+  { id: "overview", label: "Overview" },
   { id: "sources", label: "Sources" },
-  { id: "actuators", label: "Actuators" },
-  { id: "loops", label: "Loops" },
+  { id: "graph", label: "Graph" },
+  { id: "controllers", label: "Controllers" },
   { id: "programs", label: "Programs" },
   { id: "events", label: "Events" },
   { id: "sessions", label: "Sessions" },
   { id: "simulation", label: "Simulation" },
 ];
-const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "readers"];
+const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "readers", "actuators", "loops"];
 
 /**
  * `#/sources` → the list; `#/sources/dry` → one source; `#/sources/dry/humidity`
- * → one channel; `#/actuators/pumps`, `#/loops/pumps`, `#/readers/sht4x`,
- * `#/programs/my-control`, `#/sessions/4`, `#/dashboards/firing` → one of each.
+ * → one channel; `#/controllers/pumps`, `#/readers/sht4x`, `#/programs/my-control`,
+ * `#/sessions/4`, `#/dashboards/firing` → one of each. `#/actuators[/x]` and
+ * `#/loops[/x]` still parse (as their own `page`) so `App.tsx` can redirect them.
  */
 export interface Route {
   page: Page;
@@ -54,17 +58,21 @@ export const hrefFor: HrefFor = (ref) => {
     case "channel":
       return hashFor("sources", ref.name, ref.measurand ?? null);
     case "actuator":
-      return hashFor("actuators", ref.name);
+      return hashFor("controllers", ref.name);
     case "reader":
       return hashFor("readers", ref.name);
     case "loop":
-      return hashFor("loops", ref.name);
+      return hashFor("controllers", ref.name);
     case "session":
       return hashFor("sessions", ref.name);
     default:
       return undefined;
   }
 };
+
+/** `#/loops[/x]` and `#/actuators[/x]` → the equivalent `#/controllers[/x]` hash (a loop is named after the actuator it drives); `null` for any other page. */
+export const legacyControllerRedirect = (route: Route): string | null =>
+  route.page === "loops" || route.page === "actuators" ? hashFor("controllers", route.name, null, route.params) : null;
 
 /**
  * Hash routing. No dependency, works when the daemon serves the bundle from

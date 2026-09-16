@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from flyball.core.device import Level
 from flyball.core.resource import Operator
@@ -44,6 +44,10 @@ class ProgrammerState:
     """Steps in the running program, zero when idle."""
     command: str | None
     """Tag of the step being run, `None` when idle."""
+    failed: bool = False
+    """The last program ended with a step that raised, rather than finishing or interrupting."""
+    error: str | None = None
+    """What the failing step raised, while `failed`; cleared by the next `start`/`run`."""
 
 
 IDLE = ProgrammerState(running=False, step=0, steps=0, command=None)
@@ -60,6 +64,8 @@ class Programmer:
     _thread: Thread | None = None
     _step: int = 0
     _abort: bool = False
+    _error: Exception | None = None
+    """Set by `_failed`; read by `state` and `_finish` until the next `load` clears it."""
 
     def __init__(self, rig: Rig) -> None:
         self.rig = rig
@@ -79,7 +85,16 @@ class Programmer:
         with self.lock:
             program = self._program
             if program is None:
-                return IDLE
+                if self._error is None:
+                    return IDLE
+                return ProgrammerState(
+                    running=False,
+                    step=0,
+                    steps=0,
+                    command=None,
+                    failed=True,
+                    error=str(self._error),
+                )
             return ProgrammerState(
                 running=True,
                 step=self._step,
@@ -118,7 +133,10 @@ class Programmer:
         )
         try:
             activity = self._apply_atomics(program)
-        except Exception:
+        except Exception as error:
+            with self.lock:
+                step = self._step
+            self._failed(program, step, error)
             self._finish(program)
             raise
         if activity is None:  # every step applied at once; nothing to wait for
@@ -138,6 +156,7 @@ class Programmer:
             self._step = 0
             self._abort = False
             self._activity = None
+            self._error = None
             return self._program
 
     def run(self, work: Command | Program, interrupt: bool = False) -> None:
@@ -273,8 +292,15 @@ class Programmer:
         return activity
 
     def _failed(self, program: Program, step: int, error: Exception) -> None:
-        """A step that will not apply, or an activity that failed, ends the program: say so."""
+        """A step that will not apply, or an activity that failed, ends the program: say so.
+
+        Records `error` on the programmer itself, so `_finish` ends the program as
+        `failed` rather than `finished`, and `state` keeps reporting it until the
+        next `load` clears it.
+        """
         failure = CommandRuntimeError(program[step], step, error)
+        with self.lock:
+            self._error = failure
         self.rig.event(
             Level.ERROR,
             "program",
@@ -289,19 +315,30 @@ class Programmer:
         with self.lock:
             if self._program is not program:
                 return
-            outcome = "interrupted" if self._abort else "finished"
+            error = self._error
+            outcome = (
+                "failed" if error is not None else "interrupted" if self._abort else "finished"
+            )
             self._program = None
             self._activity = None
             self._thread = None
             self._step = 0
             self._abort = False
+        message = (
+            f"{program.name or 'program'} failed: {error}"
+            if error is not None
+            else (f"{program.name or 'program'} {outcome}")
+        )
+        details: dict[str, Any] = {"steps": len(program)}
+        if error is not None:
+            details["error"] = str(error)
         self.rig.event(
-            Level.INFO,
+            Level.ERROR if error is not None else Level.INFO,
             "program",
             program.name or "program",
             outcome,
-            f"{program.name or 'program'} {outcome}",
-            {"steps": len(program)},
+            message,
+            details,
         )
 
     # endregion

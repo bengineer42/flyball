@@ -6,9 +6,9 @@
 import type { DashboardDocument, DashboardWidget } from "@flyball/client";
 
 export const SCHEMA_VERSION = 1;
-export const DEFAULT_GRID = { cols: 12, row_height: 40 } as const;
+export const DEFAULT_GRID = { cols: 24, row_height: 24 } as const;
 /** Pixels between tiles, both ways: the app's own gutter. */
-export const GRID_MARGIN: readonly [number, number] = [16, 16];
+export const GRID_MARGIN: readonly [number, number] = [12, 12];
 
 /** A widget id: its kind and a short random tail, unique enough within one document. */
 export const newId = (kind: string) => `${kind}-${Math.random().toString(36).slice(2, 8)}`;
@@ -18,21 +18,29 @@ export function emptyDocument(name: string, rig: string): DashboardDocument {
   return { schema_version: SCHEMA_VERSION, name, rig, description: null, grid: { ...DEFAULT_GRID }, widgets: [] };
 }
 
-/** A document with every optional field filled in and its widgets' positions whole numbers. */
+/**
+ * A document with every optional field filled in and its widgets' positions
+ * whole numbers. The grid is 24 columns; a document saved under the old
+ * 12-column scheme is doubled on the x axis (x and w) so its tiles land on
+ * the same fraction of the row -- `y`/`h` are already in row units and need
+ * no change.
+ */
 export function normalise(doc: DashboardDocument): DashboardDocument {
+  const cols = doc.grid?.cols ?? DEFAULT_GRID.cols;
+  const scale = cols === 12 ? 2 : 1;
   return {
     schema_version: doc.schema_version ?? SCHEMA_VERSION,
     name: doc.name,
     rig: doc.rig,
     description: doc.description ?? null,
-    grid: { cols: doc.grid?.cols ?? DEFAULT_GRID.cols, row_height: doc.grid?.row_height ?? DEFAULT_GRID.row_height },
+    grid: { cols: cols === 12 ? DEFAULT_GRID.cols : cols, row_height: doc.grid?.row_height ?? DEFAULT_GRID.row_height },
     widgets: (doc.widgets ?? []).map((w) => ({
       id: w.id,
       kind: w.kind,
       title: w.title ?? null,
-      x: Math.max(0, Math.round(w.x)),
+      x: Math.max(0, Math.round(w.x) * scale),
       y: Math.max(0, Math.round(w.y)),
-      w: Math.max(1, Math.round(w.w)),
+      w: Math.max(1, Math.round(w.w) * scale),
       h: Math.max(1, Math.round(w.h)),
       config: w.config ?? {},
     })),

@@ -106,7 +106,7 @@ def test_command_signature_must_be_schemable():
 
 def test_state_schema_carries_conditions_and_demand():
     props = TypeAdapter(DutyState).json_schema()["properties"]
-    assert set(props) == {"conditions", "demand", "duty"}
+    assert set(props) == {"conditions", "demand", "duty", "output_range"}
 
 
 def test_a_command_without_a_docstring_is_refused():

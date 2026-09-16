@@ -118,7 +118,7 @@ function StepCard({ index, step, commands, programSchema }: { index: number; ste
   const description = schema?.description ?? commandDescription(programSchema, tag);
   const shortDescription = description?.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ");
   return (
-    <Paper sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 0.75 }} data-step={index + 1}>
+    <Paper sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.125 }} data-step={index + 1}>
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
         <Typography variant="body2" color="text.secondary" sx={{ minWidth: "1.5em", fontVariantNumeric: "tabular-nums" }}>
           {index + 1}.

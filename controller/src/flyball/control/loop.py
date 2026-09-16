@@ -186,8 +186,18 @@ class Loop[A: Actuator]:
             return self.reference.generate(self.clock.from_start_s(time_ns))
         return require(self.reference, ControllerNotStartedError)
 
+    def rate_at(self, time_ns: int) -> float:
+        """How fast the setpoint is moving at `time_ns`; 0 off a ramp.
+
+        From the generator, not a difference of successive `setpoint_at`
+        values: those carry reading noise a real trajectory does not have.
+        """
+        if isinstance(self.reference, SetPointGenerator):
+            return self.reference.rate(self.clock.from_start_s(time_ns))
+        return 0.0
+
     def demand_at(self, time_ns: int) -> float:
-        return self.feedforward(self.setpoint_at(time_ns)) + self.correction
+        return self.feedforward(self.setpoint_at(time_ns), self.rate_at(time_ns)) + self.correction
 
     def _set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
         self.law = law if isinstance(law, ControlLaw) else law.build()
@@ -201,7 +211,13 @@ class Loop[A: Actuator]:
         if at is ValueSource.SETPOINT:
             return self.setpoint_at(self.get_time_ns(time_ns))
         if at is ValueSource.DEMAND:
-            return self.demand_at(self.get_time_ns(time_ns))
+            # `demand_at` is in the actuator's unit; every other source here
+            # is in the channel's, since the result becomes `self.reference`
+            # and is compared against readings by the law. Convert back
+            # through the feedforward's inverse rather than handing the raw
+            # actuator-unit number back as if it were a setpoint.
+            time_ns = self.get_time_ns(time_ns)
+            return self.feedforward.invert(self.demand_at(time_ns), self.rate_at(time_ns))
         return float(at)
 
     def reset_law(self, time_ns: int | None = None) -> None:
@@ -261,12 +277,12 @@ class Loop[A: Actuator]:
                     hold = (
                         self.correction
                         if transfer is Transfer.CARRY or held is None
-                        else held - self.feedforward(setpoint)
+                        else held - self.feedforward(setpoint, self.rate_at(time_ns))
                     )
                     if self.law is not None:
                         self.correction = self.law.resume(reading, setpoint, hold)
             self.mode = LoopMode.REGULATING
-            applied = self._apply_demand(setpoint)
+            applied = self._apply_demand(setpoint, self.rate_at(time_ns))
             bump = 0.0 if held is None else applied.demand - held
             return RegulateResult(*applied, bump=bump)
 
@@ -332,11 +348,11 @@ class Loop[A: Actuator]:
                 self.correction = self.required_law.step(
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
-            self._apply_demand(setpoint)
+            self._apply_demand(setpoint, self.rate_at(time_ns))
 
-    def _apply_demand(self, setpoint: float) -> ApplyResult:
+    def _apply_demand(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
         self.setpoint = setpoint
-        base = self.feedforward(setpoint)
+        base = self.feedforward(setpoint, rate)
         self.demand = base + self.correction
         self.expected = self.write(self.demand)
         self.delivered_correction = None if self.expected is None else self.expected - base
@@ -348,4 +364,5 @@ class Loop[A: Actuator]:
         )
 
     def apply(self, time_ns: int | None = None) -> ApplyResult:
-        return self._apply_demand(self.setpoint_at(self.get_time_ns(time_ns)))
+        time_ns = self.get_time_ns(time_ns)
+        return self._apply_demand(self.setpoint_at(time_ns), self.rate_at(time_ns))

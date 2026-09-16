@@ -3,7 +3,9 @@
 import pytest
 
 from flyball.control import Affine, Feedforwards, Loop, NoFeedforward, Setpoint, Table, Transfer
+from flyball.control.errors import FeedforwardNotInvertibleError
 from flyball.control.laws import P
+from flyball.control.types import ValueSource
 from flyball.core import Reading
 from flyball.core.reading import Measurand, Source
 from flyball.core.sink import Actuator
@@ -31,7 +33,12 @@ class TestFeedforwards:
         assert NoFeedforward()(50.0) == 0.0
         affine = Affine.config.model_validate({"tag": "affine", "gain": 2.0, "bias": 1.0}).build()
         assert affine(3.0) == 7.0
-        assert affine.config.model_dump() == {"tag": "affine", "gain": 2.0, "bias": 1.0}
+        assert affine.config.model_dump() == {
+            "tag": "affine",
+            "gain": 2.0,
+            "bias": 1.0,
+            "rate_gain": None,
+        }
 
     def test_table_interpolates_and_holds_flat_past_the_ends(self):
         table = Table([(100, 10.0), (0, 0.0), (200, 40.0)])
@@ -42,6 +49,38 @@ class TestFeedforwards:
         assert table.config.points[0] == (0, 0.0)
         with pytest.raises(ValueError):
             Table([])
+
+
+class TestInvert:
+    """The setpoint behind a demand: identity, algebra, or a table read backwards."""
+
+    def test_setpoint_is_its_own_inverse(self):
+        assert Setpoint().invert(50.0) == 50.0
+
+    def test_none_has_no_inverse(self):
+        with pytest.raises(FeedforwardNotInvertibleError, match="'none'"):
+            NoFeedforward().invert(0.0)
+
+    def test_affine_inverts_the_line(self):
+        affine = Affine(gain=2.0, bias=10.0)
+        assert affine.invert(affine(30.0)) == pytest.approx(30.0)
+        with pytest.raises(FeedforwardNotInvertibleError, match="'affine'"):
+            Affine(gain=0.0, bias=5.0).invert(5.0)
+
+    def test_table_inverts_when_monotonic_rising_or_falling(self):
+        rising = Table([(0, 0.0), (100, 10.0), (200, 40.0)])
+        assert rising.invert(5.0) == pytest.approx(50.0)
+        assert rising.invert(25.0) == pytest.approx(150.0)
+        assert rising.invert(-10.0) == 0.0, "held flat below the first point"
+        assert rising.invert(100.0) == 200, "held flat past the last point"
+
+        falling = Table([(0, 40.0), (100, 10.0), (200, 0.0)])
+        assert falling.invert(25.0) == pytest.approx(50.0)
+
+    def test_table_with_a_non_monotonic_curve_has_no_inverse(self):
+        bumpy = Table([(0, 0.0), (100, 40.0), (200, 10.0)])
+        with pytest.raises(FeedforwardNotInvertibleError, match="not monotonic"):
+            bumpy.invert(20.0)
 
 
 TEMPERATURE = Measurand("ff_temperature", Celsius)
@@ -64,7 +103,12 @@ class TestLoop:
         assert loop.demand == pytest.approx(70.0)
         assert loop.correction == pytest.approx(10.0)
         assert loop.settings.demand_unit == "W"
-        assert loop.view.feedforward.model_dump() == {"tag": "affine", "gain": 1.0, "bias": 10.0}
+        assert loop.view.feedforward.model_dump() == {
+            "tag": "affine",
+            "gain": 1.0,
+            "bias": 10.0,
+            "rate_gain": None,
+        }
 
     def test_delivered_correction_is_measured_from_the_feedforward(self):
         clock = SteppedClock()
@@ -93,3 +137,29 @@ class TestLoop:
         loop = Loop(SteppedClock(), Heater(), law=P(kp=1.0))
         assert isinstance(loop.feedforward, Setpoint)
         assert loop.settings.feedforward.model_dump() == {"tag": "setpoint"}
+
+    def test_regulate_at_demand_aims_at_the_setpoint_behind_it(self):
+        """`at=DEMAND` must land back in the channel's unit, not the actuator's."""
+        clock = SteppedClock()
+        heater = Heater()
+        loop = Loop(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=2.0, bias=10.0))
+        loop.regulate(50.0, transfer=Transfer.RESET)
+        loop.tick(reading(45.0, clock.now_ns()))
+        # demand = feedforward(50) + kp*(50-45) = 110 + 10 = 120 W; the setpoint
+        # behind that demand is invert(120) = 55, in the channel's unit (°C).
+        assert loop.demand == pytest.approx(120.0)
+        assert loop.resolve_value(ValueSource.DEMAND) == pytest.approx(55.0)
+
+        result = loop.regulate(ValueSource.DEMAND, transfer=Transfer.RESET)
+        assert loop.reference == pytest.approx(55.0)
+        assert loop.setpoint == pytest.approx(55.0)
+        assert result.demand == pytest.approx(120.0), "correction reset: demand == feedforward(55)"
+
+    def test_regulate_at_demand_without_an_invertible_feedforward_is_a_clear_error(self):
+        clock = SteppedClock()
+        heater = Heater()
+        loop = Loop(clock, heater, law=P(kp=2.0), feedforward=NoFeedforward())
+        loop.regulate(50.0, transfer=Transfer.RESET)
+        loop.tick(reading(45.0, clock.now_ns()))
+        with pytest.raises(FeedforwardNotInvertibleError, match="'none'"):
+            loop.regulate(ValueSource.DEMAND)

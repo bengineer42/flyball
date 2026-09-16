@@ -17,7 +17,7 @@ export function channelsSchema(bindings: Bindings, title = "Channels"): JsonSche
 
 export function loopSchema(bindings: Bindings): JsonSchema {
   const options = bindings.loops.map((l) => ({ const: l.name, title: l.label ? `${l.label} (${l.name})` : l.name }));
-  return { type: "string", title: "Loop", ...(options.length ? { oneOf: options } : {}) };
+  return { type: "string", title: "Controller", ...(options.length ? { oneOf: options } : {}) };
 }
 
 export function actuatorSchema(bindings: Bindings): JsonSchema {

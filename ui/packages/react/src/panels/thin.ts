@@ -6,3 +6,6 @@ export function thin<T>(values: T[], every: number | undefined): T[] {
   if ((values.length - 1) % every !== 0) out.push(values[values.length - 1]!);
   return out;
 }
+
+/** Points a chart of `widthPx` is worth drawing: two per pixel, between 300 and 4 000 (DESIGN-SPEC §6). */
+export const pointCap = (widthPx: number): number => Math.max(300, Math.min(4000, 2 * Math.round(widthPx)));

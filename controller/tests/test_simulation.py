@@ -9,7 +9,7 @@ from threading import Event
 import pytest
 
 from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.reading import Source
+from flyball.core.reading import Measurand, Source
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
 from flyball.runtime.simulation import Simulation
 from flyball.sim import ScaledClock, SteppedClock
@@ -147,6 +147,11 @@ class TestLiveValues:
         document["clock"] = {"stepped": True}
         for name in ("zone1", "zone2", "zone3", "sample"):
             Source.forget(name)
+        # Measurands are interned by name process-wide (flyball.core.reading);
+        # another test may already have registered "temperature" at a
+        # different precision (e.g. oven.toml's is 2, furnace.toml's is 1).
+        # Forget it so this test sees furnace.toml's own declaration.
+        Measurand.forget("temperature")
         config = RigConfig.model_validate(document)
         rig = config.build()
         try:
@@ -158,7 +163,7 @@ class TestLiveValues:
             readings = plant["readings"]
             assert set(readings) == {"zone1", "zone2", "zone3", "sample"}
             zone1 = readings["zone1"]
-            assert zone1["unit"] == "°C" and zone1["reader"] == "zone1" and zone1["precision"] == 2
+            assert zone1["unit"] == "°C" and zone1["reader"] == "zone1" and zone1["precision"] == 1
             assert 0 <= zone1["age_s"] < 10
             stats = plant["stats"]
             assert stats["rate_per_min"]["zone1"] > 5 > stats["rate_per_min"]["zone3"]

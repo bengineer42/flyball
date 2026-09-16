@@ -21,7 +21,9 @@ import { Form as MuiForm } from "@rjsf/mui";
 import { CommandForm, DevicePanel, useCommands, useRigSchema, useSimulation, type SimulationHook } from "@flyball/react";
 import type { DeviceSchema } from "@flyball/client";
 import type { SimulationPlant } from "@flyball/client";
+import { describeDevice, describeSimParam } from "@flyball/client";
 import { useNow } from "../time.js";
+import { StateBlock } from "../cards.js";
 
 /** The speeds on the buttons; anything else goes in the box beside them. */
 const SPEEDS = [0.5, 1, 2, 5, 10, 50];
@@ -74,12 +76,12 @@ function SpeedControl({ sim }: { sim: SimulationHook }) {
   };
 
   return (
-    <Paper sx={{ p: 2, mb: "16px" }} data-testid="speed-control">
-      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
+    <Paper sx={{ p: 3, mb: "16px" }} data-testid="speed-control">
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
         Time scale
       </Typography>
       {stepped ? (
-        <Alert severity="info" sx={{ mb: 1 }}>
+        <Alert severity="info" sx={{ mb: 1.5 }}>
           The clock is stepped: time moves only when a program or a test advances it, so it has no speed.
         </Alert>
       ) : null}
@@ -96,12 +98,12 @@ function SpeedControl({ sim }: { sim: SimulationHook }) {
           aria-label="time scale"
         >
           {SPEEDS.map((s) => (
-            <ToggleButton key={s} value={s} sx={{ px: 1.5, fontWeight: s === speed ? 700 : 400 }} aria-label={times(s)}>
+            <ToggleButton key={s} value={s} sx={{ px: 2.25, fontWeight: s === speed ? 700 : 400 }} aria-label={times(s)}>
               {times(s)}
             </ToggleButton>
           ))}
         </ToggleButtonGroup>
-        <Box component="form" onSubmit={submitCustom} sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
+        <Box component="form" onSubmit={submitCustom} sx={{ display: "flex", gap: 1.125, alignItems: "center" }}>
           <TextField
             size="small"
             label="other"
@@ -129,7 +131,7 @@ function SpeedControl({ sim }: { sim: SimulationHook }) {
         </Typography>
       </Stack>
       {error && (
-        <Alert severity="error" sx={{ mt: 1 }} onClose={() => setError(null)}>
+        <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
@@ -152,7 +154,7 @@ const PortList = ({ values, digits }: { values: Array<[string, number | null | u
       values.map(([port, v]) => (
         <span key={port}>
           {port && (
-            <Typography component="span" variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>
+            <Typography component="span" variant="body2" color="text.secondary" sx={{ mr: 0.75 }}>
               {port}
             </Typography>
           )}
@@ -168,8 +170,8 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
   const names = Object.keys(plants);
   if (names.length === 0) return null;
   return (
-    <Paper sx={{ p: 2, mb: "16px" }}>
-      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.5 }}>
+    <Paper sx={{ p: 3, mb: "16px" }}>
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
         Plants
       </Typography>
       {/* Wide on purpose (one column per port); scrolls inside the card rather than the page on a phone. */}
@@ -196,12 +198,21 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
                 <TableCell>
                   <code>{name}</code>
                 </TableCell>
-                <TableCell>{String(kind ?? tag ?? "")}</TableCell>
+                <TableCell>{kind || tag ? describeDevice(String(kind ?? tag)) : ""}</TableCell>
                 <TableCell sx={{ color: "text.secondary", fontSize: "0.85em" }}>
-                  {Object.entries(rest)
-                    .filter(([k, v]) => !(k in live) && v !== null && v !== undefined && typeof v !== "object")
-                    .map(([k, v]) => `${k}=${String(v)}`)
-                    .join("  ")}
+                  <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+                    {Object.entries(rest)
+                      .filter(([k, v]) => !(k in live) && v !== null && v !== undefined && typeof v !== "object")
+                      .map(([k, v]) => {
+                        const { label, unit, hint } = describeSimParam(k);
+                        return (
+                          <span key={k} title={hint}>
+                            {label} {String(v)}
+                            {unit && <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 0.25 }}>{unit}</Typography>}
+                          </span>
+                        );
+                      })}
+                  </Stack>
                 </TableCell>
                 <TableCell align="right">
                   <PortList values={ports(plant.input, plant.inputs)} digits={3} />
@@ -221,7 +232,7 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
         </TableBody>
       </Table>
       </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.125 }}>
         Retune with <code>flyball sim plant &lt;name&gt; key=value</code> or <code>PUT /api/sim/plants/&lt;name&gt;</code>.
       </Typography>
     </Paper>
@@ -234,9 +245,13 @@ function DeviceFaults({ kind, schema }: { kind: "actuators" | "readers"; schema:
   const tags = Object.keys(schema.commands).filter((t) => schema.commands[t]?.simulation);
   if (!tags.length) return null;
   return (
-    <Box sx={{ mb: 1.5 }}>
-      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-        {schema.name} <Typography component="span" variant="body2" color="text.secondary">{schema.type}</Typography>
+    <Box sx={{ mb: 2.25 }}>
+      <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+        {schema.label ?? schema.name}{" "}
+        <Typography component="span" variant="body2" color="text.secondary">
+          {schema.label && `${schema.name} · `}
+          {describeDevice(schema.type)}
+        </Typography>
       </Typography>
       <Box className="fb-commands">
         {tags.map((tag) => (
@@ -263,11 +278,11 @@ function Faults() {
   const readers = Object.values(schema.data.readers).filter((r) => Object.values(r.commands).some((c) => c.simulation));
   if (!actuators.length && !readers.length) return null;
   return (
-    <Paper variant="outlined" sx={{ p: 2, mb: "16px" }}>
-      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1 }}>
+    <Paper variant="outlined" sx={{ p: 3, mb: "16px" }}>
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.5 }}>
         Faults and disturbances
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
         Things a real rig could never do: script a failure, kick a plant, shrink a heater. Kept here, off the devices' own pages.
       </Typography>
       {actuators.map((a) => (
@@ -291,10 +306,10 @@ export function Simulation() {
   if (sim.loading && !sim.simulation) return <LinearProgress />;
   if (!sim.attached) {
     return (
-      <Alert severity="info" data-testid="not-simulated">
-        This rig is not simulated: its time is the wall clock, and there is nothing here to change.
-        {sim.error && ` (${sim.error.message})`}
-      </Alert>
+      <StateBlock
+        state="empty"
+        message={`This rig is not simulated: its time is the wall clock, and there is nothing here to change.${sim.error ? ` (${sim.error.message})` : ""}`}
+      />
     );
   }
   const simulation = sim.simulation!;

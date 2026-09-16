@@ -1,0 +1,77 @@
+#:schema ../simulated/rig.schema.json
+# A slow rig at a very high clock speed: one minute of wall time is ten
+# hours of rig time. `programs/longrun-soak.yaml`'s single ten-hour hold
+# takes about a minute to run, and `--record` fills a session with that
+# much history in the same minute -- for exercising history seeding, big
+# sessions, and a chart asked to show days of data.
+
+name = "longrun"
+clock = { speed = 600 }
+
+[links.drum]
+tag = "sim_plant"
+kind = "fopdt"
+tau_s = 1800.0        # half an hour to respond
+dead_s = 60.0
+gain = 80.0
+ambient = 15.0
+initial = 15.0
+noise = 0.1
+seed = 5
+
+[[readers]]
+period_s = 30.0
+[readers.device]
+tag = "sim_reader"
+name = "temp"
+label = "Drum temperature"
+link = "drum"
+measurand = "temperature"
+unit = "°C"
+range = [0, 120]
+precision = 2
+
+[[actuators]]
+tag = "sim_actuator"
+name = "heater"
+label = "Drum heater"
+link = "drum"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "temp.temperature"
+actuator = "heater"
+law = { tag = "PI", kp = 0.01, ki = 0.0002 }
+default = true
+
+[links.cistern]
+tag = "sim_plant"
+kind = "integrator"
+gain = 1.0
+leak = 0.01
+initial = 200.0
+noise = 0.05
+
+[[readers]]
+period_s = 60.0
+[readers.device]
+tag = "sim_reader"
+name = "cistern_level"
+label = "Cistern level"
+link = "cistern"
+measurand = "volume"
+unit = "L"
+range = [0, 1000]
+precision = 1
+
+[[actuators]]
+tag = "sim_actuator"
+name = "pump"
+label = "Cistern pump"
+link = "cistern"
+limits = [0.0, 1.0]
+
+[[loops]]
+channel = "cistern_level.volume"
+actuator = "pump"
+law = { tag = "PI", kp = 0.02, ki = 0.005 }

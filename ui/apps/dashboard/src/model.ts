@@ -4,8 +4,8 @@
  * the dev server hot-swap a page without re-running the whole app.
  */
 import { useMemo } from "react";
-import type { ChannelOut, ProgrammerState, ReaderRun, SessionRow } from "@flyball/client";
-import { useQuery, useRig, useStream, type QueryState, type useRecording } from "@flyball/react";
+import type { ChannelOut, ProgrammerState, SessionRow } from "@flyball/client";
+import { useQuery, useRig, type QueryState, type useRecording } from "@flyball/react";
 
 export type Programmer = QueryState<ProgrammerState>;
 /** `ProgrammerState.step` is the running step's index; people count from one, as the `step` events do. */
@@ -21,14 +21,8 @@ export const sessionName = (s: SessionRow) => {
   return d && typeof d.name === "string" && d.name ? d.name : `session #${s.id}`;
 };
 
-/** Live reader runs from `/ws/readers`, keyed by name. */
-export function useReaderRuns() {
-  return useStream("readers", {} as Record<string, ReaderRun>, (held, message) => {
-    const next = { ...held };
-    for (const { name, ...run } of message.readers) next[name] = run;
-    return next;
-  }).state;
-}
+/** Live reader runs from `/ws/readers`, keyed by name: the store's shared socket, a new object once a second at most. For a stale threshold's period alone, `useReaderPeriods` re-renders less. */
+export { useReaderRuns } from "@flyball/react";
 
 /**
  * Where the store holds what the live charts are drawing: the open session's

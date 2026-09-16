@@ -120,8 +120,18 @@ power_w = 2000
 # hold: 2-4 °C overshoot, settled in 10-20 min. The losses steepen with
 # temperature (radiation), so it is softer at 900 than at 200. A `feedforward`
 # (`{ tag = "table", points = [[20, 0], [200, 289], [400, 660], ...] }`, the
-# single-zone losses curve) is the alternative when the load is known
-# beforehand; on a ramp it only adds to a wound-up integral, so it is off here.
+# single-zone losses curve) *without* a rate term measures *worse* than plain
+# PI on a ramp -- it only adds hold power on top of an already wound-up
+# integral (measured on zone 2, 15 °C/min to 700 + 20 min hold: 4.0 °C
+# overshoot plain PI, 7.6 °C with the static table). `rate_gain` fixes that:
+# the extra power to charge the zone's own thermal mass (`capacity_j_per_k`)
+# at the ramp's rate. Since the loop hands a feedforward the setpoint's rate
+# in channel unit *per second* (not per minute -- see `control/loop.py`'s
+# `rate_at`), `rate_gain` is `capacity_j_per_k` unchanged: 3000 J/K is
+# 3000 W per °C/s, not the 50 W-per-°C/min you would get by naively dividing
+# by 60. With it, zone 2 measured 2.2 °C overshoot, clearly better than plain
+# PI, so it is on there; zones 1 and 3 are untested with it (different
+# capacities and, for zone 3, a smaller mass) and stay on plain PI.
 [[loops]]
 channel = "zone1.temperature"
 actuator = "heater1"
@@ -131,6 +141,20 @@ law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
 channel = "zone2.temperature"
 actuator = "heater2"
 law = { tag = "PI", kp = 100, ki = 0.15, tt = 30 }
+feedforward = { tag = "table", rate_gain = 3000, points = [
+    [20, 0],
+    [100, 125.4],
+    [200, 289.4],
+    [300, 465.6],
+    [400, 659.8],
+    [500, 878.7],
+    [600, 1130.3],
+    [700, 1423.5],
+    [800, 1768.3],
+    [900, 2175.9],
+    [1000, 2658.5],
+    [1100, 3229.4],
+] }
 default = true
 
 [[loops]]

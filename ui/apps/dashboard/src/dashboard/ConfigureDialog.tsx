@@ -19,12 +19,12 @@ export function ConfigureDialog({ widget, onClose, onApply }: { widget: Dashboar
     <Dialog open onClose={onClose} fullWidth maxWidth="sm" data-testid="configure-dialog">
       <DialogTitle>
         Configure {kind?.label ?? widget.kind}
-        <Typography variant="body2" color="text.secondary" component="span" sx={{ ml: 1 }}>
+        <Typography variant="body2" color="text.secondary" component="span" sx={{ ml: 1.5 }}>
           {widget.id}
         </Typography>
       </DialogTitle>
       <DialogContent>
-        <TextField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={placeholder} helperText="Blank: the widget names itself." fullWidth sx={{ mt: 1, mb: 1 }} />
+        <TextField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={placeholder} helperText="Blank: the widget names itself." fullWidth sx={{ mt: 1.5, mb: 1.5 }} />
         {schema && kind ? (
           <SchemaForm schema={schema} value={config} onChange={setConfig} uiSchema={kind.uiSchema} form={MuiForm} idPrefix={`cfg-${widget.id}`} />
         ) : (

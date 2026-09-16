@@ -16,6 +16,16 @@ name one declared under `links`; a loop must name a channel a reader
 declares and an actuator listed above; a unit symbol must be one the units
 table knows. All of these fail at load with the offending name.
 
+Every reader, actuator and source has one name, shared rig-wide: a reader
+and an actuator (or a reader's own source, when a `source?` field gives it
+one different from the reader's `name`) cannot use the same name, whatever
+the mix, and none may use a name a route reserves (`schema`). This is
+checked before anything is built, so the file fails with one message
+naming both of the things that collided; `flyball rig check` reports it the
+same way. A link is not in this namespace -- it is declared and addressed
+separately, under its own name in `links` -- so a link may share a name
+with a device.
+
 ## Top level
 
 | key | type | |
@@ -49,14 +59,18 @@ from `links` or an inline link.
 
 Every device takes `name` (the identifier routes, programs and sessions use)
 and an optional `label` (what the UI shows instead: `"Zone 1 heater"`). A
-reader with one source gives that source the same label.
+reader with one source gives that source the same label. Every actuator also
+takes an optional `output_range: [min, max]`: the demand's achievable range,
+in the actuator's own unit. A sim actuator works this out itself from its
+`limits`; a real one that cannot states it here, and it reaches `GET
+/api/actuators/{name}` as `state.output_range`.
 
 | `tag` | is | fields |
 | --- | --- | --- |
 | `scpi_reader` | reader, one source | `name`, `link`, `measurands: {name: {query, unit, label?, range?, precision?}}`, `source?` (defaults to `name`) |
-| `scpi_actuator` | actuator | `name`, `link`, `command` (with `{value}`), `demand_unit?`, `readback?` |
+| `scpi_actuator` | actuator | `name`, `link`, `command` (with `{value}`), `demand_unit?`, `readback?`, `output_range?` |
 | `modbus_reader` | reader, one source | `name`, `link`, `registers: {name: Register}`, `unit_id` = 1, `source?` |
-| `modbus_actuator` | actuator | `name`, `link`, `output: Register`, `unit_id` = 1 |
+| `modbus_actuator` | actuator | `name`, `link`, `output: Register`, `unit_id` = 1, `output_range?` |
 | `sim_reader` | reader, one source | `name`, `link`, `port?` (a multi-port plant's output), `measurand`, `unit`, `range?`, `precision?`; commands `fail`, `restore` |
 | `sim_actuator` | actuator | `name`, `link`, `port?` (a multi-port plant's input), `limits`, `unit?` (the output's: models the plant; `of full` or a power with `power_w`: takes the drive itself), `power_w?`; commands `set_limits`, `disturb` |
 
@@ -76,8 +90,16 @@ range, precision}`; only `address` is required. `kind` is `u16` (default),
 | `channel` | `source.measurand` | the controlled variable |
 | `actuator` | name | must be listed under `actuators` |
 | `law` | `{tag, ...gains}` | e.g. `{tag = "PI", kp = 0.2, ki = 0.05}`; omit for none |
-| `feedforward` | `{tag, ...}` | maps the setpoint to a demand in the actuator's unit: `setpoint`, `none`, `affine {gain, bias}`, `table {points}`; omit for `setpoint` when the units agree, else `none` |
+| `feedforward` | `{tag, ...}` | maps the setpoint to a demand in the actuator's unit: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
 | `default` | bool | the loop a command means when it names none |
+
+`rate_gain` (`affine`, `table`) adds `rate_gain * rate` to the demand, `rate`
+being the setpoint's own rate of change in channel unit *per second* (0 off
+a ramp): actuator unit per channel-unit-per-second, e.g. a zone's
+`capacity_j_per_k` (J/K = W per °C/s) to spend the extra power a ramp needs
+to charge its thermal mass. Not on `setpoint`: that feedforward already
+hands the actuator the channel's own unit, so a rate term there would be a
+lead compensator, a different job from the plant-capacity model this is.
 
 ## Example
 

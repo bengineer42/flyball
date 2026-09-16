@@ -39,6 +39,36 @@ def _channel(rig: RigDep, name: str) -> Channel:
         raise NotFoundError(f"Channel {name!r} not found") from e
 
 
+def _outside(value: float, band: tuple[float, float] | None) -> bool:
+    return band is not None and not (band[0] <= value <= band[1])
+
+
+def _alarm_summary(rig: Any, conditions: list[dict[str, Any]]) -> dict[str, int]:
+    """Amber and red counts: channels outside their `warn`/`alarm` bands, plus device conditions.
+
+    A channel already outside `alarm` is not also counted in `warn`: the
+    chip shows the worse of the two. A device condition at `WARNING` (30)
+    or above counts the same way, by its own level.
+    """
+    warn = alarm = 0
+    for sample in rig._samples.values():
+        for measurand, value in sample.values.items():
+            if _outside(value, measurand.alarm):
+                alarm += 1
+            elif _outside(value, measurand.warn):
+                warn += 1
+    for c in conditions:
+        if c["level"] >= 40:
+            alarm += 1
+        elif c["level"] >= 30:
+            warn += 1
+    return {
+        "warn": warn,
+        "alarm": alarm,
+        "max_level": 40 if alarm else 30 if warn else 0,
+    }
+
+
 # region Health
 
 
@@ -71,6 +101,7 @@ async def read_health() -> dict[str, Any]:
         },
         "loops": {name: rig.loops[name].mode.value for name in rig.loops},
         "conditions": conditions,
+        "alarms": _alarm_summary(rig, conditions),
         "signals": sorted(rig.signals.states()),
         "recording": rig.recorder is not None,
     }

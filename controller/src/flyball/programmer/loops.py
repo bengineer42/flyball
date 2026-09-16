@@ -84,13 +84,26 @@ class Ramp(Command, tag="ramp", primary="to"):
 
 @dataclass(frozen=True)
 class Hold(Command, tag="hold", primary="duration"):
-    """Keep everything as it is for `duration`; the loops go on regulating."""
+    """Keep everything as it is for `duration`; the loops go on regulating.
+
+    `timeout` (seconds; not a `Duration` -- `duration` is already the file's
+    one flat-foldable field, and a second `Duration` field would make that
+    ambiguous), like `wait`'s, ends the program instead if `duration` itself
+    never elapses (a stalled clock, say).
+    """
 
     duration: Duration
     message: str | None = None
+    timeout: float | None = None
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
-        return Timed(self.duration.seconds, name="hold", message=self.message)
+        return Timed(
+            self.duration.seconds,
+            name="hold",
+            message=self.message,
+            timeout=self.timeout,
+            clock=rig.clock,
+        )
 
 
 @dataclass(frozen=True)

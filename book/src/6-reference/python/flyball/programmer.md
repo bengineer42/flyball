@@ -5,13 +5,15 @@
       members: false
       show_root_heading: false
 
-::: flyball.programmer.activites
+::: flyball.programmer.activities
 
 ::: flyball.programmer.command
 
-::: flyball.programmer.commands
+::: flyball.programmer.devices
 
 ::: flyball.programmer.errors
+
+::: flyball.programmer.loops
 
 ::: flyball.programmer.program
 

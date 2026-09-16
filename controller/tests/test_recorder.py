@@ -22,6 +22,20 @@ def test_deliveries_are_buffered_and_written_on_close(rig, probe, temperature, h
     assert len(store.series(session.id, str(probe.name), temperature.name).points) == 50
 
 
+def test_actuator_config_and_source_label_are_recorded(rig, probe, temperature, heater, clock):
+    probe.label = "Probe A"
+    rig.attach_loop(probe[temperature], heater, law=PI(kp=1.0))
+    store = SqliteStore(":memory:")
+    rig.start_recording(store)
+    rig.on_read([sample(probe, temperature, 1.0, clock.now_ns())])
+    rig.stop_recording()
+    session = store.sessions()[0]
+    (actuator,) = store.actuators(session.id)
+    assert actuator.config == heater.config.model_dump(mode="json")
+    (source,) = [s for s in store.sources(session.id) if s.name == str(probe.name)]
+    assert source.label == "Probe A"
+
+
 def test_the_writer_thread_flushes_off_the_delivery_path(rig, probe, temperature, heater, clock):
     import time
 
