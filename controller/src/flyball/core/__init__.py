@@ -30,6 +30,7 @@ from .errors import (
 from .quantity import Quantity
 from .resource import Arbiter, Operator, Resource
 from .signal import (
+    UNSET,
     Access,
     AddressNotFoundError,
     Demand,
@@ -68,6 +69,7 @@ from .utils import (
 )
 
 __all__ = [
+    "UNSET",
     "Access",
     "AddressNotFoundError",
     "Arbiter",

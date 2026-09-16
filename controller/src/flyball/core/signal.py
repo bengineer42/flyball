@@ -32,6 +32,23 @@ type Value = Any
 dataclass for a structure. The signal's `vtype` says which; the wire's `dtype` names it."""
 
 
+class _Unset:
+    """See `UNSET`."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+UNSET: Any = _Unset()
+"""A value a driver pushes for a signal it has nothing for this time: the router drops it, and
+the signal keeps whatever it had. `device.push(a=1.0, b=UNSET)` is one call, no branching."""
+
+
 def dtype_of(vtype: Any) -> str:
     """The wire's name for a value type: float, int, bool, str, enum, or json for anything else."""
     if vtype is float:
@@ -550,8 +567,11 @@ class Signal:
         return self.router.value(self)
 
     def push(self, value: Value, time_ns: int | None = None) -> None:
-        """Put `value` on this signal now (or at `time_ns`): a sample of one reading, delivered."""
-        self.router.push_reading(self, value, time_ns)
+        """Put `value` on this signal now (or at `time_ns`): a sample of one reading, delivered.
+
+        Inside the device's `batch()` it joins the batch instead.
+        """
+        self.node.device.push_one(self, value, time_ns)
 
     def override(self, **changes: Any) -> None:
         """Replace metadata fields of the spec in place; the bound object keeps its identity."""

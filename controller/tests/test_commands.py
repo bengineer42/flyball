@@ -10,7 +10,7 @@ from flyball.control.laws import P
 from flyball.core.device import Committable, Demand, Namespace, Output, Readable, command
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, Sample, Section
+from flyball.core.signal import UNSET, Access, Role, Sample, Section
 from flyball.core.units.si import Celsius, Percent
 from flyball.core.utils import Labelled
 from flyball.runtime.rig import Rig
@@ -171,6 +171,30 @@ class TestRun:
         rig.demand(heater.root, {"power": 10.0})
         assert heater.mode.value is Mode.AUTO, "pushed inside commit, delivered after it"
         assert rig.router.sample(heater.root) is not None
+
+
+def test_unset_values_are_dropped_from_a_push(rig: Rig, heater: Heater) -> None:
+    heater.push(a=1.0, b=UNSET)
+    assert heater.a.value == pytest.approx(1.0)
+    assert heater.b.reading is None
+    heater.push(a=UNSET, b=UNSET)  # nothing to deliver
+    assert heater.a.value == pytest.approx(1.0)
+
+
+def test_a_batch_delivers_every_push_inside_it_as_one_sample(rig: Rig, heater: Heater) -> None:
+    rig.clock.advance(5)
+    with heater.batch():
+        heater.a.push(1.0)
+        heater.b.push(2.0)
+        heater.mode.push(Mode.HAND)
+        assert heater.a.reading is None, "not delivered until the batch closes"
+    sample = rig.router.sample(heater.root)
+    assert sample is not None and sample.values == {
+        heater.a: 1.0,
+        heater.b: 2.0,
+        heater.mode: Mode.HAND,
+    }
+    assert heater.a.reading is not None and heater.a.reading.time_ns == heater.b.reading.time_ns
 
 
 def test_a_reading_on_an_input_commits_the_device_that_follows_it(rig: Rig) -> None:

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Annotated, Any, ClassVar, Self, get_args, get_origin, get_type_hints, overload
@@ -706,6 +707,7 @@ class Device:
         self.written = {}
         self.router = Router()
         self._extended = False
+        self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
 
     # region Tree
@@ -796,6 +798,36 @@ class Device:
         """
         at = self.router.now_ns() if time_ns is None else time_ns
         self.router.push(self.sample(at, **values))
+
+    @contextmanager
+    def batch(self, time_ns: int | None = None) -> Iterator[None]:
+        """Collect every `signal.push` made inside into one sample, delivered at one instant on exit.
+
+        The other spelling of [push][flyball.core.device.Device.push], for
+        when the values come from several places:
+
+            with self.batch():
+                self.dry_flow.push(flows.dry)
+                self.mode.push(Mode.FLOWS)
+        """
+        if self._batch is not None:
+            yield  # already inside one: it delivers
+            return
+        self._batch = {}
+        try:
+            yield
+        finally:
+            values, self._batch = self._batch, None
+        if values:
+            at = self.router.now_ns() if time_ns is None else time_ns
+            self.router.push(Sample(self.root, at, values))
+
+    def push_one(self, signal: Signal, value: Value, time_ns: int | None = None) -> None:
+        """One value on one signal: into the open batch, else delivered now. `Signal.push`."""
+        if self._batch is not None:
+            self._batch[signal] = value
+        else:
+            self.router.push_reading(signal, value, time_ns)
 
     # endregion
 

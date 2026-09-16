@@ -43,8 +43,8 @@ Kelvin = Temperature.unit("kelvin", "K")
 Ampere = ElectricCurrent.unit("ampere", "A")
 Mole = AmountOfSubstance.unit("mole", "mol")
 Candela = LuminousIntensity.unit("candela", "cd")
-Radian = Angle.unit("radian", "rad")
-Steradian = SolidAngle.unit("steradian", "sr")
+Radian = Angle.unit("radian", "rad", scale=(0.0, 2 * PI))
+Steradian = SolidAngle.unit("steradian", "sr", scale=(0.0, 4 * PI))
 
 Hertz = Frequency.unit("hertz", "Hz")
 Newton = Force.unit("newton", "N")
@@ -64,7 +64,7 @@ Lux = Illuminance.unit("lux", "lx")
 Katal = CatalyticActivity.unit("katal", "kat")
 
 # Absolute scales: same interval as the kelvin, different zero.
-Celsius = Temperature.unit("celsius", "°C", zero=273.15)
+Celsius = Temperature.unit("celsius", "°C", zero=273.15, scale=(0.0, 100.0))
 
 Unitless = DIMENSIONLESS.unit("", "")
 """The unit of a count, a status word, a mode: what "no unit" means in a table."""
@@ -81,13 +81,13 @@ PartsPerSextillion = Fraction.unit("parts per sextillion", "pps", 1e-21)
 
 
 # Non-SI units accepted for use with the SI.
-Minute = Time.unit("minute", "min", 60)
-Hour = Time.unit("hour", "h", 3600)
+Minute = Time.unit("minute", "min", 60, scale=(0.0, 60.0))
+Hour = Time.unit("hour", "h", 3600, scale=(0.0, 24.0))
 Day = Time.unit("day", "d", 86400)
 
 Degree = Angle.unit("degree", "°", PI / 180, scale=(0.0, 360.0))
-DegreeMinute = Angle.unit("degree minute", "′", PI / 10800)  # ruff: ignore[ambiguous-unicode-character-string]
-DegreeSecond = Angle.unit("degree second", "″", PI / 648000)
+DegreeMinute = Angle.unit("degree minute", "′", PI / 10800, scale=(0.0, 10800.0))  # ruff: ignore[ambiguous-unicode-character-string]
+DegreeSecond = Angle.unit("degree second", "″", PI / 648000, scale=(0.0, 648000.0))
 
 Litre = Volume.unit("litre", "L", 1e-3)
 Tonne = Mass.unit("tonne", "t", 1e3)
