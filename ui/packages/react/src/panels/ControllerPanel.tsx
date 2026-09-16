@@ -1,10 +1,12 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import uPlot from "uplot";
-import type { ControllerOut, FeedforwardConfig, SignalOut } from "@flyball/client";
+import type { ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
 import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf } from "@flyball/client";
 import type { ControllerTrace } from "../hooks/useControllers.js";
+import { useQuery } from "../hooks/useQuery.js";
 import { Ref } from "../links.js";
-import { useDeviceRun, useFreshness, useSignal, useWriteState } from "../store/hooks.js";
+import { useRig } from "../provider.js";
+import { useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
 import { thin } from "./thin.js";
 import { yRange, type YScale } from "./yscale.js";
 
@@ -221,6 +223,82 @@ function feedforwardArgs(feedforward: FeedforwardConfig | null | undefined): unk
   return args;
 }
 
+/** `90` → `1 min 30 s`, `3600` → `1 h 0 min`; whole seconds. */
+const span = (s: number) => {
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : m > 0 ? `${m} min ${r} s` : `${r} s`;
+};
+
+/** A rig-time instant (seconds since the epoch) as a wall-clock time of day, to the second when under an hour away. */
+const clockAt = (s: number, nowS: number) => new Date(s * 1000).toLocaleTimeString([], Math.abs(s - nowS) < 3600 ? {} : { hour: "2-digit", minute: "2-digit" });
+
+/** A pace as the wire shows one: a speed `{value, per}` → `10 %RH/min`; a duration `{seconds, nanoseconds}` → `over 3 min 0 s`. */
+function describePace(pace: unknown, unit: string): string {
+  const p = (pace ?? {}) as { value?: unknown; per?: unknown; seconds?: unknown; nanoseconds?: unknown };
+  if (typeof p.value === "number" && typeof p.per === "string") {
+    const per = ({ second: "s", minute: "min", hour: "h", day: "d" } as Record<string, string>)[p.per] ?? p.per;
+    return `at ${shortNumber(p.value)} ${unit}/${per}`;
+  }
+  if (typeof p.seconds === "number") return `over ${span(p.seconds + (typeof p.nanoseconds === "number" ? p.nanoseconds / 1e9 : 0))}`;
+  return "";
+}
+
+/**
+ * What a controller is following, for the line under TARGET: a ramp as
+ * "ramping to 75 %RH at 10 %RH/min · arrives 17:31 (in 2 min 30 s)", a hold
+ * as "holding 30 %RH until 17:31", a profile as "profile · segment 2 of 4 ·
+ * ramping to …"; once `arrived`, the destination and "arrived". Null for a
+ * fixed reference. `end_time` is seconds from the rig's start, so the
+ * arrival time needs `startS` (the rig's origin in epoch seconds, from
+ * `GET /api/clock`) and `nowS` (rig time now, `useNowS`); without `startS`
+ * the arrival is left off.
+ */
+export function describeReference(controller: Pick<ControllerOut, "reference" | "arrived">, unit: string, precision: number, nowS: number, startS: number | null): string | null {
+  const g = controller.reference;
+  if (g === null || typeof g === "number") return null;
+  const value = (v: unknown) => (typeof v === "number" ? `${v.toFixed(precision)} ${unit}` : "?");
+  const arrived = controller.arrived === true;
+  const arrival = (verb: string) => {
+    if (typeof g.end_time !== "number" || startS === null) return "";
+    const at = startS + g.end_time;
+    const left = at - nowS;
+    return ` · ${verb} ${clockAt(at, nowS)}${left > 0 ? ` (in ${span(left)})` : ""}`;
+  };
+  const segment = (seg: GeneratorOut, live: boolean): string => {
+    if (seg.tag === "linear_ramp_setpoint") {
+      const pace = describePace(seg.pace, unit);
+      return `${live ? "ramping" : "ramp"} to ${value(seg.end)}${pace ? ` ${pace}` : ""}`;
+    }
+    if (seg.tag === "hold") {
+      const d = seg.duration as { seconds?: number; nanoseconds?: number } | null | undefined;
+      const forS = d && typeof d.seconds === "number" ? d.seconds + (d.nanoseconds ?? 0) / 1e9 : null;
+      return `${live ? "holding" : "hold"} ${value(seg.value)}${forS !== null ? ` for ${span(forS)}` : ""}`;
+    }
+    return `following ${humanise(seg.tag).toLowerCase()}`;
+  };
+  if (g.tag === "profile") {
+    const segments = Array.isArray(g.segments) ? (g.segments as GeneratorOut[]) : [];
+    if (arrived) return `profile of ${segments.length} segment${segments.length === 1 ? "" : "s"} · arrived`;
+    const active = typeof g.active === "number" ? segments[g.active] : undefined;
+    const which = typeof g.active === "number" ? ` · segment ${g.active + 1} of ${segments.length}` : "";
+    return `profile${which}${active ? ` · ${segment(active, true)}` : ""}${arrival("ends")}`;
+  }
+  if (arrived) {
+    if (g.tag === "linear_ramp_setpoint") return `ramped to ${value(g.end)} · arrived`;
+    if (g.tag === "hold") return `held ${value(g.value)} · arrived`;
+    return `${segment(g, false)} · arrived`;
+  }
+  return `${segment(g, true)}${arrival(g.tag === "hold" ? "until" : "arrives")}`;
+}
+
+/** The rig clock's origin in epoch seconds (`GET /api/clock`, once per mount): what a generator's `end_time` counts from. */
+function useRigStartS(): number | null {
+  const rig = useRig();
+  const clock = useQuery(() => rig.clock(), [rig]);
+  return clock.data ? clock.data.start_time_ns / 1e9 : null;
+}
+
 /**
  * One controller as a process-control faceplate: mode badge and a banner
  * for the top condition in the header, then three aligned rows -- PV (what
@@ -253,6 +331,8 @@ export function ControllerPanel({
   extra,
 }: ControllerPanelProps) {
   const point = useSignal(controller.source);
+  const nowS = useNowS();
+  const startS = useRigStartS();
   const write = useWriteState(controller.target) ?? target?.write ?? null;
   const run = useDeviceRun(deviceOf(controller.source));
   const fresh = useFreshness(controller.source);
@@ -327,9 +407,9 @@ export function ControllerPanel({
   ];
   const law = controller.law as Record<string, unknown> | null;
   const { tag, ...rest } = law ?? {};
-  const following = typeof controller.reference === "string" ? humanise(controller.reference) : null;
-  // A ramp names its generator; the setpoint is then recovered through the feedforward, or failing that read off the
-  // latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
+  const following = describeReference(controller, unit, precision, nowS, startS);
+  // Under a generator the setpoint is the resolved value; failing that, recovered through the feedforward, or read off
+  // the latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
   const setpoint = setpointOf(controller) ?? (following ? latest(history.reference) : null);
   // PV: the source's newest sample from the store, else what the controller saw at its last tick.
   const reading = point?.v ?? controller.reading?.value ?? null;
@@ -404,7 +484,7 @@ export function ControllerPanel({
           <dt title="setpoint — SP">Target</dt>
           <dd>{fmt(setpoint, unit)}</dd>
           {controls && <span className="fb-loop-sp-controls">{controls}</span>}
-          <span className="fb-loop-caption">{following ? `→ following ${following.toLowerCase()}` : " "}</span>
+          <span className="fb-loop-caption" data-testid="following">{following ? `→ ${following}` : " "}</span>
         </div>
         <div className="fb-loop-row">
           <dt title="what the target was set to, after limits — OP">Output</dt>

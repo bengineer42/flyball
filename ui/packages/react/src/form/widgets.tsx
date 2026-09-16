@@ -1,8 +1,8 @@
 /**
  * Front-panel controls for RJSF: a slider for a bounded number, a stepper for
  * an unbounded one, a switch for a boolean, segmented buttons for a short
- * enum. Plain HTML under `.fb-*` classes, so they render the same whichever
- * RJSF theme's Form hosts them.
+ * enum, a text box for a plain string. Plain HTML under `.fb-*` classes, so
+ * they render the same whichever RJSF theme's Form hosts them.
  *
  * Each widget draws its own label: core's FieldTemplate labels a field and
  * MUI's leaves it to the widget, and the implied uiSchema turns the template's
@@ -106,6 +106,33 @@ export function UnitNumberWidget(props: WidgetProps) {
         <button type="button" className="fb-step" aria-label="increase" disabled={off} onClick={() => nudge(1)}>
           +
         </button>
+        {s.unit && <span className="fb-unit">{s.unit}</span>}
+      </span>
+    </Field>
+  );
+}
+
+/** A text input for a plain string (a signal's name, a label): the same label and `fb-*` frame as the number widgets. */
+export function TextWidget(props: WidgetProps) {
+  const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, required, autofocus, placeholder } = props;
+  const s = schema as JsonSchema;
+  return (
+    <Field {...props}>
+      <span className="fb-unit-input fb-text">
+        <input
+          id={id}
+          type="text"
+          value={typeof value === "string" ? value : ""}
+          placeholder={placeholder}
+          required={required}
+          disabled={disabled || readonly}
+          autoFocus={autofocus}
+          aria-invalid={invalid(props)}
+          aria-describedby={ariaDescribedByIds(id)}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
+          onBlur={(e) => onBlur(id, e.target.value)}
+          onFocus={(e) => onFocus(id, e.target.value)}
+        />
         {s.unit && <span className="fb-unit">{s.unit}</span>}
       </span>
     </Field>
@@ -235,6 +262,7 @@ export function SegmentedWidget(props: WidgetProps) {
 }
 
 export const widgets = {
+  text: TextWidget,
   unitNumber: UnitNumberWidget,
   slider: SliderNumberWidget,
   toggle: ToggleWidget,

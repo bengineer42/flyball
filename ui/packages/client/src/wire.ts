@@ -301,6 +301,52 @@ export type FeedforwardConfig =
   | { tag: string; [arg: string]: unknown };
 
 /**
+ * A running trajectory as `ControllerOut.reference` shows it: `{tag, ...its
+ * config}` plus, once started, where it lands. Loosely typed on purpose (the
+ * server allows extra keys), so the shape stays put as generators are added.
+ * A `linear_ramp_setpoint` carries `end` and `pace` (a speed as `{value,
+ * per}`, or a duration as `{seconds, nanoseconds}`); a `hold` carries
+ * `value` and `duration`; a `profile` its `segments` as given.
+ */
+export interface GeneratorOut {
+  tag: string;
+  /** Seconds from the rig's start (`ClockOut.start_time_ns`) at which it lands; absent while endless or not yet started. */
+  end_time?: number;
+  /** A profile's segment in force, as an index into `segments`. */
+  active?: number;
+  [k: string]: unknown;
+}
+
+/** A span of time on the way in: unit keys that add (`{minutes: 1, seconds: 30}`). */
+export type DurationSpec = Partial<Record<"nanoseconds" | "microseconds" | "milliseconds" | "seconds" | "minutes" | "hours" | "days", number>>;
+
+/** A speed on the way in: one key naming the unit (`{per_minute: 10}`). */
+export type SpeedSpec = { per_second: number } | { per_minute: number } | { per_hour: number } | { per_day: number };
+
+/** Walk the setpoint from where it is to `end`, at a speed or over a duration. */
+export interface LinearRampSpec {
+  tag: "linear_ramp_setpoint";
+  pace: SpeedSpec | DurationSpec;
+  end: number;
+}
+
+/** Sit at `value`; with no `duration` it never finishes of its own accord. */
+export interface HoldSpec {
+  tag: "hold";
+  value: number;
+  duration?: DurationSpec | null;
+}
+
+/** Segments in order; only the last may be endless. */
+export interface ProfileSpec {
+  tag: "profile";
+  segments: Array<LinearRampSpec | HoldSpec>;
+}
+
+/** A set-point generator as `PUT .../reference` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
+export type GeneratorSpec = LinearRampSpec | HoldSpec | ProfileSpec | { tag: string; [k: string]: unknown };
+
+/**
  * A controller as a client sees it: it binds one publishing signal
  * (`source`) to one writable signal (`target`), and is named by `target`.
  */
@@ -318,8 +364,8 @@ export interface ControllerOut {
   feedforward: FeedforwardConfig;
   /** The unit `demand`, `expected` and `correction` are in: the target's. */
   demand_unit: string;
-  /** A fixed setpoint, or the name of the trajectory being followed (a ramp). */
-  reference: number | string | null;
+  /** A fixed setpoint, or the trajectory being followed (a ramp, a hold, a profile). */
+  reference: number | GeneratorOut | null;
   /** The reference resolved at the last tick, in the source's unit: a ramp's current value. */
   setpoint: number | null;
   /** Whether the reference has landed: a number has; a trajectory once it finishes. */
@@ -363,6 +409,8 @@ export interface ControllerSchema {
   laws: JsonSchema;
   /** JSON Schema of the feedforward config union, discriminated on `tag`. */
   feedforwards: JsonSchema;
+  /** JSON Schema of the set-point generator config union (`GeneratorSpec`), discriminated on `tag`. */
+  generators: JsonSchema;
   tunings: TuningChoice[];
   /** source address → the controller already regulating it. */
   regulated: Record<Address, Address>;
@@ -389,8 +437,11 @@ export interface NewController {
 export type ValueSource = "process" | "setpoint" | "demand";
 export type Transfer = "none" | "carry" | "track" | "reset";
 
+/** Where a controller is sent: a value, where it already is (`process`/`setpoint`/`demand`), or a trajectory to follow. */
+export type ReferenceSpec = number | ValueSource | GeneratorSpec;
+
 export interface RegulateRequest {
-  at: number | ValueSource;
+  at: ReferenceSpec;
   tuning?: LawConfig | string | null;
   transfer?: Transfer;
 }

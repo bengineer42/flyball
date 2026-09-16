@@ -185,7 +185,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
                   <Typography component="span" variant="body2" color="text.secondary">
                     {c.label && `${c.name} · `}
                     {c.target === address ? "drives this signal" : "regulates this signal"} · {c.mode}
-                    {c.reference !== null && ` · reference ${c.reference}`}
+                    {c.setpoint !== null && c.setpoint !== undefined && ` · target ${c.setpoint}`}
                   </Typography>
                 </Typography>
               ))

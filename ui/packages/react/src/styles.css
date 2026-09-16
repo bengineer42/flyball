@@ -311,6 +311,9 @@
 .fb-required { color: var(--fb-alarm); margin-left: 0.15rem; }
 .fb-form input[type="number"] { font-variant-numeric: tabular-nums; padding: 0.2rem 0.4rem; border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); background: var(--fb-bg-2); color: var(--fb-fg); }
 .fb-form input[type="number"][aria-invalid="true"], .fb-form [role="radiogroup"][aria-invalid="true"] { border-color: var(--fb-alarm); }
+/* The text widget's box, drawn like the number one (a `.fb-text` frame keeps a theme's own text inputs out of it). */
+.fb-form .fb-text input[type="text"] { padding: 0.2rem 0.4rem; border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); background: var(--fb-bg-2); color: var(--fb-fg); font: inherit; }
+.fb-form .fb-text input[type="text"][aria-invalid="true"] { border-color: var(--fb-alarm); }
 /* One focus ring everywhere (DESIGN-SPEC.md §1.6): a surface-gap + accent box-shadow, visible on
    both themes and over a coloured border, instead of an outline that a coloured border can hide. */
 .fb-form input:focus-visible, .fb-form .fb-step:focus-visible, .fb-form .fb-segment:focus-within, .fb-form .fb-toggle:focus-within .fb-toggle-track,

@@ -85,6 +85,7 @@ function widgetFor(schema: JsonSchema): string | undefined {
   if (type === "boolean") return "toggle";
   const n = enumCount(schema);
   if (n > 0 && n <= SEGMENTED_MAX) return "segmented";
+  if (n === 0 && type === "string") return "text";
   return undefined;
 }
 

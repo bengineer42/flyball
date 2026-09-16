@@ -31,6 +31,7 @@ import type {
   ProgramRow,
   ProgrammerState,
   ReadOut,
+  ReferenceSpec,
   RegulateRequest,
   RigSchema,
   Series,
@@ -44,7 +45,6 @@ import type {
   StreamName,
   Streams,
   Tick,
-  ValueSource,
   WaitState,
   WriteOut,
   WriteRow,
@@ -253,7 +253,12 @@ export class RigClient {
     return this.call({ method: "DELETE", path: `/api/controllers/${enc(address)}` });
   }
 
-  /** Aim at `at` (a value, or `process`/`setpoint`/`demand`) and hand control to the law; the handover's demand is committed at once. */
+  /**
+   * Aim at `at` (a value, `process`/`setpoint`/`demand`, or a generator spec such as
+   * `{tag: "linear_ramp_setpoint", pace: {per_minute: 10}, end: 75}`, which ramps from
+   * the current setpoint or reading) and hand control to the law; the handover's demand
+   * is committed at once.
+   */
   regulate(address: Address, body: RegulateRequest): Promise<ControllerOut> {
     return this.call({ method: "POST", path: `/api/controllers/${enc(address)}/regulate`, body });
   }
@@ -263,8 +268,8 @@ export class RigClient {
     return this.call({ method: "POST", path: `/api/controllers/${enc(address)}/manual` });
   }
 
-  /** Move the setpoint without touching the mode or the law's state. */
-  setReference(address: Address, at: number | ValueSource): Promise<ControllerOut> {
+  /** Move the setpoint, or start following a generator spec, without touching the mode or the law's state. */
+  setReference(address: Address, at: ReferenceSpec): Promise<ControllerOut> {
     return this.call({ method: "PUT", path: `/api/controllers/${enc(address)}/reference`, body: { at } });
   }
 
