@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from "react";
-import { describeSignal, deviceOf, type SignalOut } from "@flyball/client";
+import { describeSignal, deviceOf, groupTitle, placeOf, titleFor, unitTitle, type DeviceRef, type Place, type SignalOut } from "@flyball/client";
 import type { Traces } from "../hooks/useTraces.js";
 import { Ref } from "../links.js";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
@@ -19,10 +19,15 @@ export interface UnitChartsProps {
   windowS?: number;
   /** Rendered at the end of the header of the first chart (a window selector, say). */
   controls?: ReactNode;
-  /** Trace label: `device.signal` by default (the device's label when `devices` gives one); `label` gives just the signal's label. */
+  /**
+   * Trace label: `qualified` (default) names the signal by where it sits --
+   * its namespace (`Chamber humidity`), and its device when the chart spans
+   * more than one (`Expected humidity · Pump blender`); `label` gives just
+   * the signal's own label. The address is the legend row's hover hint.
+   */
   labels?: "qualified" | "label";
-  /** The devices the signals belong to, for their labels; a device not here is named by its `name`. */
-  devices?: ReadonlyArray<{ name: string; label?: string | null }>;
+  /** The devices the signals belong to, with their trees, for the labels; a device not here is named by its `name`. */
+  devices?: ReadonlyArray<DeviceRef>;
   /** y axis scaling; `"range"` uses the widest declared range among the unit's signals. */
   yScale?: YScale;
   /** Draw one point in `every`. */
@@ -71,35 +76,53 @@ const sameSignals = (a: SignalOut[], b: SignalOut[]) => a.length === b.length &&
  */
 const UnitChart = memo(
   function UnitChart({ unit, signals: ss, traces, source, height, windowS, controls, labels, devices, yScale, every, exportHref }: UnitChartProps) {
-    const deviceLabel = (name: string) => devices?.find((d) => d.name === name)?.label ?? name;
-    const series: MultiSeriesTrace[] = ss.map((s) => {
+    // Where each signal sits; a device the caller did not describe is named by its name.
+    const placeFor = (s: SignalOut): Place => {
+      const place = placeOf(s.address, devices ?? []);
+      return place.device ? place : { device: { name: deviceOf(s.address), label: null } };
+    };
+    const places = ss.map(placeFor);
+    // The device qualifies a root signal only when the chart spans more than one device.
+    const multiDevice = new Set(ss.map((s) => deviceOf(s.address))).size > 1;
+    const series: MultiSeriesTrace[] = ss.map((s, i) => {
       const trace = traces?.[s.address];
-      const device = deviceOf(s.address);
+      const place = places[i]!;
       return {
-        label: labels === "label" ? describeSignal(s) : `${deviceLabel(device)}.${s.address.slice(device.length + 1) || s.name}`,
+        label: labels === "label" ? describeSignal(s) : titleFor(s, { namespace: place.namespace, device: multiDevice ? place.device : undefined }),
         unit,
         key: s.address,
+        hint: s.address,
         ...(source ? {} : { t: trace?.t ?? [], v: trace?.v ?? [] }),
         precision: s.precision ?? undefined,
       };
     });
+    // The distinct places on the chart -- namespaces, else devices -- in first-seen order, each linking to its device.
+    const groups = new Map<string, { device: string; address: string }>();
+    places.forEach((place, i) => {
+      const title = groupTitle(place);
+      if (title && !groups.has(title)) groups.set(title, { device: place.device!.name, address: place.namespace?.address ?? place.device!.name });
+    });
+    const title = unitTitle(unit, ss);
+    const heading = `${title} — ${[...groups.keys()].join(", ") || ss.map((s) => describeSignal(s)).join(", ")}`;
     return (
       <PanelFrame
         className="fb-unit-chart"
-        title={unit}
+        title={<span title={heading}>{title}</span>}
         subtitle={
           <span className="fb-unit-chart-channels">
-            {ss.map((s, j) => (
-              <span key={s.address}>
+            {[...groups].map(([name, group], j) => (
+              <span key={group.address}>
                 {j > 0 && ", "}
-                <Ref kind="signal" name={s.address} />
+                <Ref kind="device" name={group.device}>
+                  {name}
+                </Ref>
               </span>
             ))}
           </span>
         }
         actions={controls}
       >
-        <MultiSeries series={series} source={source} id={`unit:${unit}`} unit={unit} title={unit} height={height} windowS={windowS} yScale={yScale} range={widest(ss)} every={every} exportHref={exportHref?.(ss)} />
+        <MultiSeries series={series} source={source} id={`unit:${unit}`} unit={unit} title={heading} height={height} windowS={windowS} yScale={yScale} range={widest(ss)} every={every} exportHref={exportHref?.(ss)} />
       </PanelFrame>
     );
   },

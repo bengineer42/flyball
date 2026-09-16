@@ -4,7 +4,7 @@
  * panel asks before it hands a schema over.
  */
 
-import type { Access, Address, ControllerOut, FeedforwardConfig, JsonSchema, SignalOut, TreeNode } from "./wire.js";
+import type { Access, Address, ControllerOut, FeedforwardConfig, JsonSchema, NamespaceOut, SignalOut, TreeNode } from "./wire.js";
 import { isNamespace } from "./wire.js";
 
 /** Follow a local `$ref` (`#/$defs/Name`) against `root`. Returns the input when it is not a ref. */
@@ -284,6 +284,112 @@ export function describeDevice(tag: string): string {
 /** A signal's display name: its `label`, or its `name` humanised when the driver gave none. */
 export function describeSignal(signal: Pick<SignalOut, "name" | "label">): string {
   return signal.label || humanise(signal.name);
+}
+
+/** A namespace's display name: its `label`, or its `name` humanised when the driver gave none. */
+export function describeNamespace(namespace: Pick<NamespaceOut, "name" | "label">): string {
+  return namespace.label || humanise(namespace.name);
+}
+
+/** A device's display name: its `label`, or its `name` humanised when the rig gave none (`DeviceOut.label` is null then). */
+export function deviceTitle(device: DeviceRef): string {
+  return device.label || humanise(device.name);
+}
+
+/**
+ * A unit symbol as shown beside a value or on an axis. The dimensionless
+ * unit `1` (`flyball.core.units.si.One`, a blender's efforts) is never
+ * printed: a bare `1` after a number reads as a digit. Words the driver
+ * chose for a dimensionless unit (`of full`) are kept.
+ */
+export function describeUnit(unit: string | null | undefined): string {
+  return !unit || unit === "1" ? "" : unit;
+}
+
+/** `text` then its unit, separated by a space only when there is a unit to show. */
+export function withUnit(text: string, unit: string | null | undefined): string {
+  const shown = describeUnit(unit);
+  return shown ? `${text} ${shown}` : text;
+}
+
+/** What names a device for a title: its name and, when the rig gave one, its label; the tree when the caller has it. */
+export interface DeviceRef {
+  name: string;
+  label?: string | null;
+  signals?: readonly TreeNode[];
+}
+
+/** Where a signal sits: its device and, when it is inside one, the innermost namespace. Either is absent when the caller does not know it. */
+export interface Place {
+  device?: DeviceRef;
+  namespace?: Pick<NamespaceOut, "name" | "address" | "label">;
+}
+
+/**
+ * A signal's place in `devices`: its device and the innermost namespace
+ * holding it, found by walking the device's tree. The device alone when the
+ * address is at the device's root; nothing when no device here is named by
+ * the address.
+ */
+export function placeOf(address: Address, devices: ReadonlyArray<DeviceRef>): Place {
+  const device = devices.find((d) => d.name === deviceOf(address));
+  if (!device) return {};
+  let namespace: NamespaceOut | undefined;
+  const walk = (nodes: readonly TreeNode[]) => {
+    for (const node of nodes) {
+      if (!isNamespace(node)) continue;
+      if (address.startsWith(`${node.address}.`)) {
+        namespace = node;
+        walk(node.signals);
+        return;
+      }
+    }
+  };
+  walk(device.signals ?? []);
+  return namespace ? { device, namespace } : { device };
+}
+
+/** `Humidity` → `humidity` for use after a qualifier; an acronym-led label (`RH`) is left alone. */
+const lowerFirst = (text: string) => (text.length > 1 && text[1] === text[1]!.toUpperCase() && text[1] !== text[1]!.toLowerCase() ? text : text.charAt(0).toLowerCase() + text.slice(1));
+
+/**
+ * A signal's title where it stands beside others: inside a namespace, the
+ * namespace then the signal (`Chamber humidity`); at a device's root, the
+ * signal then the device (`Expected humidity · Pump blender`); alone, the
+ * signal's own name. Addresses never appear -- they belong in a hover hint.
+ */
+export function titleFor(signal: Pick<SignalOut, "name" | "label">, place: Place = {}): string {
+  const own = describeSignal(signal);
+  if (place.namespace) return `${describeNamespace(place.namespace)} ${lowerFirst(own)}`;
+  if (place.device) return `${own} · ${deviceTitle(place.device)}`;
+  return own;
+}
+
+/** A tile's caption for a signal: its namespace then its device (`Chamber · Humidity sensors`), whichever are known. */
+export function captionFor(place: Place): string {
+  return [place.namespace && describeNamespace(place.namespace), place.device && deviceTitle(place.device)].filter(Boolean).join(" · ");
+}
+
+/** The hover hint behind a caption: the namespace's address, else the device's name. */
+export function placeAddress(place: Place): string | undefined {
+  return place.namespace?.address ?? place.device?.name;
+}
+
+/** The name of the group a signal belongs to on a chart: its namespace's label, else its device's. */
+export function groupTitle(place: Place): string | undefined {
+  return place.namespace ? describeNamespace(place.namespace) : place.device ? deviceTitle(place.device) : undefined;
+}
+
+/**
+ * The heading of a chart that holds every signal of one unit: the unit, or
+ * -- for a dimensionless unit, which shows as nothing -- the quantities
+ * the signals measure (`Effort`).
+ */
+export function unitTitle(unit: string, signals: ReadonlyArray<Pick<SignalOut, "quantity">>): string {
+  const shown = describeUnit(unit);
+  if (shown) return shown;
+  const quantities = [...new Set(signals.map((s) => s.quantity).filter(Boolean))].map(humanise);
+  return quantities.join(", ") || "dimensionless";
 }
 
 /** A controller's display name: its target's `label`, or its `name` (the target's address). */

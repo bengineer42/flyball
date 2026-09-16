@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
+import { describeUnit, withUnit } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
@@ -89,7 +90,7 @@ const MAX_EXTRA_AXES = 5;
 const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.unit === undefined || trace.unit === unit ? "y" : `y:${trace.unit}`);
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
-const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : `${raw.toFixed(s.precision ?? 2)}${s.unit ? ` ${s.unit}` : ""}`);
+const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(raw.toFixed(s.precision ?? 2), s.unit));
 
 /** An axis' tick labels at a fixed precision instead of uPlot's own significant-figure guess (which over-shows digits on a near-flat trace). */
 const axisValues =
@@ -199,7 +200,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
     };
     const axes: uPlot.Axis[] = [
       { label: "time", stroke: fg },
-      { label: unit ? `(${unit})` : undefined, size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
+      { label: describeUnit(unit) || undefined, size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
     ];
     const plotted: uPlot.Series[] = [{}];
     // Extra axes alternate right/left (side 1, 3, 1, 3, …), three a side, six on screen with the primary.
@@ -215,7 +216,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         if (scale !== "y" && extraAxesShown < MAX_EXTRA_AXES) {
           const side = extraAxesShown % 2 === 0 ? 1 : 3;
           extraAxesShown++;
-          axes.push({ label: `(${s.unit})`, size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
+          axes.push({ label: describeUnit(s.unit) || undefined, size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
         }
       }
       const line: uPlot.Series = {
@@ -316,11 +317,11 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
 
   /** Everything held for the download: the store's rows unthinned, or the props. */
   const table = () => {
-    if (!source) return seriesTable(series.map((s) => ({ label: s.label, unit: s.unit ?? unit, t: s.t ?? EMPTY, v: s.v ?? EMPTY })));
+    if (!source) return seriesTable(series.map((s) => ({ label: s.label, unit: describeUnit(s.unit ?? unit), t: s.t ?? EMPTY, v: s.v ?? EMPTY })));
     return seriesTable(
       series.map((s, i) => {
         const view = source.store.read(keysRef.current[i]!, emptyTrace());
-        return { label: s.label, unit: s.unit ?? unit, t: view.t, v: view.v };
+        return { label: s.label, unit: describeUnit(s.unit ?? unit), t: view.t, v: view.v };
       }),
     );
   };
@@ -335,7 +336,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         chart={() => chart.current}
         following={following}
         onFitY={effectiveY === "auto" ? undefined : () => setYFit(wantedY)}
-        yLabel={unit}
+        yLabel={describeUnit(unit) || undefined}
         onExpand={() => setOpen(!open)}
         expanded={open}
         onDownload={(format) =>
@@ -350,7 +351,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
     plot
   );
   if (!open) return body;
-  const heading = title ?? `${series.map((s) => s.label).join(", ")}${unit ? ` (${unit})` : ""}`;
+  const heading = title ?? `${series.map((s) => s.label).join(", ")}${describeUnit(unit) ? ` — ${describeUnit(unit)}` : ""}`;
   return (
     <>
       <div className="fb-chart fb-chart-placeholder" style={{ height: typeof height === "number" ? height : 200 }} onClick={close} title="Showing full-size">

@@ -2,7 +2,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { Box, Button, Chip, Link, Paper, Stack, Table, TableBody, TableCell, TableRow, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { DeviceOut, RunOut } from "@flyball/client";
-import { describeDevice, describeSignal, isNamespace, publishes, signalsOf, writable, type TreeNode } from "@flyball/client";
+import { describeDevice, describeNamespace, describeSignal, describeUnit, isNamespace, publishes, signalsOf, writable, type TreeNode } from "@flyball/client";
 import { PAGE_ICONS, type IconComponent } from "./icons.js";
 import { hrefFor } from "./router.js";
 import { clock } from "./time.js";
@@ -107,7 +107,7 @@ export const clickThrough = (href: string | undefined) => (e: MouseEvent) => {
 /** The look of a surface that opens a page when clicked. */
 export const clickableSx = { cursor: "pointer", transition: "border-color 120ms, background-color 120ms", "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" } } as const;
 
-/** A device card: label (a link to its page) with the name beside it when they differ, type, a status chip at the end, then the body. The whole card opens the page when it has one. */
+/** A device card: label (a link to its page; the name is its hover hint), type, a status chip at the end, then the body. The whole card opens the page when it has one. */
 export function DeviceCard({ icon: Icon, name, label, href, type, chip, children, footer, className }: { icon: IconComponent; name: string; label?: string | null; href?: string; type: string; chip: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
     <Paper className={className} sx={{ p: 3, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
@@ -115,15 +115,15 @@ export function DeviceCard({ icon: Icon, name, label, href, type, chip, children
         <Icon fontSize="small" sx={{ color: "text.disabled" }} />
         <Typography fontWeight={600}>
           {href ? (
-            <Link href={href} underline="hover" color="inherit">
+            <Link href={href} underline="hover" color="inherit" title={name}>
               {label ?? name}
             </Link>
           ) : (
-            label ?? name
+            <span title={name}>{label ?? name}</span>
           )}
         </Typography>
-        <Typography variant="body2" color="text.secondary" noWrap title={label ? `${name} · ${type}` : type}>
-          {label ? `${name} · ${type}` : type}
+        <Typography variant="body2" color="text.secondary" noWrap title={`${name} · ${type}`}>
+          {type}
         </Typography>
         <Box sx={{ ml: "auto !important" }}>{chip}</Box>
       </Stack>
@@ -154,7 +154,7 @@ function SignalChip({ signal }: { signal: Extract<TreeNode, { access: string }> 
       clickable
       component="a"
       href={hrefFor({ kind: "signal", name: signal.address })}
-      label={`${describeSignal(signal)} ${signal.unit}`}
+      label={[describeSignal(signal), describeUnit(signal.unit)].filter(Boolean).join(" ")}
       title={`${signal.address} ${accessFlags(signal.access)}: ${signal.quantity}${signal.dimension ? ` (${signal.dimension})` : ""}`}
       sx={writable(signal) && !publishes(signal) ? { borderStyle: "dashed" } : undefined}
     />
@@ -168,7 +168,7 @@ function TreeRows({ device }: { device: DeviceOut }) {
   if (loose.length) rows.push({ key: "", label: null, signals: signalsOf(loose) });
   for (const node of device.signals) {
     if (!isNamespace(node)) continue;
-    rows.push({ key: node.address, label: node.label || node.name, signals: signalsOf(node.signals) });
+    rows.push({ key: node.address, label: describeNamespace(node), signals: signalsOf(node.signals) });
   }
   return (
     <Table size="small" sx={{ "& td": { border: 0, px: 0, py: 0.75 } }}>

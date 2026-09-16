@@ -1,4 +1,4 @@
-import { alarmLevel, staleAfterS, type AlarmLevel, type Freshness, type SignalOut } from "@flyball/client";
+import { alarmLevel, describeUnit, staleAfterS, withUnit, type AlarmLevel, type Freshness, type SignalOut } from "@flyball/client";
 
 export type GaugeKind = "thermometer" | "tank" | "dial" | "bar";
 
@@ -93,7 +93,7 @@ export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height,
   return (
     <div
       className={`fb-gauge fb-gauge-${kind} fb-alarm-${level}`}
-      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : `${range[0]} – ${range[1]} ${signal.unit}`}
+      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : withUnit(`${range[0]} – ${range[1]}`, signal.unit)}
     >
       {kind === "thermometer" && <Thermometer {...drawing} />}
       {kind === "tank" && <Tank {...drawing} />}
@@ -103,7 +103,7 @@ export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height,
         <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }}>
           {value === undefined ? "—" : value.toFixed(precision)}
         </span>
-        <span className="fb-gauge-unit">{signal.unit}</span>
+        <span className="fb-gauge-unit">{describeUnit(signal.unit)}</span>
       </div>
       {stale && <div className="fb-gauge-footer">last sample {ageS} s ago</div>}
     </div>

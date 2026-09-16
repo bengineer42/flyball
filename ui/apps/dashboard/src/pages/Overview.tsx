@@ -1,7 +1,7 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Alert, Button, ButtonBase, Chip, Link, Paper, Stack, Typography } from "@mui/material";
 import { Readout, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef } from "@flyball/react";
-import { describeController, setpointOf, type ControllerOut, type DeviceOut, type SignalOut } from "@flyball/client";
+import { describeNamespace, deviceTitle, isNamespace, placeOf, publishes, setpointOf, signalsOf, titleFor, unitTitle, withUnit, type ControllerOut, type DeviceOut, type Place, type SignalOut } from "@flyball/client";
 import { CircleIcon, OkIcon, SignalIcon, WarnIcon, signalIcon, PAGE_ICONS, type IconComponent } from "../icons.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor, type Page } from "../router.js";
@@ -61,15 +61,45 @@ function GoTo({ label, onClick }: { label: string; onClick(): void }) {
  * stale threshold from its device's run), so only the tile re-renders on its signal's samples;
  * memoised on primitives, so the page re-rendering does not touch forty tiles.
  */
-const Tile = memo(function Tile({ signal, live, windowS, every, showDevice, exportHref, className }: { signal: SignalOut; live: TraceRef; windowS: number; every: number; showDevice: boolean; exportHref?: string; className?: string }) {
+const Tile = memo(function Tile({ signal, live, windowS, every, showDevice, place, exportHref, className }: { signal: SignalOut; live: TraceRef; windowS: number; every: number; showDevice: boolean; place?: Place; exportHref?: string; className?: string }) {
   const Icon = signalIcon(signal);
   return (
     <div className={className ?? "tile-with-icon c3"}>
       <Icon fontSize="small" className="tile-icon" />
-      <Readout signal={signal} source={live} showDevice={showDevice} windowS={windowS} every={every} exportHref={exportHref} />
+      <Readout signal={signal} source={live} showDevice={showDevice} place={place} windowS={windowS} every={every} exportHref={exportHref} />
     </div>
   );
 });
+
+/** A box of tiles read as one sample: a namespace's publishing signals, or a device's root-level ones. */
+interface SampleBox {
+  /** The namespace's address, or the device's name for its root signals. */
+  address: string;
+  /** The heading; none for a device's root box when it is the device's only box (the device's own heading serves). */
+  title?: string;
+  signals: SignalOut[];
+  /** Tile columns asked for: members stack singly up to three, then a column per three, at most four. */
+  cols: number;
+}
+
+/**
+ * A device's publishing signals as sample boxes, in tree order: one per
+ * top-level namespace (a sample -- `hum_sensors.chamber` is humidity and
+ * temperature read together; deeper namespaces fold into it), and one for
+ * the signals at the device's root, first, when there are any.
+ */
+export function sampleBoxes(device: DeviceOut): SampleBox[] {
+  const cols = (n: number) => Math.min(4, Math.ceil(n / 3));
+  const boxes: SampleBox[] = [];
+  const root = signalsOf(device.signals.filter((n) => !isNamespace(n))).filter(publishes);
+  for (const node of device.signals) {
+    if (!isNamespace(node)) continue;
+    const members = signalsOf(node.signals).filter(publishes);
+    if (members.length) boxes.push({ address: node.address, title: describeNamespace(node), signals: members, cols: cols(members.length) });
+  }
+  if (root.length) boxes.unshift({ address: device.name, title: boxes.length ? deviceTitle(device) : undefined, signals: root, cols: cols(root.length) });
+  return boxes;
+}
 
 /** When a device last published, from its first publishing signal's newest point; re-renders this line alone. */
 function LastSample({ first }: { first: SignalOut | undefined }) {
@@ -90,25 +120,25 @@ function DeviceCards({ devices }: { devices: DeviceOut[] }) {
 }
 
 /** One controller's card: what it drives from what, its mode, and the live reading, setpoint and demand. */
-const ControllerCard = memo(function ControllerCard({ name, sourceUnit, precision }: { name: string; sourceUnit: string; precision: number }) {
+const ControllerCard = memo(function ControllerCard({ name, title, sourceUnit, sourceTitle, targetTitle, precision }: { name: string; title: string; sourceUnit: string; sourceTitle: string; targetTitle: string; precision: number }) {
   const c = useController(name);
   if (!c) return null;
   const href = hrefFor({ kind: "controller", name });
-  const num = (v: number | null | undefined, unit: string) => (v == null ? "—" : `${v.toFixed(precision)} ${unit}`);
+  const num = (v: number | null | undefined, unit: string) => (v == null ? "—" : withUnit(v.toFixed(precision), unit));
   const setpoint = setpointOf(c);
   return (
     <Paper className="c3" sx={{ p: 3, display: "flex", flexDirection: "column", gap: 1, minWidth: 0, ...clickableSx }} onClick={clickThrough(href)}>
       <Stack direction="row" alignItems="center" spacing={1}>
         <PAGE_ICONS.controllers fontSize="small" sx={{ color: "text.disabled" }} />
         <Typography fontWeight={600} noWrap>
-          <Link href={href} underline="hover" color="inherit">
-            {describeController(c)}
+          <Link href={href} underline="hover" color="inherit" title={c.name}>
+            {c.label || title}
           </Link>
         </Typography>
         <Chip label={c.mode} size="small" variant="outlined" color={c.mode === "regulating" ? "primary" : "default"} sx={{ ml: "auto !important" }} className={`fb-mode fb-mode-${c.mode}`} />
       </Stack>
       <Typography variant="body2" color="text.secondary" noWrap title={`${c.source} → ${c.target}`}>
-        {c.source} → {c.target}
+        {sourceTitle} → {targetTitle}
       </Typography>
       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
         reading {num(c.reading?.value, sourceUnit)} · target {num(setpoint, sourceUnit)} · demand {num(c.demand, c.demand_unit)}
@@ -124,6 +154,12 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   const publishing = useMemo(() => publishingOf(devices), [devices]);
   const signals = useMemo(() => publishing.flatMap((d) => d.signals), [publishing]);
   const byAddress = useMemo(() => new Map(signals.map((s) => [s.address, s])), [signals]);
+  // Every signal of the rig by address (a controller's target need not publish), with where it sits, for titles.
+  const everySignal = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals).map((s) => [s.address, s] as const))), [devices]);
+  const titleOf = (address: string) => {
+    const signal = everySignal.get(address);
+    return signal ? titleFor(signal, placeOf(address, devices)) : address;
+  };
   // One handle on the store for every chart and tile on the page; nothing here re-renders on a sample.
   const live = useTraceRef(useMemo(() => signals.map((s) => s.address), [signals]));
   const { events } = useEvents(500);
@@ -185,55 +221,69 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
         {signals.length === 0 && <StateBlock state="empty" message="No signal publishes. Add a device with a publishing signal to the rig file to see readings here." action={{ label: "View inputs page", onClick: () => onOpen("inputs") }} />}
         {signals.length > 0 && (
           <div className="grid">
-            {grouping === "signal" && signals.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice exportHref={stored.series(s.address)} />)}
+            {grouping === "signal" && signals.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice place={placeOf(s.address, devices)} exportHref={stored.series(s.address)} />)}
             {grouping === "unit" &&
               groupByUnit(signals).map(({ unit, signals: ss }) => (
                 <div key={unit} className="c12 unit-group">
                   <Stack direction="row" alignItems="center" spacing={1} className="source-head">
-                    <Typography fontWeight={600}>{unit}</Typography>
+                    <Typography fontWeight={600}>{unitTitle(unit, ss)}</Typography>
                     <Typography variant="body2" color="text.secondary">
                       {ss.length} signal{ss.length === 1 ? "" : "s"}
                     </Typography>
                   </Stack>
                   <div className="grid">
-                    {ss.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice exportHref={stored.series(s.address)} />)}
+                    {ss.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice place={placeOf(s.address, devices)} exportHref={stored.series(s.address)} />)}
                   </div>
                 </div>
               ))}
-            {grouping === "device" &&
-              publishing.map(({ device, signals: ss }) => {
-                const href = hrefFor({ kind: "device", name: device.name });
-                // A quarter of the row per signal, up to the whole row: its tiles then sit beside the other devices' tiles.
-                const span = Math.min(12, 3 * Math.max(1, ss.length));
-                return (
-                  <div key={device.name} className={`source-group c${span}`}>
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      spacing={1}
-                      className="source-head"
-                      sx={{ cursor: "pointer", borderRadius: 1, "&:hover .source-name": { textDecoration: "underline" } }}
-                      onClick={clickThrough(href)}
-                    >
-                      <PAGE_ICONS.devices fontSize="inherit" sx={{ color: "text.disabled", alignSelf: "center" }} />
-                      <Typography fontWeight={600}>
-                        <Link href={href} underline="hover" color="inherit" className="source-name">
-                          {device.label ?? device.name}
-                        </Link>
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {device.label && `${device.name} · `}
-                        <LastSample first={ss[0]} />
-                      </Typography>
-                    </Stack>
-                    <div className="tiles">
-                      {ss.map((s) => (
-                        <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice={false} exportHref={stored.series(s.address)} className="tile-with-icon" />
-                      ))}
+            {grouping === "device" && (
+              <div className="c12 sample-groups">
+                {publishing.map(({ device, signals: ss }) => {
+                  const href = hrefFor({ kind: "device", name: device.name });
+                  const boxes = sampleBoxes(device);
+                  // A device's share of the row follows its tile columns, so its boxes sit beside the other devices' at one tile width.
+                  const cols = Math.max(1, boxes.reduce((n, box) => n + box.cols, 0));
+                  return (
+                    <div key={device.name} className="source-group sample-group" style={{ "--cols": cols } as CSSProperties}>
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        className="source-head"
+                        sx={{ cursor: "pointer", borderRadius: 1, "&:hover .source-name": { textDecoration: "underline" } }}
+                        onClick={clickThrough(href)}
+                      >
+                        <PAGE_ICONS.devices fontSize="inherit" sx={{ color: "text.disabled", alignSelf: "center" }} />
+                        <Typography fontWeight={600}>
+                          <Link href={href} underline="hover" color="inherit" className="source-name" title={device.name}>
+                            {deviceTitle(device)}
+                          </Link>
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          <LastSample first={ss[0]} />
+                        </Typography>
+                      </Stack>
+                      <div className="sample-boxes">
+                        {boxes.map((box) => (
+                          <div key={box.address} className="sample-box" style={{ "--cols": box.cols } as CSSProperties}>
+                            {box.title && (
+                              <Typography component="h3" className="sample-box-head" title={box.address}>
+                                {box.title}
+                              </Typography>
+                            )}
+                            <div className="sample-box-tiles">
+                              {box.signals.map((s) => (
+                                <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice={false} exportHref={stored.series(s.address)} className="tile-with-icon" />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            )}
             <div className="c12 fb-charts">
               <UnitCharts signals={signals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
             </div>
@@ -248,7 +298,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
           <div className="grid">
             {controllerList.map((c) => {
               const source = byAddress.get(c.source);
-              return <ControllerCard key={c.name} name={c.name} sourceUnit={source?.unit ?? ""} precision={source?.precision ?? 1} />;
+              return <ControllerCard key={c.name} name={c.name} title={titleOf(c.name)} sourceUnit={source?.unit ?? ""} sourceTitle={titleOf(c.source)} targetTitle={titleOf(c.target)} precision={source?.precision ?? 1} />;
             })}
           </div>
         )}

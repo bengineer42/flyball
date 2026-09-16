@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RigClient, RigError, addressOf, deviceOf, isNamespace, publishes, signalsOf, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
+import { RigClient, RigError, addressOf, captionFor, describeUnit, deviceOf, deviceTitle, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
 
 /** A transport answering from a table of `METHOD path` → body, recording what was asked. */
 function fakeTransport(routes: Record<string, unknown>, status = 200) {
@@ -141,5 +141,50 @@ describe("address helpers", () => {
     expect(flat.map((s) => s.address)).toEqual(["d.a", "d.ns.b", "d.ns.c"]);
     expect(flat.map(publishes)).toEqual([true, false, false]);
     expect(flat.map(writable)).toEqual([false, true, true]);
+  });
+});
+
+describe("titles from labels", () => {
+  const signal = (address: string, unit: string, quantity = "q", label = ""): TreeNode =>
+    ({ name: address.split(".").pop()!, address, access: "rp", label, quantity, unit, dimension: null, dtype: "float", shape: [], range: null, precision: null, warn: null, alarm: null, poll_s: null, limits: null, together: [], latest: null, write: null }) as TreeNode;
+  const sensors = {
+    name: "hum_sensors",
+    label: "Humidity sensors",
+    signals: [{ name: "chamber", address: "hum_sensors.chamber", atomic: true, label: "", poll_s: null, signals: [signal("hum_sensors.chamber.humidity", "%RH", "humidity"), signal("hum_sensors.chamber.temperature", "°C", "temperature")] }] as TreeNode[],
+  };
+  const blender = { name: "blender", label: null, signals: [signal("blender.expected_humidity", "%RH", "humidity"), signal("blender.dry_effort", "1", "effort")] };
+  const devices = [sensors, blender];
+
+  it("never prints the dimensionless unit `1`, and keeps a worded one", () => {
+    expect(describeUnit("1")).toBe("");
+    expect(describeUnit("")).toBe("");
+    expect(describeUnit("of full")).toBe("of full");
+    expect(withUnit("0.25", "1")).toBe("0.25");
+    expect(withUnit("0.25", "%RH")).toBe("0.25 %RH");
+  });
+
+  it("finds a signal's device and innermost namespace", () => {
+    const place = placeOf("hum_sensors.chamber.humidity", devices);
+    expect(place.device?.name).toBe("hum_sensors");
+    expect(place.namespace?.address).toBe("hum_sensors.chamber");
+    expect(placeOf("blender.dry_effort", devices)).toEqual({ device: blender });
+    expect(placeOf("nowhere.x", devices)).toEqual({});
+  });
+
+  it("titles by namespace, then by device, never by address", () => {
+    const chamber = signalsOf(sensors.signals)[0]!;
+    const expected = blender.signals[0] as Extract<TreeNode, { access: string }>;
+    expect(titleFor(chamber, placeOf(chamber.address, devices))).toBe("Chamber humidity");
+    expect(titleFor(expected, placeOf(expected.address, devices))).toBe("Expected humidity · Blender");
+    expect(titleFor(expected)).toBe("Expected humidity");
+    expect(titleFor(signal("d.rh", "%RH", "humidity", "RH"), { namespace: { name: "wet", address: "d.wet", label: "" } })).toBe("Wet RH");
+    expect(captionFor(placeOf(chamber.address, devices))).toBe("Chamber · Humidity sensors");
+    expect(deviceTitle(blender)).toBe("Blender");
+  });
+
+  it("heads a unit chart by the unit, or the quantities when the unit is dimensionless", () => {
+    expect(unitTitle("%RH", [])).toBe("%RH");
+    expect(unitTitle("1", [signal("b.dry_effort", "1", "effort"), signal("b.wet_effort", "1", "effort")] as Array<{ quantity: string }>)).toBe("Effort");
+    expect(unitTitle("1", [])).toBe("dimensionless");
   });
 });

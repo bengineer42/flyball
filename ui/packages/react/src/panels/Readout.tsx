@@ -1,4 +1,4 @@
-import { alarmLevel, describeSignal, deviceOf, staleAfterS, type Freshness, type SignalOut } from "@flyball/client";
+import { alarmLevel, captionFor, describeSignal, describeUnit, deviceOf, staleAfterS, withUnit, type Freshness, type Place, type SignalOut } from "@flyball/client";
 import { TimeSeries } from "./TimeSeries.js";
 import { Ref } from "../links.js";
 import { useFreshness, useSignal, type TraceRef } from "../store/hooks.js";
@@ -17,8 +17,14 @@ export interface ReadoutProps {
   source?: TraceRef;
   /** Show a sparkline of the trace under the value. */
   sparkline?: boolean;
-  /** Show the device's name under the label; off when tiles are already grouped by device. */
+  /** Show where the signal sits under the label; off when tiles are already grouped by device. */
   showDevice?: boolean;
+  /**
+   * The signal's device and namespace, for the caption (`Chamber · Humidity
+   * sensors`, linked to the device). Without it the caption is the device's
+   * name, linked.
+   */
+  place?: Place;
   /** Seconds the sparkline spans; scrolls once full. */
   windowS?: number;
   /** Draw one point in `every` on the sparkline. */
@@ -55,7 +61,7 @@ export function readoutLevel(signal: Pick<SignalOut, "warn" | "alarm">, last: nu
 }
 
 /** One signal as a tile: label, current value with unit, position in range, sparkline. */
-export function Readout({ signal, t, v, source, sparkline = true, showDevice = true, windowS, every, exportHref, fresh, bare = false }: ReadoutProps) {
+export function Readout({ signal, t, v, source, sparkline = true, showDevice = true, place, windowS, every, exportHref, fresh, bare = false }: ReadoutProps) {
   const point = useSignal(source ? signal.address : undefined);
   const last = source ? point?.v : v && v.length ? v[v.length - 1] : undefined;
   // Store-fed with no freshness given, or a period only: the sample times and the device's period come from the store.
@@ -85,10 +91,10 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
         <span className="fb-readout-number" style={{ minWidth: `${width}ch` }}>
           {last === undefined ? "—" : last.toFixed(precision)}
         </span>
-        <span className="fb-readout-unit">{signal.unit}</span>
+        <span className="fb-readout-unit">{describeUnit(signal.unit)}</span>
       </div>
       {fraction !== null && (
-        <div className="fb-range" title={`${range![0]} – ${range![1]} ${signal.unit}`}>
+        <div className="fb-range" title={withUnit(`${range![0]} – ${range![1]}`, signal.unit)}>
           <div className="fb-range-fill" style={{ width: `${fraction * 100}%` }} />
           {ticks.map((t) => (
             <div key={`${t.band}${t.left}`} className={`fb-range-tick fb-range-tick-${t.band}`} style={{ left: `${t.left}%` }} />
@@ -105,7 +111,7 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
       severity={level}
       severityLabel={label}
       title={<Ref kind="signal" name={signal.address}>{describeSignal(signal)}</Ref>}
-      subtitle={showDevice ? <Ref kind="device" name={deviceOf(signal.address)} /> : undefined}
+      subtitle={!showDevice ? undefined : place && captionFor(place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionFor(place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
       footer={footer}
     >
       {body}

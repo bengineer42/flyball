@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeSignal, type SignalOut } from "@flyball/client";
+import { describeSignal, describeUnit, withUnit, type SignalOut } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
@@ -140,7 +140,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
           stroke: palette.accent,
           points: { show: false },
           width: 1.5,
-          value: (_u, raw) => (raw == null ? "—" : `${raw.toFixed(signal.precision ?? 2)} ${signal.unit}`),
+          value: (_u, raw) => (raw == null ? "—" : withUnit(raw.toFixed(signal.precision ?? 2), signal.unit)),
         },
       ],
       axes: compact
@@ -148,7 +148,8 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         : [
             axis({ label: "time" }),
             axis({
-              label: `${label} (${signal.unit})`,
+              // The unit alone: the legend already names the signal, and brackets read as a variable name.
+              label: describeUnit(signal.unit) || label,
               size: axisSize,
               values: (_u, ticks) => ticks.map((x) => x.toFixed(signal.precision != null ? Math.min(signal.precision, 2) : 1)),
             }),
@@ -228,12 +229,12 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         chart={() => chart.current}
         following={following}
         onFitY={effective === "auto" ? undefined : () => setYFit(wanted)}
-        yLabel={signal.unit || label}
+        yLabel={describeUnit(signal.unit) || label}
         onExpand={() => setOpen(!open)}
         expanded={open}
         onDownload={(format) =>
           // Everything held, not the thinned trace the canvas draws.
-          saveTable(signal.address, seriesTable([{ label: signal.address, unit: signal.unit, ...held() }]), format)
+          saveTable(signal.address, seriesTable([{ label: signal.address, unit: describeUnit(signal.unit), ...held() }]), format)
         }
         exportHref={exportHref}
       />
@@ -253,7 +254,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
       <div className="fb-chart fb-chart-placeholder" style={{ height: typeof height === "number" ? height : 160 }} onClick={close} title="Showing full-size">
         <span className="fb-muted">full-size · Esc to return</span>
       </div>
-      <ChartOverlay title={title ?? signal.address} onClose={close}>
+      <ChartOverlay title={title ?? label} onClose={close}>
         {body}
       </ChartOverlay>
     </>
