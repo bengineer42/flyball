@@ -1,6 +1,6 @@
 /**
  * Wire types, one per shape the server publishes, mirroring
- * `controller/src/flyball/server/schemas.py` and the routes. See the book's
+ * `engine/src/flyball/server/schemas.py` and the routes. See the book's
  * "HTTP and websocket API" page; nothing here is application-specific.
  *
  * Everything on the wire is named by **address**: a signal's

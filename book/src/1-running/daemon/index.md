@@ -26,11 +26,11 @@ rather than flags: [The daemon section](../../2-config/daemon.md).
 
 ```
 git clone git@github.com:bengineer42/flyball.git && cd flyball
-cd controller && uv sync --all-extras          # flyball, every driver extra, the dev tools
+cd engine && uv sync --all-extras          # flyball, every driver extra, the dev tools
 cd ../ui && npm install && npm run build       # the dashboard, to ui/apps/dashboard/dist
 ```
 
-`uv run flyball-daemon …` and `uv run flyball …` from `controller/` from then
+`uv run flyball-daemon …` and `uv run flyball …` from `engine/` from then
 on. A rig on a Raspberry Pi also wants `linux/` (`flyball-linux`); an
 application such as `examples/humidity` has its own `uv sync` and brings
 its drivers with it. Extras per integration: [Integrations](../../5-integrations/index.md).

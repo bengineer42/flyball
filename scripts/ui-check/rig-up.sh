@@ -7,7 +7,7 @@ set -u
 S=${FLYBALL_CHECK_DIR:-/tmp/flyball-check}; mkdir -p "$S/logs" "$S/stores" "$S/shots"
 rig=$(realpath "$1"); api=$2; ui=$3; shift 3
 name=$(basename "$rig" | sed 's/\.[a-z]*$//')
-cd /home/ben/flyball/controller
+cd /home/ben/flyball/engine
 setsid nohup uv run --extra web --extra cli flyball-daemon "$rig" --port "$api" --store "$S/stores/$name.sqlite" "$@" > "$S/logs/$name-daemon.log" 2>&1 &
 echo $! > "$S/logs/$name.pids"
 cd /home/ben/flyball/ui

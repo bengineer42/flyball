@@ -14,8 +14,8 @@ Run each from the venv that has its drivers, then put a front on one port:
 
 ```
 cd examples/humidity && uv run flyball-daemon ../site/humidity.yaml
-cd controller        && uv run flyball-daemon ../examples/site/furnace.yaml
-cd controller        && uv run python ../examples/site/front.py 8080 /humidity=8001 /furnace=8002
+cd engine            && uv run flyball-daemon ../examples/site/furnace.yaml
+cd engine            && uv run python ../examples/site/front.py 8080 /humidity=8001 /furnace=8002
 ```
 
 `front.py` is a development stand-in for nginx: it serves the built

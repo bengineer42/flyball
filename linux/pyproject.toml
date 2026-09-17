@@ -29,7 +29,7 @@ flyball-linux = "flyball_linux.probe:main"
 dev = ["pytest>=8.0", "ruff>=0.8", "pyyaml>=6"]  # the examples are YAML
 
 [tool.uv.sources]
-flyball = { path = "../controller", editable = true }
+flyball = { path = "../engine", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flyball_linux"]
@@ -39,7 +39,7 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 
 [tool.ruff]
-extend = "../controller/pyproject.toml"
+extend = "../engine/pyproject.toml"
 src = ["src"]
 
 [tool.ruff.lint.per-file-ignores]

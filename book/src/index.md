@@ -25,7 +25,7 @@ programs, sessions.
 **I'm setting up a rig.** A rig is one file: what is on it and how it is
 served. Start with a simulated one, then swap the links for real ones.
 
-1. Install: `cd controller && uv sync --all-extras`; the UI is
+1. Install: `cd engine && uv sync --all-extras`; the UI is
    `cd ui && npm install && npm run build` (or `npm run dev` while working
    on a rig -- see [The UI](1-running/ui/index.md)).
 2. [Starting a rig](1-running/daemon/index.md): `flyball-daemon rig.yaml`,
@@ -88,7 +88,7 @@ Every example in this book runs against a simulated plant; no hardware is
 needed. The quickest whole rig is a file:
 
 ```
-cd controller
+cd engine
 uv run flyball-daemon ../examples/simulated/furnace.yaml      # a three-zone furnace at 60×
 ```
 

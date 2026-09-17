@@ -21,7 +21,7 @@ import path from "node:path";
 const REPO = "/home/ben/flyball";
 const UI = path.join(REPO, "ui");
 const SRC = path.join(UI, "apps/dashboard/src/programText.ts");
-const CONTROLLER = path.join(REPO, "controller");
+const ENGINE = path.join(REPO, "engine");
 
 // --- build a self-contained CJS bundle of programText.ts (yaml/smol-toml inlined) ---
 // CJS (not ESM) because yaml's compose module has a conditional `require("process")`
@@ -66,13 +66,13 @@ function pythonLoad(file) {
   // Cross-check against the daemon's own YAML loader (PyYAML) so the browser
   // and the daemon agree on what the document means, not just that our own
   // dump/parse round-trips.
-  const out = execFileSync("uv", ["run", "python", "-c", "import sys, yaml, json; print(json.dumps(yaml.safe_load(open(sys.argv[1]).read())))", file], { cwd: CONTROLLER, encoding: "utf8" });
+  const out = execFileSync("uv", ["run", "python", "-c", "import sys, yaml, json; print(json.dumps(yaml.safe_load(open(sys.argv[1]).read())))", file], { cwd: ENGINE, encoding: "utf8" });
   return JSON.parse(out);
 }
 
 function pythonCheck(file) {
   try {
-    execFileSync("uv", ["run", "flyball", "program", "check", "--local", file], { cwd: CONTROLLER, stdio: "pipe" });
+    execFileSync("uv", ["run", "flyball", "program", "check", "--local", file], { cwd: ENGINE, stdio: "pipe" });
     return { ok: true };
   } catch (e) {
     return { ok: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}` };

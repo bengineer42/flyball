@@ -67,7 +67,7 @@ order — which is how `tests/test_furnace.py` tests it.
 ## Run one
 
 ```bash
-cd controller
+cd engine
 uv run python ../examples/simulated/demo.py ../examples/simulated/oven.yaml 50 600
 ```
 

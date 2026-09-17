@@ -1,5 +1,5 @@
 /**
- * The widget catalogue as `controller/src/flyball/server/widgets.json`: every kind the dashboard
+ * The widget catalogue as `engine/src/flyball/server/widgets.json`: every kind the dashboard
  * knows, with its config schema evaluated against an empty rig, so the rig-dependent pickers
  * reduce to their `x-binding`. Run `npm run widgets-json` after changing a widget.
  */
@@ -39,6 +39,6 @@ const catalogue = {
   })),
 };
 
-const target = resolve(process.argv[2] ?? "../controller/src/flyball/server/widgets.json");
+const target = resolve(process.argv[2] ?? "../engine/src/flyball/server/widgets.json");
 writeFileSync(target, JSON.stringify(catalogue, null, 2) + "\n");
 console.log(`${catalogue.kinds.length} widget kinds → ${target}`);

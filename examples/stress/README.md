@@ -33,7 +33,7 @@ of full, and its controller carries the plant's static inverse as an
 ## Running one
 
 ```bash
-cd controller
+cd engine
 uv run flyball-daemon ../examples/stress/plant.yaml --record
 uv run flyball program run ../examples/stress/programs/plant-firing.yaml
 uv run flyball rig check ../examples/stress/chaos.yaml
