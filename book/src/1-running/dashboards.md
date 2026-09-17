@@ -102,10 +102,10 @@ alphabetically, alongside the generated overview. `Save ▾` offers:
 ## Presets
 
 A rig can ship dashboards beside its file: anything in a `dashboards/`
-directory next to the rig's file is imported on daemon start (unchanged
+directory next to the rig's file is imported on runner start (unchanged
 files are skipped; an edited one becomes a new version). See
 `examples/simulated/dashboards/{overview,furnace}.json` for the furnace
 simulation's own presets — one generic overview, one curated for the
 furnace's three zones and heaters. Those two files still carry
-`schema_version: 1` on disk; the daemon serves them migrated, exactly as it
+`schema_version: 1` on disk; the runner serves them migrated, exactly as it
 would any other version-1 dashboard.

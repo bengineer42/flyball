@@ -54,7 +54,7 @@ plugins:
       default_handler: python
       handlers:
         python:
-          paths: [../controller/src]
+          paths: [../engine/src]
           options:
             docstring_style: google
             docstring_options: { warn_unknown_params: false, warn_missing_types: false }
@@ -76,9 +76,9 @@ nav:
   - Running a rig:
       - 1-running/index.md
       - Starting a rig:
-          - 1-running/daemon/index.md
-          - Access — the token, a sub-path, stopping: 1-running/daemon/access.md
-          - Building a rig while it runs: 1-running/daemon/building.md
+          - 1-running/runner/index.md
+          - Access — the token, a sub-path, stopping: 1-running/runner/access.md
+          - Building a rig while it runs: 1-running/runner/building.md
       - The UI:
           - 1-running/ui/index.md
           - Devices: 1-running/ui/devices.md
@@ -93,7 +93,7 @@ nav:
           - Controllers and tuning: 1-running/cli/controllers.md
           - Programs and waits: 1-running/cli/programs.md
           - Sessions and export: 1-running/cli/sessions.md
-          - The rig and the daemon: 1-running/cli/rig.md
+          - The rig and the runner: 1-running/cli/rig.md
           - Without a rig: 1-running/cli/offline.md
       - Programs:
           - 1-running/programs/index.md
@@ -101,7 +101,7 @@ nav:
       - Tuning and autotune: 1-running/autotune.md
   - Configuration:
       - 2-config/index.md
-      - The daemon section: 2-config/daemon.md
+      - The runner section: 2-config/runner.md
       - Links: 2-config/links.md
       - Devices:
           - 2-config/devices/index.md
@@ -149,7 +149,7 @@ nav:
       - 7-reference/index.md
       - Rig file schema: 7-reference/rig-file.md
       - Program file schema: 7-reference/program-schema.md
-      - flyball-daemon: 7-reference/daemon.md
+      - flyball-runner: 7-reference/runner.md
       - CLI: 7-reference/cli.md
       - Python API:
           - flyball: 7-reference/python/flyball.md

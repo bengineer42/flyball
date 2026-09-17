@@ -14,7 +14,7 @@ does the same thing; the UI pages point back here.
 | [Controllers and tuning](controllers.md) | `controllers`, regulate / manual (via the API today), tunings | [Controllers](../ui/controllers.md), [Tuning](../autotune.md) |
 | [Programs and waits](programs.md) | `program check / run / status / stop`, `waits`, `wait fire / interrupt` | [Programs](../programs/writing.md#running-one) |
 | [Sessions and export](sessions.md) | `sessions`, `export`, downloads by URL | [Sessions](../ui/sessions.md) |
-| [The rig and the daemon](rig.md) | `rig check / schema`, `sim …`, save / versions / restart (via the API today) | [The Rig page](../ui/rig.md) |
+| [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, save / versions / restart (via the API today) | [The Rig page](../ui/rig.md) |
 | [Without a rig](offline.md) | `rig check`, `rig schema`, `program schema`, `new`, `--offline` | -- |
 
 It It fetches
@@ -24,8 +24,8 @@ device is written into it.
 
 ```
 flyball --url http://pi:8000 devices        # or export FLYBALL_URL
-flyball --token T status                    # or export FLYBALL_TOKEN, for a daemon with a token
-flyball password                            # the hashed line for daemon.auth.password
+flyball --token T status                    # or export FLYBALL_TOKEN, for a runner started with one
+flyball password                            # the hashed line for runner.auth.password
 ```
 
 ## Output

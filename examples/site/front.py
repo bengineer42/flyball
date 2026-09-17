@@ -1,10 +1,10 @@
-"""A development front for several daemons on one origin: what nginx does in production.
+"""A development front for several runners on one origin: what nginx does in production.
 
     uv run python front.py 8080 /humidity=8001 /furnace=8002
 
 Serves the built dashboard (ui/apps/dashboard/dist) under each prefix and
 passes that prefix's `/api`, `/ws`, `/mcp`, `/docs` and `/openapi.json` to
-the daemon on that port, unchanged -- each daemon runs with the same
+the runner on that port, unchanged -- each runner runs with the same
 `root_path`. Loopback only. HTTP goes through httpx, websockets through
 `websockets`; both are already in flyball's environment.
 """
@@ -45,9 +45,9 @@ def main(argv: list[str]) -> None:
         request = client.build_request(scope["method"], url, headers=headers, content=body)
         try:
             r = await client.send(request, stream=True)
-        except httpx.ConnectError:  # the daemon is down, or restarting
+        except httpx.ConnectError:  # the runner is down, or restarting
             await send({"type": "http.response.start", "status": 502, "headers": [(b"content-type", b"application/json")]})
-            await send({"type": "http.response.body", "body": b'{"detail": "the daemon is not answering"}'})
+            await send({"type": "http.response.body", "body": b'{"detail": "the runner is not answering"}'})
             return
         try:
             await send({
@@ -71,7 +71,7 @@ def main(argv: list[str]) -> None:
         except websockets.InvalidStatus as e:
             await send({"type": "websocket.close", "code": 4000 + e.response.status_code % 1000})
             return
-        except OSError:  # the daemon is down, or restarting: the app retries with backoff
+        except OSError:  # the runner is down, or restarting: the app retries with backoff
             await send({"type": "websocket.close", "code": 1013})
             return
         await send({"type": "websocket.accept"})

@@ -4,7 +4,7 @@
     Nothing: these are for the person writing files and drivers, before there is a rig to open.
 
 
-These work with no daemon reachable; they use the configs installed here:
+These work with no runner reachable; they use the configs installed here:
 
 | | |
 | --- | --- |

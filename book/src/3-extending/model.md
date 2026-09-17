@@ -142,8 +142,8 @@ controller, dashboard, program and recorded session is identical whether
 the rig is real or simulated:
 
 ```
-flyball-daemon furnace.yaml            # hardware
-flyball-daemon furnace.yaml sim.yaml   # same addresses, no hardware
+flyball-runner furnace.yaml            # hardware
+flyball-runner furnace.yaml sim.yaml   # same addresses, no hardware
 ```
 
 `examples/humidity/rig.yaml` + `sim.yaml` ([the humidity rig](https://bengineer42.github.io/flyball/humidity/), its own

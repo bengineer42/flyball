@@ -18,7 +18,7 @@ file is read:
 | section | page | says |
 | --- | --- | --- |
 | top level | this page | the rig's name, what it builds on, the clock, recording |
-| `daemon:` | [The daemon section](daemon.md) | how the process serves: port, path, who may reach it, what the API may do, where files go |
+| `runner:` | [The runner section](runner.md) | how the process serves: port, path, who may reach it, what the API may do, where files go |
 | `links:` | [Links](links.md) | the buses, instrument connections and simulated plants devices are built on |
 | `devices:` | [Devices](devices/index.md) | what is on the rig: the envelope every device shares, and per-signal overrides |
 | | [Supported drivers](devices/drivers.md) | every driver's own fields, one section each |
@@ -38,7 +38,7 @@ board: pi4                     # optional: a board profile's links and pin label
 recording: false               # open a session at start?
 clock: { speed: 60 }           # simulated rigs only
 
-daemon:                        # how the process serves; not part of the rig
+runner:                        # how the process serves; not part of the rig
   port: 8002
   root_path: /furnace
   allow_shutdown: true
@@ -62,7 +62,7 @@ controllers:                   # who drives what, keyed by the target signal
   heaters.heater1: { signal: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15 }, default: true }
 ```
 
-Sections may be split across files -- `flyball-daemon furnace.yaml sim.yaml`,
+Sections may be split across files -- `flyball-runner furnace.yaml sim.yaml`,
 later files overlaying earlier -- or gathered into one with `extends`; see
 [several files](#several-files). Unknown keys are refused at every level, so
 a typo fails at load with its name; `flyball rig check FILE…` reports the
@@ -75,9 +75,9 @@ same without serving.
 | `name` | string | the file's stem | the rig's name: in `/api/health`, session metadata, and the store's file name under `store_dir` |
 | `extends` | `[path, …]` | none | files this one is layered on top of, relative to this file, in order |
 | `board` | string | none | a board profile (a name on the board path, or a path): its `links` go under yours, and `pin: LABEL` on a device resolves against it -- [Boards](boards.md) |
-| `recording` | bool | `false` | open a recording session when the daemon starts (`--record` does the same once) |
+| `recording` | bool | `false` | open a recording session when the runner starts (`--record` does the same once) |
 | `clock` | `{speed, stepped}` | real time | `speed`: rig seconds per wall second; `stepped: true`: time moves only when stepped. Refused unless every link is `sim_*`/`fake_*` |
-| `daemon` | section | defaults | [The daemon section](daemon.md) |
+| `runner` | section | defaults | [The runner section](runner.md) |
 | `links` | section | `{}` | [Links](links.md) |
 | `devices` | section | `{}` | [Devices](devices/index.md) |
 | `controllers` | section | `{}` | [Controllers](controllers.md) |
@@ -89,16 +89,16 @@ key and everything else whole; a `null` deletes what an earlier file set.
 Three ways to lay a rig out:
 
 ```
-flyball-daemon rig.yaml sim.yaml            # the command line lists the layers
-flyball-daemon rig.yaml --set clock.speed=60  # a one-key overlay on top
-flyball-daemon site.yaml                    # one file that `extends` the rest
+flyball-runner rig.yaml sim.yaml            # the command line lists the layers
+flyball-runner rig.yaml --set clock.speed=60  # a one-key overlay on top
+flyball-runner site.yaml                    # one file that `extends` the rest
 ```
 
 The conventional split is one file per concern: the hardware rig
 (`links`, `devices`, `controllers`); a simulation overlay that swaps the
 links and drivers under the same names (`examples/humidity/rig.yaml` +
-`sim.yaml`, walked through in [the humidity book](https://bengineer42.github.io/flyball/humidity/2-config/)); and a daemon file per deployment that `extends` those and
-carries only `daemon:` (`examples/site/humidity.yaml`). Every address,
+`sim.yaml`, walked through in [the humidity book](https://bengineer42.github.io/flyball/humidity/2-config/)); and a runner file per deployment that `extends` those and
+carries only `runner:` (`examples/site/humidity.yaml`). Every address,
 program, dashboard and session is then identical whether the rig is real
 or simulated, and `flyball rig check FILE…` validates any combination
 without serving it.

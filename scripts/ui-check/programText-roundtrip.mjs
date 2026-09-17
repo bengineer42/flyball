@@ -7,7 +7,7 @@
  * each of yaml/toml/json, parse each dump again, and assert deep equality
  * with the first parse. Also cross-checks the first parse against the
  * Python side (`uv run flyball program check <file>` and a plain
- * `python -c "import yaml, json"` load) so the browser and the daemon are
+ * `python -c "import yaml, json"` load) so the browser and the runner are
  * reading the same document.
  *
  * Usage: node programText-roundtrip.mjs
@@ -21,7 +21,7 @@ import path from "node:path";
 const REPO = "/home/ben/flyball";
 const UI = path.join(REPO, "ui");
 const SRC = path.join(UI, "apps/dashboard/src/programText.ts");
-const CONTROLLER = path.join(REPO, "controller");
+const ENGINE = path.join(REPO, "engine");
 
 // --- build a self-contained CJS bundle of programText.ts (yaml/smol-toml inlined) ---
 // CJS (not ESM) because yaml's compose module has a conditional `require("process")`
@@ -63,16 +63,16 @@ function deepEqual(a, b) {
 }
 
 function pythonLoad(file) {
-  // Cross-check against the daemon's own YAML loader (PyYAML) so the browser
-  // and the daemon agree on what the document means, not just that our own
+  // Cross-check against the runner's own YAML loader (PyYAML) so the browser
+  // and the runner agree on what the document means, not just that our own
   // dump/parse round-trips.
-  const out = execFileSync("uv", ["run", "python", "-c", "import sys, yaml, json; print(json.dumps(yaml.safe_load(open(sys.argv[1]).read())))", file], { cwd: CONTROLLER, encoding: "utf8" });
+  const out = execFileSync("uv", ["run", "python", "-c", "import sys, yaml, json; print(json.dumps(yaml.safe_load(open(sys.argv[1]).read())))", file], { cwd: ENGINE, encoding: "utf8" });
   return JSON.parse(out);
 }
 
 function pythonCheck(file) {
   try {
-    execFileSync("uv", ["run", "flyball", "program", "check", "--local", file], { cwd: CONTROLLER, stdio: "pipe" });
+    execFileSync("uv", ["run", "flyball", "program", "check", "--local", file], { cwd: ENGINE, stdio: "pipe" });
     return { ok: true };
   } catch (e) {
     return { ok: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}` };
@@ -108,7 +108,7 @@ for (const file of findPrograms()) {
     }
   }
 
-  // cross-check against the Python side: the daemon's PyYAML load must see the same document
+  // cross-check against the Python side: the runner's PyYAML load must see the same document
   try {
     const py = pythonLoad(file);
     if (!deepEqual(first, py)) {

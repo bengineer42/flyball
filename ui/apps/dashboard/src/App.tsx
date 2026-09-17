@@ -148,7 +148,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   useScrollMemory(ready);
 
   if (devices.error) {
-    // The session ended (or a daemon refuses everything and the door has not yet said so): the first
+    // The session ended (or a runner refuses everything and the door has not yet said so): the first
     // request the app makes is what discovers it, so the login page stands in for the usual error.
     if (devices.error instanceof RigError && devices.error.status === 401) return <LoginPage />;
     return (

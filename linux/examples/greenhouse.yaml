@@ -3,8 +3,8 @@
 # soil, a PWM heater and a relay-driven fan on GPIO18. `board: rpi5`
 # supplies the buses; the file names pins by their header labels.
 #
-#   flyball-daemon greenhouse.yaml              # the Pi
-#   flyball-daemon greenhouse.yaml sim.yaml     # any machine: the same names on fake buses
+#   flyball-runner greenhouse.yaml              # the Pi
+#   flyball-runner greenhouse.yaml sim.yaml     # any machine: the same names on fake buses
 #
 # Addresses: air.temperature, air.humidity [RP]; soil.temperature [RP];
 # heater.drive [W] in °C; fan.on [W] 0/1.

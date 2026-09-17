@@ -1,7 +1,7 @@
 # A site: several sims on one origin
 
-One daemon file per deployment. Each holds only `extends` (the rig it
-serves) and a `daemon:` section (how): port, path prefix, what the API may
+One runner file per deployment. Each holds only `extends` (the rig it
+serves) and a `runner:` section (how): port, path prefix, what the API may
 do, where the store goes. The rigs themselves are `examples/humidity` and
 `examples/simulated`, unchanged.
 
@@ -13,19 +13,19 @@ do, where the store goes. The rigs themselves are `examples/humidity` and
 Run each from the venv that has its drivers, then put a front on one port:
 
 ```
-cd examples/humidity && uv run flyball-daemon ../site/humidity.yaml
-cd controller        && uv run flyball-daemon ../examples/site/furnace.yaml
-cd controller        && uv run python ../examples/site/front.py 8080 /humidity=8001 /furnace=8002
+cd examples/humidity && uv run flyball-runner ../site/humidity.yaml
+cd engine            && uv run flyball-runner ../examples/site/furnace.yaml
+cd engine            && uv run python ../examples/site/front.py 8080 /humidity=8001 /furnace=8002
 ```
 
 `front.py` is a development stand-in for nginx: it serves the built
 dashboard (`ui/apps/dashboard/dist`, one build for every prefix) under each
 prefix and passes that prefix's `/api`, `/ws`, `/mcp` and `/docs` to the
-daemon on that port unchanged. Loopback only. In production the same three
-`location` blocks per rig go in nginx -- see the book, *The daemon*, "A
+runner on that port unchanged. Loopback only. In production the same three
+`location` blocks per rig go in nginx -- see the book, *The runner*, "A
 sub-path".
 
-A rig the public may watch but not drive is the daemon's own business:
+A rig the public may watch but not drive is the runner's own business:
 each file here sets `auth.anonymous: read` with a password, so anyone may
 read and open the streams, and a login (the UI's page, or `POST
 /api/auth/login`) is needed to do anything else. Put a real password in

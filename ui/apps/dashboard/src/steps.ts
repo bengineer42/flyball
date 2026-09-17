@@ -1,5 +1,5 @@
 /**
- * Reading a program's normalised document against the schemas the daemon
+ * Reading a program's normalised document against the schemas the runner
  * publishes: which command a step runs, that command's argument schema,
  * and how to say a duration or a rate in words. No rendering.
  */

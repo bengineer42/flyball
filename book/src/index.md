@@ -25,10 +25,10 @@ programs, sessions.
 **I'm setting up a rig.** A rig is one file: what is on it and how it is
 served. Start with a simulated one, then swap the links for real ones.
 
-1. Install: `cd controller && uv sync --all-extras`; the UI is
+1. Install: `cd engine && uv sync --all-extras`; the UI is
    `cd ui && npm install && npm run build` (or `npm run dev` while working
    on a rig -- see [The UI](1-running/ui/index.md)).
-2. [Starting a rig](1-running/daemon/index.md): `flyball-daemon rig.yaml`,
+2. [Starting a rig](1-running/runner/index.md): `flyball-runner rig.yaml`,
    what it serves, the door, a sub-path, `--record`.
 3. [The config file](2-config/index.md): the annotated example, then
    [links](2-config/links.md), [devices](2-config/devices/index.md) and
@@ -52,7 +52,7 @@ served. Start with a simulated one, then swap the links for real ones.
 | **Programs** | a sequence of commands -- regulate, ramp, hold, arrive, set, wait -- written as a file, validated in an editor, run and interrupted from the API |
 | **Recording** | every reading, demand and controller tick into SQLite as sessions; export as CSV, JSON or a zip; rig versions beside the data so a session always has its rig |
 | **Simulation** | plants (lags, furnaces, tanks) and a clock that runs at 60× or in steps, so a rig, a program and a dashboard are built and tested with nothing plugged in, then run unchanged on hardware |
-| **The server** | one daemon per rig: an HTTP and websocket API, a browser UI rendered from the rig's own schema, a command line, a Python client, and an MCP server so a model can read or drive the rig |
+| **The server** | one runner per rig: an HTTP and websocket API, a browser UI rendered from the rig's own schema, a command line, a Python client, and an MCP server so a model can read or drive the rig |
 | **Boards** | Raspberry Pi I²C, SPI, GPIO, PWM and 1-Wire links with drivers on them (`flyball-linux`), board profiles by name |
 
 ## The ideas, in one paragraph
@@ -64,7 +64,7 @@ each signal has an **address**, a **quantity** (name and unit) and an
 publishing signal to one writable signal through a **law**. A **program**
 is a list of **commands** run against the rig. A **session** is everything
 recorded between a start and an end. The **config file** declares the
-links, the devices and the controllers; the **daemon** builds the rig from
+links, the devices and the controllers; the **runner** builds the rig from
 it and serves it. [What you will see](0-overview/concepts.md) puts the six
 words an operator meets on the screen; the parts below go as deep as you need.
 
@@ -72,8 +72,8 @@ words an operator meets on the screen; the parts below go as deep as you need.
 
 | you | part |
 | --- | --- |
-| run a rig someone else has set up: watch it, drive it, record, run programs | [Running a rig](1-running/daemon/index.md) |
-| describe a rig -- which devices on which links, what regulates what, how the daemon serves it | [Configuration](2-config/index.md) |
+| run a rig someone else has set up: watch it, drive it, record, run programs | [Running a rig](1-running/runner/index.md) |
+| describe a rig -- which devices on which links, what regulates what, how the runner serves it | [Configuration](2-config/index.md) |
 | put flyball on hardware it has no driver for, or add a control law | [Extending](3-extending/index.md) |
 | talk to a rig from your own code, a script, or a model | [The server](4-server/index.md) |
 | change flyball itself | [Internals](6-internals/architecture.md) |
@@ -88,8 +88,8 @@ Every example in this book runs against a simulated plant; no hardware is
 needed. The quickest whole rig is a file:
 
 ```
-cd controller
-uv run flyball-daemon ../examples/simulated/furnace.yaml      # a three-zone furnace at 60×
+cd engine
+uv run flyball-runner ../examples/simulated/furnace.yaml      # a three-zone furnace at 60×
 ```
 
 then open the UI (see [The UI](1-running/ui/index.md)) or `uv run flyball status`.

@@ -7,6 +7,6 @@
 
 ::: flyball.cli
 
-::: flyball.daemon
+::: flyball.runner
 
 ::: flyball.scaffold

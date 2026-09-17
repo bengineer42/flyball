@@ -6,7 +6,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
 import { useQuery, useRig, useRigChanges, useRigDocument, useRigVersions } from "@flyball/react";
-import { RigError, pageBase, type DaemonInfo, type RigVersion } from "@flyball/client";
+import { RigError, pageBase, type RunnerInfo, type RigVersion } from "@flyball/client";
 import { dumpYaml } from "../programText.js";
 import { Confirm } from "../Confirm.js";
 import { SectionHead, StateBlock } from "../cards.js";
@@ -107,8 +107,8 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
           {allowPath
-            ? "With no path, only what changed since the daemon started is written, to an overlay beside the rig file it was loaded from. A path writes the whole rig there instead."
-            : "What changed since the daemon started is written to an overlay beside the rig file it was loaded from. (Writing the whole rig to a path of your choosing needs the daemon started with allow_save.)"}
+            ? "With no path, only what changed since the runner started is written, to an overlay beside the rig file it was loaded from. A path writes the whole rig there instead."
+            : "What changed since the runner started is written to an overlay beside the rig file it was loaded from. (Writing the whole rig to a path of your choosing needs the runner started with allow_save.)"}
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
           {allowPath && (
@@ -187,9 +187,9 @@ const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; ser
 ];
 
 /**
- * `GET /mcp/{read,author,operate}`: this daemon's MCP server, one tier per mode (book's mcp.md). Shows each
+ * `GET /mcp/{read,author,operate}`: this runner's MCP server, one tier per mode (book's mcp.md). Shows each
  * tier's absolute URL, the `claude mcp add` line for it, and a client config block. The browser never holds
- * the daemon's token (a login is a cookie), so the block carries a placeholder for it when the daemon has one.
+ * the runner's token (a login is a cookie), so the block carries a placeholder for it when the runner has one.
  */
 function ConnectModelCard() {
   const { info } = useAuth();
@@ -207,7 +207,7 @@ function ConnectModelCard() {
         Connect a model
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        This daemon serves MCP over HTTP at three tiers, narrowest first: a client in read mode is never told
+        This runner serves MCP over HTTP at three tiers, narrowest first: a client in read mode is never told
         a tool that moves anything exists.
       </Typography>
       <Stack spacing={2.5}>
@@ -227,10 +227,10 @@ function ConnectModelCard() {
           <Typography variant="subtitle2">Client config</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
             {info?.token
-              ? "Every server here needs the daemon's bearer token (--token), since any of them can drive the rig: put it where <token> is."
+              ? "Every server here needs the runner's bearer token (--token), since any of them can drive the rig: put it where <token> is."
               : info?.password
-                ? "This daemon has a password but no token, and a model cannot type one: start it with --token as well and put that where <token> is."
-                : "This daemon has no password and no token: it is open to anyone who can reach it, so the config below carries no headers."}
+                ? "This runner has a password but no token, and a model cannot type one: start it with --token as well and put that where <token> is."
+                : "This runner has no password and no token: it is open to anyone who can reach it, so the config below carries no headers."}
           </Typography>
           <CopyLine value={JSON.stringify(config, null, 2)} />
         </Box>
@@ -239,20 +239,20 @@ function ConnectModelCard() {
   );
 }
 
-/** Where this daemon serves from and, when it allows it, the buttons to stop or restart it. */
-function DaemonControls({ daemon, busy, onAsk }: { daemon: DaemonInfo; busy: boolean; onAsk(what: "shutdown" | "restart"): void }) {
+/** Where this runner serves from and, when it allows it, the buttons to stop or restart it. */
+function RunnerControls({ runner, busy, onAsk }: { runner: RunnerInfo; busy: boolean; onAsk(what: "shutdown" | "restart"): void }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-      <Typography variant="body2" color="text.secondary" title={daemon.files.join("\n")}>
-        {daemon.host}:{daemon.port}
-        {daemon.root_path ? daemon.root_path : ""} · {daemon.files.length} file{daemon.files.length === 1 ? "" : "s"}
+      <Typography variant="body2" color="text.secondary" title={runner.files.join("\n")}>
+        {runner.host}:{runner.port}
+        {runner.root_path ? runner.root_path : ""} · {runner.files.length} file{runner.files.length === 1 ? "" : "s"}
       </Typography>
-      {daemon.allow_shutdown && (
+      {runner.allow_shutdown && (
         <>
-          <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} disabled={busy} onClick={() => onAsk("restart")} data-testid="daemon-restart">
+          <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} disabled={busy} onClick={() => onAsk("restart")} data-testid="runner-restart">
             Restart
           </Button>
-          <Button size="small" variant="outlined" color="error" startIcon={<PowerSettingsNewIcon />} disabled={busy} onClick={() => onAsk("shutdown")} data-testid="daemon-shutdown">
+          <Button size="small" variant="outlined" color="error" startIcon={<PowerSettingsNewIcon />} disabled={busy} onClick={() => onAsk("shutdown")} data-testid="runner-shutdown">
             Shut down
           </Button>
         </>
@@ -263,7 +263,7 @@ function DaemonControls({ daemon, busy, onAsk }: { daemon: DaemonInfo; busy: boo
 
 /**
  * `#/rig`: the running rig as a file would show it, what has changed since
- * the daemon started, its version history with a restore per row, and a box
+ * the runner started, its version history with a restore per row, and a box
  * to save it -- the overlay by default, or the whole rig to a path.
  */
 export function RigPage() {
@@ -271,14 +271,14 @@ export function RigPage() {
   const document = useRigDocument(5000);
   const changes = useRigChanges(5000);
   const versions = useRigVersions(50);
-  const daemon = useQuery(() => rig.daemon().catch(() => undefined), [rig]);
+  const runner = useQuery(() => rig.runner().catch(() => undefined), [rig]);
   const [restoring, setRestoring] = useState<RigVersion | null>(null);
   const [power, setPower] = useState<"shutdown" | "restart" | null>(null);
   const powerAct = async () => {
     if (!power) return;
     setBusy(true);
     try {
-      await (power === "shutdown" ? rig.shutdownDaemon() : rig.restartDaemon());
+      await (power === "shutdown" ? rig.shutdownRunner() : rig.restartRunner());
       setError(null);
       setPower(null);
     } catch (e) {
@@ -311,7 +311,7 @@ export function RigPage() {
 
   return (
     <>
-      <SectionHead icon={PAGE_ICONS.rig} title="Rig" end={daemon.data ? <DaemonControls daemon={daemon.data} busy={busy} onAsk={setPower} /> : undefined} />
+      <SectionHead icon={PAGE_ICONS.rig} title="Rig" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
       <div className="grid">
         <Paper className="c12 xl6" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
@@ -347,14 +347,14 @@ export function RigPage() {
           )}
         </Paper>
         <div className="c12 xl6">
-          <SaveBox allowPath={daemon.data?.allow_save ?? true} />
+          <SaveBox allowPath={runner.data?.allow_save ?? true} />
         </div>
         <ConnectModelCard />
       </div>
       <Confirm
         open={power !== null}
-        title={power === "shutdown" ? "Shut the daemon down?" : "Restart the daemon?"}
-        text={power === "shutdown" ? "The rig stops: polling, controllers and recording end, and this page loses its connection until a daemon is started again." : "The daemon stops and starts itself again with the same command: the rig is rebuilt from its files, controllers start in manual, and this page reconnects in a few seconds."}
+        title={power === "shutdown" ? "Shut the runner down?" : "Restart the runner?"}
+        text={power === "shutdown" ? "The rig stops: polling, controllers and recording end, and this page loses its connection until a runner is started again." : "The runner stops and starts itself again with the same command: the rig is rebuilt from its files, controllers start in manual, and this page reconnects in a few seconds."}
         action={power === "shutdown" ? "Shut down" : "Restart"}
         busy={busy}
         onClose={() => setPower(null)}

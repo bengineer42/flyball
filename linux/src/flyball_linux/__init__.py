@@ -7,5 +7,5 @@ numbers a board uses is a board profile -- a data file on the board path --
 not code.
 
 Importing [flyball_linux.configs][] registers every tag; the `flyball.configs`
-entry point does that for `flyball rig check` and the daemon.
+entry point does that for `flyball rig check` and the runner.
 """

@@ -1,0 +1,170 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyball"
+description = "Closed-loop control of a quantity with an actuator: control laws, runtime, telemetry, identification"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+dynamic = ["version"]
+
+# The controller, the simulated plant and the SQLite store are stdlib-only;
+# pydantic is the one requirement, for configs and the schemas built from
+# them. Everything that talks to hardware or the network is an extra.
+dependencies = ["pydantic>=2.9", "tomli-w>=1.0"]  # tomli-w: saving a rig file
+
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5"]
+# FastAPI won: flyball.server needs its WebSocket support for live telemetry
+# and pydantic for request validation. uvicorn is the ASGI server.
+# The runner also serves MCP at /mcp/<mode>, over the client pointed back at itself.
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pyyaml>=6", "flyball[mcp]"]
+# flyball.cli and flyball.client talk to a runner over HTTP and websockets and
+# import nothing from the rig: they run anywhere.
+cli = ["httpx>=0.27", "websockets>=13", "pyyaml>=6"]  # program files are YAML
+# Links to instruments (flyball.hardware.links). Each driver is imported only
+# when a real link is built; the fakes need nothing.
+visa = ["pyvisa>=1.14", "pyvisa-py>=0.7"]
+modbus = ["pymodbus>=3.6"]
+# Adapters in flyball.integrations. Each imports its framework only when used;
+# the extra is what lets you actually run against it.
+bluesky = ["bluesky>=1.13", "ophyd>=1.9"]
+# Wrapped instrument libraries: their drivers as flyball readers and actuators.
+qcodes = ["qcodes>=0.45"]
+pymeasure = ["pymeasure>=0.13"]
+# flyball.mcp on its own: the stdio server, for a machine that reaches the rig but is not it.
+mcp = ["flyball[cli]", "mcp>=1.12"]
+all = ["flyball[cli,serial,web]"]
+
+[project.scripts]
+flyball = "flyball.cli:main"
+flyball-runner = "flyball.runner:main"
+flyball-mcp = "flyball.mcp.server:main"
+
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "import-linter>=2.1",
+    "types-pyserial",
+    "ipykernel>=7.3.0",
+]
+# The books under book/ and examples/*/book/ are MkDocs sites; mkdocstrings
+# renders the Python reference from docstrings, griffe-pydantic the model fields.
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+    "griffe-pydantic>=1.0",
+]
+
+[tool.hatch.version]
+path = "src/flyball/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyball"]
+
+# Pulls the built dashboard UI into the wheel from outside the package root
+# (ui/ is a separate npm workspace, two directories up from engine/). This
+# requires `ui/apps/dashboard` to have been built (`npm run build`) BEFORE
+# `hatch build`/`uv build` runs -- hatchling only copies files that already
+# exist at build time, it does not (and cannot) invoke npm itself.
+#
+# A plain `[tool.hatch.build.targets.wheel.force-include]` entry would work
+# for CI (which always builds the UI first) but fails hard -- FileNotFoundError
+# -- the moment the source directory is missing, which it is on every ordinary
+# dev checkout (`ui/apps/dashboard/dist` is gitignored) and would break
+# `uv sync`/`make test`'s editable install for anyone who hasn't run
+# `npm run build`. `hatch_build.py`'s build hook does the same force-include,
+# but only when the built dist actually exists, so a dev checkout without it
+# still installs/tests fine (see server/app.py's fallback for what that means
+# for serving the UI at runtime).
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+preview = true
+
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # simplify
+    "RUF",
+    "D",   # pydocstyle
+]
+
+# Docstrings are Google style. The missing-docstring rules stay off: the house
+# style documents what needs explaining, not every definition.
+ignore = ["undocumented-public-module", "undocumented-public-class", "undocumented-public-method", "undocumented-public-function", "undocumented-public-package", "undocumented-magic-method", "undocumented-public-nested-class", "undocumented-public-init"]
+
+# Greek quantity and unit symbols (ρ, µ, Ω...) are the SI's, not typos.
+allowed-confusables = ["α", "γ", "ε", "η", "λ", "µ", "μ", "ν", "ρ", "σ", "ω", "Ω", "Φ", "Θ"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests compare against exact literals on purpose; ``pytest.approx`` is used where a value is computed.
+"tests/*" = ["magic-value-comparison", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["flyball"]
+strict = true
+warn_unreachable = true
+
+# Enforces the layering by hand rather than by splitting into separate
+# distributions: packages on one line are mutually independent, and nothing
+# below may import anything above. The Bluesky adapter wraps a rig for another
+# framework, so it sits above the runtime; the QCoDeS and PyMeasure wrappers
+# wrap drivers, so they sit below it. Run with `uv run lint-imports`.
+[tool.importlinter]
+root_packages = ["flyball"]
+
+[[tool.importlinter.contracts]]
+name = "Layers"
+type = "layers"
+layers = [
+    "flyball.cli | flyball.runner",
+    "flyball.mcp",
+    "flyball.server",
+    "flyball.programmer | flyball.integrations.bluesky",
+    "flyball.runtime",
+    "flyball.sim | flyball.devices | flyball.integrations.qcodes | flyball.integrations.pymeasure",
+    "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db",
+    "flyball.control",
+    "flyball.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "The client, the scaffold and the MCP server stand alone"
+type = "forbidden"
+source_modules = ["flyball.client", "flyball.scaffold", "flyball.mcp"]
+forbidden_modules = [
+    "flyball.core", "flyball.control", "flyball.runtime", "flyball.server", "flyball.programmer",
+]

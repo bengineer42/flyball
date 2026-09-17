@@ -94,7 +94,7 @@ laptop.
 ## A simulation from a file
 
 A rig file whose links are all `sim_*`/`fake_*` is a simulation, and the
-daemon treats it as one: the rig gets a clock whose speed can change, and
+runner treats it as one: the rig gets a clock whose speed can change, and
 `/api/sim` (and `flyball sim`) exposes the knobs.
 
 ```yaml
@@ -150,7 +150,7 @@ can be tuned in plain °C-per-°C and the default `setpoint` feedforward hands
 the target the setpoint untouched.
 
 ```
-flyball-daemon oven.yaml
+flyball-runner oven.yaml
 flyball sim                          # clock 1x; chamber fopdt tau_s=60 ...
 flyball sim clock 200                # faster, from now on; time stays continuous
 flyball sim set chamber tau_s=30 noise=0.2
@@ -163,7 +163,7 @@ Parameters change *while the plant runs* — its state is kept, as a real
 plant's would be — so you can watch the controller cope with a plant that
 just got faster. `model` cannot change without a restart. `save` rewrites
 the rig file with the new parameters and clock speed, in the format its
-suffix names, so the next `flyball-daemon` starts from what you settled on.
+suffix names, so the next `flyball-runner` starts from what you settled on.
 Unsaved changes are listed by `flyball sim` (`flyball sim show`, its full
 name; bare `flyball sim` is the same command).
 
@@ -290,7 +290,7 @@ devices:
     config: { link: chamber, ports: { humidity: { port: wet_fraction, quantity: humidity, unit: "%RH", limits: [0, 100] } } }
 ```
 
-`flyball-daemon rig.yaml` runs the hardware; `flyball-daemon rig.yaml
+`flyball-runner rig.yaml` runs the hardware; `flyball-runner rig.yaml
 sim.yaml` overlays it -- later file wins, `null` deletes a key, so `i2c1`
 and `pwm0` vanish and `chamber` (a `MultiPlant` the humidity example writes
 itself, `sim_humidity_chamber`, implementing the same protocol as

@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build latest (main) and dev of both books
-        working-directory: controller
+        working-directory: engine
         run: |
           git fetch origin main dev
           uv sync --group docs

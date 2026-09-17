@@ -1,11 +1,11 @@
 /**
- * The door, as the app sees it: who this browser is to the daemon (`GET /api/auth`), sign in, sign out.
- * The browser keeps no secret -- a login sets an `HttpOnly` cookie the daemon issues, which then rides on
+ * The door, as the app sees it: who this browser is to the runner (`GET /api/auth`), sign in, sign out.
+ * The browser keeps no secret -- a login sets an `HttpOnly` cookie the runner issues, which then rides on
  * every request, socket and download by itself. Lives above `<RigProvider>` in `main.tsx`: signing in or out
- * bumps `epoch`, which rebuilds the client and every socket (a socket the daemon closed with 4401 is never
+ * bumps `epoch`, which rebuilds the client and every socket (a socket the runner closed with 4401 is never
  * retried on its own).
  *
- * `?token=` on the page's own URL is the old way of handing a daemon's token to a browser: it is posted to
+ * `?token=` on the page's own URL is the old way of handing a runner's token to a browser: it is posted to
  * the login once and dropped from the visible address, so a shared "open this with the token" link still
  * works and leaves nothing in history.
  */
@@ -13,13 +13,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { RigClient, RigError, browserTransport, type AuthInfo, type Transport } from "@flyball/client";
 
 export interface AuthState {
-  /** What the daemon said, or `null` before the first answer arrived. */
+  /** What the runner said, or `null` before the first answer arrived. */
   info: AuthInfo | null;
-  /** Why the first answer did not arrive: the daemon is unreachable, not refusing. */
+  /** Why the first answer did not arrive: the runner is unreachable, not refusing. */
   error: string | null;
   /** Rebuilds `<RigProvider>` when it changes: after a sign in or out. */
   epoch: number;
-  /** The daemon has neither a password nor a token: nobody is refused, no door is drawn. */
+  /** The runner has neither a password nor a token: nobody is refused, no door is drawn. */
   open: boolean;
   /** This browser may drive the rig. */
   canOperate: boolean;
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEpoch((n) => n + 1);
   }, [client]);
 
-  // A 401 anywhere: ask the daemon who we are now (coalesced, since a page's every poll may say so at once).
+  // A 401 anywhere: ask the runner who we are now (coalesced, since a page's every poll may say so at once).
   // From a reader it is an attempt to operate, which the app nudges about; otherwise a session that ended.
   const unauthorized = useCallback(() => {
     if (level.current === "read") setDenied((n) => n + 1);

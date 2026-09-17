@@ -11,7 +11,7 @@
     | drive hardware nothing here supports, or add a law | [Extending](../3-extending/index.md) |
     | change flyball itself | [Internals](../6-internals/index.md) |
     | look a key or a route up | [Reference](../7-reference/index.md) |
-Every rig is served by one daemon: a FastAPI app with an HTTP API, a set of
+Every rig is served by one runner: a FastAPI app with an HTTP API, a set of
 websockets, and -- on the same port -- the MCP server. Everything that
 faces a person is a client of it: the browser UI, the `flyball` command
 line, the Python client, a model over MCP, your own script. None of them
@@ -19,7 +19,7 @@ knows anything the API does not publish.
 
 | page | |
 | --- | --- |
-| [HTTP and websocket API](api.md) | every route, by area: the daemon, the rig and its composition, devices, reading, controllers, waits, history and export, programs, dashboards, simulation, events; the websockets |
+| [HTTP and websocket API](api.md) | every route, by area: the runner, the rig and its composition, devices, reading, controllers, waits, history and export, programs, dashboards, simulation, events; the websockets |
 | [Wire format](wire.md) | how a time, a signal, a unit, a device, a controller and an error are spelled in JSON |
 | [The MCP server](mcp.md) | the three tiers a model may be given, and what each sees |
 | [How the server is built](internals.md) | assembly, resolution at request time, the wire models, telemetry, the program dialect |
@@ -27,9 +27,9 @@ knows anything the API does not publish.
 ## Finding a rig
 
 `http://host:8000` by default; `--host 0.0.0.0` to be reachable; a
-[sub-path](../1-running/daemon/access.md#a-sub-path) (`--root-path /furnace`) puts
+[sub-path](../1-running/runner/access.md#a-sub-path) (`--root-path /furnace`) puts
 everything under a prefix. `GET /api/health` is the one-look status;
-`GET /api/schema` describes every device; `GET /api/daemon` says how the
+`GET /api/schema` describes every device; `GET /api/runner` says how the
 process was started and what it allows.
 
 ## Clients
@@ -60,11 +60,11 @@ Open by default. With a password every request needs the session a login
 sets; with a token, `Authorization: Bearer` (`?token=` on a socket or a
 download link); `auth.anonymous: read` lets reads through regardless
 ([authentication](api.md#authentication)). Independently, some things are
-off unless the daemon was started allowing them: building up a hardware
+off unless the runner was started allowing them: building up a hardware
 rig (`--compose`), writing rig files (`--allow-save`), stopping or
 restarting (`--allow-shutdown`), the MCP mount (`--no-mcp` turns it off).
-All of it is in the [daemon section](../2-config/daemon.md) of the config
-file, and [Starting a rig](../1-running/daemon/index.md) says what each means in
+All of it is in the [runner section](../2-config/runner.md) of the config
+file, and [Starting a rig](../1-running/runner/index.md) says what each means in
 practice, including how to put a rig on the public internet read-only.
 
 ## Errors

@@ -51,7 +51,7 @@ export interface ProgramBuilderProps {
   controllers: string[] | undefined;
   /** The rig's devices with their commands and writable signals, for a `command` or `set` step's picks; undefined while unknown. */
   devices?: DevicePicks;
-  /** Check errors by step index (the daemon counts from zero). */
+  /** Check errors by step index (the runner counts from zero). */
   stepErrors: Record<number, string>;
   /** Check warnings by step index: what the step names that the rig lacks right now. */
   stepWarnings?: Record<number, string>;

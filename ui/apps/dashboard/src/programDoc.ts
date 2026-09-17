@@ -169,7 +169,7 @@ export function toForm(value: unknown, command: CommandInfo | undefined): Record
  * pairs in the flat spelling: `{minutes: 30}` → `[["minutes", 30]]`; the
  * composite `timeout: {minutes: 30}`, `timeout: 90` (seconds) and
  * `pace: {value: 5, per: "minute"}` are read the same way. More than one
- * pair means the file gave several, which the daemon refuses.
+ * pair means the file gave several, which the runner refuses.
  */
 export function timeEntries(args: Record<string, unknown>, field: TimeField): Array<[string, unknown]> {
   const out: Array<[string, unknown]> = [];
@@ -325,8 +325,8 @@ const NOT_ON_RIG = "not on this rig";
 
 /**
  * What the step's check warning says about `name`: the fragment of the
- * daemon's `; `-joined message that quotes it, else the bare mark. The
- * daemon reports exactly what the rig lacks, so its words go on the field.
+ * runner's `; `-joined message that quotes it, else the bare mark. The
+ * runner reports exactly what the rig lacks, so its words go on the field.
  */
 export function warningFor(warning: string | undefined, name: string): string {
   const hit = warning?.split("; ").find((part) => part.includes(`'${name}'`));
@@ -475,7 +475,7 @@ export function asProgram(value: unknown): ProgramTree | null {
   return { ...value, steps: (steps ?? []).map((s: unknown) => (isObject(s) ? s : { "": s })) } as ProgramTree;
 }
 
-/** "step 3: ..." from the check's 422 detail → the step's index (the daemon counts from zero) and the rest. */
+/** "step 3: ..." from the check's 422 detail → the step's index (the runner counts from zero) and the rest. */
 export function stepOfError(e: unknown): { index: number | null; message: string } {
   const detail = e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e);
   const m = /^step (\d+): ?(.*)$/s.exec(detail);

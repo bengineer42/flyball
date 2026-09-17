@@ -1,7 +1,7 @@
 # flyball UI
 
 A library first, an app second. Nothing here knows what a rig measures: every
-panel is a function of the JSON the daemon publishes (see the book's *HTTP and
+panel is a function of the JSON the runner publishes (see the book's *HTTP and
 websocket API* and *Wire format* pages), and the app is the smallest consumer
 of the library.
 

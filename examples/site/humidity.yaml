@@ -1,8 +1,8 @@
-# The humidity simulation as one daemon: `uv run flyball-daemon humidity.yaml`
+# The humidity simulation as one runner: `uv run flyball-runner humidity.yaml`
 # from examples/humidity (its venv has the humidity drivers). The rig is
 # examples/humidity's; this file only says how to serve it.
 extends: [../humidity/rig.yaml, ../humidity/sim.yaml]
-daemon:
+runner:
   port: 8001
   root_path: /humidity
   allow_shutdown: true

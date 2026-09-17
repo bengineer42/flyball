@@ -8,13 +8,13 @@
  *     unchanged, so an untouched form never rewrites the file;
  *   - every saved argument, every `set: values` key and every `command: args`
  *     key has a field of its own on the form, under three rig models: no rig
- *     known yet, the daemon's own rig (`GET /api/schema`), and a rig with no
+ *     known yet, the runner's own rig (`GET /api/schema`), and a rig with no
  *     devices at all -- a device, command or signal the rig lacks is still
  *     shown, never dropped;
  *   - a saved `device` / `device_command` is one of the pick's options, and
  *     the options never offer a simulation-only command that is not the saved one.
  *
- * Needs a daemon for the dialect (`GET /api/programs/schema`) and its rig.
+ * Needs a runner for the dialect (`GET /api/programs/schema`) and its rig.
  * Usage: node programForm-roundtrip.mjs [api-url]   (default http://127.0.0.1:8145)
  */
 import { execFileSync } from "node:child_process";
@@ -43,7 +43,7 @@ const rigSchema = await (await fetch(`${api}/api/schema`)).json();
 const commands = commandsOf(programSchema);
 const byTag = Object.fromEntries(commands.map((c) => [c.tag, c]));
 
-// The same DevicePicks Programs.tsx builds, from the daemon's rig.
+// The same DevicePicks Programs.tsx builds, from the runner's rig.
 const all = Object.values(rigSchema.devices);
 const isWritable = (s) => s.access.includes("w");
 const rigPicks = {

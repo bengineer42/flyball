@@ -1,0 +1,409 @@
+# Searchable catalogue of every flyball_linux driver/link, pre-existing and new.
+# Every entry here is decoded from a datasheet and, per brain/plans/roadmap-upgrades.md,
+# has never been run against real hardware -- see each driver's own module docstring
+# for the authoritative "what's verified vs [Unverified]" statement; `verified` below
+# is a coarse summary of that, not a substitute for reading it.
+#
+# Fields:
+#   tag            the DriverConfig/Config tag string used in a rig file's `driver:`
+#   part_number, manufacturer
+#   category       temp | humidity | pressure | gas | liquid | weight | light | actuator | link
+#   interface      i2c_table | i2c_bespoke | uart | spi | analog_adc | gpio | pulse | 4-20ma | onewire | pwm
+#   tier           config_only | generic_link | bespoke_driver
+#   file           path under src/flyball_linux/
+#   loc_estimate, loc_actual
+#   status         done | in_progress | planned
+#   verified       true (datasheet-confirmed throughout) | partial (some fields [Unverified]) | false
+#   price_approx   rough unit cost, [Unverified] unless noted -- for BOM planning, not a quote
+#   domains        which roadmap leads this serves (see brain/plans/roadmap-upgrades.md)
+#   links          relatively-static reference URLs (datasheet, product page, purchase link,
+#                  reference driver source) -- only URLs an agent actually cited; "TODO" where
+#                  none was captured, never a guessed URL
+
+sensors:
+  - tag: sht4x
+    part_number: SHT40/41/45
+    manufacturer: Sensirion
+    category: humidity
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/sht4x.py
+    loc_actual: 274
+    status: done
+    verified: true
+    price_approx: "~$3-5 [Unverified]"
+    domains: [pre-existing, humidity-example]
+    links: []
+
+  - tag: sht31
+    part_number: SHT30/31/35
+    manufacturer: Sensirion
+    category: humidity
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/sht31.py
+    loc_estimate: "200-250"
+    loc_actual: 167
+    status: done
+    verified: true
+    price_approx: "~$5-8 [Unverified]"
+    domains: [mushroom, aging, greenhouse]
+    links:
+      - label: datasheet
+        url: "Sensirion Datasheet SHT3x-DIS, May 2015 v0.93 (public, section 4.3/4.12/4.13 used)"
+
+  - tag: htu21d
+    part_number: HTU21D(F) / Si7021
+    manufacturer: TE Connectivity / Silicon Labs
+    category: humidity
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/htu21d.py
+    loc_estimate: "120-180"
+    loc_actual: 201
+    status: done
+    verified: true
+    price_approx: "~$4-7 [Unverified]"
+    domains: [mushroom, aging]
+    links:
+      - label: datasheet
+        url: "TE Connectivity HTU21D(F) datasheet, 05/2017 (public)"
+
+  - tag: ms5611
+    part_number: MS5611-01BA03
+    manufacturer: TE Connectivity
+    category: pressure
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/ms5611.py
+    loc_estimate: "100-150"
+    loc_actual: 194
+    status: done
+    verified: true
+    price_approx: "~$5-10 [Unverified]"
+    domains: [greenhouse, brewing]
+    links:
+      - label: datasheet
+        url: "TODO -- checked against the datasheet's own worked numeric example (matched to 4dp), URL not captured"
+
+  - tag: bme280
+    part_number: BME280 / BMP280
+    manufacturer: Bosch Sensortec
+    category: temp
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/bme280.py
+    loc_estimate: "30-60 (compensation layer only; grew to a full driver once built)"
+    loc_actual: 401
+    status: done
+    verified: partial
+    price_approx: "~$2-5 [Unverified]"
+    domains: [greenhouse, dosing_skids, all]
+    links:
+      - label: note
+        url: "No official Bosch worked numeric example exists for BME280 (unlike MS5611) -- tests are structural/self-consistency only, flagged [Unverified] in the module docstring"
+
+  - tag: bme680
+    part_number: BME680
+    manufacturer: Bosch Sensortec
+    category: gas
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/bme680.py
+    loc_estimate: "100-150 (gas channel only)"
+    loc_actual: 483
+    status: done
+    verified: partial
+    price_approx: "~$8-15 [Unverified]"
+    domains: [greenhouse, mushroom]
+    links:
+      - label: reference source
+        url: "Bosch BME68x_SensorAPI (bme68x.c) -- compensation formula confirmed to genuinely differ from BME280's, transcribed verbatim"
+      - label: caveat
+        url: "Calibration register byte offsets and gas-block layout (low- vs high-range variant) are [Unverified], transcribed from community driver ports not re-derived from a raw datasheet table -- treat as needing a datasheet cross-check before trusting"
+
+  - tag: scd30
+    part_number: SCD30
+    manufacturer: Sensirion
+    category: gas
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/scd30.py
+    loc_estimate: "220-280"
+    loc_actual: 202
+    status: done
+    verified: partial
+    price_approx: "~$40-50 [Unverified]"
+    domains: [mushroom, aging]
+    links:
+      - label: interface description
+        url: "Sensirion SCD30 Interface Description (public PDF, fetched via search)"
+      - label: caveat
+        url: "ASC/forced-recalibration/temperature-offset/altitude-compensation commands are named but not implemented or independently re-verified"
+
+  - tag: scd40
+    part_number: SCD40 / SCD41
+    manufacturer: Sensirion
+    category: gas
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/scd4x.py
+    loc_estimate: "220-280"
+    loc_actual: 213
+    status: done
+    verified: partial
+    price_approx: "~$30-45 [Unverified]"
+    domains: [mushroom, aging, greenhouse]
+    links:
+      - label: reference source
+        url: "Sensirion embedded-i2c-scd4x reference C driver (github.com/Sensirion) -- command set/CRC cross-checked here"
+      - label: caveat
+        url: "Data-ready status bitmask (0x07FF) is [Unverified] beyond what the reference driver's usage implied -- exact datasheet bit-layout text not fetched"
+
+  - tag: sgp30
+    part_number: SGP30
+    manufacturer: Sensirion
+    category: gas
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/sgp30.py
+    loc_estimate: "180-220"
+    loc_actual: 217
+    status: done
+    verified: partial
+    price_approx: "~$15-20 [Unverified]"
+    domains: [mushroom, brewing]
+    links:
+      - label: caveat
+        url: "Baseline-word write order (CO2eq then TVOC) followed Sensirion's embedded-sgp driver convention, not independently re-confirmed against a datasheet table"
+
+  - tag: sgp40
+    part_number: SGP40
+    manufacturer: Sensirion
+    category: gas
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/sgp40.py
+    loc_estimate: "130-180"
+    loc_actual: 204
+    status: done
+    verified: partial
+    price_approx: "~$10-15 [Unverified]"
+    domains: [greenhouse, mushroom]
+    links:
+      - label: caveat
+        url: "Minimum wait after measure_raw (~30ms used) is approximate, not re-confirmed against a primary timing table"
+
+  - tag: ccs811
+    part_number: CCS811
+    manufacturer: ams / ScioSense
+    category: gas
+    interface: i2c_bespoke
+    tier: bespoke_driver
+    file: devices/chips/ccs811.py
+    loc_estimate: "80-120"
+    loc_actual: 214
+    status: done
+    verified: partial
+    price_approx: "~$8-12 [Unverified]"
+    domains: [mushroom, brewing]
+    links:
+      - label: caveat
+        url: "ENV_DATA humidity/temperature bit-packing followed the convention used by several open CCS811 libraries (e.g. Adafruit's), not a directly re-read datasheet table"
+
+  - tag: mhz19
+    part_number: MH-Z19(B)
+    manufacturer: Winsen
+    category: gas
+    interface: uart
+    tier: bespoke_driver
+    file: devices/chips/mhz19.py
+    loc_actual: 106
+    status: done
+    verified: true
+    price_approx: "~$8-15 [Unverified]"
+    domains: [mushroom, aging]
+    links: []
+
+  - tag: ezo_ph
+    part_number: EZO-pH
+    manufacturer: Atlas Scientific
+    category: liquid
+    interface: uart
+    tier: bespoke_driver
+    file: devices/chips/ezo_ph.py
+    loc_estimate: "150-250"
+    loc_actual: 133
+    status: done
+    verified: true
+    price_approx: "~$70-90 circuit + ~$40-70 probe [Unverified]"
+    domains: [dosing_skids, aquaculture, hydroponics, brewing]
+    links:
+      - label: datasheet
+        url: "https://cdn.sparkfun.com/datasheets/Sensors/Biometric/pH_EZO_datasheet_v13.pdf"
+
+  - tag: ezo_ec / ezo_orp / ezo_do
+    part_number: EZO-EC / EZO-ORP / EZO-DO
+    manufacturer: Atlas Scientific
+    category: liquid
+    interface: uart
+    tier: bespoke_driver
+    file: "not yet built -- thin variants of ezo_ph.py once needed"
+    loc_estimate: "30-50 each, once the shared EZO command layer exists"
+    status: planned
+    verified: false
+    domains: [dosing_skids, aquaculture, hydroponics, brewing]
+    links: []
+
+  - tag: hx711
+    part_number: HX711
+    manufacturer: Avia Semiconductor
+    category: weight
+    interface: gpio
+    tier: bespoke_driver
+    file: devices/chips/hx711.py
+    loc_estimate: "150-250"
+    loc_actual: 222
+    status: done
+    verified: partial
+    price_approx: "~$1-3 module [Unverified]"
+    domains: [brewing, dosing_skids, plant_growth_chambers]
+    links:
+      - label: caveat
+        url: "Gain/channel pulse counts (25/26/27) confirmed against the Avia HX711 datasheet's Serial Interface section and Table 3/Fig.2 -- but the fake used for tests only exercises decode logic, not real GPIO bit-bang timing (no hardware, ever)"
+
+  - tag: tsl2591
+    part_number: TSL2591
+    manufacturer: ams
+    category: light
+    interface: i2c_table
+    tier: config_only
+    file: examples/sensors/tsl2591.yaml
+    status: done
+    verified: true
+    domains: [plant_growth_chambers]
+    links:
+      - label: datasheet
+        url: "ams TSL2591 DS000338 v2-04 (Mouser-hosted PDF)"
+
+  - tag: veml7700
+    part_number: VEML7700
+    manufacturer: Vishay
+    category: light
+    interface: i2c_table
+    tier: config_only
+    file: examples/sensors/veml7700.yaml
+    status: done
+    verified: true
+    domains: [plant_growth_chambers]
+    links:
+      - label: datasheet
+        url: "https://docs.vishay.com/84286/veml7700.pdf"
+
+  - tag: lps22hb
+    part_number: LPS22HB
+    manufacturer: STMicroelectronics
+    category: pressure
+    interface: i2c_table
+    tier: config_only
+    file: examples/sensors/lps22hb.yaml
+    status: done
+    verified: true
+    domains: [greenhouse, brewing]
+    links:
+      - label: datasheet
+        url: "ST DM00140895, Table 18 + section 9.13"
+
+  - tag: "(generic analog pH via ads1115/mcp3008)"
+    part_number: "e.g. DFRobot Gravity pH SEN0161-V2"
+    manufacturer: "varies (DFRobot-style breakout)"
+    category: liquid
+    interface: analog_adc
+    tier: config_only
+    file: examples/sensors/ph_probe.yaml
+    status: done
+    verified: true
+    domains: [dosing_skids, aquaculture, hydroponics, brewing]
+    links:
+      - label: note
+        url: "Calibration is inherently per-probe (2-point, pH 4/7 buffers) -- documented as a PLACEHOLDER in the config comments, not a fixed value"
+
+  - tag: "(generic analog turbidity via ads1115/mcp3008)"
+    part_number: "e.g. DFRobot SEN0189"
+    manufacturer: "varies"
+    category: liquid
+    interface: analog_adc
+    tier: config_only
+    file: examples/sensors/turbidity.yaml
+    status: done
+    verified: true
+    domains: [water_treatment, aquaculture]
+    links: []
+
+  - tag: gpio_line
+    part_number: "(generic relay via gpio_line)"
+    manufacturer: n/a
+    category: actuator
+    interface: gpio
+    tier: config_only
+    file: examples/sensors/solenoid_valve.yaml
+    status: done
+    verified: true
+    domains: [dosing_skids, brewing, irrigation]
+    links: []
+
+  - tag: current_loop
+    part_number: "(generic 4-20mA wrapper over ads1115/mcp3008)"
+    manufacturer: n/a
+    category: liquid
+    interface: 4-20ma
+    tier: generic_link
+    file: devices/current_loop.py
+    loc_actual: 193
+    status: done
+    verified: partial
+    domains: [dosing_skids, aquaculture, industrial_process]
+    links:
+      - label: caveat
+        url: "Fault thresholds (3.6mA/21.0mA) are the commonly cited NAMUR NE43 approximation -- [Unverified], the primary NAMUR document wasn't consulted"
+
+  - tag: pulse_counter
+    part_number: "(generic hall-effect flow meter, e.g. YF-S201)"
+    manufacturer: n/a
+    category: liquid
+    interface: pulse
+    tier: generic_link
+    file: devices/pulse_counter.py
+    loc_actual: 129
+    status: done
+    verified: true
+    domains: [dosing_skids, brewing]
+    links:
+      - label: note
+        url: "Uses gpiod v2's native edge-event + debounce support (LineSettings.debounce_period), not a hand-rolled polling loop"
+
+  - tag: dosing_pump
+    part_number: "(generic peristaltic pump, PWM-DC or relay-driven)"
+    manufacturer: n/a
+    category: actuator
+    interface: pwm
+    tier: bespoke_driver
+    file: devices/dosing_pump.py
+    loc_actual: 183
+    status: done
+    verified: true
+    domains: [dosing_skids, aquaculture, hydroponics, brewing]
+    links:
+      - label: note
+        url: "Stepper-driven pumps (step/direction) are out of scope for this version -- no pulse-generating actuator link exists yet, only PWM-DC and GPIO-relay are supported"
+
+links:
+  - tag: uart
+    file: links/uart.py
+    loc_actual: 109
+    status: done
+    verified: true
+    domains: [dosing_skids, aquaculture, hydroponics, brewing, mushroom, aging]
+    links:
+      - label: note
+        url: "Highest-leverage new infrastructure in this catalogue -- unlocks the entire Atlas EZO family plus MH-Z19; needed a new `serial` optional-dependency extra (pyserial) in pyproject.toml, mirroring how `i2c` gates smbus2"

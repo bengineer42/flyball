@@ -1,6 +1,6 @@
 # The MCP server
 
-The daemon puts a running rig in front of a model: Claude Code, Claude
+The runner puts a running rig in front of a model: Claude Code, Claude
 Desktop, or any MCP client. It serves MCP over HTTP at `/mcp/read`,
 `/mcp/author` and `/mcp/operate`, so connecting is a URL and nothing to
 install where the model runs:
@@ -17,7 +17,7 @@ machine that can reach the rig but is not it (the `mcp` extra):
 flyball-mcp --url http://pi:8000 --mode author     # or export FLYBALL_URL
 ```
 
-The repository's `.mcp.json` points Claude Code at a local daemon's
+The repository's `.mcp.json` points Claude Code at a local runner's
 `/mcp/author`, so a checkout gets the simulated rig offered on first open.
 
 ## Modes
@@ -46,10 +46,10 @@ arrangement:
 
 ## The token
 
-A daemon with a token (`--token`, `FLYBALL_TOKEN`, `auth.token`) requires it
+A runner with a token (`--token`, `FLYBALL_TOKEN`, `auth.token`) requires it
 on everything it serves -- `/api`, `/ws` and `/mcp` alike, since any of
 them can drive the rig. A model cannot type a password at a login page,
-so a daemon that has only a password needs a token too before a client
+so a runner that has only a password needs a token too before a client
 outside it can connect (its own mount at `/mcp` keeps working). An MCP
 client sends the token as a header:
 
@@ -66,9 +66,9 @@ client sends the token as a header:
 ```
 
 The stdio server takes `--token` or `FLYBALL_TOKEN`. With neither a token
-nor a password on the daemon there is no authentication at all: anyone who
+nor a password on the runner there is no authentication at all: anyone who
 can reach the port can drive the rig, over `/api` as much as over `/mcp`.
-Put a token on any daemon a model can drive; the read tier is what
+Put a token on any runner a model can drive; the read tier is what
 `auth.anonymous: read` lets through without one.
 
 ## What the model sees
@@ -92,23 +92,23 @@ Put a token on any daemon a model can drive; the read tier is what
   `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
   writes it out. A change rebuilds the tool list, so a new device's
   commands appear as tools at once. A simulated or bare rig can always be
-  built up; a hardware rig only when the daemon runs with `--compose`.
+  built up; a hardware rig only when the runner runs with `--compose`.
 - New equipment: `driver_guide` (also the resource `flyball://guide/driver`)
   says how to write a driver and when not to; `driver_scaffold` gives a
   module that already runs; `check_driver` imports one where the server
   runs and reports what it registers; `reload_drivers` imports the
-  daemon's `--drivers` directory again so the tag can be attached;
+  runner's `--drivers` directory again so the tag can be attached;
   `probe_hardware` says what buses the board has and `link_query` sends
   one raw command down a link, to find out what an instrument is before
   writing its entry. Most instruments need no code: the `scpi` and
   `modbus` drivers take their signals from the rig-file entry, and the
   guide says so first.
-- A tool that needs a daemon route is listed only while the daemon serves
-  it (from `/openapi.json`), so an older daemon shows fewer tools rather
+- A tool that needs a runner route is listed only while the runner serves
+  it (from `/openapi.json`), so an older runner shows fewer tools rather
   than broken ones.
 
 Three routes exist for this and the CLI: `GET /api/rig/schema`, `GET
 /api/rig/config` and `POST /api/rig/check`, so a rig file can be checked
-against the drivers the daemon has without installing them where the model
+against the drivers the runner has without installing them where the model
 runs. `GET /api/dashboards/widgets` is the widget catalogue -- a copy of the
 UI's registry kept beside the server, since the kinds are the UI's.

@@ -28,14 +28,14 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
-| **Sessions** | start/stop recording, list recorded sessions (and the daemon's rolling record, if it keeps one), keep a range of it, pin, open one, export, delete |
-| **Rig** | the running rig as a file would show it, what has changed since the daemon started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the daemon allows — restarting or shutting it down |
+| **Sessions** | start/stop recording, list recorded sessions (and the runner's rolling record, if it keeps one), keep a range of it, pin, open one, export, delete |
+| **Rig** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
 
 ## The app bar
 
 A condition summary sits in the app bar, built from `/api/health` (falling
-back to a client-side count from the samples stream on an older daemon):
+back to a client-side count from the samples stream on an older runner):
 
 - an always-present **alarm** chip — the count of active device conditions
   plus signals outside their warn/alarm bands, coloured by the worst one
@@ -66,24 +66,24 @@ components alike) reads them from the same CSS custom properties:
 
 ## Signing in
 
-A daemon with a password (or a token -- [the
-door](../daemon/access.md#the-door-a-password-a-token-or-open)) shows a
+A runner with a password (or a token -- [the
+door](../runner/access.md#the-door-a-password-a-token-or-open)) shows a
 **Sign in** page instead of the app until the browser has a session: one
 field, a wrong password said inline, ten wrong ones in a minute refused for
-the rest of it. A successful login is a cookie the daemon sets and the
+the rest of it. A successful login is a cookie the runner sets and the
 browser carries by itself on every request, socket and download; the app
 keeps nothing, so there is no token to find in its storage or in a copied
-link. The session lasts as long as the daemon says (`auth.session`, twelve
+link. The session lasts as long as the runner says (`auth.session`, twelve
 hours by default); when it ends, the next refusal brings the page back.
 
 Signed in, a **signed in** chip sits in the app bar beside the other status
-chips; its menu has **Sign out**. On a daemon anyone may look at
+chips; its menu has **Sign out**. On a runner anyone may look at
 (`auth.anonymous: read`) the app opens without a login and the chip says
 **read only**; a control that needs a login is refused with a nudge to
 sign in, and the chip (or the nudge) leads to the page, which has **Keep
 looking** to come back without one.
 
-`?token=…` on the page's own URL -- how a daemon's token used to be handed
+`?token=…` on the page's own URL -- how a runner's token used to be handed
 to a browser -- still works: it is signed in with once and dropped from the
 visible address, so it is not left in history.
 

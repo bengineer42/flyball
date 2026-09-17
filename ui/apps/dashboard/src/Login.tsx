@@ -7,9 +7,9 @@ import { RigError } from "@flyball/client";
 import { useAuth } from "./auth.js";
 
 /**
- * The login page: one password field. Replaces the whole app while the daemon says this browser may see
+ * The login page: one password field. Replaces the whole app while the runner says this browser may see
  * nothing (`level: none`), and stands in for a page whose request came back 401 after a session ended.
- * A daemon with only a token takes that here too -- the browser trades it for a cookie and keeps nothing.
+ * A runner with only a token takes that here too -- the browser trades it for a cookie and keeps nothing.
  */
 export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
   const { login, info } = useAuth();
@@ -43,7 +43,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
           <Typography variant="body2" color="text.secondary">
             {info?.password
               ? "This rig needs a password."
-              : "This rig needs its token: the one the daemon was started with (--token)."}
+              : "This rig needs its token: the one the runner was started with (--token)."}
           </Typography>
           <TextField
             size="small"
@@ -79,7 +79,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
 }
 
 /**
- * The app bar's door: nothing on an open daemon; "Signed in" with a sign-out menu after a login; on a daemon
+ * The app bar's door: nothing on an open runner; "Signed in" with a sign-out menu after a login; on a runner
  * anyone may read, "Read only" with a way to the login page. Where the token chip used to be.
  */
 export function AuthChip({ onSignIn }: { onSignIn(): void }) {
@@ -118,7 +118,7 @@ export function AuthChip({ onSignIn }: { onSignIn(): void }) {
   }
   // A machine's token in a browser (a custom transport); nothing to sign out of.
   return (
-    <Tooltip title="In with the daemon's token">
+    <Tooltip title="In with the runner's token">
       <Chip variant="outlined" icon={<LockOutlinedIcon fontSize="small" />} label={narrow ? "" : "token"} sx={compact} data-testid="auth-chip" />
     </Tooltip>
   );

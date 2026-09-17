@@ -66,7 +66,7 @@ export const hrefFor: HrefFor = (ref) => {
 };
 
 /**
- * Hash routing. No dependency, works when the daemon serves the bundle from
+ * Hash routing. No dependency, works when the runner serves the bundle from
  * any path. Moving to another place (page or name) scrolls to the top; a
  * query change or a re-render of the same place leaves the scroll alone.
  */

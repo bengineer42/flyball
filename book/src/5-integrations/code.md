@@ -9,8 +9,8 @@ a script, a notebook, a LabVIEW box or another service can do the same.
 | `@flyball/client` (`ui/packages/client`) | TypeScript | the same, typed from the wire format; the UI is built on it |
 | `curl`, `requests`, a browser | anything | plain JSON over HTTP; downloads are `GET`s with `?token=` |
 
-**Configure.** A URL (with the daemon's `--root-path` prefix if it has
-one) and, for a daemon with a token, `Authorization: Bearer` -- a
+**Configure.** A URL (with the runner's `--root-path` prefix if it has
+one) and, for a runner with a token, `Authorization: Bearer` -- a
 password is for people at the UI, not for code.
 
 **Everything else** is [The server](../4-server/index.md): the routes, the

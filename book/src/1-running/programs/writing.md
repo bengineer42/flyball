@@ -168,7 +168,7 @@ steps:
 furnace's three zone heaters -- named by the writable signal each drives, not
 by the thermocouple it reads (`furnace.zone1`, its `signal`). `flyball
 program check programs/firing.yaml` validates it against a running rig;
-`flyball-daemon furnace.yaml` and then `POST /api/programs/run` with the
+`flyball-runner furnace.yaml` and then `POST /api/programs/run` with the
 file's body runs it, at the file's 60× clock a two-hour firing in two
 minutes. The same directory's `step-test.yaml` and `load-sample.yaml` are
 worked examples of `regulate` used as a step change (autotuning) and of

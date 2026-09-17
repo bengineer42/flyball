@@ -5,7 +5,7 @@
 # as it gets hot and a tuning found at 200 °C is too soft at 900; the sample
 # lags its zone by minutes and the thermocouples by seconds.
 #
-#   flyball-daemon furnace.yaml                       # at 60x: a two-hour firing in two minutes
+#   flyball-runner furnace.yaml                       # at 60x: a two-hour firing in two minutes
 #   flyball program check programs/firing.yaml
 #   curl -X POST localhost:8000/api/programs/run --data-binary @programs/firing.yaml ...
 #   flyball sim set tube coupling_w_per_k=20          # couple the zones harder, live

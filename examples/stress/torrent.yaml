@@ -4,7 +4,7 @@
 # websocket, the recorder and the UI actually have to keep up with -- clears
 # 1000 samples/s. See `../README.md` for the measured rate on this machine.
 #
-#   flyball-daemon torrent.yaml --record
+#   flyball-runner torrent.yaml --record
 #   flyball watch samples          # or count messages on ws://.../ws/samples
 
 name: torrent
