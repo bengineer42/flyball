@@ -13,9 +13,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, NamedTuple, Self
+from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
 from .errors import DimensionMismatchError, UnitNotFoundError
+
+if TYPE_CHECKING:
+    from flyball.core.quantity import Quantity
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +324,28 @@ class Unit:
             self.dimension**n,
             self.factor**n,
         )
+
+    def quantity(self, name: str | None = None) -> Quantity:
+        """A [Quantity][flyball.core.quantity.Quantity] in this unit.
+
+        `name` defaults to the dimension's name, lower-cased: `Celsius.quantity()`
+        is `Quantity("temperature", Celsius)`. A unit on a dimension nobody has
+        named (a composed `W/m²` before `Irradiance` was declared) has no
+        default, so the name must be given.
+
+        Raises:
+            ValueError: No name given and the dimension has none.
+        """
+        from flyball.core.quantity import Quantity
+
+        if name is None:
+            label, formula = self.dimension.label, self.dimension.formula()
+            if label == formula:
+                raise ValueError(
+                    f"{self.symbol} is on an unnamed dimension ({formula}): name the quantity"
+                )
+            name = label.lower()
+        return Quantity(name, self)
 
     def __str__(self) -> str:
         return self.symbol
