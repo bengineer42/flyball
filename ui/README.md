@@ -48,8 +48,7 @@ The rules that keep it embeddable:
 ## Theming
 
 Every colour, space, radius, shadow and duration is a CSS custom property on `:root`,
-defined once in `packages/react/src/styles.css` (`ui/DESIGN-SPEC.md` §1.1 is the spec
-they implement). The app never invents a colour: `apps/dashboard/src/theme.tsx`'s
+defined once in `packages/react/src/styles.css`. The app never invents a colour: `apps/dashboard/src/theme.tsx`'s
 `makeTheme(mode)` **reads** these tokens with `getComputedStyle` and hands them to MUI's
 palette, so an embedder with no MUI at all gets the same look from the stylesheet alone.
 
@@ -61,9 +60,8 @@ palette, so an embedder with no MUI at all gets the same look from the styleshee
   it changes only `--fb-gap`, a tile's title-row height and a readout's minimum height
   (`:root[data-density="compact"]` in `styles.css`).
 - **Reduced motion** collapses `--fb-dur-*` to `0ms` (`@media (prefers-reduced-motion: reduce)`).
-- `$S/tools/contrast.mjs` (a session scratchpad script; not part of the repo) recomputes WCAG
-  contrast for every text/surface pair straight from `styles.css` — re-run it after changing
-  any colour token.
+- `scripts/ui-check/contrast.mjs` recomputes WCAG contrast for every text/surface pair
+  straight from `styles.css` — re-run it after changing any colour token.
 
 | Token | Purpose |
 |---|---|
@@ -112,28 +110,15 @@ palette, so an embedder with no MUI at all gets the same look from the styleshee
 
 ## Performance
 
-Measured 16 Sep 2026 with `perf.mjs` (headless Chromium via Playwright, Vite dev server, React Strict Mode on -- development builds, so absolute numbers are pessimistic; relative ones hold) on a Ryzen 9 5950X. Each row is one page held for N seconds after a 4 s settle; TaskDuration is CDP `Performance.getMetrics`, long tasks are `PerformanceObserver('longtask')`, App renders is `window.__fb.renders`. Rigs: `examples/simulated/furnace.toml` (×60 clock, `anneal` running), `examples/stress/plant.toml` (41 channels, 17 loops, `plant-firing`), `examples/stress/torrent.toml` (~11 600 samples/s).
-
-| rig | route | s | TaskDuration before → after | long tasks before → after | App renders before → after | heap after (start → end) | console errors + warnings before → after |
-|---|---|---|---|---|---|---|---|
-| furnace | `#/` | 30 | 25.8 s → **2.4 s** | 0 → 0 | 2350 → 0 | 17.4 → 35.6 MB | 26+8 → 0+0 |
-| furnace | `#/dashboards` | 10 | 7.4 s → **1.2 s** | 0 → 0 | 1250 → 0 | 24.3 → 37.4 MB | 12+4 → 0+0 |
-| furnace | `#/loops` | 10 | 6.3 s → **0.5 s** | 0 → 0 | 1242 → 0 | 31.4 → 18.3 MB | 12+4 → 0+0 |
-| plant | `#/` | 10 | 7.7 s → **3.3 s** | 55 → 8 | 112 → 0 | 57.6 → 24.9 MB | 13+4 → 0+0 |
-| plant | `#/dashboards` | 10 | 9.2 s → **3.9 s** | 53 → 0 | 332 → 0 | 108.8 → 201.1 MB | 19+4 → 6+0 |
-| plant | `#/loops` | 10 | 8.5 s → **2.1 s** | 9 → 0 | 374 → 0 | 66 → 73.6 MB | 13+4 → 0+0 |
-| torrent | `#/` | 62 | 45.9 s → **11.6 s** | 158 → 0 | 194 → 0 | 22.9 → 40.2 MB | 36+4 → 1+0 |
-| torrent | `#/dashboards` | 10 | 6.4 s → **2.0 s** | 3 → 0 | 522 → 0 | 26.3 → 30.6 MB | 12+4 → 0+0 |
-| torrent | `#/loops` | 10 | 8.6 s → **1.3 s** | 5 → 0 | 1078 → 0 | 14.3 → 18.9 MB | 12+4 → 0+0 |
-
-Heap columns are raw `JSHeapUsedSize` and move with the collector's timing; with a forced collection before each reading (`perf.mjs --gc`) the torrent overview holds 15.5 → 16.4 MB over 60 s (+6 %). The plant `#/dashboards` errors after are six duplicate-key warnings from the generated overview (`chart-C`/`chart-m` widget ids collide), not telemetry. The plant `#/` long tasks after are the page's own re-render on the 5 s health poll (MUI `sx` styling in a development build, ~60 ms with Strict Mode's double render); a production build is well under 50 ms.
-
-What changed: samples used to be folded into React state at the app root (`useSamples` in `App`), so every sample re-rendered the whole tree and rebuilt every trace array; they now land in a `TelemetryStore` (§6 of `DESIGN-SPEC.md`) and charts draw from it directly. `/ws/readers` is folded once a second. A chart off screen (`IntersectionObserver`, 200 px margin) or in a hidden tab does no `setData` and gets one when it returns; a 12-chart dashboard scrolled so 6 are off screen redraws only the visible 6 (`window.__fb.chartsById`).
+Samples never pass through React state: they land in a `TelemetryStore`
+(`packages/react/src/store/`, ring buffers per signal, one websocket per
+stream) and charts draw from it directly inside one `requestAnimationFrame`
+flush. A chart off screen (`IntersectionObserver`, 200 px margin) or in a
+hidden tab does no `setData` and gets one when it returns. `App` holds no
+live hook, so a sample re-renders nothing. Counters are on `window.__fb`;
+`scripts/ui-check/perf.mjs` measures a page (CDP TaskDuration, long tasks,
+heap, render and redraw counts).
 
 ## Build
 
 `npm run typecheck` (project references across all three), `npm run build` (packages emit `dist/` with `.d.ts`; the app emits `apps/dashboard/dist`), `npm test` (vitest; `packages/react/test` covers the ring buffer and the store). The `development` export condition resolves packages to source under Vite, so there is no build step in dev.
-
-## Next
-
-In the order of `UI.md` §6: graph panel (uPlot, `/ws/samples` + `/api/history/…/series`), the loop panel, layouts. The `/ws/samples` messages carry no `source` name yet — needed before a second source exists.
