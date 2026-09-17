@@ -255,4 +255,6 @@ def test_history_routes_read_by_address(client):
     ]
     ticks = c.get(f"/api/history/sessions/{sid}/ticks/{heater}.power").json()
     assert len(ticks) == 1 and ticks[0]["controller"] == f"{heater}.power"
-    assert c.get(f"/api/history/sessions/{sid}/series/{probe}.nothing").status_code == 409
+    assert c.get(f"/api/history/sessions/{sid}/series/{probe}.nothing").status_code == 404, (
+        "the session never declared it"
+    )

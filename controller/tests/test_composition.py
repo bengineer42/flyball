@@ -218,3 +218,11 @@ class TestHardwareGate:
             assert client.post("/api/devices", json=DAQ).status_code == 201
         finally:
             set_compose(False)
+
+
+def test_a_batch_read_gives_null_for_a_signal_never_read(client: TestClient, rig: Rig) -> None:
+    assert client.post("/api/links", json=PLANT).status_code == 201
+    assert client.post("/api/devices", json=DRIVE).status_code == 201
+    assert client.post("/api/devices", json=DAQ).status_code == 201
+    got = client.get("/api/read", params={"at": "drive.conditions,drive.u,probe.conditions"}).json()
+    assert got[0] is not None and got[1] is None and got[2] is not None

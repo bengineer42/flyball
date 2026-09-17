@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
+from flyball.core.errors import NotFoundError
 from flyball.db import (
     ControllerRow,
     DeviceRow,
@@ -28,6 +29,7 @@ from flyball.db import (
     WriteStateRow,
 )
 from flyball.db.documents import documents
+from flyball.db.errors import NotDeclaredError
 from flyball.server.deps import StoreDep, current_rig
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -128,7 +130,10 @@ async def read_series(
         if v is not None
     }
     downsample = Downsample(**given) if given else None
-    return store.series(session_id, address, _window(start_ns, end_ns), downsample)
+    try:
+        return store.series(session_id, address, _window(start_ns, end_ns), downsample)
+    except NotDeclaredError as e:  # the rig may have it; this session never recorded it
+        raise NotFoundError(str(e)) from e
 
 
 @router.get("/sessions/{session_id}/writes/{address}")

@@ -16,6 +16,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
+from flyball.core.errors import NotReadyError
 from flyball.core.signal import Reading, Sample
 from flyball.server.deps import RigDep
 from flyball.server.schemas import ReadingOut, SampleOut
@@ -44,10 +45,22 @@ def read_many(
     rig: RigDep,
     at: Annotated[str, Query(description="Addresses, comma-separated.")],
     fresh: bool = False,
-) -> list[ReadOut]:
-    """Several addresses at once, in the order given; a fresh read hits each device once."""
+) -> list[ReadOut | None]:
+    """Several addresses at once, in the order given; a fresh read hits each device once.
+
+    An address nothing has been read on yet is `null` in its place, not a
+    failure of the batch.
+    """
     targets = [rig.resolve(address.strip()) for address in at.split(",") if address.strip()]
-    return [ReadOut.of(result) for result in rig.read(targets, fresh=fresh)]
+    if fresh:
+        return [ReadOut.of(result) for result in rig.read(targets, fresh=True)]
+    out: list[ReadOut | None] = []
+    for target in targets:
+        try:
+            out.append(ReadOut.of(rig.read(target)))
+        except NotReadyError:
+            out.append(None)
+    return out
 
 
 @router.get("/{address}", response_model_exclude_none=True)

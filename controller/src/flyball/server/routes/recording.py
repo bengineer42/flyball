@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flyball.core.errors import ConflictError
 from flyball.db import SessionRow
-from flyball.server.deps import RigDep, StoreDep
+from flyball.server.deps import RigDep, StoreDep, get_store
 
 router = APIRouter(prefix="/api/recording", tags=["recording"])
 
@@ -29,8 +29,14 @@ class StartRecording(BaseModel):
 
 
 def _current(rig: RigDep) -> SessionRow | None:
+    """The open session, re-read from the store: the writer's row is as it was at open."""
     recorder = rig.recorder
-    return None if recorder is None else recorder.writer.session
+    if recorder is None:
+        return None
+    try:
+        return get_store().session(recorder.writer.session.id)
+    except HTTPException:  # no store attached: the row we have
+        return recorder.writer.session
 
 
 @router.get("")
