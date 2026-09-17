@@ -81,6 +81,9 @@ a.dash-health-stat:hover { background: var(--fb-bg-hover, var(--fb-bg-2)); }
 .dash-program-events { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .dash-program-event { display: flex; align-items: baseline; gap: var(--fb-space-2); line-height: 20px; height: 20px; min-width: 0; }
 .dash-program-event > * { line-height: 20px; }
+/* Time and kind keep their words; only the message gives way (it carries the row's hover title in full). */
+.dash-program-event > :nth-child(2) { flex: none; }
+.dash-program-event > :nth-child(3) { flex: 1 1 0; min-width: 0; }
 .dash-program-time { font-size: var(--fb-text-sm, 12px); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Recording (§3.10): one row; the body is 42px at the default 6×3. */

@@ -77,7 +77,11 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   // Source-offline (B-3): the source signal's own staleness, its device's period against its last sample.
   const fresh = useFreshness(controller?.source);
   const offline = alarmLevel(null, {}, fresh) === "stale";
-  const title = useMemo(() => (controller ? <Ref kind="controller" name={controller.name}>{describeController(controller)}</Ref> : undefined), [controller?.name, controller?.label]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A controller is named by its target's label; a target with none is titled like any signal, never by its address.
+  const title = useMemo(
+    () => (controller ? <Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? signalTitle(target, bindings.devices) : controller.name}</Ref> : undefined),
+    [controller?.name, controller?.label, target, bindings], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const subtitle = useMemo(
     () => (controller ? <Ref kind="signal" name={controller.source}>{source ? `regulates ${signalTitle(source, bindings.devices)}` : controller.source}</Ref> : undefined),
     [controller?.source, source, bindings], // eslint-disable-line react-hooks/exhaustive-deps

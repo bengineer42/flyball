@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Box, Button, Chip, ClickAwayListener, Paper, Popper, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Chip, ClickAwayListener, Paper, Popper, Stack, TextField, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import VpnKeyIcon from "@mui/icons-material/VpnKeyOutlined";
 import { useToken } from "./token.js";
 
@@ -23,6 +23,7 @@ export function TokenChip() {
     setOpen(false);
   };
 
+  const narrow = useMediaQuery(useTheme().breakpoints.down("sm"));
   return (
     <>
       <Tooltip title={token ? "Bearer token set for this rig" : "No token set (the rig is open)"}>
@@ -31,7 +32,8 @@ export function TokenChip() {
           variant="outlined"
           color="default"
           icon={<VpnKeyIcon fontSize="small" />}
-          label="token"
+          label={narrow ? "" : "token"}
+          sx={narrow ? { "& .MuiChip-label": { display: "none" }, "& .MuiChip-icon": { m: 0 } } : undefined}
           onClick={openPopover}
           data-testid="token-chip"
         />
