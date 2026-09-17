@@ -26,7 +26,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` |
-| [`dual_pump_blender`](#dual_pump_blender) | the humidity rig's split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
+| [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/flyball/humidity/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
 
 `GET /api/drivers` on a running daemon lists exactly what *it* can build --
 these plus anything from a `drivers/` directory or another installed
@@ -296,7 +296,7 @@ The humidity rig's actuator: two pumps on one PWM chip, blended so that one
 `humidity` demand becomes a dry-line and a wet-line flow. The genuine driver
 runs on hardware (`pwm`) and on the simulated chamber alike. Its fields
 (`dry`, `wet`, `blend_flow`, `supply`, `frequency_hz`) and the physics are in
-the humidity book; the class is `examples/humidity/src/humidity/blender.py`,
+[the humidity book](https://bengineer42.github.io/flyball/humidity/3-devices/blender/); the class is `examples/humidity/src/humidity/blender.py`,
 the worked example of a composite device in
 [Writing an actuator](../../3-extending/device/actuator.md).
 

@@ -129,6 +129,6 @@ hand: [Boards and Linux I/O](boards.md).
 ## From a package
 
 A package registers link tags of its own through the `flyball.configs`
-entry point (`examples/humidity` adds `sim_humidity_chamber`, a mixing-model
+entry point ([the humidity rig](https://bengineer42.github.io/flyball/humidity/) adds `sim_humidity_chamber`, a mixing-model
 chamber that is also a fake PWM chip); they are valid in a file the moment
 it is installed. Writing one: [Config and build](../3-extending/device/config.md).
