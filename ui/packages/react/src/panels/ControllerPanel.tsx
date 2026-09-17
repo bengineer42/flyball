@@ -257,7 +257,7 @@ function describePace(pace: unknown, unit: string): string {
 export function describeReference(controller: Pick<ControllerOut, "reference" | "arrived">, unit: string, precision: number, nowS: number, startS: number | null): string | null {
   const g = controller.reference;
   if (g === null || typeof g === "number") return null;
-  const value = (v: unknown) => (typeof v === "number" ? `${v.toFixed(precision)} ${unit}` : "?");
+  const value = (v: unknown) => (typeof v === "number" ? `${fixed(v, precision)} ${unit}` : "?");
   const arrived = controller.arrived === true;
   const arrival = (verb: string) => {
     if (typeof g.end_time !== "number" || startS === null) return "";
@@ -340,7 +340,7 @@ export function ControllerPanel({
   const dUnit = target?.unit ?? controller.demand_unit ?? unit;
   const precision = source.precision ?? 2;
   const fmt = (value: number | string | null | undefined, u: string) =>
-    value == null ? "—" : typeof value === "number" ? `${value.toFixed(precision)} ${u}` : value;
+    value == null ? "—" : typeof value === "number" ? `${fixed(value, precision)} ${u}` : value;
 
   const process = [
     {
@@ -476,7 +476,7 @@ export function ControllerPanel({
             </div>
           )}
           <span className="fb-loop-caption" style={deviation != null ? { color: deviationWarn ? "var(--fb-warn)" : "var(--fb-fg-2)" } : undefined}>
-            {deviation != null ? `${Math.abs(deviation).toFixed(precision)} ${unit} ${deviation >= 0 ? "above" : "below"} target` : " "}
+            {deviation != null ? `${fixed(Math.abs(deviation), precision)} ${unit} ${deviation >= 0 ? "above" : "below"} target` : " "}
           </span>
         </div>
         <div className="fb-loop-row">

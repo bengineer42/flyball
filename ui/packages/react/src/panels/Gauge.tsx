@@ -1,4 +1,4 @@
-import { alarmLevel, describeUnit, staleAfterS, withUnit, type AlarmLevel, type Freshness, type SignalOut } from "@flyball/client";
+import { alarmLevel, describeUnit, staleAfterS, withUnit, type AlarmLevel, type Freshness, type SignalOut, fixed } from "@flyball/client";
 
 export type GaugeKind = "thermometer" | "tank" | "dial" | "bar";
 
@@ -101,7 +101,7 @@ export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height,
       {kind === "bar" && <Bar {...drawing} />}
       <div className="fb-gauge-value" style={{ color: hasBands && level !== "ok" && level !== "stale" ? COLOUR[level] : undefined }}>
         <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }}>
-          {value === undefined ? "—" : value.toFixed(precision)}
+          {value === undefined ? "—" : fixed(value, precision)}
         </span>
         <span className="fb-gauge-unit">{describeUnit(signal.unit)}</span>
       </div>

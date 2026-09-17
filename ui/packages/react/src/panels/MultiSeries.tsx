@@ -3,6 +3,7 @@ import uPlot from "uplot";
 import { describeUnit, fixed, humanise, tickDigits, withUnit } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
+import { showLatestInLegend } from "./legend.js";
 import { navigation } from "./navigation.js";
 import { ChartToolbar } from "./ChartToolbar.js";
 import { ChartOverlay, plotHeight } from "./ChartOverlay.js";
@@ -96,7 +97,7 @@ const axisTitle = (unit: string | undefined, traces: readonly MultiSeriesTrace[]
 const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.unit === undefined || trace.unit === unit ? "y" : `y:${trace.unit}`);
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
-const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(raw.toFixed(s.precision ?? 2), s.unit));
+const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(fixed(raw, s.precision ?? 2), s.unit));
 
 /**
  * An axis' tick labels at the signal's precision instead of uPlot's own
@@ -121,38 +122,6 @@ function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.Alig
 
 const EMPTY: number[] = [];
 const points = (s: MultiSeriesTrace) => ({ t: s.t ?? EMPTY, v: s.v ?? EMPTY });
-
-/**
- * Legend rows are `live` (uPlot shows the value at `cursor.idx`), which stays
- * `null` — every row a placeholder dash — until the cursor moves. After each
- * draw, when nothing is actively hovering (`cursor.idx == null`), point the
- * legend at each trace's own newest point through uPlot's own `setLegend`:
- * the values (and their formatting) come from each series' own `value()`, so
- * hover and idle always agree. Traces are not resampled onto one clock (a
- * fast signal and a slow one keep their own timestamps, joined with nulls
- * where one has no point — `align()`), so "newest" is found per series, not
- * at one shared index: at the single latest instant some traces are still
- * null there. A real hover's own indices are left alone, and the toolbar
- * (driven by `nav`/`following`, not by the legend) is untouched either way.
- */
-function showLatestInLegend(u: uPlot): void {
-  if (u.cursor.idx != null) return;
-  const n = u.data[0]?.length ?? 0;
-  if (!n) return;
-  const idxs: Array<number | null> = [n - 1];
-  for (let sidx = 1; sidx < u.data.length; sidx++) {
-    const col = u.data[sidx] as ReadonlyArray<number | null>;
-    let idx: number | null = null;
-    for (let k = col.length - 1; k >= 0; k--) {
-      if (col[k] != null) {
-        idx = k;
-        break;
-      }
-    }
-    idxs.push(idx);
-  }
-  u.setLegend({ idxs });
-}
 
 /** The page a chart is on, as the default cursor-sync key: charts on one page share a cursor. */
 export const pageSyncKey = (): string | undefined => (typeof window === "undefined" ? undefined : window.location.hash.split("?")[0] || "#/");

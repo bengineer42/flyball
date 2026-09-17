@@ -1,4 +1,4 @@
-import { alarmLevel, captionUnder, describeUnit, deviceOf, signalTitleAt, staleAfterS, withUnit, type Freshness, type Place, type SignalOut } from "@flyball/client";
+import { alarmLevel, captionUnder, describeUnit, deviceOf, signalTitleAt, staleAfterS, withUnit, type Freshness, type Place, type SignalOut, fixed } from "@flyball/client";
 import { TimeSeries } from "./TimeSeries.js";
 import { Ref } from "../links.js";
 import { useFreshness, useSignal, type TraceRef } from "../store/hooks.js";
@@ -90,7 +90,7 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
     <>
       <div className="fb-readout-value">
         <span className="fb-readout-number" style={{ minWidth: `${width}ch` }}>
-          {last === undefined ? "—" : last.toFixed(precision)}
+          {last === undefined ? "—" : fixed(last, precision)}
         </span>
         <span className="fb-readout-unit">{describeUnit(signal.unit)}</span>
       </div>

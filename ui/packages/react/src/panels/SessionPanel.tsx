@@ -1,6 +1,6 @@
 import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
 import { useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject, type Dtype, type SignalOut, type SignalRow } from "@flyball/client";
+import { describeDevice, describeEventKind, describeStateKey, describeSubject, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
@@ -203,7 +203,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               <h4>
                 <Ref kind="signal" name={tr.signal.address} />
                 <span className="fb-latest">
-                  {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(tr.signal.precision ?? 2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
+                  {tr.v.length ? `${fixed(tr.v[tr.v.length - 1]!, tr.signal.precision ?? 2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
                 </span>
                 {exports && <Download what={key} href={(f) => exports.series(tr.signal.address, f)} />}
               </h4>
@@ -245,7 +245,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
             <div className="fb-muted fb-session-latest">
               {group.map((tr) => (
                 <span key={tr.key}>
-                  {tr.key}: {tr.v.length ? `${tr.v[tr.v.length - 1]!.toFixed(tr.signal.precision ?? 2)} ${unit} · ${tr.v.length} pts` : "no points"}
+                  {tr.key}: {tr.v.length ? `${fixed(tr.v[tr.v.length - 1]!, tr.signal.precision ?? 2)} ${unit} · ${tr.v.length} pts` : "no points"}
                   {exports && <Download what={tr.key} href={(f) => exports.series(tr.signal.address, f)} />}
                 </span>
               ))}

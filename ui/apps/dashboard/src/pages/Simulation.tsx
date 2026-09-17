@@ -20,7 +20,7 @@ import {
 import { Form as MuiForm } from "@rjsf/mui";
 import { CommandForm, DevicePanel, useCommands, useRigSchema, useSimulation, type SimulationHook } from "@flyball/react";
 import type { DeviceOut, DeviceSchema, SimulationPlant } from "@flyball/client";
-import { describeDevice, describeSimParam } from "@flyball/client";
+import { describeDevice, describeSimParam, fixed } from "@flyball/client";
 import { useNow } from "../time.js";
 import { StateBlock } from "../cards.js";
 
@@ -157,7 +157,7 @@ const PortList = ({ values, digits }: { values: Array<[string, number | null | u
               {port}
             </Typography>
           )}
-          {typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—"}
+          {typeof v === "number" && Number.isFinite(v) ? fixed(v, digits) : "—"}
         </span>
       ))
     )}

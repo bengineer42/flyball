@@ -4,6 +4,7 @@ import { describeSignal, describeUnit, withUnit, type SignalOut, fixed, tickDigi
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
+import { showLatestInLegend } from "./legend.js";
 import { ChartToolbar } from "./ChartToolbar.js";
 import { ChartOverlay, plotHeight } from "./ChartOverlay.js";
 import { saveTable, seriesTable } from "./download.js";
@@ -140,7 +141,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
           stroke: palette.accent,
           points: { show: false },
           width: 1.5,
-          value: (_u, raw) => (raw == null ? "—" : withUnit(raw.toFixed(signal.precision ?? 2), signal.unit)),
+          value: (_u, raw) => (raw == null ? "—" : withUnit(fixed(raw, signal.precision ?? 2), signal.unit)),
         },
       ],
       axes: compact
@@ -211,6 +212,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         latest.current = view.current;
       }
       u?.setData([latest.current.t, latest.current.v]);
+      if (u && !compact) showLatestInLegend(u);
     },
   });
   useEffect(() => {

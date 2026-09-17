@@ -149,7 +149,9 @@ function CopyLine({ value }: { value: string }) {
     <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
       <Box
         component="pre"
-        sx={{ m: 0, p: 1, flex: 1, minWidth: 0, overflow: "auto", fontFamily: "monospace", fontSize: "0.8125rem", lineHeight: 1.5, borderRadius: 1, bgcolor: "action.hover" }}
+        // A one-line command wraps at any width (a phone reads it whole and the copy button has it exact); a JSON block keeps its indentation and scrolls.
+        sx={{ m: 0, p: 1, flex: 1, minWidth: 0, overflow: "auto", whiteSpace: value.includes("\n") ? "pre" : "pre-wrap", overflowWrap: "anywhere", fontFamily: "monospace", fontSize: "0.8125rem", lineHeight: 1.5, borderRadius: 1, bgcolor: "action.hover" }}
+        className="fb-scroll-shadow-x"
       >
         {value}
       </Box>
