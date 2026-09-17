@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.core.signal import Sample
+from flyball.core.signal import Node, Sample, Signal
 from flyball.core.topic import Latest
 from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
@@ -102,17 +102,28 @@ def _wait_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
 
 
 def _prime(rig: Rig) -> None:
-    """Seed the cells so a new client's first frame has everything, not just what ticks next."""
+    """Seed the cells so a new client's first frame has everything, not just what ticks next.
+
+    The newest reading of every publishing signal, grouped by the signal's
+    own node and stamped with the newest of the group -- not the last sample
+    delivered on each node, which for a device that pushes by namespace at
+    start and on its root afterwards would show the start-up values again.
+    """
     with rig.lock:
         for name, controller in rig.controllers.items():
             rig.controller_states.set(name, controller.state)
         for device in rig.devices.values():
             for signal, state in device.written.items():
                 rig.write_states.set(signal.address, state)
-            known = rig.read(device.root)
-            for sample in [known] if isinstance(known, Sample) else known:
-                if (published := sample.published()) is not None:
-                    rig.samples.set(published.node.address, published)
+            by_node: dict[Node, dict[Signal, Any]] = {}
+            newest: dict[Node, int] = {}
+            for signal in device.publishing.values():
+                if (reading := rig.router.reading(signal)) is None:
+                    continue
+                by_node.setdefault(signal.node, {})[signal] = reading.value
+                newest[signal.node] = max(newest.get(signal.node, 0), reading.time_ns)
+            for node, values in by_node.items():
+                rig.samples.set(node.address, Sample(node, newest[node], values))
         for name in rig.polling.by_name:
             rig.polling.runs.set(name, rig.polling.run(name))
 

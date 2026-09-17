@@ -579,13 +579,23 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
             first = ws.receive_json()
             assert first == {
                 "samples": [
-                    {"node": device.name, "time_ns": 1, "values": {"zone": 21.5}, "writes": {}}
+                    {  # the snapshot: every publishing signal's newest, conditions included
+                        "node": device.name,
+                        "time_ns": 1,
+                        "values": {"conditions": [], "zone": 21.5},
+                        "writes": {},
+                    }
                 ]
             }
             rig.on_samples([Sample(device.root, 2, {zone: 22.0, static: 4.0})])
             assert ws.receive_json() == {
                 "samples": [
-                    {"node": device.name, "time_ns": 2, "values": {"zone": 22.0}, "writes": {}}
+                    {
+                        "node": device.name,
+                        "time_ns": 2,
+                        "values": {"conditions": [], "zone": 22.0},
+                        "writes": {},
+                    }
                 ]
             }
             rig.on_samples([Sample(device.root, 3, {static: 5.0})])
@@ -609,7 +619,11 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
     with client.websocket_connect("/ws/samples") as ws:
         first = ws.receive_json()
         entry = next(s for s in first["samples"] if s["node"] == typed.name)
-        assert entry["values"] == {"mode": "running", "config": {"gain": 2, "offset": 1}}
+        assert entry["values"] == {
+            "conditions": [],
+            "mode": "running",
+            "config": {"gain": 2, "offset": 1},
+        }
 
 
 def _sample_of(frame: dict, node: str) -> dict:
