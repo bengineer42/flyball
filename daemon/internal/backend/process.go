@@ -39,7 +39,7 @@ func NewProcessBackend(logDir string) (*ProcessBackend, error) {
 	return &ProcessBackend{logDir: logDir, runners: map[string]*runnerProc{}}, nil
 }
 
-func (b *ProcessBackend) Start(name, serverConfig, host string, port int) (string, error) {
+func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPath string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -49,11 +49,19 @@ func (b *ProcessBackend) Start(name, serverConfig, host string, port int) (strin
 		return "", fmt.Errorf("opening log file for %s: %w", name, err)
 	}
 
-	cmd := exec.Command(
-		"flyball-runner", serverConfig,
+	args := []string{
+		serverConfig,
 		"--host", host,
 		"--port", fmt.Sprintf("%d", port),
-	)
+	}
+	if rootPath != "" {
+		// Required for the daemon's convenience routing (api.go's
+		// handleLandingOrProxy) to work: the runner needs to know its
+		// own root_path to recognise the full, un-stripped prefixed path
+		// the proxy forwards -- plan.md's Local UI routing section.
+		args = append(args, "--root-path", rootPath)
+	}
+	cmd := exec.Command("flyball-runner", args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	// Deliberately NOT setting a process-group death-of-parent signal --
