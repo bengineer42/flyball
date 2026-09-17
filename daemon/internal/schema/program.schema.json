@@ -1,0 +1,915 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "program",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "What the program is called; the file's stem when absent."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the program is for, in a sentence or a paragraph; optional."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "wait": {
+                "anyOf": [
+                  {
+                    "title": "Message",
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "message": {
+                        "title": "Message",
+                        "type": "string"
+                      },
+                      "name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Name"
+                      },
+                      "timeout": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "minProperties": 1,
+                                "properties": {
+                                  "nanoseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "microseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "milliseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "seconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "minutes": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "hours": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "days": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              {
+                                "minimum": 0,
+                                "type": "number"
+                              }
+                            ],
+                            "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                            "title": "Duration"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Timeout"
+                      },
+                      "nanoseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "microseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "milliseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "seconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "minutes": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "hours": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "days": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "message"
+                    ],
+                    "title": "WaitRequest",
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "wait"
+            ],
+            "additionalProperties": false,
+            "description": "Pause the program until the named signal is fired.\n\n`name` is what it is fired by (`POST /api/signals/{name}/fire`), default\n`wait`. `timeout` gives up and ends the program."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "set": {
+                "additionalProperties": false,
+                "properties": {
+                  "device": {
+                    "title": "Device",
+                    "type": "string"
+                  },
+                  "values": {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "title": "Values",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "device",
+                  "values"
+                ],
+                "title": "SetRequest",
+                "type": "object"
+              }
+            },
+            "required": [
+              "set"
+            ],
+            "additionalProperties": false,
+            "description": "Put `values` on `device`'s writable signals, as one demand -- `rig.demand` in a step."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "command": {
+                "additionalProperties": false,
+                "properties": {
+                  "device_command": {
+                    "title": "Device Command",
+                    "type": "string"
+                  },
+                  "device": {
+                    "title": "Device",
+                    "type": "string"
+                  },
+                  "args": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Args"
+                  }
+                },
+                "required": [
+                  "device_command",
+                  "device"
+                ],
+                "title": "RunCommandRequest",
+                "type": "object"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "description": "Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would.\n\n`device_command`, not `command`: every step's wire form reserves `command`\nfor its own tag (`\"command\"`, here), so the device command it should run\nneeds a different name."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "regulate": {
+                "anyOf": [
+                  {
+                    "title": "Setpoint",
+                    "type": "number"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "setpoint": {
+                        "title": "Setpoint",
+                        "type": "number"
+                      },
+                      "loop": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Loop"
+                      },
+                      "tuning": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Tuning"
+                      }
+                    },
+                    "required": [
+                      "setpoint"
+                    ],
+                    "title": "RegulateRequest",
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "regulate"
+            ],
+            "additionalProperties": false,
+            "description": "Aim a controller at a setpoint and let its law drive; returns at once."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ramp": {
+                "anyOf": [
+                  {
+                    "title": "To",
+                    "type": "number"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "to": {
+                        "title": "To",
+                        "type": "number"
+                      },
+                      "pace": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "$ref": "#/$defs/Speed"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "maxProperties": 1,
+                                "minProperties": 1,
+                                "properties": {
+                                  "per_nanosecond": {
+                                    "type": "number"
+                                  },
+                                  "per_microsecond": {
+                                    "type": "number"
+                                  },
+                                  "per_millisecond": {
+                                    "type": "number"
+                                  },
+                                  "per_second": {
+                                    "type": "number"
+                                  },
+                                  "per_minute": {
+                                    "type": "number"
+                                  },
+                                  "per_hour": {
+                                    "type": "number"
+                                  },
+                                  "per_day": {
+                                    "type": "number"
+                                  }
+                                },
+                                "type": "object"
+                              }
+                            ],
+                            "title": "Speed"
+                          },
+                          {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "minProperties": 1,
+                                "properties": {
+                                  "nanoseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "microseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "milliseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "seconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "minutes": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "hours": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "days": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              {
+                                "minimum": 0,
+                                "type": "number"
+                              }
+                            ],
+                            "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                            "title": "Duration"
+                          }
+                        ],
+                        "title": "Pace"
+                      },
+                      "loop": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Loop"
+                      },
+                      "wait": {
+                        "default": true,
+                        "title": "Wait",
+                        "type": "boolean"
+                      },
+                      "per_nanosecond": {
+                        "type": "number"
+                      },
+                      "per_microsecond": {
+                        "type": "number"
+                      },
+                      "per_millisecond": {
+                        "type": "number"
+                      },
+                      "per_second": {
+                        "type": "number"
+                      },
+                      "per_minute": {
+                        "type": "number"
+                      },
+                      "per_hour": {
+                        "type": "number"
+                      },
+                      "per_day": {
+                        "type": "number"
+                      },
+                      "nanoseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "microseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "milliseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "seconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "minutes": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "hours": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "days": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "to"
+                    ],
+                    "title": "RampRequest",
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "ramp"
+            ],
+            "additionalProperties": false,
+            "description": "Walk a controller's setpoint to `to` at `pace`, and wait until it arrives.\n\n`pace` is a rate (`per_minute: 5`) or how long the whole ramp should take\n(`minutes: 20`); a program file may write either flat beside `to`."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "hold": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "minProperties": 1,
+                        "properties": {
+                          "nanoseconds": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "microseconds": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "milliseconds": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "seconds": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "minutes": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "hours": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "days": {
+                            "minimum": 0,
+                            "type": "number"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "minimum": 0,
+                        "type": "number"
+                      }
+                    ],
+                    "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                    "title": "Duration"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "duration": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "minProperties": 1,
+                            "properties": {
+                              "nanoseconds": {
+                                "minimum": 0,
+                                "type": "number"
+                              },
+                              "microseconds": {
+                                "minimum": 0,
+                                "type": "number"
+                              },
+                              "milliseconds": {
+                                "minimum": 0,
+                                "type": "number"
+                              },
+                              "seconds": {
+                                "minimum": 0,
+                                "type": "number"
+                              },
+                              "minutes": {
+                                "minimum": 0,
+                                "type": "number"
+                              },
+                              "hours": {
+                                "minimum": 0,
+                                "type": "number"
+                              },
+                              "days": {
+                                "minimum": 0,
+                                "type": "number"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          {
+                            "minimum": 0,
+                            "type": "number"
+                          }
+                        ],
+                        "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                        "title": "Duration"
+                      },
+                      "message": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Message"
+                      },
+                      "timeout": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Timeout"
+                      },
+                      "nanoseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "microseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "milliseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "seconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "minutes": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "hours": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "days": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "title": "HoldRequest",
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hold"
+            ],
+            "additionalProperties": false,
+            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout` (seconds; not a `Duration` -- `duration` is already the file's\none flat-foldable field, and a second `Duration` field would make that\nambiguous), like `wait`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "arrive": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Loop"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "loop": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Loop"
+                      },
+                      "within": {
+                        "default": 1.0,
+                        "title": "Within",
+                        "type": "number"
+                      },
+                      "readings": {
+                        "default": 3,
+                        "title": "Readings",
+                        "type": "integer"
+                      },
+                      "timeout": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "minProperties": 1,
+                                "properties": {
+                                  "nanoseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "microseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "milliseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "seconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "minutes": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "hours": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "days": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              {
+                                "minimum": 0,
+                                "type": "number"
+                              }
+                            ],
+                            "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                            "title": "Duration"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Timeout"
+                      },
+                      "message": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Message"
+                      },
+                      "nanoseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "microseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "milliseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "seconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "minutes": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "hours": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "days": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    },
+                    "title": "ArriveRequest",
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "arrive"
+            ],
+            "additionalProperties": false,
+            "description": "Wait until the named controllers have settled within `within` of their setpoints.\n\nJudged on `readings` consecutive readings per controller; a ramp started\nwith `wait: false` is waited out here, against where the ramp is at each\nreading. The other controllers carry on regulating meanwhile."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "manual": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Loop"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "loop": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Loop"
+                      }
+                    },
+                    "title": "ManualRequest",
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "manual"
+            ],
+            "additionalProperties": false,
+            "description": "Stop a controller regulating; its target keeps its last demand and takes demands directly."
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "steps"
+  ],
+  "$defs": {
+    "Speed": {
+      "properties": {
+        "value": {
+          "exclusiveMinimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "per": {
+          "$ref": "#/$defs/TimeUnit",
+          "default": "second"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "Speed",
+      "type": "object"
+    },
+    "TimeUnit": {
+      "description": "The unit a rate is expressed per.",
+      "oneOf": [
+        {
+          "const": "nanosecond",
+          "title": "per nanosecond"
+        },
+        {
+          "const": "microsecond",
+          "title": "per microsecond"
+        },
+        {
+          "const": "millisecond",
+          "title": "per millisecond"
+        },
+        {
+          "const": "second",
+          "title": "per second"
+        },
+        {
+          "const": "minute",
+          "title": "per minute"
+        },
+        {
+          "const": "hour",
+          "title": "per hour"
+        },
+        {
+          "const": "day",
+          "title": "per day"
+        }
+      ],
+      "title": "TimeUnit",
+      "type": "string"
+    }
+  }
+}

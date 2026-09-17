@@ -20,6 +20,16 @@ import (
 //go:embed rig.schema.json
 var RigSchemaJSON []byte
 
+// ProgramSchemaJSON is the raw bytes of the checked-in program file schema,
+// exactly as `flyball program schema` (the Python CLI) emits it. Built from
+// the static Commands registry (engine/src/flyball/programmer/command.py),
+// populated by Command subclasses as their modules import -- not plugin
+// discovery -- so this schema is genuinely static, unlike the rig schema's
+// driver set.
+//
+//go:embed program.schema.json
+var ProgramSchemaJSON []byte
+
 // RigSchema compiles the embedded schema into a validator, once.
 func RigSchema() (*jsonschema.Schema, error) {
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(RigSchemaJSON))
@@ -43,6 +53,33 @@ func RigSchema() (*jsonschema.Schema, error) {
 // the embedded rig schema.
 func ValidateRig(doc any) error {
 	sch, err := RigSchema()
+	if err != nil {
+		return err
+	}
+	return sch.Validate(doc)
+}
+
+// ProgramSchema compiles the embedded program schema into a validator, once.
+func ProgramSchema() (*jsonschema.Schema, error) {
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(ProgramSchemaJSON))
+	if err != nil {
+		return nil, fmt.Errorf("decoding embedded program schema: %w", err)
+	}
+	c := jsonschema.NewCompiler()
+	if err := c.AddResource("program.schema.json", doc); err != nil {
+		return nil, fmt.Errorf("adding embedded program schema as a resource: %w", err)
+	}
+	sch, err := c.Compile("program.schema.json")
+	if err != nil {
+		return nil, fmt.Errorf("compiling embedded program schema: %w", err)
+	}
+	return sch, nil
+}
+
+// ValidateProgram validates a decoded program document against the
+// embedded program schema.
+func ValidateProgram(doc any) error {
+	sch, err := ProgramSchema()
 	if err != nil {
 		return err
 	}

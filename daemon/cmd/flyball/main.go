@@ -6,17 +6,12 @@
 // every HTTP-addressed capability is here (read/demand/watch/status/waits/
 // wait/clock/schema/devices/controllers/device view+invoke/sessions/
 // export/program */sim */logs), plus daemon-management commands the
-// Python CLI never had (it predates the Go daemon). Deliberately NOT
-// reimplemented:
-// `rig check`, `program schema` -- these are local operations against
-// Python's own rig-config/dialect code, not requests to a running runner
-// at all, so they don't fit this client/addressing model and still need
-// the flyball Python package installed either way. See the handoff notes
-// for where that gap is left. (`password` and `new` were in this list
-// too, but are ported below -- see local.go.) `rig schema` IS
-// reimplemented (rig.go): it only ever prints the embedded, checked-in
-// JSON Schema (daemon/internal/schema), generated from the Python
-// RigConfig model but not requiring Python at runtime.
+// Python CLI never had (it predates the Go daemon). `rig check`, `rig
+// schema` and `program schema` are all local operations reimplemented
+// against the embedded, checked-in JSON Schemas (daemon/internal/schema),
+// generated from the Python RigConfig model / dialect module but not
+// requiring Python at runtime (rig.go, program_schema.go). (`password`
+// and `new` are local too -- see local.go.)
 //
 // Dynamic per-device argparse flags (schema -> --dotted-flag, per
 // cli.py's "Schema -> argparse" region) are NOT reimplemented either --
@@ -106,6 +101,18 @@ func main() {
 	}
 	if args[0] == "new" {
 		if err := runNewCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// `program schema` is local too -- it only ever prints the embedded
+	// program schema (daemon/internal/schema), no runner involved. Every
+	// other `program ...` subcommand (check/run/status/stop) still talks
+	// to a runner, so only this one is intercepted here.
+	if args[0] == "program" && len(args) > 1 && args[1] == "schema" {
+		if err := runProgramSchemaCommand(args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
