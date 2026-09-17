@@ -1,0 +1,38 @@
+# The Rig page
+
+**Rig** (`#/rig`) is the running rig as a file would show it, its history, and how to reach the daemon from outside the browser. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
+
+!!! tip "At the terminal"
+    `flyball rig check FILE…` validates a file without a daemon; `flyball sim …` drives a simulated rig's knobs; save, versions, restart and shut down are routes for now -- [The rig and the daemon](../cli/rig.md).
+
+## Rig
+
+**Rig** (`#/rig`) is the running rig as a file would show it, alongside its
+history and how to reach it from outside the browser:
+
+- **Running document** (`GET /api/rig/document`) — links, devices and
+  controllers as they are now, as read-only YAML.
+- **Changed since start** (`GET /api/rig/changes`) — an overlay of what
+  differs from the files the daemon loaded (a key removed appears as
+  `null`), highlighted once it is non-empty.
+- **Versions** (`GET /api/rig/versions`) — every version the store has
+  seen, newest first, the one the running rig is at marked **current**
+  (its restore is disabled) and each row saying which version it was made
+  from; **restore** (`POST /api/rig/versions/{id}/restore`) rebuilds the
+  running rig to match that version and moves the head there.
+- **Save** (`POST /api/rig/save`) — with no path, just what changed since
+  start, written to an overlay beside the file the rig was loaded from; a
+  path writes the whole rig there instead, with a checkbox to overwrite a
+  loaded file. The path field only appears on a daemon that allows it
+  (`allow_save`); otherwise the box says so and saves the overlay alone.
+- The section head shows where the daemon serves from and how many files
+  it loaded; on a daemon started with `allow_shutdown`, **Restart** and
+  **Shut down** buttons beside it, each behind a confirmation. Restart
+  runs the same command again: the rig is rebuilt from its files, the app
+  reconnects within a few seconds.
+- **Connect a model** — this daemon's [MCP](../../4-server/mcp.md) server, one tier per
+  mode: each row is that tier's absolute URL, a ready-made
+  `claude mcp add --transport http …` line, and (below all three) a client
+  config block naming all of them, one copy button each. The config's
+  `headers` carry the app's own bearer token (above) once it has one, and a
+  note in its place when it does not.

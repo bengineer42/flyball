@@ -8,9 +8,13 @@ strict: true
 theme:
   name: material
   features:
-    - navigation.sections
+    # The parts are collapsible groups down the side (no top tabs, no flat
+    # section headers): a part opens to its sections, a section to its pages,
+    # and the open path shows where the reader is.
     - navigation.indexes
     - navigation.top
+    - navigation.path
+    - toc.follow
     - content.code.copy
     - search.suggest
   palette:
@@ -54,60 +58,103 @@ plugins:
 
 nav:
   - Introduction: index.md
-  - Concepts:
-      - The device model: 1-concepts/model.md
-      - The controller: 1-concepts/loop.md
-      - Programs: 1-concepts/programs.md
-  - Building an application:
-      - 2-building/index.md
-      - Writing an actuator: 2-building/actuator.md
-      - Writing a sensor: 2-building/sensor.md
-      - Config and build: 2-building/config.md
-      - Assembling a rig: 2-building/rig.md
-  - Running:
-      - The daemon: 3-running/daemon.md
-      - The CLI: 3-running/cli.md
-      - The MCP server: 3-running/mcp.md
-      - The UI: 3-running/ui.md
-      - Dashboards: 3-running/dashboards.md
-      - Writing programs: 3-running/programs.md
-      - Supported equipment: 3-running/equipment.md
-      - Boards and Linux I/O: 3-running/boards.md
-      - Autotune: 3-running/autotune.md
-  - Control:
-      - The controller in detail: 4-control/loop.md
-      - Control laws: 4-control/laws.md
-      - Identification: 4-control/identification.md
-      - Simulation: 4-control/simulation.md
+  - Overview:
+      - 0-overview/index.md
+      - What you will see: 0-overview/concepts.md
+      - Worked examples: 0-overview/examples.md
+  - Running a rig:
+      - 1-running/index.md
+      - Starting a rig:
+          - 1-running/daemon/index.md
+          - Access — the token, a sub-path, stopping: 1-running/daemon/access.md
+          - Building a rig while it runs: 1-running/daemon/building.md
+      - The UI:
+          - 1-running/ui/index.md
+          - Devices: 1-running/ui/devices.md
+          - Controllers: 1-running/ui/controllers.md
+          - Charts and the Graph page: 1-running/ui/charts.md
+          - Sessions: 1-running/ui/sessions.md
+          - The Rig page: 1-running/ui/rig.md
+          - Dashboards: 1-running/dashboards.md
+      - The CLI:
+          - 1-running/cli/index.md
+          - Devices and signals: 1-running/cli/devices.md
+          - Controllers and tuning: 1-running/cli/controllers.md
+          - Programs and waits: 1-running/cli/programs.md
+          - Sessions and export: 1-running/cli/sessions.md
+          - The rig and the daemon: 1-running/cli/rig.md
+          - Without a rig: 1-running/cli/offline.md
+      - Programs:
+          - 1-running/programs/index.md
+          - Writing and running programs: 1-running/programs/writing.md
+      - Tuning and autotune: 1-running/autotune.md
+  - Configuration:
+      - 2-config/index.md
+      - The daemon section: 2-config/daemon.md
+      - Links: 2-config/links.md
+      - Devices:
+          - 2-config/devices/index.md
+          - Supported drivers: 2-config/devices/drivers.md
+          - Where a device's options come from: 2-config/devices/generated.md
+      - Controllers: 2-config/controllers.md
+      - Simulation: 2-config/simulation.md
+      - Boards and Linux I/O: 2-config/boards.md
+  - Extending:
+      - 3-extending/index.md
+      - The device model: 3-extending/model.md
+      - Writing a device:
+          - A sensor: 3-extending/device/sensor.md
+          - An actuator: 3-extending/device/actuator.md
+          - Config and build: 3-extending/device/config.md
+      - Assembling a rig in Python: 3-extending/rig.md
+      - Control laws: 3-extending/laws.md
+      - Packaging: 3-extending/packaging.md
+  - The server:
+      - 4-server/index.md
+      - HTTP and websocket API: 4-server/api.md
+      - Wire format: 4-server/wire.md
+      - The MCP server: 4-server/mcp.md
+      - How the server is built: 4-server/internals.md
+  - Integrations:
+      - 5-integrations/index.md
+      - Instrument protocols: 5-integrations/protocols.md
+      - Instrument libraries: 5-integrations/libraries.md
+      - Raspberry Pi and Linux buses: 5-integrations/linux.md
+      - Bluesky: 5-integrations/bluesky.md
+      - Models over MCP: 5-integrations/models.md
+      - Your own code: 5-integrations/code.md
+      - Applications: 5-integrations/applications.md
+      - Not yet: 5-integrations/not-yet.md
   - Internals:
-      - Architecture: 5-internals/architecture.md
-      - Core: 5-internals/core.md
-      - Runtime: 5-internals/runtime.md
-      - Server: 5-internals/server.md
-      - Storage: 5-internals/db.md
-      - Decisions: 5-internals/decisions.md
+      - 6-internals/index.md
+      - Architecture: 6-internals/architecture.md
+      - Core: 6-internals/core.md
+      - Runtime: 6-internals/runtime.md
+      - The controller in detail: 6-internals/controller.md
+      - Identification: 6-internals/identification.md
+      - Storage: 6-internals/db.md
+      - Decisions: 6-internals/decisions.md
   - Reference:
-      - CLI: 6-reference/cli.md
-      - HTTP and websocket API: 6-reference/api.md
-      - Program file schema: 6-reference/program-schema.md
-      - Rig file schema: 6-reference/rig-file.md
-      - Wire format: 6-reference/wire.md
+      - 7-reference/index.md
+      - Rig file schema: 7-reference/rig-file.md
+      - Program file schema: 7-reference/program-schema.md
+      - flyball-daemon: 7-reference/daemon.md
+      - CLI: 7-reference/cli.md
       - Python API:
-          - flyball: 6-reference/python/flyball.md
-          - flyball.core: 6-reference/python/flyball/core.md
-          - flyball.core.units: 6-reference/python/flyball/core/units.md
-          - flyball.control: 6-reference/python/flyball/control.md
-          - flyball.adaptive: 6-reference/python/flyball/adaptive.md
-          - flyball.autotune: 6-reference/python/flyball/autotune.md
-          - flyball.runtime: 6-reference/python/flyball/runtime.md
-          - flyball.programmer: 6-reference/python/flyball/programmer.md
-          - flyball.devices: 6-reference/python/flyball/devices.md
-          - flyball.hardware: 6-reference/python/flyball/hardware.md
-          - flyball.sim: 6-reference/python/flyball/sim.md
-          - flyball.db: 6-reference/python/flyball/db.md
-          - flyball.server: 6-reference/python/flyball/server.md
-          - flyball.server.routes: 6-reference/python/flyball/server/routes.md
-          - flyball.client: 6-reference/python/flyball/client.md
-          - flyball.integrations: 6-reference/python/flyball/integrations.md
-  - Worked examples: examples.md
+          - flyball: 7-reference/python/flyball.md
+          - flyball.core: 7-reference/python/flyball/core.md
+          - flyball.core.units: 7-reference/python/flyball/core/units.md
+          - flyball.control: 7-reference/python/flyball/control.md
+          - flyball.adaptive: 7-reference/python/flyball/adaptive.md
+          - flyball.autotune: 7-reference/python/flyball/autotune.md
+          - flyball.runtime: 7-reference/python/flyball/runtime.md
+          - flyball.programmer: 7-reference/python/flyball/programmer.md
+          - flyball.devices: 7-reference/python/flyball/devices.md
+          - flyball.hardware: 7-reference/python/flyball/hardware.md
+          - flyball.sim: 7-reference/python/flyball/sim.md
+          - flyball.db: 7-reference/python/flyball/db.md
+          - flyball.server: 7-reference/python/flyball/server.md
+          - flyball.server.routes: 7-reference/python/flyball/server/routes.md
+          - flyball.client: 7-reference/python/flyball/client.md
+          - flyball.integrations: 7-reference/python/flyball/integrations.md
   - Glossary: glossary.md

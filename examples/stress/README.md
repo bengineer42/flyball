@@ -46,7 +46,7 @@ in `chaos-run.yaml` with `command` steps on the `furnace` and `heaters`
 devices (`fail`/`restore` with a `signal`, `disturb` with a `signal` and an
 `offset`) and a `hold` whose own `timeout` gives up before its `duration`, to
 exercise the "timed out" outcome — see
-[`programs.md`](../../book/src/3-running/programs.md#the-commands-every-rig-has)
+[`programs.md`](../../book/src/1-running/programs.md#the-commands-every-rig-has)
 for both. Run it on its own:
 
 ```bash
@@ -116,7 +116,7 @@ rendered correctly in every rig checked (screenshots inspected, not just
 counted, for `furnace`, `plant`, `bare`).
 
 One thing the first pass didn't see: with the shared per-directory program
-library (`UI_HANDOFF.md` §3 next-steps item 6), a rig that doesn't have the
+library (the `programs:` key in a rig file points elsewhere), a rig that doesn't have the
 loop a shared program regulates now visibly **fails loudly** instead of
 silently — e.g. `bare`'s Overview shows a red "program failed" banner
 naming a `zoo-tour` step, because the sweep tries every stress program in
@@ -208,7 +208,7 @@ measured against.
   `{device_command: disturb, actuator: heater5, args: {offset: -0.3}}` — by
   the same route the HTTP API and UI use; `chaos-run.yaml` uses it directly
   and no longer needs the script run alongside it. See
-  [`programs.md`](../../book/src/3-running/programs.md#the-commands-every-rig-has).
+  [`programs.md`](../../book/src/1-running/programs.md#the-commands-every-rig-has).
 - **Resolved:** `hold` can now time out. `Hold` (`programmer/loops.py`) takes
   its own `timeout` (seconds, not a `Duration` — `duration` is already the
   one field TOML/YAML may write flat) that ends the program if `duration`

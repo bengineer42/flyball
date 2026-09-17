@@ -1,0 +1,71 @@
+# Devices
+
+What is on the rig, keyed by name. Every entry is the same **envelope**
+around the driver's own config. The driver's fields may sit flat beside the
+envelope or under `config:`; both mean the same.
+
+```yaml
+devices:
+  dmm:                                   # layered
+    driver: scpi
+    label: Bench DMM
+    poll_s: 0.5
+    config:
+      link: dmm
+      channels: { voltage: { query: "MEAS:VOLT:DC?", unit: V } }
+    signals:
+      voltage: { range: [0, 30], precision: 3, warn: [0, 25] }
+  wet_supply: { driver: sht4x, link: i2c1, address: 0x46, poll_s: 5 }   # flat
+```
+
+| key | type | |
+| --- | --- | --- |
+| `driver` | tag | which driver builds it -- one of the [supported drivers](drivers.md), a board driver, or one from the daemon's `drivers/` directory |
+| `label` | string | shown instead of the name |
+| `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
+| `config` | object | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board` |
+| `signals` | `{name: override}` | per-signal metadata, [below](#signals) |
+| `bound` | `{role: address}` | inputs this device follows on another: `{dry_humidity: hum_sensors.dry.humidity}` |
+
+## `signals`
+
+Overrides on the tree the driver declared -- what to show and what to
+guard, never new access. A key that is a namespace takes `label`,
+`poll_s`, `tags` and its own `signals:`; a key that is a signal takes:
+
+| key | type | |
+| --- | --- | --- |
+| `label` | string | |
+| `range` | `[lo, hi]` | the axis and gauge extent |
+| `precision` | int | decimal places shown |
+| `warn`, `alarm` | `[lo, hi]` | bands outside which a condition is raised |
+| `limits` | `[lo, hi]` | what a writable signal may be commanded to |
+| `poll_s` | number | this signal's own rate |
+| `tags` | `{key: value}` | added to the driver's: `{line: dry}` groups signals across devices in the UI |
+| `access` | `"r"`, `"rp"`, … | keep only these of the flags the driver declared |
+| `readable`, `publishing`, `writable` | `false` | drop one flag each; only `false` is accepted |
+
+## Binding one device to another
+
+`bound` makes a device follow signals on another -- an input the driver
+declared by role, resolved to an address at build. The humidity blender
+follows the supply humidities its own sensors read:
+
+```yaml
+devices:
+  blender:
+    driver: dual_pump_blender
+    bound: { dry_humidity: hum_sensors.dry.humidity, wet_humidity: hum_sensors.wet.humidity }
+```
+
+What a driver may declare as an input, and how it reads one, is in
+[Writing an actuator](../../3-extending/device/actuator.md).
+
+## What a device gives you
+
+Once built, a device is the same to everything above it, whichever driver
+it has: its signals stream on `/ws/samples`, its tree and commands are
+`GET /api/devices/{name}`, the UI draws a card per signal and per command,
+the CLI grows a subcommand, and a controller may drive any writable signal
+on it. Nothing about the driver leaks past the config.
+
