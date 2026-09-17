@@ -13,12 +13,26 @@ the top of each `.mjs` if they move. Working files go to `$FLYBALL_CHECK_DIR` (d
 | `measure.mjs <url> <selector>` | bounding boxes and canvas sizes of matching elements (chart plot area checks) |
 | `perf.mjs <ui-url> '#/route' [seconds] [--gc --json --scroll]` | CDP TaskDuration, long tasks, heap, `window.__fb` render/redraw counters |
 | `dash-e2e.mjs <ui-url> <api-url>` | 22-step dashboard editor test (add/bind/resize/undo/redo/configure/duplicate/remove/save/reload/rename/export/import/home/delete, no RGL in view mode, zero console issues); must print `ALL PASS` |
+| `auth-e2e.mjs <ui-url> <secret> [--shots --anonymous-read --token-link]` | password/token login: wrong secret refused, right one gets the app with sockets open, sign out, optional anonymous-read and `?token=` link checks; must print `ALL PASS` |
+| `passkey-e2e.mjs <ui-url> <password> [--shots]` | WebAuthn passkey login via Playwright's CDP virtual authenticator: password login to bootstrap, register/list/revoke a passkey through the real UI, sign in with the passkey alone, and a negative case (login attempt with no registered passkey refused client-side, no stray session); `<ui-url>` **must** be `http://localhost:<port>` (see note below); must print `ALL PASS` |
 | `contrast.mjs` | WCAG contrast of every `--fb-*` fg/bg pair in `packages/react/src/styles.css`, both modes |
 | `programForm-roundtrip.mjs <api-url>` | text ⇄ builder-form fidelity for every example program against the runner's rig, a rig-less model and an empty rig |
 | `programText-roundtrip.mjs` | parses every example program with the app's `programText.ts`, round-trips yaml/toml/json, cross-checks PyYAML |
 | `sweep.sh <rig file> <api> <ui>` | one rig through every page at 1440 light, dark, 400 px, plus a channel and a loop detail page |
 | `auth-e2e.mjs <ui-url> <secret> [--shots --anonymous-read --token-link]` | password/token login door end to end: wrong secret refused, right one opens sockets with an HttpOnly cookie, sign out; `--anonymous-read`/`--token-link` cover those modes |
 | `events-e2e.mjs <ui-url> <api-url> [--shots]` | proactive event notifications end to end, against `examples/simulated/furnace.yaml`: a real WARNING+/ERROR event (via the furnace's own `fail`/`restore` simulation commands) toasts while off the Events page, the nav badge tracks the unread count, dismissing a toast marks it read, "Mark all read" and revisiting the page clear the badge; must print `ALL PASS` |
+
+**`passkey-e2e.mjs` and `localhost`.** WebAuthn's secure-context/RP-ID rules need the page served
+as `http://localhost:<port>` specifically, not `127.0.0.1` -- confirmed by driving the real ceremony
+both ways. `rig-up.sh`'s vite server listens on `localhost` already (no `--host` override), so it's
+reachable at either; just navigate Playwright to the `localhost` form when running this script.
+
+**`rig-up.sh` and worktrees.** It hard-codes `cd /home/ben/flyball/ui` before starting vite, so from
+a worktree it silently serves the *main* repo's UI, not the worktree's -- confirmed the hard way (a
+passkey button that should have existed didn't, because the served bundle predated it). Testing UI
+changes that only exist in a worktree needs the vite server started by hand from that worktree's
+`ui/` directory, pointed at the runner with `FLYBALL_URL`, following the same invocation `rig-up.sh`
+uses.
 
 Typical session:
 
