@@ -428,7 +428,12 @@ class Descriptor[B]:
 
 
 def _bound(bound: Any) -> Bound:
-    """A limit as the spec carries it: a number, or a reference to a descriptor's signal."""
+    """A limit as the spec carries it: a number, or a reference to a descriptor's signal.
+
+    An input is referenced by its role, wherever it was grouped for the schema.
+    """
+    if isinstance(bound, Input):
+        return SignalRef(bound.name)
     if isinstance(bound, Descriptor):
         return SignalRef(bound.path)
     if isinstance(bound, SignalRef):
@@ -809,6 +814,22 @@ class Device:
     def demands(self) -> dict[str, Signal]:
         """Every demand, by path."""
         return {path: s for path, s in self.signals.items() if s.role is Role.DEMAND}
+
+    def referenced(self, path: str) -> Value | None:
+        """What a `SignalRef` stands for now.
+
+        A signal's newest value by path, or an input's by role (its bound
+        source, else its default); None with nothing to give.
+        """
+        if (signal := self.signals.get(path)) is not None:
+            reading = signal.router.reading(signal)
+            return None if reading is None else reading.value
+        if (input_ := self.INPUTS.get(path)) is not None:
+            try:
+                return input_.on(self).value
+            except NotReadyError:
+                return None
+        return None
 
     def sample(self, time_ns: int, **values: Value) -> Sample:
         """A sample on the root of the values given by descriptor attribute name."""

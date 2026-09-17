@@ -506,18 +506,19 @@ class Signal:
     def limits(self) -> Band | None:
         """The effective limits now: a referenced signal's current value stands for it.
 
-        None if there are none, or a reference has no value yet.
+        A reference names a signal of the device by path, or one of its
+        inputs by role (the bound source's newest value, or the input's
+        default). None if there are none, or a reference has no value yet.
         """
         if (limits := self.spec.limits) is None:
             return None
         resolved: list[float] = []
         for bound in limits:
             if isinstance(bound, SignalRef):
-                signal = self.node.device.signals.get(bound.path)
-                reading = None if signal is None else signal.router.reading(signal)
-                if reading is None:
+                value = self.node.device.referenced(bound.path)
+                if value is None:
                     return None
-                resolved.append(float(reading.value))
+                resolved.append(float(value))
             else:
                 resolved.append(bound)
         return (resolved[0], resolved[1])
