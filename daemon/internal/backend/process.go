@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-// ProcessBackend is option 1 from plan.md's Sequencing section: raw
-// subprocesses, no isolation (the honest caveat already flagged there --
-// less sandboxing than dev-serve's Docker containers). Spawns the real,
-// literal `flyball-daemon` CLI -- plan.md's Terminology section on the
-// naming collision this creates in prose, kept as-is here since it's the
-// actual command.
+// ProcessBackend is the only backend (Docker/option 2 dropped, per Ben's
+// word, 17 Sep) -- raw subprocesses, no isolation (the honest caveat
+// already flagged in plan.md: less sandboxing than dev-serve's Docker
+// containers). Spawns the real, literal `flyball-runner` CLI -- the
+// Python side's own command, now correctly named after the daemon/runner
+// rename (was `flyball-daemon`, collided with this daemon's own name).
 type ProcessBackend struct {
 	logDir string
 
@@ -50,7 +50,7 @@ func (b *ProcessBackend) Start(name, serverConfig, host string, port int) (strin
 	}
 
 	cmd := exec.Command(
-		"flyball-daemon", serverConfig,
+		"flyball-runner", serverConfig,
 		"--host", host,
 		"--port", fmt.Sprintf("%d", port),
 	)

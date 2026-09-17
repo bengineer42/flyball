@@ -1,5 +1,5 @@
 // Command flyballd is the daemon from brain/plans/rig-deployment/plan.md:
-// supervises runners (flyball-daemon processes, one per rig), keeps the
+// supervises runners (flyball-runner processes, one per rig), keeps the
 // live registry, and serves the external interface from interface.md.
 // Not the install script (plan.md's install-script section) -- this is
 // just the binary it installs.
