@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Alert, Box, Button, Checkbox, FormControlLabel, IconButton, List, ListItem, ListItemText, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, IconButton, List, ListItem, ListItemText, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import RestoreIcon from "@mui/icons-material/Restore";
+import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
-import { useRig, useRigChanges, useRigDocument, useRigVersions } from "@flyball/react";
-import { RigError, type RigVersion } from "@flyball/client";
+import { useQuery, useRig, useRigChanges, useRigDocument, useRigVersions } from "@flyball/react";
+import { RigError, pageBase, type DaemonInfo, type RigVersion } from "@flyball/client";
 import { dumpYaml } from "../programText.js";
 import { Confirm } from "../Confirm.js";
 import { SectionHead, StateBlock } from "../cards.js";
@@ -45,15 +47,16 @@ function YamlBlock({ value, empty, highlight }: { value: unknown; empty?: string
   );
 }
 
-/** One version row: when, why, what files it touched, and a restore button. */
+/** One version row: when, why, what files it touched, and a restore button; the head (where the rig is) is marked and has nothing to restore. */
 function VersionRow({ version, onRestore, busy }: { version: RigVersion; onRestore(v: RigVersion): void; busy: boolean }) {
+  const head = version.head === true;
   return (
     <ListItem
       divider
       secondaryAction={
-        <Tooltip title="Rebuild the running rig to match this version">
+        <Tooltip title={head ? "The running rig is at this version" : "Rebuild the running rig to match this version"}>
           <span>
-            <IconButton edge="end" aria-label={`restore version ${version.id}`} onClick={() => onRestore(version)} disabled={busy} data-testid={`restore-${version.id}`}>
+            <IconButton edge="end" aria-label={`restore version ${version.id}`} onClick={() => onRestore(version)} disabled={busy || head} data-testid={`restore-${version.id}`}>
               <RestoreIcon fontSize="small" />
             </IconButton>
           </span>
@@ -61,15 +64,20 @@ function VersionRow({ version, onRestore, busy }: { version: RigVersion; onResto
       }
     >
       <ListItemText
-        primary={`#${version.id} · ${version.reason}`}
-        secondary={`${when(version.time_ns)}${version.files.length ? ` · ${version.files.join(", ")}` : ""}`}
+        primary={
+          <span>
+            #{version.id} · {version.reason}
+            {head && <Chip label="current" size="small" color="primary" variant="outlined" sx={{ ml: 1, height: 18 }} />}
+          </span>
+        }
+        secondary={`${when(version.time_ns)}${version.parent != null ? ` · from #${version.parent}` : ""}${version.files.length ? ` · ${version.files.join(", ")}` : ""}`}
       />
     </ListItem>
   );
 }
 
 /** Save the running rig: the default overlay beside the loaded file, or the whole rig to a chosen path. */
-function SaveBox() {
+function SaveBox({ allowPath }: { allowPath: boolean }) {
   const rig = useRig();
   const [path, setPath] = useState("");
   const [overwrite, setOverwrite] = useState(false);
@@ -98,22 +106,28 @@ function SaveBox() {
       </Typography>
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
-          With no path, only what changed since the daemon started is written, to an overlay beside the rig file it was loaded from. A path writes the whole rig there instead.
+          {allowPath
+            ? "With no path, only what changed since the daemon started is written, to an overlay beside the rig file it was loaded from. A path writes the whole rig there instead."
+            : "What changed since the daemon started is written to an overlay beside the rig file it was loaded from. (Writing the whole rig to a path of your choosing needs the daemon started with allow_save.)"}
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
-          <TextField
-            size="small"
-            label="path (blank: the overlay)"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="rig.yaml"
-            sx={{ minWidth: 260 }}
-            inputProps={{ "data-testid": "save-path" }}
-          />
-          <FormControlLabel
-            control={<Checkbox checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} disabled={!path.trim()} />}
-            label="overwrite a loaded file"
-          />
+          {allowPath && (
+            <TextField
+              size="small"
+              label="path (blank: the overlay)"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="rig.yaml"
+              sx={{ minWidth: 260 }}
+              inputProps={{ "data-testid": "save-path" }}
+            />
+          )}
+          {allowPath && (
+            <FormControlLabel
+              control={<Checkbox checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} disabled={!path.trim()} />}
+              label="overwrite a loaded file"
+            />
+          )}
           <Button variant="contained" onClick={() => void save()} disabled={busy} data-testid="save-rig">
             Save
           </Button>
@@ -179,7 +193,7 @@ const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; ser
  */
 function ConnectModelCard() {
   const { token } = useToken();
-  const base = window.location.origin;
+  const base = pageBase();
   const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
   const config = {
     mcpServers: Object.fromEntries(
@@ -222,6 +236,28 @@ function ConnectModelCard() {
   );
 }
 
+/** Where this daemon serves from and, when it allows it, the buttons to stop or restart it. */
+function DaemonControls({ daemon, busy, onAsk }: { daemon: DaemonInfo; busy: boolean; onAsk(what: "shutdown" | "restart"): void }) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+      <Typography variant="body2" color="text.secondary" title={daemon.files.join("\n")}>
+        {daemon.host}:{daemon.port}
+        {daemon.root_path ? daemon.root_path : ""} · {daemon.files.length} file{daemon.files.length === 1 ? "" : "s"}
+      </Typography>
+      {daemon.allow_shutdown && (
+        <>
+          <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} disabled={busy} onClick={() => onAsk("restart")} data-testid="daemon-restart">
+            Restart
+          </Button>
+          <Button size="small" variant="outlined" color="error" startIcon={<PowerSettingsNewIcon />} disabled={busy} onClick={() => onAsk("shutdown")} data-testid="daemon-shutdown">
+            Shut down
+          </Button>
+        </>
+      )}
+    </Stack>
+  );
+}
+
 /**
  * `#/rig`: the running rig as a file would show it, what has changed since
  * the daemon started, its version history with a restore per row, and a box
@@ -232,7 +268,22 @@ export function RigPage() {
   const document = useRigDocument(5000);
   const changes = useRigChanges(5000);
   const versions = useRigVersions(50);
+  const daemon = useQuery(() => rig.daemon().catch(() => undefined), [rig]);
   const [restoring, setRestoring] = useState<RigVersion | null>(null);
+  const [power, setPower] = useState<"shutdown" | "restart" | null>(null);
+  const powerAct = async () => {
+    if (!power) return;
+    setBusy(true);
+    try {
+      await (power === "shutdown" ? rig.shutdownDaemon() : rig.restartDaemon());
+      setError(null);
+      setPower(null);
+    } catch (e) {
+      setError(detail(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -257,7 +308,7 @@ export function RigPage() {
 
   return (
     <>
-      <SectionHead icon={PAGE_ICONS.rig} title="Rig" />
+      <SectionHead icon={PAGE_ICONS.rig} title="Rig" end={daemon.data ? <DaemonControls daemon={daemon.data} busy={busy} onAsk={setPower} /> : undefined} />
       <div className="grid">
         <Paper className="c12 xl6" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
@@ -293,10 +344,19 @@ export function RigPage() {
           )}
         </Paper>
         <div className="c12 xl6">
-          <SaveBox />
+          <SaveBox allowPath={daemon.data?.allow_save ?? true} />
         </div>
         <ConnectModelCard />
       </div>
+      <Confirm
+        open={power !== null}
+        title={power === "shutdown" ? "Shut the daemon down?" : "Restart the daemon?"}
+        text={power === "shutdown" ? "The rig stops: polling, controllers and recording end, and this page loses its connection until a daemon is started again." : "The daemon stops and starts itself again with the same command: the rig is rebuilt from its files, controllers start in manual, and this page reconnects in a few seconds."}
+        action={power === "shutdown" ? "Shut down" : "Restart"}
+        busy={busy}
+        onClose={() => setPower(null)}
+        onConfirm={() => void powerAct()}
+      />
       <Confirm
         open={restoring !== null}
         title={restoring ? `Restore version #${restoring.id}?` : ""}

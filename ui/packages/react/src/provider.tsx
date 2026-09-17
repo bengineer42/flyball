@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { RigClient, browserTransport, type Transport } from "@flyball/client";
+import { RigClient, browserTransport, pageBase, type Transport } from "@flyball/client";
 import { TelemetryStore, type TelemetryStoreOptions } from "./store/telemetry.js";
 
 const RigContext = createContext<{ client: RigClient; store: TelemetryStore } | null>(null);
@@ -26,7 +26,7 @@ export interface RigProviderProps {
  */
 export function RigProvider({ url, token, transport, store: storeOptions, children }: RigProviderProps) {
   const value = useMemo(() => {
-    const client = new RigClient(transport ?? browserTransport(url ?? window.location.origin, token));
+    const client = new RigClient(transport ?? browserTransport(url ?? pageBase(), token));
     return { client, store: new TelemetryStore(client, storeOptions) };
     // The store's options are read once; a new object each render must not rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps

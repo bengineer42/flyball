@@ -58,8 +58,19 @@ export class RigError extends Error {
   }
 }
 
+/**
+ * Where the page was served from, without the file: `https://host` at the root,
+ * `https://host/flyball/humidity` under a sub-path. The default base, so a
+ * daemon started with `--root-path` behind the same prefix is found without
+ * telling the app anything.
+ */
+export function pageBase(): string {
+  return new URL(".", window.location.href).href.replace(/\/$/, "");
+}
+
 function buildUrl(base: string, path: string, query?: Request["query"]): string {
-  const url = new URL(path, base);
+  // Concatenate rather than resolve: `new URL(path, base)` drops the base's own path.
+  const url = new URL(base + path, window.location.href);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
   }
@@ -69,13 +80,14 @@ function buildUrl(base: string, path: string, query?: Request["query"]): string 
 /**
  * The browser transport: `fetch` for requests, `WebSocket` for streams, with
  * reconnection on drop (exponential backoff, capped). `base` is an absolute
- * origin, or `""` for same-origin, which is how the daemon serves the app.
+ * origin, with the daemon's `--root-path` if it has one; default: where the
+ * page itself was served from (`pageBase`).
  * `token`: a daemon started with `--token` refuses everything without it --
  * a header on a request, `?token=` on a socket (a browser cannot set headers
  * on one). A socket the daemon closes for a wrong or missing token (4401) is
  * not retried: nothing about reconnecting would fix it.
  */
-export function browserTransport(base: string = window.location.origin, token?: string): Transport {
+export function browserTransport(base: string = pageBase(), token?: string): Transport {
   return {
     base,
     token,
