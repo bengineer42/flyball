@@ -12,10 +12,30 @@ header is not, so the header is the form to use wherever it can be set.
 Anything else is 401
 with a `detail` (a socket is closed with code 4401). The Python client
 (`flyball.client.Rig`) and `flyball-mcp` take `--token` or the same
-variable; the UI asks for it. The Go CLI (`flyball`) has no token support
-yet -- only usable today against an unprotected runner. Without a token the
-runner serves anyone who can reach the port -- fine on
-loopback, not on `--host 0.0.0.0`, and not on a rig a model can drive.
+variable; the UI asks for it. The Go CLI (`flyball`) takes it too --
+`flyball --token T ...` or `FLYBALL_TOKEN=T` in the environment, sent as
+the same bearer header. Without a token (or a password, below) the
+runner serves anyone who can reach the port -- fine on loopback, not on
+`--host 0.0.0.0`, and not on a rig a model can drive.
+
+## The password, from the Go CLI
+
+`--password` (a `$scrypt$…` line from `flyball password`, or plain text;
+`FLYBALL_PASSWORD` too) protects the runner the way the UI's login page
+does. The Go CLI signs in the same way: `flyball login` prompts for the
+password (or takes it as an argument, `flyball login SECRET` -- careful,
+that lands in shell history), POSTs it to `/api/auth/login`, and saves
+the session cookie the runner returns to a file under
+`$XDG_CONFIG_HOME/flyball` (`~/.config/flyball` on Linux), one file per
+runner URL, mode `0600`. Every later `flyball` invocation against that
+same URL picks the saved cookie back up automatically -- no need to log
+in again until the session expires (`--session`, default 12h) or
+`flyball logout` clears it. A wrong password is refused (401, after a
+short pause; ten wrong ones in a minute from one address are 429). This
+is separate from the daemon's own access control (`flyballd`, not yet
+built) -- `flyball login` authenticates to a *runner*, whether reached
+direct (`FLYBALL_URL`) or through the daemon's proxy (`-s`/
+`FLYBALLD_URL`).
 
 `--no-mcp` (or `FLYBALL_NO_MCP=1`) leaves the MCP servers off: the runner
 serves `/api` and `/ws` only, and `/mcp/…` is 404. For a rig a model has no
