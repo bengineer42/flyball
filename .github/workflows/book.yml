@@ -69,3 +69,12 @@ jobs:
           $MIKE list -F book/mkdocs.yml --deploy-prefix humidity | grep -q '\[latest' \
             && $MIKE set-default -F book/mkdocs.yml --deploy-prefix humidity --push latest \
             || $MIKE set-default -F book/mkdocs.yml --deploy-prefix humidity --push dev
+
+      - name: robots.txt at the site root (mike leaves files it does not own alone)
+        run: |
+          git fetch origin gh-pages
+          git worktree add /tmp/gh-pages origin/gh-pages
+          cp book/robots.txt /tmp/gh-pages/robots.txt
+          cd /tmp/gh-pages
+          git add robots.txt
+          git diff --cached --quiet || { git commit -m "robots.txt: ask AI crawlers not to train on the book"; git push origin HEAD:gh-pages; }
