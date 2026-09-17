@@ -510,7 +510,7 @@ export function ControllerPanel({
           </div>
           <div>
             <h4 className="fb-loop-chart-title" title={`What the controller asks of ${controller.target}, and what it can give back`}>
-              Drive <span className="fb-muted">{target ? describeSignal(target) : controller.target}{dUnit ? ` · ${dUnit}` : ""}</span>
+              Drive <span className="fb-muted">{[target ? describeSignal(target) : controller.target, dUnit].filter((part) => part && part.toLowerCase() !== "drive").join(" · ")}</span>
             </h4>
             {/* The target's limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
             <MiniTrend series={drive} height={trendHeight} every={every} yScale={outputRange ? "range" : undefined} range={outputRange} windowS={windowS} />

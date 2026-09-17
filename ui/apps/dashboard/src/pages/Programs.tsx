@@ -119,7 +119,8 @@ export function Heading({ children, end }: { children: ReactNode; end?: ReactNod
       <Typography variant="h2" component="h2" color="text.secondary">
         {children}
       </Typography>
-      {end && <Box sx={{ ml: "auto !important" }}>{end}</Box>}
+      {/* A long chip (a steps summary) ellipsises rather than pushing the page wider than a phone. */}
+      {end && <Box sx={{ ml: "auto !important", minWidth: 0, "& .MuiChip-root": { maxWidth: "100%" } }}>{end}</Box>}
     </Stack>
   );
 }

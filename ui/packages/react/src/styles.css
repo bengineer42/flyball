@@ -659,3 +659,6 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
   .fb-loop-head { flex-wrap: wrap; row-gap: 0; }
   .fb-loop-head > .fb-muted { order: 3; flex-basis: 100%; white-space: normal; overflow: visible; }
 }
+
+/* A unit chart's device list in its subtitle ellipsises like any subtitle rather than spilling out of the tile. */
+.fb-unit-chart-channels { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
