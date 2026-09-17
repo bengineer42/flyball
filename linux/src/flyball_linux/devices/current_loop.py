@@ -138,9 +138,15 @@ def _adc_channels(
     adc: ads1115.Ads1115Config | mcp3008.Mcp3008Config, channels: Mapping[str, CurrentLoopChannel]
 ) -> dict[str, ads1115.Channel] | dict[str, mcp3008.Channel]:
     """The wrapped ADC's own `channels:` tree: each reports milliamps, not volts."""
-    channel_type = ads1115.Channel if isinstance(adc, ads1115.Ads1115Config) else mcp3008.Channel
+    if isinstance(adc, ads1115.Ads1115Config):
+        return {
+            key: ads1115.Channel(
+                channel=c.channel, unit="mA", scale=1000.0 / c.resistor_ohms, offset=0.0
+            )
+            for key, c in channels.items()
+        }
     return {
-        key: channel_type(
+        key: mcp3008.Channel(
             channel=c.channel, unit="mA", scale=1000.0 / c.resistor_ohms, offset=0.0
         )
         for key, c in channels.items()
