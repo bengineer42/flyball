@@ -42,3 +42,4 @@ examples/**/*.schema.json
 *.sqlite-wal
 *.sqlite-shm
 
+temp/
