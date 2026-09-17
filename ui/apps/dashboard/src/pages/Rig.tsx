@@ -12,7 +12,7 @@ import { Confirm } from "../Confirm.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { when } from "../time.js";
-import { useToken } from "../token.js";
+import { useAuth } from "../auth.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
@@ -188,16 +188,17 @@ const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; ser
 
 /**
  * `GET /mcp/{read,author,operate}`: this daemon's MCP server, one tier per mode (book's mcp.md). Shows each
- * tier's absolute URL, the `claude mcp add` line for it, and a client config block with the app's own token
- * filled in when it has one.
+ * tier's absolute URL, the `claude mcp add` line for it, and a client config block. The browser never holds
+ * the daemon's token (a login is a cookie), so the block carries a placeholder for it when the daemon has one.
  */
 function ConnectModelCard() {
-  const { token } = useToken();
+  const { info } = useAuth();
   const base = pageBase();
   const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
+  const needsToken = Boolean(info && (info.token || info.password));
   const config = {
     mcpServers: Object.fromEntries(
-      urls.map((m) => [m.server, { type: "http", url: m.url, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }]),
+      urls.map((m) => [m.server, { type: "http", url: m.url, ...(needsToken ? { headers: { Authorization: "Bearer <token>" } } : {}) }]),
     ),
   };
   return (
@@ -225,9 +226,11 @@ function ConnectModelCard() {
         <Box>
           <Typography variant="subtitle2">Client config</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
-            {token
-              ? "Its own bearer token, filled in below: every server here needs it, since any of them can drive the rig."
-              : "This daemon has no token: it is open to anyone who can reach it, so the config below carries no headers."}
+            {info?.token
+              ? "Every server here needs the daemon's bearer token (--token), since any of them can drive the rig: put it where <token> is."
+              : info?.password
+                ? "This daemon has a password but no token, and a model cannot type one: start it with --token as well and put that where <token> is."
+                : "This daemon has no password and no token: it is open to anyone who can reach it, so the config below carries no headers."}
           </Typography>
           <CopyLine value={JSON.stringify(config, null, 2)} />
         </Box>

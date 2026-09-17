@@ -3,7 +3,7 @@ import { Alert, Typography } from "@mui/material";
 import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
-import { TokenChip, TokenPrompt } from "./TokenChip.js";
+import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip } from "./Status.js";
 import { Overview } from "./pages/Overview.js";
@@ -70,7 +70,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
 }
 
 /** The app bar's chips: the polled state plus the store's stream health. */
-function AppStatus() {
+function AppStatus({ onSignIn }: { onSignIn(): void }) {
   const { recording, programmer, simulationSpeed } = useLive();
   const simulated = useContext(SimulatedContext);
   const { streams } = useStreamStatus();
@@ -78,7 +78,7 @@ function AppStatus() {
     <>
       <Status recording={recording} programmer={programmer} streams={streams} />
       {simulated && <SimChip speed={simulationSpeed} />}
-      <TokenChip />
+      <AuthChip onSignIn={onSignIn} />
     </>
   );
 }
@@ -124,7 +124,7 @@ function SessionsPage({ name, navigate }: { name: string | null; navigate: (page
  * through the telemetry store (`useTraceRef`, `useSignal`, ...) and the
  * polled state through `LiveProvider`.
  */
-export function App() {
+export function App({ onSignIn }: { onSignIn(): void }) {
   countRender("App");
   const [route, navigate] = useRoute();
   const { page, name, params } = route;
@@ -148,9 +148,9 @@ export function App() {
   useScrollMemory(ready);
 
   if (devices.error) {
-    // A daemon started with `--token` refuses everything without one: the first request the app makes
-    // (this one) is what discovers that, so it is where the prompt replaces the usual error.
-    if (devices.error instanceof RigError && devices.error.status === 401) return <TokenPrompt />;
+    // The session ended (or a daemon refuses everything and the door has not yet said so): the first
+    // request the app makes is what discovers it, so the login page stands in for the usual error.
+    if (devices.error instanceof RigError && devices.error.status === 401) return <LoginPage />;
     return (
       <Alert severity="error" sx={{ m: 3 }}>
         Cannot reach the rig: {devices.error.message}
@@ -189,7 +189,7 @@ export function App() {
               page={page}
               onNavigate={navigate}
               title={title}
-              status={<AppStatus />}
+              status={<AppStatus onSignIn={onSignIn} />}
               simulated={simulated}
               devices={all.filter((d) => d.kind !== "simulation")}
               current={name}

@@ -10,6 +10,7 @@ import type { Request, StreamHandlers, Subscription, Transport } from "./transpo
 import { RigError } from "./transport.js";
 import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./dashboards.js";
 import type {
+  AuthInfo,
   Address,
   ClockOut,
   ControllerOut,
@@ -251,6 +252,26 @@ export class RigClient {
   }
 
   /** Every version of the rig this store has seen, newest first: when, and why it changed. */
+  // region Auth
+
+  /** Who this caller is here and what the daemon's door is like (`GET /api/auth`); always answers. */
+  auth(): Promise<AuthInfo> {
+    return this.get("/api/auth");
+  }
+
+  /** Trade the password (or the daemon's token) for a session cookie the browser then carries on every
+   * request, socket and download. 401 for a wrong one; 429 after ten wrong ones in a minute. */
+  login(secret: string): Promise<AuthInfo> {
+    return this.call({ method: "POST", path: "/api/auth/login", body: { secret } });
+  }
+
+  /** Clear the session cookie. */
+  logout(): Promise<AuthInfo> {
+    return this.call({ method: "POST", path: "/api/auth/logout" });
+  }
+
+  // endregion
+
   /** How this daemon serves: its resolved `daemon:` config (`GET /api/daemon`). */
   daemon(): Promise<DaemonInfo> {
     return this.get("/api/daemon");

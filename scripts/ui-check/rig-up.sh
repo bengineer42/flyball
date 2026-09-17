@@ -13,7 +13,7 @@ echo $! > "$S/logs/$name.pids"
 cd /home/ben/flyball/ui
 FLYBALL_URL="http://127.0.0.1:$api" setsid nohup npx vite --config apps/dashboard/vite.config.ts apps/dashboard --port "$ui" --strictPort > "$S/logs/$name-vite.log" 2>&1 &
 echo $! >> "$S/logs/$name.pids"
-for i in $(seq 1 40); do curl -sf "http://127.0.0.1:$api/api/health" >/dev/null && break; sleep 0.5; done
-curl -sf "http://127.0.0.1:$api/api/health" >/dev/null && echo "daemon $name up on :$api" || { echo "daemon $name FAILED — see $S/logs/$name-daemon.log"; tail -20 "$S/logs/$name-daemon.log"; }
+for i in $(seq 1 40); do curl -sf "http://127.0.0.1:$api/api/auth" >/dev/null && break; sleep 0.5; done
+curl -sf "http://127.0.0.1:$api/api/auth" >/dev/null && echo "daemon $name up on :$api" || { echo "daemon $name FAILED — see $S/logs/$name-daemon.log"; tail -20 "$S/logs/$name-daemon.log"; }
 for i in $(seq 1 40); do curl -sf "http://127.0.0.1:$ui/" >/dev/null && break; sleep 0.5; done
 curl -sf "http://127.0.0.1:$ui/" >/dev/null && echo "ui $name up on http://127.0.0.1:$ui" || echo "vite $name FAILED — see $S/logs/$name-vite.log"

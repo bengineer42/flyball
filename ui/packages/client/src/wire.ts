@@ -677,6 +677,22 @@ export interface DaemonInfo {
   max_bytes?: number | null;
 }
 
+/**
+ * `GET /api/auth`: who the caller is here, and what the daemon's door is like.
+ * `level` is what this caller may do -- `none` (sign in first), `read` (an
+ * anonymous reader on a daemon with `auth.anonymous: read`), `operate`.
+ * `scheme` is how they got in: a session cookie (`password`), a bearer
+ * `token`, or not at all. `password` / `token` say which the daemon has; with
+ * neither it is open and `level` is `operate` for everyone.
+ */
+export interface AuthInfo {
+  scheme: "anonymous" | "password" | "token";
+  level: "none" | "read" | "operate";
+  anonymous: "none" | "read";
+  password: boolean;
+  token: boolean;
+}
+
 /** A duration the daemon reports, as ns or as configured (`1h`, `30d`, `15m`), in seconds; null for none/0. */
 export function durationS(value: number | string | null | undefined): number | null {
   if (value == null || value === 0 || value === "0" || value === "") return null;
