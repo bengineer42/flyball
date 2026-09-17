@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../rig.schema.json
+# Generic analog pH probe + breakout (e.g. DFRobot Gravity pH SEN0161-style:
+# a BNC pH electrode into an amplifier board that outputs 0-3.0 V-ish over
+# its usable range), read on an ADS1115 channel. This is not a register
+# map to look up -- there is no digital protocol here, just a voltage --
+# so there is nothing to cite beyond the ADS1115 driver itself.
+#
+# pH is NOT computable from a fixed scale/offset in this file: every probe
+# and amplifier board has its own slope and zero point, and both drift with
+# electrode age and temperature. `scale`/`offset` below are placeholders
+# (a straight line, 0 V -> pH 0, calibration_slope V/pH) -- replace them
+# with your own two-point calibration:
+#
+#   1. Rinse the probe, dip in pH 7.00 buffer, let it settle, read `ph.raw_v`.
+#   2. Rinse, dip in pH 4.00 buffer, let it settle, read `ph.raw_v` again.
+#   3. slope_v_per_ph = (v_at_ph4 - v_at_ph7) / (4.00 - 7.00)
+#      offset_ph      = 7.00 - v_at_ph7 / slope_v_per_ph
+#      scale          = 1 / slope_v_per_ph      # signal's `scale * volts + offset`
+#      offset         = offset_ph
+#   4. Re-check against a third buffer (e.g. pH 10) before trusting it.
+#   5. Repeat periodically -- probes drift over weeks to months.
+#
+# `raw_v` is exposed alongside `ph` so recalibration can be done live
+# without editing this file until the new numbers are known.
+
+devices:
+  ph:
+    driver: ads1115
+    label: pH
+    poll_s: 2
+    link: i2c1
+    address: 0x48
+    gain: 1                          # +-4.096 V full scale; probe boards are typically 0-3ish V
+    channels:
+      raw_v: { channel: 0, unit: V }
+      ph: { channel: 0, unit: pH, scale: 1.0, offset: 0.0 }   # PLACEHOLDER: replace via calibration above
