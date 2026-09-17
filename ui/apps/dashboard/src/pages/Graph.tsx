@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Checkbox,
+  Chip,
   Divider,
   Drawer,
   IconButton,
@@ -20,7 +21,7 @@ import {
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
 import CloseIcon from "@mui/icons-material/Close";
-import { describeSignal, deviceOf, type DeviceOut, type SignalOut } from "@flyball/client";
+import { describeUnit, deviceOf, hasTags, humanise, signalTitle, tagAxes, type DeviceOut, type SignalOut } from "@flyball/client";
 import { MultiSeries, groupByUnit, useTraceRef, type MultiSeriesTrace } from "@flyball/react";
 import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
@@ -117,6 +118,8 @@ export function Graph({ devices, ...charts }: GraphProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pickerGroup, setPickerGroupState] = useState<PickerGroup>(readPickerGroup);
   const [search, setSearch] = useState("");
+  // Tag filter: per axis, the values ticked; an axis with none ticked does not filter.
+  const [chosenTags, setChosenTags] = useState<Map<string, Set<string>>>(() => new Map());
 
   // Every axis on this page is a `MultiSeries` line: a non-number never reaches it, so only numeric signals are offered.
   const publishing = useMemo(
@@ -158,8 +161,21 @@ export function Graph({ devices, ...charts }: GraphProps) {
   };
 
   const deviceLabel = (name: string) => devices.find((d) => d.name === name)?.label ?? name;
+  const title = (s: SignalOut) => signalTitle(s, devices);
+  const axes = useMemo(() => tagAxes(publishing.flatMap((d) => d.signals)), [publishing]);
+  const toggleTag = (axis: string, value: string) =>
+    setChosenTags((prev) => {
+      const next = new Map(prev);
+      const values = new Set(next.get(axis) ?? []);
+      if (values.has(value)) values.delete(value);
+      else values.add(value);
+      next.set(axis, values);
+      return next;
+    });
   const needle = search.trim().toLowerCase();
-  const matches = (s: SignalOut) => !needle || `${s.label} ${s.address} ${s.quantity} ${s.unit} ${deviceLabel(deviceOf(s.address))}`.toLowerCase().includes(needle);
+  const matches = (s: SignalOut) =>
+    hasTags(s, chosenTags) &&
+    (!needle || `${title(s)} ${s.address} ${s.quantity} ${s.unit} ${Object.values(s.tags ?? {}).join(" ")} ${deviceLabel(deviceOf(s.address))}`.toLowerCase().includes(needle));
 
   const branches =
     pickerGroup === "device"
@@ -170,13 +186,17 @@ export function Graph({ devices, ...charts }: GraphProps) {
   const selected = order.map((k) => byAddress.get(k)).filter((s): s is SignalOut => !!s);
   const live = useTraceRef(useMemo(() => selected.map((s) => s.address), [selected]));
   const primaryUnit = selected[0]?.unit;
+  // A legend entry is the signal's title; the device joins it only when two plotted signals would otherwise read the same.
+  const titleCount = new Map<string, number>();
+  for (const s of selected) titleCount.set(title(s), (titleCount.get(title(s)) ?? 0) + 1);
   const series: MultiSeriesTrace[] = selected.map((s) => ({
-    label: `${deviceLabel(deviceOf(s.address))}.${describeSignal(s)}`,
+    label: (titleCount.get(title(s)) ?? 0) > 1 ? `${title(s)} · ${deviceLabel(deviceOf(s.address))}` : title(s),
     unit: s.unit,
+    quantity: s.quantity,
     key: s.address,
     color: seriesColorFor(slotFor(s.address)),
     precision: s.precision ?? undefined,
-    hint: `${s.address} (${s.unit})`,
+    hint: `${deviceLabel(deviceOf(s.address))} · ${s.address}${describeUnit(s.unit) ? ` (${describeUnit(s.unit)})` : ""}`,
   }));
 
   const picker = (
@@ -191,6 +211,17 @@ export function Graph({ devices, ...charts }: GraphProps) {
             by unit
           </ToggleButton>
         </ToggleButtonGroup>
+        {[...axes].map(([axis, values]) => (
+          <Stack key={axis} direction="row" flexWrap="wrap" useFlexGap spacing={0.5} alignItems="center" aria-label={`filter by ${axis}`}>
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }} title={`the ${axis} tag: tick one or more to show only those signals`}>
+              {humanise(axis)}
+            </Typography>
+            {values.map((value) => {
+              const on = chosenTags.get(axis)?.has(value) ?? false;
+              return <Chip key={value} label={humanise(value)} size="small" variant={on ? "filled" : "outlined"} color={on ? "primary" : "default"} onClick={() => toggleTag(axis, value)} aria-pressed={on} />;
+            })}
+          </Stack>
+        ))}
       </Box>
       <Divider />
       <List dense disablePadding sx={{ overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
@@ -211,7 +242,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
                     <ListItemText
                       primary={
                         <span title={s.address}>
-                          {describeSignal(s)} <span className="fb-muted">{s.unit}</span>
+                          {title(s)} <span className="fb-muted">{describeUnit(s.unit)}</span>
                         </span>
                       }
                       secondary={pickerGroup === "unit" ? deviceLabel(deviceOf(s.address)) : undefined}
@@ -224,7 +255,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
         ))}
         {visibleBranches.length === 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
-            nothing matches “{search}”
+            {needle ? `nothing matches “${search}”` : "no signal carries the ticked tags"}
           </Typography>
         )}
       </List>

@@ -173,8 +173,10 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
       <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
         Plants
       </Typography>
-      {/* Wide on purpose (one column per port); scrolls inside the card rather than the page on a phone. */}
-      <Box sx={{ overflowX: "auto" }}>
+      {/* Wide on purpose (one column per port); scrolls inside the card rather than the page on a phone.
+          `fb-scroll-shadow-x` (styles.css) fades in a right-edge shadow while columns remain off-screen
+          and clears once scrolled to the end, so a phone width has a cue that the row continues. */}
+      <Box className="fb-scroll-shadow-x" sx={{ overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
           <TableRow>

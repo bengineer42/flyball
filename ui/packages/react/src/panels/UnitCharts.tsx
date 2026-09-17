@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from "react";
-import { describeSignal, deviceOf, groupTitle, placeOf, titleFor, unitTitle, type DeviceRef, type Place, type SignalOut } from "@flyball/client";
+import { describeSignal, deviceOf, type DeviceRef, deviceTitle, groupTitle, placeOf, type Place, type SignalOut, signalTitleAt, unitTitle } from "@flyball/client";
 import type { Traces } from "../hooks/useTraces.js";
 import { Ref } from "../links.js";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
@@ -88,8 +88,9 @@ const UnitChart = memo(
       const trace = traces?.[s.address];
       const place = places[i]!;
       return {
-        label: labels === "label" ? describeSignal(s) : titleFor(s, { namespace: place.namespace, device: multiDevice ? place.device : undefined }),
+        label: labels === "label" ? describeSignal(s) : multiDevice && place.device && !place.namespace ? `${signalTitleAt(s, place)} · ${deviceTitle(place.device)}` : signalTitleAt(s, place),
         unit,
+        quantity: s.quantity,
         key: s.address,
         hint: s.address,
         ...(source ? {} : { t: trace?.t ?? [], v: trace?.v ?? [] }),

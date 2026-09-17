@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { Readout, readoutLevel, Ref, useFreshness, useSignal, useTraceRef } from "@flyball/react";
-import { describeSignal, deviceOf } from "@flyball/client";
+import { deviceOf, signalTitle } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
@@ -35,10 +35,10 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
     () =>
       signal ? (
         <Ref kind="signal" name={address}>
-          {describeSignal(signal)}
+          {signalTitle(signal, bindings.devices)}
         </Ref>
       ) : undefined,
-    [signal, address],
+    [signal, address, bindings],
   );
   const subtitle = useMemo(() => (signal && showDevice ? <Ref kind="device" name={deviceOf(address)}>{bindings.deviceLabel(deviceOf(address))}</Ref> : undefined), [signal, address, showDevice, bindings]);
   useWidgetChrome(signal ? { title, subtitle, severity: level, severityLabel: numeric ? numReadout.label : undefined, footer } : null);
@@ -76,7 +76,7 @@ export const readout: WidgetKind = {
   titleFor: (config, bindings) => {
     const address = String(config.address ?? "");
     const s = bindings.signalAt(address);
-    return s ? describeSignal(s) : address;
+    return s ? signalTitle(s, bindings.devices) : address;
   },
   Component: ReadoutWidget,
 };

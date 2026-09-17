@@ -6,7 +6,7 @@
  * per-signal hooks (`useSignal`, `useWriteState`, `useController`).
  */
 import { createContext, useContext } from "react";
-import { describeSignal, deviceOf, publishes, signalsOf, type Address, type ControllerOut, type DeviceOut, type RigEvent, type SignalOut } from "@flyball/client";
+import { describeUnit, deviceOf, publishes, signalTitle, signalsOf, type Address, type ControllerOut, type DeviceOut, type RigEvent, type SignalOut } from "@flyball/client";
 import type { ControllerTraces, useHealth, useRecording } from "@flyball/react";
 import type { ChartSettings } from "../YScaleSelect.js";
 import type { Programmer, useRecordingExports } from "../model.js";
@@ -61,7 +61,7 @@ export function makeBindings(devices: DeviceOut[], controllers: Record<Address, 
     deviceLabel,
     signalLabel(address) {
       const s = byAddress.get(address);
-      return s ? `${deviceLabel(deviceOf(address))} · ${describeSignal(s)} (${s.unit})` : address;
+      return s ? `${deviceLabel(deviceOf(address))} · ${signalTitle(s, devices)}${describeUnit(s.unit) ? ` (${describeUnit(s.unit)})` : ""}` : address;
     },
     signalAt: (address) => byAddress.get(address),
   };

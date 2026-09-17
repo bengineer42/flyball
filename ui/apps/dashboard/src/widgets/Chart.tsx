@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef } from "react";
 import { MultiSeries, useTraceRef, type MultiSeriesTrace, type YScale } from "@flyball/react";
-import { describeSignal, deviceOf, type SignalOut } from "@flyball/client";
+import { deviceOf, signalTitle, type SignalOut } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { isNumeric } from "../valueReadout.js";
@@ -30,15 +30,27 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
   const host = useRef<HTMLDivElement>(null);
   const height = useChartHeight(host);
   const addresses = Array.isArray(config.addresses) ? (config.addresses as unknown[]).map(String) : [];
-  // A chart axis never takes a non-number: a saved address that is not numeric now counts as missing, same as one the rig lacks.
+  // A chart axis never takes a non-number: split what's configured into what actually charts, what the rig
+  // doesn't have at all, and what it has but can't be a number (a json/bool/str signal, say) -- those two read
+  // differently to a person ("not on this rig" vs "not a number and cannot be charted").
   const signals = addresses.map((a) => bindings.signalAt(a)).filter((s): s is SignalOut => !!s && isNumeric(s));
-  const missing = addresses.filter((a) => {
-    const s = bindings.signalAt(a);
-    return !s || !isNumeric(s);
-  });
+  const absent = addresses.filter((a) => !bindings.signalAt(a));
+  const nonNumeric = addresses.map((a) => bindings.signalAt(a)).filter((s): s is SignalOut => !!s && !isNumeric(s));
+  const nonNumericTitles = nonNumeric.map((s) => signalTitle(s, bindings.devices));
   const source = useTraceRef(useMemo(() => signals.map((s) => s.address), [addresses.join("\n"), bindings])); // eslint-disable-line react-hooks/exhaustive-deps
   const series = useMemo<MultiSeriesTrace[]>(
-    () => signals.map((s) => ({ label: `${bindings.deviceLabel(deviceOf(s.address))}.${describeSignal(s)}`, unit: s.unit, key: s.address, precision: s.precision ?? undefined })),
+    () => {
+      // A trace is the signal's title; the device joins it only when two traces would otherwise read the same.
+      const titles = signals.map((s) => signalTitle(s, bindings.devices));
+      return signals.map((s, i) => ({
+        label: titles.filter((t) => t === titles[i]).length > 1 ? `${titles[i]} · ${bindings.deviceLabel(deviceOf(s.address))}` : titles[i]!,
+        unit: s.unit,
+        quantity: s.quantity,
+        key: s.address,
+        precision: s.precision ?? undefined,
+        hint: `${bindings.deviceLabel(deviceOf(s.address))} · ${s.address}`,
+      }));
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bindings, source],
   );
@@ -51,10 +63,22 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
   const subtitle = useMemo(() => (signals.length ? [...new Set(signals.map((s) => bindings.deviceLabel(deviceOf(s.address))))].join(" · ") : undefined), [bindings, source]); // eslint-disable-line react-hooks/exhaustive-deps
   useWidgetChrome(signals.length ? { subtitle } : null);
   if (!addresses.length) return <Missing what="signals" name="" hint="Configure the widget to pick signals." />;
-  if (!signals.length) return <Missing what="signals" name={missing.join(", ")} />;
+  if (!signals.length) {
+    // Nothing to chart: say once why, distinguishing "not on this rig" from "on this rig but not a number".
+    if (absent.length && !nonNumeric.length) return <Missing what="signals" name={absent.join(", ")} />;
+    if (nonNumeric.length && !absent.length)
+      return <Missing what="signals" name={nonNumericTitles.join(", ")} reason={nonNumericTitles.length > 1 ? "are not numbers and cannot be charted" : "is not a number and cannot be charted"} />;
+    return <Missing what="signals" name={[...absent, ...nonNumericTitles].join(", ")} reason="cannot be charted: some are not on this rig, some are not numbers" />;
+  }
   return (
     <div ref={host} className="fb-fill fb-chart-host">
-      {missing.length > 0 && <div className="fb-muted fb-chart-title">missing: {missing.join(", ")}</div>}
+      {(absent.length > 0 || nonNumeric.length > 0) && (
+        <div className="fb-muted fb-chart-title">
+          {absent.length > 0 && `${absent.join(", ")} not on this rig`}
+          {absent.length > 0 && nonNumeric.length > 0 && "; "}
+          {nonNumeric.length > 0 && `${nonNumericTitles.join(", ")} not a number`}
+        </div>
+      )}
       <MultiSeries series={series} source={source} id={widget.id} unit={unit} title={widget.title ?? unit} height={height} windowS={windowS} yScale={y} range={widest(signals)} every={every} exportHref={exports.signals(signals)} />
     </div>
   );

@@ -72,7 +72,24 @@ export function digitsFor(schema?: ValueMeta): number {
  * noise does not change length from one reading to the next.
  */
 export function formatNumber(value: number, schema?: ValueMeta): string {
-  return value.toFixed(digitsFor(schema));
+  return fixed(value, digitsFor(schema));
+}
+
+/** `toFixed` that never prints `-0.0`: a value that rounds to nothing is nothing. */
+export function fixed(value: number, digits: number): string {
+  const text = value.toFixed(digits);
+  return /^-0(\.0*)?$/.test(text) ? text.slice(1) : text;
+}
+
+/**
+ * Decimals for a run of axis ticks: the signal's own, but never so few that
+ * two ticks read the same (`0.3, 0.3` on a near-flat trace says nothing).
+ */
+export function tickDigits(ticks: readonly number[], precision: number): number {
+  const finite = ticks.filter((v) => Number.isFinite(v));
+  const step = finite.length > 1 ? Math.min(...finite.slice(1).map((v, i) => Math.abs(v - finite[i]!))) : 0;
+  const needed = step > 0 ? Math.min(6, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9))) : 0;
+  return Math.max(precision, needed);
 }
 
 /** What `formatValue` needs of a schema field or a signal: enough either shape gives it. */
@@ -392,6 +409,52 @@ export function titleFor(signal: Pick<SignalOut, "name" | "label">, place: Place
   return own;
 }
 
+/**
+ * A signal named where its tree is not in view -- a picker, a legend, a
+ * tile. Its own label when the driver gave one that no other signal of the
+ * device shares (`Dry pump flow`); otherwise its namespace then its name
+ * (`Dry humidity`), so three `humidity` signals in three namespaces read
+ * apart. The device is the caller's to add when several are shown.
+ */
+export function signalTitle(signal: Pick<SignalOut, "name" | "label" | "address">, devices: ReadonlyArray<DeviceRef>): string {
+  return signalTitleAt(signal, placeOf(signal.address, devices));
+}
+
+/** `signalTitle` for a caller that already knows the signal's place. */
+export function signalTitleAt(signal: Pick<SignalOut, "name" | "label" | "address">, place: Place): string {
+  const own = describeSignal(signal);
+  if (!place.namespace) return own;
+  const shared = signalsOf(place.device?.signals ?? []).some((other) => other.address !== signal.address && describeSignal(other) === own);
+  return signal.label && !shared ? own : titleFor(signal, { namespace: place.namespace });
+}
+
+/** A tile's caption under a title from `signalTitleAt`: the device alone once the title already names the namespace. */
+export function captionUnder(title: string, signal: Pick<SignalOut, "name" | "label">, place: Place): string {
+  return title === describeSignal(signal) ? captionFor(place) : place.device ? deviceTitle(place.device) : "";
+}
+
+/** Every tag axis across `signals` with its values in first-seen order: `line → [dry, wet]`. Empty when nothing is tagged. */
+export function tagAxes(signals: ReadonlyArray<Pick<SignalOut, "tags">>): Map<string, string[]> {
+  const axes = new Map<string, string[]>();
+  for (const s of signals)
+    for (const [axis, value] of Object.entries(s.tags ?? {})) {
+      const values = axes.get(axis) ?? [];
+      if (!values.includes(value)) values.push(value);
+      axes.set(axis, values);
+    }
+  return axes;
+}
+
+/** Whether a signal carries, on every axis something is chosen for, one of the chosen values. Nothing chosen: every signal. */
+export function hasTags(signal: Pick<SignalOut, "tags">, chosen: ReadonlyMap<string, ReadonlySet<string>>): boolean {
+  for (const [axis, values] of chosen) {
+    if (values.size === 0) continue;
+    const own = signal.tags?.[axis];
+    if (own === undefined || !values.has(own)) return false;
+  }
+  return true;
+}
+
 /** A tile's caption for a signal: its namespace then its device (`Chamber · Humidity sensors`), whichever are known. */
 export function captionFor(place: Place): string {
   return [place.namespace && describeNamespace(place.namespace), place.device && deviceTitle(place.device)].filter(Boolean).join(" · ");
@@ -444,6 +507,16 @@ export function writable(signal: Pick<SignalOut, "access">): boolean {
 /** Whether a signal can be read at all (`r`); a `w`-only signal has no value to ask for. */
 export function readable(signal: Pick<SignalOut, "access">): boolean {
   return signal.access.toLowerCase().includes("r");
+}
+
+/**
+ * A device's own housekeeping output: the `conditions` list every device
+ * declares at its root. Shown as the device's badge, never as a reading of
+ * its own -- a picker, a tile grid or a "last sample" stamp skips it.
+ */
+export function isHousekeeping(signal: Pick<SignalOut, "name" | "address">): boolean {
+  const device = deviceOf(signal.address);
+  return signal.address === `${device}.conditions` || signal.address.startsWith(`${device}.last.`);
 }
 
 /** Every signal under a tree, namespaces flattened, in tree order. */

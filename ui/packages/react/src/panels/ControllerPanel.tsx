@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import uPlot from "uplot";
 import type { ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
-import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf } from "@flyball/client";
+import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed, tickDigits } from "@flyball/client";
 import type { ControllerTrace } from "../hooks/useControllers.js";
 import { useQuery } from "../hooks/useQuery.js";
 import { Ref } from "../links.js";
@@ -100,7 +100,7 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
       // the series' own precision -- a totally axis-free trend read as broken, not "at a glance".
       axes: [
         { show: true, stroke: axisColour, font: "11px system-ui", size: 18, gap: 2, space: 70, grid: { show: false }, ticks: { show: false } },
-        { show: true, stroke: axisColour, font: "11px system-ui", size: 40, gap: 4, space: 34, grid: { stroke: gridColour, width: 1 }, ticks: { show: false }, values: (_u, vals) => vals.map((v) => v.toFixed(precision)) },
+        { show: true, stroke: axisColour, font: "11px system-ui", size: 40, gap: 4, space: 34, grid: { stroke: gridColour, width: 1 }, ticks: { show: false }, values: (_u, vals) => vals.map((v) => fixed(v, tickDigits(vals, precision))) },
       ],
       legend: { show: false },
       cursor: { show: false },
@@ -450,9 +450,8 @@ export function ControllerPanel({
       {!bare && (
         <header className="fb-loop-head">
           <h3><Ref kind="controller" name={controller.name}>{describeController(controller)}</Ref></h3>
-          <span className="fb-muted">
-            {controller.label && `${controller.name} · `}
-            <Ref kind="signal" name={controller.source} />
+          <span className="fb-muted" title={`${controller.name} regulates ${controller.source}`}>
+            regulates <Ref kind="signal" name={controller.source}>{describeSignal(source)}</Ref>
             {controller.default && " · default"}
           </span>
           <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span>
@@ -511,7 +510,7 @@ export function ControllerPanel({
           </div>
           <div>
             <h4 className="fb-loop-chart-title" title={`What the controller asks of ${controller.target}, and what it can give back`}>
-              Drive <span className="fb-muted">{controller.target} · {dUnit}</span>
+              Drive <span className="fb-muted">{target ? describeSignal(target) : controller.target}{dUnit ? ` · ${dUnit}` : ""}</span>
             </h4>
             {/* The target's limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
             <MiniTrend series={drive} height={trendHeight} every={every} yScale={outputRange ? "range" : undefined} range={outputRange} windowS={windowS} />

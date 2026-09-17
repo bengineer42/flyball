@@ -128,7 +128,7 @@ shots="$S/shots"
 mkdir -p "$shots"
 run() { node "$TOOLS/shot.mjs" "$@"; }
 
-pages=(dashboards overview inputs graph controllers devices programs events sessions simulation)
+pages=(dashboards overview inputs graph controllers devices rig programs events sessions simulation)
 
 for page in "${pages[@]}"; do
   run "$base/#/$page" "$shots/sweep-$name-$page.png" --wait 3000

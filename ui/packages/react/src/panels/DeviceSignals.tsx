@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { describeDevice, describeSignal, formatValue, humanise, isNamespace, isNumeric, publishes, readable, signalsOf, type Address, type DeviceOut, type NamespaceOut, type SignalOut, type TreeNode } from "@flyball/client";
+import { describeDevice, describeSignal, formatValue, humanise, isNamespace, isNumeric, publishes, readable, signalsOf, type Address, type DeviceOut, type NamespaceOut, type SignalOut, type TreeNode, isHousekeeping } from "@flyball/client";
 import { Ref } from "../links.js";
 import { useDeviceRun, useLatestValue, useTraceRef } from "../store/hooks.js";
 import { Readout } from "./Readout.js";
@@ -205,7 +205,7 @@ function TagPivot({ device, axis, excluded, common }: { device: DeviceOut; axis:
  * it needs a `RigProvider` above it.
  */
 export function DeviceSignals({ device, sparkline = true, windowS, controls, every, exportHref, bare = false }: DeviceSignalsProps) {
-  const all = signalsOf(device.signals);
+  const all = signalsOf(device.signals).filter((s) => !isHousekeeping(s)); // the count a person would give: readings and demands
   const live = useTraceRef(all.filter(publishes).map((s) => s.address));
   const run = useDeviceRun(device.name);
   const conditions = run?.conditions ?? device.conditions;

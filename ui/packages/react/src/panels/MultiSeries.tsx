@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeUnit, withUnit } from "@flyball/client";
+import { describeUnit, fixed, humanise, tickDigits, withUnit } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
@@ -15,6 +15,8 @@ export interface MultiSeriesTrace {
   label: string;
   /** Unit of this trace. A trace whose unit differs from the chart's `unit` is drawn against its own y axis on the right. */
   unit?: string;
+  /** What the trace measures (`effort`): titles its axis when the unit shows as nothing (dimensionless). */
+  quantity?: string;
   /** Seconds since the epoch, ascending. Traces need not share the same times. Omitted when the chart draws from a `source`. */
   t?: number[];
   v?: (number | null)[];
@@ -86,17 +88,28 @@ const DASH = [6, 4];
  */
 const MAX_EXTRA_AXES = 5;
 
+/** An axis title: the unit, or -- for a dimensionless one, which shows as nothing -- what its traces measure (`Effort`). */
+const axisTitle = (unit: string | undefined, traces: readonly MultiSeriesTrace[]): string | undefined =>
+  describeUnit(unit) || [...new Set(traces.map((t) => t.quantity).filter((q): q is string => !!q))].map(humanise).join(", ") || undefined;
+
 /** Scale key for a trace: the chart's own unit (or none) shares `y`; every other unit always gets its own scale, drawn or not. */
 const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.unit === undefined || trace.unit === unit ? "y" : `y:${trace.unit}`);
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
 const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(raw.toFixed(s.precision ?? 2), s.unit));
 
-/** An axis' tick labels at a fixed precision instead of uPlot's own significant-figure guess (which over-shows digits on a near-flat trace). */
+/**
+ * An axis' tick labels at the signal's precision instead of uPlot's own
+ * significant-figure guess (which over-shows digits on a near-flat trace) --
+ * but never fewer decimals than tell one tick from the next, or a flat
+ * trace reads `0.36, 0.36, 0.36` all the way up.
+ */
 const axisValues =
   (precision: number): uPlot.Axis.Values =>
-  (_u, splits) =>
-    splits.map((v) => (Number.isFinite(v) ? v.toFixed(precision) : ""));
+  (_u, splits) => {
+    const decimals = tickDigits(splits, precision);
+    return splits.map((v) => (Number.isFinite(v) ? fixed(v, decimals) : ""));
+  };
 
 /** Align traces with different time bases onto one x array, nulls where a trace has no point. */
 function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
@@ -171,7 +184,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
   const latest = useRef<uPlot.AlignedData>([[]]);
   // Rebuild only when something structural changes, not on every data tick.
   const shape = JSON.stringify(
-    series.map((s) => [s.label, s.unit ?? null, s.color ?? null, s.dash ?? null, s.width ?? null, s.precision ?? null]),
+    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.width ?? null, s.precision ?? null]),
   );
 
   const [yFit, setYFit] = useState<YScale | null>(null);
@@ -200,7 +213,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
     };
     const axes: uPlot.Axis[] = [
       { label: "time", stroke: fg },
-      { label: describeUnit(unit) || undefined, size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
+      { label: axisTitle(unit, series.filter((s) => scaleOf(s, unit) === "y")), size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
     ];
     const plotted: uPlot.Series[] = [{}];
     // Extra axes alternate right/left (side 1, 3, 1, 3, …), three a side, six on screen with the primary.
@@ -216,7 +229,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         if (scale !== "y" && extraAxesShown < MAX_EXTRA_AXES) {
           const side = extraAxesShown % 2 === 0 ? 1 : 3;
           extraAxesShown++;
-          axes.push({ label: describeUnit(s.unit) || undefined, size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
+          axes.push({ label: axisTitle(s.unit, series.filter((o) => scaleOf(o, unit) === scale)), size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
         }
       }
       const line: uPlot.Series = {
@@ -261,15 +274,19 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
     chart.current = new uPlot(options, data, el);
     (el as HTMLDivElement & { uplot?: uPlot }).uplot = chart.current; // for tests and devtools
     // Follow the host's laid-out width (the host is `contain: inline-size`, so it never follows the canvas):
-    // window resizes, the drawer opening, a grid reflowing. The first callback fires on observe.
-    const resize = new ResizeObserver(([entry]) => {
-      const width = Math.round(entry?.contentRect.width ?? el.clientWidth);
+    // window resizes, the drawer opening, a grid reflowing. The first callback fires on observe. A filling
+    // chart also follows its own legend: uPlot lays that out after the plot, and it wraps to more rows as
+    // traces are added or the host narrows, so the plot must give the rows back or the legend is clipped.
+    const resize = new ResizeObserver(() => {
+      const width = Math.round(el.clientWidth);
       const u = chart.current;
       if (!u || width <= 0) return;
       const h = plotHeight(el, heightNum, fillMode);
       if (width !== u.width || h !== u.height) u.setSize({ width, height: h });
     });
     resize.observe(el);
+    const legend = el.querySelector<HTMLElement>(".u-legend");
+    if (legend && fillMode) resize.observe(legend);
     return () => {
       resize.disconnect();
       chart.current?.destroy();

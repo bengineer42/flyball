@@ -1,4 +1,4 @@
-import { alarmLevel, captionFor, describeSignal, describeUnit, deviceOf, staleAfterS, withUnit, type Freshness, type Place, type SignalOut } from "@flyball/client";
+import { alarmLevel, captionUnder, describeUnit, deviceOf, signalTitleAt, staleAfterS, withUnit, type Freshness, type Place, type SignalOut } from "@flyball/client";
 import { TimeSeries } from "./TimeSeries.js";
 import { Ref } from "../links.js";
 import { useFreshness, useSignal, type TraceRef } from "../store/hooks.js";
@@ -70,6 +70,7 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
   if (own) fresh = freshness;
   const range = signal.range;
   const precision = signal.precision ?? 2;
+  const title = signalTitleAt(signal, place ?? {});
   // Reserve the width of the widest value the range allows, so the number and
   // its unit stay put as digits come and go under noise.
   const widest = range ? Math.max(Math.abs(range[0]), Math.abs(range[1])) : 9999;
@@ -110,8 +111,8 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
       className="fb-readout"
       severity={level}
       severityLabel={label}
-      title={<Ref kind="signal" name={signal.address}>{describeSignal(signal)}</Ref>}
-      subtitle={!showDevice ? undefined : place && captionFor(place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionFor(place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
+      title={<Ref kind="signal" name={signal.address}>{title}</Ref>}
+      subtitle={!showDevice ? undefined : place && captionUnder(title, signal, place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionUnder(title, signal, place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
       footer={footer}
     >
       {body}

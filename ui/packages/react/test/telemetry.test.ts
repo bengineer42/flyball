@@ -178,6 +178,7 @@ describe("TelemetryStore", () => {
       sessions: async () => [{ id: 7, start_ns: 100e9, end_ns: null }],
       clock: async () => ({ now_ns: 105e9, start_time_ns: 100e9, elapsed_ns: 5e9, tags: {}, speed: 1 }),
       recording: async () => ({ id: 7, start_ns: 100e9, end_ns: null }),
+      sessionSignals: async () => [{ address: "furnace.zone1" }],
       series,
     });
     const store = new TelemetryStore(rig);
@@ -190,6 +191,27 @@ describe("TelemetryStore", () => {
     expect(series.mock.calls[0]![0]).toBe(7);
     expect(series.mock.calls[0]![1]).toBe("furnace.zone1");
     expect(store.read("furnace.zone1", emptyTrace())).toEqual({ t: [100, 101, 104], v: [10, 11, 20] });
+  });
+
+  it("seeds a value the stream never carried from the rig's own latest, and only that", async () => {
+    const signal = (name: string, address: string, latest: { time_ns: number; value: unknown } | null) => ({ name, address, latest, access: "rp", dtype: "str" });
+    const { rig, send } = fakeRig({
+      devices: async () => [
+        {
+          name: "blender",
+          signals: [signal("mode", "blender.mode", { time_ns: 90e9, value: "blend" }), signal("humidity", "blender.humidity", { time_ns: 90e9, value: 40 }), signal("stop", "blender.last.stop", null)],
+        },
+      ],
+    });
+    const store = new TelemetryStore(rig);
+    store.subscribeLatest("blender.mode", () => undefined);
+    send("samples", samples(["blender", 104, { humidity: 55 }])); // live before the seed lands: kept
+    const seeded = store.seed(["blender.mode", "blender.humidity", "blender.last.stop"]);
+    await vi.runAllTimersAsync();
+    await seeded;
+    expect(store.latestValue("blender.mode")).toEqual({ t: 90, value: "blend" });
+    expect(store.latestValue("blender.humidity")).toEqual({ t: 104, value: 55 });
+    expect(store.latestValue("blender.last.stop")).toBeUndefined();
   });
 
   it("keeps write states by signal address, joined from a sample's `writes` and its value", () => {

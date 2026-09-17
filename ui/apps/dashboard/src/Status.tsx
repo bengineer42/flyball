@@ -6,6 +6,8 @@ import { PAGE_ICONS, WarnIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
 
 type Colour = NonNullable<ChipProps["color"]>;
+/** The visible chip label for a long message: the tooltip (`Line[]`) carries the rest. */
+const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 /** One tooltip line: a name (a link when the app has a page for it) and its state. */
 interface Line {
   name: string;
@@ -45,21 +47,27 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href }: { icon: Ic
         component={href ? "a" : "div"}
         href={href}
         clickable={Boolean(href)}
-        sx={{ "& .MuiChip-label": { fontVariantNumeric: "tabular-nums" } }}
+        sx={{
+          maxWidth: narrow ? 180 : 360,
+          "& .MuiChip-label": { fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        }}
       />
     </Tooltip>
   );
 }
 
 /** A chip with its own coloured dot, for the two states no MUI `color` reads as "quiet": recording (red dot or none) and stream health (grey/amber/red dot). */
-function DotChip({ dotColour, label, href, title }: { dotColour: string; label: string; href?: string; title: string }) {
+function DotChip({ dotColour, label, short, href, title }: { dotColour: string; label: string; short?: string; href?: string; title: string }) {
+  const theme = useTheme();
+  const narrow = useMediaQuery(theme.breakpoints.down("sm"));
   return (
     <Tooltip title={title}>
       <Chip
         variant="outlined"
         color="default"
         icon={<FiberManualRecordIcon sx={{ fontSize: 10, "&&": { color: dotColour } }} />}
-        label={label}
+        label={narrow && short !== undefined ? short : label}
+        sx={narrow && short === "" ? { "& .MuiChip-label": { display: "none" }, "& .MuiChip-icon": { m: 0 } } : undefined}
         component={href ? "a" : "div"}
         href={href}
         clickable={Boolean(href)}
@@ -133,6 +141,7 @@ export function Status({ recording, programmer, streams }: StatusProps) {
       <DotChip
         dotColour={open ? "error.main" : "text.disabled"}
         label={open ? sessionName(open) : "not recording"}
+        short={open ? `#${open.id}` : ""}
         title={open ? `recording ${sessionName(open)}` : "not recording"}
         href={hashFor("sessions")}
       />
@@ -142,7 +151,7 @@ export function Status({ recording, programmer, streams }: StatusProps) {
           full={
             programmer.data.running
               ? `program: ${programmer.data.command ?? "…"} step ${stepOf(programmer.data)}`
-              : `program failed${programmer.data.error ? ` · ${programmer.data.error}` : ""}`
+              : `program failed${programmer.data.error ? ` · ${truncate(programmer.data.error, 60)}` : ""}`
           }
           short={programmer.data.running ? stepOf(programmer.data) : "failed"}
           colour={programmer.data.failed ? "error" : "default"}
@@ -150,7 +159,7 @@ export function Status({ recording, programmer, streams }: StatusProps) {
           href={hashFor("programs")}
         />
       )}
-      <DotChip dotColour={liveDot} label={liveState} title={`streams ${liveState}`} />
+      <DotChip dotColour={liveDot} label={liveState} short={liveState === "live" ? "" : liveState} title={`streams ${liveState}`} />
       {devices.length > 0 && running < devices.length && (
         <StatusChip
           icon={PAGE_ICONS.devices}

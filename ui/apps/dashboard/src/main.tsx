@@ -20,7 +20,11 @@ function Root() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+// One root per page, whatever re-runs this module: Vite re-executes the entry on a hot update that reaches it,
+// and a second `createRoot` on the same container throws away the first tree mid-render (`removeChild` errors).
+const container = document.getElementById("root")! as HTMLElement & { __fbRoot?: ReactDOM.Root };
+const root = (container.__fbRoot ??= ReactDOM.createRoot(container));
+root.render(
   <React.StrictMode>
     <AppTheme>
       <TokenProvider>

@@ -33,7 +33,7 @@ import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DownloadIcon from "@mui/icons-material/Download";
 import StopCircleOutlinedIcon from "@mui/icons-material/StopCircleOutlined";
-import { SessionPanel, useDeviceRuns, useNowS, useQuery, useRig, useSession, type SessionExports } from "@flyball/react";
+import { SessionPanel, useDeviceRuns, useNowS, useQuery, useRig, useSession, useSimulation, type SessionExports } from "@flyball/react";
 import type { SessionRow } from "@flyball/client";
 import { sessionName, type Recording } from "../model.js";
 import { duration, when } from "../time.js";
@@ -290,6 +290,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
   const rig = useRig();
   const nowS = useNowS();
   const sessions = useQuery(() => rig.sessions(50), [rig]);
+  const simulation = useSimulation();
   const [pending, setPending] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,7 +301,8 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  const rows = sessions.data ?? [];
+  // The list may stamp an open session with its last sample as `end_ns`; the recording endpoint is the word on which is open.
+  const rows = (sessions.data ?? []).map((r) => (recording.data && r.id === recording.data.id && recording.data.end_ns == null ? { ...r, end_ns: null } : r));
   // Only one session can be open at a time; it can't be selected or deleted.
   const openId = rows.find((r) => r.end_ns == null)?.id ?? null;
   const selectableIds = rows.filter((r) => r.id !== openId).map((r) => r.id);
@@ -442,12 +444,24 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
         </PageBar>
       )}
       {sessions.error && <Alert severity="error">{sessions.error.message}</Alert>}
-      <SectionHead icon={PAGE_ICONS.sessions} title="Sessions" count={sessions.data?.length} />
+      <SectionHead
+        icon={PAGE_ICONS.sessions}
+        title="Sessions"
+        count={sessions.data?.length}
+        end={
+          simulation.speed !== undefined && simulation.speed !== 1 ? (
+            <Typography variant="body2" color="text.secondary" title="A simulated clock: the rig's time runs faster than the wall clock, so these dates and durations are the rig's, not the room's.">
+              times are the rig's clock, ×{simulation.speed}
+            </Typography>
+          ) : undefined
+        }
+      />
       {!sessions.data && !sessions.error && <StateBlock state="loading" message="Loading sessions…" />}
       {sessions.data && sessions.data.length === 0 && <StateBlock state="empty" message="No sessions recorded yet. Start recording to capture one." />}
       {sessions.data && sessions.data.length > 0 && (
         <TableContainer
           component={Paper}
+          className="fb-scroll-shadow-x"
           onKeyDown={(e) => {
             if (e.key === "Escape" && checked.size > 0) {
               e.stopPropagation();
@@ -481,7 +495,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {sessions.data.map((s) => {
+              {rows.map((s) => {
                 // `config` is the whole rig file as recorded: the drill-in shows it, a row never does.
                 const { id, start_ns, end_ns, details, config, hardware, version } = s as SessionRow & { config?: unknown; hardware?: unknown; version?: unknown };
                 const { name, notes, ...otherDetails } = (details && typeof details === "object" ? details : {}) as Record<string, unknown>;

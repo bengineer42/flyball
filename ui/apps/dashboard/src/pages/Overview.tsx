@@ -1,7 +1,7 @@
 import { memo, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Alert, Button, ButtonBase, Chip, Link, Paper, Stack, Typography } from "@mui/material";
 import { PanelFrame, Readout, Ref, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef } from "@flyball/react";
-import { captionFor, describeNamespace, describeSignal, deviceOf, deviceTitle, isNamespace, placeOf, publishes, setpointOf, signalsOf, titleFor, unitTitle, withUnit, type ControllerOut, type DeviceOut, type Place, type SignalOut } from "@flyball/client";
+import { captionUnder, describeNamespace, deviceOf, isHousekeeping, signalTitleAt, deviceTitle, isNamespace, placeOf, publishes, setpointOf, signalsOf, titleFor, unitTitle, withUnit, type ControllerOut, type DeviceOut, type Place, type SignalOut } from "@flyball/client";
 import { CircleIcon, OkIcon, SignalIcon, WarnIcon, signalIcon, PAGE_ICONS, type IconComponent } from "../icons.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor, type Page } from "../router.js";
@@ -60,16 +60,17 @@ function GoTo({ label, onClick }: { label: string; onClick(): void }) {
 /** A non-numeric signal's tile: same frame as `Readout`, its value a chip or a compact block by dtype -- never a gauge or a series. */
 function ValueTile({ signal, place, showDevice }: { signal: SignalOut; place?: Place; showDevice: boolean }) {
   const { level, footer, body } = useValueReadout(signal);
+  const title = signalTitleAt(signal, place ?? {});
   return (
     <PanelFrame
       className="fb-readout"
       severity={level}
       title={
         <Ref kind="signal" name={signal.address}>
-          {describeSignal(signal)}
+          {title}
         </Ref>
       }
-      subtitle={!showDevice ? undefined : place && captionFor(place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionFor(place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
+      subtitle={!showDevice ? undefined : place && captionUnder(title, signal, place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionUnder(title, signal, place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
       footer={footer}
     >
       <div className="fb-readout-value">{body}</div>
@@ -117,10 +118,10 @@ interface SampleBox {
 export function sampleBoxes(device: DeviceOut): SampleBox[] {
   const cols = (n: number) => Math.min(4, Math.ceil(n / 3));
   const boxes: SampleBox[] = [];
-  const root = signalsOf(device.signals.filter((n) => !isNamespace(n))).filter(publishes);
+  const root = signalsOf(device.signals.filter((n) => !isNamespace(n))).filter((s) => publishes(s) && !isHousekeeping(s));
   for (const node of device.signals) {
     if (!isNamespace(node)) continue;
-    const members = signalsOf(node.signals).filter(publishes);
+    const members = signalsOf(node.signals).filter((s) => publishes(s) && !isHousekeeping(s));
     if (members.length) boxes.push({ address: node.address, title: describeNamespace(node), signals: members, cols: cols(members.length) });
   }
   if (root.length) boxes.unshift({ address: device.name, title: boxes.length ? deviceTitle(device) : undefined, signals: root, cols: cols(root.length) });
@@ -186,7 +187,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   const everySignal = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals).map((s) => [s.address, s] as const))), [devices]);
   const titleOf = (address: string) => {
     const signal = everySignal.get(address);
-    return signal ? titleFor(signal, placeOf(address, devices)) : address;
+    return signal ? signalTitleAt(signal, placeOf(address, devices)) : address;
   };
   // One handle on the store for every chart and tile on the page; nothing here re-renders on a sample.
   const live = useTraceRef(useMemo(() => signals.map((s) => s.address), [signals]));

@@ -35,7 +35,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
-import { describeSignal, signalsOf, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
+import { signalTitle, signalsOf, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
@@ -719,6 +719,12 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   }, []);
 
   const only = shown.length === 1 ? controllerOf(shown[0]!.address) : undefined;
+  const driven = shown.flatMap((target) => {
+    const c = controllerOf(target.address);
+    const source = c ? signals.get(c.source) : undefined;
+    return c && source ? [{ target, c, source }] : [];
+  });
+  const undriven = shown.filter((target) => !driven.some((d) => d.target === target));
   const toolbar = (
     <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.source)?.unit : undefined} />}>
       {name === null ? (
@@ -752,53 +758,54 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   return (
     <>
       {toolbar}
-      {name === null && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={shown.length} />}
       {shown.length === 0 &&
         (status === "connecting" ? (
           <StateBlock state="loading" message="Loading controllers…" />
         ) : (
           <StateBlock state="empty" message="No writable signal on this rig: nothing to control." />
         ))}
+      {/* Controllers first, then the demands nothing drives yet: a person looking for a loop should not read past pumps. */}
+      {name === null && shown.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={driven.length} />}
+      {name === null && driven.length === 0 && shown.length > 0 && <StateBlock state="empty" message="No controller yet. Add one to a demand below, or with the button above." />}
       {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
       <div className="grid">
-        {shown.map((target) => {
-          const c = controllerOf(target.address);
-          const source = c ? signals.get(c.source) : undefined;
-          if (c && source) {
-            const tag = typeof c.law?.tag === "string" ? c.law.tag : null;
-            return (
-              <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
-                <Faceplate
-                  controller={c}
-                  source={source}
-                  target={target}
-                  history={history[c.name]}
-                  windowS={windowS}
-                  yScale={yScale}
-                  every={every}
-                  exportHref={stored.ticks(c.name)}
-                  controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
-                  headerControls={<StopControl name={c.name} mode={c.mode} onEvent={onEvent} />}
-                />
-              </div>
-            );
-          }
+        {driven.map(({ target, c, source }) => {
+          const tag = typeof c.law?.tag === "string" ? c.law.tag : null;
           return (
             <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
-              <WritePanel signal={target} title={describeSignal(target)} />
-              <Button
-                variant="contained"
-                fullWidth
-                startIcon={<AddIcon />}
-                sx={{ mt: 1 }}
-                onClick={() => openAdd(controllerSchema.data?.targets.find((t) => t.address === target.address))}
-                data-testid={`add-controller-${target.address}`}
-              >
-                Add controller
-              </Button>
+              <Faceplate
+                controller={c}
+                source={source}
+                target={target}
+                history={history[c.name]}
+                windowS={windowS}
+                yScale={yScale}
+                every={every}
+                exportHref={stored.ticks(c.name)}
+                controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
+                headerControls={<StopControl name={c.name} mode={c.mode} onEvent={onEvent} />}
+              />
             </div>
           );
         })}
+      </div>
+      {name === null && undriven.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Demands without a controller" count={undriven.length} />}
+      <div className="grid">
+        {undriven.map((target) => (
+          <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+            <WritePanel signal={target} title={signalTitle(target, devices)} />
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AddIcon />}
+              sx={{ mt: 1 }}
+              onClick={() => openAdd(controllerSchema.data?.targets.find((t) => t.address === target.address))}
+              data-testid={`add-controller-${target.address}`}
+            >
+              Add controller
+            </Button>
+          </div>
+        ))}
       </div>
       {dialog}
     </>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeSignal, describeUnit, withUnit, type SignalOut } from "@flyball/client";
+import { describeSignal, describeUnit, withUnit, type SignalOut, fixed, tickDigits } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { navigation } from "./navigation.js";
@@ -151,7 +151,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
               // The unit alone: the legend already names the signal, and brackets read as a variable name.
               label: describeUnit(signal.unit) || label,
               size: axisSize,
-              values: (_u, ticks) => ticks.map((x) => x.toFixed(signal.precision != null ? Math.min(signal.precision, 2) : 1)),
+              values: (_u, ticks) => ticks.map((x) => fixed(x, tickDigits(ticks, signal.precision != null ? Math.min(signal.precision, 2) : 1))),
             }),
           ],
       scales: {

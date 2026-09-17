@@ -3,7 +3,7 @@ import { Alert, Box, Button, IconButton, Link, Paper, Stack, Tooltip, Typography
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { DeviceSignals, Gauge, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useRigDocument, useRigFileSchema, useSignal, useTraceRef } from "@flyball/react";
-import { describeController, describeSignal, deviceOf, formatValue, publishes, RigError, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
+import { describeController, deviceOf, formatValue, isHousekeeping, publishes, RigError, signalTitle, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
 import { useRecordingExports } from "../model.js";
 import { StateBlock } from "../cards.js";
 import { Confirm } from "../Confirm.js";
@@ -21,9 +21,9 @@ export interface InputsProps extends ChartSettings {
   devices: DeviceOut[];
 }
 
-/** The devices that publish anything, each with its publishing signals flattened: what the Inputs page shows. */
+/** The devices that publish anything, each with its publishing signals flattened (its `conditions` badge aside): what the Inputs page shows. */
 export function publishingOf(devices: DeviceOut[]): Array<{ device: DeviceOut; signals: SignalOut[] }> {
-  return devices.map((device) => ({ device, signals: signalsOf(device.signals).filter(publishes) })).filter((d) => d.signals.length > 0);
+  return devices.map((device) => ({ device, signals: signalsOf(device.signals).filter((s) => publishes(s) && !isHousekeeping(s)) })).filter((d) => d.signals.length > 0);
 }
 
 /** A device's display name by name, for headings and hints. */
@@ -168,7 +168,7 @@ export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
                   <Icon fontSize="small" sx={{ color: "text.disabled" }} />
                   <Typography fontWeight={600}>
                     <Link href={hrefFor({ kind: "signal", name: s.address })} underline="hover" color="inherit" title={s.address}>
-                      {describeSignal(s)}
+                      {signalTitle(s, devices)}
                     </Link>
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
@@ -271,7 +271,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
   return (
     <>
       <PageBar end={<ChartControls {...charts} unit={signal.unit} />}>
-        <Crumbs items={[{ label: "inputs", href: hashFor("inputs") }, { label: deviceLabel(devices, device), href: hrefFor({ kind: "device", name: device }) }, { label: describeSignal(signal) }]} />
+        <Crumbs items={[{ label: "inputs", href: hashFor("inputs") }, { label: deviceLabel(devices, device), href: hrefFor({ kind: "device", name: device }) }, { label: signalTitle(signal, devices) }]} />
       </PageBar>
       <Stack direction={{ xs: "column", sm: "row" }} spacing="16px" alignItems="stretch" sx={{ mb: "16px" }}>
         {chartable && (
@@ -284,7 +284,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
           {streams && !numeric && (
             <Paper sx={{ p: 3 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
-                {describeSignal(signal)}
+                {signalTitle(signal, devices)}
               </Typography>
               <div className="fb-readout-value">{value.body}</div>
             </Paper>
@@ -318,7 +318,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
       {chartable && (
         <Paper sx={{ p: 3 }}>
           <Stack direction="row" alignItems="center" spacing={1} className="section-head" flexWrap="wrap" useFlexGap>
-            <Typography fontWeight={600}>{describeSignal(signal)}</Typography>
+            <Typography fontWeight={600}>{signalTitle(signal, devices)}</Typography>
             <Typography variant="body2" color="text.secondary">
               {address} [{signal.access.toUpperCase()}] · {signal.unit}
               {signal.range && ` · range ${signal.range[0]} – ${signal.range[1]}`}

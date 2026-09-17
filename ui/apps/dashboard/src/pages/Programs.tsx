@@ -74,6 +74,29 @@ const warningLines = (warnings: Record<string, string>) =>
     .map(([i, m]) => `step ${Number(i) + 1}: ${m}`)
     .join("\n");
 
+/** A program's `notes`: a known `{ source }` note reads as "from &lt;file&gt;" (full path on hover), any
+ * other object as `key: value` pairs, and a plain string as itself. */
+function NotesCell({ notes }: { notes: unknown }) {
+  if (notes == null) return <>—</>;
+  if (typeof notes === "string") return <>{notes}</>;
+  if (typeof notes === "object") {
+    const obj = notes as Record<string, unknown>;
+    if (typeof obj.source === "string" && Object.keys(obj).length === 1) {
+      const path = obj.source;
+      const base = path.split("/").pop() || path;
+      return <span title={path}>from {base}</span>;
+    }
+    return (
+      <>
+        {Object.entries(obj)
+          .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+          .join(", ")}
+      </>
+    );
+  }
+  return <>{JSON.stringify(notes)}</>;
+}
+
 /** ok / warnings / error chip for a stored program's server-side check. */
 function CheckChip({ check }: { check: { data: ProgramCheck | undefined; error: Error | undefined } }) {
   if (check.error) return <Chip label="check failed" color="default" variant="outlined" title={check.error.message} />;
@@ -115,7 +138,7 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
     : p.running
       ? `running: step ${stepOf(p)}${p.command ? ` · ${p.command}` : ""}`
       : failed
-        ? `failed${p.error ? ` · ${p.error}` : ""}`
+        ? (p.error ?? "failed")
         : "idle — nothing is running";
   return (
     <Paper sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5 }}>
@@ -180,47 +203,62 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
       return undefined;
     }
   }, [normalised?.description, p.body, p.format]);
+  const hasDescription = typeof description === "string" && description.length > 0;
   return (
-    <TableRow hover sx={clickableSx} onClick={clickThrough(href)} data-program={p.name}>
-      <TableCell>
-        <Link href={href} underline="hover" fontWeight={500}>
-          {p.name}
-        </Link>
-        {typeof description === "string" && description && (
-          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 480, whiteSpace: "normal" }} data-testid="program-description">
-            {description}
-          </Typography>
-        )}
-      </TableCell>
-      <TableCell>
-        <Chip label={p.format} variant="outlined" />
-      </TableCell>
-      <TableCell>
-        <CheckChip check={check} />
-      </TableCell>
-      <TableCell sx={{ color: "text.secondary" }}>{normalised ? stepsSummary(normalised) : check.data && !check.data.ok ? check.data.error : "…"}</TableCell>
-      <TableCell>{p.label ?? "—"}</TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{when(p.created_ns)}</TableCell>
-      <TableCell sx={{ color: "text.secondary" }}>{p.notes == null ? "—" : typeof p.notes === "string" ? p.notes : JSON.stringify(p.notes)}</TableCell>
-      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-        <Tooltip title={running ? "A program is running" : "Run"}>
-          <span>
-            <IconButton aria-label={`run ${p.name}`} disabled={running || busy} onClick={onRun}>
-              <PlayArrowIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </TableCell>
-      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-        <Tooltip title="Delete">
-          <span>
-            <IconButton aria-label={`delete ${p.name}`} disabled={busy} onClick={onDelete}>
-              <DeleteOutlineIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </TableCell>
-    </TableRow>
+    <>
+      <TableRow hover sx={[clickableSx, { "& td": { borderBottom: hasDescription ? 0 : undefined } }]} onClick={clickThrough(href)} data-program={p.name}>
+        <TableCell>
+          <Link href={href} underline="hover" fontWeight={500}>
+            {p.name}
+          </Link>
+        </TableCell>
+        <TableCell>
+          <Chip label={p.format} variant="outlined" />
+        </TableCell>
+        <TableCell>
+          <CheckChip check={check} />
+        </TableCell>
+        <TableCell sx={{ color: "text.secondary" }}>{normalised ? stepsSummary(normalised) : check.data && !check.data.ok ? check.data.error : "…"}</TableCell>
+        <TableCell>{p.label ?? "—"}</TableCell>
+        <TableCell sx={{ whiteSpace: "nowrap" }}>{when(p.created_ns)}</TableCell>
+        <TableCell sx={{ color: "text.secondary" }}>
+          <NotesCell notes={p.notes} />
+        </TableCell>
+        <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+          <Tooltip title={running ? "A program is running" : "Run"}>
+            <span>
+              <IconButton aria-label={`run ${p.name}`} disabled={running || busy} onClick={onRun}>
+                <PlayArrowIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </TableCell>
+        <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Delete">
+            <span>
+              <IconButton aria-label={`delete ${p.name}`} disabled={busy} onClick={onDelete}>
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </TableCell>
+      </TableRow>
+      {hasDescription && (
+        <TableRow hover sx={clickableSx} onClick={clickThrough(href)} data-program={`${p.name}-description`}>
+          <TableCell colSpan={9} sx={{ pt: 0 }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              title={description}
+              data-testid="program-description"
+              sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+            >
+              {description}
+            </Typography>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -298,11 +336,13 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
         </Tooltip>
         {imported && imported.length > 0 && <Chip label={`imported ${imported.join(", ")}`} color="info" variant="outlined" onDelete={() => setImported(null)} />}
         <Box sx={{ flexGrow: 1 }} />
-        <Chip
-          label={running ? `running: ${programmer.data?.command ?? ""} step ${stepOf(programmer.data!)}` : failed ? `failed${programmer.data?.error ? ` · ${programmer.data.error}` : ""}` : "programmer idle"}
-          color={running ? "success" : failed ? "error" : "default"}
-          variant="outlined"
-        />
+        <Tooltip title={failed ? (programmer.data?.error ?? "") : ""}>
+          <Chip
+            label={running ? `running: ${programmer.data?.command ?? ""} step ${stepOf(programmer.data!)}` : failed ? "failed — see below" : "programmer idle"}
+            color={running ? "success" : failed ? "error" : "default"}
+            variant="outlined"
+          />
+        </Tooltip>
       </Stack>
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2.25 }}>

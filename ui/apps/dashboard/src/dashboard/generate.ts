@@ -6,8 +6,9 @@
  * someone saves it.
  */
 import type { DashboardDocument, DashboardWidget } from "@flyball/client";
-import { signalsOf, writable } from "@flyball/client";
+import { isHousekeeping, signalsOf, writable } from "@flyball/client";
 import { groupByUnit } from "@flyball/react";
+import { isNumeric } from "../valueReadout.js";
 import type { Bindings } from "./context.js";
 import { DEFAULT_GRID, SCHEMA_VERSION } from "./document.js";
 
@@ -28,7 +29,9 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   // health 24×2, readout 6×5, chart 12×8, loop 8×8, device 6×4, program 8×6, events 12×6.
   row([{ id: "health", kind: "health", title: null, config: { tiles: ["rig", "recording", "devices", "controllers", "conditions"] } }], cols, 2);
 
-  const signals = bindings.signals;
+  // A device's own housekeeping (its `conditions` list, anything under `last.`) is shown on its own tiles
+  // elsewhere (health, device cards), never as a readout or chart signal here.
+  const signals = bindings.signals.filter((s) => !isHousekeeping(s));
   // Ids carry the address with its dots turned to dashes, so an id stays a plain token.
   const slug = (address: string) => address.replace(/\./g, "-");
   row(
@@ -37,7 +40,8 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
     5,
   );
 
-  const units = groupByUnit(signals);
+  // A chart axis takes numbers only; a json/bool/str signal has no business on one.
+  const units = groupByUnit(signals.filter(isNumeric));
   // A chart binds 1–8 signals (DESIGN-SPEC.md §3.3): a unit with more gets a chart per eight. Index the id: stripping
   // punctuation from the unit for readability can collide (e.g. "°C" and "C" both sanitise to "C"), so the index —
   // stable for a given rig, since signal order comes from its devices — is what actually guarantees uniqueness.

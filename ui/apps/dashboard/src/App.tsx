@@ -24,7 +24,7 @@ import type { Programmer, Recording } from "./model.js";
 
 const SimulationPage = memo(Simulation);
 
-const PAGE_LABEL: Record<Page, string> = { ...(Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>), devices: "Devices" };
+const PAGE_LABEL: Record<Page, string> = { ...(Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>), devices: "Devices", inputs: "Inputs" };
 
 /**
  * What is polled rather than streamed, held once for the app bar and the
@@ -185,6 +185,7 @@ export function App() {
               <Waits />
               {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
               {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
+              {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
               {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
               {page === "graph" && <Graph devices={all} {...charts} />}
               {page === "devices" && name === null && <Inputs devices={all} {...charts} />}

@@ -1,5 +1,5 @@
 import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
-import { addressOf, deviceOf, setpointOf } from "@flyball/client";
+import { addressOf, deviceOf, setpointOf, signalsOf } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
 
@@ -298,12 +298,38 @@ export class TelemetryStore {
         const batch = this.pendingSeed;
         this.pendingSeed = [];
         this.seeding = null;
-        this.fetchHistory(batch)
-          .catch(() => undefined) // no store: live-only is fine
-          .then(resolve);
+        Promise.all([
+          this.fetchHistory(batch).catch(() => undefined), // no store: live-only is fine
+          this.fetchLatest(batch).catch(() => undefined),
+        ]).then(() => resolve());
       }, 0);
     });
     return this.seeding;
+  }
+
+  /**
+   * What each signal reads now, from the rig's own latest: a mode that was
+   * set before this page opened and has not changed since never arrives on
+   * the stream, and with no session recorded there is no history to seed it
+   * from either. One `GET /api/devices` carries every signal's `latest`,
+   * so nothing is asked of a signal that has never been read (a demand not
+   * yet set, a device's housekeeping): no 503 for the console. Only fills a
+   * signal nothing else has given a value to.
+   */
+  private async fetchLatest(addresses: Address[]): Promise<void> {
+    const wanted = new Set(addresses);
+    const devices = await this.rig.devices();
+    let changed = false;
+    for (const signal of devices.flatMap((d) => signalsOf(d.signals))) {
+      if (!wanted.has(signal.address) || !signal.latest || signal.latest.value === null || this.latestValues[signal.address]) continue;
+      const time = signal.latest.time_ns / 1e9;
+      const value = signal.latest.value;
+      this.latestValues[signal.address] = { t: time, value };
+      if (typeof value === "number" && this.ring(signal.address).length === 0) this.ring(signal.address).push(time, [value]);
+      this.bumpSignal(signal.address);
+      changed = true;
+    }
+    if (changed) this.flushSoon();
   }
 
   private async fetchHistory(addresses: Address[]): Promise<void> {
@@ -324,8 +350,10 @@ export class TelemetryStore {
       floorS = startS;
       if (endS < horizonS) break;
       const startOffset = Math.max(0, Math.floor((horizonS - startS) * 1e9));
+      // Only what the session declared: asking for anything else is a 409 the console would log for every signal.
+      const declared = new Set((await rig.sessionSignals(session.id).catch(() => [])).map((row) => row.address));
       await Promise.all(
-        addresses.map(async (address) => {
+        addresses.filter((address) => declared.has(address)).map(async (address) => {
           const series = await rig.series(session.id, address, { start_ns: startOffset, max_points: maxPoints }).catch(() => null);
           if (!series || !series.points.length) return;
           (parts.get(address) ?? parts.set(address, []).get(address)!).push({

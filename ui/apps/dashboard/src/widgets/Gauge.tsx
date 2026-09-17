@@ -1,6 +1,6 @@
 import { memo, useRef } from "react";
 import { Gauge, gaugeKindFor, useFreshness, useSignal, type GaugeKind } from "@flyball/react";
-import { alarmLevel, describeSignal, deviceOf } from "@flyball/client";
+import { alarmLevel, deviceOf, signalTitle } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { isNumeric } from "../valueReadout.js";
@@ -65,7 +65,7 @@ export const gauge: WidgetKind = {
   titleFor: (config, bindings) => {
     const address = String(config.address ?? "");
     const s = bindings.signalAt(address);
-    return s ? `${bindings.deviceLabel(deviceOf(address))} · ${describeSignal(s)}` : address;
+    return s ? `${bindings.deviceLabel(deviceOf(address))} · ${signalTitle(s, bindings.devices)}` : address;
   },
   Component: GaugeWidget,
 };

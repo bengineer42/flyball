@@ -564,3 +564,55 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-signal-skip { background: transparent; color: var(--fb-fg-2); border-color: var(--fb-border-1); }
 .fb-signal-go:disabled, .fb-signal-skip:disabled { opacity: 0.6; cursor: default; }
 @media (max-width: 600px) { .fb-signal { flex-wrap: wrap; } .fb-signal-text { flex-basis: 100%; } }
+
+/* A json value shown as rows (a tagged config, a command record): key muted, value plain, one line each. */
+.fb-json-rows { margin: 0; display: grid; grid-template-columns: max-content 1fr; column-gap: 10px; row-gap: 2px; font-size: 13px; line-height: 1.35; align-content: start; }
+.fb-json-rows > div { display: contents; }
+.fb-json-rows dt { color: var(--fb-muted); white-space: nowrap; }
+.fb-json-rows dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fb-readout-value .fb-json-rows { font-size: 13px; font-weight: 400; }
+
+/* Events table at narrow widths: the fixed 5-column layout ran the message column (the point of the
+   page) off-screen with no scroll cue. Below the breakpoint each row becomes a flex-wrapped block --
+   time/level/scope/kind first (targeted by class where one exists, `td` order otherwise, since the level
+   cell carries none of its own), the message last and forced full width so it wraps beneath instead of
+   trailing off the right edge. Wide layouts (the table above) are untouched. */
+@media (max-width: 600px) {
+  .fb-events-table, .fb-events-table tbody, .fb-events-table tr, .fb-events-table td {
+    display: block;
+    width: auto;
+  }
+  .fb-events-table thead { display: none; }
+  .fb-events-table tr.fb-event-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    row-gap: 0.15rem;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--fb-border-1);
+  }
+  .fb-events-table tr.fb-event-row td {
+    display: inline;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .fb-events-table tr.fb-event-row .fb-event-scope,
+  .fb-events-table tr.fb-event-row .fb-event-kind {
+    white-space: normal;
+  }
+  .fb-events-table tr.fb-event-row .fb-event-message {
+    flex-basis: 100%;
+  }
+}
+
+/* Simulation's plant table (`apps/dashboard/src/pages/Simulation.tsx`): the box scrolls (`overflowX:
+   auto`) but nothing said so. A right-edge shadow, the standard two-layer scrolling-shadow trick: a
+   `local`-attached cover in the panel's own colour sits at the true end of the content and only lines
+   up with the visible edge once scrolled all the way there, unmasking a `scroll`-attached vignette that
+   otherwise always sits at the visible right edge. Pure CSS, no scroll listener. */
+.fb-scroll-shadow-x {
+  background:
+    linear-gradient(to left, var(--fb-bg-1) 40%, transparent) right / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--fb-border-3), transparent) right / 10px 100% no-repeat scroll;
+}

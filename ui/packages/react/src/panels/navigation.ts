@@ -37,8 +37,10 @@ export function navigation(): Navigation {
     xRange(_u, min, max, windowS) {
       if (held) return held;
       if (!windowS) return [min, max];
-      const span = max - min;
-      return span < windowS ? [min, min + windowS] : [max - windowS, max];
+      // Live follows the right edge (UI.md B8): the newest point sits at the right and the window
+      // reaches back from it, empty on the left until there is that much history -- never a sliver
+      // at the left with an empty window ahead of it.
+      return [max - windowS, max];
     },
 
     plugin() {

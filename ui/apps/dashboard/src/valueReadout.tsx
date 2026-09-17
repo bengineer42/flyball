@@ -8,7 +8,7 @@
 import type { ReactNode } from "react";
 import { Chip, Typography } from "@mui/material";
 import { useFreshness, useLatestValue, type PanelSeverity } from "@flyball/react";
-import { alarmLevel, type SignalOut } from "@flyball/client";
+import { alarmLevel, humanise, type SignalOut } from "@flyball/client";
 
 export interface ValueReadout {
   level: PanelSeverity;
@@ -18,6 +18,45 @@ export interface ValueReadout {
 
 /** Whether a signal's value belongs on a chart axis or a gauge dial; the rest are a chip or a block. */
 export const isNumeric = (signal: Pick<SignalOut, "dtype">): boolean => signal.dtype === "float" || signal.dtype === "int";
+
+/** A scalar inside a json value, as a person would write it: a tag or a mode as a word, a number as itself. */
+const scalar = (v: unknown): string => (typeof v === "string" ? humanise(v) : typeof v === "number" || typeof v === "boolean" ? String(v) : v === null ? "—" : JSON.stringify(v));
+
+/**
+ * A json value as a reading. A flat object -- a tagged config such as a
+ * blend flow `{flow: 1, on_overdrive: "clamp"}`, a command record -- is a
+ * row per key (`Flow 1`, `On overdrive Clamp`), its `tag` first as the
+ * kind; anything deeper is shown as JSON, since that is what it is.
+ */
+export function JsonValue({ value }: { value: unknown }) {
+  const flat = value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every((v) => v === null || typeof v !== "object");
+  if (!flat)
+    return (
+      <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.78em", lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {JSON.stringify(value)}
+      </Typography>
+    );
+  const entries = Object.entries(value as Record<string, unknown>);
+  const tag = entries.find(([k]) => k === "tag");
+  const rest = entries.filter(([k]) => k !== "tag");
+  return (
+    <dl className="fb-json-rows">
+      {tag && (
+        <div>
+          <dt>kind</dt>
+          <dd>{scalar(tag[1])}</dd>
+        </div>
+      )}
+      {rest.map(([k, v]) => (
+        <div key={k}>
+          <dt>{humanise(k)}</dt>
+          <dd>{scalar(v)}</dd>
+        </div>
+      ))}
+      {entries.length === 0 && <span className="fb-muted">empty</span>}
+    </dl>
+  );
+}
 
 /** `signal`'s live value, dtype-rendered, with the same staleness a numeric `Readout` would show. */
 export function useValueReadout(signal: SignalOut | undefined): ValueReadout {
@@ -33,9 +72,7 @@ export function useValueReadout(signal: SignalOut | undefined): ValueReadout {
     ) : signal?.dtype === "bool" ? (
       <Chip size="small" label={value ? "on" : "off"} color={value ? "success" : "default"} variant="outlined" />
     ) : signal?.dtype === "json" ? (
-      <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.78em", lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-        {JSON.stringify(value)}
-      </Typography>
+      <JsonValue value={value} />
     ) : (
       <Chip size="small" label={String(value)} variant="outlined" />
     );
