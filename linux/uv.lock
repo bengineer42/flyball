@@ -35,6 +35,11 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'cli'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'web'", specifier = ">=0.27" },
+    { name = "mcp", marker = "extra == 'all'", specifier = ">=1.12" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.12" },
+    { name = "mcp", marker = "extra == 'web'", specifier = ">=1.12" },
     { name = "ophyd", marker = "extra == 'bluesky'", specifier = ">=1.9" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pymeasure", marker = "extra == 'pymeasure'", specifier = ">=0.13" },
@@ -45,6 +50,7 @@ requires-dist = [
     { name = "pyvisa-py", marker = "extra == 'visa'", specifier = ">=0.7" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6" },
+    { name = "pyyaml", marker = "extra == 'mcp'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'web'", specifier = ">=6" },
     { name = "qcodes", marker = "extra == 'qcodes'", specifier = ">=0.45" },
     { name = "tomli-w", specifier = ">=1.0" },
@@ -52,8 +58,10 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = ">=0.32" },
     { name = "websockets", marker = "extra == 'all'", specifier = ">=13" },
     { name = "websockets", marker = "extra == 'cli'", specifier = ">=13" },
+    { name = "websockets", marker = "extra == 'mcp'", specifier = ">=13" },
+    { name = "websockets", marker = "extra == 'web'", specifier = ">=13" },
 ]
-provides-extras = ["all", "bluesky", "cli", "modbus", "pymeasure", "qcodes", "serial", "visa", "web"]
+provides-extras = ["all", "bluesky", "cli", "mcp", "modbus", "pymeasure", "qcodes", "serial", "visa", "web"]
 
 [package.metadata.requires-dev]
 dev = [

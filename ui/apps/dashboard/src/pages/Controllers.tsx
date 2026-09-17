@@ -405,7 +405,8 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
   const [error, setError] = useState<string | null>(null);
   const hasLaw = tag !== null && tag !== "open_loop";
   const regulating = mode === "regulating";
-  const choices = useMemo(() => generatorChoices(generators), [generators]);
+  // A faceplate offers a value or a ramp to it; a hold or a profile is a program's business, not a knob on a loop.
+  const choices = useMemo(() => generatorChoices(generators).filter((c) => /ramp/i.test(c.tag)), [generators]);
   const chosen = choices.find((c) => c.tag === kind);
   const formSchema = useMemo(() => (generators && chosen ? generatorFormSchema(generators, chosen.tag, unit) : undefined), [generators, chosen, unit]);
   const formUi = useMemo(() => (formSchema ? generatorUiSchema(formSchema) : undefined), [formSchema]);
@@ -434,15 +435,18 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
   const startValid = fromNow !== "value" || start !== null;
 
   const startLabel = hasLaw ? "Aim here and start the law (bumpless)" : tag === null ? "No law: give the controller a tuning first" : "Open loop: no law to regulate with";
-  const box = { "& .MuiInputBase-input": { py: 0.75 } } as const;
+  // One height for every control on the row (a select, a number box, a button), so they sit on one line, centred.
+  const box = { "& .MuiInputBase-root": { height: 32, fontSize: "0.875rem" }, "& .MuiInputBase-input": { py: 0, height: 32, boxSizing: "border-box" } } as const;
+  const select = { height: 32, fontSize: "0.85rem", "& .MuiSelect-select": { py: 0, display: "flex", alignItems: "center", height: "32px !important", boxSizing: "border-box" } } as const;
+  const button = { flexShrink: 0, whiteSpace: "nowrap", height: 32 } as const;
   const canStart = regulating || hasLaw;
 
   return (
     <Stack component="span" direction="row" spacing={0.75} alignItems="center" useFlexGap sx={{ display: "inline-flex", flexWrap: "wrap", minWidth: 0 }}>
       {choices.length > 0 && (
         <FormControl size="small" sx={{ flexShrink: 0 }}>
-          <Select value={chosen ? chosen.tag : "value"} onChange={(e) => setKind(e.target.value)} inputProps={{ "aria-label": `how to set the target of ${name}` }} data-testid={`kind-${name}`} sx={{ fontSize: "0.85rem", "& .MuiSelect-select": { py: 0.75 } }}>
-            <MenuItem value="value">value</MenuItem>
+          <Select value={chosen ? chosen.tag : "value"} onChange={(e) => setKind(e.target.value)} inputProps={{ "aria-label": `how to set the target of ${name}` }} data-testid={`kind-${name}`} sx={select}>
+            <MenuItem value="value">go to</MenuItem>
             {choices.map((c) => (
               <MenuItem key={c.tag} value={c.tag}>
                 {c.label.toLowerCase()}
@@ -455,20 +459,22 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
         <>
           <TextField
             type="number"
-            label="target"
+            size="small"
+            hiddenLabel
+            placeholder="target"
             value={setpoint}
             onChange={(e) => setSetpoint(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && valid && !busy && canStart) void send(value!);
             }}
-            inputProps={{ "aria-label": `target ${name}`, step: "any", "data-testid": `regulate-at-${name}`, style: { width: "4.5em" } }}
-            InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>{unit}</span> }}
+            inputProps={{ "aria-label": `target ${name}`, step: "any", "data-testid": `regulate-at-${name}`, style: { width: "5em" } }}
+            InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7, marginLeft: 4 }}>{unit}</span> }}
             sx={{ flexShrink: 0, ...box }}
           />
           {regulating ? (
             <Tooltip title="Change the target; the law keeps running as it is">
               <span>
-                <Button variant="contained" size="small" disabled={!valid || busy} onClick={() => void send(value!)} data-testid={`set-reference-${name}`} sx={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+                <Button variant="contained" size="small" disabled={!valid || busy} onClick={() => void send(value!)} data-testid={`set-reference-${name}`} sx={button}>
                   Move target
                 </Button>
               </span>
@@ -476,7 +482,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
           ) : (
             <Tooltip title={startLabel}>
               <span>
-                <Button variant="contained" size="small" startIcon={<PlayArrowIcon />} disabled={!hasLaw || !valid || busy} onClick={() => void send(value!)} data-testid={`regulate-${name}`} sx={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+                <Button variant="contained" size="small" startIcon={<PlayArrowIcon />} disabled={!hasLaw || !valid || busy} onClick={() => void send(value!)} data-testid={`regulate-${name}`} sx={button}>
                   Regulate
                 </Button>
               </span>
@@ -487,7 +493,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
       {chosen && formSchema && (
         <>
           <FormControl size="small" sx={{ flexShrink: 0 }}>
-            <Select value={fromNow} onChange={(e) => setFrom(e.target.value as From)} inputProps={{ "aria-label": `where the ${chosen.label.toLowerCase()} on ${name} starts` }} data-testid={`from-${name}`} sx={{ fontSize: "0.85rem", "& .MuiSelect-select": { py: 0.75 } }}>
+            <Select value={fromNow} onChange={(e) => setFrom(e.target.value as From)} inputProps={{ "aria-label": `where the ${chosen.label.toLowerCase()} on ${name} starts` }} data-testid={`from-${name}`} sx={select}>
               <MenuItem value="setpoint">from setpoint</MenuItem>
               <MenuItem value="process">from reading</MenuItem>
               <MenuItem value="value">from a value</MenuItem>
@@ -496,11 +502,13 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
           {fromNow === "value" && (
             <TextField
               type="number"
-              label="start"
+              size="small"
+              hiddenLabel
+              placeholder="start"
               value={fromValue}
               onChange={(e) => setFromValue(e.target.value)}
-              inputProps={{ "aria-label": `start value for ${name}`, step: "any", "data-testid": `start-${name}`, style: { width: "4.5em" } }}
-              InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>{unit}</span> }}
+              inputProps={{ "aria-label": `start value for ${name}`, step: "any", "data-testid": `start-${name}`, style: { width: "5em" } }}
+              InputProps={{ endAdornment: <span style={{ fontSize: "0.8rem", opacity: 0.7, marginLeft: 4 }}>{unit}</span> }}
               sx={{ flexShrink: 0, ...box }}
             />
           )}
