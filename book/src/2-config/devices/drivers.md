@@ -26,7 +26,27 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` |
+| [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-linux` |
+| [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-linux` |
+| [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-linux` |
+| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-linux` |
+| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-linux` |
+| [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-linux` |
+| [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-linux` |
+| [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-linux` |
+| [`ezo_ph`](#ezo_ph) | Atlas Scientific pH circuit | `uart` | `flyball-linux` |
+| [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-linux` |
+| [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` |
+| [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` |
+| [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` |
 | [`dual_pump_blender`](#dual_pump_blender) | the humidity rig's split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
+
+Browsing what's available before wiring a rig: `linux/drivers-manifest.yaml`
+(part number, manufacturer, verification status, price, which application
+each serves) and `linux/scripts/search_drivers.py` (filter it by category,
+interface, unit or physical dimension -- units and dimensions are read
+straight from each driver's own signals, not hand-maintained) -- or the
+MCP `search_drivers` tool, the same catalogue over a running server.
 
 `GET /api/drivers` on a running runner lists exactly what *it* can build --
 these plus anything from a `drivers/` directory or another installed
@@ -287,6 +307,195 @@ A 1-Wire thermometer of the `w1_therm` family, in °C.
 | --- | --- | --- |
 | `link` | required | an `onewire` link |
 | `device` | required | the probe's id under `/sys/bus/w1/devices` (`28-0316…`) |
+
+### `sht31`
+
+Sensirion SHT30/31/35: `humidity` and `temperature`, both `[RP]`. Same
+shape as `sht4x`, a different command/CRC family -- not a register table.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x44` | `0x45` on the -B variant |
+| `precision` | `high` | `high`, `medium`, `low` |
+
+### `htu21d`
+
+TE Connectivity HTU21D(F) / Silicon Labs Si7021: `humidity` and
+`temperature`, both `[RP]`. No-hold-master trigger, poll-until-ready reads.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x40` | fixed -- no address pin |
+
+### `ms5611`
+
+TE MS5611 barometric pressure: `pressure` (Pa) and `temperature`, both
+`[RP]`. PROM calibration read once, then a timed ADC conversion per sample.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x77` | `0x76` on the CSB-low variant |
+
+### `bme280`
+
+Bosch BME280/BMP280: `temperature`, `pressure`, and (BME280 only)
+`humidity`, all `[RP]`. Reads the calibration block once and applies
+Bosch's own polynomial compensation -- not `i2c_table`, the raw registers
+don't convert linearly.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x76` | `0x77` on SDO-high |
+| `has_humidity` | `true` | `false` for a BMP280 (no humidity registers) |
+
+### `bme680`
+
+Bosch BME680: `temperature`, `pressure`, `humidity`, `gas_resistance`, all
+`[RP]`. Its compensation formula genuinely differs from BME280's -- not
+reused. The gas channel runs a timed heater profile before each reading;
+a reading taken before the heater is stable raises rather than returning a
+silently-wrong resistance.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x76` | `0x77` on SDO-high |
+| `heater_target_c`, `heater_duration_ms` | `320`, `150` | the gas-sensing heater profile |
+
+### `scd30`
+
+Sensirion SCD30: `co2` (ppm), `humidity`, `temperature`, all `[RP]` from
+one transaction. I²C mode only -- the chip's alternative Modbus-over-UART
+mode isn't wired up.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x61` | fixed |
+| `interval_s` | `2` | the continuous-measurement period |
+
+### `scd40`
+
+Sensirion SCD40/SCD41: `co2` (ppm), `humidity`, `temperature`, all `[RP]`.
+Same three-value CRC family as `scd30`, a different command set.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x62` | fixed |
+| `variant` | `scd40` | `scd40` or `scd41` -- SCD41 adds a single-shot mode |
+
+### `sgp30`
+
+Sensirion SGP30: `co2eq` (ppm) and `tvoc` (ppb), both `[RP]`. Needs a
+periodic baseline (get/set) for long-term accuracy -- exposed as commands,
+not silently managed.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x58` | fixed |
+| `baseline` | none | restore a saved `(co2eq, tvoc)` baseline pair at start |
+
+### `sgp40`
+
+Sensirion SGP40: `voc_raw` (dimensionless), `[RP]`. Raw signal only -- no
+VOC-index algorithm. Takes a humidity/temperature compensation input per
+read rather than assuming ambient defaults.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x59` | fixed |
+| `humidity_percent_rh`, `temperature_c` | `50.0`, `25.0` | compensation input; wire from another sensor's reading where accuracy matters |
+
+### `ccs811`
+
+ams/ScioSense CCS811: `co2eq` (ppm), `tvoc` (ppb), both `[RP]`. Runs a
+mandatory boot/app-start sequence before its first read.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x5A` | `0x5B` on the ADDR-high variant |
+
+### `mhz19`
+
+Winsen MH-Z19(B): `co2` (ppm), `[RP]`. Fixed 9-byte binary frames, not
+ASCII -- a request/reply pair per read, checksummed.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `uart` link, 9600 8N1 |
+
+### `ezo_ph`
+
+Atlas Scientific EZO-pH circuit: `ph`, `[RP]`. ASCII command/response,
+`\r`-terminated, a ~1 s wait per reading. Handles the circuit's
+default-enabled `*OK` acknowledgement frame.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `uart` link, 38400 8N1 |
+
+### `hx711`
+
+Avia HX711 load-cell amplifier: `weight`, `[RP]`. Bit-banged 2-wire
+clock/data, not I²C or SPI -- two raw GPIO lines, not a shared bus.
+
+| field | default | |
+| --- | --- | --- |
+| `clock_line`, `data_line` | required | `gpio_line`-style line numbers |
+| `scale`, `offset` | `1.0`, `0.0` | `weight = raw * scale + offset` -- calibrate per load cell: tare at zero, then a known reference weight |
+
+Timing-sensitive: decoded per datasheet, but no fake can meaningfully
+exercise real GPIO bit-bang timing -- only the decode/pulse-count logic is
+tested.
+
+### `current_loop`
+
+A 4-20 mA instrument (an industrial O₂/DO analyser, a pressure
+transmitter) read over an existing `ads1115` or `mcp3008` channel, not a
+new bus -- it composes one, converting mA through a sense resistor into
+engineering units. Below ~3.6 mA or above ~21 mA is treated as a wiring
+fault, not a real reading (the NAMUR NE43 convention).
+
+| field | default | |
+| --- | --- | --- |
+| `adc` | required | an `ads1115` or `mcp3008` config |
+| `channels` | required | `{signal: {channel, resistor_ohms, scale?, offset?}}` |
+
+### `pulse_counter`
+
+A hall-effect flow meter (YF-S201-class): `rate` (L/min) and `count`
+(cumulative pulses), both `[RP]`. Native `gpiod` edge-event detection and
+debounce -- no hand-rolled polling loop.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `gpio` link |
+| `line` | required | |
+| `pulses_per_litre` | required | the sensor's own calibration constant, e.g. 450 for a YF-S201 |
+| `debounce_s` | `0` | passed straight to `gpiod`'s native debounce |
+
+### `dosing_pump`
+
+A peristaltic pump, PWM-driven DC or a relay: a `dispense(volume_ml)`
+command on top of an existing `pwm_channel` or `gpio_line`, converting a
+volume to a run duration from one calibration point. Always stops the
+pump on the way out, including on an error mid-dispense. Stepper-driven
+pumps (step/direction) aren't supported -- no pulse-generating actuator
+link exists yet.
+
+| field | default | |
+| --- | --- | --- |
+| `pump` | required | a `pwm_channel` or `gpio_line` config |
+| `ml_per_s` | required | the pump's rate at full drive (PWM) or while on (relay) |
+| `max_dispense_ml` | none | an optional per-call cap |
 
 ## From an application
 
