@@ -13,20 +13,17 @@ import {
   ListSubheader,
   Stack,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
 import CloseIcon from "@mui/icons-material/Close";
-import { describeUnit, deviceOf, hasTags, humanise, signalTitle, tagAxes, type DeviceOut, type SignalOut } from "@flyball/client";
-import { MultiSeries, groupByUnit, useTraceRef, type MultiSeriesTrace } from "@flyball/react";
+import { describeUnit, deviceOf, humanise, signalTitle, tagAxes, unitTitle, type DeviceOut, type SignalOut } from "@flyball/client";
+import { MultiSeries, useTraceRef, type MultiSeriesTrace } from "@flyball/react";
 import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { StateBlock } from "../cards.js";
-import { segmentSx } from "../WindowSelect.js";
 import { publishingOf } from "./Inputs.js";
 import { isNumeric } from "../valueReadout.js";
 
@@ -34,26 +31,9 @@ export interface GraphProps extends ChartSettings {
   devices: DeviceOut[];
 }
 
-type PickerGroup = "device" | "unit";
-
-const GROUP_KEY = "flyball.graph.group";
 const SELECTION_KEY = "flyball.graph.selection";
 const HASH_PARAM = "ch";
 
-const readPickerGroup = (): PickerGroup => {
-  try {
-    return window.localStorage.getItem(GROUP_KEY) === "unit" ? "unit" : "device";
-  } catch {
-    return "device";
-  }
-};
-const writePickerGroup = (g: PickerGroup) => {
-  try {
-    window.localStorage.setItem(GROUP_KEY, g);
-  } catch {
-    /* not persisted */
-  }
-};
 
 const readStoredSelection = (): string[] => {
   try {
@@ -116,10 +96,9 @@ export function Graph({ devices, ...charts }: GraphProps) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [pickerGroup, setPickerGroupState] = useState<PickerGroup>(readPickerGroup);
   const [search, setSearch] = useState("");
-  // Tag filter: per axis, the values ticked; an axis with none ticked does not filter.
-  const [chosenTags, setChosenTags] = useState<Map<string, Set<string>>>(() => new Map());
+  // Filters: per axis (unit, device, and each tag axis such as line) the values ticked; an axis with none ticked does not filter.
+  const [chosen, setChosen] = useState<Map<string, Set<string>>>(() => new Map());
 
   // Every axis on this page is a `MultiSeries` line: a non-number never reaches it, so only numeric signals are offered.
   const publishing = useMemo(
@@ -155,16 +134,24 @@ export function Graph({ devices, ...charts }: GraphProps) {
   order.forEach(slotFor); // claim slots for whatever the hash/localStorage restored, in that order, before any click
 
   const toggle = (key: string) => setOrder((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  const setPickerGroup = (g: PickerGroup) => {
-    setPickerGroupState(g);
-    writePickerGroup(g);
-  };
-
   const deviceLabel = (name: string) => devices.find((d) => d.name === name)?.label ?? name;
   const title = (s: SignalOut) => signalTitle(s, devices);
-  const axes = useMemo(() => tagAxes(publishing.flatMap((d) => d.signals)), [publishing]);
-  const toggleTag = (axis: string, value: string) =>
-    setChosenTags((prev) => {
+  // The filter rows: unit and device first, then every tag axis the rig's signals carry (`line: dry | wet | chamber`).
+  const all = useMemo(() => publishing.flatMap((d) => d.signals), [publishing]);
+  const axes = useMemo(() => {
+    const rows = new Map<string, Array<{ value: string; label: string }>>();
+    rows.set("unit", [...new Set(all.map((s) => s.unit))].map((u) => ({ value: u, label: unitTitle(u, all.filter((s) => s.unit === u)) })));
+    rows.set(
+      "device",
+      publishing.map(({ device }) => ({ value: device.name, label: device.label ?? device.name })),
+    );
+    for (const [axis, values] of tagAxes(all)) rows.set(axis, values.map((v) => ({ value: v, label: humanise(v) })));
+    return rows;
+  }, [all, publishing]);
+  const valueOf = (s: SignalOut, axis: string): string | undefined => (axis === "unit" ? s.unit : axis === "device" ? deviceOf(s.address) : s.tags?.[axis]);
+  const passes = (s: SignalOut) => [...chosen].every(([axis, values]) => values.size === 0 || (valueOf(s, axis) !== undefined && values.has(valueOf(s, axis)!)));
+  const toggleFilter = (axis: string, value: string) =>
+    setChosen((prev) => {
       const next = new Map(prev);
       const values = new Set(next.get(axis) ?? []);
       if (values.has(value)) values.delete(value);
@@ -172,15 +159,13 @@ export function Graph({ devices, ...charts }: GraphProps) {
       next.set(axis, values);
       return next;
     });
+  const anyFilter = [...chosen.values()].some((v) => v.size > 0);
   const needle = search.trim().toLowerCase();
   const matches = (s: SignalOut) =>
-    hasTags(s, chosenTags) &&
-    (!needle || `${title(s)} ${s.address} ${s.quantity} ${s.unit} ${Object.values(s.tags ?? {}).join(" ")} ${deviceLabel(deviceOf(s.address))}`.toLowerCase().includes(needle));
+    passes(s) && (!needle || `${title(s)} ${s.address} ${s.quantity} ${s.unit} ${Object.values(s.tags ?? {}).join(" ")} ${deviceLabel(deviceOf(s.address))}`.toLowerCase().includes(needle));
 
-  const branches =
-    pickerGroup === "device"
-      ? publishing.map(({ device, signals }) => ({ key: device.name, heading: device.label ?? device.name, signals: signals.filter(matches) }))
-      : groupByUnit(publishing.flatMap((d) => d.signals).filter(matches)).map((g) => ({ key: g.unit, heading: g.unit, signals: g.signals }));
+  // The list stays in device order under device headings: the filters narrow it, they never regroup it.
+  const branches = publishing.map(({ device, signals }) => ({ key: device.name, heading: device.label ?? device.name, signals: signals.filter(matches) }));
   const visibleBranches = branches.filter((b) => b.signals.length > 0);
 
   const selected = order.map((k) => byAddress.get(k)).filter((s): s is SignalOut => !!s);
@@ -203,25 +188,24 @@ export function Graph({ devices, ...charts }: GraphProps) {
     <Stack sx={{ height: "100%", minHeight: 0 }}>
       <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
         <TextField size="small" placeholder="search signals" value={search} onChange={(e) => setSearch(e.target.value)} inputProps={{ "aria-label": "search signals" }} />
-        <ToggleButtonGroup exclusive size="small" value={pickerGroup} onChange={(_e, v: PickerGroup | null) => v && setPickerGroup(v)} aria-label="group signals" sx={segmentSx}>
-          <ToggleButton value="device" sx={{ flex: 1 }}>
-            by device
-          </ToggleButton>
-          <ToggleButton value="unit" sx={{ flex: 1 }}>
-            by unit
-          </ToggleButton>
-        </ToggleButtonGroup>
-        {[...axes].map(([axis, values]) => (
-          <Stack key={axis} direction="row" flexWrap="wrap" useFlexGap spacing={0.5} alignItems="center" aria-label={`filter by ${axis}`}>
-            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }} title={`the ${axis} tag: tick one or more to show only those signals`}>
-              {humanise(axis)}
-            </Typography>
-            {values.map((value) => {
-              const on = chosenTags.get(axis)?.has(value) ?? false;
-              return <Chip key={value} label={humanise(value)} size="small" variant={on ? "filled" : "outlined"} color={on ? "primary" : "default"} onClick={() => toggleTag(axis, value)} aria-pressed={on} />;
-            })}
-          </Stack>
-        ))}
+        {[...axes].map(([axis, values]) =>
+          values.length < 2 && axis !== "unit" ? null : (
+            <Stack key={axis} direction="row" flexWrap="wrap" useFlexGap spacing={0.5} alignItems="center" aria-label={`filter by ${axis}`}>
+              <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, minWidth: "3.2em" }} title={`tick one or more to show only those signals`}>
+                {humanise(axis)}
+              </Typography>
+              {values.map(({ value, label }) => {
+                const on = chosen.get(axis)?.has(value) ?? false;
+                return <Chip key={value} label={label} size="small" variant={on ? "filled" : "outlined"} color={on ? "primary" : "default"} onClick={() => toggleFilter(axis, value)} aria-pressed={on} />;
+              })}
+            </Stack>
+          ),
+        )}
+        {anyFilter && (
+          <Typography variant="caption" sx={{ alignSelf: "flex-start", cursor: "pointer", color: "primary.main" }} onClick={() => setChosen(new Map())} role="button">
+            clear filters
+          </Typography>
+        )}
       </Box>
       <Divider />
       <List dense disablePadding sx={{ overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
@@ -245,7 +229,6 @@ export function Graph({ devices, ...charts }: GraphProps) {
                           {title(s)} <span className="fb-muted">{describeUnit(s.unit)}</span>
                         </span>
                       }
-                      secondary={pickerGroup === "unit" ? deviceLabel(deviceOf(s.address)) : undefined}
                     />
                   </ListItemButton>
                 );
@@ -255,7 +238,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
         ))}
         {visibleBranches.length === 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
-            {needle ? `nothing matches “${search}”` : "no signal carries the ticked tags"}
+            {needle ? `nothing matches “${search}”` : "no signal passes the ticked filters"}
           </Typography>
         )}
       </List>
