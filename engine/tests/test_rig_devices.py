@@ -8,6 +8,7 @@ import pytest
 
 from flyball.control import NoFeedforward, Transfer
 from flyball.control.laws import P
+from flyball.core.clock import Rate, TimeUnit
 from flyball.core.device import Committable, Readable
 from flyball.core.errors import ConflictError, NotReadyError
 from flyball.core.quantity import Quantity
@@ -157,6 +158,30 @@ class Blender(Readable, Committable):
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
         dry = self.supply.get("dry", 0.0)
         self.pump_writes.append((dry if isinstance(dry, float) else 0.0, self.target))
+
+
+class RateLimited(Committable):
+    """One demand capped at 10 units/s, one with no cap at all, for the rate clamp."""
+
+    TREE = (
+        SignalSpec(
+            name="limited",
+            quantity=POWER,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            max_rate=Rate(10.0, TimeUnit.SECOND),
+        ),
+        SignalSpec(name="unlimited", quantity=POWER, role=Role.DEMAND, access=Access.RPW),
+    )
+
+
+class Thermostat(Committable):
+    """A demand driven off a source that goes stale after 5s unread."""
+
+    TREE = (
+        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after=5.0),
+        SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),
+    )
 
 
 class Stage(Committable):
@@ -500,6 +525,50 @@ class TestDemand:
         assert state == WriteState(value=1.0, controller=None)
         controller.regulate(50.0, transfer=Transfer.RESET)
         assert furnace.written[heater1].value == 1.0, "detached: its demands go nowhere"
+
+    def test_a_demand_within_the_rate_limit_passes_through_unchanged(self, rig, fresh, clock):
+        dev = RateLimited(fresh("rated"))
+        rig.add_device(dev)
+        limited = dev.signals["limited"]
+        assert rig.demand(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        clock.advance(1.0)  # 10 units/s allows up to 15.0 now
+        assert rig.demand(dev.root, {limited: 12.0}) == {limited: WriteState(value=12.0)}
+
+    def test_a_demand_exceeding_the_rate_limit_is_clamped_and_the_clamped_value_is_recorded(
+        self, rig, fresh, clock
+    ):
+        dev = RateLimited(fresh("rated"))
+        rig.add_device(dev)
+        limited = dev.signals["limited"]
+        rig.demand(dev.root, {limited: 5.0})
+        clock.advance(1.0)  # 10 units/s allows a step of at most 10.0: 5.0 -> 15.0
+        states = rig.demand(dev.root, {limited: 100.0})
+        assert states == {limited: WriteState(value=15.0, requested=100.0)}
+        assert dev.written[limited].value == 15.0, "the clamped value committed, not the ask"
+
+    def test_no_max_rate_configured_behaves_exactly_as_before(self, rig, fresh, clock):
+        """No `max_rate` on a signal: an arbitrarily large, instant jump is never clamped."""
+        dev = RateLimited(fresh("rated"))
+        rig.add_device(dev)
+        unlimited = dev.signals["unlimited"]
+        rig.demand(dev.root, {unlimited: 0.0})
+        clock.advance(0.001)
+        states = rig.demand(dev.root, {unlimited: 10_000.0})
+        assert states == {unlimited: WriteState(value=10_000.0)}
+
+    def test_a_controller_demand_is_held_once_its_source_goes_stale(self, rig, fresh, clock):
+        thermo = Thermostat(fresh("thermo"))
+        rig.add_device(thermo)
+        zone, heater = thermo.signals["zone"], thermo.signals["heater"]
+        controller = rig.attach_controller(heater, zone, law=P(kp=1.0))
+        rig.on_samples([Sample(thermo.root, clock.now_ns(), {zone: 20.0})])
+        clock.advance(4.9)  # under the 5s threshold: still trusted
+        assert rig.demand(thermo.root, {heater: 10.0}, by=controller) == {
+            heater: WriteState(value=10.0, controller=controller.name)
+        }
+        clock.advance(0.2)  # 5.1s since the reading: now stale
+        assert rig.demand(thermo.root, {heater: 20.0}, by=controller) == {}
+        assert thermo.written[heater].value == 10.0, "held: the last applied value stands"
 
 
 class TestControllers:
