@@ -164,3 +164,7 @@ a.dash-health-stat:hover { background: var(--fb-bg-hover, var(--fb-bg-2)); }
   gap: var(--fb-space-2);
   margin-top: var(--fb-space-1);
 }
+/* A narrow events tile: the subject column goes (the row's hover title keeps it) so the message has the room. */
+@container (max-width: 420px) {
+  .dash-events-subject { display: none; }
+}

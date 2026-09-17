@@ -119,7 +119,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
               <MenuIcon />
             </IconButton>
           )}
-          <Typography variant="h1" component="h1" noWrap sx={{ flexShrink: 0, minWidth: 0, maxWidth: { xs: "40%", sm: "none" } }}>
+          <Typography variant="h1" component="h1" noWrap title={typeof title === "string" ? title : undefined} sx={{ flexShrink: 0, minWidth: 0, maxWidth: { xs: "40%", sm: "none" } }}>
             {title}
           </Typography>
           {startSlot}
