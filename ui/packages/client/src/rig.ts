@@ -43,6 +43,8 @@ import type {
   StartSpec,
   Series,
   SessionEvent,
+  DaemonInfo,
+  KeepRange,
   SessionRow,
   SignalRow,
   Simulation,
@@ -249,6 +251,21 @@ export class RigClient {
   }
 
   /** Every version of the rig this store has seen, newest first: when, and why it changed. */
+  /** How this daemon serves: its resolved `daemon:` config (`GET /api/daemon`). */
+  daemon(): Promise<DaemonInfo> {
+    return this.get("/api/daemon");
+  }
+
+  /** Ask the daemon to stop (409 unless it allows it). */
+  shutdownDaemon(): Promise<{ detail: string }> {
+    return this.call({ method: "POST", path: "/api/daemon/shutdown" });
+  }
+
+  /** Ask the daemon to restart in place: the same command, the rig rebuilt; sockets drop for a few seconds. */
+  restartDaemon(): Promise<{ detail: string }> {
+    return this.call({ method: "POST", path: "/api/daemon/restart" });
+  }
+
   rigVersions(limit?: number): Promise<RigVersion[]> {
     return this.get("/api/rig/versions", limit === undefined ? undefined : { limit });
   }
@@ -387,6 +404,16 @@ export class RigClient {
 
   deleteSession(id: number): Promise<void> {
     return this.call({ method: "DELETE", path: `/api/history/sessions/${id}` });
+  }
+
+  /** Keep a range of the scratch record as a closed session of its own; the new session. */
+  keepRange(id: number, body: KeepRange): Promise<SessionRow> {
+    return this.call({ method: "POST", path: `/api/history/sessions/${id}/keep`, body });
+  }
+
+  /** Pin (or unpin) a session: pinned ones are never aged out. */
+  pinSession(id: number, pinned: boolean): Promise<SessionRow> {
+    return this.call({ method: "PUT", path: `/api/history/sessions/${id}`, body: { pinned } });
   }
 
   /**

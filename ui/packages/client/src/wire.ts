@@ -640,6 +640,63 @@ export interface RigVersion {
   time_ns: Nanoseconds;
   reason: string;
   files: string[];
+  /** The version this one was made from; the head moves on a restore rather than a new row being written. */
+  parent?: number | null;
+  /** The version the running rig is at. */
+  head?: boolean;
+}
+
+/**
+ * `GET /api/daemon`: how this daemon is serving -- its `daemon:` config as
+ * resolved (flags over environment over file). The token is never returned.
+ */
+export interface DaemonInfo {
+  host: string;
+  port: number;
+  root_path: string | null;
+  mcp: boolean;
+  compose: boolean;
+  allow_save: boolean;
+  allow_shutdown: boolean;
+  store: string | null;
+  programs: string | null;
+  tunings: string | null;
+  drivers: string | null;
+  files: string[];
+  /** As configured: how long the rolling scratch record is kept while nothing is recorded (`"1h"`); the size cap; retention; rotation; the store's cap. */
+  keep?: string | null;
+  keep_size?: string | null;
+  retain?: string | null;
+  rotate?: string | null;
+  max_store?: string | null;
+  /** The same, resolved: ns in the rig's clock and bytes; null or 0 for none. */
+  keep_ns?: Nanoseconds | null;
+  keep_bytes?: number | null;
+  retain_ns?: Nanoseconds | null;
+  rotate_ns?: Nanoseconds | null;
+  max_bytes?: number | null;
+}
+
+/** A duration the daemon reports, as ns or as configured (`1h`, `30d`, `15m`), in seconds; null for none/0. */
+export function durationS(value: number | string | null | undefined): number | null {
+  if (value == null || value === 0 || value === "0" || value === "") return null;
+  if (typeof value === "number") return value / 1e9;
+  const m = /^\s*([\d.]+)\s*(ns|us|ms|s|m|h|d)?\s*$/i.exec(value);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? "s").toLowerCase();
+  return n * ({ ns: 1e-9, us: 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600, d: 86400 }[unit] ?? 1);
+}
+
+/** A size the daemon reports, as bytes or as configured (`256MB`, `20GB`), in bytes; null for none/0. */
+export function sizeBytes(value: number | string | null | undefined): number | null {
+  if (value == null || value === 0 || value === "0" || value === "") return null;
+  if (typeof value === "number") return value;
+  const m = /^\s*([\d.]+)\s*([kmgt]?i?b?)\s*$/i.exec(value);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? "").toLowerCase().replace("i", "").replace("b", "");
+  return n * ({ "": 1, k: 1e3, m: 1e6, g: 1e9, t: 1e12 }[unit] ?? 1);
 }
 
 /** `GET /api/rig/versions/{id}`: a version with the document it held. */
@@ -686,6 +743,29 @@ export interface SessionRow {
   config: unknown;
   hardware: unknown;
   details: unknown;
+  /**
+   * `"scratch"`: the rolling record the daemon keeps while nothing is being
+   * recorded (the last `keep` of the rig's clock, trimmed continuously),
+   * from which a range can be kept as a session of its own. Absent or
+   * `"session"` for a recording proper.
+   */
+  kind?: "session" | "scratch";
+  /** Never aged out by the daemon's retention. */
+  pinned?: boolean;
+  /** The session this one continued when the daemon rotated at a boundary. */
+  continues?: number | null;
+  /** What the scratch record holds on disk, when the daemon says. */
+  bytes?: number | null;
+}
+
+/** Whether a session row is the daemon's rolling scratch record rather than a recording. */
+export const isScratch = (s: Pick<SessionRow, "kind">): boolean => s.kind === "scratch";
+
+/** A range of a scratch record to keep as a session of its own. */
+export interface KeepRange {
+  start_ns: Nanoseconds;
+  end_ns: Nanoseconds;
+  details?: unknown;
 }
 
 /** A device as declared for the session: its name, and what built it. */
@@ -795,6 +875,8 @@ export interface StartRecording {
   version?: string;
   config?: unknown;
   hardware?: unknown;
+  /** Backfill the new session with this much of the scratch record, in the rig's clock, so what was just watched is kept. */
+  include_ns?: Nanoseconds;
 }
 
 // endregion

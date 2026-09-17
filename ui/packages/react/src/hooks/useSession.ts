@@ -1,4 +1,4 @@
-import type { Address, ControllerRow, DeviceRow, SessionEvent, SessionRow, SignalRow, Span, Tick, WriteRow } from "@flyball/client";
+import type { Address, ControllerRow, DeviceRow, SessionEvent, SessionRow, SignalRow, Span, Tick, WriteRow, StartRecording } from "@flyball/client";
 import { useRig } from "../provider.js";
 import { useQuery, type QueryState } from "./useQuery.js";
 
@@ -75,8 +75,8 @@ export function useRecording(refreshMs = 5000) {
   const current = useQuery(() => rig.recording(), [rig], { refreshMs });
   return {
     ...current,
-    async start(details?: unknown) {
-      const s = await rig.startRecording(details === undefined ? {} : { details });
+    async start(details?: unknown, extra: Omit<StartRecording, "details"> = {}) {
+      const s = await rig.startRecording(details === undefined ? { ...extra } : { ...extra, details });
       current.refresh();
       return s;
     },

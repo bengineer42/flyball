@@ -6,6 +6,9 @@ import {
   Checkbox,
   Chip,
   Dialog,
+  FormControl,
+  InputLabel,
+  Select,
   DialogActions,
   DialogContent,
   DialogContentText,
@@ -33,8 +36,11 @@ import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DownloadIcon from "@mui/icons-material/Download";
 import StopCircleOutlinedIcon from "@mui/icons-material/StopCircleOutlined";
+import PushPinIcon from "@mui/icons-material/PushPin";
+import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
+import HistoryIcon from "@mui/icons-material/History";
 import { SessionPanel, useDeviceRuns, useNowS, useQuery, useRig, useSession, useSimulation, type SessionExports } from "@flyball/react";
-import type { SessionRow } from "@flyball/client";
+import { isScratch, type DaemonInfo, type SessionRow } from "@flyball/client";
 import { sessionName, type Recording } from "../model.js";
 import { duration, when } from "../time.js";
 import { hashFor } from "../router.js";
@@ -57,10 +63,145 @@ function previewIds(ids: number[], max = 5): string {
 }
 
 /** Start a session, or end the open one. */
-function RecordingControl({ recording, onChange }: { recording: Recording; onChange(): void }) {
+/** The choices for "include the last …" and "keep the last …", in minutes, cut to what the scratch record holds. */
+const LAST_MINUTES = [5, 15, 30, 60, 180, 720, 1440];
+const lastChoices = (scratch: SessionRow | undefined, nowS: number): number[] => {
+  if (!scratch) return [];
+  const heldMin = Math.max(0, (nowS - scratch.start_ns / 1e9) / 60);
+  const fits = LAST_MINUTES.filter((m) => m <= heldMin);
+  return heldMin >= 1 && (fits.length === 0 || heldMin > fits[fits.length - 1]! * 1.5) ? [...fits, Math.floor(heldMin)] : fits;
+};
+const minutesLabel = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
+
+/** A configured span in the words a person would use: `30 d`, `24 h`, `90 min`; the exact form only when it is not whole. */
+const span = (seconds: number): string =>
+  seconds % 86400 === 0 ? `${seconds / 86400} d` : seconds % 3600 === 0 ? `${seconds / 3600} h` : seconds % 60 === 0 ? `${seconds / 60} min` : duration(seconds);
+
+/** "kept 1 h · rotates daily · 30 d retention · 20 GB cap" from what the daemon says of its store; nothing when it says nothing. */
+function retentionLine(daemon: DaemonInfo | undefined): string | null {
+  if (!daemon) return null;
+  const parts: string[] = [];
+  if (daemon.keep_ns) parts.push(`unrecorded data kept ${span(daemon.keep_ns / 1e9)}`);
+  if (daemon.retain_ns) parts.push(`sessions ${span(daemon.retain_ns / 1e9)} unless pinned`);
+  if (daemon.rotate_ns) parts.push(`rotates every ${span(daemon.rotate_ns / 1e9)}`);
+  if (daemon.max_bytes) parts.push(`${bytes(daemon.max_bytes)} cap`);
+  if (daemon.store) parts.push(`in ${daemon.store}`);
+  return parts.join(" · ") || null;
+}
+
+/** When the daemon's retention will age a closed session out, for its "ended" cell's hint; nothing for a pinned or open one. */
+function keptUntil(s: SessionRow, daemon: DaemonInfo | undefined): string | undefined {
+  const retain = daemon?.retain_ns;
+  if (!retain || s.pinned || s.end_ns == null) return undefined;
+  return `kept until ${when(s.end_ns + retain)} (${span(retain / 1e9)} retention); pin to keep it`;
+}
+
+const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.round(n / 1e3)} kB`);
+
+/** The rolling scratch record's row: what it holds, and Keep… to make a session of some of it. */
+function ScratchRow({ scratch, nowS, daemon, onKeep, onSelect }: { scratch: SessionRow; nowS: number; daemon: DaemonInfo | undefined; onKeep(): void; onSelect(): void }) {
+  const heldS = Math.max(0, nowS - scratch.start_ns / 1e9);
+  const keep = daemon?.keep_ns;
+  return (
+    <TableRow hover sx={{ cursor: "pointer", "& td": { bgcolor: "action.hover" } }} onClick={onSelect} data-testid="scratch-row">
+      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+        <Tooltip title="What the daemon holds while nothing is recorded: the newest data, trimmed as it ages. Not a session until kept.">
+          <Box sx={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: "text.secondary" }}>
+            <HistoryIcon fontSize="small" />
+          </Box>
+        </Tooltip>
+      </TableCell>
+      <TableCell>{scratch.id}</TableCell>
+      <TableCell colSpan={2}>
+        <Typography fontWeight={500}>last {duration(heldS)} held</Typography>
+        <Typography variant="body2" color="text.secondary">
+          not a recording{keep ? ` — trimmed to ${span(keep / 1e9)}` : ""}
+          {scratch.bytes ? ` · ${bytes(scratch.bytes)}` : ""}
+        </Typography>
+      </TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>{when(scratch.start_ns)}</TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <Chip label="rolling" variant="outlined" />
+      </TableCell>
+      <TableCell>{fmtDuration(heldS)}</TableCell>
+      <TableCell padding="checkbox" colSpan={2} onClick={(e) => e.stopPropagation()}>
+        <Button size="small" variant="outlined" onClick={onKeep} disabled={heldS < 60} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
+          Keep…
+        </Button>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/** Keep the last N minutes of the scratch record as a session of its own. */
+function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; nowS: number; onClose(): void; onKept(): void }) {
+  const rig = useRig();
+  const choices = lastChoices(scratch, nowS);
+  const [minutes, setMinutes] = useState(choices.includes(15) ? 15 : (choices[0] ?? 0));
+  const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const keep = async () => {
+    setBusy(true);
+    try {
+      const details: Record<string, string> = {};
+      if (name.trim()) details.name = name.trim();
+      if (notes.trim()) details.notes = notes.trim();
+      const clock = await rig.clock(); // the rig's own now: a simulated clock is not the wall's
+      const end_ns = clock.now_ns;
+      const start_ns = Math.max(scratch.start_ns, end_ns - Math.round(minutes * 60 * 1e9));
+      await rig.keepRange(scratch.id, { start_ns, end_ns, details });
+      onKept();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Keep as a session</DialogTitle>
+      <DialogContent>
+        <DialogContentText sx={{ mb: 2 }}>The last part of what the daemon holds becomes a session of its own, kept like any recording.</DialogContentText>
+        {error && (
+          <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+        <Stack spacing={1.5}>
+          <FormControl size="small" fullWidth>
+            <InputLabel id="keep-last-label">the last</InputLabel>
+            <Select labelId="keep-last-label" label="the last" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} inputProps={{ "aria-label": "keep the last minutes" }}>
+              {choices.map((m) => (
+                <MenuItem key={m} value={m}>
+                  {minutesLabel(m)}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField label="name" size="small" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "kept session name" }} autoFocus />
+          <TextField label="notes" size="small" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="contained" onClick={() => void keep()} disabled={busy || minutes <= 0} data-testid="keep-confirm">
+          Keep
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function RecordingControl({ recording, scratch, onChange }: { recording: Recording; scratch?: SessionRow; onChange(): void }) {
   const nowS = useNowS();
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
+  const [includeMin, setIncludeMin] = useState(0);
+  const choices = lastChoices(scratch, nowS);
   const [busy, setBusy] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,9 +224,11 @@ function RecordingControl({ recording, onChange }: { recording: Recording; onCha
     const details: Record<string, string> = {};
     if (name.trim()) details.name = name.trim();
     if (notes.trim()) details.notes = notes.trim();
-    void run(() => recording.start(details)).then(() => {
+    const include = includeMin > 0 && choices.includes(includeMin) ? { include_ns: Math.round(includeMin * 60 * 1e9) } : {};
+    void run(() => recording.start(details, include)).then(() => {
       setName("");
       setNotes("");
+      setIncludeMin(0);
     });
   };
 
@@ -125,6 +268,19 @@ function RecordingControl({ recording, onChange }: { recording: Recording; onCha
           <Chip label={recording.loading && !recording.error ? "…" : "not recording"} />
           <TextField label="name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "session name" }} />
           <TextField label="notes" value={notes} onChange={(e) => setNotes(e.target.value)} sx={{ flexGrow: 1, minWidth: 160 }} />
+          {choices.length > 0 && (
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel id="include-last-label">include the last</InputLabel>
+              <Select labelId="include-last-label" label="include the last" value={includeMin} onChange={(e) => setIncludeMin(Number(e.target.value))} inputProps={{ "aria-label": "include the last minutes held" }}>
+                <MenuItem value={0}>nothing</MenuItem>
+                {choices.map((m) => (
+                  <MenuItem key={m} value={m}>
+                    {minutesLabel(m)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <Button type="submit" variant="contained" disabled={busy}>
             Start recording
           </Button>
@@ -303,9 +459,25 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
 
   // The list may stamp an open session with its last sample as `end_ns`; the recording endpoint is the word on which is open.
   const rows = (sessions.data ?? []).map((r) => (recording.data && r.id === recording.data.id && recording.data.end_ns == null ? { ...r, end_ns: null } : r));
+  // The daemon's rolling scratch record (the last `keep` while nothing is recorded): shown apart, kept from, never selected.
+  const scratch = rows.find((r) => isScratch(r) && r.end_ns == null);
+  const daemon = useQuery(() => rig.daemon().catch(() => undefined), [rig], { refreshMs: 30000 });
+  const [keeping, setKeeping] = useState<SessionRow | null>(null);
+  const [pinBusy, setPinBusy] = useState<number | null>(null);
+  const pin = async (s: SessionRow) => {
+    setPinBusy(s.id);
+    try {
+      await rig.pinSession(s.id, !s.pinned);
+      sessions.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPinBusy(null);
+    }
+  };
   // Only one session can be open at a time; it can't be selected or deleted.
-  const openId = rows.find((r) => r.end_ns == null)?.id ?? null;
-  const selectableIds = rows.filter((r) => r.id !== openId).map((r) => r.id);
+  const openId = rows.find((r) => r.end_ns == null && !isScratch(r))?.id ?? null;
+  const selectableIds = rows.filter((r) => r.id !== openId && !isScratch(r)).map((r) => r.id);
 
   // Drop ids from the selection once they're no longer in the list (deleted, or fallen off the page).
   const sessionsData = sessions.data;
@@ -424,7 +596,8 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
 
   return (
     <>
-      <RecordingControl recording={recording} onChange={sessions.refresh} />
+      <RecordingControl recording={recording} scratch={scratch} onChange={sessions.refresh} />
+      {keeping && <KeepDialog scratch={keeping} nowS={nowS} onClose={() => setKeeping(null)} onKept={() => { setKeeping(null); sessions.refresh(); }} />}
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2.25 }}>
           {error}
@@ -449,11 +622,14 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
         title="Sessions"
         count={sessions.data?.length}
         end={
-          simulation.speed !== undefined && simulation.speed !== 1 ? (
-            <Typography variant="body2" color="text.secondary" title="A simulated clock: the rig's time runs faster than the wall clock, so these dates and durations are the rig's, not the room's.">
-              times are the rig's clock, ×{simulation.speed}
-            </Typography>
-          ) : undefined
+          <Typography variant="body2" color="text.secondary" component="span">
+            {[
+              simulation.speed !== undefined && simulation.speed !== 1 ? `times are the rig's clock, ×${simulation.speed}` : null,
+              retentionLine(daemon.data),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Typography>
         }
       />
       {!sessions.data && !sessions.error && <StateBlock state="loading" message="Loading sessions…" />}
@@ -502,6 +678,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                 const rigName = config && typeof config === "object" && typeof (config as { name?: unknown }).name === "string" ? (config as { name: string }).name : null;
                 const extra = Object.keys(otherDetails).length;
                 const isOpen = id === openId;
+                if (isScratch(s)) return <ScratchRow key={id} scratch={s} nowS={nowS} daemon={daemon.data} onKeep={() => setKeeping(s)} onSelect={() => onSelect(id)} />;
                 return (
                   <TableRow key={id} hover sx={{ cursor: "pointer" }} onClick={() => onSelect(id)}>
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
@@ -541,6 +718,9 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                           {extra} note{extra === 1 ? "" : "s"}
                         </Typography>
                       )}
+                      {s.continues != null && (
+                        <Chip label={`continues #${s.continues}`} size="small" variant="outlined" sx={{ ml: 1 }} title="The daemon rotated at a boundary: this session carries on from that one" />
+                      )}
                     </TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -559,9 +739,20 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                       </Stack>
                     </TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>{when(start_ns)}</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>{end_ns ? when(end_ns) : <Chip label="open" color="success" variant="outlined" />}</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }} title={keptUntil(s, daemon.data)}>
+                      {end_ns ? when(end_ns) : <Chip label="open" color="success" variant="outlined" />}
+                    </TableCell>
                     <TableCell>{fmtDuration(sessionSeconds(s, nowS))}</TableCell>
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                      {daemon.data?.retain_ns != null && daemon.data.retain_ns > 0 && (
+                        <Tooltip title={s.pinned ? "Pinned: never aged out. Unpin?" : `Pin: keep past the ${span(daemon.data.retain_ns / 1e9)} retention`}>
+                          <span>
+                            <IconButton aria-label={`${s.pinned ? "unpin" : "pin"} session ${id}`} disabled={pinBusy === id} onClick={() => void pin(s)}>
+                              {s.pinned ? <PushPinIcon fontSize="small" color="primary" /> : <PushPinOutlinedIcon fontSize="small" />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
                       <Tooltip title="Download everything (zip)">
                         <IconButton
                           component="a"

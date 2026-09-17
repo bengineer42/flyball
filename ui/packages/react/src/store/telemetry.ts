@@ -1,5 +1,5 @@
 import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
-import { addressOf, deviceOf, setpointOf, signalsOf } from "@flyball/client";
+import { addressOf, deviceOf, setpointOf, signalsOf, isScratch } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
 
@@ -341,9 +341,9 @@ export class TelemetryStore {
     let floorS = Number.POSITIVE_INFINITY; // sessions must not overlap on the axis (see `seedControllers`)
     const maxPoints = historyPoints();
     for (const session of sessions) {
-      // Only the current recording may be open; another open session was left by a
-      // daemon that died and would overlay stale readings on the live trace.
-      if (session.end_ns === null && session.id !== current?.id) continue;
+      // Only the current recording, or the daemon's rolling scratch record, may be open; another
+      // open session was left by a daemon that died and would overlay stale readings on the live trace.
+      if (session.end_ns === null && session.id !== current?.id && !isScratch(session)) continue;
       const startS = session.start_ns / 1e9;
       const endS = session.end_ns === null ? nowS : session.end_ns / 1e9;
       if (endS > floorS) continue;
@@ -503,7 +503,7 @@ export class TelemetryStore {
     // than the current one; such a session cannot share the axis and is skipped.
     let floorS = Number.POSITIVE_INFINITY;
     for (const session of sessions) {
-      if (session.end_ns === null && session.id !== current?.id) continue; // an orphan
+      if (session.end_ns === null && session.id !== current?.id && !isScratch(session)) continue; // an orphan
       const startS = session.start_ns / 1e9;
       const endS = session.end_ns === null ? nowS : session.end_ns / 1e9;
       if (endS > floorS) continue;
