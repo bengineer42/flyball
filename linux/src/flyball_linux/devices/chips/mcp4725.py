@@ -35,8 +35,8 @@ from flyball.core.units import DIMENSIONLESS
 from pydantic import Field, model_validator
 
 from flyball_linux.devices.spanned_demand import (
-    drive_spec,
     from_fraction,
+    spanned_signal_spec,
     to_fraction,
     validate_span,
 )
@@ -101,7 +101,7 @@ class Mcp4725(Committable):
         validate_span(unit, span, prefix=f"{name}: ")
         self.output = Mcp4725Output(link, address)
         self.span = span
-        self.bind((drive_spec(unit, quantity, span, bare=DRIVE),))
+        self.bind((spanned_signal_spec("drive", unit, quantity, span, bare=DRIVE),))
         self._write(0.0)
 
     @property

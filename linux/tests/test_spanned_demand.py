@@ -5,8 +5,8 @@ from flyball.core.quantity import Quantity
 from flyball.core.units import DIMENSIONLESS
 
 from flyball_linux.devices.spanned_demand import (
-    drive_spec,
     from_fraction,
+    spanned_signal_spec,
     to_fraction,
     validate_span,
 )
@@ -38,19 +38,23 @@ class TestValidateSpan:
             validate_span("V", None, prefix="heater: ")
 
 
-class TestDriveSpec:
+class TestSpannedSignalSpec:
     def test_no_unit_is_a_bare_0_to_1_signal(self):
-        spec = drive_spec(None, None, None, bare=BARE)
+        spec = spanned_signal_spec("drive", None, None, None, bare=BARE)
         assert spec.limits == (0.0, 1.0) and spec.initial == 0.0 and spec.quantity is BARE
 
     def test_unit_and_span_map_onto_engineering_units(self):
-        spec = drive_spec("°C", "temperature", (10.0, 40.0), bare=BARE)
+        spec = spanned_signal_spec("drive", "°C", "temperature", (10.0, 40.0), bare=BARE)
         assert spec.limits == (10.0, 40.0) and spec.initial == 10.0
         assert spec.quantity.name == "temperature" and spec.quantity.symbol == "°C"
 
-    def test_quantity_defaults_to_drive(self):
-        spec = drive_spec("°C", None, (10.0, 40.0), bare=BARE)
-        assert spec.quantity.name == "drive"
+    def test_quantity_defaults_to_the_signal_name(self):
+        spec = spanned_signal_spec("setpoint", "°C", None, (10.0, 40.0), bare=BARE)
+        assert spec.quantity.name == "setpoint"
+
+    def test_signal_name_is_not_hardcoded_to_drive(self):
+        spec = spanned_signal_spec("position", None, None, None, bare=BARE)
+        assert spec.name == "position"
 
 
 class TestFractionRoundTrip:

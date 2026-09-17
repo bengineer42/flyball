@@ -20,8 +20,8 @@ from flyball.core.units.si import Hertz
 from pydantic import Field, model_validator
 
 from flyball_linux.devices.spanned_demand import (
-    drive_spec,
     from_fraction,
+    spanned_signal_spec,
     to_fraction,
     validate_span,
 )
@@ -64,7 +64,7 @@ class PwmChannel(Committable):
         self._duty = 0.0
         """The fraction last driven, 0 to 1: independent of `drive`'s reading, to re-apply at a
         new `frequency_hz` even when the commit that set it pushed no readback."""
-        self.bind((drive_spec(unit, quantity, span, bare=DRIVE),))
+        self.bind((spanned_signal_spec("drive", unit, quantity, span, bare=DRIVE),))
         self.frequency_hz.push(frequency_hz)
         self._drive(0.0)
 
