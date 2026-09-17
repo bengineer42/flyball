@@ -1,0 +1,56 @@
+# Builds both books strictly on every push and publishes them to GitHub Pages:
+# the main book at the site root, the humidity book under /humidity/.
+# One-off setup: repository Settings → Pages → Source: "GitHub Actions".
+name: book
+
+on:
+  push:
+    branches: [main, public-site]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: The main book
+        working-directory: controller
+        run: |
+          uv sync --group docs
+          uv run --group docs mkdocs build -f ../book/mkdocs.yml --strict \
+            --site-dir "$GITHUB_WORKSPACE/build/site"
+
+      - name: The humidity book
+        working-directory: examples/humidity
+        run: |
+          uv sync
+          uv run --with mkdocs-material --with "mkdocstrings[python]" --with griffe-pydantic \
+            mkdocs build -f book/mkdocs.yml --strict \
+            --site-dir "$GITHUB_WORKSPACE/build/site/humidity"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
