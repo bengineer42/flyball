@@ -31,6 +31,27 @@ Started with `--root-path /p`, every path below sits under `/p`
 (`/p/api/health`, `/p/ws/samples`, `/p/mcp/read`); anything not under it
 is `404` (a socket is closed with 4404).
 
+With a `runner.auth.password`, a person may also register **passkeys**:
+each one grants the same `operate` level as a bearer token, additively --
+registering one needs an already-authenticated caller (an existing login,
+or an open, anonymous-operate runner), there is no separate bootstrap.
+`/api/auth/passkey/login*` is how one signs in with a passkey instead of
+the password.
+
+| | | |
+| --- | --- | --- |
+| `POST` | `/api/auth/passkey/challenge` | A registration challenge (WebAuthn `PublicKeyCredentialCreationOptions`). Needs an authenticated caller. |
+| `POST` | `/api/auth/passkey/register` | `{credential, label}` -> the stored credential's `{id, label, created_ns, transports}`. |
+| `POST` | `/api/auth/passkey/login/challenge` | An authentication challenge (`PublicKeyCredentialRequestOptions`). No prior auth needed. |
+| `POST` | `/api/auth/passkey/login` | `{credential}` -> the same session cookie a password login sets; the caller's scheme is then `passkey`. |
+| `GET` | `/api/auth/passkey` | This runner's registered credentials: `label`, `created_ns`, `transports` -- never the public key. |
+| `DELETE` | `/api/auth/passkey/{id}` | Revoke a credential. |
+
+The RP ID is the request's own hostname; a runner reached under more than
+one name needs a credential registered under each. Credentials persist in
+the store when one is attached; a store-less runner keeps them only for
+the life of the process (see `flyball.server.passkeys`).
+
 ## The runner
 
 The process itself, apart from the rig it serves. `404` under a server

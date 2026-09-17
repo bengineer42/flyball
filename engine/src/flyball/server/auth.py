@@ -38,7 +38,9 @@ from flyball.runtime.config import AuthConfig
 log = logging.getLogger(__name__)
 
 Level = Literal["none", "read", "operate"]
-Scheme = Literal["anonymous", "password", "token"]
+Scheme = Literal["anonymous", "password", "token", "passkey"]
+SESSION_SCHEMES = ("password", "passkey")
+"""Schemes a session cookie can carry; anything else has no session, only a bearer form."""
 
 LEVELS: dict[Level, int] = {"none": 0, "read": 1, "operate": 2}
 COOKIE = "flyball_session"
@@ -100,23 +102,24 @@ class Sessions:
         self.key = hmac.new(secret, (password or "").encode(), hashlib.sha256).digest()
         self.lifetime = lifetime
 
-    def mint(self, now: float | None = None) -> str:
+    def mint(self, scheme: str = "password", now: float | None = None) -> str:
         issued = int(now if now is not None else time.time())
-        body = f"{issued}.{secrets.token_urlsafe(12)}"
+        body = f"{issued}.{secrets.token_urlsafe(12)}.{scheme}"
         return f"{body}.{self._sign(body)}"
 
-    def verify(self, cookie: str, now: float | None = None) -> bool:
+    def verify(self, cookie: str, now: float | None = None) -> str | None:
+        """The scheme the cookie was minted with, or None if it does not check out."""
         parts = cookie.split(".")
-        if len(parts) != 3:
-            return False
-        issued, nonce, signature = parts
-        if not hmac.compare_digest(self._sign(f"{issued}.{nonce}"), signature):
-            return False
+        if len(parts) != 4:
+            return None
+        issued, nonce, scheme, signature = parts
+        if not hmac.compare_digest(self._sign(f"{issued}.{nonce}.{scheme}"), signature):
+            return None
         try:
             age = (now if now is not None else time.time()) - int(issued)
         except ValueError:
-            return False
-        return 0 <= age <= self.lifetime
+            return None
+        return scheme if 0 <= age <= self.lifetime else None
 
     def _sign(self, body: str) -> str:
         return _b64(hmac.new(self.key, body.encode(), hashlib.sha256).digest())
@@ -158,6 +161,7 @@ ANONYMOUS_NONE = Principal("anonymous", "none")
 ANONYMOUS_READ = Principal("anonymous", "read")
 PERSON = Principal("password", "operate")
 MACHINE = Principal("token", "operate")
+PASSKEY = Principal("passkey", "operate")
 
 
 def needed(scope: Any) -> Level:
@@ -239,8 +243,8 @@ class Auth:
         headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
         cookie = SimpleCookie()
         cookie.load(headers.get(b"cookie", b"").decode(errors="replace"))
-        if COOKIE in cookie and self.sessions.verify(cookie[COOKIE].value):
-            return PERSON
+        if COOKIE in cookie and (scheme := self.sessions.verify(cookie[COOKIE].value)) is not None:
+            return PASSKEY if scheme == "passkey" else PERSON
         if (given := self._bearer(scope, headers)) is not None and self.is_token(given):
             return MACHINE
         return self.anonymous

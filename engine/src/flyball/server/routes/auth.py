@@ -8,11 +8,15 @@ described in [flyball.server.auth][]; the browser carries it from then on.
 from __future__ import annotations
 
 import asyncio
+import time
+from typing import Any
 
+import webauthn
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from flyball.runtime.config import Anonymous
+from flyball.server import deps, passkeys
 from flyball.server.auth import COOKIE, Auth, Level, Principal, Scheme
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -103,3 +107,160 @@ def logout(request: Request, response: Response) -> AuthOut:
         _set_cookie(request, response, "", 0)
         request.state.auth = auth.anonymous
     return _out(request)
+
+
+# region Passkeys
+#
+# Additive to password/token: each registered credential grants the same
+# `operate` level as a bearer token (flyball.server.auth.PASSKEY). Registering
+# one needs an already-authenticated caller -- the existing password login, or
+# an anonymous-operate (open) runner -- there is no separate bootstrap. The RP
+# ID is the request's own hostname; a runner reached under more than one name
+# needs the credential registered under each.
+
+
+def _rp_id(request: Request) -> str:
+    return request.url.hostname or "localhost"
+
+
+def _origin(request: Request) -> str:
+    return f"{request.url.scheme}://{request.url.netloc}"
+
+
+def _require_operate(request: Request) -> None:
+    """401 unless the caller may operate.
+
+    Passkey routes are under the open `/api/auth` prefix, so `Auth` never blocks
+    them; registration and revocation gate on the caller's level themselves.
+    """
+    auth = _auth(request)
+    if auth is None:
+        return  # no password, no token: this runner is open to everyone
+    principal: Principal = request.state.auth
+    if principal.level != "operate":
+        raise HTTPException(status_code=401, detail="Sign in first")
+
+
+def _repo() -> passkeys.PasskeyRepo:
+    return passkeys.repo_for(deps.current_store())
+
+
+class PasskeyOut(BaseModel):
+    id: int = Field(description="This runner's id for the credential; used to revoke it.")
+    label: str = Field(description="What the operator called it when they registered it.")
+    created_ns: int = Field(description="When it was registered, the rig clock's epoch.")
+    transports: list[str] = Field(description='What the authenticator reported, e.g. "internal".')
+
+
+def _passkey_out(row: Any) -> PasskeyOut:
+    return PasskeyOut(
+        id=row.id, label=row.label, created_ns=row.created_ns, transports=row.transports
+    )
+
+
+class PasskeyRegister(BaseModel):
+    credential: dict[str, Any] = Field(description="The browser's PublicKeyCredential, as JSON.")
+    label: str = Field(description='A name for this credential, e.g. "Ben\'s laptop".')
+
+
+class PasskeyLogin(BaseModel):
+    credential: dict[str, Any] = Field(description="The browser's PublicKeyCredential, as JSON.")
+
+
+@router.post("/passkey/challenge")
+def passkey_challenge(request: Request) -> Response:
+    """A registration challenge. Needs an authenticated (or anonymous-operate) caller."""
+    _require_operate(request)
+    challenge = passkeys.challenges.issue()
+    options = passkeys.registration_options(
+        _repo(), rp_id=_rp_id(request), rp_name="flyball", challenge=challenge
+    )
+    return Response(content=webauthn.options_to_json(options), media_type="application/json")
+
+
+@router.post("/passkey/register")
+def passkey_register(request: Request, body: PasskeyRegister) -> PasskeyOut:
+    """Verify the response and store the credential.
+
+    Attestation itself is not checked: `none` is what was requested.
+    """
+    _require_operate(request)
+    try:
+        challenge = passkeys.client_data_challenge(body.credential)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="malformed credential") from e
+    if not passkeys.challenges.consume(challenge):
+        raise HTTPException(status_code=400, detail="challenge expired or already used")
+    try:
+        row = passkeys.verify_registration(
+            _repo(),
+            body.credential,
+            expected_challenge=challenge,
+            rp_id=_rp_id(request),
+            origin=_origin(request),
+            label=body.label,
+            now_ns=time.time_ns(),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"registration did not verify: {e}") from e
+    return _passkey_out(row)
+
+
+@router.post("/passkey/login/challenge")
+def passkey_login_challenge(request: Request) -> Response:
+    """An authentication challenge. No prior auth needed -- this is how one signs in."""
+    challenge = passkeys.challenges.issue()
+    options = passkeys.login_options(_repo(), rp_id=_rp_id(request), challenge=challenge)
+    return Response(content=webauthn.options_to_json(options), media_type="application/json")
+
+
+@router.post("/passkey/login")
+async def passkey_login(request: Request, response: Response, body: PasskeyLogin) -> AuthOut:
+    """Trade a verified assertion for the same kind of session cookie `login` mints."""
+    auth = _auth(request)
+    if auth is None:
+        return _out(request)  # nothing to sign in to
+    address = request.client.host if request.client else "?"
+    if auth.attempts.blocked(address):
+        raise HTTPException(status_code=429, detail="Too many failed attempts; wait a minute")
+    try:
+        challenge = passkeys.client_data_challenge(body.credential)
+    except (KeyError, ValueError):
+        challenge = b""
+    if not challenge or not passkeys.challenges.consume(challenge):
+        auth.attempts.failure(address)
+        raise HTTPException(status_code=400, detail="challenge expired or already used")
+    try:
+        passkeys.verify_login(
+            _repo(),
+            body.credential,
+            expected_challenge=challenge,
+            rp_id=_rp_id(request),
+            origin=_origin(request),
+        )
+    except Exception as e:
+        auth.attempts.failure(address)
+        if auth.delay:
+            await asyncio.sleep(auth.delay)
+        raise HTTPException(status_code=401, detail="passkey did not verify") from e
+    _set_cookie(request, response, auth.sessions.mint("passkey"), int(auth.config.session_s))
+    request.state.auth = Principal("passkey", "operate")
+    return _out(request)
+
+
+@router.get("/passkey")
+def list_passkeys(request: Request) -> list[PasskeyOut]:
+    """This runner's registered credentials -- never the public keys themselves."""
+    _require_operate(request)
+    return [_passkey_out(row) for row in _repo().passkeys()]
+
+
+@router.delete("/passkey/{passkey_id}")
+def revoke_passkey(request: Request, passkey_id: int) -> None:
+    """Forget a credential; anyone using it is refused from their next request."""
+    _require_operate(request)
+    if not _repo().delete_passkey(passkey_id):
+        raise HTTPException(status_code=404, detail="no such passkey")
+
+
+# endregion

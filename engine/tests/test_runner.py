@@ -296,6 +296,8 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
         for column in ("kind", "origin_ns", "pinned", "continues", "bytes"):
             db.execute(f"ALTER TABLE session DROP COLUMN {column}")
         db.execute("DROP TABLE rig_head")
+        db.execute("DROP TABLE passkey_credential")  # 0011's, or it would run again too
+        db.execute("DROP TABLE passkey_runner")
         db.execute("ALTER TABLE rig_version DROP COLUMN parent_id")
         for i in (1, 2, 3):
             db.execute(

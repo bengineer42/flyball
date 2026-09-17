@@ -163,6 +163,11 @@ def set_store(store: Store | None) -> None:
     _store = store
 
 
+def current_store() -> Store | None:
+    """The attached store, or None. For passkeys, which tolerate absence (see server.passkeys)."""
+    return _store
+
+
 _drivers_dir: Path | None = None
 _compose: bool = False
 
