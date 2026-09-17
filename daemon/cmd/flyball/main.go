@@ -36,6 +36,7 @@ import (
 
 func main() {
 	server := flagServer()
+	token := client.Token(flagToken())
 	args := restArgs()
 
 	if len(args) == 0 {
@@ -119,11 +120,36 @@ func main() {
 		return
 	}
 
+	// `login`/`logout` sign in/out of a runner's password or token door
+	// (engine/src/flyball/server/auth.py) -- addressed like every other
+	// runner command (-s/FLYBALLD_URL or FLYBALL_URL direct), so
+	// dispatched after target resolution, unlike the local/daemon
+	// commands above.
+	if args[0] == "login" || args[0] == "logout" {
+		target, err := resolveTarget(server)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		var runErr error
+		if args[0] == "login" {
+			runErr = runLoginCommand(target.WithToken(token), args[1:])
+		} else {
+			runErr = runLogoutCommand(target.WithToken(token))
+		}
+		if runErr != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", runErr)
+			os.Exit(1)
+		}
+		return
+	}
+
 	target, err := resolveTarget(server)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "flyball:", err)
 		os.Exit(1)
 	}
+	target = target.WithToken(token)
 
 	if err := runCommand(target, args); err != nil {
 		fmt.Fprintln(os.Stderr, "flyball:", err)
@@ -145,9 +171,11 @@ func resolveTarget(server string) (client.Target, error) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `usage: flyball [-s NAME] <command> ...
+	fmt.Fprint(os.Stderr, `usage: flyball [-s NAME] [--token TOKEN] <command> ...
 
 runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
+  login [SECRET]                      sign in to a password-protected runner
+  logout                              drop the saved session
   read ADDRESS [--fresh]              GET /api/read/{address}
   demand ADDRESS VALUE                PUT /api/signals/{address}
   status [--json]                     one screen: devices, controllers, waits
