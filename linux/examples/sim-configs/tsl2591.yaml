@@ -1,0 +1,24 @@
+# Overlay for ../sensors/tsl2591.yaml: no hardware. `light` swaps `i2c_table`
+# for `sim_daq`; `enable`/`config` are write-only setup registers with
+# nothing to simulate, so they're just dropped. ch0/ch1 are raw 16-bit ALS
+# counts (not lux -- see the base file), so `light_plant` is a bare count,
+# not a physical unit: ambient ~200 counts (a dim room), rising towards
+# ~40000 under a bright light, tau 2 s (photodiode + integration settle
+# fast). ch1 (IR-only) is mirrored onto the same plant at a lower gain,
+# since IR content tracks total illumination for a demo.
+
+links:
+  i2c1: null
+  light_plant: { tag: sim_plant, tau_s: 2.0, gain: 40000.0, ambient: 200.0, initial: 200.0, noise: 50.0, seed: 1 }
+
+devices:
+  light:
+    driver: sim_daq
+    label: Light (simulated)
+    poll_s: 1
+    address: null
+    registers: null
+    link: light_plant
+    ports:
+      ch0: { port: output, quantity: count, unit: "1" }
+      ch1: { port: output, quantity: count, unit: "1" }

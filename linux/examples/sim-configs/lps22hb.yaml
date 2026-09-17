@@ -1,0 +1,37 @@
+# Overlay for ../sensors/lps22hb.yaml: no hardware. `pressure` swaps
+# `i2c_table` for `sim_daq`; `ctrl1` is a write-only setup register,
+# dropped. A bare `sim_plant` has one scalar output, and a `sim_daq`
+# device binds one link, so the base file's two signals under one device
+# (`pressure.pressure`, `pressure.temperature`) can't both come from one
+# sim_daq without either sharing a plant (making them the same number in
+# different units -- wrong) or a bespoke multi-output plant (Python, out
+# of scope; see README). Pressure keeps its real address; temperature
+# moves to a second device, `pressure_temperature` -- the one address
+# that doesn't match the real config here.
+#
+# Pressure drifts slowly (tau 300 s, ambient 101325 Pa +-1500 Pa of
+# "weather"); room temperature settles faster (tau 30 s, ambient 21 degC).
+
+links:
+  i2c1: null
+  pressure_plant: { tag: sim_plant, tau_s: 300.0, gain: 1500.0, ambient: 101325.0, initial: 101325.0, noise: 5.0, seed: 3 }
+  temperature_plant: { tag: sim_plant, tau_s: 30.0, gain: 5.0, ambient: 21.0, initial: 21.0, noise: 0.05, seed: 4 }
+
+devices:
+  pressure:
+    driver: sim_daq
+    label: Pressure (simulated)
+    poll_s: 1
+    address: null
+    registers: null
+    link: pressure_plant
+    ports:
+      pressure: { port: output, quantity: pressure, unit: hPa }
+
+  pressure_temperature:
+    driver: sim_daq
+    label: Pressure sensor temperature (simulated)
+    poll_s: 1
+    link: temperature_plant
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
