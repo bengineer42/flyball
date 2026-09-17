@@ -1,16 +1,14 @@
-# Publishes both books to GitHub Pages, every version at once, regenerated
-# from sources on each run — nothing built is kept in git:
-#   /0.1/, /0.2/ …        one per tag v0.1, v0.2 …; the newest is also /latest/
-#   /dev/                  the working tree of the ref this ran on
-#   /humidity/…            the same for the humidity book
-# Runs on a tag, or by hand (Actions → book → Run workflow) to refresh /dev/.
-# A push to main publishes nothing on its own.
+# Publishes both books to GitHub Pages as two versions, regenerated from the
+# two branches on every run — nothing built is kept in git:
+#   /latest/     the main branch        /humidity/latest/   the same for the humidity book
+#   /dev/        the dev branch         /humidity/dev/
+# A push to either branch republishes both. The root redirects to latest.
 # One-off setup: repository Settings → Pages → Source: "GitHub Actions".
 name: book
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -28,15 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0            # every tag, to build every version
+          fetch-depth: 0            # both branches, whichever one triggered this
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - name: Build every version of both books
+      - name: Build latest (main) and dev of both books
         working-directory: controller
         run: |
+          git fetch origin main dev
           uv sync --group docs
-          uv run --group docs python ../book/versions.py "$GITHUB_WORKSPACE/build/site" --dev
+          uv run --group docs python ../book/versions.py "$GITHUB_WORKSPACE/build/site"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/site
