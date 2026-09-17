@@ -2,7 +2,8 @@
 
 **access** — which of readable (**R**), publishing (**P**) or writable
 (**W**) a signal supports; the driver declares it, a rig file may only
-restrict it. `P` implies `R`.
+restrict it -- unless the driver also names a **ceiling**, up to which the
+rig file may widen it instead. `P` implies `R`.
 
 **activity** — the ongoing part of a program step: a signal a program waits
 on, that knows how to attach itself to the rig (a prompt, a settle test, a

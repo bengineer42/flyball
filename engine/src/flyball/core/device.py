@@ -351,7 +351,8 @@ class Descriptor[B]:
     A [Section][flyball.core.signal.Section] in place of the name gives the
     segment and tags the signal. `quantity` None: the name, unitless (a mode, a
     count). A limit may be another descriptor of the same device: its
-    current value bounds this one.
+    current value bounds this one. `ceiling` lets the rig file widen `access`
+    up to it (never beyond); without one, the rig file may only narrow.
     """
 
     role: ClassVar[Role]
@@ -364,6 +365,7 @@ class Descriptor[B]:
         vtype: Any = float,
         *,
         access: Access | None = None,
+        ceiling: Access | None = None,
         parent: Namespace | None = None,
         **meta: Any,
     ) -> None:
@@ -378,6 +380,7 @@ class Descriptor[B]:
         self.quantity = Quantity(self.name, Unitless) if quantity is None else quantity
         self.vtype = vtype
         self.access = self.role.access if access is None else Access.check(access)
+        self.ceiling = None if ceiling is None else Access.check(ceiling)
         self.meta = meta
         self.parent = parent
         self.attr: str | None = None
@@ -398,6 +401,7 @@ class Descriptor[B]:
             name=self.name,
             quantity=self.quantity,
             access=self.access,
+            ceiling=self.ceiling,
             role=self.role,
             section=self.section,
             vtype=self.vtype,

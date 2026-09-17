@@ -265,6 +265,33 @@ def test_restrict_only_removes_access():
         humidity.restrict(Access(Access.P.value))
 
 
+def test_ceiling_lets_restrict_widen_up_to_it_not_past_it():
+    spec = SignalSpec(name="steps", quantity=TEMP, access=Access.R, ceiling=Access.RP)
+    node = NodeSpec(name="stepper", children=(spec,))
+
+    class Widenable(Device):
+        TREE = (node,)
+
+    signal = Widenable("s").signals["stepper.steps"]
+    assert signal.access is Access.R
+    signal.restrict(Access.RP)
+    assert signal.access is Access.RP and signal.spec.access is Access.R
+    with pytest.raises(ValueError, match="'s.stepper.steps' cannot add access w"):
+        signal.restrict(Access.RPW)
+
+
+def test_ceiling_must_cover_the_declared_access():
+    with pytest.raises(ValueError, match="ceiling r excludes p, part of its own declared access"):
+        SignalSpec(name="x", quantity=TEMP, access=Access.RP, ceiling=Access.R)
+
+
+def test_without_a_ceiling_restrict_cannot_widen_at_all():
+    heater = Probe("p").signals["heater"]
+    assert heater.spec.ceiling is None
+    with pytest.raises(ValueError, match="'p.heater' cannot add access r"):
+        heater.restrict(Access.RW)
+
+
 def test_override_keeps_the_bound_object():
     probe = Probe("p")
     signal = probe.signals["dry.humidity"]
