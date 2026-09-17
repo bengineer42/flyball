@@ -8,6 +8,7 @@ from flyball_linux.devices import (  # ruff: ignore[unused-import]
     onewire,
     pulse_counter,
     pwm,
+    stepper,
 )
 from flyball_linux.devices.chips import (  # ruff: ignore[unused-import]
     ads1115,
@@ -18,6 +19,7 @@ from flyball_linux.devices.chips import (  # ruff: ignore[unused-import]
     htu21d,
     hx711,
     mcp3008,
+    mcp4725,
     mhz19,
     ms5611,
     scd4x,
