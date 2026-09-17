@@ -21,6 +21,12 @@ class GpioLink(Protocol):
 
     def get(self, line: int) -> bool: ...
 
+    def claim_edge(
+        self, line: int, debounce_s: float = 0.0, pull_up: bool | None = None
+    ) -> None: ...
+
+    def count_edges(self, line: int) -> int: ...
+
 
 class FakeGpio:
     """Lines as a dict; sets are kept in order. Reading an unclaimed line is an error."""
@@ -29,6 +35,7 @@ class FakeGpio:
         self.levels = dict(levels or {})
         self.claimed: dict[int, str] = {}
         self.sets: list[tuple[int, bool]] = []
+        self._pending_edges: dict[int, int] = {}
 
     def claim_output(self, line: int, initial: bool = False) -> None:
         self.claimed[line] = "output"
@@ -48,6 +55,23 @@ class FakeGpio:
         if line not in self.claimed:
             raise OSError(f"line {line} is not claimed")
         return self.levels[line]
+
+    def claim_edge(self, line: int, debounce_s: float = 0.0, pull_up: bool | None = None) -> None:
+        self.claimed[line] = "edge"
+        self._pending_edges[line] = 0
+
+    def pulse(self, line: int, n: int = 1) -> None:
+        """Test-only: simulate `n` edges arriving on `line`, for `count_edges` to drain."""
+        if self.claimed.get(line) != "edge":
+            raise OSError(f"line {line} is not claimed for edge detection")
+        self._pending_edges[line] += n
+
+    def count_edges(self, line: int) -> int:
+        if self.claimed.get(line) != "edge":
+            raise OSError(f"line {line} is not claimed for edge detection")
+        count = self._pending_edges[line]
+        self._pending_edges[line] = 0
+        return count
 
 
 class FakeGpioConfig(Config[GpioLink], tag="fake_gpio"):
@@ -97,6 +121,38 @@ class GpiodChip:
 
         bias = Bias.AS_IS if pull_up is None else (Bias.PULL_UP if pull_up else Bias.PULL_DOWN)
         self._request(line, gpiod.LineSettings(direction=Direction.INPUT, bias=bias))
+
+    def claim_edge(self, line: int, debounce_s: float = 0.0, pull_up: bool | None = None) -> None:
+        """Rising-edge detection with libgpiod v2's own debounce -- no polling loop of ours.
+
+        Not run against real hardware; the debounce and edge-event handling
+        follow gpiod's documented `LineSettings`/`wait_edge_events` API, not
+        a physical sensor.
+        """
+        from datetime import timedelta
+
+        import gpiod
+        from gpiod.line import Bias, Direction, Edge
+
+        bias = Bias.AS_IS if pull_up is None else (Bias.PULL_UP if pull_up else Bias.PULL_DOWN)
+        self._request(
+            line,
+            gpiod.LineSettings(
+                direction=Direction.INPUT,
+                bias=bias,
+                edge_detection=Edge.RISING,
+                debounce_period=timedelta(seconds=debounce_s),
+            ),
+        )
+
+    def count_edges(self, line: int) -> int:
+        """Pulses seen on `line` since the last call, draining the kernel's event queue."""
+        with self._lock:
+            request = self._requests[line]
+            count = 0
+            while request.wait_edge_events(timeout=0):
+                count += len(request.read_edge_events())
+            return count
 
     def set(self, line: int, value: bool) -> None:
         from gpiod.line import Value
