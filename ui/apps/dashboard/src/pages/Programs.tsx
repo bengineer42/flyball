@@ -820,7 +820,9 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
         helperText={parseError ? `does not parse — ${parseError}` : commentsLost ? "editing in the steps view regenerates this text; its comments are dropped" : undefined}
         FormHelperTextProps={{ "data-testid": "parse-error" } as never}
         spellCheck={false}
-        inputProps={{ "aria-label": "program body", style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.85rem", lineHeight: 1.45, whiteSpace: "pre", overflowX: "auto" } }}
+        // `pre` keeps YAML's indentation; the textarea scrolls sideways for a long line rather than hiding its end.
+        inputProps={{ "aria-label": "program body", style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.85rem", lineHeight: 1.45, whiteSpace: "pre", overflowX: "auto", overflowY: "auto" } }}
+        sx={{ "& .MuiInputBase-root": { alignItems: "stretch" }, "& textarea": { overflow: "auto !important" } }}
       />
     </Box>
   );

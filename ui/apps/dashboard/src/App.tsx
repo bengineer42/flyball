@@ -1,7 +1,7 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
 import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
-import { RigError, type DeviceOut } from "@flyball/client";
+import { RigError, type DeviceOut, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { TokenChip, TokenPrompt } from "./TokenChip.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
@@ -165,7 +165,18 @@ export function App() {
     );
 
   const all = devices.data;
-  const title = name === null ? PAGE_LABEL[page] : page === "sessions" ? `Session #${name}` : name;
+  // A detail page is titled by the thing's label, as everywhere else on the page: the address stays in the crumbs and hints.
+  const titled = (): string => {
+    if (name === null) return PAGE_LABEL[page];
+    if (page === "sessions") return `Session #${name}`;
+    if (page === "devices") return deviceTitle(all.find((d) => d.name === name) ?? { name });
+    if (page === "inputs" || page === "controllers") {
+      const signal = all.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === name);
+      return signal ? signalTitle(signal, all) : name;
+    }
+    return name;
+  };
+  const title = titled();
   const charts = { windowS, onWindow: setWindowS, yScale, onYScale: setYScale, every, onEvery: setEvery };
   const openDashboard = (n: string | null, generated?: boolean) => (window.location.hash = hashFor("dashboards", n, generated ? { generated: "" } : {}));
 

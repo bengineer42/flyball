@@ -171,7 +171,7 @@ const ControllerCard = memo(function ControllerCard({ name, title, sourceUnit, s
         </Typography>
         <Chip label={c.mode} size="small" variant="outlined" color={c.mode === "regulating" ? "primary" : "default"} sx={{ ml: "auto !important" }} className={`fb-mode fb-mode-${c.mode}`} />
       </Stack>
-      <Typography variant="body2" color="text.secondary" noWrap title={`${c.source} → ${c.target}`}>
+      <Typography variant="body2" color="text.secondary" title={`${c.source} → ${c.target}`}>
         {sourceTitle} → {targetTitle}
       </Typography>
       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>

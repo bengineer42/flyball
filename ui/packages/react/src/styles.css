@@ -646,3 +646,16 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 /* A subtitle squeezed to a sliver by its title shows nothing rather than a lone ellipsis; its hover title still carries it. */
 .fb-tile-subtitle { container-type: inline-size; }
 @container (max-width: 4rem) { .fb-tile-subtitle > * { display: none; } }
+
+/* The events panel's filters sit in the title row; on a phone that row cannot hold them, so they take a row of their own under it. */
+@media (max-width: 600px) {
+  .fb-events > .fb-tile-head { flex-wrap: wrap; height: auto; min-height: var(--fb-tile-head-h); padding-bottom: var(--fb-space-1); row-gap: 0; }
+  .fb-events > .fb-tile-head > .fb-tile-status { flex-basis: 100%; order: 10; }
+  .fb-events-search { flex: 1 1 6rem; min-width: 6rem; }
+}
+
+/* A faceplate narrower than a wide desktop card: "regulates …" moves under the name rather than ellipsising beside it. */
+@container (max-width: 60rem) {
+  .fb-loop-head { flex-wrap: wrap; row-gap: 0; }
+  .fb-loop-head > .fb-muted { order: 3; flex-basis: 100%; white-space: normal; overflow: visible; }
+}

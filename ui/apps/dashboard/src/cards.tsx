@@ -177,7 +177,7 @@ function TreeRows({ device }: { device: DeviceOut }) {
     <Table size="small" sx={{ tableLayout: "fixed", width: "100%", "& td": { border: 0, px: 0, py: 0.75 } }}>
       {rows.some((r) => r.label !== null) && (
         <colgroup>
-          <col style={{ width: "30%" }} />
+          <col style={{ width: "26%" }} />
           <col />
         </colgroup>
       )}

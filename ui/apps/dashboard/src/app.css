@@ -52,7 +52,7 @@ main > section + section { margin-top: var(--section-gap); }
 }
 
 /* Tiles inside a card fit whatever width the card was given: as many as fit, none narrower than 12rem, collapsing to one. */
-.tiles { display: grid; gap: var(--gutter-half); grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr)); }
+.tiles { display: grid; gap: var(--gutter-half); grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); }
 .tiles > * { min-width: 0; }
 
 .stats { margin-bottom: var(--section-gap); }
@@ -67,12 +67,12 @@ main > section + section { margin-top: var(--section-gap); }
  * width; inside a box the tiles then take as many columns as its width holds.
  */
 .sample-groups { display: flex; flex-wrap: wrap; gap: var(--gutter); align-items: flex-start; }
-.sample-group { flex: var(--cols, 1) 1 calc(var(--cols, 1) * 13rem); min-width: min(13rem, 100%); }
+.sample-group { flex: var(--cols, 1) 1 calc(var(--cols, 1) * 15rem); min-width: min(15rem, 100%); }
 .sample-boxes { display: flex; flex-wrap: wrap; gap: var(--gutter-half); align-items: flex-start; }
-.sample-box { display: flex; flex-direction: column; gap: var(--gutter-half); min-width: min(12rem, 100%); flex: var(--cols, 1) 1 calc(var(--cols, 1) * 12rem); padding: var(--gutter-half); box-sizing: border-box; background: var(--fb-bg-2); border-radius: var(--fb-radius); }
+.sample-box { display: flex; flex-direction: column; gap: var(--gutter-half); min-width: min(14rem, 100%); flex: var(--cols, 1) 1 calc(var(--cols, 1) * 14rem); padding: var(--gutter-half); box-sizing: border-box; background: var(--fb-bg-2); border-radius: var(--fb-radius); }
 .sample-box-head { margin: 0; padding: 0 var(--fb-space-1); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fb-fg-2); line-height: 1.5; }
 /* As many tile columns as the box's width holds at 12rem each: one in a namespace's box, more in a flat device's. */
-.sample-box-tiles { display: grid; gap: var(--gutter-half); grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr)); }
+.sample-box-tiles { display: grid; gap: var(--gutter-half); grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); }
 .sample-box-tiles > * { min-width: 0; }
 /* A by-unit chart's title is the unit: never squeezed to an ellipsis by the list of places beside it. */
 .fb-unit-chart > .fb-tile-head > .fb-tile-title { flex: none; }
@@ -80,7 +80,7 @@ main > section + section { margin-top: var(--section-gap); }
 .tile-icon { position: absolute; top: 0.6rem; right: 0.75rem; color: var(--fb-fg-2); opacity: 0.6; }
 /* The icon sits over the head's end; the caption ("Chamber · Humidity sensors") is the part that gives way, never the signal's name. */
 .tile-with-icon > .fb-tile > .fb-tile-head { padding-right: var(--fb-space-6); }
-.tile-with-icon > .fb-tile > .fb-tile-head > .fb-tile-title { flex-shrink: 0; max-width: 75%; }
+.tile-with-icon > .fb-tile > .fb-tile-head > .fb-tile-title { flex-shrink: 0; max-width: 100%; }
 
 /* A section heading and the controls that belong to it: one row, controls on the right edge, wrapping under on a phone. */
 .section-head { min-height: 40px; margin-bottom: var(--gutter-half); }

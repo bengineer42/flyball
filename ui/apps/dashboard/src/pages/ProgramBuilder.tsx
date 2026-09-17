@@ -483,12 +483,13 @@ function StepCard({ index, count, tag, value, modifiers, command, commands, modi
         )}
         {command?.short && (
           <Tooltip title={command.description ?? command.short}>
-            <Typography variant="body2" color="text.secondary" sx={{ flex: "1 1 12em", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <Typography variant="body2" color="text.secondary" sx={{ flex: "1 1 12em", minWidth: 0, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", lineHeight: 1.3 }}>
               {command.short}
             </Typography>
           </Tooltip>
         )}
-        <Box sx={{ flexGrow: 1 }} />
+        {/* The description takes the row's free space; this spacer only stands in when there is none. */}
+        {!command?.short && <Box sx={{ flexGrow: 1 }} />}
         <Tooltip title="Move up">
           <span>
             <IconButton aria-label={`move step ${index + 1} up`} disabled={index === 0} onClick={onUp}>
