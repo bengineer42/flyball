@@ -827,6 +827,35 @@ def _check_driver(rig: Rig, a: dict[str, Any]) -> Any:
     return json.loads(run.stdout)
 
 
+def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
+    """Run `linux/scripts/search_drivers.py --json <filters>` and parse its output.
+
+    A `linux/` checkout, not a running rig, holds the catalogue -- this tool doesn't touch
+    `rig` at all, matching `driver_scaffold`/`check_driver`'s local-filesystem shape rather
+    than `list_drivers`' HTTP-to-a-running-runner one.
+    """
+    linux_dir = Path(a["linux_dir"]).expanduser()
+    script = linux_dir / "scripts" / "search_drivers.py"
+    if not script.is_file():
+        raise SchemaError(f"search_drivers: {script} is not a file here")
+    flags = ["--json"]
+    for key in (
+        "tag", "category", "interface", "tier", "status", "manufacturer", "domain", "unit",
+        "dimension", "text",
+    ):
+        if (value := a.get(key)) is not None:
+            flags += [f"--{key}", str(value)]
+    # Not `sys.executable`: the manifest search needs PyYAML, which is `linux/`'s own
+    # dependency, not this server's -- `uv run` resolves it from `linux_dir`'s own venv.
+    run = subprocess.run(
+        ["uv", "run", "--", "python", str(script), *flags],
+        capture_output=True, text=True, timeout=30, cwd=linux_dir,
+    )
+    if run.returncode != 0:
+        raise SchemaError(f"search_drivers: {run.stderr.strip()[-2000:]}")
+    return json.loads(run.stdout)
+
+
 def _scaffold(rig: Rig, a: dict[str, Any]) -> Any:
     try:
         return {"name": a["name"], "source": render(a["name"])}
@@ -860,6 +889,33 @@ DRIVERS: tuple[Tool, ...] = (
         _object({"path": _str("The module's path, where this server runs.")}, "path"),
         Tier.DRIVE,
         _check_driver,
+    ),
+    Tool(
+        "search_drivers",
+        "Search the hardware catalogue -- part number, manufacturer, category, interface, "
+        "verification status, price, which rig leads it serves, and (introspected from the "
+        "code, not hand-maintained) each signal's real unit and physical dimension. For "
+        "choosing what to buy or wire up before a driver exists, not for a running rig's own "
+        "tags -- that's `list_drivers`. Reads `<linux_dir>/drivers-manifest.yaml` and "
+        "`drivers-signals.yaml` on the machine this server runs on.",
+        _object(
+            {
+                "linux_dir": _str("The `linux/` checkout's path, where this server runs."),
+                "tag": _str("Substring match on the driver tag."),
+                "category": _str("Exact match, e.g. humidity, gas, liquid, weight, actuator."),
+                "interface": _str("Exact match, e.g. i2c_bespoke, uart, analog_adc, gpio."),
+                "tier": _str("config_only, generic_link, or bespoke_driver."),
+                "status": _str("done, in_progress, or planned."),
+                "manufacturer": _str("Substring match."),
+                "domain": _str("Which rig lead this serves, e.g. mushroom, aging, dosing_skids."),
+                "unit": _str("A signal's unit symbol, e.g. ppm, °C, %RH."),
+                "dimension": _str("A signal's physical dimension, e.g. Temperature, Fraction."),
+                "text": _str("Substring match over the whole entry."),
+            },
+            "linux_dir",
+        ),
+        Tier.READ,
+        _search_drivers,
     ),
     Tool(
         "list_drivers",

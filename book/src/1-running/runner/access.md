@@ -1,41 +1,73 @@
-# Access: the token, a sub-path, stopping
+# Access: the door, a sub-path, stopping
 
 Who may reach the runner, where, and what the API is allowed to do to the process. All of it is set by flags or the [`runner:` section](../../2-config/runner.md) of the config file.
 
-## The token
+## The door: a password, a token, or open
 
-`--token T` (or `FLYBALL_TOKEN=T`) makes every request to `/api`, `/ws` and
-`/mcp` require `Authorization: Bearer T`; a websocket, or a plain `GET`
-the browser navigates to (an export link), may pass `?token=T` instead,
-since a browser cannot set headers on either -- a URL is logged where a
-header is not, so the header is the form to use wherever it can be set.
-Anything else is 401
-with a `detail` (a socket is closed with code 4401). The Python client
-(`flyball.client.Rig`) and `flyball-mcp` take `--token` or the same
-variable; the UI asks for it. The Go CLI (`flyball`) takes it too --
-`flyball --token T ...` or `FLYBALL_TOKEN=T` in the environment, sent as
-the same bearer header. Without a token (or a password, below) the
-runner serves anyone who can reach the port -- fine on loopback, not on
-`--host 0.0.0.0`, and not on a rig a model can drive.
+Three ways a runner can stand:
+
+- **Open** (the default): no password, no token; anyone who can reach the
+  port can read and drive the rig. Fine on loopback; not on `--host 0.0.0.0`,
+  and not on a rig a model can drive.
+- **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
+  the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
+  The login page trades it for a session -- an `HttpOnly` cookie the browser
+  then carries on every request, socket and download by itself -- so the
+  browser never keeps the password. The value may be the plain text, or the
+  hashed line `flyball password` prints (`$scrypt$…`), which is what belongs
+  in a file that is committed anywhere.
+- **A token** (`--token T`, `FLYBALL_TOKEN`, `auth.token`): for machines. The
+  Python client (`flyball.client.Rig`), `flyball-mcp` and any script send it
+  as `Authorization: Bearer T`; a websocket, or a plain `GET` the browser
+  navigates to (an export link), may pass `?token=T` instead, since a browser
+  cannot set headers on either -- a URL is logged where a header is not, so
+  the header is the form to use wherever it can be set. The Go CLI
+  (`flyball`) takes it the same way -- `flyball --token T ...` or
+  `FLYBALL_TOKEN=T` in the environment. The login page takes the token too,
+  so a browser on a token-only runner still ends up with a cookie and
+  nothing in its storage.
+
+Either one shuts the door: everything under `/api`, `/ws` and `/mcp` needs a
+session or the token, bar `/api/auth` (the door itself) and `/docs`.
+Refused is `401` with a `detail` (a socket is closed with code 4401).
+
+**Who may look without either** is `auth.anonymous` (`--anonymous`,
+`FLYBALL_ANONYMOUS`): `none` (the default -- nothing until signed in) or
+`read` -- every `GET` and every stream is served to anyone, and only a
+session or the token may do anything else. `read` is how a rig goes on the
+public internet to be watched but not driven, with or without a proxy's
+`limit_except GET` in front of it; the one `GET` with a side effect,
+`/api/probe`, stays behind the door. With `read` the UI shows the rig
+read-only, says so in the app bar, and offers to sign in when a control is
+refused.
+
+A session lasts `auth.session` (`--session`; default `12h`). Sessions are
+signed, not stored: the key is `auth.secret` if given, else a file
+`<store>.key` beside the store (made on first use, readable by the owner
+only), else one made for the process -- in which case a restart signs
+everyone out. Changing the password signs everyone out too. Ten wrong
+passwords in a minute from one address are refused for the rest of it.
+
+The runner's own MCP mount still works on a password-only runner (it uses a
+token of its own, never shown); a model connecting from outside needs the
+runner to have `--token` as well. `GET /api/runner` reports none of these
+values; `GET /api/auth` says which the runner has.
 
 ## The password, from the Go CLI
 
-`--password` (a `$scrypt$…` line from `flyball password`, or plain text;
-`FLYBALL_PASSWORD` too) protects the runner the way the UI's login page
-does. The Go CLI signs in the same way: `flyball login` prompts for the
-password (or takes it as an argument, `flyball login SECRET` -- careful,
-that lands in shell history), POSTs it to `/api/auth/login`, and saves
-the session cookie the runner returns to a file under
-`$XDG_CONFIG_HOME/flyball` (`~/.config/flyball` on Linux), one file per
-runner URL, mode `0600`. Every later `flyball` invocation against that
-same URL picks the saved cookie back up automatically -- no need to log
-in again until the session expires (`--session`, default 12h) or
+The Go CLI signs in the same way as the UI's login page: `flyball login`
+prompts for the password (or takes it as an argument, `flyball login
+SECRET` -- careful, that lands in shell history), POSTs it to
+`/api/auth/login`, and saves the session cookie the runner returns to a
+file under `$XDG_CONFIG_HOME/flyball` (`~/.config/flyball` on Linux), one
+file per runner URL, mode `0600`. Every later `flyball` invocation against
+that same URL picks the saved cookie back up automatically -- no need to
+log in again until the session expires (`--session`, default 12h) or
 `flyball logout` clears it. A wrong password is refused (401, after a
-short pause; ten wrong ones in a minute from one address are 429). This
-is separate from the daemon's own access control (`flyballd`, not yet
-built) -- `flyball login` authenticates to a *runner*, whether reached
-direct (`FLYBALL_URL`) or through the daemon's proxy (`-s`/
-`FLYBALLD_URL`).
+short pause; ten wrong ones in a minute from one address are 429). This is
+separate from the daemon's own access control (`flyballd`, not yet built)
+-- `flyball login` authenticates to a *runner*, whether reached direct
+(`FLYBALL_URL`) or through the daemon's proxy (`-s`/`FLYBALLD_URL`).
 
 `--no-mcp` (or `FLYBALL_NO_MCP=1`) leaves the MCP servers off: the runner
 serves `/api` and `/ws` only, and `/mcp/…` is 404. For a rig a model has no

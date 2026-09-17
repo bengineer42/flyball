@@ -15,13 +15,13 @@ from typing import Literal
 
 from flyball.core.config import resolve
 from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, NodeSpec, Sample, SignalSpec
 from flyball.core.units.dimensions import Fraction
 from flyball.core.units.si import Celsius
 from pydantic import BaseModel, ConfigDict, Field
 
+from flyball_linux.devices.chips._sensirion import crc8, crc_words
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
 
 Precision = Literal["high", "medium", "low"]
@@ -39,29 +39,13 @@ SHT4X_ADDRESS = 0x44
 """The default address; the -B variants answer at 0x45."""
 
 
-def crc8(data: bytes) -> int:
-    """Sensirion's CRC-8: polynomial 0x31, initial 0xFF."""
-    crc = 0xFF
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
-    return crc
-
-
 def decode(frame: bytes) -> tuple[float, float]:
     """(°C, %RH) from the six-byte reply.
 
     Raises:
         HardwareError: A CRC that does not match.
     """
-    if len(frame) != 6:
-        raise HardwareError(f"SHT4x reply is {len(frame)} bytes, not 6")
-    for word, crc in ((frame[0:2], frame[2]), (frame[3:5], frame[5])):
-        if crc8(word) != crc:
-            raise HardwareError(f"SHT4x CRC mismatch in {frame.hex()}")
-    raw_t = int.from_bytes(frame[0:2], "big")
-    raw_h = int.from_bytes(frame[3:5], "big")
+    raw_t, raw_h = crc_words(frame, 2)
     temperature = -45.0 + 175.0 * raw_t / 65535.0
     humidity = min(100.0, max(0.0, -6.0 + 125.0 * raw_h / 65535.0))
     return temperature, humidity

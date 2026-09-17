@@ -8,7 +8,7 @@ it.
 
 | application | is | book |
 | --- | --- | --- |
-| **Humidity** (`examples/humidity`) | a chamber held at a target relative humidity by blending two air lines: Raspberry Pi, a TB6612 motor driver, SHT4x sensors; the `dual_pump_blender` driver and the `sim_humidity_chamber` plant | `examples/humidity/book/` |
+| **Humidity** (`examples/humidity`) | a chamber held at a target relative humidity by blending two air lines: Raspberry Pi, a TB6612 motor driver, SHT4x sensors; the `dual_pump_blender` driver and the `sim_humidity_chamber` plant | [The humidity rig](https://bengineer42.github.io/flyball/humidity/) (`examples/humidity/book/`) |
 
 The example rigs with nothing plugged in (`examples/simulated`: an oven, a
 tank, a bench, a furnace) are not applications -- they are rig files only --

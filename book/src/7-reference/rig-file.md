@@ -36,7 +36,7 @@ device.
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
-| `runner` | `RunnerConfig` | how the process serves -- port, token, what the API may do, where the store and the directories are; not part of the rig (not in its document, versions or saves), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
+| `runner` | `RunnerConfig` | how the process serves -- port, who may reach it (`auth`), what the API may do, where the store and the directories are; not part of the rig (not in its document, versions or saves), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat or layered](#devices) |
 | `controllers` | `{target-address: ControllerEntry}` | keyed by the writable signal driven |
@@ -67,7 +67,7 @@ and recorded session is identical whether the rig is real or simulated.
 `examples/simulated/furnace.yaml` demonstrates the pattern in one file (a
 `sim_daq`/`sim_drive` pair standing in for a thermocouple DAQ and an SSR
 bank that don't exist yet); `examples/humidity/rig.yaml` + `sim.yaml` is
-the real two-file form — read both. `examples/site/*.yaml` is the third
+the real two-file form — read both, and [the humidity book](https://bengineer42.github.io/flyball/humidity/2-config/) on them. `examples/site/*.yaml` is the third
 layer: a file per deployment holding only `extends` and `runner:`.
 
 ## Devices
@@ -111,7 +111,9 @@ driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by); `access` names the set to keep (`"r"`), and
 `readable`/`publishing`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
-it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
+it, unless the driver also names a ceiling for that signal (a Python-level
+option, not a rig-file key), in which case `access` may ask for anything up
+to and including it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
 the same way into a namespace's own children; its `tags` apply to every
 signal under it, a signal's own winning.
 
@@ -168,5 +170,5 @@ lead compensator, a different job from the plant-capacity model this is.
 ## Example
 
 See [Configuration](../2-config/index.md) and [Integrations](../5-integrations/index.md) for more complete
-files, and the humidity book for a real two-file (hardware + simulated
+files, and [the humidity book](https://bengineer42.github.io/flyball/humidity/) for a real two-file (hardware + simulated
 overlay) rig.

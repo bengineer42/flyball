@@ -56,8 +56,10 @@ rig.devices["furnace"].fail(signal="zone1")  # a device command, checked against
 
 ## Authentication and what is allowed
 
-Open by default. With `--token` every request needs `Authorization: Bearer`
-(`?token=` on a socket or a download link). Independently, some things are
+Open by default. With a password every request needs the session a login
+sets; with a token, `Authorization: Bearer` (`?token=` on a socket or a
+download link); `auth.anonymous: read` lets reads through regardless
+([authentication](api.md#authentication)). Independently, some things are
 off unless the runner was started allowing them: building up a hardware
 rig (`--compose`), writing rig files (`--allow-save`), stopping or
 restarting (`--allow-shutdown`), the MCP mount (`--no-mcp` turns it off).

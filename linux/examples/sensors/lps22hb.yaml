@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../rig.schema.json
+# ST LPS22HB MEMS pressure sensor, I2C, address 0x5C (0x5D with SA0 tied
+# high). Plain register map, no CRC and no command-byte protocol -- an
+# ordinary auto-incrementing register pointer, so it fits `i2c_table`
+# unlike sensors that layer a command sequence on top. Registers and scale
+# factors are from the ST LPS22HB datasheet DM00140895 (st.com), Table 18
+# (register map) and section 9.13 ("How to convert output data").
+#
+# `ctrl1` is a write register (0x10): default power-up is power-down
+# (ODR = 000). Write 0x10 once to select ODR = 1 Hz continuous mode (ODR
+# bits [6:4] = 001); the chip then free-runs and PRESS_OUT/TEMP_OUT update
+# on their own -- no per-read command needed.
+#
+# Pressure is a 24-bit two's-complement word (PRESS_OUT_XL/L/H, 0x28-0x2A),
+# 4096 LSB/hPa. Temperature is 16-bit two's-complement (TEMP_OUT_L/H,
+# 0x2B-0x2C), 100 LSB/°C.
+
+devices:
+  pressure:
+    driver: i2c_table
+    label: Pressure
+    poll_s: 1
+    link: i2c1
+    address: 0x5C
+    registers:
+      ctrl1: { address: 0x10, length: 1, unit: "1", write: true }   # ODR=1Hz continuous = 0x10
+      pressure: { address: 0x28, length: 3, signed: true, byteorder: little, scale: 0.000244140625, unit: hPa }   # 1/4096
+      temperature: { address: 0x2B, length: 2, signed: true, byteorder: little, scale: 0.01, unit: "°C" }

@@ -15,5 +15,5 @@ would use.
   kit.
 - An instrument's own error queue (`SYST:ERR?`) surfacing as a condition.
 
-The pushed-device path itself is built and used by the humidity blender's
-readbacks; only the adapters are missing.
+The pushed-device path itself is built and used by [the humidity rig](https://bengineer42.github.io/flyball/humidity/3-devices/blender/)'s
+blender readbacks; only the adapters are missing.

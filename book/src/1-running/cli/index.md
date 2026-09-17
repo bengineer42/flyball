@@ -24,6 +24,8 @@ see [addressing](../../7-reference/cli.md) for `-s`/`FLYBALL_URL`/
 ```
 export FLYBALL_URL=http://pi:8000
 flyball devices
+flyball --token T status                    # or export FLYBALL_TOKEN, for a runner started with one
+flyball password                            # the hashed line for runner.auth.password
 ```
 
 There is no schema caching, `--offline` mode, or per-device subcommand

@@ -110,8 +110,9 @@ runner:
 flyball-runner humidity.yaml
 ```
 
-The keys are the flags: `host`, `port`, `log_level`, `token`, `compose`,
-`mcp`, `root_path`, `allow_save`, `allow_shutdown`, and the places --
+The keys are the flags: `host`, `port`, `log_level`, `auth` (password,
+token, anonymous, session), `compose`, `mcp`, `root_path`, `allow_save`,
+`allow_shutdown`, and the places --
 `store`, `store_dir`, `programs`, `tunings`, `drivers`. A flag on the
 command line (or its environment variable) beats the file; a path in the
 file is relative to the first rig file's directory, a path on the command
@@ -119,5 +120,5 @@ line to the shell. `store_dir` names the store after the rig
 (`<dir>/<name>.sqlite`, the file's stem when the rig has no name), so
 several runners keep their stores in one place; `--store` still wins. The
 section is not part of the rig: it is not in `/api/rig/document`, a
-version, or a save. `GET /api/runner` reports what was resolved, less the
-token.
+version, or a save. `GET /api/runner` reports what was resolved, less
+`auth`.

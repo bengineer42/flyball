@@ -122,13 +122,17 @@ thermocouples that lag. Ports: inputs `heater1…N` (0–1), outputs
 
 ## A board's buses
 
-`i2c`, `spi`, `gpio`, `pwm` and `onewire`, with a `fake_*` each, come with
-`flyball-linux` and are usually declared by a board profile rather than by
-hand: [Boards and Linux I/O](boards.md).
+`i2c`, `spi`, `gpio`, `pwm`, `onewire` and `uart`, with a `fake_*` each,
+come with `flyball-linux` and are usually declared by a board profile
+rather than by hand: [Boards and Linux I/O](boards.md). `uart` (tag
+`uart`, not `serial` -- that tag is the text-instrument link above) is a
+raw byte-level serial port: `write`, `read` an exact length, or `read_until`
+a terminator, for chips with their own binary or ASCII framing (`mhz19`,
+`ezo_ph`) rather than the line-based text protocol `serial` speaks.
 
 ## From a package
 
 A package registers link tags of its own through the `flyball.configs`
-entry point (`examples/humidity` adds `sim_humidity_chamber`, a mixing-model
+entry point ([the humidity rig](https://bengineer42.github.io/flyball/humidity/) adds `sim_humidity_chamber`, a mixing-model
 chamber that is also a fake PWM chip); they are valid in a file the moment
 it is installed. Writing one: [Config and build](../3-extending/device/config.md).

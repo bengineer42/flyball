@@ -16,4 +16,4 @@ Every driver's fields: [Supported drivers → Board chips](../2-config/devices/d
 **Code.** `flyball_linux.links.*`, `flyball_linux.devices.*`, registered
 through the `flyball.configs` entry point on install.
 
-**A complete rig on it.** The humidity application: [Applications](applications.md).
+**A complete rig on it.** [The humidity rig](https://bengineer42.github.io/flyball/humidity/) -- its [board and wiring](https://bengineer42.github.io/flyball/humidity/4-hardware/board/) and [Pi setup](https://bengineer42.github.io/flyball/humidity/4-hardware/pi/).

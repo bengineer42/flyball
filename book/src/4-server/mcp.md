@@ -46,9 +46,12 @@ arrangement:
 
 ## The token
 
-A runner started with `--token` (or `FLYBALL_TOKEN`) requires it on
-everything it serves -- `/api`, `/ws` and `/mcp` alike, since any of them
-can drive the rig. An MCP client sends it as a header:
+A runner with a token (`--token`, `FLYBALL_TOKEN`, `auth.token`) requires it
+on everything it serves -- `/api`, `/ws` and `/mcp` alike, since any of
+them can drive the rig. A model cannot type a password at a login page,
+so a runner that has only a password needs a token too before a client
+outside it can connect (its own mount at `/mcp` keeps working). An MCP
+client sends the token as a header:
 
 ```json
 {
@@ -62,10 +65,11 @@ can drive the rig. An MCP client sends it as a header:
 }
 ```
 
-The stdio server takes `--token` or `FLYBALL_TOKEN`. Without a token on the
-runner there is no authentication at all: anyone who can reach the port can
-drive the rig, over `/api` as much as over `/mcp`. Put a token on any runner
-a model can drive.
+The stdio server takes `--token` or `FLYBALL_TOKEN`. With neither a token
+nor a password on the runner there is no authentication at all: anyone who
+can reach the port can drive the rig, over `/api` as much as over `/mcp`.
+Put a token on any runner a model can drive; the read tier is what
+`auth.anonymous: read` lets through without one.
 
 ## What the model sees
 

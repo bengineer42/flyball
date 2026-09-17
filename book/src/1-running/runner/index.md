@@ -16,7 +16,7 @@ without serving); a bad file is a one-line message and exit code 2. With
 shutdown the programmer is interrupted, the session closed and the polled
 devices stopped.
 
-The rest of this section: [access and safety](access.md) -- the token, a
+The rest of this section: [access and safety](access.md) -- the door, a
 sub-path behind a proxy, stopping and restarting from the API -- and
 [building a rig while it runs](building.md) -- the composition API,
 versions, saving, `--resume`. Every setting the runner takes, as a file

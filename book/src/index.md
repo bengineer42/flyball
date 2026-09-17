@@ -14,7 +14,7 @@ browser -- the UI is the whole rig: readouts, charts, controllers,
 programs, sessions.
 
 1. [The UI](1-running/ui/index.md) -- what each page is for, the app bar, the
-   controller faceplate; [the token](1-running/runner/access.md#the-token) if
+   controller faceplate; [signing in](1-running/ui/index.md#signing-in) if
    the rig asks for one.
 2. [Running a program](1-running/programs/writing.md#running-one) and
    [recording a session](1-running/ui/sessions.md#sessions), then
@@ -31,7 +31,7 @@ served. Start with a simulated one, then swap the links for real ones.
    `cd daemon && go build ./cmd/flyball` (see
    [Installing](1-running/runner/index.md#installing)).
 2. [Starting a rig](1-running/runner/index.md): `flyball-runner rig.yaml`,
-   what it serves, the token, a sub-path, `--record`.
+   what it serves, the door, a sub-path, `--record`.
 3. [The config file](2-config/index.md): the annotated example, then
    [links](2-config/links.md), [devices](2-config/devices/index.md) and
    [controllers](2-config/controllers.md), each key on its own page.
@@ -104,8 +104,8 @@ $ python oven.py
 after 2 min: 100.9 °C, demand 95.4
 ```
 
-A complete application on real hardware, with its own book, is the
-humidity rig: [Worked examples](0-overview/examples.md).
+A complete application on real hardware, with its own book, is
+[the humidity rig](https://bengineer42.github.io/flyball/humidity/) -- see [Worked examples](0-overview/examples.md).
 
 ## Status
 
