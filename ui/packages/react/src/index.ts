@@ -22,7 +22,8 @@ export { useControllers, type ControllerTrace, type ControllerTraces } from "./h
 export { useEvents } from "./hooks/useEvents.js";
 export { MultiSeries, type MultiSeriesProps, type MultiSeriesTrace } from "./panels/MultiSeries.js";
 export { ControllerPanel, type ControllerPanelProps } from "./panels/ControllerPanel.js";
-export { EventsPanel, EVENT_LEVELS, type EventsPanelProps } from "./panels/EventsPanel.js";
+export { EventsPanel, EVENT_LEVELS, eventKey, type EventsPanelProps } from "./panels/EventsPanel.js";
+export { useUnreadEvents, type UnreadEvents } from "./hooks/useUnreadEvents.js";
 export { useSession, useRecording, type SessionDetail, type SessionTrace } from "./hooks/useSession.js";
 export { SessionPanel, type SessionPanelProps, type SessionExports, type SessionDownload, type SessionGrouping } from "./panels/SessionPanel.js";
 export { LinksProvider, Ref, useHref, type HrefFor, type RefKind } from "./links.js";
