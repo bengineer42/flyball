@@ -1,0 +1,16 @@
+# Sim for the SGP40 driver (`sgp40`, `voc_raw` [RP] -- unitless raw signal,
+# no base example to overlay yet). One signal, one plant: tau 10 s,
+# ambient 30000 counts baseline, gain +-5000 as simulated VOC presence
+# rises and falls.
+
+links:
+  voc_plant: { tag: sim_plant, tau_s: 10.0, gain: 5000.0, ambient: 30000.0, initial: 30000.0, noise: 100.0, seed: 70 }
+
+devices:
+  voc:
+    driver: sim_daq
+    label: VOC raw signal (simulated)
+    poll_s: 1
+    link: voc_plant
+    ports:
+      voc_raw: { port: output, quantity: voc_raw, unit: "1" }

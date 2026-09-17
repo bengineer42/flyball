@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 from flyball.control import ControlLawLike, Controller, ControllerState, Tunings
 from flyball.control.feedforward import FeedforwardLike, Feedforwards
-from flyball.core import Clock
+from flyball.core import Clock, Rate
 from flyball.core.device import (
     RESERVED_NAMES,
     Committable,
@@ -488,6 +488,20 @@ class Rig:
         device = node.device
         if not isinstance(device, Committable):
             raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
+        if by is not None and (stale_after := by.source.spec.stale_after) is not None:
+            source = by.source
+            reading = self.router.latest.get(source)
+            age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
+            if age_s is None or age_s > stale_after:
+                self.event(
+                    Level.WARNING,
+                    "controller",
+                    by.name,
+                    "stale_input",
+                    f"'{source.address}' has not been read in over {stale_after:g}s: held",
+                    {"age_s": age_s},
+                )
+                return {}
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
             if isinstance(key, Signal):
@@ -504,6 +518,7 @@ class Rig:
             resolved[signal] = float(value)
         clamped: dict[Signal, float] = {}
         requested: dict[Signal, float] = {}
+        now_ns = self.clock.now_ns()
         for signal, value in resolved.items():
             if Access.W not in signal.access:
                 raise ConflictError(f"'{signal.address}' [{signal.access}] is not writable")
@@ -515,11 +530,13 @@ class Rig:
                     f"'{signal.address}' is driven by controller {holder.name!r}:"
                     " set its reference, put it in manual, or detach it"
                 )
+            original = value
             if (limits := signal.limits) is not None:
-                held = min(max(value, limits[0]), limits[1])
-                if held != value:
-                    requested[signal] = value
-                value = held
+                value = min(max(value, limits[0]), limits[1])
+            if (max_rate := signal.spec.max_rate) is not None:
+                value = self._rate_clamped(signal, value, max_rate, now_ns)
+            if value != original:
+                requested[signal] = original
             clamped[signal] = value
         with self.lock:
             time_ns = self.clock.now_ns()
@@ -542,6 +559,22 @@ class Rig:
                 self.recorder.record((), (), states, time_ns=time_ns)
             self._flush_pushed()
             return states
+
+    def _rate_clamped(self, signal: Signal, value: float, max_rate: Rate, now_ns: int) -> float:
+        """`value`, held to at most `max_rate` away from the last commit's, over the elapsed time.
+
+        Nothing to compare against yet (no prior commit): `value` passes
+        through unclamped, as the first demand on a signal has nothing to
+        ramp from.
+        """
+        last = self.router.latest.get(signal)
+        if last is None:
+            return value
+        elapsed_s = (now_ns - last.time_ns) / 1e9
+        if elapsed_s <= 0:
+            return last.value
+        step = max_rate.per_second * elapsed_s
+        return min(max(value, last.value - step), last.value + step)
 
     def _writer_for(self, device: Device) -> Writer | None:
         """The thread in front of a device that blocks on a bus; None for one that does not."""

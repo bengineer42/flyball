@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=program.schema.json
+# Three cultivation phases, each a different humidity/CO2 target held for a
+# while -- the same regulate/hold shape as `examples/humidity/programs/
+# demo.yaml`, repeated per phase instead of once. Real cultivation runs are
+# days-to-weeks per phase; `hold` durations below are shortened for a live
+# demo -- scale them up for a real run, or drive `--set clock.speed=...`
+# down as `furnace.yaml`'s programs do the opposite for a fast rehearsal.
+#
+#     flyball-runner rig.yaml sim.yaml
+#     flyball program check --local programs/cultivation.yaml
+name: cultivation-demo
+steps:
+  - regulate: { loop: fogger.drive, setpoint: 65 }
+  - regulate: { loop: fan.drive, setpoint: 5000 }
+  - hold: { minutes: 2, message: "colonisation: low humidity, CO2 not yet a concern" }
+
+  - ramp: { loop: fogger.drive, to: 90, per_minute: 10 }
+  - ramp: { loop: fan.drive, to: 800, per_minute: 2000 }
+  - hold: { minutes: 2, message: "pinning: high humidity, fresh-air exchange triggers pinning" }
+
+  - ramp: { loop: fogger.drive, to: 85, per_minute: 10 }
+  - ramp: { loop: fan.drive, to: 600, per_minute: 2000 }
+  - hold: { minutes: 3, message: "fruiting" }
+
+  - manual: [fogger.drive, fan.drive]

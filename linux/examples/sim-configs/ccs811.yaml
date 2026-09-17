@@ -1,0 +1,26 @@
+# Sim for the CCS811 driver (`ccs811`, `co2eq`/`tvoc` [RP], flat -- no base
+# example to overlay yet). Same shape as sim-configs/sgp30.yaml, but
+# CCS811's own range is narrower (datasheet: co2eq 400-8192 ppm, tvoc
+# 0-1187 ppb): co2eq tau 60 s, ambient 400 ppm, gain +1500 ppm; tvoc tau
+# 60 s, ambient 10 ppb, gain +200 ppb.
+
+links:
+  co2eq_plant: { tag: sim_plant, tau_s: 60.0, gain: 1500.0, ambient: 400.0, initial: 400.0, noise: 15.0, seed: 80 }
+  tvoc_plant: { tag: sim_plant, tau_s: 60.0, gain: 200.0, ambient: 10.0, initial: 10.0, noise: 3.0, seed: 81 }
+
+devices:
+  co2eq:
+    driver: sim_daq
+    label: CO2 equivalent (simulated)
+    poll_s: 1
+    link: co2eq_plant
+    ports:
+      co2eq: { port: output, quantity: co2eq, unit: ppm }
+
+  tvoc:
+    driver: sim_daq
+    label: Total VOC (simulated)
+    poll_s: 1
+    link: tvoc_plant
+    ports:
+      tvoc: { port: output, quantity: tvoc, unit: ppb }

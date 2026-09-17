@@ -1,0 +1,22 @@
+# Overlay for ../sensors/veml7700.yaml: no hardware. `light` swaps
+# `i2c_table` for `sim_daq`; `als_conf` is a write-only setup register,
+# dropped. als/white are already in lux, so `light_plant` settles at a
+# plausible indoor level: ambient 50 lx (dim room lighting), gain up to
+# +900 lx under a lamp/window, tau 2 s (fast photodiode response). `white`
+# tracks the same illumination at a lower gain (no colour filter).
+
+links:
+  i2c1: null
+  light_plant: { tag: sim_plant, tau_s: 2.0, gain: 900.0, ambient: 50.0, initial: 50.0, noise: 2.0, seed: 2 }
+
+devices:
+  light:
+    driver: sim_daq
+    label: Light (simulated)
+    poll_s: 1
+    address: null
+    registers: null
+    link: light_plant
+    ports:
+      als: { port: output, quantity: illuminance, unit: lx }
+      white: { port: output, quantity: illuminance, unit: lx }

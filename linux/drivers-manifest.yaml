@@ -242,18 +242,54 @@ sensors:
       - label: datasheet
         url: "https://cdn.sparkfun.com/datasheets/Sensors/Biometric/pH_EZO_datasheet_v13.pdf"
 
-  - tag: ezo_ec / ezo_orp / ezo_do
-    part_number: EZO-EC / EZO-ORP / EZO-DO
+  - tag: ezo_ec
+    part_number: EZO-EC
     manufacturer: Atlas Scientific
     category: liquid
     interface: uart
     tier: bespoke_driver
-    file: "not yet built -- thin variants of ezo_ph.py once needed"
-    loc_estimate: "30-50 each, once the shared EZO command layer exists"
-    status: planned
-    verified: false
+    file: devices/chips/ezo_ec.py
+    loc_estimate: "30-50, once the shared EZO command layer exists"
+    loc_actual: 169
+    status: done
+    verified: partial
+    price_approx: "~$70-90 circuit + probe [Unverified]"
+    domains: [dosing_skids, aquaculture, hydroponics, brewing]
+    links:
+      - label: caveat
+        url: "Datasheet's own worked example (single bare value) contradicts its stated factory-default CSV format (EC,TDS,SAL,SG) two pages later -- followed the quick-reference table, flagged the conflict in the module docstring, needs checking against real hardware"
+
+  - tag: ezo_orp
+    part_number: EZO-ORP
+    manufacturer: Atlas Scientific
+    category: liquid
+    interface: uart
+    tier: bespoke_driver
+    file: devices/chips/ezo_orp.py
+    loc_estimate: "30-50, once the shared EZO command layer exists"
+    loc_actual: 118
+    status: done
+    verified: true
+    price_approx: "~$70-90 circuit + probe [Unverified]"
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links: []
+
+  - tag: ezo_do
+    part_number: EZO-DO
+    manufacturer: Atlas Scientific
+    category: liquid
+    interface: uart
+    tier: bespoke_driver
+    file: devices/chips/ezo_do.py
+    loc_estimate: "30-50, once the shared EZO command layer exists"
+    loc_actual: 135
+    status: done
+    verified: true
+    price_approx: "~$70-90 circuit + probe [Unverified]"
+    domains: [dosing_skids, aquaculture, hydroponics, brewing]
+    links:
+      - label: note
+        url: "Decodes a single mg/L value per the O command's stated factory default; raises HardwareError rather than guessing if the reply ever contains a comma (i.e. reconfigured away from default)"
 
   - tag: hx711
     part_number: HX711
