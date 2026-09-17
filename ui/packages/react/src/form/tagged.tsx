@@ -17,6 +17,7 @@ import { useState } from "react";
 import type { FieldProps } from "@rjsf/utils";
 import { deref, formatValue, humanise, unwrapNullable, type JsonSchema } from "@flyball/client";
 import { enumCount, impliedUiSchema, isTaggedUnion } from "./uiSchema.js";
+import { Hint } from "./widgets.js";
 
 /**
  * A field's own label: its title, except for an enum -- `SchemaForm`'s
@@ -120,10 +121,13 @@ export function TaggedUnionField(props: FieldProps) {
   const requiredHere = new Set(required ? (branch.required ?? []) : []);
   return (
     <div className="fb-field fb-tagged">
-      <label className="fb-field-label" id={`${idSchema.$id}-label`}>
-        {label}
-        {required && <span className="fb-required">*</span>}
-      </label>
+      <span className="fb-field-head">
+        <label className="fb-field-label" id={`${idSchema.$id}-label`}>
+          {label}
+          {required && <span className="fb-required">*</span>}
+        </label>
+        {s.description && <Hint id={`${idSchema.$id}-description`} description={s.description} />}
+      </span>
       <div className="fb-segmented" role="radiogroup" aria-labelledby={`${idSchema.$id}-label`}>
         {branches.map((b, i) => {
           const checked = i === index;

@@ -194,30 +194,45 @@
 .fb-condition { display: inline-block; padding: 0 0.4rem; border-radius: var(--fb-radius); background: var(--fb-border-1); margin-right: 0.3rem; }
 .fb-level-30 { background: var(--fb-warn, #d97706); color: #fff; }
 .fb-level-40 { background: var(--fb-alarm, #dc2626); color: #fff; }
-.fb-commands { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr)); gap: var(--fb-gap); align-items: start; }
+/* Command cards tile: equal height across a row, each card a column with its Run button on the bottom line, so a row of them reads as one block. */
+.fb-commands { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: var(--fb-gap); align-items: stretch; }
 .fb-commands > * { min-width: 0; }
+.fb-commands > .fb-command { display: flex; flex-direction: column; }
+.fb-commands > .fb-command > form, .fb-commands > .fb-command > .fb-form { display: flex; flex-direction: column; flex: 1 1 auto; }
+.fb-commands > .fb-command .btn, .fb-commands > .fb-command > .btn { margin-top: auto; align-self: flex-start; }
 .fb-actuator-description { margin: 0 0 0.5rem; color: var(--fb-fg-2); }
 /* `bare` (a dashboard tile, or the Controllers page's collapsible under a loop's own card, draws the frame): body only. */
 .fb-actuator-bare { min-width: 0; }
 .fb-command { background: var(--fb-bg-2); border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); padding: var(--fb-gap); }
 /* The command whose `mode` is the device's current one: the same accent a driving controller gets. */
 .fb-command-active { border-color: var(--fb-accent); }
-.fb-command h4 { margin: 0; display: flex; align-items: baseline; gap: 0.5rem; }
-.fb-command-effect { margin: 0.15rem 0 0.4rem; font-size: 0.8em; }
-.fb-command-links { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin-top: 0.3rem; font-size: 0.8em; }
-.fb-command-last { margin: 0.4rem 0 0; font-size: 0.8em; }
+/* One type scale inside a card: title 14px/600, labels and hints 12px, controls 13px. Nothing in a card is larger than its title. */
+.fb-command { font-size: 13px; }
+.fb-command h4 { margin: 0 0 0.25rem; display: flex; align-items: baseline; gap: 0.5rem; font-size: 14px; font-weight: 600; line-height: 1.3; }
+.fb-command-effect { margin: 0.15rem 0 0.4rem; font-size: 12px; }
+.fb-command-links { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin-top: 0.3rem; font-size: 12px; }
+.fb-command-last { margin: 0.4rem 0 0; font-size: 12px; }
 /* The device's `mode` output, prominent beside the run line. */
 .fb-mode { background: var(--fb-accent); color: #fff; }
 .fb-device-inputs { display: flex; flex-wrap: wrap; gap: 0 0.75rem; margin: 0.2rem 0 0.5rem; font-size: 0.85em; }
-.fb-tag { font-size: 0.7em; font-weight: normal; color: var(--fb-fg-2); background: var(--fb-bg-1); padding: 0 0.3rem; border-radius: 3px; }
+.fb-tag { font-size: 11px; font-weight: normal; color: var(--fb-fg-2); background: var(--fb-bg-1); padding: 0 0.3rem; border-radius: 3px; }
 /* The command's description, once body text, now a hover hint (on the heading too): this dot is the visible cue that one exists. */
-.fb-info { font-size: 0.85em; color: var(--fb-fg-3); cursor: help; margin-left: auto; }
+.fb-info { font-size: 12px; color: var(--fb-fg-3); cursor: help; margin-left: auto; }
 .fb-command fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .fb-command form, .fb-command .form-group:first-child { margin-top: 0; }
-.fb-command .field-description { font-size: 0.8em; color: var(--fb-fg-2); margin: 0 0 0.2rem; }
+.fb-command .field-description { display: none; } /* descriptions are hover hints (`.fb-hint`); rjsf's own paragraph never shows */
 .fb-command legend { display: none; }
 .fb-command .form-group { margin: 0.4rem 0; }
-.fb-command label { display: block; font-size: 0.85em; color: var(--fb-fg-2); }
+.fb-command label { display: block; font-size: 12px; color: var(--fb-fg-2); }
+.fb-command input, .fb-command select, .fb-command button, .fb-command .fb-segment { font-size: 13px; }
+.fb-command .fb-muted, .fb-command small, .fb-command .fb-unit, .fb-command .MuiInputAdornment-root, .fb-command .MuiInputBase-root { font-size: 12px; }
+.fb-command .MuiInputBase-input { font-size: 13px; }
+.fb-field-head { display: flex; align-items: center; gap: 0.3rem; }
+.fb-field-head > .fb-field-label { display: inline; }
+.fb-hint { display: inline-flex; align-items: center; justify-content: center; width: 1.1em; height: 1.1em; font-size: 12px; line-height: 1; color: var(--fb-fg-3); cursor: help; border-radius: 50%; }
+.fb-hint:hover, .fb-hint:focus-visible { color: var(--fb-accent); outline: none; }
+.fb-toggle .fb-hint { margin-left: 0.3rem; }
+.fb-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .fb-unit-input { display: inline-flex; align-items: center; gap: 0.3rem; }
 .fb-unit-input input { width: 8rem; }
 .fb-unit { color: var(--fb-fg-2); }
@@ -638,7 +653,7 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
   .fb-loop-row > .fb-loop-caption { display: none; }
 }
 /* A command form in a narrow tile: a segmented choice wraps, a slider's box and unit wrap under the track. */
-.fb-segmented { flex-wrap: wrap; max-width: 100%; }
+.fb-segmented { max-width: 100%; }
 .fb-slider { flex-wrap: wrap; }
 .fb-command h4 { flex-wrap: wrap; }
 .fb-unit-input { flex-wrap: wrap; max-width: 100%; }
@@ -669,3 +684,24 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-write-entry .fb-signal-go { height: 32px; padding: 0 14px; font-size: 0.875rem; line-height: 30px; }
 .fb-write-entry .fb-unit { font-size: 0.875rem; }
 .fb-write-entry .fb-slider-track { align-self: center; }
+
+/*
+ * A choice in a form (a tagged union's kinds): two options sit side by side as equal halves; three or more stack
+ * as one full-width row each, so a card never shows a lonely third segment wrapped under two. Every segment is
+ * 32px tall, text centred, the chosen one filled.
+ */
+.fb-form .fb-segmented { display: flex; width: 100%; }
+.fb-form .fb-segmented > .fb-segment { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0.25rem 0.5rem; box-sizing: border-box; white-space: normal; text-align: center; line-height: 1.2; }
+.fb-form .fb-segmented:has(> .fb-segment:nth-child(3)) { flex-direction: column; }
+.fb-form .fb-segmented:has(> .fb-segment:nth-child(3)) > .fb-segment { justify-content: flex-start; }
+.fb-form .fb-segmented:has(> .fb-segment:nth-child(3)) > .fb-segment + .fb-segment { border-left: 0; border-top: 1px solid var(--fb-border-1); }
+/* Fields inside a card line up on one left edge, one under another, each control 32px tall. */
+.fb-form .fb-tagged-fields { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0; }
+.fb-form .fb-field { margin: 0.35rem 0 0; }
+.fb-form input:not([type="checkbox"]):not([type="range"]), .fb-form select, .fb-form .fb-step { height: 32px; box-sizing: border-box; }
+.fb-form .fb-stepper { display: inline-flex; align-items: stretch; }
+.fb-form .fb-tagged-fields > * { min-width: 0; }
+.fb-form select, .fb-form .fb-unit-input { max-width: 100%; }
+/* rjsf's MUI object layout puts fields in a Grid whose gutters are a negative margin: inside a card that is 16px wider than the card. */
+.fb-form .MuiGrid-container { width: 100%; margin-left: 0; }
+.fb-form .MuiGrid-container > .MuiGrid-item { padding-left: 0; }

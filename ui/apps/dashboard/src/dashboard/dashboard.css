@@ -168,3 +168,7 @@ a.dash-health-stat:hover { background: var(--fb-bg-hover, var(--fb-bg-2)); }
 @container (max-width: 420px) {
   .dash-events-subject { display: none; }
 }
+/* A narrow program tile: the event's kind goes (the row's hover title keeps it) so its message has the room. */
+@container (max-width: 320px) {
+  .dash-program-event > :nth-child(2) { display: none; }
+}

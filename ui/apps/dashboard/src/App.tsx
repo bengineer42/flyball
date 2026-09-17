@@ -191,6 +191,8 @@ export function App() {
               title={title}
               status={<AppStatus />}
               simulated={simulated}
+              devices={all.filter((d) => d.kind !== "simulation")}
+              current={name}
               startSlot={page === "dashboards" ? <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} /> : undefined}
             >
               <Waits />

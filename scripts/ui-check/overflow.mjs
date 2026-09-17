@@ -19,7 +19,7 @@ const out = await page.evaluate(() => {
   const all = [...document.querySelectorAll('body *')];
   for (const el of all) {
     const cs = getComputedStyle(el);
-    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || el.classList.contains('fb-visually-hidden')) continue;
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) continue;
     const text = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60);

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   AppBar,
   Box,
+  Collapse,
   Drawer,
   IconButton,
   List,
@@ -15,6 +16,8 @@ import {
   useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DensitySmallIcon from "@mui/icons-material/DensitySmall";
@@ -36,17 +39,25 @@ export interface ShellProps {
    * The dashboards-engine agent fills this in from `Dashboards.tsx`; empty here on purpose.
    */
   startSlot?: ReactNode;
+  /** The rig's devices, for the Devices entry to open into: each a direct link to its page. */
+  devices?: ReadonlyArray<{ name: string; label?: string | null }>;
+  /** The thing the current page shows (a device's name on its page), so its entry reads as current. */
+  current?: string | null;
   children: ReactNode;
 }
 
 const DRAWER_W = 196;
 const MINI_W = 56;
 
-function Nav({ page, mini, simulated, onNavigate }: { page: Page; mini: boolean; simulated: boolean; onNavigate(p: Page): void }) {
+function Nav({ page, mini, simulated, devices = [], current = null, onNavigate }: { page: Page; mini: boolean; simulated: boolean; devices?: ReadonlyArray<{ name: string; label?: string | null }>; current?: string | null; onNavigate(p: Page): void }) {
+  // The Devices entry opens into one link per device; open while a device page is showing, or when asked.
+  const [devicesOpen, setDevicesOpen] = useState<boolean | null>(null);
+  const showDevices = !mini && devices.length > 0 && (devicesOpen ?? page === "devices");
   return (
     <List dense disablePadding sx={{ pt: 1 }}>
       {PAGES.filter((p) => p.id !== "simulation" || simulated).map((p) => {
         const Icon = PAGE_ICONS[p.id];
+        const expandable = p.id === "devices" && !mini && devices.length > 0;
         const item = (
           <ListItemButton
             key={p.id}
@@ -69,14 +80,60 @@ function Nav({ page, mini, simulated, onNavigate }: { page: Page; mini: boolean;
               <Icon fontSize="small" />
             </ListItemIcon>
             {!mini && <ListItemText primary={p.label} />}
+            {expandable && (
+              <IconButton
+                size="small"
+                edge="end"
+                aria-label={showDevices ? "hide the devices" : "show the devices"}
+                aria-expanded={showDevices}
+                onClick={(e: React.MouseEvent) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDevicesOpen(!showDevices);
+                }}
+                sx={{ mr: -1 }}
+              >
+                {showDevices ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+            )}
           </ListItemButton>
         );
-        return mini ? (
+        const entry = mini ? (
           <Tooltip key={p.id} title={p.label} placement="right">
             {item}
           </Tooltip>
         ) : (
           item
+        );
+        if (!expandable) return entry;
+        return (
+          <li key={p.id} style={{ listStyle: "none" }}>
+            {entry}
+            <Collapse in={showDevices} unmountOnExit>
+              <List dense disablePadding aria-label="devices">
+                {devices.map((d) => {
+                  const here = page === "devices" && current === d.name;
+                  return (
+                    <ListItemButton
+                      key={d.name}
+                      component="a"
+                      href={hashFor("devices", d.name)}
+                      selected={here}
+                      aria-current={here ? "page" : undefined}
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        window.location.hash = hashFor("devices", d.name);
+                      }}
+                      sx={{ pl: 6.5, pr: 2, py: 0.25, borderLeft: 3, borderLeftColor: here ? "primary.main" : "transparent" }}
+                      title={d.name}
+                    >
+                      <ListItemText primary={d.label ?? d.name} primaryTypographyProps={{ noWrap: true, fontSize: "0.85rem" }} />
+                    </ListItemButton>
+                  );
+                })}
+              </List>
+            </Collapse>
+          </li>
         );
       })}
     </List>
@@ -88,7 +145,7 @@ function Nav({ page, mini, simulated, onNavigate }: { page: Page; mini: boolean;
  * drawer that shrinks to icons on narrow screens and becomes a temporary
  * drawer on phones.
  */
-export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, children }: ShellProps) {
+export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, devices, current, children }: ShellProps) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
@@ -144,7 +201,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
       {phone ? (
         <Drawer open={open} onClose={() => setOpen(false)} PaperProps={{ sx: { width: DRAWER_W } }}>
           {brand}
-          <Nav page={page} mini={false} simulated={simulated} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
+          <Nav page={page} mini={false} simulated={simulated} devices={devices} current={current} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
         </Drawer>
       ) : (
         <Drawer
@@ -153,7 +210,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
           sx={{ width, flexShrink: 0 }}
         >
           {brand}
-          <Nav page={page} mini={mini} simulated={simulated} onNavigate={onNavigate} />
+          <Nav page={page} mini={mini} simulated={simulated} devices={devices} current={current} onNavigate={onNavigate} />
         </Drawer>
       )}
 

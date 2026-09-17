@@ -16,7 +16,6 @@ import {
   descriptionId,
   enumOptionsIndexForValue,
   enumOptionsValueForIndex,
-  getTemplate,
   optionId,
 } from "@rjsf/utils";
 import type { JsonSchema } from "@flyball/client";
@@ -51,19 +50,42 @@ function clamp(value: number, min?: number, max?: number): number {
   return value;
 }
 
-/** Label above, description from the theme, the control, all under one id. */
-function Field({ id, label, required, schema, registry, options, children }: WidgetProps & { children: ReactNode }) {
+/**
+ * A field's description as a hover hint beside its label -- the ⓘ is the
+ * cue that there is one -- with the text itself kept for assistive
+ * technology under the id the control's `aria-describedby` names. Body
+ * text under every label made a form of five fields read as a page of
+ * prose in five sizes.
+ */
+export function Hint({ id, description }: { id: string; description: string }) {
+  return (
+    <>
+      <span className="fb-hint" title={description} tabIndex={0} role="img" aria-label={description}>
+        ⓘ
+      </span>
+      <span id={id} className="fb-visually-hidden">
+        {description}
+      </span>
+    </>
+  );
+}
+
+/** Label above (its description a hover hint beside it), the control, all under one id. */
+function Field({ id, label, required, schema, children }: WidgetProps & { children: ReactNode }) {
   const description = (schema as JsonSchema).description;
-  const Description = getTemplate("DescriptionFieldTemplate", registry, options);
   return (
     <div className="fb-field">
-      {label && (
-        <label className="fb-field-label" id={labelId(id)} htmlFor={id}>
-          {label}
-          {required && <span className="fb-required">*</span>}
-        </label>
+      {(label || description) && (
+        <span className="fb-field-head">
+          {label && (
+            <label className="fb-field-label" id={labelId(id)} htmlFor={id}>
+              {label}
+              {required && <span className="fb-required">*</span>}
+            </label>
+          )}
+          {description && <Hint id={descriptionId(id)} description={description} />}
+        </span>
       )}
-      {description && <Description id={descriptionId(id)} description={description} schema={schema} registry={registry} />}
       {children}
     </div>
   );
@@ -238,9 +260,8 @@ export function BandWidget(props: WidgetProps) {
 
 /** A switch: a checkbox styled as a toggle, its label beside it. */
 export function ToggleWidget(props: WidgetProps) {
-  const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, registry, options, label, required, autofocus } = props;
+  const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, label, required, autofocus } = props;
   const description = (schema as JsonSchema).description;
-  const Description = getTemplate("DescriptionFieldTemplate", registry, options);
   return (
     <div className="fb-field">
       <label className="fb-toggle" htmlFor={id}>
@@ -264,8 +285,8 @@ export function ToggleWidget(props: WidgetProps) {
             {required && <span className="fb-required">*</span>}
           </span>
         )}
+        {description && <Hint id={descriptionId(id)} description={description} />}
       </label>
-      {description && <Description id={descriptionId(id)} description={description} schema={schema} registry={registry} />}
     </div>
   );
 }
