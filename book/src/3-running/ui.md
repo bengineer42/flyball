@@ -4,8 +4,8 @@ The dashboard app (`ui/apps/dashboard`) is a pure function of what the server
 publishes: schema, telemetry and history over HTTP and websockets, plus
 layout it authors itself and the server stores. It knows nothing about any
 particular quantity — adding a device in Python produces a working page
-with no front-end change. This chapter is what the app does; for the visual
-language and the reasoning behind it, see `ui/DESIGN-SPEC.md`.
+with no front-end change. This chapter is what the app does; the visual
+language is described under *Design rationale* below and in `ui/README.md`.
 
 ## Pages
 
@@ -18,8 +18,8 @@ language and the reasoning behind it, see `ui/DESIGN-SPEC.md`.
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
-| **Sessions** | start/stop recording, list recorded sessions, open one, export, delete |
-| **Rig** | the running rig as a file would show it, what has changed since the daemon started, its version history, saving it, and connecting a model over MCP |
+| **Sessions** | start/stop recording, list recorded sessions (and the daemon's rolling record, if it keeps one), keep a range of it, pin, open one, export, delete |
+| **Rig** | the running rig as a file would show it, what has changed since the daemon started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the daemon allows — restarting or shutting it down |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
 
 ## The app bar
@@ -140,13 +140,39 @@ With one or more ticked, a bar offers **Delete** (through the same confirm
 dialog as a single session, naming the count and the ids) and **Clear**; the
 open session's row can't be ticked.
 
+On a daemon that keeps a rolling record while nothing is being recorded
+(`keep:` in its `daemon:` section — see [the daemon](daemon.md)), the list
+also shows that record as one row: "last 58 min held — not a recording",
+with what the daemon trims it to and how much it holds. It is never a
+session until you make one of it: **Keep…** takes the last 5, 15, 30 …
+minutes (as much as is held) plus a name and notes and produces a closed
+session like any other; and **Start recording** gains an **include the
+last …** choice, so a recording started after something happened still
+contains it. Charts seed their history from the rolling record exactly as
+from a session, so an unrecorded rig shows its last hour on page load.
+
+Where the daemon retains (`retain:`), each closed session's "ended" cell
+says when it will be aged out, and a **pin** on the row keeps it past that;
+a session the daemon continued at a rotation boundary (`rotate:`) carries a
+`continues #n` chip back to the one before it. The section head states the
+daemon's policy in one line — kept, retained, rotated, capped, and where
+the store lives.
+
 ## Devices
 
 **Devices** (`#/devices`, or `#/devices/<name>` for one alone) is a card
 per device: signals grouped by namespace, with a toggle to pivot by `tags`
 section where the device has one; commands as cards; `conditions`, `mode`
 and `last.*` drawn as the list, chip and "ran at" lines they are rather
-than raw JSON.
+than raw JSON. In the side menu the **Devices** entry opens (a chevron,
+open by itself while a device page is showing) into one link per device,
+so a device is one click from anywhere.
+
+A command card is one type scale — title, then labels, then controls — and
+cards in a row share a height with **Run** on the bottom line. A field's
+description is not printed under it: an ⓘ beside the label carries it on
+hover (and for a screen reader). A choice of two kinds is two equal halves,
+of three or more a stacked list.
 
 - **Add link** builds a link — a bus, a simulated plant, anything a rig
   file's `links:` takes — from the rig's schema (`GET /api/rig/schema`): a
@@ -171,13 +197,20 @@ history and how to reach it from outside the browser:
   differs from the files the daemon loaded (a key removed appears as
   `null`), highlighted once it is non-empty.
 - **Versions** (`GET /api/rig/versions`) — every version the store has
-  seen, newest first, each with a **restore** button
-  (`POST /api/rig/versions/{id}/restore`): rebuilds the running rig to
-  match that version and records a new version of its own.
+  seen, newest first, the one the running rig is at marked **current**
+  (its restore is disabled) and each row saying which version it was made
+  from; **restore** (`POST /api/rig/versions/{id}/restore`) rebuilds the
+  running rig to match that version and moves the head there.
 - **Save** (`POST /api/rig/save`) — with no path, just what changed since
   start, written to an overlay beside the file the rig was loaded from; a
   path writes the whole rig there instead, with a checkbox to overwrite a
-  loaded file.
+  loaded file. The path field only appears on a daemon that allows it
+  (`allow_save`); otherwise the box says so and saves the overlay alone.
+- The section head shows where the daemon serves from and how many files
+  it loaded; on a daemon started with `allow_shutdown`, **Restart** and
+  **Shut down** buttons beside it, each behind a confirmation. Restart
+  runs the same command again: the rig is rebuilt from its files, the app
+  reconnects within a few seconds.
 - **Connect a model** — this daemon's [MCP](mcp.md) server, one tier per
   mode: each row is that tier's absolute URL, a ready-made
   `claude mcp add --transport http …` line, and (below all three) a client
@@ -187,33 +220,40 @@ history and how to reach it from outside the browser:
 
 ## Design rationale
 
-`ui/DESIGN-SPEC.md` is the specification this app implements against: colour
-tokens and contrast, the widget catalogue and dashboard editor UX, and the
-reasoning behind choices summarised here (why colour is reserved for
-abnormal states, why a stale tile is never colour-only, and so on).
+Colour is reserved for abnormal states (ISA-101): a normal reading is
+neutral, warn and alarm change the tile's border and never only its colour,
+and a stale tile is dashed with a hollow status dot. Every colour, space,
+radius and duration is a token in `ui/packages/react/src/styles.css`
+(`ui/README.md` *Theming* lists them with their purpose and contrast).
 
 ## Graph
 
 **Graph** (`#/graph`) is a free-form chart: pick any signals across any
 devices and plot them together, unlike Inputs' charts which stay grouped by
-device or unit. A picker on the left lists every signal as a tree grouped
-by device, with a "by unit" toggle and a search box; a signal shows its
-`label || quantity` and unit, with the device (or, grouped by unit, the
-signal) as a hover title. Ticked signals draw on one chart that fills the
-rest of the page (a narrow screen gets the picker as a drawer instead of a
-side panel, opened from the page bar).
+device or unit. A picker on the left lists every numeric publishing signal
+under its device, each by its title (a signal the driver left unlabelled, or
+whose label another signal of the device shares, is named by its namespace
+too: `Dry line humidity`, never three `Humidity`) with its unit; above the
+list a search box and a row of filter chips per axis — **unit**, **device**,
+and every tag axis the rig's signals carry (`Line: Chamber / Dry / Wet` on
+the humidity rig). Chips combine across rows; "clear filters" resets them.
+Between the filters and the list, **select all** and **none** act on the
+signals currently shown, so "everything in %RH on the dry line" is two
+chips and a click. Ticked signals draw on one chart that fills the rest of
+the page (a narrow screen gets the picker as a drawer instead of a side
+panel, opened from the page bar).
 
 The selection is carried in the URL (`#/graph?ch=furnace.zone1,level.volume`,
 so a graph is shareable) and mirrored to `localStorage` (so a plain visit to
 `#/graph` comes back to the last one). Each signal keeps the colour slot it
 was first ticked into for as long as the page stays open — unticking one
 signal never repaints the others, and re-ticking it returns its own colour
-(`DESIGN-SPEC.md` §1.2).
+(the series palette is fixed per slot, not per signal).
 
 Signals of different units share one chart with a y axis per unit rather
 than the "second unit is a second chart" rule the rest of the app follows
-(`DESIGN-SPEC.md` §3.16 is deliberately overridden here, at the user's
-request — every other chart in the app still keeps to one unit). `MultiSeries`
+(deliberately, at the user's request — every other chart in the app
+still keeps to one unit). `MultiSeries`
 (`ui/packages/react/src/panels/MultiSeries.tsx`) draws the extra axes
 alternating right/left as more units are added, each axis's ticks coloured
 to match the one series on it; past four axes on screen (the chart's own
