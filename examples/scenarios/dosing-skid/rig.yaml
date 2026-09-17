@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=rig.schema.json
+# Small-scale non-safety-critical dosing skid: pH/EC/ORP/DO probes (Atlas
+# Scientific EZO family, one UART each -- no addressing/multiplexing on this
+# family, so one bus per probe) plus a PWM-driven peristaltic dosing pump.
+# Scoped deliberately away from anything safety-interlocked (chemical
+# dosing at real concentration, pressure vessels): this is the
+# non-safety-critical retrofit/monitoring niche from the roadmap doc, not a
+# process-safety system.
+#
+#   flyball-runner rig.yaml                 # real hardware
+#   flyball-runner rig.yaml sim.yaml        # the same addresses, no hardware
+
+name: dosing-skid
+
+links:
+  ph_uart: { tag: uart, port: /dev/ttyUSB0, baudrate: 38400 }
+  ec_uart: { tag: uart, port: /dev/ttyUSB1, baudrate: 38400 }
+  orp_uart: { tag: uart, port: /dev/ttyUSB2, baudrate: 38400 }
+  do_uart: { tag: uart, port: /dev/ttyUSB3, baudrate: 38400 }
+  pump_pwm: { tag: pwm, chip: 0 }
+
+devices:
+  ph:                                      # ph.ph [RP]
+    driver: ezo_ph
+    label: pH probe
+    poll_s: 5
+    config: { link: ph_uart }
+
+  ec:                                      # ec.ec [RP]
+    driver: ezo_ec
+    label: Conductivity probe
+    poll_s: 5
+    config: { link: ec_uart }
+
+  orp:                                     # orp.orp [RP]
+    driver: ezo_orp
+    label: ORP probe
+    poll_s: 5
+    config: { link: orp_uart }
+
+  do:                                      # do.do [RP]
+    driver: ezo_do
+    label: Dissolved-oxygen probe
+    poll_s: 5
+    config: { link: do_uart }
+
+  doser:                                   # doser.dispensed_ml [RP], dispense(volume_ml)/stop commands
+    driver: dosing_pump
+    label: pH-down dosing pump
+    config:
+      pump: { tag: pwm_channel, link: pump_pwm, channel: 0, frequency_hz: 200 }
+      ml_per_s: 0.5
+      max_dispense_ml: 20.0                # a single dose is capped; no continuous/unattended dosing loop
+
+# No `controllers:` here on purpose: dosing is a discrete, capped
+# `dispense()` command driven by a program's threshold checks, not a
+# continuous PI loop -- the pump has no meaningful "drive to hold a
+# setpoint" mode, only "add this much and stop" (see `dosing_pump.py`'s own
+# docstring on why it's a `Committable` command, not a `sim_drive`-style
+# continuous actuator).

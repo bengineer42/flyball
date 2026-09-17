@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=rig.schema.json
+# Mushroom/fungiculture grow room: humidity + CO2 held to targets that change
+# across three cultivation phases (colonisation -> pinning -> fruiting). No
+# new abstractions -- two independent single-signal loops, same shape as
+# `examples/simulated/oven.yaml`, config-only (`i2c_table`-class drivers).
+#
+#   flyball-runner rig.yaml                 # real hardware
+#   flyball-runner rig.yaml sim.yaml        # the same addresses, no hardware
+
+name: mushroom-room
+
+links:
+  i2c1: { tag: i2c, bus: 1 }
+  fan_pwm: { tag: pwm, chip: 0 }
+  fogger_pwm: { tag: pwm, chip: 1 }
+
+devices:
+  climate:                                 # climate.chamber.humidity/temperature [RP]
+    driver: sht4x_set
+    label: Chamber climate
+    poll_s: 5
+    config:
+      link: i2c1
+      sensors:
+        chamber: { address: 0x44 }
+    signals:
+      chamber:
+        label: Chamber
+        signals:
+          humidity: { label: Chamber humidity, warn: [70, 100] }
+          temperature: { label: Chamber temperature, warn: [10, 28] }
+
+  co2:                                     # co2.co2/temperature/humidity [RP]
+    driver: scd30
+    label: CO2 sensor
+    poll_s: 10                             # SCD30's own measurement interval floor is ~2s; no need to poll faster
+    config:
+      link: i2c1
+      address: 0x61
+    signals:
+      co2: { label: Chamber CO2, warn: [400, 5000] }
+
+  fogger:                                  # fogger.drive [W]
+    driver: pwm_channel
+    label: Ultrasonic fogger
+    config:
+      link: fogger_pwm
+      channel: 0
+      frequency_hz: 1000
+
+  fan:                                     # fan.drive [W]
+    driver: pwm_channel
+    label: Exhaust fan (fresh-air exchange)
+    config:
+      link: fan_pwm
+      channel: 0
+      frequency_hz: 1000
+
+controllers:
+  fogger.drive:
+    signal: climate.chamber.humidity
+    law: { tag: PI, kp: 0.03, ki: 0.001 }
+    default: true
+
+  fan.drive:
+    # more CO2 -> more fan, so this is reverse-acting like chiller.yaml's drive
+    signal: co2.co2
+    law: { tag: PI, kp: -0.0002, ki: -0.000005 }
