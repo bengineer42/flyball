@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ControllerPanel, Ref, useFreshness, useVisible, type ControllerTrace } from "@flyball/react";
-import { alarmLevel, describeController, signalsOf } from "@flyball/client";
+import { alarmLevel, describeController, signalsOf, signalTitle } from "@flyball/client";
 import { useBindings, useControllersData, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
@@ -78,7 +78,10 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   const fresh = useFreshness(controller?.source);
   const offline = alarmLevel(null, {}, fresh) === "stale";
   const title = useMemo(() => (controller ? <Ref kind="controller" name={controller.name}>{describeController(controller)}</Ref> : undefined), [controller?.name, controller?.label]); // eslint-disable-line react-hooks/exhaustive-deps
-  const subtitle = useMemo(() => (controller ? <Ref kind="signal" name={controller.source} /> : undefined), [controller?.source]); // eslint-disable-line react-hooks/exhaustive-deps
+  const subtitle = useMemo(
+    () => (controller ? <Ref kind="signal" name={controller.source}>{source ? `regulates ${signalTitle(source, bindings.devices)}` : controller.source}</Ref> : undefined),
+    [controller?.source, source, bindings], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const status = useMemo(() => (controller ? <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span> : undefined), [controller?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useWidgetChrome(controller ? { title, subtitle, status, severity: offline ? "stale" : undefined } : null);
   if (!controller) return <Missing what="controller" name={name} hint={bindings.controllers.length ? "Configure the widget to pick one of this rig's controllers." : "This rig has no controllers."} />;

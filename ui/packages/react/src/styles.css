@@ -526,9 +526,12 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
  */
 .fb-tile { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; background: var(--fb-bg-1); border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); color: var(--fb-fg); overflow: hidden; --fb-tile-head-h: 28px; }
 .fb-tile-head { display: flex; align-items: center; gap: var(--fb-space-2); padding: 0 var(--fb-space-2) 0 var(--fb-space-3); height: var(--fb-tile-head-h); box-sizing: border-box; border-bottom: 1px solid var(--fb-border-1); flex: none; }
-.fb-tile-title { margin: 0; font-size: var(--fb-text-lg, 14px); line-height: 1.25; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* The title wins the room: it keeps its width (up to the head less the actions), the subtitle takes what is left and drops altogether in a narrow tile. */
+.fb-tile-title { margin: 0; font-size: var(--fb-text-lg, 14px); line-height: 1.25; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 0 auto; max-width: calc(100% - 36px); }
 .fb-tile-title a { color: inherit; }
-.fb-tile-subtitle { font-size: var(--fb-text-sm, 12px); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fb-tile-subtitle { font-size: var(--fb-text-sm, 12px); line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 0; }
+.fb-tile { container-type: inline-size; }
+@container (max-width: 230px) { .fb-tile-subtitle { display: none; } }
 .fb-tile-status { margin-left: auto; display: inline-flex; align-items: center; gap: var(--fb-space-1); flex: none; }
 .fb-tile-status + .fb-tile-menu { margin-left: 0; }
 .fb-tile-menu { margin-left: auto; display: inline-flex; align-items: center; flex: none; opacity: 0.35; transition: opacity var(--fb-dur-1) var(--fb-ease); }
@@ -622,3 +625,24 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
   .fb-loop-head { flex-wrap: wrap; }
   .fb-loop-head > .fb-muted { flex-basis: 100%; white-space: normal; overflow: visible; }
 }
+
+/* A demand entry (slider · box · unit · Set) wraps rather than spilling out of a narrow row. */
+.fb-write-entry { flex-wrap: wrap; max-width: 100%; }
+@media (max-width: 600px) { .fb-unit-input input { width: 5.5rem; } }
+
+/* A narrow faceplate (a dashboard tile at laptop width): the three rows stack label-over-value, the range bar takes the full width, the caption goes. */
+@container (max-width: 300px) {
+  .fb-loop-rows { grid-template-columns: minmax(0, 1fr); gap: 0.15rem 0; }
+  .fb-loop-row > dt, .fb-loop-row > dd, .fb-loop-row > .fb-range, .fb-loop-row > .fb-loop-sp-controls, .fb-loop-row > .fb-loop-caption { grid-column: 1; }
+  .fb-loop-row > dt { margin-top: 0.3rem; }
+  .fb-loop-row > .fb-loop-caption { display: none; }
+}
+/* A command form in a narrow tile: a segmented choice wraps, a slider's box and unit wrap under the track. */
+.fb-segmented { flex-wrap: wrap; max-width: 100%; }
+.fb-slider { flex-wrap: wrap; }
+.fb-command h4 { flex-wrap: wrap; }
+.fb-unit-input { flex-wrap: wrap; max-width: 100%; }
+.fb-unit-input input { max-width: 100%; min-width: 0; box-sizing: border-box; }
+/* A subtitle squeezed to a sliver by its title shows nothing rather than a lone ellipsis; its hover title still carries it. */
+.fb-tile-subtitle { container-type: inline-size; }
+@container (max-width: 4rem) { .fb-tile-subtitle > * { display: none; } }

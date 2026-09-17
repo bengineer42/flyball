@@ -111,9 +111,10 @@ export const clickableSx = { cursor: "pointer", transition: "border-color 120ms,
 export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions, children, footer, className }: { icon: IconComponent; name: string; label?: string | null; href?: string; type: string; chip: ReactNode; actions?: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
     <Paper className={className} sx={{ p: 3, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Icon fontSize="small" sx={{ color: "text.disabled" }} />
-        <Typography fontWeight={600}>
+      {/* The name and its status on one row; the driver's kind beneath, where it never fights the name for room. */}
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+        <Icon fontSize="small" sx={{ color: "text.disabled", flex: "none" }} />
+        <Typography fontWeight={600} noWrap sx={{ minWidth: 0 }}>
           {href ? (
             <Link href={href} underline="hover" color="inherit" title={name}>
               {label ?? name}
@@ -122,12 +123,12 @@ export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions,
             <span title={name}>{label ?? name}</span>
           )}
         </Typography>
-        <Typography variant="body2" color="text.secondary" noWrap title={`${name} · ${type}`}>
-          {type}
-        </Typography>
-        <Box sx={{ ml: "auto !important" }}>{chip}</Box>
+        <Box sx={{ ml: "auto !important", flex: "none" }}>{chip}</Box>
         {actions}
       </Stack>
+      <Typography variant="body2" color="text.secondary" noWrap title={`${name} · ${type}`} sx={{ mt: -1 }}>
+        {type}
+      </Typography>
       {children}
       {footer && (
         <Typography variant="body2" color="text.secondary">
@@ -172,12 +173,19 @@ function TreeRows({ device }: { device: DeviceOut }) {
     rows.push({ key: node.address, label: describeNamespace(node), signals: signalsOf(node.signals) });
   }
   return (
-    <Table size="small" sx={{ "& td": { border: 0, px: 0, py: 0.75 } }}>
+    // Fixed layout: a long namespace label ("Supply humidities when unbound") wraps in its column rather than pushing the table out of the card.
+    <Table size="small" sx={{ tableLayout: "fixed", width: "100%", "& td": { border: 0, px: 0, py: 0.75 } }}>
+      {rows.some((r) => r.label !== null) && (
+        <colgroup>
+          <col style={{ width: "30%" }} />
+          <col />
+        </colgroup>
+      )}
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.key}>
             {row.label !== null && (
-              <TableCell sx={{ width: "1%", whiteSpace: "nowrap", pr: "12px !important", fontWeight: 500 }} title={row.key}>
+              <TableCell sx={{ pr: "12px !important", fontWeight: 500, verticalAlign: "top", overflowWrap: "anywhere" }} title={row.key}>
                 {row.label}
               </TableCell>
             )}
