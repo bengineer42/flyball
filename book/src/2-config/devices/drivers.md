@@ -34,7 +34,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-linux` |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-linux` |
 | [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-linux` |
-| [`ezo_ph`](#ezo_ph) | Atlas Scientific pH circuit | `uart` | `flyball-linux` |
+| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-linux` |
 | [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-linux` |
 | [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` |
 | [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` |
@@ -438,7 +438,40 @@ ASCII -- a request/reply pair per read, checksummed.
 
 Atlas Scientific EZO-pH circuit: `ph`, `[RP]`. ASCII command/response,
 `\r`-terminated, a ~1 s wait per reading. Handles the circuit's
-default-enabled `*OK` acknowledgement frame.
+default-enabled `*OK` acknowledgement frame -- the shared shape every
+`ezo_*` driver below builds on.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `uart` link, 38400 8N1 |
+
+### `ezo_ec`
+
+Atlas Scientific EZO-EC circuit: conductivity, `[RP]`. Decodes the
+factory-default CSV reply (`EC,TDS,SAL,SG`) per the datasheet's
+quick-reference table. [Unverified] the same datasheet's own worked
+example shows a bare single value instead -- looks like a stale example
+from an older revision; worth checking against real hardware before
+trusting the CSV assumption.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `uart` link, 38400 8N1 |
+
+### `ezo_orp`
+
+Atlas Scientific EZO-ORP circuit: a single mV reading, `[RP]`.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `uart` link, 38400 8N1 |
+
+### `ezo_do`
+
+Atlas Scientific EZO-DO circuit: dissolved oxygen in mg/L, `[RP]`.
+Decodes the factory-default single-value reply; raises rather than
+guessing if the circuit was reconfigured to also report % saturation
+(a comma in the reply).
 
 | field | default | |
 | --- | --- | --- |
