@@ -124,10 +124,10 @@ function Nav({ page, mini, simulated, devices = [], current = null, onNavigate }
                         e.preventDefault();
                         window.location.hash = hashFor("devices", d.name);
                       }}
-                      sx={{ pl: 6.5, pr: 2, py: 0.25, borderLeft: 3, borderLeftColor: here ? "primary.main" : "transparent" }}
+                      sx={{ pl: 4.25, pr: 1.5, py: 0.25, borderLeft: 3, borderLeftColor: here ? "primary.main" : "transparent" }}
                       title={d.name}
                     >
-                      <ListItemText primary={d.label ?? d.name} primaryTypographyProps={{ noWrap: true, fontSize: "0.85rem" }} />
+                      <ListItemText primary={d.label ?? d.name} primaryTypographyProps={{ noWrap: true, fontSize: "0.8rem" }} />
                     </ListItemButton>
                   );
                 })}
