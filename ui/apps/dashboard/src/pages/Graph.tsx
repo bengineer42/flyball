@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
+  Button,
   Checkbox,
   Chip,
   Divider,
@@ -167,6 +168,11 @@ export function Graph({ devices, ...charts }: GraphProps) {
   // The list stays in device order under device headings: the filters narrow it, they never regroup it.
   const branches = publishing.map(({ device, signals }) => ({ key: device.name, heading: device.label ?? device.name, signals: signals.filter(matches) }));
   const visibleBranches = branches.filter((b) => b.signals.length > 0);
+  // Select all / none acts on what the filters and the search currently show, never on hidden signals.
+  const shown = visibleBranches.flatMap((b) => b.signals.map((s) => s.address));
+  const shownSelected = shown.filter((k) => order.includes(k)).length;
+  const selectShown = () => setOrder((prev) => [...prev, ...shown.filter((k) => !prev.includes(k))]);
+  const deselectShown = () => setOrder((prev) => prev.filter((k) => !shown.includes(k)));
 
   const selected = order.map((k) => byAddress.get(k)).filter((s): s is SignalOut => !!s);
   const live = useTraceRef(useMemo(() => selected.map((s) => s.address), [selected]));
@@ -207,6 +213,20 @@ export function Graph({ devices, ...charts }: GraphProps) {
           </Typography>
         )}
       </Box>
+      <Divider />
+      {shown.length > 0 && (
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.5, py: 0.5 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+            {shownSelected} of {shown.length} shown plotted
+          </Typography>
+          <Button size="small" variant="text" disabled={shownSelected === shown.length} onClick={selectShown} aria-label="select all shown signals">
+            select all
+          </Button>
+          <Button size="small" variant="text" disabled={shownSelected === 0} onClick={deselectShown} aria-label="deselect all shown signals">
+            none
+          </Button>
+        </Stack>
+      )}
       <Divider />
       <List dense disablePadding sx={{ overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
         {visibleBranches.map((b) => (
