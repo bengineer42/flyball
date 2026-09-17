@@ -1,80 +1,52 @@
-# Builds both books strictly on every push, and publishes them as versions with
-# mike into the gh-pages branch, which GitHub Pages serves:
-#   push to main   → /dev/          (and /humidity/dev/)
-#   tag v1.2       → /1.2/ = /latest/ (and /humidity/1.2/ = /humidity/latest/)
-# One-off setup: repository Settings → Pages → Source: "Deploy from a branch",
-# branch gh-pages, folder / (root).
+# Publishes both books to GitHub Pages, every version at once, regenerated
+# from sources on each run — nothing built is kept in git:
+#   /0.1/, /0.2/ …        one per tag v0.1, v0.2 …; the newest is also /latest/
+#   /dev/                  the working tree of the ref this ran on
+#   /humidity/…            the same for the humidity book
+# Runs on a tag, or by hand (Actions → book → Run workflow) to refresh /dev/.
+# A push to main publishes nothing on its own.
+# One-off setup: repository Settings → Pages → Source: "GitHub Actions".
 name: book
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: book
-  cancel-in-progress: false
+  group: pages
+  cancel-in-progress: true
 
 jobs:
-  book:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0            # mike commits to gh-pages, so the branch must be here
+          fetch-depth: 0            # every tag, to build every version
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Which version this is
-        id: version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "name=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-            echo "alias=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=dev" >> "$GITHUB_OUTPUT"
-            echo "alias=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: The main book — build strict, then deploy the version
+      - name: Build every version of both books
         working-directory: controller
         run: |
           uv sync --group docs
-          uv run --group docs mkdocs build -f ../book/mkdocs.yml --strict --site-dir /tmp/strict-check
-          uv run --group docs mike deploy -F ../book/mkdocs.yml --push --update-aliases \
-            "${{ steps.version.outputs.name }}" ${{ steps.version.outputs.alias }}
-          # The root redirects to latest once a tag exists, to dev until then.
-          uv run --group docs mike list -F ../book/mkdocs.yml | grep -q '\[latest' \
-            && uv run --group docs mike set-default -F ../book/mkdocs.yml --push latest \
-            || uv run --group docs mike set-default -F ../book/mkdocs.yml --push dev
+          uv run --group docs python ../book/versions.py "$GITHUB_WORKSPACE/build/site" --dev
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
 
-      - name: The humidity book — the same, under /humidity/
-        working-directory: examples/humidity
-        run: |
-          uv sync
-          uv run --with mkdocs-material --with "mkdocstrings[python]" --with griffe-pydantic --with mike \
-            mkdocs build -f book/mkdocs.yml --strict --site-dir /tmp/strict-check-humidity
-          uv run --with mkdocs-material --with "mkdocstrings[python]" --with griffe-pydantic --with mike \
-            mike deploy -F book/mkdocs.yml --deploy-prefix humidity --push --update-aliases \
-            "${{ steps.version.outputs.name }}" ${{ steps.version.outputs.alias }}
-          MIKE='uv run --with mkdocs-material --with mkdocstrings[python] --with griffe-pydantic --with mike mike'
-          $MIKE list -F book/mkdocs.yml --deploy-prefix humidity | grep -q '\[latest' \
-            && $MIKE set-default -F book/mkdocs.yml --deploy-prefix humidity --push latest \
-            || $MIKE set-default -F book/mkdocs.yml --deploy-prefix humidity --push dev
-
-      - name: robots.txt at the site root (mike leaves files it does not own alone)
-        run: |
-          git fetch origin gh-pages
-          git worktree add /tmp/gh-pages origin/gh-pages
-          cp book/robots.txt /tmp/gh-pages/robots.txt
-          cd /tmp/gh-pages
-          git add robots.txt
-          git diff --cached --quiet || { git commit -m "robots.txt: ask AI crawlers not to train on the book"; git push origin HEAD:gh-pages; }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
