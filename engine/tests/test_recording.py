@@ -43,7 +43,7 @@ def test_start_read_end(client):
 
 
 def test_start_recording_names_the_rig_in_config(tmp_path):
-    """A session opened via the API should show a rig name too, like a `--record` daemon session."""
+    """A session opened via the API should show a rig name too, like a `--record` runner session."""
     rig = Rig("furnace")
     store = SqliteStore(tmp_path / "t.db")
     set_rig(rig)
@@ -73,7 +73,7 @@ def test_shutdown_closes_the_session(tmp_path):
 
 def test_end_session_route_closes_live_and_orphaned(client):
     c, store = client
-    # An orphan: opened straight on the store, as a dead daemon would leave it.
+    # An orphan: opened straight on the store, as a dead runner would leave it.
     orphan = store.open_session(1_000).session
     live = c.post("/api/recording").json()
 

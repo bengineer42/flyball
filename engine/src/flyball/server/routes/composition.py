@@ -5,7 +5,7 @@ link or a device is posted in the file's own form (the `links:` entry, the
 device envelope), a whole document may be posted at once, and every change
 is a version in the store (`rig_version`): the rendered rig, self-contained,
 with a reason. `save` writes the running rig out -- by default what changed
-since the files were loaded, to an overlay the daemon picks up next start;
+since the files were loaded, to an overlay the runner picks up next start;
 to a path of your choosing, the whole rig.
 """
 
@@ -44,7 +44,7 @@ def _composable(rig: Rig) -> None:
         return
     raise HTTPException(
         status_code=409,
-        detail="Composition is off on a hardware rig: start the daemon with --compose",
+        detail="Composition is off on a hardware rig: start the runner with --compose",
     )
 
 
@@ -316,8 +316,8 @@ def _apply(rig: Rig, target: dict[str, Any]) -> None:
 
 class SaveIn(BaseModel):
     path: str | None = None
-    """Where to write. None: the daemon's own overlay beside the first rig file, holding what
-    changed since the files were loaded. A path: the whole rig, flattened -- only on a daemon
+    """Where to write. None: the runner's own overlay beside the first rig file, holding what
+    changed since the files were loaded. A path: the whole rig, flattened -- only on a runner
     started with `--allow-save`."""
     overwrite: bool = False
     """Allow `path` to be one of the files the rig was loaded from."""
@@ -340,8 +340,8 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
         if not save_allowed():
             raise HTTPException(
                 status_code=409,
-                detail="Saving to a path needs the daemon started with --allow-save"
-                " (daemon.allow_save); with no path, the overlay is always written",
+                detail="Saving to a path needs the runner started with --allow-save"
+                " (runner.allow_save); with no path, the overlay is always written",
             )
         target = Path(body.path)
         if target.suffix.lower() not in SUFFIXES:

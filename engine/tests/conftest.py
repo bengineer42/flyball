@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from flyball.programmer.command import Commands
-from flyball.runtime.config import DaemonConfig
+from flyball.runtime.config import RunnerConfig
 from flyball.runtime.rig import Rig
 from flyball.sim.clock import SteppedClock
 
@@ -47,11 +47,11 @@ def rig(clock: SteppedClock) -> Rig:
     return rig
 
 
-class FakeDaemon:
-    """A stand-in for `flyball.daemon.Handle`: what `set_daemon` takes; remembers what was asked."""
+class FakeRunner:
+    """A stand-in for `flyball.runner.Handle`: what `set_runner` takes; remembers what was asked."""
 
-    def __init__(self, settings: DaemonConfig | None = None, files: list[Path] | None = None):
-        self.settings = settings or DaemonConfig()
+    def __init__(self, settings: RunnerConfig | None = None, files: list[Path] | None = None):
+        self.settings = settings or RunnerConfig()
         self.files = files or []
         self.asked: list[str] = []
 

@@ -17,7 +17,7 @@ from flyball.core.utils import Labelled
 
 
 SessionKind = Literal["session", "scratch"]
-"""`session`: a recording someone started. `scratch`: the rolling record the daemon keeps
+"""`session`: a recording someone started. `scratch`: the rolling record the runner keeps
 while nothing is being recorded, trimmed to the last `keep` of the rig's clock."""
 
 
@@ -38,7 +38,7 @@ class SessionRow:
     pinned: bool = False
     """Never aged out by retention."""
     continues: int | None = None
-    """The session this one carried on from when the daemon rotated at a boundary."""
+    """The session this one carried on from when the runner rotated at a boundary."""
     bytes: int | None = None
     """What a scratch session holds on disk, as last estimated; None where not measured."""
 
@@ -125,7 +125,7 @@ class RigVersionRow:
     reason: str
     """`loaded`, `added device blender`, `removed link pwm0`, `restored 3`, ..."""
     files: list[str]
-    """The files the daemon loaded, for provenance; empty for a rig started bare."""
+    """The files the runner loaded, for provenance; empty for a rig started bare."""
     document: dict[str, Any]
     """The whole rig document, `RigConfig`'s canonical form: self-contained, never a diff."""
     parent: int | None = None

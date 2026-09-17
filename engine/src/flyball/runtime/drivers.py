@@ -1,4 +1,4 @@
-"""Drivers from a directory of `.py` files: imported at start, reloadable while the daemon runs.
+"""Drivers from a directory of `.py` files: imported at start, reloadable while the runner runs.
 
 A driver package declares its configs through an entry point and is
 installed; a driver being written lives in `drivers/` beside the rig file

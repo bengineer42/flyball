@@ -78,7 +78,7 @@ one list append per tick. See [Storage](../6-internals/db.md).
 
 `set_rig` attaches the rig to the FastAPI app and the observer that feeds
 the websockets. Then any ASGI server runs `flyball.server:app`.
-[The daemon](../1-running/daemon/index.md) covers running it for real.
+[The runner](../1-running/runner/index.md) covers running it for real.
 
 ## From a file
 

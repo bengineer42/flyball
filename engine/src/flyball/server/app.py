@@ -27,7 +27,6 @@ from flyball.server.deps import current_retention, current_rig
 from flyball.server.routes import (
     composition_router,
     controllers_router,
-    daemon_router,
     dashboards_router,
     devices_router,
     drivers_router,
@@ -39,6 +38,7 @@ from flyball.server.routes import (
     read_router,
     recording_router,
     rig_router,
+    runner_router,
     schema_router,
     sim_router,
     telemetry_router,
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             with contextlib.suppress(Exception):
                 rig.polling.stop_all()
             # Close the session so it does not stay "open" forever in the store;
-            # the daemon's sweeps stop first, or they would open the scratch record again.
+            # the runner's sweeps stop first, or they would open the scratch record again.
             if (retention := current_retention()) is not None:
                 with contextlib.suppress(Exception):
                     retention.stop()
@@ -86,7 +86,7 @@ class _Installed:
 class RootPath:
     """Serve everything under one path prefix: `/flyball/humidity/api/...`.
 
-    For a daemon behind a proxy that does not rewrite: a request under the
+    For a runner behind a proxy that does not rewrite: a request under the
     prefix is routed as if it were at the root (Starlette strips
     `root_path`, and builds `/docs` links with it); anything else is 404.
     Lifespan passes through, so the app's exit hooks still run.
@@ -109,7 +109,7 @@ class RootPath:
             await send({"type": "websocket.close", "code": 4404, "reason": "not found"})
             return
         response = JSONResponse(
-            status_code=404, content={"detail": f"This daemon serves under {self.prefix}"}
+            status_code=404, content={"detail": f"This runner serves under {self.prefix}"}
         )
         await response(scope, receive, send)
 
@@ -126,7 +126,7 @@ def create_app(
 
     With `auth` naming a password or a token, everything it serves is behind
     the door (see [flyball.server.auth][]; `secret` signs the sessions,
-    `internal_token` is the daemon's own way in for its MCP mount); with
+    `internal_token` is the runner's own way in for its MCP mount); with
     `root_path`, everything it serves is under that prefix (see `RootPath`).
     """
     app = FastAPI(
@@ -168,7 +168,7 @@ def create_app(
         app.add_exception_handler(error, handler)
 
     app.include_router(controllers_router)
-    app.include_router(daemon_router)
+    app.include_router(runner_router)
     app.include_router(rig_router)
     app.include_router(devices_router)
     app.include_router(composition_router)

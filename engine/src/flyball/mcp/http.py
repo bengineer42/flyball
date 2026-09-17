@@ -1,10 +1,10 @@
-"""The same servers over streamable HTTP, mounted in the daemon at `/mcp/<mode>`.
+"""The same servers over streamable HTTP, mounted in the runner at `/mcp/<mode>`.
 
 A client then needs a URL and nothing installed:
 
     claude mcp add --transport http rig http://pi:8000/mcp/author
 
-The tools still go through `flyball.client`, so the daemon hands `mount` a
+The tools still go through `flyball.client`, so the runner hands `mount` a
 client pointed back at itself.
 """
 
@@ -33,7 +33,7 @@ def mount(app: FastAPI, rig: Rig) -> None:
         mode: StreamableHTTPSessionManager(
             build(rig, mode),
             json_response=True,
-            # The daemon is reached by whatever name the rig has on the network.
+            # The runner is reached by whatever name the rig has on the network.
             security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         )
         for mode in MODES

@@ -72,7 +72,7 @@ async def read_sessions(
         SessionKind | None, Query(description="Only recordings, or only scratch")
     ] = None,
 ) -> list[SessionRow]:
-    """Newest first. The daemon's scratch record is among them, `kind: "scratch"`."""
+    """Newest first. The runner's scratch record is among them, `kind: "scratch"`."""
     return store.sessions(limit, kind)
 
 
@@ -86,7 +86,7 @@ def end_session(store: StoreDep, session_id: int) -> SessionRow:
     """Close an open session.
 
     The one being recorded right now is closed through the rig, so the
-    recorder stops cleanly; one left open by a daemon that died is closed in
+    recorder stops cleanly; one left open by a runner that died is closed in
     the store at the time of its last sample. 409 if it is already ended.
     """
     if (writing := _being_written(session_id)) is not None:
@@ -102,11 +102,11 @@ async def delete_session(store: StoreDep, session_id: int) -> None:
     """Everything the session recorded goes with it. Tunings made in it survive.
 
     409 for the session being recorded right now, and for the scratch record
-    while the daemon keeps it: end the recording first; scratch trims itself.
+    while the runner keeps it: end the recording first; scratch trims itself.
     """
     if (writing := _being_written(session_id)) is not None:
         raise ConflictError(
-            "the scratch record cannot be deleted while the daemon keeps it"
+            "the scratch record cannot be deleted while the runner keeps it"
             if writing.scratch
             else "this session is being recorded; end it first"
         )

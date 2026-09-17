@@ -6,7 +6,7 @@ flyball [--url URL] [--timeout S] [--json] [--refresh] [--offline SCHEMA.json] <
 
 | option | |
 | --- | --- |
-| `--url URL` | daemon base URL; default `$FLYBALL_URL` or `http://127.0.0.1:8000`; with the prefix for a daemon started with `--root-path` (`http://host/furnace`) |
+| `--url URL` | runner base URL; default `$FLYBALL_URL` or `http://127.0.0.1:8000`; with the prefix for a runner started with `--root-path` (`http://host/furnace`) |
 | `--timeout S` | seconds per request; default 5 |
 | `--json` | print raw JSON, one document per line |
 | `--refresh` | fetch the schema again rather than use the cache |

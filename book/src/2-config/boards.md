@@ -15,7 +15,7 @@ flyball-linux probe                      # what this machine has
 ## Links and devices
 
 `flyball-linux` registers its tags through the `flyball.configs` entry
-point, so `flyball rig check`, `flyball rig schema` and the daemon know them
+point, so `flyball rig check`, `flyball rig schema` and the runner know them
 once it is installed.
 
 | link tag | device | fake |
@@ -128,7 +128,7 @@ readings, which is how the example is tested:
 ```
 cd linux/examples
 flyball rig check greenhouse.yaml sim.yaml
-flyball-daemon greenhouse.yaml sim.yaml
+flyball-runner greenhouse.yaml sim.yaml
 ```
 
 ## What is board-specific

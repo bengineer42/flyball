@@ -129,7 +129,7 @@ _SIZE_EXPONENT = {"": 0, "k": 1, "m": 2, "g": 3, "t": 4}
 def parse_duration_ns(text: str | int | float) -> int:
     """`1h`, `30m`, `90s`, `2d`, `500ms` -- or a bare number of seconds -- as nanoseconds.
 
-    `0` (any spelling) is zero: the daemon reads that as *off* or *forever*.
+    `0` (any spelling) is zero: the runner reads that as *off* or *forever*.
     Anything else raises `ValueError`.
     """
     if isinstance(text, (int, float)):
@@ -144,7 +144,7 @@ def parse_duration_ns(text: str | int | float) -> int:
 def parse_size_bytes(text: str | int | float) -> int:
     """`256MB`, `20GB`, `1.5GiB`, `4096` -- as bytes: decimal for `kB`..`TB`, binary with an `i`.
 
-    `0` is zero, which the daemon reads as *no cap*. Anything else raises `ValueError`.
+    `0` is zero, which the runner reads as *no cap*. Anything else raises `ValueError`.
     """
     if isinstance(text, (int, float)):
         return round(text)
@@ -160,12 +160,12 @@ Anonymous = Literal["none", "read"]
 
 
 class AuthConfig(BaseModel):
-    """The `daemon.auth` section: who may reach the daemon, and for what.
+    """The `runner.auth` section: who may reach the runner, and for what.
 
     A *password* is for a person at the UI: the login page trades it for a
     session cookie, so the browser never keeps the secret. A *token* is for
     machines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.
-    Either one turns the door on; with neither the daemon is open. What a
+    Either one turns the door on; with neither the runner is open. What a
     caller with neither may do is `anonymous`: nothing, or read. Levels are
     `none < read < operate`; a later scheme (several sign-ins, a part of the
     rig locked) changes who gets which level, not what a level admits.
@@ -209,8 +209,8 @@ class AuthConfig(BaseModel):
         return parse_duration_ns(self.session) / 1e9
 
 
-class DaemonConfig(BaseModel):
-    """The `daemon:` section: how the process serves, not what the rig is.
+class RunnerConfig(BaseModel):
+    """The `runner:` section: how the process serves, not what the rig is.
 
     Everything here is fixed for the life of the process and says nothing
     about the equipment, so it may live in the rig file or in a file of its
@@ -240,7 +240,7 @@ class DaemonConfig(BaseModel):
     )
     auth: AuthConfig = Field(
         default_factory=AuthConfig,
-        description="Who may reach the daemon: password, token, anonymous.",
+        description="Who may reach the runner: password, token, anonymous.",
     )
     compose: bool = Field(default=False, description="Build up a hardware rig over the API.")
     mcp: bool = Field(default=True, description="Mount the MCP servers at /mcp.")
@@ -249,7 +249,7 @@ class DaemonConfig(BaseModel):
         default=False, description="Let the API write rig files: a save to a path, a sim save."
     )
     allow_shutdown: bool = Field(
-        default=False, description="Let the API stop or restart the daemon."
+        default=False, description="Let the API stop or restart the runner."
     )
     keep: str = Field(
         default="1h",
@@ -278,7 +278,7 @@ class DaemonConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _token_alias(cls, data: Any) -> Any:
-        # `daemon.token` from before `auth:` existed, and `DaemonConfig(token=...)`: the same
+        # `runner.token` from before `auth:` existed, and `RunnerConfig(token=...)`: the same
         # thing as `auth.token`, so it moves there rather than failing `extra="forbid"`.
         if isinstance(data, dict) and "token" in data:
             data = dict(data)
@@ -292,7 +292,7 @@ class DaemonConfig(BaseModel):
     @field_validator("keep", "retain", "rotate", mode="before")
     @classmethod
     def _duration(cls, value: Any) -> str:
-        parse_duration_ns(value)  # a bad spelling fails here, not when the daemon first sweeps
+        parse_duration_ns(value)  # a bad spelling fails here, not when the runner first sweeps
         return str(value)
 
     @field_validator("keep_size", "max_store", mode="before")
@@ -347,7 +347,7 @@ class RigConfig(BaseModel):
         description="A board profile: a name on the board path, or a path to the file.",
     )
     recording: bool = Field(
-        default=False, description="Open a recording session when the daemon starts."
+        default=False, description="Open a recording session when the runner starts."
     )
     clock: ClockEntry | None = Field(
         default=None, description="Run the rig's time faster, or stepped; simulated rigs only."
@@ -357,12 +357,12 @@ class RigConfig(BaseModel):
     controllers: dict[str, ControllerEntry] = Field(
         default_factory=dict, description="Keyed by the target signal's address."
     )
-    daemon: DaemonConfig | None = Field(default=None, exclude=True)
-    """How the daemon serves; not part of the rig, so not of its document or versions."""
+    runner: RunnerConfig | None = Field(default=None, exclude=True)
+    """How the runner serves; not part of the rig, so not of its document or versions."""
     files: list[Path] = Field(default_factory=list, exclude=True)
     """The files this was loaded from, set by `load_rig_config`; not part of the document."""
     resumed: bool = Field(default=False, exclude=True)
-    """Loaded from a stored rig version rather than the files (`flyball-daemon --resume`)."""
+    """Loaded from a stored rig version rather than the files (`flyball-runner --resume`)."""
 
     @classmethod
     def model_validate(cls, obj: Any, **kwargs: Any) -> RigConfig:  # type: ignore[override]
@@ -729,7 +729,7 @@ def resolve_documents(
 
 
 def saved_overlays(first: Path) -> list[Path]:
-    """The overlays the daemon saved beside a rig's first file: `<file>.d/*.<suffix>`, sorted.
+    """The overlays the runner saved beside a rig's first file: `<file>.d/*.<suffix>`, sorted.
 
     What `POST /api/rig/save` writes by default; loaded after the files
     named on the command line, so a saved addition comes back next start.

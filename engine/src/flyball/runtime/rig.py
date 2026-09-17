@@ -115,7 +115,7 @@ class Rig:
     link_entries: dict[str, Any]
     """What each link was built from: its config, likewise."""
     files: list[Path]
-    """The rig files the daemon loaded, if any; provenance for a version."""
+    """The rig files the runner loaded, if any; provenance for a version."""
     header: dict[str, Any]
     """The loaded document's keys that are not links, devices or controllers (`board`, `clock`,
     `recording`), carried into the rendered document unchanged."""
@@ -123,9 +123,9 @@ class Rig:
     """The rig as it was when this run started, rendered: what `changes` are measured from."""
     on_change: Callable[[str], None] | None
     """Called after the rig's composition changes (a link, a device, a controller added or
-    removed), with a one-line reason: the daemon records a version."""
+    removed), with a one-line reason: the runner records a version."""
     on_recording_stopped: Callable[[], None] | None
-    """Called after `stop_recording` closes a session, outside the lock: the daemon reopens
+    """Called after `stop_recording` closes a session, outside the lock: the runner reopens
     its scratch record. Not called when a recording replaces another, nor by `stop`."""
 
     def __init__(self, name: str | None = None) -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kill the process groups started by rig-up.sh (daemon + npm/vite wrapper and its children).
+# Kill the process groups started by rig-up.sh (runner + npm/vite wrapper and its children).
 S=${FLYBALL_CHECK_DIR:-/tmp/flyball-check}; mkdir -p "$S/logs" "$S/stores" "$S/shots"
 name=$1
 if [ -f "$S/logs/$name.pids" ]; then

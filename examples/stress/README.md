@@ -1,6 +1,6 @@
 # Stress rigs
 
-Config files that push the daemon and the UI harder than any real rig would,
+Config files that push the runner and the UI harder than any real rig would,
 plus the ordinary two-loop and reverse-acting examples that belong in
 [`../simulated/`](../simulated/README.md) instead. Nothing here is Python:
 every file is `sim_*`/`fake_*` links read by the schema, routes, CLI and UI
@@ -34,7 +34,7 @@ of full, and its controller carries the plant's static inverse as an
 
 ```bash
 cd engine
-uv run flyball-daemon ../examples/stress/plant.yaml --record
+uv run flyball-runner ../examples/stress/plant.yaml --record
 uv run flyball program run ../examples/stress/programs/plant-firing.yaml
 uv run flyball rig check ../examples/stress/chaos.yaml
 ```
@@ -127,10 +127,10 @@ Likewise `plant`'s Overview can show `furnace offline` if `chaos-run` (which
 targets `furnace`/`heaters`, names `plant.yaml` also uses) is the program
 that happens to run there.
 
-Daemon CPU (`top -b -n1 -p <pid>` on the `flyball-daemon` process, not the
+Runner CPU (`top -b -n1 -p <pid>` on the `flyball-runner` process, not the
 `uv run` wrapper, a few seconds after start):
 
-| rig | daemon CPU % (first pass) | daemon CPU % (this pass) |
+| rig | runner CPU % (first pass) | runner CPU % (this pass) |
 | --- | --- | --- |
 | plant | 20.0 % | 10–27 % (noisy; a couple of readings) |
 | torrent | 45.5 % | ~90 % |
@@ -176,13 +176,13 @@ measured against.
   process, so `kill` on the PID file leaves the `node .../vite` process
   running on its port. Killed them manually
   (`pkill -f "vite.*--port <port> --strictPort"`) before finishing; every
-  daemon and Vite process from this session is now stopped. Worth fixing in
+  runner and Vite process from this session is now stopped. Worth fixing in
   the tool itself if other agents hit the same leak.
   **Fixed as of the device-model wave**: `rig-up.sh`/`rig-down.sh` now use
   `setsid` and kill the whole process group (`kill -- -"$pid"`), confirmed
   clean across this pass's 13-rig sweep (ports checked with `ss` after every
   teardown) and one-off runs of `furnace`/`plant`/`torrent`/`chaos`/`zoo`.
-  One humidity teardown in this pass showed the daemon/vite still listed by
+  One humidity teardown in this pass showed the runner/vite still listed by
   `ps` immediately after `rig-down.sh` printed "stopped", but gone a few
   seconds later on a recheck — plausibly signal-delivery delay rather than a
   live leak, since it self-resolved and every other teardown this pass was

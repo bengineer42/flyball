@@ -2,7 +2,7 @@
  * Handing the browser a file built in the page: what a chart is holding, as
  * CSV or JSON, without asking the server for it again.
  *
- * The shape follows the daemon's export routes so a file saved from a chart
+ * The shape follows the runner's export routes so a file saved from a chart
  * and one downloaded from the store line up in the same spreadsheet: two
  * leading time columns, `time_s` (seconds from the first point) and `time`
  * (ISO 8601 UTC, milliseconds), then a column per trace named
@@ -33,17 +33,17 @@ export function toCsv({ columns, rows }: Table): string {
   return [columns, ...rows].map((row) => row.map(cell).join(",")).join("\n") + "\n";
 }
 
-/** A list of objects keyed by column, as the daemon's `format=json` sends. */
+/** A list of objects keyed by column, as the runner's `format=json` sends. */
 export function toJson({ columns, rows }: Table): string {
   return JSON.stringify(rows.map((row) => Object.fromEntries(columns.map((c, i) => [c, row[i] ?? null]))));
 }
 
-/** ISO 8601 UTC to the millisecond, as the daemon writes it. */
+/** ISO 8601 UTC to the millisecond, as the runner writes it. */
 export const isoTime = (seconds: number): string => new Date(seconds * 1000).toISOString().replace(/\.(\d{3})\d*Z$/, ".$1Z");
 
 /**
  * Traces onto one table: a row per instant any trace has a point at, each
- * column holding that trace's last value (the daemon's `wide` layout). All
+ * column holding that trace's last value (the runner's `wide` layout). All
  * the points given are written, whatever the chart draws.
  */
 export function seriesTable(series: TraceLike[]): Table {
@@ -88,7 +88,7 @@ export function download(name: string, text: string, type: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-/** A table as a file, in either format the daemon speaks. */
+/** A table as a file, in either format the runner speaks. */
 export function saveTable(stem: string, table: Table, format: "csv" | "json"): void {
   if (format === "json") download(fileName(stem, "json"), toJson(table), "application/json");
   else download(fileName(stem, "csv"), toCsv(table), "text/csv;charset=utf-8");

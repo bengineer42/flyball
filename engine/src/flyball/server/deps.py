@@ -20,7 +20,7 @@ from .dialect import Dialect
 if TYPE_CHECKING:
     from flyball.core.device import Device
     from flyball.programmer import ProgrammerState
-    from flyball.runtime.config import DaemonConfig, RigConfig
+    from flyball.runtime.config import RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
     from flyball.runtime.simulation import Simulation
 
@@ -66,7 +66,7 @@ def current_rig_config() -> RigConfig | None:
 
 
 def set_retention(retention: Retention | None) -> None:
-    """The daemon's sweeps over the store: the scratch record, rotation, retention, the cap."""
+    """The runner's sweeps over the store: the scratch record, rotation, retention, the cap."""
     global _retention
     _retention = retention
 
@@ -168,7 +168,7 @@ _compose: bool = False
 
 
 def set_compose(allowed: bool) -> None:
-    """Whether a hardware rig may be built up over the API (`flyball-daemon --compose`)."""
+    """Whether a hardware rig may be built up over the API (`flyball-runner --compose`)."""
     global _compose
     _compose = allowed
 
@@ -177,37 +177,37 @@ def compose_allowed() -> bool:
     return _compose
 
 
-class Daemon(Protocol):
-    """What the daemon routes need of `flyball.daemon.Handle`, without importing it."""
+class Runner(Protocol):
+    """What the runner routes need of `flyball.runner.Handle`, without importing it."""
 
     @property
-    def settings(self) -> DaemonConfig: ...
+    def settings(self) -> RunnerConfig: ...
     @property
     def files(self) -> list[Path]: ...
     def shutdown(self) -> None: ...
     def restart(self) -> None: ...
 
 
-_daemon: Daemon | None = None
+_runner: Runner | None = None
 
 
-def set_daemon(daemon: Daemon | None) -> None:
-    """The process serving this app, for `/api/daemon`; None where nothing is (a test client)."""
-    global _daemon
-    _daemon = daemon
+def set_runner(runner: Runner | None) -> None:
+    """The process serving this app, for `/api/runner`; None where nothing is (a test client)."""
+    global _runner
+    _runner = runner
 
 
-def current_daemon() -> Daemon | None:
-    return _daemon
+def current_runner() -> Runner | None:
+    return _runner
 
 
 def save_allowed() -> bool:
-    """Whether the API may write rig files (`flyball-daemon --allow-save`)."""
-    return _daemon is not None and _daemon.settings.allow_save
+    """Whether the API may write rig files (`flyball-runner --allow-save`)."""
+    return _runner is not None and _runner.settings.allow_save
 
 
 def set_drivers_dir(path: Path | None) -> None:
-    """The directory `/api/drivers/reload` re-imports; None when the daemon was given none."""
+    """The directory `/api/drivers/reload` re-imports; None when the runner was given none."""
     global _drivers_dir
     _drivers_dir = path
 

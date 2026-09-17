@@ -6,7 +6,7 @@ quickest to the most shareable.
 ## A file in `drivers/`
 
 Drop `mydriver.py` into the `drivers/` directory beside the rig file (or
-the one the [`daemon:` section](../2-config/daemon.md) names). The daemon
+the one the [`runner:` section](../2-config/runner.md) names). The runner
 imports every `.py` there at start and again on `POST /api/drivers/reload`,
 so a driver written on the spot -- by hand, or by a model over MCP -- is
 attachable without a restart or a package. `GET /api/drivers` lists what
@@ -34,7 +34,7 @@ for what the class produces.
 ## Inside the application
 
 A device whose only home is one rig's own package needs neither: the
-application's daemon (its own entry point around [`serve`](rig.md#serving))
+application's runner (its own entry point around [`serve`](rig.md#serving))
 imports it, and the tag registers on import.
 
 ## The example applications

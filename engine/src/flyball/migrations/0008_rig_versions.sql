@@ -1,4 +1,4 @@
--- The rig as a versioned document: what the daemon loaded, then every change
+-- The rig as a versioned document: what the runner loaded, then every change
 -- made to the running rig (a link or device added or removed, a controller
 -- attached or detached, a simulation's knobs saved). Each row is the whole
 -- rendered rig file, never a diff, so any version stands alone; a delta is
@@ -7,7 +7,7 @@ CREATE TABLE rig_version (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     time_ns     INTEGER NOT NULL,
     reason      TEXT    NOT NULL,           -- "loaded", "added device blender", ...
-    files       TEXT,                       -- JSON: the files the daemon loaded, for provenance
+    files       TEXT,                       -- JSON: the files the runner loaded, for provenance
     document    TEXT    NOT NULL            -- JSON: the rig file as it stood
 );
 

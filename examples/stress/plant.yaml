@@ -16,7 +16,7 @@
 # variety, not a textbook furnace. See `../stress/README.md` for what to run
 # on it and the measured numbers.
 #
-#   flyball-daemon plant.yaml
+#   flyball-runner plant.yaml
 #   flyball program run ../programs/plant-firing.yaml
 
 name: plant

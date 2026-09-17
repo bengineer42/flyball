@@ -51,7 +51,7 @@ def _wire(tool: Tool) -> types.Tool:
 class Registry:
     """The tools for one rig and mode, built from the schema on first use.
 
-    Lazy so a server mounted in the daemon can be made before the daemon
+    Lazy so a server mounted in the runner can be made before the runner
     listens, and so the stdio server does not need the rig up to start.
     """
 
@@ -156,13 +156,13 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--url",
         default=os.environ.get("FLYBALL_URL", DEFAULT_URL),
-        help=f"daemon base URL (env FLYBALL_URL, default {DEFAULT_URL})",
+        help=f"runner base URL (env FLYBALL_URL, default {DEFAULT_URL})",
     )
     p.add_argument("--timeout", type=float, default=30.0, help="seconds per request")
     p.add_argument(
         "--token",
         default=None,
-        help="bearer token the daemon was started with (env FLYBALL_TOKEN)",
+        help="bearer token the runner was started with (env FLYBALL_TOKEN)",
     )
     p.add_argument(
         "--mode",

@@ -1,16 +1,16 @@
-# `flyball-daemon` reference
+# `flyball-runner` reference
 
 ```
-flyball-daemon [RIG…] [flags]
+flyball-runner [RIG…] [flags]
 ```
 
 `RIG…` are rig files, later overlaying earlier; none starts an empty rig
-built up through the API. Every flag below that mirrors a `daemon:` key is
+built up through the API. Every flag below that mirrors a `runner:` key is
 *unset* by default, so the file's value stands; a flag given (or its
 environment variable) wins. Paths given as flags are relative to the shell,
 paths in the file to the first rig file.
 
-| flag | env | `daemon:` key | |
+| flag | env | `runner:` key | |
 | --- | --- | --- | --- |
 | `--host ADDR` | | `host` | bind address; default `127.0.0.1` |
 | `--port N` | | `port` | default 8000 |
@@ -20,7 +20,7 @@ paths in the file to the first rig file.
 | `--no-mcp` | `FLYBALL_NO_MCP=1` | `mcp: false` | do not mount `/mcp` |
 | `--compose` | | `compose` | let the API build up a hardware rig |
 | `--allow-save` | | `allow_save` | let the API write rig files |
-| `--allow-shutdown` | | `allow_shutdown` | let the API stop or restart the daemon |
+| `--allow-shutdown` | | `allow_shutdown` | let the API stop or restart the runner |
 | `--store PATH` | | `store` | the SQLite store; default `<rig>.sqlite` beside the file |
 | -- | | `store_dir` | `<dir>/<rig name>.sqlite` instead (file only) |
 | `--programs DIR` | | `programs` | program files to import; default `programs/` |
@@ -42,5 +42,5 @@ Exit codes: 0 on a clean stop; 2 for a rig file that does not load (one
 line on stderr, no traceback). A restart asked over the API replaces the
 process with the same command line.
 
-What each does in practice: [Starting a rig](../1-running/daemon/index.md);
-the keys with their meanings: [The daemon section](../2-config/daemon.md).
+What each does in practice: [Starting a rig](../1-running/runner/index.md);
+the keys with their meanings: [The runner section](../2-config/runner.md).

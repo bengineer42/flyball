@@ -15,7 +15,7 @@ links:
 
 Every real link has a `fake_*` twin that answers from a script, so the same
 devices run with nothing plugged in; see [Simulation](simulation.md#the-overlay-pattern).
-`GET /api/drivers` lists every tag the running daemon can build.
+`GET /api/drivers` lists every tag the running runner can build.
 
 ## Text instruments
 

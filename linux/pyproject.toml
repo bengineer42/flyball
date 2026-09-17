@@ -18,7 +18,7 @@ spi = ["spidev>=3.6"]
 gpio = ["gpiod>=2.1"]
 all = ["flyball-linux[i2c,spi,gpio]"]
 
-# What `flyball rig check`, the daemon and the schema load to make these tags valid.
+# What `flyball rig check`, the runner and the schema load to make these tags valid.
 [project.entry-points."flyball.configs"]
 linux = "flyball_linux.configs"
 

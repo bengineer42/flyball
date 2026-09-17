@@ -1,6 +1,6 @@
 // The door, end to end, headless. Usage:
 //   node auth-e2e.mjs <ui-url> <secret> [--shots <dir>] [--anonymous-read] [--token-link]
-// Against a daemon started with --password (or --token): the login page shows, a wrong secret is refused, the
+// Against a runner started with --password (or --token): the login page shows, a wrong secret is refused, the
 // right one gets the app with its sockets open, sign out gets the login page back. --anonymous-read: the app
 // shows without a login, a write is refused with the nudge, the chip leads to the login page. --token-link:
 // opening ?token=<secret> signs in and strips the query. Prints PASS/FAIL per step and the console counts.

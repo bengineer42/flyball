@@ -3,12 +3,12 @@
  *
  * Parsing and dumping are done by `yaml` and `smol-toml`. YAML is read and
  * written against the 1.1 schema so plain scalars resolve the way the
- * daemon's loader does (PyYAML, which is 1.1: `yes`/`no`/`on`/`off` booleans,
+ * runner's loader does (PyYAML, which is 1.1: `yes`/`no`/`on`/`off` booleans,
  * leading-zero octal, sexagesimal numbers, `_` digit separators). TOML dates
- * are flattened to their text form (as the daemon's `tomllib` would print
+ * are flattened to their text form (as the runner's `tomllib` would print
  * them back) rather than left as `Date` subclasses, so the rest of the
  * builder can keep treating the tree as plain objects/arrays/scalars.
- * The daemon remains the authority: what is saved goes through its parser.
+ * The runner remains the authority: what is saved goes through its parser.
  */
 import { LineCounter, parseAllDocuments, parseDocument, stringify as stringifyYaml, YAMLParseError } from "yaml";
 import { parse as parseTomlLib, stringify as stringifyToml, TomlDate, TomlError } from "smol-toml";

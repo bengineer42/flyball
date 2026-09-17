@@ -4,7 +4,7 @@ Everything *about* a session once it exists is under ``/api/history``, which
 reads the store. This is the one place the rig and the store meet: opening a
 session needs both.
 
-The daemon's scratch record (the rolling last `keep`, kept while nothing is
+The runner's scratch record (the rolling last `keep`, kept while nothing is
 being recorded) is not a recording: ``GET`` answers null while only it runs,
 and starting a session replaces it -- with as much of it as ``include_ns``
 asks for copied into the new session first.
@@ -62,10 +62,10 @@ def start_recording(rig: RigDep, store: StoreDep, body: StartRecording | None = 
     if _current(rig) is not None:
         raise ConflictError("already recording; end the open session first")
     fields = (body or StartRecording()).model_dump(exclude_none=True)
-    # A daemon started with `--record` stores the whole rig file as `config`,
+    # A runner started with `--record` stores the whole rig file as `config`,
     # which is where the sessions list reads the rig's name from. A session
     # opened from here otherwise carries none at all: give it at least the
-    # name, so it doesn't look unnamed next to a daemon-recorded session.
+    # name, so it doesn't look unnamed next to a runner-recorded session.
     if "config" not in fields and rig.name:
         fields["config"] = {"name": rig.name}
     include_ns = fields.pop("include_ns", None)

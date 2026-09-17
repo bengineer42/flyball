@@ -105,12 +105,12 @@ async def read_config(simulation: SimulationDep) -> dict[str, Any]:
 def save_config(simulation: SimulationDep, body: SaveIn | None = None) -> dict[str, str]:
     """Write the current config to the rig file (or `path`), in the format its suffix names.
 
-    409 unless the daemon was started with `--allow-save`: this rewrites a file.
+    409 unless the runner was started with `--allow-save`: this rewrites a file.
     """
     if not save_allowed():
         raise HTTPException(
             status_code=409,
-            detail="Saving needs the daemon started with --allow-save (daemon.allow_save)",
+            detail="Saving needs the runner started with --allow-save (runner.allow_save)",
         )
     return {"path": str(simulation.save(body.path if body is not None else None))}
 

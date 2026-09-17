@@ -2,7 +2,6 @@
 
 from .composition import router as composition_router
 from .controllers import router as controllers_router
-from .daemon import router as daemon_router
 from .dashboards import router as dashboards_router
 from .devices import router as devices_router
 from .drivers import router as drivers_router
@@ -14,6 +13,7 @@ from .program import router as program_router
 from .read import router as read_router
 from .recording import router as recording_router
 from .rig import router as rig_router
+from .runner import router as runner_router
 from .schema import router as schema_router
 from .sim import router as sim_router
 from .telemetry import router as telemetry_router
@@ -22,7 +22,6 @@ from .waits import router as waits_router
 __all__ = [
     "composition_router",
     "controllers_router",
-    "daemon_router",
     "dashboards_router",
     "devices_router",
     "drivers_router",
@@ -34,6 +33,7 @@ __all__ = [
     "read_router",
     "recording_router",
     "rig_router",
+    "runner_router",
     "schema_router",
     "sim_router",
     "telemetry_router",

@@ -1,6 +1,6 @@
 """`/api/auth`: the door. Who the caller is, sign in, sign out.
 
-Always reachable, whatever the daemon's settings, so the UI can ask which door
+Always reachable, whatever the runner's settings, so the UI can ask which door
 to draw before its first refused request. The login sets the session cookie
 described in [flyball.server.auth][]; the browser carries it from then on.
 """
@@ -19,17 +19,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 class AuthOut(BaseModel):
-    """Who the caller is here, and what the daemon's door is like."""
+    """Who the caller is here, and what the runner's door is like."""
 
     scheme: Scheme = Field(description="How the caller got in: a session, a token, or not at all.")
     level: Level = Field(description="What the caller may do: nothing, read, or operate.")
     anonymous: Anonymous = Field(description="What a caller who has not signed in may do.")
-    password: bool = Field(description="Whether the daemon has a password to sign in with.")
-    token: bool = Field(description="Whether the daemon has a bearer token for machines.")
+    password: bool = Field(description="Whether the runner has a password to sign in with.")
+    token: bool = Field(description="Whether the runner has a bearer token for machines.")
 
 
 class Login(BaseModel):
-    secret: str = Field(description="The password; the daemon's bearer token is taken too.")
+    secret: str = Field(description="The password; the runner's bearer token is taken too.")
 
 
 def _auth(request: Request) -> Auth | None:
@@ -38,7 +38,7 @@ def _auth(request: Request) -> Auth | None:
 
 def _out(request: Request) -> AuthOut:
     auth = _auth(request)
-    if auth is None:  # no password, no token: the daemon is open
+    if auth is None:  # no password, no token: the runner is open
         return AuthOut(
             scheme="anonymous", level="operate", anonymous="none", password=False, token=False
         )
@@ -58,7 +58,7 @@ def _set_cookie(request: Request, response: Response, value: str, max_age: int |
         COOKIE,
         value,
         max_age=max_age,
-        path=root or "/",  # two daemons on one host, one cookie each
+        path=root or "/",  # two runners on one host, one cookie each
         httponly=True,  # page scripts cannot read it
         samesite="lax",  # another site cannot post with it
         # uvicorn takes the scheme from x-forwarded-proto when the proxy is on loopback
@@ -68,7 +68,7 @@ def _set_cookie(request: Request, response: Response, value: str, max_age: int |
 
 @router.get("")
 def read_auth(request: Request) -> AuthOut:
-    """Who the caller is, and whether this daemon needs a password, a token, or nothing."""
+    """Who the caller is, and whether this runner needs a password, a token, or nothing."""
     return _out(request)
 
 

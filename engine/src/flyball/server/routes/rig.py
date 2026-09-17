@@ -128,7 +128,7 @@ async def read_clock(rig: RigDep) -> ClockOut:
 
 @router.get("/rig/schema")
 async def read_rig_schema() -> dict[str, Any]:
-    """The rig file's JSON schema, with every driver this daemon has installed."""
+    """The rig file's JSON schema, with every driver this runner has installed."""
     return rig_schema()
 
 

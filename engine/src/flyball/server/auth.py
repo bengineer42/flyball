@@ -1,4 +1,4 @@
-"""Who is asking, and what they may do: the door in front of everything the daemon serves.
+"""Who is asking, and what they may do: the door in front of everything the runner serves.
 
 One *principal* per request or socket, resolved by [`Auth`][flyball.server.auth.Auth]
 from, in order, a session cookie (a person who logged in), a bearer token (a machine),
@@ -10,8 +10,8 @@ part of the rig locked) has to grow.
 
 The password is stored hashed (`$scrypt$…`, stdlib; `hash_password` makes the line) or
 in the clear, prefix-detected like htpasswd. A session is a signed, expiring note --
-`<issued>.<nonce>.<hmac>` -- so the daemon keeps no table of them; the key that signs
-them is derived from the daemon's secret *and* the stored password, so changing the
+`<issued>.<nonce>.<hmac>` -- so the runner keeps no table of them; the key that signs
+them is derived from the runner's secret *and* the stored password, so changing the
 password signs everyone out. Nothing secret is ever in a URL the UI builds; `?token=`
 stays accepted on a GET and a socket for the CLI's export links.
 """
@@ -91,7 +91,7 @@ def _unb64(text: str) -> bytes:
 class Sessions:
     """Mints and checks session cookies: `<issued>.<nonce>.<hmac>`, no table.
 
-    `secret` is the daemon's; the signing key is `HMAC(secret, stored password)`,
+    `secret` is the runner's; the signing key is `HMAC(secret, stored password)`,
     so a changed password (or a changed secret) makes every cookie invalid at
     once. `lifetime` is in seconds.
     """
@@ -212,7 +212,7 @@ class Auth:
     Puts the principal on `scope["state"]["auth"]` (so `request.state.auth`) and the
     `Auth` itself on `scope["app"].state.auth` is the routes' way to it. Refusal is 401
     with a `detail` and `WWW-Authenticate: Bearer` like every other error; a socket is
-    closed with 4401. `internal_token` is the one the daemon mints for its own MCP mount
+    closed with 4401. `internal_token` is the one the runner mints for its own MCP mount
     when there is a password but no token.
     """
 
@@ -281,7 +281,7 @@ class Auth:
             await send({"type": "websocket.close", "code": 4401, "reason": "sign in required"})
             return
         detail = (
-            "Sign in first (POST /api/auth/login), or send the daemon's bearer token"
+            "Sign in first (POST /api/auth/login), or send the runner's bearer token"
             " (Authorization: Bearer ...)"
         )
         response = JSONResponse(

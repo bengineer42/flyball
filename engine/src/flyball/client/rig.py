@@ -35,7 +35,7 @@ class RigError(Exception):
 
 class Unreachable(RigError):
     def __init__(self, url: str, cause: Exception) -> None:
-        super().__init__(0, f"no daemon at {url} ({type(cause).__name__})")
+        super().__init__(0, f"no runner at {url} ({type(cause).__name__})")
 
 
 class Device:
@@ -110,7 +110,7 @@ class Devices:
 class Rig:
     """A running rig, over HTTP. `schema` may be given to work from a saved one.
 
-    `token` is sent as a bearer token when the daemon was started with one;
+    `token` is sent as a bearer token when the runner was started with one;
     `FLYBALL_TOKEN` in the environment is the default.
     """
 

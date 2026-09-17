@@ -128,4 +128,4 @@ Samples backfilled into a new recording (`include_ns`) are numbered from −1
 downwards, below the writer's own count, so the recorder need not know. The
 sweep itself is `flyball.runtime.retention.Retention`, started by `serve()`
 when there is a store; what it does and in what order is
-[What ages out](../1-running/daemon/index.md#what-ages-out).
+[What ages out](../1-running/runner/index.md#what-ages-out).

@@ -135,7 +135,7 @@ class Store(Protocol):
     def session(self, session_id: int) -> SessionRow: ...
 
     def end_session(self, session_id: int, end_ns: int | None = None) -> SessionRow:
-        """Close a session nothing is writing to any more -- one a crashed daemon left open.
+        """Close a session nothing is writing to any more -- one a crashed runner left open.
 
         ``end_ns`` defaults to the time of the last sample it holds, or its
         start if it holds none. A session that is already ended raises
@@ -156,7 +156,7 @@ class Store(Protocol):
 
         Its `start_ns` moves up to `before_ns` -- the oldest it can now hold --
         but never past its end. A span still open, or ending later, stays.
-        How the daemon keeps a scratch session to the last `keep`.
+        How the runner keeps a scratch session to the last `keep`.
         """
         ...
 

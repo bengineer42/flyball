@@ -5,7 +5,7 @@
 # answers 21.5 °C, 55 %RH, and the 1-Wire bus so the probe reads 21.875 °C.
 #
 #   flyball rig check greenhouse.yaml sim.yaml
-#   flyball-daemon greenhouse.yaml sim.yaml
+#   flyball-runner greenhouse.yaml sim.yaml
 
 board: sim
 

@@ -1,15 +1,15 @@
 """Serve a rig described by a file.
 
-    flyball-daemon rig.toml
-    flyball-daemon rig.toml --host 0.0.0.0 --port 8000 --record
-    flyball-daemon furnace.yaml sim.yaml --set clock.speed=60
+    flyball-runner rig.toml
+    flyball-runner rig.toml --host 0.0.0.0 --port 8000 --record
+    flyball-runner furnace.yaml sim.yaml --set clock.speed=60
 
 Builds the rig from the file (any of `.toml`, `.yaml`, `.json`), starts its
 devices polling, optionally opens a recording session, and serves the HTTP
 and websocket API until stopped. Several files layer, later overlaying earlier
 (see [flyball.runtime.overlay][]); the store and the programs directory then
 default off the first one. An application with hardware the rig file cannot
-describe writes its own daemon around [serve][flyball.daemon.serve].
+describe writes its own runner around [serve][flyball.runner.serve].
 """
 
 from __future__ import annotations
@@ -25,20 +25,20 @@ from typing import Any
 
 from flyball.core.config import discover
 from flyball.db.store import Store
-from flyball.runtime.config import AuthConfig, DaemonConfig, RigConfig, resolve_documents
+from flyball.runtime.config import AuthConfig, RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 from flyball.runtime.retention import Retention
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
 
-log = logging.getLogger("flyball.daemon")
+log = logging.getLogger("flyball.runner")
 
 
 class Handle:
     """What the server may do to the process: read how it was started, stop it, restart it."""
 
-    def __init__(self, settings: DaemonConfig, files: Sequence[Path], stop: Callable[[], None]):
+    def __init__(self, settings: RunnerConfig, files: Sequence[Path], stop: Callable[[], None]):
         self.settings = settings
         self.files = list(files)
         self._stop = stop
@@ -56,7 +56,7 @@ class Handle:
 
 def serve(
     rig: Rig,
-    settings: DaemonConfig | None = None,
+    settings: RunnerConfig | None = None,
     *,
     simulation: Simulation | None = None,
     store: Store | None = None,
@@ -66,8 +66,8 @@ def serve(
 
     Args:
         rig: The rig, built and with its devices polling.
-        settings: How to serve -- the `daemon:` section of a rig file with the
-            command line's overrides applied ([DaemonConfig][flyball.runtime.config.DaemonConfig]);
+        settings: How to serve -- the `runner:` section of a rig file with the
+            command line's overrides applied ([RunnerConfig][flyball.runtime.config.RunnerConfig]);
             None: its defaults. Its `programs`, `tunings` and `drivers` are
             imported before serving (a missing directory is fine) and its
             `token`, `mcp`, `root_path`, `compose`, `allow_save` and
@@ -80,7 +80,7 @@ def serve(
             None leaves those routes answering 503 and keeps no scratch.
         config: What the rig was built from, for `/api/rig/config`.
 
-    A restart asked for over the API (`POST /api/daemon/restart`) stops the
+    A restart asked for over the API (`POST /api/runner/restart`) stops the
     rig and replaces this process with the same command line, once `serve`
     has unwound.
     """
@@ -93,17 +93,17 @@ def serve(
     from flyball.server.auth import signing_secret
     from flyball.server.deps import (
         set_compose,
-        set_daemon,
         set_drivers_dir,
         set_programs_dir,
         set_retention,
         set_rig_config,
+        set_runner,
         set_store,
     )
     from flyball.server.routes import dashboards
     from flyball.server.routes.library import import_directory, load_tunings
 
-    settings = settings or DaemonConfig()
+    settings = settings or RunnerConfig()
     programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers
     programmer = Programmer(rig)
     set_rig(rig)
@@ -125,7 +125,7 @@ def serve(
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
     auth = settings.auth
-    # The MCP mount calls the daemon back over loopback; on a password-only daemon it
+    # The MCP mount calls the runner back over loopback; on a password-only runner it
     # needs a token of its own, made here and never shown.
     internal = secrets.token_urlsafe(32) if auth.enabled and not auth.token else None
     app = create_app(
@@ -145,7 +145,7 @@ def serve(
         server.should_exit = True
 
     handle = Handle(settings, rig.files, stop)
-    set_daemon(handle)
+    set_runner(handle)
     retention = None if store is None else Retention(rig, store, settings)
     set_retention(retention)
     if retention is not None:
@@ -157,7 +157,7 @@ def serve(
         if retention is not None:
             retention.stop()
         set_retention(None)
-        set_daemon(None)
+        set_runner(None)
         set_compose(False)
         set_rig_config(None)
         set_drivers_dir(None)
@@ -192,7 +192,7 @@ def start_with_store(
 
     rig = config.build()
     store = SqliteStore(store_path)
-    # A session still open in the store was left by a daemon that died: close
+    # A session still open in the store was left by a runner that died: close
     # it at its last sample, or it would look live and overlap the next one.
     for orphan in store.sessions():
         if orphan.open:
@@ -215,7 +215,7 @@ def keep_versions(rig: Rig, store: Store, reason: str) -> None:
     """Record the rig as it stands, and every change to its composition from now on.
 
     A start whose rig is what the last version already says records nothing:
-    a daemon restarted on the same files does not fill the store.
+    a runner restarted on the same files does not fill the store.
     """
 
     def version(why: str) -> None:
@@ -259,9 +259,9 @@ def resumed(store_path: str | Path) -> RigConfig:
 
 
 def parser() -> argparse.ArgumentParser:
-    """A flag mirroring a `daemon:` key defaults to None -- unset -- so the file's value stands."""
+    """A flag mirroring a `runner:` key defaults to None -- unset -- so the file's value stands."""
     p = argparse.ArgumentParser(
-        prog="flyball-daemon", description="Serve a rig described by a file."
+        prog="flyball-runner", description="Serve a rig described by a file."
     )
     p.add_argument(
         "rig",
@@ -294,7 +294,7 @@ def parser() -> argparse.ArgumentParser:
         "--token",
         default=os.environ.get("FLYBALL_TOKEN") or None,
         help="bearer token for the CLI, MCP clients and scripts (env FLYBALL_TOKEN); default: none."
-        " With neither this nor a password the daemon is open",
+        " With neither this nor a password the runner is open",
     )
     p.add_argument(
         "--anonymous",
@@ -334,7 +334,7 @@ def parser() -> argparse.ArgumentParser:
         "--allow-shutdown",
         action="store_const",
         const=True,
-        help="let the API stop or restart the daemon (/api/daemon/shutdown, /restart); default: no",
+        help="let the API stop or restart the runner (/api/runner/shutdown, /restart); default: no",
     )
     p.add_argument("--port", type=int, help="TCP port (default 8000)")
     p.add_argument(
@@ -407,9 +407,9 @@ def parser() -> argparse.ArgumentParser:
 
 
 def settle(
-    section: DaemonConfig | None, args: argparse.Namespace, first: Path, name: str | None = None
-) -> DaemonConfig:
-    """The file's `daemon:` section under the command line, with every directory resolved.
+    section: RunnerConfig | None, args: argparse.Namespace, first: Path, name: str | None = None
+) -> RunnerConfig:
+    """The file's `runner:` section under the command line, with every directory resolved.
 
     A flag given (or its environment variable) beats the file; a path in the
     file is taken relative to the first rig file's directory; a directory
@@ -419,10 +419,10 @@ def settle(
     """
     given = {
         key: value
-        for key in DaemonConfig.model_fields
+        for key in RunnerConfig.model_fields
         if key != "auth" and (value := getattr(args, key, None)) is not None
     }
-    settings = (section or DaemonConfig()).model_copy(update=given)
+    settings = (section or RunnerConfig()).model_copy(update=given)
     auth = {
         key: value
         for key in AuthConfig.model_fields
@@ -455,9 +455,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         files: list[Path] = []
         if args.rig and not args.resume:
             document, files = resolve_documents(args.rig, args.sets)
-        # The daemon section first: it may say where the drivers are, and
+        # The runner section first: it may say where the drivers are, and
         # the rig file may name a driver from there.
-        section = DaemonConfig.model_validate(document.get("daemon") or {})
+        section = RunnerConfig.model_validate(document.get("runner") or {})
         name = document.get("name")
         settings = settle(section, args, first, name if isinstance(name, str) else None)
         logging.getLogger().setLevel(settings.log_level.upper())
@@ -472,7 +472,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             config.files = files
     except Exception as e:  # a bad file is the user's problem, not a traceback
         names = ", ".join(str(p) for p in args.rig) or "(no rig file)"
-        print(f"flyball-daemon: {names}: {e}", file=sys.stderr)
+        print(f"flyball-runner: {names}: {e}", file=sys.stderr)
         return 2
     settings.store.parent.mkdir(parents=True, exist_ok=True)  # a store_dir that is not there yet
     rig, store = start_with_store(

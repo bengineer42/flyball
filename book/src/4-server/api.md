@@ -12,7 +12,7 @@ slashes, so they sit in one path segment.
 ## Authentication
 
 None by default. Started with `--token T` (or `FLYBALL_TOKEN=T`), the
-daemon requires `Authorization: Bearer T` on every `/api`, `/ws` and `/mcp`
+runner requires `Authorization: Bearer T` on every `/api`, `/ws` and `/mcp`
 request (`/openapi.json` and `/docs` too); a websocket may pass `?token=T`
 instead, since a browser cannot set the header. Missing or wrong: `401`
 with `WWW-Authenticate: Bearer`, and a socket is closed with code 4401.
@@ -21,17 +21,17 @@ Started with `--root-path /p`, every path below sits under `/p`
 (`/p/api/health`, `/p/ws/samples`, `/p/mcp/read`); anything not under it
 is `404` (a socket is closed with 4404).
 
-## The daemon
+## The runner
 
 The process itself, apart from the rig it serves. `404` under a server
-that is not `flyball-daemon` (a test client, an application's own `serve`
+that is not `flyball-runner` (a test client, an application's own `serve`
 without a handle).
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/daemon` | `{host, port, root_path, mcp, compose, allow_save, allow_shutdown, store, programs, tunings, drivers, files, keep, keep_size, retain, rotate, max_store, keep_ns, keep_bytes, retain_ns, rotate_ns, max_bytes}`: the settings as resolved (the `daemon:` section under the command line), never the token; `files` the rig files loaded; the five retention keys as written and as resolved (0 = off / no cap) |
-| `POST` | `/api/daemon/shutdown` | 202 `{detail}`; the rig stops and the process exits. 409 unless started with `--allow-shutdown` |
-| `POST` | `/api/daemon/restart` | 202 `{detail}`; as shutdown, then the same command line runs again in the same process. 409 the same |
+| `GET` | `/api/runner` | `{host, port, root_path, mcp, compose, allow_save, allow_shutdown, store, programs, tunings, drivers, files, keep, keep_size, retain, rotate, max_store, keep_ns, keep_bytes, retain_ns, rotate_ns, max_bytes}`: the settings as resolved (the `runner:` section under the command line), never the token; `files` the rig files loaded; the five retention keys as written and as resolved (0 = off / no cap) |
+| `POST` | `/api/runner/shutdown` | 202 `{detail}`; the rig stops and the process exits. 409 unless started with `--allow-shutdown` |
+| `POST` | `/api/runner/restart` | 202 `{detail}`; as shutdown, then the same command line runs again in the same process. 409 the same |
 
 ## Errors
 
@@ -58,15 +58,15 @@ A `LawConfig` is `{tag, ...gains}`, e.g. `{"tag": "PI", "kp": 0.5, "ki": 0.05, "
 ### Composition
 
 The rig built up while it runs, in the rig file's own terms; every change
-is a version in the store (see [the daemon](../1-running/daemon/building.md#building-a-rig-while-it-runs)).
+is a version in the store (see [the runner](../1-running/runner/building.md#building-a-rig-while-it-runs)).
 On a rig with real hardware links the writes below (links, devices, a
-document, restore) answer `409` unless the daemon runs with `--compose`;
+document, restore) answer `409` unless the runner runs with `--compose`;
 a simulated rig, or one started bare, may always be built up. Reading and
 saving are never gated.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this daemon has |
+| `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
 | `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes) |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
 | `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
@@ -80,10 +80,10 @@ saving are never gated.
 | `GET` | `/api/rig/versions/{id}` | the same with `document` |
 | `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}` |
 | `GET` | `/api/drivers` | every registered tag: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
-| `POST` | `/api/drivers/reload` | re-import the daemon's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
+| `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
 | `GET` | `/api/probe` | `{report}`: the board's buses, GPIO chips and, with `?scan=true`, I²C addresses (flyball-linux); 404 where it is not installed |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
-| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the daemon was not started from a file); a path: the whole rig, flattened (409 unless the daemon runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
+| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
 
 ## Devices
 
@@ -215,7 +215,7 @@ The one place the rig and the store meet: opening a session needs both.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/recording` | the open *named* session as a `SessionRow`, or `null` -- `null` while only the [scratch record](../1-running/daemon/index.md#the-scratch-record) runs |
+| `GET` | `/api/recording` | the open *named* session as a `SessionRow`, or `null` -- `null` while only the [scratch record](../1-running/runner/index.md#the-scratch-record) runs |
 | `POST` | `/api/recording` | `{details?, version?, config?, hardware?, include_ns?}`; 201 `SessionRow`. `include_ns` starts the session that far back (clamped to what scratch holds) and backfills it from the scratch record it replaces. 409 if one is open |
 | `POST` | `/api/recording/end` | close it; `SessionRow`. The scratch record reopens |
 
@@ -324,7 +324,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
 | `GET` | `/api/sim/config` | the rig file as it now stands |
-| `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the daemon runs with `--allow-save` |
+| `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the runner runs with `--allow-save` |
 | `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |
 | `POST` | `/api/sim/device/{command}` | one of its commands |

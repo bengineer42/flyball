@@ -12,7 +12,7 @@ uv run flyball-linux probe    # what this machine has, as rig-file fragments
 ```
 
 The package registers its tags through the `flyball.configs` entry point,
-so `flyball rig check`, `flyball rig schema` and the daemon know them once
+so `flyball rig check`, `flyball rig schema` and the runner know them once
 it is installed.
 
 ## Links
@@ -98,7 +98,7 @@ names and addresses run on any machine:
 
 ```sh
 uv run flyball rig check examples/greenhouse.yaml examples/sim.yaml
-uv run flyball-daemon examples/greenhouse.yaml examples/sim.yaml
+uv run flyball-runner examples/greenhouse.yaml examples/sim.yaml
 ```
 
 Documentation: the book's "Boards and Linux I/O" page.

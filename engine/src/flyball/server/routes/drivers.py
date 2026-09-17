@@ -1,7 +1,7 @@
-"""What this daemon can build with, and the hardware it can see: for writing a rig or a driver.
+"""What this runner can build with, and the hardware it can see: for writing a rig or a driver.
 
 `/api/drivers` lists every registered driver with its config schema;
-`/api/drivers/reload` re-imports the daemon's `drivers/` directory so a
+`/api/drivers/reload` re-imports the runner's `drivers/` directory so a
 driver being written appears without a restart; `/api/probe` reports the
 board's buses and chips (flyball-linux, on a Linux box); a text link takes
 one query, for finding out what an instrument answers.
@@ -44,14 +44,14 @@ def read_drivers() -> dict[str, Any]:
 
 @router.post("/drivers/reload")
 def reload_drivers() -> dict[str, Any]:
-    """Import every `.py` in the daemon's drivers directory again; what each registered, or why not.
+    """Import every `.py` in the runner's drivers directory again; what each registered, or why not.
 
-    404 when the daemon has no drivers directory (`--drivers`, or `drivers/`
+    404 when the runner has no drivers directory (`--drivers`, or `drivers/`
     beside the first rig file).
     """
     directory = current_drivers_dir()
     if directory is None:
-        raise HTTPException(status_code=404, detail="This daemon has no drivers directory")
+        raise HTTPException(status_code=404, detail="This runner has no drivers directory")
     report = load_drivers(directory)
     return {
         "directory": report.directory,
@@ -62,7 +62,7 @@ def reload_drivers() -> dict[str, Any]:
 
 @router.get("/probe")
 def probe(scan: bool = True) -> dict[str, str]:
-    """The board this daemon runs on: its buses, GPIO chips and, with `scan`, I²C addresses.
+    """The board this runner runs on: its buses, GPIO chips and, with `scan`, I²C addresses.
 
     404 where flyball-linux is not installed.
     """

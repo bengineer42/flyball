@@ -26,9 +26,9 @@ classifiers = [
 serial = ["pyserial>=3.5"]
 # FastAPI won: flyball.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
-# The daemon also serves MCP at /mcp/<mode>, over the client pointed back at itself.
+# The runner also serves MCP at /mcp/<mode>, over the client pointed back at itself.
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pyyaml>=6", "flyball[mcp]"]
-# flyball.cli and flyball.client talk to a daemon over HTTP and websockets and
+# flyball.cli and flyball.client talk to a runner over HTTP and websockets and
 # import nothing from the rig: they run anywhere.
 cli = ["httpx>=0.27", "websockets>=13", "pyyaml>=6"]  # program files are YAML
 # Links to instruments (flyball.hardware.links). Each driver is imported only
@@ -47,7 +47,7 @@ all = ["flyball[cli,serial,web]"]
 
 [project.scripts]
 flyball = "flyball.cli:main"
-flyball-daemon = "flyball.daemon:main"
+flyball-runner = "flyball.runner:main"
 flyball-mcp = "flyball.mcp.server:main"
 
 
@@ -101,7 +101,7 @@ select = [
 
 # Docstrings are Google style. The missing-docstring rules stay off: the house
 # style documents what needs explaining, not every definition.
-ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+ignore = ["undocumented-public-module", "undocumented-public-class", "undocumented-public-method", "undocumented-public-function", "undocumented-public-package", "undocumented-magic-method", "undocumented-public-nested-class", "undocumented-public-init"]
 
 # Greek quantity and unit symbols (ρ, µ, Ω...) are the SI's, not typos.
 allowed-confusables = ["α", "γ", "ε", "η", "λ", "µ", "μ", "ν", "ρ", "σ", "ω", "Ω", "Φ", "Θ"]
@@ -111,7 +111,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # Tests compare against exact literals on purpose; ``pytest.approx`` is used where a value is computed.
-"tests/*" = ["PLR2004", "RUF"]
+"tests/*" = ["magic-value-comparison", "RUF"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -132,7 +132,7 @@ root_packages = ["flyball"]
 name = "Layers"
 type = "layers"
 layers = [
-    "flyball.cli | flyball.daemon",
+    "flyball.cli | flyball.runner",
     "flyball.mcp",
     "flyball.server",
     "flyball.programmer | flyball.integrations.bluesky",

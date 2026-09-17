@@ -33,10 +33,10 @@ device.
 | --- | --- | --- |
 | `name` | string | optional |
 | `board` | string | a board profile: a name on the board path (`$FLYBALL_BOARDS`, `boards/` beside or above the file, `~/.config/flyball/boards`, `/etc/flyball/boards`), or a path relative to the file; its `links` are added underneath the file's own, and `pin: "LABEL"` on a device resolves against its `pins` |
-| `recording` | bool | open a session when the daemon starts |
+| `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
-| `daemon` | `DaemonConfig` | how the process serves -- port, token, what the API may do, where the store and the directories are; not part of the rig (not in its document, versions or saves), overridden by the flags of the same names. Every key: [The daemon section](../2-config/daemon.md) |
+| `runner` | `RunnerConfig` | how the process serves -- port, token, what the API may do, where the store and the directories are; not part of the rig (not in its document, versions or saves), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat or layered](#devices) |
 | `controllers` | `{target-address: ControllerEntry}` | keyed by the writable signal driven |
@@ -47,7 +47,7 @@ A rig is an ordered list of files, later overlaying earlier — the
 docker-compose `-f` / kustomize / Hydra pattern:
 
 ```
-flyball-daemon furnace.yaml sim.yaml
+flyball-runner furnace.yaml sim.yaml
 flyball rig check furnace.yaml sim.yaml --set devices.furnace.config.noise=0.3
 ```
 
@@ -68,7 +68,7 @@ and recorded session is identical whether the rig is real or simulated.
 `sim_daq`/`sim_drive` pair standing in for a thermocouple DAQ and an SSR
 bank that don't exist yet); `examples/humidity/rig.yaml` + `sim.yaml` is
 the real two-file form — read both. `examples/site/*.yaml` is the third
-layer: a file per deployment holding only `extends` and `daemon:`.
+layer: a file per deployment holding only `extends` and `runner:`.
 
 ## Devices
 

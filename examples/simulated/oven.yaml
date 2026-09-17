@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=rig.schema.json
 # A heated oven: a first-order lag with dead time, the plant every autotuner
-# is designed for. Nothing here is Python; `flyball-daemon oven.yaml`
+# is designed for. Nothing here is Python; `flyball-runner oven.yaml`
 # runs it, and every route, the CLI and the schema work on it as on hardware.
 
 name: oven

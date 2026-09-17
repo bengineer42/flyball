@@ -647,10 +647,10 @@ export interface RigVersion {
 }
 
 /**
- * `GET /api/daemon`: how this daemon is serving -- its `daemon:` config as
+ * `GET /api/runner`: how this runner is serving -- its `runner:` config as
  * resolved (flags over environment over file). The token is never returned.
  */
-export interface DaemonInfo {
+export interface RunnerInfo {
   host: string;
   port: number;
   root_path: string | null;
@@ -678,11 +678,11 @@ export interface DaemonInfo {
 }
 
 /**
- * `GET /api/auth`: who the caller is here, and what the daemon's door is like.
+ * `GET /api/auth`: who the caller is here, and what the runner's door is like.
  * `level` is what this caller may do -- `none` (sign in first), `read` (an
- * anonymous reader on a daemon with `auth.anonymous: read`), `operate`.
+ * anonymous reader on a runner with `auth.anonymous: read`), `operate`.
  * `scheme` is how they got in: a session cookie (`password`), a bearer
- * `token`, or not at all. `password` / `token` say which the daemon has; with
+ * `token`, or not at all. `password` / `token` say which the runner has; with
  * neither it is open and `level` is `operate` for everyone.
  */
 export interface AuthInfo {
@@ -693,7 +693,7 @@ export interface AuthInfo {
   token: boolean;
 }
 
-/** A duration the daemon reports, as ns or as configured (`1h`, `30d`, `15m`), in seconds; null for none/0. */
+/** A duration the runner reports, as ns or as configured (`1h`, `30d`, `15m`), in seconds; null for none/0. */
 export function durationS(value: number | string | null | undefined): number | null {
   if (value == null || value === 0 || value === "0" || value === "") return null;
   if (typeof value === "number") return value / 1e9;
@@ -704,7 +704,7 @@ export function durationS(value: number | string | null | undefined): number | n
   return n * ({ ns: 1e-9, us: 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600, d: 86400 }[unit] ?? 1);
 }
 
-/** A size the daemon reports, as bytes or as configured (`256MB`, `20GB`), in bytes; null for none/0. */
+/** A size the runner reports, as bytes or as configured (`256MB`, `20GB`), in bytes; null for none/0. */
 export function sizeBytes(value: number | string | null | undefined): number | null {
   if (value == null || value === 0 || value === "0" || value === "") return null;
   if (typeof value === "number") return value;
@@ -760,21 +760,21 @@ export interface SessionRow {
   hardware: unknown;
   details: unknown;
   /**
-   * `"scratch"`: the rolling record the daemon keeps while nothing is being
+   * `"scratch"`: the rolling record the runner keeps while nothing is being
    * recorded (the last `keep` of the rig's clock, trimmed continuously),
    * from which a range can be kept as a session of its own. Absent or
    * `"session"` for a recording proper.
    */
   kind?: "session" | "scratch";
-  /** Never aged out by the daemon's retention. */
+  /** Never aged out by the runner's retention. */
   pinned?: boolean;
-  /** The session this one continued when the daemon rotated at a boundary. */
+  /** The session this one continued when the runner rotated at a boundary. */
   continues?: number | null;
-  /** What the scratch record holds on disk, when the daemon says. */
+  /** What the scratch record holds on disk, when the runner says. */
   bytes?: number | null;
 }
 
-/** Whether a session row is the daemon's rolling scratch record rather than a recording. */
+/** Whether a session row is the runner's rolling scratch record rather than a recording. */
 export const isScratch = (s: Pick<SessionRow, "kind">): boolean => s.kind === "scratch";
 
 /** A range of a scratch record to keep as a session of its own. */

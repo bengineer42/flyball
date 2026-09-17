@@ -1,7 +1,7 @@
 # Architecture
 
 This part is for changing flyball itself. Using it is the earlier parts:
-[Running a rig](../1-running/daemon/index.md), [Configuration](../2-config/index.md),
+[Running a rig](../1-running/runner/index.md), [Configuration](../2-config/index.md),
 [Extending](../3-extending/index.md), [The server](../4-server/index.md).
 Four conceptual layers. Nothing below imports anything above.
 
@@ -48,7 +48,7 @@ writing a device driver rather than editing the rig.
 | `flyball.programmer` | `programmer\|integrations.bluesky` | `Command`, `Activity`, `Program`, `Programmer` |
 | `flyball.integrations.bluesky` | `programmer\|integrations.bluesky` | Bluesky documents built from a recorded session |
 | `flyball.server` | server | the FastAPI app, routes, wire models, the program dialect |
-| `flyball.client`, `flyball.cli`, `flyball.daemon`, `flyball.scaffold` | `cli\|daemon` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig |
+| `flyball.client`, `flyball.cli`, `flyball.runner`, `flyball.scaffold` | `cli\|runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig |
 
 ## The pattern
 
@@ -85,7 +85,7 @@ each line may import anything below it, nothing below imports anything
 above:
 
 ```
-flyball.cli | flyball.daemon
+flyball.cli | flyball.runner
 flyball.server
 flyball.programmer | flyball.integrations.bluesky
 flyball.runtime

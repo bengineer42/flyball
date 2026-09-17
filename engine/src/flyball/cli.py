@@ -221,11 +221,11 @@ def _global_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--url",
         default=os.environ.get("FLYBALL_URL", DEFAULT_URL),
-        help=f"daemon base URL (env FLYBALL_URL, default {DEFAULT_URL})",
+        help=f"runner base URL (env FLYBALL_URL, default {DEFAULT_URL})",
     )
     parser.add_argument("--timeout", type=float, default=5.0, help="seconds per request")
     parser.add_argument(
-        "--token", default=None, help="bearer token the daemon was started with (env FLYBALL_TOKEN)"
+        "--token", default=None, help="bearer token the runner was started with (env FLYBALL_TOKEN)"
     )
     parser.add_argument("--json", action="store_true", help="print raw JSON, one document per line")
     parser.add_argument(
@@ -289,7 +289,7 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
         fn=cmd_rig_schema, local=True
     )
     password = sub.add_parser(
-        "password", help="hash a password for the daemon's config (daemon.auth.password)"
+        "password", help="hash a password for the runner's config (runner.auth.password)"
     )
     password.add_argument(
         "password", nargs="?", help="the password; default: asked for, without echo"
@@ -484,7 +484,7 @@ def cmd_rig_schema(rig: Rig, args: argparse.Namespace) -> None:
 
 
 def cmd_password(rig: Rig, args: argparse.Namespace) -> None:
-    """Hash a password for `daemon.auth.password`; nothing leaves this machine."""
+    """Hash a password for `runner.auth.password`; nothing leaves this machine."""
     import getpass
 
     from flyball.server.auth import hash_password

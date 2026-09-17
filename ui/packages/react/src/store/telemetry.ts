@@ -341,8 +341,8 @@ export class TelemetryStore {
     let floorS = Number.POSITIVE_INFINITY; // sessions must not overlap on the axis (see `seedControllers`)
     const maxPoints = historyPoints();
     for (const session of sessions) {
-      // Only the current recording, or the daemon's rolling scratch record, may be open; another
-      // open session was left by a daemon that died and would overlay stale readings on the live trace.
+      // Only the current recording, or the runner's rolling scratch record, may be open; another
+      // open session was left by a runner that died and would overlay stale readings on the live trace.
       if (session.end_ns === null && session.id !== current?.id && !isScratch(session)) continue;
       const startS = session.start_ns / 1e9;
       const endS = session.end_ns === null ? nowS : session.end_ns / 1e9;
@@ -499,7 +499,7 @@ export class TelemetryStore {
     const perController = new Map<Address, Array<{ startS: number; ticks: Awaited<ReturnType<RigClient["ticks"]>> }>>();
     const horizonS = nowS - this.windowS;
     // Sessions must sit one after another on the time axis. A simulated clock
-    // restarts with the daemon, so an older session can carry *later* stamps
+    // restarts with the runner, so an older session can carry *later* stamps
     // than the current one; such a session cannot share the axis and is skipped.
     let floorS = Number.POSITIVE_INFINITY;
     for (const session of sessions) {

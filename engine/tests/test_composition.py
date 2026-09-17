@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import FakeDaemon
+from conftest import FakeRunner
 from flyball.core.files import load_document
 from flyball.db.sqlite import SqliteStore
-from flyball.runtime.config import DaemonConfig
+from flyball.runtime.config import RunnerConfig
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
-from flyball.server.deps import set_daemon, set_store
+from flyball.server.deps import set_runner, set_store
 from flyball.sim import SteppedClock
 
 PLANT = {"name": "t1", "tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
@@ -70,7 +70,7 @@ def client(rig, store):
     with TestClient(create_app()) as c:
         c.versions = versions  # type: ignore[attr-defined]
         yield c
-    set_daemon(None)
+    set_runner(None)
     set_store(None)
     set_rig(None)
     rig.stop()
@@ -201,7 +201,7 @@ class TestRoutes:
         assert set(overlay) == {"links", "devices"} and "probe" in overlay["devices"]
         r = client.post("/api/rig/save", json={"path": str(tmp_path / "whole.yaml")})
         assert r.status_code == 409 and "--allow-save" in r.json()["detail"]
-        set_daemon(FakeDaemon(DaemonConfig(allow_save=True)))
+        set_runner(FakeRunner(RunnerConfig(allow_save=True)))
         assert client.post("/api/rig/save", json={"path": str(rig_file)}).status_code == 409
         r = client.post("/api/rig/save", json={"path": str(tmp_path / "whole.yaml")})
         assert r.status_code == 200
@@ -220,7 +220,7 @@ class TestHardwareGate:
         # A bare rig may always be built up, even with a real link: that is what it is for.
         rig.link_entries["dmm"] = VisaLinkConfig(resource="GPIB::1")
         rig.links["dmm"] = object()
-        off = {"detail": "Composition is off on a hardware rig: start the daemon with --compose"}
+        off = {"detail": "Composition is off on a hardware rig: start the runner with --compose"}
         assert client.post("/api/links", json=PLANT).json() == off
         assert client.post("/api/devices", json=DAQ).status_code == 409
         assert client.delete("/api/links/dmm").status_code == 409

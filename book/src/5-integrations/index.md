@@ -19,7 +19,7 @@
 | QCoDeS (~200 drivers), PyMeasure (~150) | shipped, extras `flyball[qcodes]`, `[pymeasure]` | [Instrument libraries](libraries.md) |
 | Raspberry Pi: I²C, SPI, GPIO, PWM, 1-Wire and the chips on them | shipped, `flyball-linux` | [Raspberry Pi and Linux buses](linux.md) |
 | Bluesky: readables and movables over any signal; event-model export | shipped | [Bluesky](bluesky.md) |
-| A model over MCP (Claude Desktop, Claude Code, any MCP client) | shipped, on the daemon's port | [Models over MCP](models.md) |
+| A model over MCP (Claude Desktop, Claude Code, any MCP client) | shipped, on the runner's port | [Models over MCP](models.md) |
 | Your own code: Python client, TypeScript client, plain HTTP | shipped | [Your own code](code.md) |
 | Applications built on flyball | example: the humidity rig | [Applications](applications.md) |
 | EPICS, OPC UA, NI-DAQmx, LabJack, vendor packages | not yet | [Not yet](not-yet.md) |

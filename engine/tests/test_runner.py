@@ -1,4 +1,4 @@
-"""The daemon builds a rig from a file, records if told to, and serves it with a programmer."""
+"""The runner builds a rig from a file, records if told to, and serves it with a programmer."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from flyball import daemon
-from flyball.runtime.config import DaemonConfig, load_rig_config
+from flyball import runner
+from flyball.runtime.config import RunnerConfig, load_rig_config
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -18,7 +18,7 @@ def oven():
 
 
 def test_start_builds_the_rig_and_records_only_when_asked(tmp_path, oven):
-    rig = daemon.start(oven)
+    rig = runner.start(oven)
     try:
         assert rig.name == "oven" and rig.recorder is None and list(rig.controllers)
     finally:
@@ -26,7 +26,7 @@ def test_start_builds_the_rig_and_records_only_when_asked(tmp_path, oven):
 
 
 def test_start_records_when_asked(tmp_path, oven):
-    rig = daemon.start(oven, record=True, store_path=tmp_path / "s.sqlite")
+    rig = runner.start(oven, record=True, store_path=tmp_path / "s.sqlite")
     try:
         assert rig.recorder is not None and (tmp_path / "s.sqlite").exists()
     finally:
@@ -36,7 +36,7 @@ def test_start_records_when_asked(tmp_path, oven):
 
 def test_the_file_s_recording_flag_is_the_default(tmp_path, oven):
     config = oven.model_copy(update={"recording": True})
-    rig = daemon.start(config, store_path=tmp_path / "s.sqlite")
+    rig = runner.start(config, store_path=tmp_path / "s.sqlite")
     try:
         assert rig.recorder is not None
     finally:
@@ -46,7 +46,7 @@ def test_the_file_s_recording_flag_is_the_default(tmp_path, oven):
 
 def test_an_explicit_no_beats_the_file(tmp_path, oven):
     config = oven.model_copy(update={"recording": True})
-    rig = daemon.start(config, record=False, store_path=tmp_path / "t.sqlite")
+    rig = runner.start(config, record=False, store_path=tmp_path / "t.sqlite")
     try:
         assert rig.recorder is None
     finally:
@@ -56,7 +56,7 @@ def test_an_explicit_no_beats_the_file(tmp_path, oven):
 def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
     bad = tmp_path / "bad.yaml"
     bad.write_text("name: x\nlinks:\n  p: { tag: nope }\n")
-    assert daemon.main([str(bad)]) == 2
+    assert runner.main([str(bad)]) == 2
     assert "nope" in capsys.readouterr().err
 
 
@@ -72,7 +72,7 @@ def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):
 
     monkeypatch.setattr("uvicorn.Server.run", fake_run)
     rig = Rig("t")
-    daemon.serve(rig, DaemonConfig(port=1, log_level="warning"))
+    runner.serve(rig, RunnerConfig(port=1, log_level="warning"))
     assert seen["rig"] is rig and seen["programmer"].rig is rig
     assert deps.current_rig() is None
     with pytest.raises(Exception, match="No programmer"):
@@ -84,7 +84,7 @@ def _routes_served(monkeypatch, **settings):
 
     seen = {}
     monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.setdefault("app", self.config.app))
-    daemon.serve(Rig("t"), DaemonConfig(port=1, log_level="warning", **settings))
+    runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning", **settings))
     return {getattr(r, "path", "") for r in seen["app"].routes}
 
 
@@ -95,20 +95,20 @@ def test_mcp_is_mounted_unless_switched_off(monkeypatch):
 
 def test_no_mcp_flag_and_env(monkeypatch):
     monkeypatch.delenv("FLYBALL_NO_MCP", raising=False)
-    assert daemon.parser().parse_args([]).mcp is None, "unset: the file's value stands"
-    assert daemon.parser().parse_args(["--no-mcp"]).mcp is False
+    assert runner.parser().parse_args([]).mcp is None, "unset: the file's value stands"
+    assert runner.parser().parse_args(["--no-mcp"]).mcp is False
     monkeypatch.setenv("FLYBALL_NO_MCP", "1")
-    assert daemon.parser().parse_args([]).mcp is False
+    assert runner.parser().parse_args([]).mcp is False
 
 
 class TestSettle:
-    """The `daemon:` section under the command line."""
+    """The `runner:` section under the command line."""
 
     def parse(self, *argv: str):
-        return daemon.parser().parse_args(list(argv))
+        return runner.parser().parse_args(list(argv))
 
     def test_defaults_sit_beside_the_first_rig_file(self, tmp_path):
-        s = daemon.settle(None, self.parse(), tmp_path / "lab.yaml")
+        s = runner.settle(None, self.parse(), tmp_path / "lab.yaml")
         assert (s.host, s.port, s.mcp, s.allow_save, s.allow_shutdown) == (
             "127.0.0.1",
             8000,
@@ -121,61 +121,61 @@ class TestSettle:
 
     def test_the_file_sets_and_the_command_line_overrides(self, tmp_path, monkeypatch):
         monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
-        section = DaemonConfig(port=9000, allow_save=True, mcp=False, token="filed")
-        s = daemon.settle(section, self.parse("--port", "9001", "--no-mcp"), tmp_path / "r.yaml")
+        section = RunnerConfig(port=9000, allow_save=True, mcp=False, token="filed")
+        s = runner.settle(section, self.parse("--port", "9001", "--no-mcp"), tmp_path / "r.yaml")
         assert (s.port, s.allow_save, s.mcp, s.auth.token) == (9001, True, False, "filed")
-        s = daemon.settle(section, self.parse("--token", "given"), tmp_path / "r.yaml")
+        s = runner.settle(section, self.parse("--token", "given"), tmp_path / "r.yaml")
         assert s.auth.token == "given"
 
     def test_the_auth_section_settles_like_the_rest(self, tmp_path, monkeypatch):
         for var in ("FLYBALL_TOKEN", "FLYBALL_PASSWORD", "FLYBALL_ANONYMOUS", "FLYBALL_SESSION"):
             monkeypatch.delenv(var, raising=False)
-        section = DaemonConfig(auth={"password": "filed", "anonymous": "read", "session": "1h"})
-        s = daemon.settle(section, self.parse(), tmp_path / "r.yaml")
+        section = RunnerConfig(auth={"password": "filed", "anonymous": "read", "session": "1h"})
+        s = runner.settle(section, self.parse(), tmp_path / "r.yaml")
         assert (s.auth.password, s.auth.anonymous, s.auth.session_s) == ("filed", "read", 3600)
         args = self.parse("--password", "given", "--anonymous", "none", "--session", "30m")
-        s = daemon.settle(section, args, tmp_path / "r.yaml")
+        s = runner.settle(section, args, tmp_path / "r.yaml")
         assert (s.auth.password, s.auth.anonymous, s.auth.session_s) == ("given", "none", 1800)
-        assert s.auth.token is None and not DaemonConfig().auth.enabled
+        assert s.auth.token is None and not RunnerConfig().auth.enabled
         monkeypatch.setenv("FLYBALL_PASSWORD", "env")
-        assert daemon.settle(None, self.parse(), tmp_path / "r.yaml").auth.password == "env"
+        assert runner.settle(None, self.parse(), tmp_path / "r.yaml").auth.password == "env"
 
     def test_a_path_in_the_file_is_relative_to_the_rig_and_the_flags_to_the_cwd(self, tmp_path):
-        section = DaemonConfig(store=Path("data/x.sqlite"), drivers=Path("/abs/drivers"))
-        s = daemon.settle(section, self.parse("--programs", "p"), tmp_path / "r.yaml")
+        section = RunnerConfig(store=Path("data/x.sqlite"), drivers=Path("/abs/drivers"))
+        s = runner.settle(section, self.parse("--programs", "p"), tmp_path / "r.yaml")
         assert s.store == tmp_path / "data/x.sqlite" and s.drivers == Path("/abs/drivers")
         assert s.programs == Path("p")
 
     def test_store_dir_names_the_store_after_the_rig(self, tmp_path):
-        section = DaemonConfig(store_dir=Path("stores"))
-        s = daemon.settle(section, self.parse(), tmp_path / "r.yaml", name="furnace")
+        section = RunnerConfig(store_dir=Path("stores"))
+        s = runner.settle(section, self.parse(), tmp_path / "r.yaml", name="furnace")
         assert s.store == tmp_path / "stores" / "furnace.sqlite"
-        s = daemon.settle(section, self.parse(), tmp_path / "r.yaml")
+        s = runner.settle(section, self.parse(), tmp_path / "r.yaml")
         assert s.store == tmp_path / "stores" / "r.sqlite", "no name: the file's stem"
-        s = daemon.settle(section, self.parse("--store", "here.sqlite"), tmp_path / "r.yaml")
+        s = runner.settle(section, self.parse("--store", "here.sqlite"), tmp_path / "r.yaml")
         assert s.store == Path("here.sqlite"), "--store wins"
 
 
-def test_main_reads_the_daemon_section_from_the_rig_file(tmp_path, monkeypatch):
+def test_main_reads_the_runner_section_from_the_rig_file(tmp_path, monkeypatch):
     rig_file = tmp_path / "lab.yaml"
-    rig_file.write_text("name: lab\ndaemon: {port: 9123, allow_shutdown: true}\n")
+    rig_file.write_text("name: lab\nrunner: {port: 9123, allow_shutdown: true}\n")
     seen = {}
-    monkeypatch.setattr("flyball.daemon.serve", lambda rig, settings, **kw: seen.update(s=settings))
-    assert daemon.main([str(rig_file)]) == 0
+    monkeypatch.setattr("flyball.runner.serve", lambda rig, settings, **kw: seen.update(s=settings))
+    assert runner.main([str(rig_file)]) == 0
     assert seen["s"].port == 9123 and seen["s"].allow_shutdown is True
-    assert daemon.main([str(rig_file), "--port", "9124"]) == 0
+    assert runner.main([str(rig_file), "--port", "9124"]) == 0
     assert seen["s"].port == 9124
 
 
-def test_a_daemon_only_file_extends_the_rig(tmp_path, monkeypatch):
+def test_a_runner_only_file_extends_the_rig(tmp_path, monkeypatch):
     (tmp_path / "lab.yaml").write_text("name: lab\n")
     site = tmp_path / "site.yaml"
-    site.write_text("extends: [lab.yaml]\ndaemon: {port: 9125}\n")
+    site.write_text("extends: [lab.yaml]\nrunner: {port: 9125}\n")
     seen = {}
     monkeypatch.setattr(
-        "flyball.daemon.serve", lambda rig, settings, **kw: seen.update(s=settings, rig=rig)
+        "flyball.runner.serve", lambda rig, settings, **kw: seen.update(s=settings, rig=rig)
     )
-    assert daemon.main([str(site)]) == 0
+    assert runner.main([str(site)]) == 0
     assert seen["s"].port == 9125 and seen["rig"].name == "lab"
 
 
@@ -186,7 +186,7 @@ def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, ove
     store = SqliteStore(path)
     orphan = store.open_session(start_ns=1_000, config=None).session
     store.close()
-    rig, store = daemon.start_with_store(oven, record=True, store_path=path)
+    rig, store = runner.start_with_store(oven, record=True, store_path=path)
     try:
         sessions = {s.id: s for s in store.sessions()}
         assert sessions[orphan.id].end_ns is not None, "the orphan was closed"
@@ -203,19 +203,19 @@ def test_a_restart_asked_over_the_api_execs_the_same_command_line(monkeypatch):
     execs = []
 
     def fake_run(self):
-        deps.current_daemon().restart()
+        deps.current_runner().restart()
         assert self.should_exit
 
     monkeypatch.setattr("uvicorn.Server.run", fake_run)
     monkeypatch.setattr("os.execv", lambda exe, argv: execs.append((exe, argv)))
-    monkeypatch.setattr("sys.argv", ["flyball-daemon", "rig.yaml", "--port", "1"])
-    daemon.serve(Rig("t"), DaemonConfig(port=1, log_level="warning"))
+    monkeypatch.setattr("sys.argv", ["flyball-runner", "rig.yaml", "--port", "1"])
+    runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning"))
     import sys
 
     assert execs == [
-        (sys.executable, [sys.executable, "flyball-daemon", "rig.yaml", "--port", "1"])
+        (sys.executable, [sys.executable, "flyball-runner", "rig.yaml", "--port", "1"])
     ]
-    assert deps.current_daemon() is None
+    assert deps.current_runner() is None
 
 
 SIM_LINK = {"tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
@@ -230,9 +230,9 @@ def test_resume_follows_the_head_back_to_the_last_change(tmp_path):
     v2 = store.save_rig_version(2, "added link x", {"name": "a", "links": {"x": SIM_LINK}})
     v3 = store.save_rig_version(3, "loaded", {"name": "a"})  # a plain restart: parent v2
     assert (v1.parent, v2.parent, v3.parent) == (None, v1.id, v2.id)
-    assert daemon.resumed(path).name == "a" and daemon.resumed(path).links.keys() == {"x"}
+    assert runner.resumed(path).name == "a" and runner.resumed(path).links.keys() == {"x"}
     store.set_rig_head(v1.id)  # restored to the first: nothing after it counts
-    assert daemon.resumed(path).links == {}
+    assert runner.resumed(path).links == {}
     v4 = store.save_rig_version(4, "added link y", {"name": "a", "links": {"y": SIM_LINK}})
     assert v4.parent == v1.id and store.head_rig_version().id == v4.id
     store.close()
@@ -240,11 +240,11 @@ def test_resume_follows_the_head_back_to_the_last_change(tmp_path):
 
 def test_a_start_at_the_head_records_nothing(tmp_path, oven):
 
-    rig, store = daemon.start_with_store(oven, store_path=tmp_path / "s.sqlite")
+    rig, store = runner.start_with_store(oven, store_path=tmp_path / "s.sqlite")
     try:
         first = store.head_rig_version()
         assert first is not None and first.reason == "loaded"
-        daemon.keep_versions(rig, store, "loaded")
+        runner.keep_versions(rig, store, "loaded")
         assert store.head_rig_version().id == first.id
     finally:
         rig.polling.stop_all()

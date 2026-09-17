@@ -1,7 +1,7 @@
-# The furnace simulation as one daemon: `uv run flyball-daemon ../examples/site/furnace.yaml`
+# The furnace simulation as one runner: `uv run flyball-runner ../examples/site/furnace.yaml`
 # from controller. The rig is examples/simulated's; this file only says how to serve it.
 extends: [../simulated/furnace.yaml]
-daemon:
+runner:
   port: 8002
   root_path: /furnace
   allow_shutdown: true

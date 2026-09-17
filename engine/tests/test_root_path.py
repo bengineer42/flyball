@@ -1,11 +1,11 @@
-"""`--root-path`: everything the daemon serves sits under one prefix; the proxy need not rewrite."""
+"""`--root-path`: everything the runner serves sits under one prefix; the proxy need not rewrite."""
 
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball import daemon
+from flyball import runner
 from flyball.mcp.http import mount
 from flyball.server import create_app, set_rig
 from test_auth import _InProcess
@@ -50,9 +50,9 @@ def test_root_path_must_be_absolute():
         create_app(root_path="flyball")
 
 
-def test_daemon_flag_and_env(monkeypatch):
+def test_runner_flag_and_env(monkeypatch):
     monkeypatch.delenv("FLYBALL_ROOT_PATH", raising=False)
-    assert daemon.parser().parse_args([]).root_path is None
-    assert daemon.parser().parse_args(["--root-path", "/x"]).root_path == "/x"
+    assert runner.parser().parse_args([]).root_path is None
+    assert runner.parser().parse_args(["--root-path", "/x"]).root_path == "/x"
     monkeypatch.setenv("FLYBALL_ROOT_PATH", "/y")
-    assert daemon.parser().parse_args([]).root_path == "/y"
+    assert runner.parser().parse_args([]).root_path == "/y"

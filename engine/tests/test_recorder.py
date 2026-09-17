@@ -313,7 +313,7 @@ class TestNonFloatReadings:
 
 
 def _legacy_store(path) -> None:
-    """A database at schema 0006 with one session of the old shape, as a daemon left it."""
+    """A database at schema 0006 with one session of the old shape, as a runner left it."""
     connection = sqlite3.connect(path)
     files = available()
     for version in range(1, 7):

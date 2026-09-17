@@ -46,7 +46,7 @@ class Tool:
     destructive: bool = False
     """Interrupts or removes something: a controller goes to manual, a version is deleted."""
     route: tuple[str, str] | None = None
-    """(method, path) the daemon must serve for this tool to be listed; see `MCP.md`."""
+    """(method, path) the runner must serve for this tool to be listed; see `MCP.md`."""
     changes_tools: bool = False
     """Attaches or detaches devices: the tool list is rebuilt and clients told."""
 
@@ -308,7 +308,7 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "rig_schema",
-        "JSON schema of a rig file, with every driver the daemon has installed.",
+        "JSON schema of a rig file, with every driver the runner has installed.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/rig/schema"),
@@ -322,7 +322,7 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "check_rig",
-        "Validate a rig document against the daemon's drivers: nothing is built. Returns the "
+        "Validate a rig document against the runner's drivers: nothing is built. Returns the "
         "canonical form, or what is wrong.",
         _object({"document": DOCUMENT}, "document"),
         Tier.READ,
@@ -764,8 +764,8 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 # find out what is there; `attach_device` puts an entry on the running rig.
 # Equipment that needs code gets the guide, a scaffold, a checker that
 # imports the file where this server runs, and `reload_drivers` for a
-# directory the daemon loads from. A tool whose route the daemon does not
-# serve is not listed. Building on a hardware rig is the daemon's
+# directory the runner loads from. A tool whose route the runner does not
+# serve is not listed. Building on a hardware rig is the runner's
 # `--compose` opt-in: without it the attach tools are refused with 409.
 
 GUIDES = Path(__file__).parent / "guides"
@@ -863,7 +863,7 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "list_drivers",
-        "Every tag the daemon can build -- drivers and links -- with its config schema, "
+        "Every tag the runner can build -- drivers and links -- with its config schema, "
         "description and the module it came from.",
         _object(),
         Tier.READ,
@@ -872,7 +872,7 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "reload_drivers",
-        "Import (again) every module in the daemon's drivers directory, so a new or edited "
+        "Import (again) every module in the runner's drivers directory, so a new or edited "
         "driver's tag can be attached; devices already built keep their old class. Runs "
         "those files' top level. Returns what each file registered and any import error.",
         _object(),
@@ -883,7 +883,7 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "probe_hardware",
-        "What the daemon's host has: board model, I2C/SPI/serial buses, GPIO chips; with "
+        "What the runner's host has: board model, I2C/SPI/serial buses, GPIO chips; with "
         "`scan`, the addresses answering on each I2C bus (a bus transaction: some devices "
         "mind).",
         _object({"scan": _bool("Scan the I2C buses.")}),
@@ -893,7 +893,7 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "link_query",
-        "One raw exchange on a link the daemon owns: send `text`, return the reply (`*IDN?` "
+        "One raw exchange on a link the runner owns: send `text`, return the reply (`*IDN?` "
         "to find out what is there; a guessed command to see if it works). Nothing is parsed.",
         _object(
             {"link": _str("The link's name in the rig file."), "text": _str("What to send.")},
@@ -908,7 +908,7 @@ DRIVERS: tuple[Tool, ...] = (
         "attach_device",
         "Build a device from a rig-file entry and add it to the running rig, its links "
         "resolved; `check_rig` the whole file first. `save_rig` keeps it. On a hardware rig "
-        "only when the daemon runs with `--compose`.",
+        "only when the runner runs with `--compose`.",
         _object(
             {
                 "name": NAME,
@@ -940,7 +940,7 @@ DRIVERS: tuple[Tool, ...] = (
         "attach_link",
         "Build a transport on the running rig and hold it under `name`, for devices to be "
         "built on: the rig file's `links:` entry (`tag`, its settings). On a hardware rig only "
-        "when the daemon runs with `--compose`.",
+        "when the runner runs with `--compose`.",
         _object(
             {"name": NAME, "config": {"type": "object", "description": "The link config."}},
             "name",
@@ -964,7 +964,7 @@ DRIVERS: tuple[Tool, ...] = (
         "Add a whole rig document -- `links`, `devices`, `controllers` -- to the running rig, "
         "in that order; the way to build a rig from nothing. Validated whole before anything "
         "is built; a failure part-way leaves what was built before it. `check_rig` first. On a "
-        "hardware rig only when the daemon runs with `--compose`.",
+        "hardware rig only when the runner runs with `--compose`.",
         _object({"document": DOCUMENT}, "document"),
         Tier.DRIVE,
         lambda rig, a: rig.post("/api/rig", a["document"]),
@@ -1020,7 +1020,7 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "save_rig",
         "Write the running rig out. No `path`: what changed since the files were loaded, to "
-        "an overlay beside the rig file the daemon loads next start. A `path`: the whole rig "
+        "an overlay beside the rig file the runner loads next start. A `path`: the whole rig "
         "to that file (`overwrite` to flatten onto one it was loaded from).",
         _object({
             "path": _str("Where to write; a .yaml, .toml or .json."),
@@ -1034,10 +1034,10 @@ DRIVERS: tuple[Tool, ...] = (
 
 
 def _served(rig: Rig) -> set[tuple[str, str]]:
-    """(method, path) the daemon serves, from its OpenAPI; empty if it has none."""
+    """(method, path) the runner serves, from its OpenAPI; empty if it has none."""
     try:
         paths = rig.get("/openapi.json")["paths"]
-    except RigError:  # a daemon without OpenAPI lists no gated tool
+    except RigError:  # a runner without OpenAPI lists no gated tool
         return set()
     return {(method, path) for path, methods in paths.items() for method in methods}
 

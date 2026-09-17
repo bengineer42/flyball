@@ -48,7 +48,7 @@ def secured(rig, monkeypatch):
 
 @pytest.fixture
 def password(rig, monkeypatch):
-    """A hashed password and no token: the daemon's MCP mount uses an internal one."""
+    """A hashed password and no token: the runner's MCP mount uses an internal one."""
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
     auth = AuthConfig(password=hash_password("hunter2"))
     http = _serve(rig, auth, internal="int3rnal", mcp_token="int3rnal")
@@ -159,7 +159,7 @@ def test_login_sets_a_cookie_that_gets_everything_and_logout_clears_it(password)
     assert password.get("/api/health").status_code == 401
 
 
-def test_the_daemons_own_mcp_mount_gets_in_with_the_internal_token(password):
+def test_the_runners_own_mcp_mount_gets_in_with_the_internal_token(password):
     assert password.post("/mcp/read", json={}).status_code == 401
     ok = password.post("/mcp/read", json={}, headers={"Authorization": "Bearer int3rnal"})
     assert ok.status_code != 401

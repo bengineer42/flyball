@@ -275,11 +275,11 @@ export interface ProgramsProps {
 /** The program library: every stored program, with check, run, delete, upload and new. */
 export function Programs({ programmer, events, onOpen }: ProgramsProps) {
   const rig = useRig();
-  // Files in the daemon's programs directory are imported on arrival here and on "Rescan"; the list is fetched after.
+  // Files in the runner's programs directory are imported on arrival here and on "Rescan"; the list is fetched after.
   const [rescans, setRescans] = useState(0);
   const [imported, setImported] = useState<string[] | null>(null);
   const programs = useQuery(async () => {
-    const fresh = await rig.importPrograms().catch(() => []); // no directory, or an older daemon: nothing to import
+    const fresh = await rig.importPrograms().catch(() => []); // no directory, or an older runner: nothing to import
     setImported(fresh.map((p) => p.name));
     return rig.programs();
   }, [rig, rescans]);
@@ -327,7 +327,7 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => onOpen(NEW)}>
           New
         </Button>
-        <Tooltip title="Import any new files from the daemon's programs directory">
+        <Tooltip title="Import any new files from the runner's programs directory">
           <span>
             <Tooltip title="Re-read the program files on the rig's disk; changed files become new versions">
               <span>

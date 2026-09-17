@@ -1,7 +1,7 @@
-"""The daemon's housekeeping over the store: the scratch record, rotation, retention, the cap.
+"""The runner's housekeeping over the store: the scratch record, rotation, retention, the cap.
 
 The rig records into at most one session at a time. While nobody has
-started one, the daemon records into a *scratch* session of its own
+started one, the runner records into a *scratch* session of its own
 ([SessionKind][flyball.db.types.SessionKind] `"scratch"`), so a chart has
 the last `keep` of history on a rig nobody is recording, and any part of
 it can be kept as a session proper (`Store.keep_range`) or folded into the
@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 from flyball.db import SessionRow, Store
 
 if TYPE_CHECKING:
-    from flyball.runtime.config import DaemonConfig
+    from flyball.runtime.config import RunnerConfig
     from flyball.runtime.rig import Rig
 
 log = logging.getLogger("flyball.retention")
@@ -48,13 +48,13 @@ class Retention:
 
     Args:
         rig: The rig; its clock sets the windows and its recorder is what is swept around.
-        store: The store the daemon records into.
-        settings: The `daemon:` section: `keep`, `keep_size`, `retain`, `rotate`, `max_store`.
+        store: The store the runner records into.
+        settings: The `runner:` section: `keep`, `keep_size`, `retain`, `rotate`, `max_store`.
         period_s: Wall seconds between sweeps.
     """
 
     def __init__(
-        self, rig: Rig, store: Store, settings: DaemonConfig, period_s: float = 30.0
+        self, rig: Rig, store: Store, settings: RunnerConfig, period_s: float = 30.0
     ) -> None:
         self.rig = rig
         self.store = store

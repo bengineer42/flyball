@@ -15,7 +15,7 @@ Probably not. Two generic drivers take everything from the rig-file entry:
 - `modbus` -- registers over TCP or RTU: each signal is an address, a type
   and a scale.
 
-`list_drivers` shows every tag the daemon has and each config's schema;
+`list_drivers` shows every tag the runner has and each config's schema;
 `rig_schema` shows the whole file. Write the entry, `check_rig` the file,
 `attach_device` the entry, `read` its signals. Only reach for code when the
 protocol is neither, or the device does arithmetic across its signals (a
@@ -142,7 +142,7 @@ fakes are how a driver is tested without hardware.
 
 ## Getting it onto the rig
 
-1. Write the module where the daemon runs, in its drivers directory.
+1. Write the module where the runner runs, in its drivers directory.
 2. `check_driver(path)`: imports it in a fresh interpreter and reports the
    tag, the config schema, the device's descriptors and commands, or the
    error.

@@ -206,7 +206,7 @@ class TestRigRoutes:
         with pytest.raises(RigError, match="devices"):
             client.post("/api/rig/check", {"devices": "no"})
 
-    def test_config_is_what_the_daemon_was_given(self, client):
+    def test_config_is_what_the_runner_was_given(self, client):
         from flyball.client.rig import RigError
         from flyball.runtime.config import RigConfig
 
@@ -249,7 +249,7 @@ class TestOverTheWire:
 
 
 class TestMounted:
-    """`/mcp/<mode>` in the daemon's app: the JSON-RPC exchange a client makes, by hand."""
+    """`/mcp/<mode>` in the runner's app: the JSON-RPC exchange a client makes, by hand."""
 
     @pytest.fixture
     def http(self, tmp_path, rig):
@@ -315,7 +315,7 @@ class TestDriverTools:
     def tool(self, client, name, mode="operate"):
         return next(t for t in tools_for(client, mode) if t.name == name)
 
-    def test_tools_whose_routes_the_daemon_lacks_are_not_listed(self, client, monkeypatch):
+    def test_tools_whose_routes_the_runner_lacks_are_not_listed(self, client, monkeypatch):
         from flyball.mcp import tools
 
         gated = {t.name for t in tools.DRIVERS if t.route is not None}
@@ -327,12 +327,12 @@ class TestDriverTools:
         assert gated & names(tools_for(client, "operate")) == {"attach_device"}
         assert "check_driver" not in names(tools_for(client, "author")), "imports a file: drive"
 
-    def test_served_is_read_from_the_daemon_s_openapi(self, client):
+    def test_served_is_read_from_the_runner_s_openapi(self, client):
         from flyball.mcp.tools import _served
 
         assert ("get", "/api/devices/{name}/schema") in _served(client)
 
-    def test_the_daemon_s_driver_routes_list_their_tools(self, client):
+    def test_the_runner_s_driver_routes_list_their_tools(self, client):
         listed = names(tools_for(client, "operate"))
         assert {"list_drivers", "reload_drivers", "probe_hardware", "link_query"} <= listed
         drivers = self.tool(client, "list_drivers", "read").run(client, {})
@@ -419,7 +419,7 @@ class TestComposition:
         assert isinstance(self.tool(client, "rig_changes").run(client, {}), dict)
         self.tool(client, "detach_device").run(client, {"name": "spare"})
         assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
-        # Versions and restore need the daemon's change hook on the store: test_composition.
+        # Versions and restore need the runner's change hook on the store: test_composition.
 
     async def test_attaching_announces_a_new_tool_list(self, client):
         server = build(client, "operate")

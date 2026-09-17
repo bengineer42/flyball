@@ -5,7 +5,7 @@ in the UI; the deeper vocabulary behind them lives with the people who need
 it -- [The device model](../3-extending/model.md) for the developer,
 [The controller in detail](../6-internals/controller.md) for the contributor.
 
-**The rig** is everything one daemon serves: the page you open. It has a
+**The rig** is everything one runner serves: the page you open. It has a
 name (`furnace`, `humidity`), a clock (real time, or faster on a
 simulation), and at any moment it is either recording or not.
 
@@ -36,22 +36,22 @@ of one step.
 
 **A session** is a recording: everything the rig read, was told and did
 between a start and an end, on the Sessions page, exportable as CSV, JSON
-or a zip. While nobody is recording the daemon still keeps the last hour --
+or a zip. While nobody is recording the runner still keeps the last hour --
 the *scratch record* -- so a chart is never empty and a moment worth keeping
 can be kept after the event.
 
 ## How it fits together
 
 ```
- config file ──▶ flyball-daemon ──▶ the rig ──▶ /api, /ws, /mcp ──▶ the UI
+ config file ──▶ flyball-runner ──▶ the rig ──▶ /api, /ws, /mcp ──▶ the UI
  (links, devices,   builds and       reads, drives,                  the CLI
   controllers,      serves it        regulates, records               a script
-  daemon: how)                                                        a model
+  runner: how)                                                        a model
 ```
 
 The config file says what is on the rig and how it is served
-([Configuration](../2-config/index.md)); the daemon builds the rig from it
-and serves it ([Starting a rig](../1-running/daemon/index.md)); everything
+([Configuration](../2-config/index.md)); the runner builds the rig from it
+and serves it ([Starting a rig](../1-running/runner/index.md)); everything
 that faces a person -- the UI, the CLI, a script, a model -- is a client of
 the same API ([The server](../4-server/index.md)).
 

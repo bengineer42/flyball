@@ -32,7 +32,7 @@ export interface Subscription {
 export interface StreamHandlers<T = unknown> {
   onMessage(message: T): void;
   onOpen?(): void;
-  /** `code` is the socket's close code where known: 4401 is the daemon's "wrong or missing token". */
+  /** `code` is the socket's close code where known: 4401 is the runner's "wrong or missing token". */
   onClose?(reason: "closed" | "error", code?: number): void;
 }
 
@@ -40,7 +40,7 @@ export interface Transport {
   request(request: Request): Promise<Response>;
   /** Where requests go, when the transport has an origin: `""` for same-origin. A download link needs the URL, not a fetch. */
   readonly base?: string;
-  /** The bearer token every request and stream carries, when the daemon was given one to start with `--token`. */
+  /** The bearer token every request and stream carries, when the runner was given one to start with `--token`. */
   readonly token?: string;
   /** `path` is under the base URL, e.g. `/ws/samples`. */
   stream(path: string, handlers: StreamHandlers): Subscription;
@@ -61,7 +61,7 @@ export class RigError extends Error {
 /**
  * Where the page was served from, without the file: `https://host` at the root,
  * `https://host/flyball/humidity` under a sub-path. The default base, so a
- * daemon started with `--root-path` behind the same prefix is found without
+ * runner started with `--root-path` behind the same prefix is found without
  * telling the app anything.
  */
 export function pageBase(): string {
@@ -80,11 +80,11 @@ function buildUrl(base: string, path: string, query?: Request["query"]): string 
 /**
  * The browser transport: `fetch` for requests, `WebSocket` for streams, with
  * reconnection on drop (exponential backoff, capped). `base` is an absolute
- * origin, with the daemon's `--root-path` if it has one; default: where the
+ * origin, with the runner's `--root-path` if it has one; default: where the
  * page itself was served from (`pageBase`).
- * `token`: a daemon started with `--token` refuses everything without it --
+ * `token`: a runner started with `--token` refuses everything without it --
  * a header on a request, `?token=` on a socket (a browser cannot set headers
- * on one). A socket the daemon closes for a wrong or missing token (4401) is
+ * on one). A socket the runner closes for a wrong or missing token (4401) is
  * not retried: nothing about reconnecting would fix it.
  */
 export function browserTransport(base: string = pageBase(), token?: string): Transport {

@@ -71,5 +71,5 @@ the one registry, so `GET /api/drivers` lists links beside drivers and
 
 A tag registers when its module is imported: the built-ins on `import
 flyball`, a package's through its `flyball.configs` entry point, a
-`drivers/` file when the daemon starts or `POST /api/drivers/reload` runs.
+`drivers/` file when the runner starts or `POST /api/drivers/reload` runs.
 `flyball new NAME` writes a complete starting file.

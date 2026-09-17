@@ -40,7 +40,7 @@ import PushPinIcon from "@mui/icons-material/PushPin";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import HistoryIcon from "@mui/icons-material/History";
 import { SessionPanel, useDeviceRuns, useNowS, useQuery, useRig, useSession, useSimulation, type SessionExports } from "@flyball/react";
-import { isScratch, type DaemonInfo, type SessionRow } from "@flyball/client";
+import { isScratch, type RunnerInfo, type SessionRow } from "@flyball/client";
 import { sessionName, type Recording } from "../model.js";
 import { duration, when } from "../time.js";
 import { hashFor } from "../router.js";
@@ -77,21 +77,21 @@ const minutesLabel = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : m
 const span = (seconds: number): string =>
   seconds % 86400 === 0 ? `${seconds / 86400} d` : seconds % 3600 === 0 ? `${seconds / 3600} h` : seconds % 60 === 0 ? `${seconds / 60} min` : duration(seconds);
 
-/** "kept 1 h · rotates daily · 30 d retention · 20 GB cap" from what the daemon says of its store; nothing when it says nothing. */
-function retentionLine(daemon: DaemonInfo | undefined): string | null {
-  if (!daemon) return null;
+/** "kept 1 h · rotates daily · 30 d retention · 20 GB cap" from what the runner says of its store; nothing when it says nothing. */
+function retentionLine(runner: RunnerInfo | undefined): string | null {
+  if (!runner) return null;
   const parts: string[] = [];
-  if (daemon.keep_ns) parts.push(`unrecorded data kept ${span(daemon.keep_ns / 1e9)}`);
-  if (daemon.retain_ns) parts.push(`sessions ${span(daemon.retain_ns / 1e9)} unless pinned`);
-  if (daemon.rotate_ns) parts.push(`rotates every ${span(daemon.rotate_ns / 1e9)}`);
-  if (daemon.max_bytes) parts.push(`${bytes(daemon.max_bytes)} cap`);
-  if (daemon.store) parts.push(`in ${daemon.store}`);
+  if (runner.keep_ns) parts.push(`unrecorded data kept ${span(runner.keep_ns / 1e9)}`);
+  if (runner.retain_ns) parts.push(`sessions ${span(runner.retain_ns / 1e9)} unless pinned`);
+  if (runner.rotate_ns) parts.push(`rotates every ${span(runner.rotate_ns / 1e9)}`);
+  if (runner.max_bytes) parts.push(`${bytes(runner.max_bytes)} cap`);
+  if (runner.store) parts.push(`in ${runner.store}`);
   return parts.join(" · ") || null;
 }
 
-/** When the daemon's retention will age a closed session out, for its "ended" cell's hint; nothing for a pinned or open one. */
-function keptUntil(s: SessionRow, daemon: DaemonInfo | undefined): string | undefined {
-  const retain = daemon?.retain_ns;
+/** When the runner's retention will age a closed session out, for its "ended" cell's hint; nothing for a pinned or open one. */
+function keptUntil(s: SessionRow, runner: RunnerInfo | undefined): string | undefined {
+  const retain = runner?.retain_ns;
   if (!retain || s.pinned || s.end_ns == null) return undefined;
   return `kept until ${when(s.end_ns + retain)} (${span(retain / 1e9)} retention); pin to keep it`;
 }
@@ -99,13 +99,13 @@ function keptUntil(s: SessionRow, daemon: DaemonInfo | undefined): string | unde
 const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.round(n / 1e3)} kB`);
 
 /** The rolling scratch record's row: what it holds, and Keep… to make a session of some of it. */
-function ScratchRow({ scratch, nowS, daemon, onKeep, onSelect }: { scratch: SessionRow; nowS: number; daemon: DaemonInfo | undefined; onKeep(): void; onSelect(): void }) {
+function ScratchRow({ scratch, nowS, runner, onKeep, onSelect }: { scratch: SessionRow; nowS: number; runner: RunnerInfo | undefined; onKeep(): void; onSelect(): void }) {
   const heldS = Math.max(0, nowS - scratch.start_ns / 1e9);
-  const keep = daemon?.keep_ns;
+  const keep = runner?.keep_ns;
   return (
     <TableRow hover sx={{ cursor: "pointer", "& td": { bgcolor: "action.hover" } }} onClick={onSelect} data-testid="scratch-row">
       <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-        <Tooltip title="What the daemon holds while nothing is recorded: the newest data, trimmed as it ages. Not a session until kept.">
+        <Tooltip title="What the runner holds while nothing is recorded: the newest data, trimmed as it ages. Not a session until kept.">
           <Box sx={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: "text.secondary" }}>
             <HistoryIcon fontSize="small" />
           </Box>
@@ -163,7 +163,7 @@ function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; n
     <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth="xs">
       <DialogTitle>Keep as a session</DialogTitle>
       <DialogContent>
-        <DialogContentText sx={{ mb: 2 }}>The last part of what the daemon holds becomes a session of its own, kept like any recording.</DialogContentText>
+        <DialogContentText sx={{ mb: 2 }}>The last part of what the runner holds becomes a session of its own, kept like any recording.</DialogContentText>
         {error && (
           <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
             {error}
@@ -459,9 +459,9 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
 
   // The list may stamp an open session with its last sample as `end_ns`; the recording endpoint is the word on which is open.
   const rows = (sessions.data ?? []).map((r) => (recording.data && r.id === recording.data.id && recording.data.end_ns == null ? { ...r, end_ns: null } : r));
-  // The daemon's rolling scratch record (the last `keep` while nothing is recorded): shown apart, kept from, never selected.
+  // The runner's rolling scratch record (the last `keep` while nothing is recorded): shown apart, kept from, never selected.
   const scratch = rows.find((r) => isScratch(r) && r.end_ns == null);
-  const daemon = useQuery(() => rig.daemon().catch(() => undefined), [rig], { refreshMs: 30000 });
+  const runner = useQuery(() => rig.runner().catch(() => undefined), [rig], { refreshMs: 30000 });
   const [keeping, setKeeping] = useState<SessionRow | null>(null);
   const [pinBusy, setPinBusy] = useState<number | null>(null);
   const pin = async (s: SessionRow) => {
@@ -625,7 +625,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
           <Typography variant="body2" color="text.secondary" component="span">
             {[
               simulation.speed !== undefined && simulation.speed !== 1 ? `times are the rig's clock, ×${simulation.speed}` : null,
-              retentionLine(daemon.data),
+              retentionLine(runner.data),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -678,7 +678,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                 const rigName = config && typeof config === "object" && typeof (config as { name?: unknown }).name === "string" ? (config as { name: string }).name : null;
                 const extra = Object.keys(otherDetails).length;
                 const isOpen = id === openId;
-                if (isScratch(s)) return <ScratchRow key={id} scratch={s} nowS={nowS} daemon={daemon.data} onKeep={() => setKeeping(s)} onSelect={() => onSelect(id)} />;
+                if (isScratch(s)) return <ScratchRow key={id} scratch={s} nowS={nowS} runner={runner.data} onKeep={() => setKeeping(s)} onSelect={() => onSelect(id)} />;
                 return (
                   <TableRow key={id} hover sx={{ cursor: "pointer" }} onClick={() => onSelect(id)}>
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
@@ -719,7 +719,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                         </Typography>
                       )}
                       {s.continues != null && (
-                        <Chip label={`continues #${s.continues}`} size="small" variant="outlined" sx={{ ml: 1 }} title="The daemon rotated at a boundary: this session carries on from that one" />
+                        <Chip label={`continues #${s.continues}`} size="small" variant="outlined" sx={{ ml: 1 }} title="The runner rotated at a boundary: this session carries on from that one" />
                       )}
                     </TableCell>
                     <TableCell>
@@ -739,13 +739,13 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                       </Stack>
                     </TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>{when(start_ns)}</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }} title={keptUntil(s, daemon.data)}>
+                    <TableCell sx={{ whiteSpace: "nowrap" }} title={keptUntil(s, runner.data)}>
                       {end_ns ? when(end_ns) : <Chip label="open" color="success" variant="outlined" />}
                     </TableCell>
                     <TableCell>{fmtDuration(sessionSeconds(s, nowS))}</TableCell>
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                      {daemon.data?.retain_ns != null && daemon.data.retain_ns > 0 && (
-                        <Tooltip title={s.pinned ? "Pinned: never aged out. Unpin?" : `Pin: keep past the ${span(daemon.data.retain_ns / 1e9)} retention`}>
+                      {runner.data?.retain_ns != null && runner.data.retain_ns > 0 && (
+                        <Tooltip title={s.pinned ? "Pinned: never aged out. Unpin?" : `Pin: keep past the ${span(runner.data.retain_ns / 1e9)} retention`}>
                           <span>
                             <IconButton aria-label={`${s.pinned ? "unpin" : "pin"} session ${id}`} disabled={pinBusy === id} onClick={() => void pin(s)}>
                               {s.pinned ? <PushPinIcon fontSize="small" color="primary" /> : <PushPinOutlinedIcon fontSize="small" />}

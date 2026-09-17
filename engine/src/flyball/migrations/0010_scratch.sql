@@ -1,7 +1,7 @@
 -- 0010: the scratch record, pins, continuations.
 --
 -- A session now has a *kind*: "session" is a recording someone started;
--- "scratch" is the rolling record the daemon keeps while nothing is being
+-- "scratch" is the rolling record the runner keeps while nothing is being
 -- recorded, trimmed to the last `keep` of the rig's clock. Trimming deletes
 -- a scratch session's oldest rows and moves its `start_ns` forward to the
 -- oldest row kept, so the row says what it holds. Offsets are not rewritten
@@ -10,7 +10,7 @@
 -- session that was never trimmed the two are equal.
 --
 -- `pinned` exempts a session from retention; `continues` names the session a
--- rotated one carries on from; `bytes` is the daemon's latest estimate of
+-- rotated one carries on from; `bytes` is the runner's latest estimate of
 -- what a scratch session holds on disk, for the sessions list.
 
 ALTER TABLE session ADD COLUMN kind TEXT NOT NULL DEFAULT 'session';

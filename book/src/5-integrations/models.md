@@ -1,6 +1,6 @@
 # Models over MCP
 
-**What.** The daemon serves the Model Context Protocol on its own port at
+**What.** The runner serves the Model Context Protocol on its own port at
 `/mcp/read`, `/mcp/author` and `/mcp/operate` -- three tiers, narrowest
 first -- so Claude Desktop, Claude Code or any MCP client can read the rig,
 write rig files, drivers and programs, or drive it.
@@ -11,7 +11,7 @@ scaffolding a driver in `author`; demands, controllers and programs in
 `operate`. A client in read mode is never told a moving tool exists.
 
 **Configure.** On by default; `--no-mcp` (or `mcp: false` in the
-[`daemon:` section](../2-config/daemon.md)) turns it off. A daemon with a
+[`runner:` section](../2-config/runner.md)) turns it off. A runner with a
 token requires it on `/mcp` too. The connect lines and a client config
 block are on the UI's [Rig page](../1-running/ui/rig.md).
 

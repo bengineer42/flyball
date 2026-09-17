@@ -15,7 +15,7 @@ CREATE TABLE schema_version (
     version     INTEGER NOT NULL
 );
 
--- One run of the daemon, or one explicit recording. Owns everything below.
+-- One run of the runner, or one explicit recording. Owns everything below.
 CREATE TABLE session (
     id          INTEGER PRIMARY KEY,
     start_ns    INTEGER NOT NULL,           -- wall clock at session start, ns since epoch

@@ -3,8 +3,8 @@
     uv run python demo.py oven.yaml 50 600      # aim at 50 °C, watch 600 s
     uv run python demo.py tank.yaml 40 120
 
-No daemon, no threads: the rig's clock is stepped, so a ten-minute run takes
-a moment. Everything the daemon would do -- tick, apply, record -- happens
+No runner, no threads: the rig's clock is stepped, so a ten-minute run takes
+a moment. Everything the runner would do -- tick, apply, record -- happens
 the same way, which is the point of `flyball.sim`.
 """
 

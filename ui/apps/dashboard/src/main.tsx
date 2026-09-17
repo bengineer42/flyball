@@ -13,9 +13,9 @@ import { LoginPage } from "./Login.js";
 import { App } from "./App.js";
 
 /**
- * The door, then the app. While the daemon says this browser may see nothing, the login page is all there
+ * The door, then the app. While the runner says this browser may see nothing, the login page is all there
  * is; a sign in or out rebuilds `<RigProvider>` (a new transport), which reconnects every socket at once.
- * A reader on a daemon anyone may look at gets the app, and a nudge to sign in when a write is refused.
+ * A reader on a runner anyone may look at gets the app, and a nudge to sign in when a write is refused.
  */
 function Root() {
   const auth = useAuth();
@@ -35,7 +35,7 @@ function Root() {
     }
   }, [canOperate]);
 
-  // Nothing until the daemon has said which door it has: an app mounted before that would knock on every
+  // Nothing until the runner has said which door it has: an app mounted before that would knock on every
   // route and be refused. Unreachable is different: the app shows its own "cannot reach the rig".
   if (info === null && !error) return null;
   if (mustSignIn) return <LoginPage />;

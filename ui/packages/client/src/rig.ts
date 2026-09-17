@@ -44,7 +44,7 @@ import type {
   StartSpec,
   Series,
   SessionEvent,
-  DaemonInfo,
+  RunnerInfo,
   KeepRange,
   SessionRow,
   SignalRow,
@@ -121,7 +121,7 @@ export class RigClient {
   }
 
   /** A route's URL under the transport's base, for a link the browser follows itself (a download). A plain
-   * navigation cannot set a header, so the token travels as `?token=`, which the daemon accepts on any GET. */
+   * navigation cannot set a header, so the token travels as `?token=`, which the runner accepts on any GET. */
   private url(path: string, query: Record<string, string | number | undefined> = {}): string {
     const q = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined) q.set(key, String(value));
@@ -254,12 +254,12 @@ export class RigClient {
   /** Every version of the rig this store has seen, newest first: when, and why it changed. */
   // region Auth
 
-  /** Who this caller is here and what the daemon's door is like (`GET /api/auth`); always answers. */
+  /** Who this caller is here and what the runner's door is like (`GET /api/auth`); always answers. */
   auth(): Promise<AuthInfo> {
     return this.get("/api/auth");
   }
 
-  /** Trade the password (or the daemon's token) for a session cookie the browser then carries on every
+  /** Trade the password (or the runner's token) for a session cookie the browser then carries on every
    * request, socket and download. 401 for a wrong one; 429 after ten wrong ones in a minute. */
   login(secret: string): Promise<AuthInfo> {
     return this.call({ method: "POST", path: "/api/auth/login", body: { secret } });
@@ -272,19 +272,19 @@ export class RigClient {
 
   // endregion
 
-  /** How this daemon serves: its resolved `daemon:` config (`GET /api/daemon`). */
-  daemon(): Promise<DaemonInfo> {
-    return this.get("/api/daemon");
+  /** How this runner serves: its resolved `runner:` config (`GET /api/runner`). */
+  runner(): Promise<RunnerInfo> {
+    return this.get("/api/runner");
   }
 
-  /** Ask the daemon to stop (409 unless it allows it). */
-  shutdownDaemon(): Promise<{ detail: string }> {
-    return this.call({ method: "POST", path: "/api/daemon/shutdown" });
+  /** Ask the runner to stop (409 unless it allows it). */
+  shutdownRunner(): Promise<{ detail: string }> {
+    return this.call({ method: "POST", path: "/api/runner/shutdown" });
   }
 
-  /** Ask the daemon to restart in place: the same command, the rig rebuilt; sockets drop for a few seconds. */
-  restartDaemon(): Promise<{ detail: string }> {
-    return this.call({ method: "POST", path: "/api/daemon/restart" });
+  /** Ask the runner to restart in place: the same command, the rig rebuilt; sockets drop for a few seconds. */
+  restartRunner(): Promise<{ detail: string }> {
+    return this.call({ method: "POST", path: "/api/runner/restart" });
   }
 
   rigVersions(limit?: number): Promise<RigVersion[]> {
@@ -301,7 +301,7 @@ export class RigClient {
     return this.call({ method: "POST", path: `/api/rig/versions/${id}/restore` });
   }
 
-  /** Write the running rig out. No `path`: the changes since the files were loaded, to the overlay beside them (409 if the rig was not started from a file). A `path`: the whole rig, flattened (422 for a suffix the daemon does not write, 409 for one of the loaded files unless `overwrite`). */
+  /** Write the running rig out. No `path`: the changes since the files were loaded, to the overlay beside them (409 if the rig was not started from a file). A `path`: the whole rig, flattened (422 for a suffix the runner does not write, 409 for one of the loaded files unless `overwrite`). */
   saveRig(body: { path?: string; overwrite?: boolean } = {}): Promise<SaveResult> {
     return this.call({ method: "POST", path: "/api/rig/save", body });
   }
@@ -560,7 +560,7 @@ export class RigClient {
     return this.get("/api/programs/library");
   }
 
-  /** Rescan the daemon's programs directory; resolves to what was newly imported. */
+  /** Rescan the runner's programs directory; resolves to what was newly imported. */
   importPrograms(): Promise<ProgramRow[]> {
     return this.call({ method: "POST", path: "/api/programs/library/import" });
   }

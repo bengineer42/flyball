@@ -21,7 +21,7 @@ nothing is attached.
 | module | serves |
 | --- | --- |
 | `rig.py` | the live rig read-only — health, clock, tunings; what the rig is *made of* is elsewhere |
-| `daemon.py` | `/api/daemon*`: the process's resolved settings, shutdown and restart, through the handle `flyball-daemon` sets with `set_daemon` (404 without one) |
+| `runner.py` | `/api/runner*`: the process's resolved settings, shutdown and restart, through the handle `flyball-runner` sets with `set_runner` (404 without one) |
 | `devices.py` | `/api/devices*`: the tree, commands, demands |
 | `read.py` | `/api/read*`: readings, samples, fresh reads |
 | `controllers.py` | `/api/controllers*`: wiring, regulate/manual, reference |

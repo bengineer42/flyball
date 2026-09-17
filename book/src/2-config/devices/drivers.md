@@ -28,7 +28,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` |
 | [`dual_pump_blender`](#dual_pump_blender) | the humidity rig's split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
 
-`GET /api/drivers` on a running daemon lists exactly what *it* can build --
+`GET /api/drivers` on a running runner lists exactly what *it* can build --
 these plus anything from a `drivers/` directory or another installed
 package.
 

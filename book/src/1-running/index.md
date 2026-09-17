@@ -14,7 +14,7 @@
 
 | section | |
 | --- | --- |
-| [Starting a rig](daemon/index.md) | `flyball-daemon rig.yaml`; what it serves; [access](daemon/access.md) (the token, a sub-path, stopping); [building a rig while it runs](daemon/building.md) |
+| [Starting a rig](runner/index.md) | `flyball-runner rig.yaml`; what it serves; [access](runner/access.md) (the token, a sub-path, stopping); [building a rig while it runs](runner/building.md) |
 | [The UI](ui/index.md) | the pages, the app bar, then a page each for [devices](ui/devices.md), [controllers](ui/controllers.md), [charts](ui/charts.md), [sessions](ui/sessions.md), [the Rig page](ui/rig.md), [dashboards](dashboards.md) |
 | [Programs](programs/index.md) | what a program is; [writing and running one](programs/writing.md) |
 | [The CLI](cli/index.md) | `flyball status`, `flyball devices`, a subcommand per device |

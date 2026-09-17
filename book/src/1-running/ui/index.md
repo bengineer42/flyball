@@ -28,14 +28,14 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
-| **Sessions** | start/stop recording, list recorded sessions (and the daemon's rolling record, if it keeps one), keep a range of it, pin, open one, export, delete |
-| **Rig** | the running rig as a file would show it, what has changed since the daemon started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the daemon allows — restarting or shutting it down |
+| **Sessions** | start/stop recording, list recorded sessions (and the runner's rolling record, if it keeps one), keep a range of it, pin, open one, export, delete |
+| **Rig** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
 
 ## The app bar
 
 A condition summary sits in the app bar, built from `/api/health` (falling
-back to a client-side count from the samples stream on an older daemon):
+back to a client-side count from the samples stream on an older runner):
 
 - an always-present **alarm** chip — the count of active device conditions
   plus signals outside their warn/alarm bands, coloured by the worst one
@@ -67,8 +67,8 @@ components alike) reads them from the same CSS custom properties:
 ## Bearer token
 
 A **token** chip sits in the app bar beside the other status chips (a key
-icon; click it for a small form with one field). It holds the daemon's
-bearer token — see [the daemon's "The token"](../daemon/access.md#the-token) for what
+icon; click it for a small form with one field). It holds the runner's
+bearer token — see [the runner's "The token"](../runner/access.md#the-token) for what
 that gets a client and what it does not — kept in this browser's
 `localStorage` (`flyball.token`) so it survives a reload, and taken once
 from `?token=…` on the page's own URL if it is there (then dropped from the
@@ -77,7 +77,7 @@ client puts it on every `/api` request as `Authorization: Bearer …` and on
 every `/ws` URL as `?token=…`, the one place a browser cannot set a header;
 changing it rebuilds the client and reconnects every socket at once.
 
-Without a token, or the wrong one, the daemon's first refusal — `GET
+Without a token, or the wrong one, the runner's first refusal — `GET
 /api/devices`, the very first thing the app asks for — replaces the whole
 page with "This rig needs a token" and the same field, front and centre
 rather than left for a person to go hunting for the small chip.

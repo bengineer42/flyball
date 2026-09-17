@@ -373,7 +373,7 @@ class Programmer:
 #    in one.
 #
 # 4. Ownership. The rig must not own the programmer, or the split is undone.
-#    `daemon.py` builds both and `server/deps.py` injects both; the route
+#    `runner.py` builds both and `server/deps.py` injects both; the route
 #    composes `rig.state` with `programmer.state` rather than `Rig.state`
 #    reaching for a back-reference.
 #

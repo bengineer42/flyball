@@ -7,7 +7,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import FakeDaemon
+from conftest import FakeRunner
 from flyball.control import PI
 from flyball.core.device import Committable, Readable
 from flyball.core.quantity import Quantity
@@ -15,10 +15,10 @@ from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
 from flyball.core.units.si import Celsius, Watt
 from flyball.db import SpanKind, SqliteStore, Window
 from flyball.db.types import Event
-from flyball.runtime.config import DaemonConfig, parse_duration_ns, parse_size_bytes
+from flyball.runtime.config import RunnerConfig, parse_duration_ns, parse_size_bytes
 from flyball.runtime.retention import Retention
 from flyball.server import create_app, set_rig
-from flyball.server.deps import set_daemon, set_retention, set_store
+from flyball.server.deps import set_retention, set_runner, set_store
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -94,19 +94,19 @@ def test_sizes():
         parse_size_bytes("lots")
 
 
-def test_the_daemon_section_resolves_and_refuses_bad_spellings():
-    settings = DaemonConfig(keep="2h", keep_size="1GiB", retain="30d", rotate="24h", max_store=0)
+def test_the_runner_section_resolves_and_refuses_bad_spellings():
+    settings = RunnerConfig(keep="2h", keep_size="1GiB", retain="30d", rotate="24h", max_store=0)
     assert (settings.keep_ns, settings.keep_bytes) == (7200 * S, 1_073_741_824)
     assert (settings.retain_ns, settings.rotate_ns, settings.max_bytes) == (
         30 * 86400 * S,
         86400 * S,
         0,
     )
-    assert DaemonConfig().keep == "1h" and DaemonConfig().keep_size == "256MB"
+    assert RunnerConfig().keep == "1h" and RunnerConfig().keep_size == "256MB"
     with pytest.raises(ValueError, match="keep"):
-        DaemonConfig(keep="soon")
+        RunnerConfig(keep="soon")
     with pytest.raises(ValueError, match="max_store"):
-        DaemonConfig(max_store="lots")
+        RunnerConfig(max_store="lots")
 
 
 # endregion
@@ -258,7 +258,7 @@ def test_end_session_after_a_trim_ends_at_the_last_sample(rig, oven, clock, stor
     session_id = rig.recorder.writer.session.id
     feed(rig, oven, clock, 10)
     rig.recorder.flush()
-    rig.recorder._stop.set()  # leave the row open, as a daemon that died would
+    rig.recorder._stop.set()  # leave the row open, as a runner that died would
     store.trim_session(session_id, 4 * S)
     assert store.end_session(session_id).end_ns == 10 * S
 
@@ -269,7 +269,7 @@ def test_end_session_after_a_trim_ends_at_the_last_sample(rig, oven, clock, stor
 
 
 def settings(**keys):
-    return DaemonConfig(**keys)
+    return RunnerConfig(**keys)
 
 
 def test_the_scratch_record_opens_on_start_and_again_after_a_recording(rig, oven, clock, store):
@@ -423,24 +423,24 @@ def client(rig, oven, clock, store):
     policy = settings(keep="30s", rotate="1h")
     retention = Retention(rig, store, policy, period_s=3600)
     set_retention(retention)
-    set_daemon(FakeDaemon(policy))
+    set_runner(FakeRunner(policy))
     retention.start()
     with TestClient(create_app()) as c:
         yield c
     retention.stop()
-    set_daemon(None)
+    set_runner(None)
     set_retention(None)
     set_store(None)
     set_rig(None)
 
 
-def test_the_daemon_reports_the_policy(client):
-    daemon = client.get("/api/daemon").json()
-    assert (daemon["keep"], daemon["keep_ns"]) == ("30s", 30 * S)
-    assert (daemon["keep_size"], daemon["keep_bytes"]) == ("256MB", 256_000_000)
-    assert (daemon["retain"], daemon["retain_ns"]) == ("0", 0)
-    assert (daemon["rotate"], daemon["rotate_ns"]) == ("1h", 3600 * S)
-    assert (daemon["max_store"], daemon["max_bytes"]) == ("0", 0)
+def test_the_runner_reports_the_policy(client):
+    runner = client.get("/api/runner").json()
+    assert (runner["keep"], runner["keep_ns"]) == ("30s", 30 * S)
+    assert (runner["keep_size"], runner["keep_bytes"]) == ("256MB", 256_000_000)
+    assert (runner["retain"], runner["retain_ns"]) == ("0", 0)
+    assert (runner["rotate"], runner["rotate_ns"]) == ("1h", 3600 * S)
+    assert (runner["max_store"], runner["max_bytes"]) == ("0", 0)
 
 
 def test_scratch_is_listed_but_is_not_the_recording(client, rig, oven, clock, store):
@@ -454,7 +454,7 @@ def test_scratch_is_listed_but_is_not_the_recording(client, rig, oven, clock, st
     rig.recorder.flush()
     series = client.get(f"/api/history/sessions/{row['id']}/series/{oven.name}.zone").json()
     assert len(series["points"]) == 3, "read like any other session"
-    # It cannot be ended or deleted from under the daemon.
+    # It cannot be ended or deleted from under the runner.
     assert client.post(f"/api/history/sessions/{row['id']}/end").status_code == 409
     assert client.delete(f"/api/history/sessions/{row['id']}").status_code == 409
 

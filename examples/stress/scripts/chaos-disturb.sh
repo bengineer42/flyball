@@ -4,7 +4,7 @@
 # ramp, hold, arrive, manual, wait), so this drives the same HTTP routes the
 # CLI and UI use, timed against chaos-run.yaml's schedule.
 #
-# Run the program first, then this script, against the same daemon:
+# Run the program first, then this script, against the same runner:
 #   flyball program run programs/chaos-run.yaml &
 #   ./scripts/chaos-disturb.sh
 #

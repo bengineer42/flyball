@@ -76,7 +76,7 @@ config or the name of a stored tuning instead.
 
 A `SessionRow` is `{id, start_ns, end_ns, version, config, hardware,
 details, rig_version_id, kind, pinned, continues, bytes}`. `kind` is
-`"session"` (a recording) or `"scratch"` (the daemon's rolling record);
+`"session"` (a recording) or `"scratch"` (the runner's rolling record);
 `pinned` exempts it from ageing out; `continues` is the id of the session
 this one carried on from at a rotation boundary, else `null`; `bytes` is an
 estimate of what a scratch session holds, refreshed each sweep, `null` for

@@ -49,7 +49,7 @@ Five programs in `programs/`, each a different lesson:
 | `load-sample.yaml` | a few minutes | the operator in the loop: two `wait` steps with a timeout, for trying the go button |
 
 ```bash
-uv run flyball-daemon ../examples/simulated/furnace.yaml      # clock at 60x from the file
+uv run flyball-runner ../examples/simulated/furnace.yaml      # clock at 60x from the file
 uv run flyball program run ../examples/simulated/programs/firing.yaml
 uv run flyball program status
 uv run flyball sim                                              # the tube's parameters
@@ -72,10 +72,10 @@ uv run python ../examples/simulated/demo.py ../examples/simulated/oven.yaml 50 6
 ```
 
 steps the rig's clock through ten minutes and prints the controller settling.
-For the daemon and everything on top of it:
+For the runner and everything on top of it:
 
 ```bash
-uv run flyball-daemon ../examples/simulated/oven.yaml --record
+uv run flyball-runner ../examples/simulated/oven.yaml --record
 flyball status                   # devices, controllers, waits at a glance
 flyball sim clock 60             # a simulated minute per second; `flyball sim` for the knobs
 flyball heater disturb --signal drive --offset -0.3    # open the door
