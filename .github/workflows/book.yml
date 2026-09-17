@@ -1,56 +1,71 @@
-# Builds both books strictly on every push and publishes them to GitHub Pages:
-# the main book at the site root, the humidity book under /humidity/.
-# One-off setup: repository Settings → Pages → Source: "GitHub Actions".
+# Builds both books strictly on every push, and publishes them as versions with
+# mike into the gh-pages branch, which GitHub Pages serves:
+#   push to main   → /dev/          (and /humidity/dev/)
+#   tag v1.2       → /1.2/ = /latest/ (and /humidity/1.2/ = /humidity/latest/)
+# One-off setup: repository Settings → Pages → Source: "Deploy from a branch",
+# branch gh-pages, folder / (root).
 name: book
 
 on:
   push:
-    branches: [main, public-site]
+    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: book
+  cancel-in-progress: false
 
 jobs:
-  build:
+  book:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # mike commits to gh-pages, so the branch must be here
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: The main book
+      - name: Which version this is
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            echo "alias=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=dev" >> "$GITHUB_OUTPUT"
+            echo "alias=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: The main book — build strict, then deploy the version
         working-directory: controller
         run: |
           uv sync --group docs
-          uv run --group docs mkdocs build -f ../book/mkdocs.yml --strict \
-            --site-dir "$GITHUB_WORKSPACE/build/site"
+          uv run --group docs mkdocs build -f ../book/mkdocs.yml --strict --site-dir /tmp/strict-check
+          uv run --group docs mike deploy -F ../book/mkdocs.yml --push --update-aliases \
+            "${{ steps.version.outputs.name }}" ${{ steps.version.outputs.alias }}
+          # The root redirects to latest once a tag exists, to dev until then.
+          uv run --group docs mike list -F ../book/mkdocs.yml | grep -q '\[latest' \
+            && uv run --group docs mike set-default -F ../book/mkdocs.yml --push latest \
+            || uv run --group docs mike set-default -F ../book/mkdocs.yml --push dev
 
-      - name: The humidity book
+      - name: The humidity book — the same, under /humidity/
         working-directory: examples/humidity
         run: |
           uv sync
-          uv run --with mkdocs-material --with "mkdocstrings[python]" --with griffe-pydantic \
-            mkdocs build -f book/mkdocs.yml --strict \
-            --site-dir "$GITHUB_WORKSPACE/build/site/humidity"
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: build/site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          uv run --with mkdocs-material --with "mkdocstrings[python]" --with griffe-pydantic --with mike \
+            mkdocs build -f book/mkdocs.yml --strict --site-dir /tmp/strict-check-humidity
+          uv run --with mkdocs-material --with "mkdocstrings[python]" --with griffe-pydantic --with mike \
+            mike deploy -F book/mkdocs.yml --deploy-prefix humidity --push --update-aliases \
+            "${{ steps.version.outputs.name }}" ${{ steps.version.outputs.alias }}
+          MIKE='uv run --with mkdocs-material --with mkdocstrings[python] --with griffe-pydantic --with mike mike'
+          $MIKE list -F book/mkdocs.yml --deploy-prefix humidity | grep -q '\[latest' \
+            && $MIKE set-default -F book/mkdocs.yml --deploy-prefix humidity --push latest \
+            || $MIKE set-default -F book/mkdocs.yml --deploy-prefix humidity --push dev
