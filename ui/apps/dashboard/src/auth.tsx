@@ -10,7 +10,7 @@
  * works and leaves nothing in history.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { RigClient, RigError, browserTransport, type AuthInfo, type Transport } from "@flyball/client";
+import { RigClient, RigError, browserTransport, type AuthInfo, type PasskeyListOut, type PasskeyOut, type Transport } from "@flyball/client";
 
 export interface AuthState {
   /** What the runner said, or `null` before the first answer arrived. */
@@ -28,6 +28,7 @@ export interface AuthState {
   /** This browser signed in (a session cookie), so there is something to sign out of. */
   signedIn: boolean;
   login(secret: string): Promise<void>;
+  loginWithPasskey(): Promise<void>;
   logout(): Promise<void>;
   /** How many times a request came back 401 while this browser was an anonymous reader: an attempt to operate. */
   denied: number;
@@ -35,6 +36,12 @@ export interface AuthState {
   unauthorized(): void;
   /** Read `GET /api/auth` again. */
   refresh(): Promise<void>;
+  /** This runner's registered passkeys, and whether they survive a restart. */
+  listPasskeys(): Promise<PasskeyListOut>;
+  /** Register a new passkey for this browser's authenticator, labelled for the operator's own use. */
+  registerPasskey(label: string): Promise<PasskeyOut>;
+  /** Forget a passkey; anyone still using it is refused from their next request. */
+  deletePasskey(id: number): Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -94,6 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [client],
   );
 
+  const loginWithPasskey = useCallback(async () => {
+    const answer = await client.loginWithPasskey(); // a wrong/cancelled ceremony throws; the page shows it
+    changed.current++;
+    setInfo(answer);
+    setError(null);
+    setEpoch((n) => n + 1);
+  }, [client]);
+
   const logout = useCallback(async () => {
     const answer = await client.logout();
     changed.current++;
@@ -131,13 +146,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       open: !door.password && !door.token,
       canOperate: door.level === "operate",
       mustSignIn: info !== null && door.level === "none",
-      signedIn: door.scheme === "password",
+      signedIn: door.scheme === "password" || door.scheme === "passkey",
       login,
+      loginWithPasskey,
       logout,
       unauthorized,
       refresh,
+      listPasskeys: client.listPasskeys.bind(client),
+      registerPasskey: client.registerPasskey.bind(client),
+      deletePasskey: client.deletePasskey.bind(client),
     };
-  }, [info, error, epoch, denied, login, logout, unauthorized, refresh]);
+  }, [info, error, epoch, denied, login, loginWithPasskey, logout, unauthorized, refresh, client]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
