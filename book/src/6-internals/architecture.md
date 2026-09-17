@@ -48,7 +48,7 @@ writing a device driver rather than editing the rig.
 | `flyball.programmer` | `programmer\|integrations.bluesky` | `Command`, `Activity`, `Program`, `Programmer` |
 | `flyball.integrations.bluesky` | `programmer\|integrations.bluesky` | Bluesky documents built from a recorded session |
 | `flyball.server` | server | the FastAPI app, routes, wire models, the program dialect |
-| `flyball.client`, `flyball.cli`, `flyball.runner`, `flyball.scaffold` | `cli\|runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig |
+| `flyball.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
 
 ## The pattern
 
@@ -85,7 +85,7 @@ each line may import anything below it, nothing below imports anything
 above:
 
 ```
-flyball.cli | flyball.runner
+flyball.runner
 flyball.server
 flyball.programmer | flyball.integrations.bluesky
 flyball.runtime

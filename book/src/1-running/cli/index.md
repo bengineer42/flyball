@@ -1,42 +1,47 @@
 # The CLI
 
-`flyball` is a command line built from the rig's schema: one client of
-[the server](../../4-server/index.md), so anything it can do the
-[HTTP API](../../4-server/api.md) can, and the flags it grows per device
-come from the same place as the UI's forms
-([where a device's options come from](../../2-config/devices/generated.md)).
-Each page of this section is one kind of task and names the UI page that
-does the same thing; the UI pages point back here.
+`flyball` is a standalone Go binary (`daemon/cmd/flyball`), one client of
+[the server](../../4-server/index.md) -- anything it can do the
+[HTTP API](../../4-server/api.md) can too. Build it with `cd daemon && go
+build ./cmd/flyball` (no packaged install yet --
+[Installing](../runner/index.md#installing)). Each page of this section is
+one kind of task and names the UI page that does the same thing; the UI
+pages point back here.
 
 | page | commands | in the browser |
 | --- | --- | --- |
-| [Devices and signals](devices.md) | `status`, `devices`, `read`, `demand`, `watch`, `flyball <device> …` | [Devices](../ui/devices.md) |
+| [Devices and signals](devices.md) | `status`, `devices`, `read`, `demand`, `watch`, `view`, `device-schema`, `invoke` | [Devices](../ui/devices.md) |
 | [Controllers and tuning](controllers.md) | `controllers`, regulate / manual (via the API today), tunings | [Controllers](../ui/controllers.md), [Tuning](../autotune.md) |
 | [Programs and waits](programs.md) | `program check / run / status / stop`, `waits`, `wait fire / interrupt` | [Programs](../programs/writing.md#running-one) |
 | [Sessions and export](sessions.md) | `sessions`, `export`, downloads by URL | [Sessions](../ui/sessions.md) |
 | [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, save / versions / restart (via the API today) | [The Rig page](../ui/rig.md) |
-| [Without a rig](offline.md) | `rig check`, `rig schema`, `program schema`, `new`, `--offline` | -- |
+| [Without a rig](offline.md) | `rig check`, `rig schema`, `program schema`, `new` | -- |
 
-It It fetches
-`GET /api/schema` once, caches it under `~/.cache/flyball`, and builds a
-subcommand per device and per device command. Nothing about any particular
-device is written into it.
+It talks to one runner directly, or through a `flyballd` daemon by name --
+see [addressing](../../7-reference/cli.md) for `-s`/`FLYBALL_URL`/
+`FLYBALLD_URL`:
 
 ```
-flyball --url http://pi:8000 devices        # or export FLYBALL_URL
-flyball --token T status                    # or export FLYBALL_TOKEN, for a runner started with one
+export FLYBALL_URL=http://pi:8000
+flyball devices
 ```
+
+There is no schema caching, `--offline` mode, or per-device subcommand
+tree built at start (those were the removed Python `cli.py`'s); a device's
+own commands go through the fixed `invoke` subcommand instead.
 
 ## Output
 
-Human-readable by default; `--json` prints one JSON document per line, for
-piping. Exit codes: 0; 1 for an error the rig reported; 3 if the rig was
-unreachable.
+Human-readable by default; most commands print raw JSON (`status` takes its
+own `--json` for the same on that one command). Exit codes: 0; 1 for an
+error the rig, the daemon or a local check reported.
 
 ## The client underneath
 
-The CLI is `flyball.client.Rig` with argparse in front. The client is usable
-on its own and imports nothing from the rig:
+`flyball.client.Rig` is the Python library the runner and the MCP server
+build on internally; it's also usable standalone, imports nothing from the
+rig, and is not what the Go CLI is built on (the CLI is a separate Go
+implementation of the same HTTP calls):
 
 ```python
 from flyball.client import Rig

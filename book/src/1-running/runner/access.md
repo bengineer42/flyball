@@ -10,9 +10,11 @@ the browser navigates to (an export link), may pass `?token=T` instead,
 since a browser cannot set headers on either -- a URL is logged where a
 header is not, so the header is the form to use wherever it can be set.
 Anything else is 401
-with a `detail` (a socket is closed with code 4401). The CLI, the client
-and `flyball-mcp` take `--token` or the same variable; the UI asks for it.
-Without a token the runner serves anyone who can reach the port -- fine on
+with a `detail` (a socket is closed with code 4401). The Python client
+(`flyball.client.Rig`) and `flyball-mcp` take `--token` or the same
+variable; the UI asks for it. The Go CLI (`flyball`) has no token support
+yet -- only usable today against an unprotected runner. Without a token the
+runner serves anyone who can reach the port -- fine on
 loopback, not on `--host 0.0.0.0`, and not on a rig a model can drive.
 
 `--no-mcp` (or `FLYBALL_NO_MCP=1`) leaves the MCP servers off: the runner
@@ -39,8 +41,9 @@ location /flyball/humidity/     { alias /srv/flyball/dist/;
 
 The UI build is the same for every path: its assets are relative, and it
 finds its API from where the page was served (`https://host/flyball/humidity/`
-→ `https://host/flyball/humidity/api`). The client and CLI take the prefix
-in the URL: `flyball --url https://host/flyball/humidity`.
+→ `https://host/flyball/humidity/api`). The Python client takes the prefix
+in the URL (`Rig("https://host/flyball/humidity")`); the CLI takes it via
+`FLYBALL_URL=https://host/flyball/humidity`.
 
 ## Stopping and restarting from the API
 

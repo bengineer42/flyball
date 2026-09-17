@@ -3,7 +3,7 @@
 Every device on the rig, and the dialogs that add one. Where a device's fields come from is [Where a device's options come from](../../2-config/devices/generated.md); what an entry looks like in the file, [Devices](../../2-config/devices/index.md).
 
 !!! tip "At the terminal"
-    `flyball devices`, `flyball read ADDRESS`, `flyball demand ADDRESS VALUE`, and a device's own commands as `flyball <device> <command> --flag …` -- [Devices and signals](../cli/devices.md). Adding a link or a device has no subcommand; the routes are `POST /api/links` and `/api/devices` ([Composition](../../4-server/api.md#composition)).
+    `flyball devices`, `flyball read ADDRESS`, `flyball demand ADDRESS VALUE`, and a device's own commands as `flyball invoke <device> <command> KEY=VALUE …` -- [Devices and signals](../cli/devices.md). Adding a link or a device has no subcommand; the routes are `POST /api/links` and `/api/devices` ([Composition](../../4-server/api.md#composition)).
 
 ## Devices
 

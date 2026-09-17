@@ -26,14 +26,20 @@ rather than flags: [The runner section](../../2-config/runner.md).
 
 ```
 git clone git@github.com:bengineer42/flyball.git && cd flyball
-cd engine && uv sync --all-extras          # flyball, every driver extra, the dev tools
+cd engine && uv sync --all-extras          # flyball's runner, every driver extra, the dev tools
 cd ../ui && npm install && npm run build       # the dashboard, to ui/apps/dashboard/dist
+cd ../daemon && go build ./cmd/flyball         # the flyball CLI, a standalone Go binary
 ```
 
-`uv run flyball-runner …` and `uv run flyball …` from `engine/` from then
-on. A rig on a Raspberry Pi also wants `linux/` (`flyball-linux`); an
+`uv run flyball-runner …` from `engine/` starts a rig. There's no packaged
+install or release binary for the CLI yet -- `daemon/cmd/flyball`'s build
+above produces a `flyball` binary, put it on `PATH` or run it from
+`daemon/`. A rig on a Raspberry Pi also wants `linux/` (`flyball-linux`); an
 application such as `examples/humidity` has its own `uv sync` and brings
 its drivers with it. Extras per integration: [Integrations](../../5-integrations/index.md).
+
+The `flyballd` daemon (supervising several runners behind one address) is a
+separate, not yet documented piece -- see `daemon/cmd/flyballd`.
 
 ## What it exposes
 

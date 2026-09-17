@@ -6,7 +6,7 @@
 | command | |
 | --- | --- |
 | `flyball sessions` | recorded sessions, newest first, the open one and the scratch record marked (`GET /api/history/sessions`) |
-| `flyball export ID` | one session as Bluesky event-model documents (`GET /api/history/sessions/{id}/documents`) |
+| `flyball export ID [--format csv\|json\|zip] [--out PATH]` | one session as a table, written to `PATH` or stdout (`GET /api/history/sessions/{id}/export`) |
 
 Starting and stopping a recording, keeping a range of the scratch record and
 pinning have no subcommand yet: `POST /api/recording`, `POST
