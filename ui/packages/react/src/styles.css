@@ -662,3 +662,10 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 
 /* A unit chart's device list in its subtitle ellipsises like any subtitle rather than spilling out of the tile. */
 .fb-unit-chart-channels { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* A demand entry row: box, unit and Set all 32px tall on one centre line, the box styled like every other field. */
+.fb-write-entry input[type="number"] { height: 32px; box-sizing: border-box; padding: 0 0.5rem; font: inherit; font-size: 0.875rem; font-variant-numeric: tabular-nums; border: 1px solid var(--fb-border-2, var(--fb-border-1)); border-radius: var(--fb-radius); background: var(--fb-bg-1); color: var(--fb-fg); }
+.fb-write-entry input[type="number"]:focus-visible { outline: 2px solid var(--fb-accent); outline-offset: -1px; }
+.fb-write-entry .fb-signal-go { height: 32px; padding: 0 14px; font-size: 0.875rem; line-height: 30px; }
+.fb-write-entry .fb-unit { font-size: 0.875rem; }
+.fb-write-entry .fb-slider-track { align-self: center; }
