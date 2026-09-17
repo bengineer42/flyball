@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -120,6 +121,13 @@ func (b *ProcessBackend) supervise(name string, rp *runnerProc) {
 	}
 }
 
+// Stop and Restart send SIGTERM, not SIGKILL -- plan.md's resolution of
+// the allow_shutdown question: the daemon ends a runner's life with a
+// clean signal it can catch and shut down on, rather than routing
+// through the runner's own HTTP shutdown API at all. Keeps
+// `allow_shutdown` off for daemon-managed runners with no conflict
+// between two controllers of the same lifecycle.
+
 func (b *ProcessBackend) Stop(name string) error {
 	b.mu.Lock()
 	rp, ok := b.runners[name]
@@ -130,7 +138,7 @@ func (b *ProcessBackend) Stop(name string) error {
 	if !ok {
 		return fmt.Errorf("no runner named %q", name)
 	}
-	if err := rp.cmd.Process.Kill(); err != nil {
+	if err := rp.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		return err
 	}
 	rp.logFile.Close()
@@ -144,7 +152,7 @@ func (b *ProcessBackend) Restart(name string) error {
 	if !ok {
 		return fmt.Errorf("no runner named %q", name)
 	}
-	return rp.cmd.Process.Kill() // supervise() restarts it
+	return rp.cmd.Process.Signal(syscall.SIGTERM) // supervise() restarts it
 }
 
 func (b *ProcessBackend) Logs(name string) (io.Reader, error) {
