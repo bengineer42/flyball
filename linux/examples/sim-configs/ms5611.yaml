@@ -1,0 +1,25 @@
+# Sim for the MS5611 driver (`ms5611`, `pressure`/`temperature` [RP], flat
+# -- no base example to overlay yet, same split-plant shape as
+# sim-configs/lps22hb.yaml). Pressure tau 300 s, ambient 101325 Pa;
+# temperature tau 30 s, ambient 21 degC.
+
+links:
+  pressure_plant: { tag: sim_plant, tau_s: 300.0, gain: 1500.0, ambient: 101325.0, initial: 101325.0, noise: 5.0, seed: 40 }
+  temperature_plant: { tag: sim_plant, tau_s: 30.0, gain: 5.0, ambient: 21.0, initial: 21.0, noise: 0.05, seed: 41 }
+
+devices:
+  pressure:
+    driver: sim_daq
+    label: Pressure (simulated)
+    poll_s: 1
+    link: pressure_plant
+    ports:
+      pressure: { port: output, quantity: pressure, unit: Pa }
+
+  pressure_temperature:
+    driver: sim_daq
+    label: Pressure sensor temperature (simulated)
+    poll_s: 1
+    link: temperature_plant
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }

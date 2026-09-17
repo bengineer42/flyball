@@ -1,0 +1,18 @@
+# Sim for the MH-Z19 driver (`mhz19`, UART, `co2` [RP] -- no base example
+# to overlay yet; when one lands, null its `uart0` link here). NDIR CO2
+# sensors are genuinely slow to settle after a gas change (diffusion into
+# the sample chamber): tau 60 s, ambient 420 ppm (outdoor baseline), gain
+# up to +2000 ppm for an occupied, poorly-vented room.
+
+links:
+  uart0: null
+  co2_plant: { tag: sim_plant, tau_s: 60.0, gain: 2000.0, ambient: 420.0, initial: 420.0, noise: 20.0, seed: 90 }
+
+devices:
+  co2:
+    driver: sim_daq
+    label: CO2 (simulated)
+    poll_s: 2
+    link: co2_plant
+    ports:
+      co2: { port: output, quantity: co2, unit: ppm }

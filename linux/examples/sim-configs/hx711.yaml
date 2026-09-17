@@ -1,0 +1,18 @@
+# Sim for the HX711 driver (`hx711`, GPIO bit-banged, `weight` [RP] -- no
+# base example to overlay yet; null its `gpio0` link once one lands). A
+# load cell + digital filter settles almost immediately: tau 1.5 s,
+# ambient 0 g (empty scale), gain 500 g for a plausible small dosing
+# vessel or sample weighed on it.
+
+links:
+  gpio0: null
+  weight_plant: { tag: sim_plant, tau_s: 1.5, gain: 500.0, ambient: 0.0, initial: 0.0, noise: 0.5, seed: 92 }
+
+devices:
+  weight:
+    driver: sim_daq
+    label: Weight (simulated)
+    poll_s: 1
+    link: weight_plant
+    ports:
+      weight: { port: output, quantity: weight, unit: g }

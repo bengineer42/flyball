@@ -1,0 +1,35 @@
+# Sim for the BME280 driver (`bme280`, `temperature`/`pressure`/optional
+# `humidity` [RP], flat -- no base example to overlay yet). Three
+# quantities, three small plants (see README): temperature tau 30 s,
+# ambient 21 degC; pressure tau 300 s (barometric, slow), ambient
+# 101325 Pa; humidity tau 45 s, ambient 45 %RH.
+
+links:
+  temperature_plant: { tag: sim_plant, tau_s: 30.0, gain: 5.0, ambient: 21.0, initial: 21.0, noise: 0.05, seed: 20 }
+  pressure_plant: { tag: sim_plant, tau_s: 300.0, gain: 1500.0, ambient: 101325.0, initial: 101325.0, noise: 5.0, seed: 21 }
+  humidity_plant: { tag: sim_plant, tau_s: 45.0, gain: 30.0, ambient: 45.0, initial: 45.0, noise: 0.3, seed: 22 }
+
+devices:
+  temperature:
+    driver: sim_daq
+    label: Temperature (simulated)
+    poll_s: 2
+    link: temperature_plant
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
+
+  pressure:
+    driver: sim_daq
+    label: Pressure (simulated)
+    poll_s: 2
+    link: pressure_plant
+    ports:
+      pressure: { port: output, quantity: pressure, unit: Pa }
+
+  humidity:
+    driver: sim_daq
+    label: Humidity (simulated)
+    poll_s: 2
+    link: humidity_plant
+    ports:
+      humidity: { port: output, quantity: humidity, unit: "%RH" }
