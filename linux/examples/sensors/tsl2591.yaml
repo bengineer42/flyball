@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../rig.schema.json
+# ams TSL2591 lux/IR light sensor, I2C, address 0x29 (0x28 on the secondary
+# address strap). Every transaction ORs the register pointer with the
+# 0xA0 "command bit" (datasheet 8.4); there is no separate command byte in
+# this driver, so it is baked into each register's `address` here instead
+# (0xA0 | reg). Registers, gain/timing codes and the 0xA0 command bit are
+# from the ams TSL2591 datasheet DS000338 v2-04 (Mouser), sections 8.4 and
+# Table 2 (register map).
+#
+# The chip powers up in ENABLE = 0x00 (off). `enable` is a write register
+# (0x00 | 0xA0 = 0xA0): write 0x13 once to set PON (power on) and AEN (ALS
+# enable), bits 0 and 1. There is no `flyball rig check`-time init step, so
+# either issue that write by hand once (`flyball light enable=19` -- 0x13
+# decimal) or from a program's first step.
+#
+# ch0/ch1 are raw 16-bit ALS counts, not lux: TSL2591 lux is a two-channel,
+# gain- and integration-time-dependent formula (datasheet section 8.4,
+# "Simplified Lux Equation") that this driver's single-register
+# `scale * raw + offset` cannot express. Read both channels and compute lux
+# downstream (a generator or program step), or use the two counts directly
+# as a relative brightness signal.
+#
+# Gain/timing here: AGAIN=00 (1x), ATIME=000 (100 ms) -- CONFIG = 0x00,
+# also written once at the same time as enable.
+
+devices:
+  light:
+    driver: i2c_table
+    label: Light
+    poll_s: 1
+    link: i2c1
+    address: 0x29
+    registers:
+      enable: { address: 0xA0, length: 1, unit: "1", write: true }   # PON|AEN = 0x13
+      config: { address: 0xA1, length: 1, unit: "1", write: true }   # AGAIN=1x, ATIME=100ms = 0x00
+      ch0: { address: 0xB4, length: 2, byteorder: little, unit: "1" }   # CH0DATAL/H, full spectrum
+      ch1: { address: 0xB6, length: 2, byteorder: little, unit: "1" }   # CH1DATAL/H, IR only

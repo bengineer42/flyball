@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../rig.schema.json
+# Vishay VEML7700 ambient light sensor, I2C, fixed address 0x10. Registers
+# are little-endian 16-bit words, from the Vishay VEML7700 datasheet
+# (docs.vishay.com/84286/veml7700.pdf), section "Register Setting" and the
+# resolution table (Application Note 84323, Table 1).
+#
+# `als_conf` is a write register (0x00): all-zero selects gain 1x, 100 ms
+# integration time, persistence 1, interrupt disabled, and clears the
+# shutdown bit (SD, bit 0) to power the ALS on. Write it once (0x0000) --
+# the chip otherwise starts up shut down and `als`/`white` read zero.
+#
+# At gain 1x / 100 ms the datasheet's resolution table gives 0.0576 lx per
+# count; `scale` below encodes that. Change gain/integration time in
+# `als_conf` and this scale no longer applies -- see the resolution table
+# for the matching factor.
+
+devices:
+  light:
+    driver: i2c_table
+    label: Light
+    poll_s: 1
+    link: i2c1
+    address: 0x10
+    registers:
+      als_conf: { address: 0x00, length: 2, byteorder: little, unit: "1", write: true }
+      als: { address: 0x04, length: 2, byteorder: little, scale: 0.0576, unit: lx }
+      white: { address: 0x05, length: 2, byteorder: little, scale: 0.0576, unit: lx }

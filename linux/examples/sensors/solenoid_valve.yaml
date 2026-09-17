@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../rig.schema.json
+# A relay-driven solenoid valve on a GPIO line: `valve.on` [W], commands
+# `flyball valve on` / `flyball valve off`. `invert: true` if the relay
+# board is active-low (most are).
+
+devices:
+  valve:
+    driver: gpio_line
+    label: Valve
+    link: gpio0
+    line: 17
+    invert: true
