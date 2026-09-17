@@ -6,6 +6,12 @@
 # discovery, so this is a genuinely static schema. Run this after adding or
 # changing a built-in program command, then commit the result --
 # program_schema_stale_test.go fails CI if the checked-in copy drifts.
+#
+# Calls program_schema() directly rather than through the old `flyball
+# program schema` Python CLI command, which cli.py's removal deleted --
+# this reproduces exactly what that command printed (Dialect(), the
+# default dialect, json.dumps(..., indent=2)), confirmed against the
+# removed cli.py's own source.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_dir="$here/../../../engine"
@@ -16,4 +22,8 @@ if [ ! -d "$engine_dir" ]; then
 	exit 1
 fi
 
-(cd "$engine_dir" && uv run flyball program schema) > "$out"
+(cd "$engine_dir" && uv run python -c '
+import json
+from flyball.server.dialect import Dialect, program_schema
+print(json.dumps(program_schema(Dialect()), indent=2))
+') > "$out"

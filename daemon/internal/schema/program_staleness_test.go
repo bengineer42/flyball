@@ -8,11 +8,13 @@ import (
 	"testing"
 )
 
-// TestEmbeddedProgramSchemaIsCurrent regenerates program.schema.json via the
-// real `uv run flyball program schema` invocation (the same one
-// regen-program.sh uses) and diffs it against the checked-in copy embedded
-// above. A built-in program command added or changed on the Python side
-// without re-running regen-program.sh fails this test.
+// TestEmbeddedProgramSchemaIsCurrent regenerates program.schema.json the same
+// way regen-program.sh does (program_schema(Dialect()), called directly --
+// the old `flyball program schema` Python CLI command this used to shell
+// out to no longer exists, cli.py having been removed) and diffs it against
+// the checked-in copy embedded above. A built-in program command added or
+// changed on the Python side without re-running regen-program.sh fails this
+// test.
 func TestEmbeddedProgramSchemaIsCurrent(t *testing.T) {
 	engineDir, err := filepath.Abs("../../../engine")
 	if err != nil {
@@ -25,7 +27,11 @@ func TestEmbeddedProgramSchemaIsCurrent(t *testing.T) {
 		t.Skip("uv not on PATH")
 	}
 
-	cmd := exec.Command("uv", "run", "flyball", "program", "schema")
+	cmd := exec.Command("uv", "run", "python", "-c", `
+import json
+from flyball.server.dialect import Dialect, program_schema
+print(json.dumps(program_schema(Dialect()), indent=2))
+`)
 	cmd.Dir = engineDir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
