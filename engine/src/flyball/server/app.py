@@ -5,11 +5,13 @@ from __future__ import annotations
 import contextlib
 import secrets
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
 
 from flyball.core.errors import (
     ConflictError,
@@ -46,6 +48,9 @@ from flyball.server.routes.auth import router as auth_router
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+# Monorepo-relative path; packaging into the installed wheel (importlib.resources) is future work.
+DASHBOARD_DIST = Path(__file__).resolve().parents[4] / "ui" / "apps" / "dashboard" / "dist"
 
 
 @contextlib.asynccontextmanager
@@ -197,6 +202,10 @@ def create_app(
         if not root_path.startswith("/"):
             raise ValueError(f"root_path must start with '/': {root_path!r}")
         app.add_middleware(RootPath, prefix=root_path.rstrip("/"))
+    # Registered last so it doesn't shadow the API routers above; a headless/no-UI
+    # install (no built dist) just keeps today's API-only behaviour.
+    if DASHBOARD_DIST.is_dir():
+        app.mount("/", StaticFiles(directory=DASHBOARD_DIST, html=True), name="dashboard")
     return app
 
 
