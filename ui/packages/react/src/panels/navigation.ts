@@ -37,6 +37,8 @@ export function navigation(): Navigation {
     xRange(_u, min, max, windowS) {
       if (held) return held;
       if (!windowS) return [min, max];
+      // No points yet: a window ending now, so an empty chart is not labelled with whatever uPlot makes of NaN.
+      if (!Number.isFinite(max)) return [Date.now() / 1000 - windowS, Date.now() / 1000];
       // Live follows the right edge (UI.md B8): the newest point sits at the right and the window
       // reaches back from it, empty on the left until there is that much history -- never a sliver
       // at the left with an empty window ahead of it.

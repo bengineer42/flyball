@@ -181,7 +181,8 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
       y: yRange(effectiveY, range) ? { range: yRange(effectiveY, range)! } : {},
     };
     const axes: uPlot.Axis[] = [
-      { label: "time", stroke: fg },
+      // 80px between ticks: the first label carries the date on a second line and is wider than the times after it.
+      { label: "time", stroke: fg, space: 80 },
       { label: axisTitle(unit, series.filter((s) => scaleOf(s, unit) === "y")), size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
     ];
     const plotted: uPlot.Series[] = [{}];

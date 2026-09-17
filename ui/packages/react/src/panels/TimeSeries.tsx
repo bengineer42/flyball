@@ -147,7 +147,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
       axes: compact
         ? [{ show: false }, { show: false }]
         : [
-            axis({ label: "time" }),
+            axis({ label: "time", space: 80 }),
             axis({
               // The unit alone: the legend already names the signal, and brackets read as a variable name.
               label: describeUnit(signal.unit) || label,

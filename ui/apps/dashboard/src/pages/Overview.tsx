@@ -296,7 +296,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
                           </Link>
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          <LastSample first={ss[0]} />
+                          <LastSample first={ss.find((s) => s.latest) ?? ss[0]} />
                         </Typography>
                       </Stack>
                       <div className="sample-boxes">
