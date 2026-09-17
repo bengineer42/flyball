@@ -1,8 +1,9 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
-import { RigError, type DeviceOut, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
+import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
+import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
+import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip } from "./Status.js";
@@ -107,9 +108,9 @@ function ProgramsPage({ name, navigate }: { name: string | null; navigate: (page
   return <ProgramDetail key={name} name={name} programmer={programmer} events={events} onSaved={(n) => navigate("programs", n)} onDeleted={() => navigate("programs")} />;
 }
 
-function EventsPage({ level }: { level: string | undefined }) {
+function EventsPage({ level, unread, onMarkRead, onMarkAllRead }: { level: string | undefined; unread: ReadonlySet<string>; onMarkRead(e: RigEvent): void; onMarkAllRead(): void }) {
   const { events, error } = useEvents(500);
-  return <Events events={events} error={error} level={level} />;
+  return <Events events={events} error={error} level={level} unread={unread} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} />;
 }
 
 function SessionsPage({ name, navigate }: { name: string | null; navigate: (page: Page, name?: number | null) => void }) {
@@ -146,6 +147,10 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   const devices = useDevices();
   const ready = Boolean(devices.data);
   useScrollMemory(ready);
+  // One canonical read/unread + toast-queue instance, shared by the nav badge, the toast
+  // stack and the Events page itself, so they never disagree about what's unread.
+  const { events: liveEvents } = useEvents(500);
+  const unreadEvents = useUnreadEvents(liveEvents);
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first
@@ -193,6 +198,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               simulated={simulated}
               devices={all.filter((d) => d.kind !== "simulation")}
               current={name}
+              eventsUnread={unreadEvents.unreadCount}
               startSlot={page === "dashboards" ? <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} /> : undefined}
             >
               <Waits />
@@ -206,13 +212,21 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               {page === "rig" && <RigPage />}
               {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
               {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
-              {page === "events" && <EventsPage level={params.level} />}
+              {page === "events" && (
+                <EventsPage
+                  level={params.level}
+                  unread={unreadEvents.unread}
+                  onMarkRead={unreadEvents.markRead}
+                  onMarkAllRead={unreadEvents.markAllRead}
+                />
+              )}
               {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
               {page === "simulation" && <SimulationPage devices={all} />}
             </Shell>
           )}
         </SimulatedContext.Consumer>
       </LiveProvider>
+      <EventToasts toasts={unreadEvents.toasts} onDismiss={unreadEvents.dismissToast} />
     </LinksProvider>
   );
 }
