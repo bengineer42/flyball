@@ -43,3 +43,6 @@ examples/**/*.schema.json
 *.sqlite-shm
 
 temp/
+
+# local dev/remote-serving setup (tailscale, systemd units) — machine-specific, not code
+dev-serve/
