@@ -143,7 +143,9 @@ def test_registering_and_listing_a_passkey(loggedin):
     assert body["label"] == "Ben's laptop"
     assert body["transports"] == ["internal"]
 
-    listed = loggedin.get("/api/auth/passkey").json()
+    listing = loggedin.get("/api/auth/passkey").json()
+    assert listing["store_backed"] is False
+    listed = listing["passkeys"]
     assert len(listed) == 1 and listed[0]["id"] == body["id"]
     # never the public key or the credential id
     assert "public_key" not in listed[0] and "credential_id" not in listed[0]
@@ -244,7 +246,7 @@ def test_revoking_a_passkey(loggedin):
     authenticator = _FakeAuthenticator()
     body = _register(loggedin, authenticator).json()
     assert loggedin.delete(f"/api/auth/passkey/{body['id']}").status_code == 200
-    assert loggedin.get("/api/auth/passkey").json() == []
+    assert loggedin.get("/api/auth/passkey").json()["passkeys"] == []
     assert loggedin.delete(f"/api/auth/passkey/{body['id']}").status_code == 404
 
     loggedin.post("/api/auth/logout")
@@ -289,6 +291,7 @@ def test_passkeys_persist_in_a_store_but_not_without_one(rig, tmp_path):
         authenticator = _FakeAuthenticator()
         _register(http, authenticator)
         assert len(store.passkeys()) == 1
+        assert http.get("/api/auth/passkey").json()["store_backed"] is True
     set_rig(None)
     set_store(None)
     store.close()

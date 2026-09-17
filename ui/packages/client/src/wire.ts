@@ -681,16 +681,30 @@ export interface RunnerInfo {
  * `GET /api/auth`: who the caller is here, and what the runner's door is like.
  * `level` is what this caller may do -- `none` (sign in first), `read` (an
  * anonymous reader on a runner with `auth.anonymous: read`), `operate`.
- * `scheme` is how they got in: a session cookie (`password`), a bearer
- * `token`, or not at all. `password` / `token` say which the runner has; with
- * neither it is open and `level` is `operate` for everyone.
+ * `scheme` is how they got in: a session cookie (`password` or `passkey`), a
+ * bearer `token`, or not at all. `password` / `token` say which the runner
+ * has; with neither it is open and `level` is `operate` for everyone.
  */
 export interface AuthInfo {
-  scheme: "anonymous" | "password" | "token";
+  scheme: "anonymous" | "password" | "token" | "passkey";
   level: "none" | "read" | "operate";
   anonymous: "none" | "read";
   password: boolean;
   token: boolean;
+}
+
+/** A registered passkey, as `GET /api/auth/passkey` and registration report it. */
+export interface PasskeyOut {
+  id: number;
+  label: string;
+  created_ns: number;
+  transports: string[];
+}
+
+/** `GET /api/auth/passkey`: this runner's credentials, plus whether they outlive a restart. */
+export interface PasskeyListOut {
+  store_backed: boolean;
+  passkeys: PasskeyOut[];
 }
 
 /** A duration the runner reports, as ns or as configured (`1h`, `30d`, `15m`), in seconds; null for none/0. */

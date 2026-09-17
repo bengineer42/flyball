@@ -248,11 +248,22 @@ async def passkey_login(request: Request, response: Response, body: PasskeyLogin
     return _out(request)
 
 
+class PasskeyListOut(BaseModel):
+    store_backed: bool = Field(
+        description="Whether this runner has a store -- false means a registered passkey does "
+        "not survive a restart."
+    )
+    passkeys: list[PasskeyOut]
+
+
 @router.get("/passkey")
-def list_passkeys(request: Request) -> list[PasskeyOut]:
+def list_passkeys(request: Request) -> PasskeyListOut:
     """This runner's registered credentials -- never the public keys themselves."""
     _require_operate(request)
-    return [_passkey_out(row) for row in _repo().passkeys()]
+    return PasskeyListOut(
+        store_backed=deps.current_store() is not None,
+        passkeys=[_passkey_out(row) for row in _repo().passkeys()],
+    )
 
 
 @router.delete("/passkey/{passkey_id}")

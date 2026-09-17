@@ -9,8 +9,11 @@
 import type { Request, StreamHandlers, Subscription, Transport } from "./transport.js";
 import { RigError } from "./transport.js";
 import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./dashboards.js";
+import { decodeCreationOptions, decodeRequestOptions, encodeCredential } from "./webauthn.js";
 import type {
   AuthInfo,
+  PasskeyOut,
+  PasskeyListOut,
   Address,
   ClockOut,
   ControllerOut,
@@ -268,6 +271,46 @@ export class RigClient {
   /** Clear the session cookie. */
   logout(): Promise<AuthInfo> {
     return this.call({ method: "POST", path: "/api/auth/logout" });
+  }
+
+  /** Register a passkey for this browser's authenticator, under `label`. Needs an already-
+   * authenticated (or anonymous-operate) session -- there is no separate bootstrap. Drives
+   * `navigator.credentials.create()` itself: the server's challenge, base64url-decoded to the
+   * `ArrayBuffer`s the browser API wants, and the resulting credential re-encoded to JSON. */
+  async registerPasskey(label: string): Promise<PasskeyOut> {
+    const options = await this.call<Record<string, any>>({ method: "POST", path: "/api/auth/passkey/challenge" });
+    const credential = (await navigator.credentials.create({
+      publicKey: decodeCreationOptions(options),
+    })) as PublicKeyCredential;
+    return this.call({
+      method: "POST",
+      path: "/api/auth/passkey/register",
+      body: { credential: encodeCredential(credential), label },
+    });
+  }
+
+  /** Sign in with a passkey already registered on this runner: `navigator.credentials.get()`,
+   * then the same trade for a session cookie `login` makes. No prior session needed. */
+  async loginWithPasskey(): Promise<AuthInfo> {
+    const options = await this.call<Record<string, any>>({ method: "POST", path: "/api/auth/passkey/login/challenge" });
+    const credential = (await navigator.credentials.get({
+      publicKey: decodeRequestOptions(options),
+    })) as PublicKeyCredential;
+    return this.call({
+      method: "POST",
+      path: "/api/auth/passkey/login",
+      body: { credential: encodeCredential(credential) },
+    });
+  }
+
+  /** This runner's registered passkeys, and whether they survive a restart. */
+  listPasskeys(): Promise<PasskeyListOut> {
+    return this.get("/api/auth/passkey");
+  }
+
+  /** Forget a passkey; anyone using it is refused from their next request. */
+  deletePasskey(id: number): Promise<void> {
+    return this.call({ method: "DELETE", path: `/api/auth/passkey/${id}` });
   }
 
   // endregion
