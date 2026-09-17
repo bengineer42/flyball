@@ -24,7 +24,8 @@ from flyball.core.signal import Node, Sample
 from flyball.core.units.si import Celsius, PartsPerMillion
 from pydantic import Field
 
-from flyball_linux.devices.chips.sht4x import PercentRH, crc8
+from flyball_linux.devices.chips._sensirion import crc8, crc_words
+from flyball_linux.devices.chips.sht4x import PercentRH
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
 
 CMD_START_CONTINUOUS_MEASUREMENT = 0x0010
@@ -49,27 +50,6 @@ def command(word: int, argument: int | None = None) -> list[int]:
         arg = [argument >> 8, argument & 0xFF]
         data += [*arg, crc8(bytes(arg))]
     return data
-
-
-def crc_words(frame: bytes, count: int) -> list[int]:
-    """`count` big-endian 16-bit words, each followed by its own CRC-8.
-
-    Shared with `scd4x`: both read CRC-protected word streams off the same
-    Sensirion CRC-8 (polynomial 0x31, initial 0xFF, as in `sht4x.crc8`).
-
-    Raises:
-        HardwareError: A short frame, or a CRC that does not match.
-    """
-    if len(frame) != count * 3:
-        raise HardwareError(f"expected {count * 3} bytes of CRC-protected words, got {len(frame)}")
-    words = []
-    for i in range(count):
-        word = frame[3 * i : 3 * i + 2]
-        crc = frame[3 * i + 2]
-        if crc8(word) != crc:
-            raise HardwareError(f"CRC mismatch in word {i} of {frame.hex()}")
-        words.append(int.from_bytes(word, "big"))
-    return words
 
 
 def decode(frame: bytes) -> tuple[float, float, float]:

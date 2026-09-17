@@ -31,7 +31,11 @@ from flyball.core.units.dimensions import Fraction
 from flyball.core.units.si import Celsius
 from pydantic import Field
 
+from flyball_linux.devices.chips import _sensirion
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+
+HTU21D_CRC_INIT = 0x00
+"""Same generator polynomial as the Sensirion family (0x31), different initial value."""
 
 Precision = Literal["temperature", "humidity"]
 TRIGGER_TEMPERATURE_NO_HOLD = 0xF3
@@ -59,12 +63,7 @@ def crc8(data: bytes) -> int:
     Datasheet worked examples: `CRC(0x683A) = 0x7C` (a humidity word),
     `CRC(0x4E85) = 0x6B` (a temperature word).
     """
-    crc = 0x00
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
-    return crc
+    return _sensirion.crc8(data, init=HTU21D_CRC_INIT)
 
 
 def decode_temperature(frame: bytes) -> float:
