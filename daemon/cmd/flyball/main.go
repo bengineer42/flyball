@@ -8,11 +8,12 @@
 // export/program */sim */logs), plus daemon-management commands the
 // Python CLI never had (it predates the Go daemon). Deliberately NOT
 // reimplemented:
-// `rig check`, `rig schema`, `program schema`, `password`, `new` -- these
-// are local operations against Python's own rig-config/dialect/scaffold
-// code, not requests to a running runner at all, so they don't fit this
-// client/addressing model and still need the flyball Python package
-// installed either way. See the handoff notes for where that gap is left.
+// `rig check`, `rig schema`, `program schema` -- these are local operations
+// against Python's own rig-config/dialect code, not requests to a running
+// runner at all, so they don't fit this client/addressing model and still
+// need the flyball Python package installed either way. See the handoff
+// notes for where that gap is left. (`password` and `new` were in this
+// list too, but are ported below -- see local.go.)
 //
 // Dynamic per-device argparse flags (schema -> --dotted-flag, per
 // cli.py's "Schema -> argparse" region) are NOT reimplemented either --
@@ -21,6 +22,11 @@
 // capability (you can still call any device command with any arguments),
 // different, simpler shape, per the task's explicit allowance for Go
 // idioms over an exact port.
+//
+// `password` and `new` (local.go) ARE ported despite the note above having
+// once said otherwise: both are pure local operations (scrypt hashing,
+// text templating) with no dependency on Python at runtime, so they're
+// reimplemented directly rather than shelling out.
 package main
 
 import (
@@ -75,6 +81,23 @@ func main() {
 		return
 	}
 
+	// `password` and `new` are local operations (local.go) -- no runner
+	// or daemon involved, so dispatched before target resolution too.
+	if args[0] == "password" {
+		if err := runPasswordCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if args[0] == "new" {
+		if err := runNewCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	target, err := resolveTarget(server)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "flyball:", err)
@@ -123,6 +146,10 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
 
 no-daemon:
   run RIG-FILE [flyball-runner flags...]   start a runner directly, foreground
+
+local (no runner or daemon involved):
+  password [PASSWORD]                 hash a password for runner.auth.password
+  new NAME [--dir PATH]                write a starting point for a device driver
 
 daemon-managed (talks to flyballd via FLYBALLD_URL, never routed through a runner):
   daemon runners                      list registered runners
