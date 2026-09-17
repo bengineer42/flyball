@@ -25,12 +25,12 @@ from collections.abc import Iterator
 
 from flyball.core.config import resolve
 from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample
 from flyball.core.units.si import Unitless
 from pydantic import Field
 
+from flyball_linux.devices.chips._sensirion import command, crc8, crc_words, word_with_crc
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
 
 VOC_RAW = Quantity("VOC raw signal", Unitless)
@@ -49,27 +49,6 @@ DEFAULT_TEMPERATURE_TICKS = 0x6666
 """No temperature input: the datasheet's default, equivalent to 25 degC."""
 
 
-def crc8(data: bytes) -> int:
-    """Sensirion's CRC-8: polynomial 0x31, initial 0xFF."""
-    crc = 0xFF
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
-    return crc
-
-
-def command(code: int) -> list[int]:
-    """The two command bytes, MSB first."""
-    return [code >> 8, code & 0xFF]
-
-
-def word_with_crc(value: int) -> list[int]:
-    """A 16-bit value as its two bytes plus the CRC of those two bytes."""
-    data = [(value >> 8) & 0xFF, value & 0xFF]
-    return [*data, crc8(bytes(data))]
-
-
 def humidity_ticks(percent_rh: float) -> int:
     """%RH -> the chip's fixed-point tick, clamped to the representable range."""
     return max(0, min(0xFFFF, round(percent_rh * 65535.0 / 100.0)))
@@ -86,12 +65,8 @@ def decode(frame: bytes) -> int:
     Raises:
         HardwareError: The frame is the wrong length or its CRC does not match.
     """
-    if len(frame) != 3:
-        raise HardwareError(f"SGP40 reply is {len(frame)} bytes, not 3")
-    word, crc = frame[0:2], frame[2]
-    if crc8(word) != crc:
-        raise HardwareError(f"SGP40 CRC mismatch in {frame.hex()}")
-    return int.from_bytes(word, "big")
+    (word,) = crc_words(frame, 1)
+    return word
 
 
 class Sgp40Sensor:

@@ -26,12 +26,12 @@ from typing import NamedTuple
 
 from flyball.core.config import resolve
 from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample
 from flyball.core.units.si import PartsPerBillion, PartsPerMillion
 from pydantic import Field
 
+from flyball_linux.devices.chips._sensirion import command, crc8, crc_words, word_with_crc
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
 
 CO2EQ = Quantity("CO2 equivalent", PartsPerMillion)
@@ -52,27 +52,6 @@ GET_SERIAL_ID = 0x3682
 """Three words with CRC, for identification."""
 
 
-def crc8(data: bytes) -> int:
-    """Sensirion's CRC-8: polynomial 0x31, initial 0xFF. Shared across their sensor family."""
-    crc = 0xFF
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
-    return crc
-
-
-def command(code: int) -> list[int]:
-    """The two command bytes, MSB first."""
-    return [code >> 8, code & 0xFF]
-
-
-def word_with_crc(value: int) -> list[int]:
-    """A 16-bit value as its two bytes plus the CRC of those two bytes."""
-    data = [(value >> 8) & 0xFF, value & 0xFF]
-    return [*data, crc8(bytes(data))]
-
-
 class Baseline(NamedTuple):
     """The two IAQ baseline words, as the chip reads and writes them."""
 
@@ -86,16 +65,7 @@ def decode_words(frame: bytes, count: int) -> list[int]:
     Raises:
         HardwareError: The frame is the wrong length or a CRC does not match.
     """
-    if len(frame) != count * 3:
-        raise HardwareError(f"SGP30 reply is {len(frame)} bytes, not {count * 3}")
-    words = []
-    for i in range(count):
-        word = frame[i * 3 : i * 3 + 2]
-        crc = frame[i * 3 + 2]
-        if crc8(word) != crc:
-            raise HardwareError(f"SGP30 CRC mismatch in {frame.hex()}")
-        words.append(int.from_bytes(word, "big"))
-    return words
+    return crc_words(frame, count)
 
 
 class Sgp30Sensor:
