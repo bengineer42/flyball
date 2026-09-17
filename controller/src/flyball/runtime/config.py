@@ -156,6 +156,59 @@ def parse_size_bytes(text: str | int | float) -> int:
     return round(float(number) * base ** _SIZE_EXPONENT[prefix.lower()])
 
 
+Anonymous = Literal["none", "read"]
+
+
+class AuthConfig(BaseModel):
+    """The `daemon.auth` section: who may reach the daemon, and for what.
+
+    A *password* is for a person at the UI: the login page trades it for a
+    session cookie, so the browser never keeps the secret. A *token* is for
+    machines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.
+    Either one turns the door on; with neither the daemon is open. What a
+    caller with neither may do is `anonymous`: nothing, or read. Levels are
+    `none < read < operate`; a later scheme (several sign-ins, a part of the
+    rig locked) changes who gets which level, not what a level admits.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: str | None = Field(
+        default=None,
+        description="The password the login page takes: a `$scrypt$` line from `flyball password`,"
+        " or the plain text.",
+    )
+    token: str | None = Field(
+        default=None, description="Bearer token for the CLI, MCP clients and scripts."
+    )
+    anonymous: Anonymous = Field(
+        default="none",
+        description="What a caller with no session and no token may do: nothing, or read"
+        " (every GET and every stream).",
+    )
+    session: str = Field(default="12h", description="How long a login lasts (`12h`, `30m`).")
+    secret: str | None = Field(
+        default=None,
+        description="The key that signs sessions; default: a key file beside the store, else one"
+        " made for the process (a restart then signs everyone out).",
+    )
+
+    @field_validator("session", mode="before")
+    @classmethod
+    def _duration(cls, value: Any) -> str:
+        parse_duration_ns(value)
+        return str(value)
+
+    @property
+    def enabled(self) -> bool:
+        """Whether anyone is refused: a password or a token is set."""
+        return bool(self.password or self.token)
+
+    @property
+    def session_s(self) -> float:
+        return parse_duration_ns(self.session) / 1e9
+
+
 class DaemonConfig(BaseModel):
     """The `daemon:` section: how the process serves, not what the rig is.
 
@@ -185,7 +238,10 @@ class DaemonConfig(BaseModel):
     drivers: Path | None = Field(
         default=None, description="Driver .py files; default drivers/ beside the file."
     )
-    token: str | None = Field(default=None, description="Bearer token every request must carry.")
+    auth: AuthConfig = Field(
+        default_factory=AuthConfig,
+        description="Who may reach the daemon: password, token, anonymous.",
+    )
     compose: bool = Field(default=False, description="Build up a hardware rig over the API.")
     mcp: bool = Field(default=True, description="Mount the MCP servers at /mcp.")
     root_path: str | None = Field(default=None, description="Serve under this path prefix.")
@@ -218,6 +274,20 @@ class DaemonConfig(BaseModel):
         description="Keep the store under this size by deleting the oldest data, of any kind,"
         " never pinned (`20GB`); `0` sets no cap.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _token_alias(cls, data: Any) -> Any:
+        # `daemon.token` from before `auth:` existed, and `DaemonConfig(token=...)`: the same
+        # thing as `auth.token`, so it moves there rather than failing `extra="forbid"`.
+        if isinstance(data, dict) and "token" in data:
+            data = dict(data)
+            token = data.pop("token")
+            auth = data.get("auth")
+            auth = auth.model_dump() if isinstance(auth, BaseModel) else dict(auth or {})
+            auth.setdefault("token", token)
+            data["auth"] = auth
+        return data
 
     @field_validator("keep", "retain", "rotate", mode="before")
     @classmethod

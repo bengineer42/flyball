@@ -288,6 +288,13 @@ def build_parser(schema: dict[str, Any] | None) -> argparse.ArgumentParser:
     rig_sub.add_parser("schema", help="the rig file's JSON schema, for an editor").set_defaults(
         fn=cmd_rig_schema, local=True
     )
+    password = sub.add_parser(
+        "password", help="hash a password for the daemon's config (daemon.auth.password)"
+    )
+    password.add_argument(
+        "password", nargs="?", help="the password; default: asked for, without echo"
+    )
+    password.set_defaults(fn=cmd_password, local=True)
     program = sub.add_parser("program", help="program files")
     program_sub = program.add_subparsers(dest="program_action", metavar="<action>")
     pcheck = program_sub.add_parser(
@@ -474,6 +481,18 @@ def cmd_rig_schema(rig: Rig, args: argparse.Namespace) -> None:
     from flyball.runtime.config import rig_schema
 
     _out(args, rig_schema())
+
+
+def cmd_password(rig: Rig, args: argparse.Namespace) -> None:
+    """Hash a password for `daemon.auth.password`; nothing leaves this machine."""
+    import getpass
+
+    from flyball.server.auth import hash_password
+
+    plain = args.password if args.password is not None else getpass.getpass("Password: ")
+    if not plain:
+        raise SchemaError("an empty password is no password")
+    print(hash_password(plain))
 
 
 def cmd_program_check(rig: Rig, args: argparse.Namespace) -> None:
@@ -718,7 +737,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     pre_args, rest = pre.parse_known_args(argv)
     # rig check/schema, program schema, program check --local and new need no rig.
     local = bool(rest) and (
-        rest[0] in ("rig", "new")
+        rest[0] in ("rig", "new", "password")
         or (rest[0] == "program" and "--local" in rest)
         or rest[:2] == ["program", "schema"]
     )

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import contextlib
-import hmac
+import secrets
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +19,8 @@ from flyball.core.errors import (
     NotReadyError,
     UnachievableError,
 )
+from flyball.runtime.config import AuthConfig
+from flyball.server.auth import Auth
 from flyball.server.deps import current_retention, current_rig
 from flyball.server.routes import (
     composition_router,
@@ -41,6 +42,7 @@ from flyball.server.routes import (
     telemetry_router,
     waits_router,
 )
+from flyball.server.routes.auth import router as auth_router
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -65,47 +67,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 rig.stop_recording()
 
 
-class BearerToken:
-    """Refuse every request and websocket without the token.
+class _Installed:
+    """Wraps an already built middleware so `add_middleware` can install it."""
 
-    `Authorization: Bearer`, or `?token=` where a browser cannot set a
-    header: a websocket, and a plain navigation (an export link), which is
-    a GET. One shared secret for everything the daemon serves -- `/api`,
-    `/ws`, `/mcp` -- since any of them can drive the rig. Constant-time
-    compare; 401 with a `detail` like every other refusal.
-    """
-
-    def __init__(self, app: Any, token: str) -> None:
-        self.app = app
-        self.token = token
-
-    def _given(self, scope: Any) -> str | None:
-        headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
-        auth = headers.get(b"authorization", b"").decode(errors="replace")
-        if auth.lower().startswith("bearer "):
-            return auth[7:].strip()
-        if scope["type"] == "websocket" or scope.get("method") == "GET":
-            tokens: list[str] = parse_qs(scope.get("query_string", b"").decode()).get("token", [])
-            return tokens[0] if tokens else None
-        return None
+    def __init__(self, app: Any, instance: Any) -> None:
+        instance.app = app
+        self.instance = instance
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)
-            return
-        given = self._given(scope)
-        if given is not None and hmac.compare_digest(given, self.token):
-            await self.app(scope, receive, send)
-            return
-        if scope["type"] == "websocket":
-            await send({"type": "websocket.close", "code": 4401, "reason": "token required"})
-            return
-        response = JSONResponse(
-            status_code=401,
-            content={"detail": "This daemon needs a bearer token (Authorization: Bearer ...)"},
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-        await response(scope, receive, send)
+        await self.instance(scope, receive, send)
 
 
 class RootPath:
@@ -139,10 +109,19 @@ class RootPath:
         await response(scope, receive, send)
 
 
-def create_app(token: str | None = None, root_path: str | None = None) -> FastAPI:
+def create_app(
+    auth: AuthConfig | None = None,
+    root_path: str | None = None,
+    *,
+    secret: bytes | None = None,
+    internal_token: str | None = None,
+    login_delay: float = 0.5,
+) -> FastAPI:
     """The app.
 
-    With `token`, everything it serves needs it (see `BearerToken`); with
+    With `auth` naming a password or a token, everything it serves is behind
+    the door (see [flyball.server.auth][]; `secret` signs the sessions,
+    `internal_token` is the daemon's own way in for its MCP mount); with
     `root_path`, everything it serves is under that prefix (see `RootPath`).
     """
     app = FastAPI(
@@ -201,8 +180,19 @@ def create_app(token: str | None = None, root_path: str | None = None) -> FastAP
     app.include_router(dashboards_router)
     app.include_router(library_router)
     app.include_router(telemetry_router)
-    if token:
-        app.add_middleware(BearerToken, token=token)
+    app.include_router(auth_router)
+    app.state.auth = None  # open: no password, no token
+    if auth is not None and auth.enabled:
+        door = Auth(
+            app,
+            auth,
+            secret if secret is not None else secrets.token_bytes(32),
+            internal_token=internal_token,
+            delay=login_delay,
+        )
+        app.state.auth = door
+        # `add_middleware` would build its own instance; the routes need this one.
+        app.add_middleware(_Installed, instance=door)
     if root_path and root_path != "/":
         if not root_path.startswith("/"):
             raise ValueError(f"root_path must start with '/': {root_path!r}")

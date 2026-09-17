@@ -123,9 +123,22 @@ class TestSettle:
         monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
         section = DaemonConfig(port=9000, allow_save=True, mcp=False, token="filed")
         s = daemon.settle(section, self.parse("--port", "9001", "--no-mcp"), tmp_path / "r.yaml")
-        assert (s.port, s.allow_save, s.mcp, s.token) == (9001, True, False, "filed")
+        assert (s.port, s.allow_save, s.mcp, s.auth.token) == (9001, True, False, "filed")
         s = daemon.settle(section, self.parse("--token", "given"), tmp_path / "r.yaml")
-        assert s.token == "given"
+        assert s.auth.token == "given"
+
+    def test_the_auth_section_settles_like_the_rest(self, tmp_path, monkeypatch):
+        for var in ("FLYBALL_TOKEN", "FLYBALL_PASSWORD", "FLYBALL_ANONYMOUS", "FLYBALL_SESSION"):
+            monkeypatch.delenv(var, raising=False)
+        section = DaemonConfig(auth={"password": "filed", "anonymous": "read", "session": "1h"})
+        s = daemon.settle(section, self.parse(), tmp_path / "r.yaml")
+        assert (s.auth.password, s.auth.anonymous, s.auth.session_s) == ("filed", "read", 3600)
+        args = self.parse("--password", "given", "--anonymous", "none", "--session", "30m")
+        s = daemon.settle(section, args, tmp_path / "r.yaml")
+        assert (s.auth.password, s.auth.anonymous, s.auth.session_s) == ("given", "none", 1800)
+        assert s.auth.token is None and not DaemonConfig().auth.enabled
+        monkeypatch.setenv("FLYBALL_PASSWORD", "env")
+        assert daemon.settle(None, self.parse(), tmp_path / "r.yaml").auth.password == "env"
 
     def test_a_path_in_the_file_is_relative_to_the_rig_and_the_flags_to_the_cwd(self, tmp_path):
         section = DaemonConfig(store=Path("data/x.sqlite"), drivers=Path("/abs/drivers"))

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import secrets
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -24,7 +25,7 @@ from typing import Any
 
 from flyball.core.config import discover
 from flyball.db.store import Store
-from flyball.runtime.config import DaemonConfig, RigConfig, resolve_documents
+from flyball.runtime.config import AuthConfig, DaemonConfig, RigConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 from flyball.runtime.retention import Retention
@@ -89,6 +90,7 @@ def serve(
     from flyball.mcp.http import mount
     from flyball.programmer import Programmer
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
+    from flyball.server.auth import signing_secret
     from flyball.server.deps import (
         set_compose,
         set_daemon,
@@ -122,10 +124,19 @@ def serve(
     if store is not None and boards is not None and boards.is_dir():
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
-    app = create_app(settings.token, settings.root_path)
+    auth = settings.auth
+    # The MCP mount calls the daemon back over loopback; on a password-only daemon it
+    # needs a token of its own, made here and never shown.
+    internal = secrets.token_urlsafe(32) if auth.enabled and not auth.token else None
+    app = create_app(
+        auth,
+        settings.root_path,
+        secret=signing_secret(auth, settings.store),
+        internal_token=internal,
+    )
     if settings.mcp:  # `/mcp/<mode>`: a model's way in
         base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
-        mount(app, Client(base, token=settings.token))
+        mount(app, Client(base, token=auth.token or internal))
     server = uvicorn.Server(
         uvicorn.Config(app, host=settings.host, port=settings.port, log_level=settings.log_level)
     )
@@ -274,9 +285,29 @@ def parser() -> argparse.ArgumentParser:
         " (a simulated or bare rig always may)",
     )
     p.add_argument(
+        "--password",
+        default=os.environ.get("FLYBALL_PASSWORD") or None,
+        help="password the UI's login page takes: a $scrypt$ line from `flyball password`, or"
+        " plain text (env FLYBALL_PASSWORD); default: none",
+    )
+    p.add_argument(
         "--token",
         default=os.environ.get("FLYBALL_TOKEN") or None,
-        help="bearer token every request must carry (env FLYBALL_TOKEN); default: none, open",
+        help="bearer token for the CLI, MCP clients and scripts (env FLYBALL_TOKEN); default: none."
+        " With neither this nor a password the daemon is open",
+    )
+    p.add_argument(
+        "--anonymous",
+        choices=("none", "read"),
+        default=os.environ.get("FLYBALL_ANONYMOUS") or None,
+        help="what a caller with no session and no token may do: nothing, or read every GET and"
+        " stream (env FLYBALL_ANONYMOUS); default: none",
+    )
+    p.add_argument(
+        "--session",
+        default=os.environ.get("FLYBALL_SESSION") or None,
+        metavar="DURATION",
+        help="how long a login lasts, e.g. 12h (env FLYBALL_SESSION; default 12h)",
     )
     p.add_argument(
         "--no-mcp",
@@ -389,9 +420,16 @@ def settle(
     given = {
         key: value
         for key in DaemonConfig.model_fields
-        if (value := getattr(args, key, None)) is not None
+        if key != "auth" and (value := getattr(args, key, None)) is not None
     }
     settings = (section or DaemonConfig()).model_copy(update=given)
+    auth = {
+        key: value
+        for key in AuthConfig.model_fields
+        if (value := getattr(args, key, None)) is not None
+    }
+    if auth:
+        settings.auth = settings.auth.model_copy(update=auth)
     for key in ("store", "store_dir", "programs", "tunings", "drivers"):
         path: Path | None = getattr(settings, key)
         if path is not None and key not in given and not path.is_absolute():
