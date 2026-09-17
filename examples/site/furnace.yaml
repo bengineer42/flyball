@@ -6,3 +6,6 @@ daemon:
   root_path: /furnace
   allow_shutdown: true
   store_dir: stores
+  auth:
+    anonymous: read  # anyone may watch; the password below to drive
+    password: change-me  # `flyball password` for a hashed line, or FLYBALL_PASSWORD

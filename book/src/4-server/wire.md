@@ -95,4 +95,8 @@ options.
 ## Errors
 
 `{"detail": "<message>"}`, with the status code from the error's base. See
-[HTTP and websocket API](api.md#errors).
+[HTTP and websocket API](api.md#errors). A websocket the daemon refuses is
+closed rather than answered: code 4401 without a session or token, 4404
+for a path outside the daemon's `--root-path`. The session is the cookie
+`flyball_session` ([authentication](api.md#authentication)); its value is
+opaque to a client.

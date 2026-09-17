@@ -64,23 +64,28 @@ components alike) reads them from the same CSS custom properties:
   changing tile gaps, a tile's title-row height and a readout's minimum
   height.
 
-## Bearer token
+## Signing in
 
-A **token** chip sits in the app bar beside the other status chips (a key
-icon; click it for a small form with one field). It holds the daemon's
-bearer token — see [the daemon's "The token"](../daemon/access.md#the-token) for what
-that gets a client and what it does not — kept in this browser's
-`localStorage` (`flyball.token`) so it survives a reload, and taken once
-from `?token=…` on the page's own URL if it is there (then dropped from the
-visible address, so it is not left in history or in a copied link). The
-client puts it on every `/api` request as `Authorization: Bearer …` and on
-every `/ws` URL as `?token=…`, the one place a browser cannot set a header;
-changing it rebuilds the client and reconnects every socket at once.
+A daemon with a password (or a token -- [the
+door](../daemon/access.md#the-door-a-password-a-token-or-open)) shows a
+**Sign in** page instead of the app until the browser has a session: one
+field, a wrong password said inline, ten wrong ones in a minute refused for
+the rest of it. A successful login is a cookie the daemon sets and the
+browser carries by itself on every request, socket and download; the app
+keeps nothing, so there is no token to find in its storage or in a copied
+link. The session lasts as long as the daemon says (`auth.session`, twelve
+hours by default); when it ends, the next refusal brings the page back.
 
-Without a token, or the wrong one, the daemon's first refusal — `GET
-/api/devices`, the very first thing the app asks for — replaces the whole
-page with "This rig needs a token" and the same field, front and centre
-rather than left for a person to go hunting for the small chip.
+Signed in, a **signed in** chip sits in the app bar beside the other status
+chips; its menu has **Sign out**. On a daemon anyone may look at
+(`auth.anonymous: read`) the app opens without a login and the chip says
+**read only**; a control that needs a login is refused with a nudge to
+sign in, and the chip (or the nudge) leads to the page, which has **Keep
+looking** to come back without one.
+
+`?token=…` on the page's own URL -- how a daemon's token used to be handed
+to a browser -- still works: it is signed in with once and dropped from the
+visible address, so it is not left in history.
 
 ## Design rationale
 

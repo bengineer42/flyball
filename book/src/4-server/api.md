@@ -11,11 +11,21 @@ slashes, so they sit in one path segment.
 
 ## Authentication
 
-None by default. Started with `--token T` (or `FLYBALL_TOKEN=T`), the
-daemon requires `Authorization: Bearer T` on every `/api`, `/ws` and `/mcp`
-request (`/openapi.json` and `/docs` too); a websocket may pass `?token=T`
-instead, since a browser cannot set the header. Missing or wrong: `401`
-with `WWW-Authenticate: Bearer`, and a socket is closed with code 4401.
+None by default. With a password or a token configured ([the
+door](../1-running/daemon/access.md#the-door-a-password-a-token-or-open)),
+every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
+`flyball_session` a login set; `Authorization: Bearer T` with the token;
+`?token=T` on a websocket or a `GET`. Without: `401` with a `detail` and
+`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. With
+`auth.anonymous: read`, a `GET` or a stream passes without any of them
+(bar `/api/probe`). `/api/auth`, `/docs` and `/openapi.json` are always
+reachable.
+
+| | route | |
+| --- | --- | --- |
+| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token}`: how this caller got in (`anonymous`, `password`, `token`), what they may do (`none`, `read`, `operate`), what anyone may do, and which of a password and a token the daemon has |
+| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` |
+| `POST` | `/api/auth/logout` | clears the cookie |
 
 Started with `--root-path /p`, every path below sits under `/p`
 (`/p/api/health`, `/p/ws/samples`, `/p/mcp/read`); anything not under it
@@ -40,7 +50,8 @@ without a handle).
 `ConflictError` (a demand the rig refuses, a signal already spoken for,
 a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
 `NotReadyError` (no rig, nothing read yet, no default controller) or
-`HardwareError`.
+`HardwareError`; 401 with `WWW-Authenticate: Bearer` from the door
+([authentication](#authentication)), 429 for too many wrong passwords.
 
 ## Rig
 

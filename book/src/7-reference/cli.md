@@ -44,6 +44,7 @@ is used.
 | `program schema` | the program file's JSON Schema |
 | `program check --local FILE` | validate a program file against the commands installed here |
 | `new NAME` | write `NAME.py`: a complete device driver with a tag, ready to edit |
+| `password [PASSWORD]` | print the hashed line for `daemon.auth.password`; asks without echo when none is given |
 
 ## Device subcommands
 

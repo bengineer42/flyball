@@ -24,7 +24,8 @@ device is written into it.
 
 ```
 flyball --url http://pi:8000 devices        # or export FLYBALL_URL
-flyball --token T status                    # or export FLYBALL_TOKEN, for a daemon started with one
+flyball --token T status                    # or export FLYBALL_TOKEN, for a daemon with a token
+flyball password                            # the hashed line for daemon.auth.password
 ```
 
 ## Output

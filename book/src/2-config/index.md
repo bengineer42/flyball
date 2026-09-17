@@ -18,7 +18,7 @@ file is read:
 | section | page | says |
 | --- | --- | --- |
 | top level | this page | the rig's name, what it builds on, the clock, recording |
-| `daemon:` | [The daemon section](daemon.md) | how the process serves: port, path, token, what the API may do, where files go |
+| `daemon:` | [The daemon section](daemon.md) | how the process serves: port, path, who may reach it, what the API may do, where files go |
 | `links:` | [Links](links.md) | the buses, instrument connections and simulated plants devices are built on |
 | `devices:` | [Devices](devices/index.md) | what is on the rig: the envelope every device shares, and per-signal overrides |
 | | [Supported drivers](devices/drivers.md) | every driver's own fields, one section each |

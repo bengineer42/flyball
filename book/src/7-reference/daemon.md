@@ -16,7 +16,10 @@ paths in the file to the first rig file.
 | `--port N` | | `port` | default 8000 |
 | `--root-path /PREFIX` | `FLYBALL_ROOT_PATH` | `root_path` | serve everything under a prefix |
 | `--log-level LEVEL` | | `log_level` | uvicorn's; default `info` |
-| `--token T` | `FLYBALL_TOKEN` | `token` | bearer token every request must carry |
+| `--password P` | `FLYBALL_PASSWORD` | `auth.password` | the login page's password: plain, or `flyball password`'s `$scrypt$` line |
+| `--token T` | `FLYBALL_TOKEN` | `auth.token` | bearer token for the CLI, MCP clients and scripts |
+| `--anonymous none\|read` | `FLYBALL_ANONYMOUS` | `auth.anonymous` | what a caller with neither may do; default `none` |
+| `--session D` | `FLYBALL_SESSION` | `auth.session` | how long a login lasts; default `12h` |
 | `--no-mcp` | `FLYBALL_NO_MCP=1` | `mcp: false` | do not mount `/mcp` |
 | `--compose` | | `compose` | let the API build up a hardware rig |
 | `--allow-save` | | `allow_save` | let the API write rig files |

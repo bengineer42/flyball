@@ -24,5 +24,6 @@ curl "http://pi:8000/api/history/sessions/4/export?format=csv&layout=wide&step_s
 curl "http://pi:8000/api/history/sessions/4/series/furnace.zone1/export?format=csv" > zone1.csv
 ```
 
-`?token=T` on the URL for a daemon started with a token (a plain download
-cannot set a header). Formats and layouts: [History](../../4-server/api.md#history).
+`?token=T` on the URL for a daemon with a token (a plain download cannot
+set a header; a browser signed in at the UI needs nothing, its cookie rides
+along). Formats and layouts: [History](../../4-server/api.md#history).

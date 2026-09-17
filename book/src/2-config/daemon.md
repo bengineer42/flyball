@@ -13,7 +13,12 @@ relative to the first rig file's directory.
 | `port` | int | `8000` | `--port` | |
 | `root_path` | `/prefix` | none | `--root-path`, `FLYBALL_ROOT_PATH` | serve everything under a path: `/furnace/api`, `/furnace/ws`, … for several rigs on one origin -- [a sub-path](../1-running/daemon/access.md#a-sub-path) |
 | `log_level` | string | `info` | `--log-level` | uvicorn's |
-| `token` | string | none (open) | `--token`, `FLYBALL_TOKEN` | a bearer token every request must carry -- [the token](../1-running/daemon/access.md#the-token) |
+| `auth` | table | open | | who may reach the daemon -- [the door](../1-running/daemon/access.md#the-door-a-password-a-token-or-open); the keys below |
+| `auth.password` | string | none | `--password`, `FLYBALL_PASSWORD` | what the UI's login page takes: the plain text, or the `$scrypt$` line from `flyball password` |
+| `auth.token` | string | none | `--token`, `FLYBALL_TOKEN` | bearer token for the CLI, MCP clients and scripts (`daemon.token` at the top level still parses) |
+| `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with neither may do: nothing, or every `GET` and stream |
+| `auth.session` | duration | `12h` | `--session`, `FLYBALL_SESSION` | how long a login lasts |
+| `auth.secret` | string | a key file beside the store | | what signs sessions; set it to keep sessions across machines or without a store |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
 | `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
@@ -35,7 +40,7 @@ A **duration** is a number with `ns`, `us`, `ms`, `s`, `m`, `h`, `d` or `w`
 the file loads. What the five retention keys do at run time -- sweeps,
 what ages out, pins -- is [What ages out](../1-running/daemon/index.md#what-ages-out).
 
-`GET /api/daemon` reports what was resolved, less the token -- the five
+`GET /api/daemon` reports what was resolved, less `auth` -- the five
 retention keys both as written and resolved (`keep_ns`, `keep_bytes`,
 `retain_ns`, `rotate_ns`, `max_bytes`; 0 = off). Command-line only:
 `--record`, `--resume`, `--set KEY=VALUE`.
@@ -53,13 +58,16 @@ daemon:
   root_path: /humidity
   allow_shutdown: true
   store_dir: stores          # stores/humidity-sim.sqlite
+  auth:
+    anonymous: read          # anyone may watch
+    password: $scrypt$…      # flyball password; needed to drive
 ```
 
 ```
 flyball-daemon humidity.yaml
 ```
 
-What each of these does at run time -- the token, a sub-path behind a
+What each of these does at run time -- the door, a sub-path behind a
 proxy, stopping and restarting, saving -- is in
 [Starting a rig](../1-running/daemon/index.md); what the API then answers, in
 [The server](../4-server/index.md).

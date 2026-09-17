@@ -12,7 +12,8 @@ scaffolding a driver in `author`; demands, controllers and programs in
 
 **Configure.** On by default; `--no-mcp` (or `mcp: false` in the
 [`daemon:` section](../2-config/daemon.md)) turns it off. A daemon with a
-token requires it on `/mcp` too. The connect lines and a client config
+token requires it on `/mcp` too; one with only a password needs a token
+added before a model outside it can connect. The connect lines and a client config
 block are on the UI's [Rig page](../1-running/ui/rig.md).
 
 **Everything else** -- the tiers, the token, what the model sees -- is

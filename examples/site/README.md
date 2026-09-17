@@ -23,7 +23,14 @@ dashboard (`ui/apps/dashboard/dist`, one build for every prefix) under each
 prefix and passes that prefix's `/api`, `/ws`, `/mcp` and `/docs` to the
 daemon on that port unchanged. Loopback only. In production the same three
 `location` blocks per rig go in nginx -- see the book, *The daemon*, "A
-sub-path" -- with `limit_except GET` on `/api/` for a rig the public may
-watch but not drive.
+sub-path".
+
+A rig the public may watch but not drive is the daemon's own business:
+each file here sets `auth.anonymous: read` with a password, so anyone may
+read and open the streams, and a login (the UI's page, or `POST
+/api/auth/login`) is needed to do anything else. Put a real password in
+before serving -- `flyball password` prints the hashed line -- or set
+`FLYBALL_PASSWORD` in the environment. nginx's `limit_except GET` on
+`/api/` still belongs in front of it as a second wall.
 
 Stores land in `stores/<rig name>.sqlite` (`store_dir`), gitignored.

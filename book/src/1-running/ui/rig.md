@@ -34,5 +34,7 @@ history and how to reach it from outside the browser:
   mode: each row is that tier's absolute URL, a ready-made
   `claude mcp add --transport http …` line, and (below all three) a client
   config block naming all of them, one copy button each. The config's
-  `headers` carry the app's own bearer token (above) once it has one, and a
-  note in its place when it does not.
+  `headers` carry a `Bearer <token>` placeholder when the daemon has a
+  token -- the app never holds it -- and a note saying a token is needed
+  when the daemon has only a password, or that it is open when it has
+  neither.
