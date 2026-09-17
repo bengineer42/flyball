@@ -18,55 +18,70 @@ import argparse
 import logging
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from flyball.core.config import discover
 from flyball.db.store import Store
-from flyball.runtime.config import RigConfig, resolve_documents
+from flyball.runtime.config import DaemonConfig, RigConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
+from flyball.runtime.retention import Retention
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import Simulation
 
 log = logging.getLogger("flyball.daemon")
 
 
+class Handle:
+    """What the server may do to the process: read how it was started, stop it, restart it."""
+
+    def __init__(self, settings: DaemonConfig, files: Sequence[Path], stop: Callable[[], None]):
+        self.settings = settings
+        self.files = list(files)
+        self._stop = stop
+        self.restarting = False
+
+    def shutdown(self) -> None:
+        """Stop serving; `serve` returns once the rig is stopped."""
+        self._stop()
+
+    def restart(self) -> None:
+        """Stop serving, then start this process again with the same command line."""
+        self.restarting = True
+        self._stop()
+
+
 def serve(
     rig: Rig,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    log_level: str = "info",
+    settings: DaemonConfig | None = None,
+    *,
     simulation: Simulation | None = None,
     store: Store | None = None,
-    programs: Path | None = None,
-    tunings: Path | None = None,
     config: RigConfig | None = None,
-    drivers: Path | None = None,
-    token: str | None = None,
-    compose: bool = False,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
     Args:
         rig: The rig, built and with its devices polling.
-        host: Bind address; loopback unless the rig should be reachable.
-        port: TCP port.
-        log_level: uvicorn's.
+        settings: How to serve -- the `daemon:` section of a rig file with the
+            command line's overrides applied ([DaemonConfig][flyball.runtime.config.DaemonConfig]);
+            None: its defaults. Its `programs`, `tunings` and `drivers` are
+            imported before serving (a missing directory is fine) and its
+            `token`, `mcp`, `root_path`, `compose`, `allow_save` and
+            `allow_shutdown` are what the API is let do; its `keep`, `keep_size`,
+            `retain`, `rotate` and `max_store` are how the store is swept
+            (`flyball.runtime.retention.Retention`).
         simulation: The knobs of a simulated rig, for `/api/sim`; None for hardware.
-        store: Where sessions are kept, for `/api/history` and `/api/recording`;
-            None leaves those routes answering 503.
-        programs: A directory of program files, imported into the library on
-            start and whenever the library is asked to rescan.
-        tunings: A directory of control-law config files, stored on `rig.tunings`
-            under each file's stem before serving. A missing directory is fine.
+        store: Where sessions are kept, for `/api/history` and `/api/recording`,
+            and where the scratch record goes while nothing is being recorded;
+            None leaves those routes answering 503 and keeps no scratch.
         config: What the rig was built from, for `/api/rig/config`.
-        drivers: A directory of driver files, imported before serving and
-            again on `/api/drivers/reload`. A missing directory is fine.
-        token: A bearer token every request must carry -- `/api`, `/ws` and
-            `/mcp` alike; None serves to anyone who can reach the port.
-        compose: Allow the composition API to build on a hardware rig; a
-            simulated or bare rig always may.
+
+    A restart asked for over the API (`POST /api/daemon/restart`) stops the
+    rig and replaces this process with the same command line, once `serve`
+    has unwound.
     """
     import uvicorn
 
@@ -76,14 +91,18 @@ def serve(
     from flyball.server import create_app, set_programmer, set_rig, set_simulation
     from flyball.server.deps import (
         set_compose,
+        set_daemon,
         set_drivers_dir,
         set_programs_dir,
+        set_retention,
         set_rig_config,
         set_store,
     )
     from flyball.server.routes import dashboards
     from flyball.server.routes.library import import_directory, load_tunings
 
+    settings = settings or DaemonConfig()
+    programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers
     programmer = Programmer(rig)
     set_rig(rig)
     set_programmer(programmer)
@@ -91,7 +110,7 @@ def serve(
     set_store(store)
     set_programs_dir(programs)
     set_rig_config(config)
-    set_compose(compose)
+    set_compose(settings.compose)
     set_drivers_dir(drivers)
     if store is not None and programs is not None and programs.is_dir():
         imported = import_directory(store, programs, rig.clock.now_ns())
@@ -103,12 +122,31 @@ def serve(
     if store is not None and boards is not None and boards.is_dir():
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
-    app = create_app(token)
-    mount(app, Client(f"http://127.0.0.1:{port}", token=token))  # `/mcp/<mode>`: a model's way in
+    app = create_app(settings.token, settings.root_path)
+    if settings.mcp:  # `/mcp/<mode>`: a model's way in
+        base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
+        mount(app, Client(base, token=settings.token))
+    server = uvicorn.Server(
+        uvicorn.Config(app, host=settings.host, port=settings.port, log_level=settings.log_level)
+    )
+
+    def stop() -> None:
+        server.should_exit = True
+
+    handle = Handle(settings, rig.files, stop)
+    set_daemon(handle)
+    retention = None if store is None else Retention(rig, store, settings)
+    set_retention(retention)
+    if retention is not None:
+        retention.start()
     try:
-        uvicorn.run(app, host=host, port=port, log_level=log_level)
+        server.run()
     finally:
         programmer.interrupt()
+        if retention is not None:
+            retention.stop()
+        set_retention(None)
+        set_daemon(None)
         set_compose(False)
         set_rig_config(None)
         set_drivers_dir(None)
@@ -118,6 +156,9 @@ def serve(
         set_programmer(None)
         set_rig(None)
         rig.stop()  # polling, writers, recording
+    if handle.restarting:
+        log.info("restarting: %s", " ".join(sys.argv))
+        os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 def start(
@@ -172,14 +213,14 @@ def keep_versions(rig: Rig, store: Store, reason: str) -> None:
         )
         log.info("rig version %d: %s", row.id, why)
 
-    last = store.latest_rig_version()
-    if last is None or last.document != rig.document():
+    head = store.head_rig_version()
+    if head is None or head.document != rig.document():
         version(reason)
     rig.on_change = version
 
 
 def resumed(store_path: str | Path) -> RigConfig:
-    """The store's last rig version as a config, files and all.
+    """The store's head rig version as a config, files and all.
 
     Raises:
         ValueError: The store has no version to resume from.
@@ -188,15 +229,17 @@ def resumed(store_path: str | Path) -> RigConfig:
 
     store = SqliteStore(store_path)
     try:
-        versions = store.rig_versions()
+        head = store.head_rig_version()
+        if head is None:
+            raise ValueError(f"{store_path}: no rig version to resume from")
+        # The last change made through the API, not the last start: a plain
+        # restart in between (an empty rig, the files as they were) is not
+        # what `--resume` is asked for. Walk back from the head along parents.
+        last = head
+        while last.reason in START_REASONS and last.parent is not None:
+            last = store.rig_version(last.parent)
     finally:
         store.close()
-    if not versions:
-        raise ValueError(f"{store_path}: no rig version to resume from")
-    # The last change made through the API, not the last start: a plain
-    # restart in between (an empty rig, the files as they were) is not what
-    # `--resume` is asked for.
-    last = next((v for v in versions if v.reason not in START_REASONS), versions[0])
     config = RigConfig.model_validate(last.document)
     config.files = [Path(f) for f in last.files]
     config.resumed = True
@@ -205,6 +248,7 @@ def resumed(store_path: str | Path) -> RigConfig:
 
 
 def parser() -> argparse.ArgumentParser:
+    """A flag mirroring a `daemon:` key defaults to None -- unset -- so the file's value stands."""
     p = argparse.ArgumentParser(
         prog="flyball-daemon", description="Serve a rig described by a file."
     )
@@ -221,10 +265,11 @@ def parser() -> argparse.ArgumentParser:
         help="start from the store's last rig version instead of the files: what was added"
         " through the API and not saved comes back",
     )
-    p.add_argument("--host", default="127.0.0.1", help="bind address (default: loopback only)")
+    p.add_argument("--host", help="bind address (default: loopback only)")
     p.add_argument(
         "--compose",
-        action="store_true",
+        action="store_const",
+        const=True,
         help="allow the rig to be built up over the API on a hardware rig"
         " (a simulated or bare rig always may)",
     )
@@ -233,32 +278,89 @@ def parser() -> argparse.ArgumentParser:
         default=os.environ.get("FLYBALL_TOKEN") or None,
         help="bearer token every request must carry (env FLYBALL_TOKEN); default: none, open",
     )
-    p.add_argument("--port", type=int, default=8000)
-    p.add_argument("--log-level", default="info")
+    p.add_argument(
+        "--no-mcp",
+        dest="mcp",
+        action="store_const",
+        const=False,
+        default=False if os.environ.get("FLYBALL_NO_MCP") else None,
+        help="do not mount the MCP servers at /mcp (env FLYBALL_NO_MCP=1); default: mounted",
+    )
+    p.add_argument(
+        "--root-path",
+        default=os.environ.get("FLYBALL_ROOT_PATH") or None,
+        metavar="/PREFIX",
+        help="serve everything under this path, e.g. /flyball/humidity (env FLYBALL_ROOT_PATH);"
+        " default: the root",
+    )
+    p.add_argument(
+        "--allow-save",
+        action="store_const",
+        const=True,
+        help="let the API write rig files: /api/rig/save to a path, /api/sim/save; default: no",
+    )
+    p.add_argument(
+        "--allow-shutdown",
+        action="store_const",
+        const=True,
+        help="let the API stop or restart the daemon (/api/daemon/shutdown, /restart); default: no",
+    )
+    p.add_argument("--port", type=int, help="TCP port (default 8000)")
+    p.add_argument(
+        "--keep",
+        default=os.environ.get("FLYBALL_KEEP") or None,
+        metavar="DURATION",
+        help="how much the scratch record holds while nothing is recorded, in the rig's clock"
+        " (env FLYBALL_KEEP; default 1h; 0 keeps none)",
+    )
+    p.add_argument(
+        "--keep-size",
+        default=os.environ.get("FLYBALL_KEEP_SIZE") or None,
+        metavar="SIZE",
+        help="the most the scratch record may take on disk (env FLYBALL_KEEP_SIZE; default 256MB)",
+    )
+    p.add_argument(
+        "--retain",
+        default=os.environ.get("FLYBALL_RETAIN") or None,
+        metavar="DURATION",
+        help="delete an unpinned session this long after it ended, e.g. 30d"
+        " (env FLYBALL_RETAIN; default 0: keep every session)",
+    )
+    p.add_argument(
+        "--rotate",
+        default=os.environ.get("FLYBALL_ROTATE") or None,
+        metavar="DURATION",
+        help="close a recording at this length and continue it in a new session, e.g. 24h"
+        " (env FLYBALL_ROTATE; default 0: never)",
+    )
+    p.add_argument(
+        "--max-store",
+        default=os.environ.get("FLYBALL_MAX_STORE") or None,
+        metavar="SIZE",
+        help="keep the store under this size by deleting the oldest data of any kind, never"
+        " pinned, e.g. 20GB (env FLYBALL_MAX_STORE; default 0: no cap)",
+    )
+    p.add_argument("--log-level", help="uvicorn's (default info)")
     p.add_argument("--record", action="store_true", help="open a recording session on start")
     p.add_argument(
         "--store",
         type=Path,
-        default=None,
         help="where sessions are kept (default: '<rig>.sqlite' beside the first rig file)",
     )
     p.add_argument(
         "--programs",
         type=Path,
-        default=None,
         help="directory of program files to import (default: 'programs' beside the first rig file)",
     )
     p.add_argument(
         "--tunings",
         type=Path,
-        default=None,
         help="directory of control-law configs to load (default: 'tunings' beside the first rig"
         " file)",
     )
     p.add_argument(
         "--drivers",
         type=Path,
-        default=None,
         help="directory of driver .py files to import at start and on /api/drivers/reload"
         " (default: 'drivers' beside the first rig file)",
     )
@@ -273,31 +375,70 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def settle(
+    section: DaemonConfig | None, args: argparse.Namespace, first: Path, name: str | None = None
+) -> DaemonConfig:
+    """The file's `daemon:` section under the command line, with every directory resolved.
+
+    A flag given (or its environment variable) beats the file; a path in the
+    file is taken relative to the first rig file's directory; a directory
+    not named at all is the conventional one beside that file. The store is
+    `--store`, else `store` in the file, else `<store_dir>/<name>.sqlite`
+    (the rig's name, else the file's stem), else `<rig>.sqlite` beside the file.
+    """
+    given = {
+        key: value
+        for key in DaemonConfig.model_fields
+        if (value := getattr(args, key, None)) is not None
+    }
+    settings = (section or DaemonConfig()).model_copy(update=given)
+    for key in ("store", "store_dir", "programs", "tunings", "drivers"):
+        path: Path | None = getattr(settings, key)
+        if path is not None and key not in given and not path.is_absolute():
+            setattr(settings, key, first.parent / path)  # the file's: relative to the rig
+    if settings.store is None:
+        if settings.store_dir is not None:
+            settings.store = settings.store_dir / f"{name or first.stem}.sqlite"
+        else:
+            settings.store = first.with_suffix(".sqlite")
+    for key in ("programs", "tunings", "drivers"):
+        if getattr(settings, key) is None:
+            setattr(settings, key, first.parent / key)
+    return settings
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    logging.basicConfig(level=args.log_level.upper())
+    logging.basicConfig(level=(args.log_level or "info").upper())
     first = args.rig[0] if args.rig else Path("rig")
-    store_path = args.store if args.store is not None else first.with_suffix(".sqlite")
-    drivers = args.drivers if args.drivers is not None else first.parent / "drivers"
     try:
         discover()
-        report = load_drivers(drivers)
+        document: dict[str, Any] = {"name": first.stem}  # bare: built through the API
+        files: list[Path] = []
+        if args.rig and not args.resume:
+            document, files = resolve_documents(args.rig, args.sets)
+        # The daemon section first: it may say where the drivers are, and
+        # the rig file may name a driver from there.
+        section = DaemonConfig.model_validate(document.get("daemon") or {})
+        name = document.get("name")
+        settings = settle(section, args, first, name if isinstance(name, str) else None)
+        logging.getLogger().setLevel(settings.log_level.upper())
+        assert settings.store is not None and settings.drivers is not None
+        report = load_drivers(settings.drivers)
         for stem, error in report.errors.items():
             log.warning("drivers/%s.py: %s", stem, error)
         if args.resume:
-            config = resumed(store_path)
-        elif args.rig:
-            document, files = resolve_documents(args.rig, args.sets)
+            config = resumed(settings.store)
+        else:
             config = RigConfig.model_validate(document)
             config.files = files
-        else:
-            config = RigConfig.model_validate({"name": first.stem})  # bare: built through the API
     except Exception as e:  # a bad file is the user's problem, not a traceback
         names = ", ".join(str(p) for p in args.rig) or "(no rig file)"
         print(f"flyball-daemon: {names}: {e}", file=sys.stderr)
         return 2
+    settings.store.parent.mkdir(parents=True, exist_ok=True)  # a store_dir that is not there yet
     rig, store = start_with_store(
-        config, record=True if args.record else None, store_path=store_path
+        config, record=True if args.record else None, store_path=settings.store
     )
     simulation = None
     if config.simulated and args.rig:
@@ -306,23 +447,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         layered, _ = resolve_layers([Path(p) for p in args.rig], args.sets)
         simulation = Simulation(rig, config, layered, first)
         log.info("a simulation: %s plants, clock at %gx", len(simulation.plants), simulation.speed)
-    log.info("serving %s on %s:%d", config.name or first.name, args.host, args.port)
-    programs = args.programs if args.programs is not None else first.parent / "programs"
-    tunings = args.tunings if args.tunings is not None else first.parent / "tunings"
-    serve(
-        rig,
-        args.host,
-        args.port,
-        args.log_level,
-        simulation,
-        store,
-        programs,
-        tunings,
-        config,
-        drivers,
-        args.token,
-        args.compose,
-    )
+    log.info("serving %s on %s:%d", config.name or first.name, settings.host, settings.port)
+    serve(rig, settings, simulation=simulation, store=store, config=config)
     return 0
 
 

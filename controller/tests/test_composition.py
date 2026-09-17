@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import FakeDaemon
 from flyball.core.files import load_document
 from flyball.db.sqlite import SqliteStore
+from flyball.runtime.config import DaemonConfig
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
-from flyball.server.deps import set_store
+from flyball.server.deps import set_daemon, set_store
 from flyball.sim import SteppedClock
 
 PLANT = {"name": "t1", "tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
@@ -68,6 +70,7 @@ def client(rig, store):
     with TestClient(create_app()) as c:
         c.versions = versions  # type: ignore[attr-defined]
         yield c
+    set_daemon(None)
     set_store(None)
     set_rig(None)
     rig.stop()
@@ -167,11 +170,19 @@ class TestRoutes:
         assert r.status_code == 200, r.text
         assert rig.devices == {} and list(rig.controllers) == [] and rig.links == {}
         assert client.get("/api/rig/changes").json() == {}
-        assert client.get("/api/rig/versions").json()[0]["reason"] == f"restored {first}"
+        after = client.get("/api/rig/versions").json()
+        assert len(after) == len(versions), "a restore writes no version"
+        assert [v["id"] for v in after if v["head"]] == [first], "the head moved to it"
+        assert [v["parent"] for v in after][::-1] == [None, *(v["id"] for v in after[::-1][:-1])]
+        # A change after a restore branches from what was restored.
+        assert client.post("/api/links", json=PLANT).status_code == 201
+        branch = client.get("/api/rig/versions").json()[0]
+        assert branch["parent"] == first and branch["head"]
         full = client.get(f"/api/rig/versions/{first + 4}").json()["document"]
         r = client.post(f"/api/rig/versions/{first + 4}/restore")
         assert r.status_code == 200 and set(rig.devices) == {"probe", "drive"}
         assert client.get("/api/rig/document").json()["devices"] == full["devices"]
+        assert client.get(f"/api/rig/versions/{first + 4}").json()["head"] is True
 
     def test_save_writes_an_overlay_by_default_and_a_whole_rig_to_a_path(
         self, client: TestClient, rig: Rig, tmp_path
@@ -188,6 +199,9 @@ class TestRoutes:
         assert r.json()["path"] == str(written)
         overlay = load_document(written)
         assert set(overlay) == {"links", "devices"} and "probe" in overlay["devices"]
+        r = client.post("/api/rig/save", json={"path": str(tmp_path / "whole.yaml")})
+        assert r.status_code == 409 and "--allow-save" in r.json()["detail"]
+        set_daemon(FakeDaemon(DaemonConfig(allow_save=True)))
         assert client.post("/api/rig/save", json={"path": str(rig_file)}).status_code == 409
         r = client.post("/api/rig/save", json={"path": str(tmp_path / "whole.yaml")})
         assert r.status_code == 200

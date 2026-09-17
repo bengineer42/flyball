@@ -124,6 +124,9 @@ class Rig:
     on_change: Callable[[str], None] | None
     """Called after the rig's composition changes (a link, a device, a controller added or
     removed), with a one-line reason: the daemon records a version."""
+    on_recording_stopped: Callable[[], None] | None
+    """Called after `stop_recording` closes a session, outside the lock: the daemon reopens
+    its scratch record. Not called when a recording replaces another, nor by `stop`."""
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
@@ -157,6 +160,7 @@ class Rig:
         self.header = {}
         self.loaded = None
         self.on_change = None
+        self.on_recording_stopped = None
 
     @property
     def latest(self) -> dict[Signal, Reading]:
@@ -247,9 +251,15 @@ class Rig:
         self.polling.stop_all()
         for writer in self._writers.values():
             writer.stop()
-        self.stop_recording()
+        self._stop_recording()
 
     # region Recording
+
+    @property
+    def recording(self) -> Recorder | None:
+        """The recorder of a session someone started; None under scratch alone, or nothing."""
+        recorder = self.recorder
+        return None if recorder is None or recorder.writer.session.scratch else recorder
 
     def start_recording(
         self,
@@ -262,13 +272,18 @@ class Rig:
 
         Defaults to every signal that publishes or is written, on every
         device, and every controller. Replaces a running recorder, closing
-        its session first.
+        its session first. `session` is what the store's `open_session`
+        takes; a `start_ns` in it backdates the session (for what is then
+        backfilled), else it starts now.
         """
         from .recorder import Recorder
 
         with self.lock:
-            self.stop_recording()
-            writer = store.open_session(self.clock.now_ns(), **session)
+            self._stop_recording()
+            start_ns = session.pop("start_ns", None)
+            writer = store.open_session(
+                self.clock.now_ns() if start_ns is None else start_ns, **session
+            )
             if signals is None:
                 signals = [
                     s
@@ -299,10 +314,18 @@ class Rig:
                 recorder.writer.end(self.clock.now_ns())
 
     def stop_recording(self) -> None:
+        """Close the open session, if any, and tell `on_recording_stopped`."""
+        if self._stop_recording() and self.on_recording_stopped is not None:
+            self.on_recording_stopped()
+
+    def _stop_recording(self) -> bool:
+        """Close the open session; whether there was one."""
         with self.lock:
-            if (recorder := self.recorder) is not None:
-                self.recorder = None
-                recorder.close(self.clock.now_ns())
+            if (recorder := self.recorder) is None:
+                return False
+            self.recorder = None
+            recorder.close(self.clock.now_ns())
+            return True
 
     # endregion
 

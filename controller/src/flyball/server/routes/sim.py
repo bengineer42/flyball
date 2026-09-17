@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, Field
 
 from flyball.core.device import Device
@@ -18,6 +18,7 @@ from flyball.server.deps import (
     SimulationDeviceDep,
     current_simulation,
     current_simulation_device,
+    save_allowed,
 )
 
 from .devices import device_schema, run
@@ -102,7 +103,15 @@ async def read_config(simulation: SimulationDep) -> dict[str, Any]:
 
 @router.post("/save")
 def save_config(simulation: SimulationDep, body: SaveIn | None = None) -> dict[str, str]:
-    """Write the current config to the rig file (or `path`), in the format its suffix names."""
+    """Write the current config to the rig file (or `path`), in the format its suffix names.
+
+    409 unless the daemon was started with `--allow-save`: this rewrites a file.
+    """
+    if not save_allowed():
+        raise HTTPException(
+            status_code=409,
+            detail="Saving needs the daemon started with --allow-save (daemon.allow_save)",
+        )
     return {"path": str(simulation.save(body.path if body is not None else None))}
 
 

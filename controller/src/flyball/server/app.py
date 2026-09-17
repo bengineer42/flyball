@@ -20,10 +20,11 @@ from flyball.core.errors import (
     NotReadyError,
     UnachievableError,
 )
-from flyball.server.deps import current_rig
+from flyball.server.deps import current_retention, current_rig
 from flyball.server.routes import (
     composition_router,
     controllers_router,
+    daemon_router,
     dashboards_router,
     devices_router,
     drivers_router,
@@ -55,7 +56,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if rig is not None:
             with contextlib.suppress(Exception):
                 rig.polling.stop_all()
-            # Close the session so it does not stay "open" forever in the store.
+            # Close the session so it does not stay "open" forever in the store;
+            # the daemon's sweeps stop first, or they would open the scratch record again.
+            if (retention := current_retention()) is not None:
+                with contextlib.suppress(Exception):
+                    retention.stop()
             with contextlib.suppress(Exception):
                 rig.stop_recording()
 
@@ -103,8 +108,43 @@ class BearerToken:
         await response(scope, receive, send)
 
 
-def create_app(token: str | None = None) -> FastAPI:
-    """The app; with `token`, everything it serves needs it (see `BearerToken`)."""
+class RootPath:
+    """Serve everything under one path prefix: `/flyball/humidity/api/...`.
+
+    For a daemon behind a proxy that does not rewrite: a request under the
+    prefix is routed as if it were at the root (Starlette strips
+    `root_path`, and builds `/docs` links with it); anything else is 404.
+    Lifespan passes through, so the app's exit hooks still run.
+    """
+
+    def __init__(self, app: Any, prefix: str) -> None:
+        self.app = app
+        self.prefix = prefix
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        path: str = scope["path"]
+        if path == self.prefix or path.startswith(self.prefix + "/"):
+            scope["root_path"] = self.prefix
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4404, "reason": "not found"})
+            return
+        response = JSONResponse(
+            status_code=404, content={"detail": f"This daemon serves under {self.prefix}"}
+        )
+        await response(scope, receive, send)
+
+
+def create_app(token: str | None = None, root_path: str | None = None) -> FastAPI:
+    """The app.
+
+    With `token`, everything it serves needs it (see `BearerToken`); with
+    `root_path`, everything it serves is under that prefix (see `RootPath`).
+    """
     app = FastAPI(
         title="flyball",
         summary="flyball control rig",
@@ -144,6 +184,7 @@ def create_app(token: str | None = None) -> FastAPI:
         app.add_exception_handler(error, handler)
 
     app.include_router(controllers_router)
+    app.include_router(daemon_router)
     app.include_router(rig_router)
     app.include_router(devices_router)
     app.include_router(composition_router)
@@ -162,6 +203,10 @@ def create_app(token: str | None = None) -> FastAPI:
     app.include_router(telemetry_router)
     if token:
         app.add_middleware(BearerToken, token=token)
+    if root_path and root_path != "/":
+        if not root_path.startswith("/"):
+            raise ValueError(f"root_path must start with '/': {root_path!r}")
+        app.add_middleware(RootPath, prefix=root_path.rstrip("/"))
     return app
 
 

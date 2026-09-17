@@ -7,18 +7,19 @@ wire as in the store.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from flyball.core.errors import NotFoundError
+from flyball.core.errors import ConflictError, NotFoundError
 from flyball.db import (
     ControllerRow,
     DeviceRow,
     Downsample,
     Event,
     Series,
+    SessionKind,
     SessionRow,
     SignalRow,
     Span,
@@ -42,10 +43,37 @@ def _window(start_ns: int | None, end_ns: int | None) -> Window | None:
 # region Sessions
 
 
+class KeepRange(BaseModel):
+    """A range of a session -- the scratch record, usually -- to keep as a session of its own."""
+
+    start_ns: int
+    end_ns: int
+    details: Any = None
+
+
+class SessionPatch(BaseModel):
+    pinned: bool
+
+
+def _being_written(session_id: int) -> SessionRow | None:
+    """The rig's open session if it is this one: not to be deleted from under its writer."""
+    rig = current_rig()
+    recorder = rig.recorder if rig is not None else None
+    if recorder is not None and recorder.writer.session.id == session_id:
+        return recorder.writer.session
+    return None
+
+
 @router.get("/sessions")
-async def read_sessions(store: StoreDep, limit: int | None = Query(None, ge=1)) -> list[SessionRow]:
-    """Newest first."""
-    return store.sessions(limit)
+async def read_sessions(
+    store: StoreDep,
+    limit: int | None = Query(None, ge=1),
+    kind: Annotated[
+        SessionKind | None, Query(description="Only recordings, or only scratch")
+    ] = None,
+) -> list[SessionRow]:
+    """Newest first. The daemon's scratch record is among them, `kind: "scratch"`."""
+    return store.sessions(limit, kind)
 
 
 @router.get("/sessions/{session_id}")
@@ -61,18 +89,50 @@ def end_session(store: StoreDep, session_id: int) -> SessionRow:
     recorder stops cleanly; one left open by a daemon that died is closed in
     the store at the time of its last sample. 409 if it is already ended.
     """
-    rig = current_rig()
-    recorder = rig.recorder if rig is not None else None
-    if recorder is not None and recorder.writer.session.id == session_id:
-        rig.stop_recording()  # type: ignore[union-attr]
+    if (writing := _being_written(session_id)) is not None:
+        if writing.scratch:
+            raise ConflictError("the scratch record is not a recording; it is trimmed, not ended")
+        current_rig().stop_recording()  # type: ignore[union-attr]
         return store.session(session_id)
     return store.end_session(session_id)
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
 async def delete_session(store: StoreDep, session_id: int) -> None:
-    """Everything the session recorded goes with it. Tunings made in it survive."""
+    """Everything the session recorded goes with it. Tunings made in it survive.
+
+    409 for the session being recorded right now, and for the scratch record
+    while the daemon keeps it: end the recording first; scratch trims itself.
+    """
+    if (writing := _being_written(session_id)) is not None:
+        raise ConflictError(
+            "the scratch record cannot be deleted while the daemon keeps it"
+            if writing.scratch
+            else "this session is being recorded; end it first"
+        )
     store.delete_session(session_id)
+
+
+@router.patch("/sessions/{session_id}")
+@router.put("/sessions/{session_id}")
+async def update_session(store: StoreDep, session_id: int, body: SessionPatch) -> SessionRow:
+    """Pin or unpin: a pinned session is never aged out by `retain` or `max_store`."""
+    return store.set_pinned(session_id, body.pinned)
+
+
+@router.post("/sessions/{session_id}/keep", status_code=201)
+async def keep_range(store: StoreDep, session_id: int, body: KeepRange) -> SessionRow:
+    """Copy a range of a session into a new, closed session of its own, and return it.
+
+    Made for the scratch record: `start_ns` and `end_ns` are absolute, in the
+    rig's clock; the readings, write states, ticks and events within come
+    over, and the declarations whole. 422 when the range is empty or
+    reaches outside what the source holds.
+    """
+    rig = current_rig()
+    if rig is not None and body.end_ns > rig.clock.now_ns():
+        raise ValueError(f"the range ends in the future; it is now {rig.clock.now_ns()}")
+    return store.keep_range(session_id, body.start_ns, body.end_ns, body.details)
 
 
 @router.get("/sessions/{session_id}/documents")

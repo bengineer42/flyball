@@ -106,7 +106,7 @@ async def read_health() -> dict[str, Any]:
         "conditions": conditions,
         "alarms": _alarm_summary(rig, conditions),
         "waits": sorted(rig.triggers.states()),
-        "recording": rig.recorder is not None,
+        "recording": rig.recording is not None,
     }
 
 

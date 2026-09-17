@@ -25,6 +25,7 @@ from .types import (
     RigVersionRow,
     SampleRow,
     Series,
+    SessionKind,
     SessionRow,
     SignalRow,
     Span,
@@ -121,10 +122,14 @@ class Store(Protocol):
         hardware: Any = None,
         details: Any = None,
         rig_version_id: int | None = None,
+        kind: SessionKind = "session",
+        continues: int | None = None,
     ) -> SessionWriter: ...
 
-    def sessions(self, limit: int | None = None) -> list[SessionRow]:
-        """Newest first."""
+    def sessions(
+        self, limit: int | None = None, kind: SessionKind | None = None
+    ) -> list[SessionRow]:
+        """Newest first; every kind unless one is asked for."""
         ...
 
     def session(self, session_id: int) -> SessionRow: ...
@@ -140,6 +145,57 @@ class Store(Protocol):
 
     def delete_session(self, session_id: int) -> None:
         """Everything the session owns goes with it."""
+        ...
+
+    def set_pinned(self, session_id: int, pinned: bool) -> SessionRow:
+        """A pinned session is never aged out by retention."""
+        ...
+
+    def trim_session(self, session_id: int, before_ns: int) -> SessionRow:
+        """Drop everything the session recorded before `before_ns` (absolute, in the rig's clock).
+
+        Its `start_ns` moves up to `before_ns` -- the oldest it can now hold --
+        but never past its end. A span still open, or ending later, stays.
+        How the daemon keeps a scratch session to the last `keep`.
+        """
+        ...
+
+    def keep_range(
+        self,
+        session_id: int,
+        start_ns: int,
+        end_ns: int,
+        details: Any = None,
+        kind: SessionKind = "session",
+    ) -> SessionRow:
+        """Copy `[start_ns, end_ns)` (absolute) of a session into a new closed one, and return it.
+
+        The declarations come over whole; readings, write states, ticks and
+        events within the range come rebased to the new start. Spans do not.
+        `version`, `config`, `hardware` and the rig version are the source's;
+        `details` is the new session's own. Raises `ValueError` when the range
+        is not within what the source holds: before its `start_ns`, after its
+        end, or empty.
+        """
+        ...
+
+    def backfill(self, session_id: int, source_id: int, start_ns: int, end_ns: int) -> int:
+        """Copy `[start_ns, end_ns)` of `source_id` into an open session someone is writing.
+
+        The range is clamped to what the source holds, its last instant
+        included. Rows are matched by address to what the target has
+        declared; a signal it has not is left out. Backfilled samples count
+        down from zero, below the writer's own sequence. Returns the number
+        of readings copied.
+        """
+        ...
+
+    def measure_session(self, session_id: int) -> int:
+        """An estimate of what the session takes on disk, in bytes; kept on the row as `bytes`."""
+        ...
+
+    def used_bytes(self) -> int:
+        """What the store's file holds, less free pages: what a deletion actually gives back."""
         ...
 
     # endregion
@@ -305,7 +361,10 @@ class Store(Protocol):
     def save_rig_version(
         self, time_ns: int, reason: str, document: dict[str, Any], files: Sequence[str] = ()
     ) -> RigVersionRow:
-        """Append the rig as it now stands, and why: the whole document, never a diff."""
+        """Record the rig as it now stands, and why: the whole document, never a diff.
+
+        The new version's parent is the head, and it becomes the head.
+        """
         ...
 
     def rig_versions(self, limit: int | None = None) -> list[RigVersionRow]:
@@ -314,7 +373,13 @@ class Store(Protocol):
 
     def rig_version(self, version_id: int) -> RigVersionRow: ...
 
-    def latest_rig_version(self) -> RigVersionRow | None: ...
+    def head_rig_version(self) -> RigVersionRow | None:
+        """The version the rig is at: the last saved, or the last restored."""
+        ...
+
+    def set_rig_head(self, version_id: int) -> RigVersionRow:
+        """Make `version_id` the head, as a restore does; nothing is copied."""
+        ...
 
     # endregion
 

@@ -2,6 +2,7 @@
 
 from .composition import router as composition_router
 from .controllers import router as controllers_router
+from .daemon import router as daemon_router
 from .dashboards import router as dashboards_router
 from .devices import router as devices_router
 from .drivers import router as drivers_router
@@ -21,6 +22,7 @@ from .waits import router as waits_router
 __all__ = [
     "composition_router",
     "controllers_router",
+    "daemon_router",
     "dashboards_router",
     "devices_router",
     "drivers_router",

@@ -20,7 +20,8 @@ from .dialect import Dialect
 if TYPE_CHECKING:
     from flyball.core.device import Device
     from flyball.programmer import ProgrammerState
-    from flyball.runtime.config import RigConfig
+    from flyball.runtime.config import DaemonConfig, RigConfig
+    from flyball.runtime.retention import Retention
     from flyball.runtime.simulation import Simulation
 
 
@@ -40,6 +41,7 @@ _dialect: Dialect = Dialect()
 _simulation: Simulation | None = None
 _simulation_device: Device | None = None
 _rig_config: RigConfig | None = None
+_retention: Retention | None = None
 
 
 def set_rig(rig: Rig | None) -> None:
@@ -61,6 +63,16 @@ def set_rig_config(config: RigConfig | None) -> None:
 
 def current_rig_config() -> RigConfig | None:
     return _rig_config
+
+
+def set_retention(retention: Retention | None) -> None:
+    """The daemon's sweeps over the store: the scratch record, rotation, retention, the cap."""
+    global _retention
+    _retention = retention
+
+
+def current_retention() -> Retention | None:
+    return _retention
 
 
 def get_rig() -> Rig:
@@ -163,6 +175,35 @@ def set_compose(allowed: bool) -> None:
 
 def compose_allowed() -> bool:
     return _compose
+
+
+class Daemon(Protocol):
+    """What the daemon routes need of `flyball.daemon.Handle`, without importing it."""
+
+    @property
+    def settings(self) -> DaemonConfig: ...
+    @property
+    def files(self) -> list[Path]: ...
+    def shutdown(self) -> None: ...
+    def restart(self) -> None: ...
+
+
+_daemon: Daemon | None = None
+
+
+def set_daemon(daemon: Daemon | None) -> None:
+    """The process serving this app, for `/api/daemon`; None where nothing is (a test client)."""
+    global _daemon
+    _daemon = daemon
+
+
+def current_daemon() -> Daemon | None:
+    return _daemon
+
+
+def save_allowed() -> bool:
+    """Whether the API may write rig files (`flyball-daemon --allow-save`)."""
+    return _daemon is not None and _daemon.settings.allow_save
 
 
 def set_drivers_dir(path: Path | None) -> None:

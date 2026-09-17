@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 
 from flyball.programmer.command import Commands
+from flyball.runtime.config import DaemonConfig
 from flyball.runtime.rig import Rig
 from flyball.sim.clock import SteppedClock
 
@@ -43,3 +45,18 @@ def rig(clock: SteppedClock) -> Rig:
     rig = Rig()
     rig.clock = clock
     return rig
+
+
+class FakeDaemon:
+    """A stand-in for `flyball.daemon.Handle`: what `set_daemon` takes; remembers what was asked."""
+
+    def __init__(self, settings: DaemonConfig | None = None, files: list[Path] | None = None):
+        self.settings = settings or DaemonConfig()
+        self.files = files or []
+        self.asked: list[str] = []
+
+    def shutdown(self) -> None:
+        self.asked.append("shutdown")
+
+    def restart(self) -> None:
+        self.asked.append("restart")

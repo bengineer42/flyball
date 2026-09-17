@@ -15,7 +15,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic_core import to_jsonable_python
 
@@ -44,6 +44,7 @@ from .types import (
     RigVersionRow,
     SampleRow,
     Series,
+    SessionKind,
     SessionRow,
     SignalRow,
     Span,
@@ -140,17 +141,21 @@ def _signal_row(row: sqlite3.Row) -> SignalRow:
     )
 
 
-def _window_clause(window: Window | None, column: str) -> tuple[str, list[int]]:
-    """SQL and parameters restricting `column` to the window; empty when unbounded."""
+def _window_clause(window: Window | None, column: str, shift: int = 0) -> tuple[str, list[int]]:
+    """SQL and parameters restricting `column` to the window; empty when unbounded.
+
+    `shift` is what the session's offsets are ahead of its `start_ns` by (see
+    `_shift`): the window is given from `start_ns`, the column counts from the origin.
+    """
     if window is None:
         return "", []
     clauses, params = [], []
     if window.start_ns is not None:
         clauses.append(f"{column} >= ?")
-        params.append(window.start_ns)
+        params.append(window.start_ns + shift)
     if window.end_ns is not None:
         clauses.append(f"{column} < ?")
-        params.append(window.end_ns)
+        params.append(window.end_ns + shift)
     return "".join(f" AND {c}" for c in clauses), params
 
 
@@ -201,6 +206,10 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
         hardware=_loads(row["hardware"]),
         details=_loads(row["details"]),
         rig_version_id=row["rig_version_id"],
+        kind=row["kind"],
+        pinned=bool(row["pinned"]),
+        continues=row["continues"],
+        bytes=row["bytes"],
     )
 
 
@@ -211,6 +220,7 @@ def _rig_version_row(row: sqlite3.Row) -> RigVersionRow:
         reason=row["reason"],
         files=_loads(row["files"]) or [],
         document=_loads(row["document"]),
+        parent=row["parent_id"],
     )
 
 
@@ -540,27 +550,82 @@ class SqliteStore:
         hardware: Any = None,
         details: Any = None,
         rig_version_id: int | None = None,
+        kind: SessionKind = "session",
+        continues: int | None = None,
     ) -> SqliteSessionWriter:
         with self._transaction() as connection:
-            cursor = connection.execute(
-                "INSERT INTO session (start_ns, version, config, hardware, details,"
-                " rig_version_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    start_ns,
-                    version,
-                    _dumps(config),
-                    _dumps(hardware),
-                    _dumps(details),
-                    rig_version_id,
-                ),
+            session_id = self._insert_session(
+                connection,
+                start_ns,
+                version,
+                config,
+                hardware,
+                details,
+                rig_version_id,
+                kind,
+                continues,
             )
-            session_id = int(cursor.lastrowid or 0)
         return SqliteSessionWriter(self, self.session(session_id))
 
-    def sessions(self, limit: int | None = None) -> list[SessionRow]:
-        sql = "SELECT * FROM session ORDER BY start_ns DESC"
-        rows = self._query(sql + " LIMIT ?", (limit,)) if limit is not None else self._query(sql)
-        return [_session_row(r) for r in rows]
+    def _insert_session(
+        self,
+        connection: sqlite3.Connection,
+        start_ns: int,
+        version: str | None,
+        config: Any,
+        hardware: Any,
+        details: Any,
+        rig_version_id: int | None,
+        kind: SessionKind,
+        continues: int | None,
+        end_ns: int | None = None,
+    ) -> int:
+        """Within the caller's transaction."""
+        cursor = connection.execute(
+            "INSERT INTO session (start_ns, origin_ns, end_ns, version, config, hardware,"
+            " details, rig_version_id, kind, continues) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                start_ns,
+                start_ns,
+                end_ns,
+                version,
+                _dumps(config),
+                _dumps(hardware),
+                _dumps(details),
+                rig_version_id,
+                kind,
+                continues,
+            ),
+        )
+        return int(cursor.lastrowid or 0)
+
+    def sessions(
+        self, limit: int | None = None, kind: SessionKind | None = None
+    ) -> list[SessionRow]:
+        sql = "SELECT * FROM session"
+        params: list[Any] = []
+        if kind is not None:
+            sql += " WHERE kind = ?"
+            params.append(kind)
+        sql += " ORDER BY start_ns DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        return [_session_row(r) for r in self._query(sql, params)]
+
+    def _shift(self, session_id: int) -> int:
+        """How far the session's `start_ns` has moved past the origin its offsets count from.
+
+        Zero for any session never trimmed. Trimming a scratch session moves
+        `start_ns` up to the oldest row kept without rewriting every offset,
+        so a read adds this to a window and takes it off what comes back.
+        """
+        rows = self._query(
+            "SELECT start_ns - origin_ns AS shift FROM session WHERE id = ?", (session_id,)
+        )
+        if not rows:
+            raise SessionNotFoundError(session_id)
+        return int(rows[0]["shift"])
 
     def session(self, session_id: int) -> SessionRow:
         rows = self._query("SELECT * FROM session WHERE id = ?", (session_id,))
@@ -576,7 +641,7 @@ class SqliteStore:
             last = self._query(
                 "SELECT MAX(offset_ns) AS last FROM sample WHERE session_id = ?", (session_id,)
             )[0]["last"]
-            end_ns = session.start_ns + (last or 0)
+            end_ns = session.start_ns + max(0, (last or 0) - self._shift(session_id))
         with self._transaction() as connection:
             connection.execute("UPDATE session SET end_ns = ? WHERE id = ?", (end_ns, session_id))
         return self.session(session_id)
@@ -585,6 +650,226 @@ class SqliteStore:
         with self._transaction() as connection:
             if connection.execute("DELETE FROM session WHERE id = ?", (session_id,)).rowcount == 0:
                 raise SessionNotFoundError(session_id)
+
+    def set_pinned(self, session_id: int, pinned: bool) -> SessionRow:
+        with self._transaction() as connection:
+            moved = connection.execute(
+                "UPDATE session SET pinned = ? WHERE id = ?", (int(pinned), session_id)
+            ).rowcount
+            if moved == 0:
+                raise SessionNotFoundError(session_id)
+        return self.session(session_id)
+
+    def trim_session(self, session_id: int, before_ns: int) -> SessionRow:
+        session = self.session(session_id)
+        if session.end_ns is not None:
+            before_ns = min(before_ns, session.end_ns)
+        if before_ns <= session.start_ns:
+            return session
+        # Offsets count from the origin; the row's start_ns is what the reader sees.
+        cut = before_ns - (session.start_ns - self._shift(session_id))
+        with self._transaction() as connection:
+            # Readings go with their samples (the cascade; the range is on sample_by_time).
+            connection.execute(
+                "DELETE FROM sample WHERE session_id = ? AND offset_ns < ?", (session_id, cut)
+            )
+            for table in ("tick", "write_state", "event"):
+                connection.execute(
+                    f"DELETE FROM {table} WHERE session_id = ? AND offset_ns < ?",
+                    (session_id, cut),
+                )
+            connection.execute(
+                "DELETE FROM span WHERE session_id = ? AND end_ns IS NOT NULL AND end_ns < ?",
+                (session_id, cut),
+            )
+            connection.execute(
+                "UPDATE session SET start_ns = ? WHERE id = ?", (before_ns, session_id)
+            )
+        return self.session(session_id)
+
+    def keep_range(
+        self,
+        session_id: int,
+        start_ns: int,
+        end_ns: int,
+        details: Any = None,
+        kind: SessionKind = "session",
+    ) -> SessionRow:
+        source = self.session(session_id)
+        if end_ns <= start_ns:
+            raise ValueError("the range is empty")
+        if start_ns < source.start_ns:
+            raise ValueError(f"session {session_id} holds nothing before {source.start_ns}")
+        if source.end_ns is not None and end_ns > source.end_ns:
+            raise ValueError(f"session {session_id} ended at {source.end_ns}")
+        with self._transaction() as connection:
+            target = self._insert_session(
+                connection,
+                start_ns,
+                source.version,
+                source.config,
+                source.hardware,
+                details,
+                source.rig_version_id,
+                kind,
+                None,
+                end_ns=end_ns,
+            )
+            for table, columns in (
+                ("device", "id, address, driver, config, label"),
+                (
+                    "signal",
+                    "id, device_id, address, quantity, unit, access, dtype, shape, label,"
+                    " range, precision, warn, alarm, limits",
+                ),
+                ("write", "signal_id, driver, limits"),
+                ("controller", "name, source, law, feedforward"),
+            ):
+                connection.execute(
+                    f"INSERT INTO {table} (session_id, {columns})"
+                    f" SELECT ?, {columns} FROM {table} WHERE session_id = ?",
+                    (target, session_id),
+                )
+            self._copy_rows(connection, source, target, start_ns, end_ns, mapped=False)
+        return self.session(target)
+
+    def backfill(self, session_id: int, source_id: int, start_ns: int, end_ns: int) -> int:
+        source = self.session(source_id)
+        target = self.session(session_id)
+        start_ns = max(start_ns, source.start_ns)
+        if source.end_ns is not None:
+            end_ns = min(end_ns, source.end_ns + 1)  # a row at the end itself is the source's
+        if end_ns <= start_ns:
+            return 0
+        with self._transaction() as connection:
+            return self._copy_rows(connection, source, target, start_ns, end_ns, mapped=True)
+
+    def _copy_rows(
+        self,
+        connection: sqlite3.Connection,
+        source: SessionRow,
+        target: SessionRow | int,
+        start_ns: int,
+        end_ns: int,
+        *,
+        mapped: bool,
+    ) -> int:
+        """Copy the data rows of `source` in `[start_ns, end_ns)` (absolute) into `target`.
+
+        `mapped`: the target has its own declarations, so devices and signals
+        are matched by address and the samples numbered from -1 downwards,
+        under whatever its writer has counted; otherwise the ids are the
+        source's own (`keep_range` copied its declarations) and seqs come as
+        they are. Returns the number of readings copied.
+        """
+        target_id = target if isinstance(target, int) else target.id
+        origin = connection.execute(
+            "SELECT origin_ns FROM session WHERE id = ?", (source.id,)
+        ).fetchone()[0]
+        target_origin = connection.execute(
+            "SELECT origin_ns FROM session WHERE id = ?", (target_id,)
+        ).fetchone()[0]
+        lo, hi = start_ns - origin, end_ns - origin  # the source's offsets to take
+        delta = origin - target_origin  # what to add to an offset on the way over
+        if not mapped:
+            device_map = "s.device_id"
+            signal_map = "r.signal_id"
+            joins = ""
+            seq = "s.seq"
+        else:
+            device_map = "td.id"
+            signal_map = "ts.id"
+            joins = (
+                " JOIN device sd ON sd.session_id = s.session_id AND sd.id = s.device_id"
+                " JOIN device td ON td.session_id = ? AND td.address = sd.address"
+            )
+            # Below the writer's counter, which starts at 1: the oldest is the most negative.
+            low = connection.execute(
+                "SELECT MAX(seq) FROM sample WHERE session_id = ?", (source.id,)
+            ).fetchone()[0]
+            seq = f"s.seq - {int(low or 0) + 1}"
+        connection.execute(
+            f"INSERT INTO sample (session_id, device_id, seq, node, offset_ns)"
+            f" SELECT ?, {device_map}, {seq}, s.node, s.offset_ns + ? FROM sample s{joins}"
+            " WHERE s.session_id = ? AND s.offset_ns >= ? AND s.offset_ns < ?",
+            (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
+        )
+        signal_joins = (
+            joins + " JOIN signal ss ON ss.session_id = r.session_id AND ss.id = r.signal_id"
+            " JOIN signal ts ON ts.session_id = ? AND ts.address = ss.address"
+            if mapped
+            else ""
+        )
+        readings = connection.execute(
+            f"INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
+            f" SELECT ?, {device_map}, {seq}, {signal_map}, r.offset_ns + ?, r.value"
+            " FROM reading r JOIN sample s ON s.session_id = r.session_id"
+            f" AND s.device_id = r.device_id AND s.seq = r.seq{signal_joins}"
+            " WHERE r.session_id = ? AND r.offset_ns >= ? AND r.offset_ns < ?",
+            (target_id, delta, *([target_id, target_id] if mapped else []), source.id, lo, hi),
+        ).rowcount
+        state_map = (
+            " JOIN signal ss ON ss.session_id = w.session_id AND ss.id = w.signal_id"
+            " JOIN signal ts ON ts.session_id = ? AND ts.address = ss.address"
+            " JOIN write tw ON tw.session_id = ts.session_id AND tw.signal_id = ts.id"
+            if mapped
+            else ""
+        )
+        connection.execute(
+            "INSERT OR REPLACE INTO write_state"
+            " (session_id, signal_id, offset_ns, value, requested, at_limit, controller)"
+            f" SELECT ?, {'tw.signal_id' if mapped else 'w.signal_id'}, w.offset_ns + ?, w.value,"
+            f" w.requested, w.at_limit, w.controller FROM write_state w{state_map}"
+            " WHERE w.session_id = ? AND w.offset_ns >= ? AND w.offset_ns < ?",
+            (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
+        )
+        controller_map = (
+            " JOIN controller tc ON tc.session_id = ? AND tc.name = t.controller" if mapped else ""
+        )
+        connection.execute(
+            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, reading,"
+            " setpoint, correction, demand, expected, delivered_correction)"
+            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.reading, t.setpoint,"
+            " t.correction, t.demand, t.expected, t.delivered_correction"
+            f" FROM tick t{controller_map}"
+            " WHERE t.session_id = ? AND t.offset_ns >= ? AND t.offset_ns < ?",
+            (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
+        )
+        connection.execute(
+            "INSERT INTO event (session_id, offset_ns, source, kind, detail)"
+            " SELECT ?, offset_ns + ?, source, kind, detail FROM event"
+            " WHERE session_id = ? AND offset_ns >= ? AND offset_ns < ? ORDER BY offset_ns, id",
+            (target_id, delta, source.id, lo, hi),
+        )
+        return int(readings or 0)
+
+    # Bytes per row, index included, measured on a 4 kB page: 10 float readings
+    # per sample came to 555 bytes; an event with a short message to 85.
+    _ROW_BYTES: ClassVar[dict[str, int]] = {
+        "reading": 56,
+        "tick": 80,
+        "write_state": 48,
+        "event": 88,
+    }
+
+    def measure_session(self, session_id: int) -> int:
+        self.session(session_id)  # 404 first
+        total = 0
+        for table, cost in self._ROW_BYTES.items():
+            count = self._query(
+                f"SELECT COUNT(*) AS n FROM {table} WHERE session_id = ?", (session_id,)
+            )[0]["n"]
+            total += int(count) * cost
+        with self._transaction() as connection:
+            connection.execute("UPDATE session SET bytes = ? WHERE id = ?", (total, session_id))
+        return total
+
+    def used_bytes(self) -> int:
+        with self._lock:
+            page_size = self._connection.execute("PRAGMA page_size").fetchone()[0]
+            pages = self._connection.execute("PRAGMA page_count").fetchone()[0]
+            free = self._connection.execute("PRAGMA freelist_count").fetchone()[0]
+        return int((pages - free) * page_size)
 
     # endregion
 
@@ -639,7 +924,8 @@ class SqliteStore:
         downsample: Downsample | None = None,
     ) -> Series:
         signal = self._signal(session_id, address)
-        where, params = _window_clause(window, "offset_ns")
+        shift = self._shift(session_id)
+        where, params = _window_clause(window, "offset_ns", shift)
         # Every form below is one range scan of reading_by_signal: the index
         # carries offset_ns and value, so neither the table nor sample is read.
         base = " FROM reading WHERE session_id = ? AND signal_id = ?" + where
@@ -652,7 +938,9 @@ class SqliteStore:
             rows = self._query(
                 "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
             )
-            points = tuple(Point(r["t"], _decode_reading(signal.dtype, r["v"])) for r in rows)
+            points = tuple(
+                Point(r["t"] - shift, _decode_reading(signal.dtype, r["v"])) for r in rows
+            )
             return Series(signal, points, None)
 
         match downsample:
@@ -677,15 +965,17 @@ class SqliteStore:
                 bucket_ns = max(1, (hi - lo) // max_points + 1)
                 return self.series(session_id, address, window, Downsample(bucket_ns=bucket_ns))
             case Downsample(bucket_ns=int(bucket_ns)):
+                # Buckets are laid from start_ns, not the origin, so a trimmed
+                # session's first bucket is not labelled before its start.
                 rows = self._query(
-                    "SELECT (offset_ns / ?) * ? AS t, AVG(value) AS v"
+                    "SELECT ((offset_ns - ?) / ?) * ? + ? AS t, AVG(value) AS v"
                     + base
-                    + " GROUP BY offset_ns / ? ORDER BY t",
-                    [bucket_ns, bucket_ns, *key, bucket_ns],
+                    + " GROUP BY (offset_ns - ?) / ? ORDER BY t",
+                    [shift, bucket_ns, bucket_ns, shift, *key, shift, bucket_ns],
                 )
             case _:
                 raise ValueError(f"{downsample!r} names none of every, bucket_ns or max_points")
-        return Series(signal, tuple(Point(r["t"], r["v"]) for r in rows), downsample)
+        return Series(signal, tuple(Point(r["t"] - shift, r["v"]) for r in rows), downsample)
 
     def samples(
         self, session_id: int, address: str, window: Window | None = None
@@ -695,7 +985,8 @@ class SqliteStore:
         if device is None:
             raise NotFoundError(f"Device {name!r} not in session {session_id}")
         signals = {s.id: s for s in self.signals(session_id)}
-        where, params = _window_clause(window, "s.offset_ns")
+        shift = self._shift(session_id)
+        where, params = _window_clause(window, "s.offset_ns", shift)
         # A namespace's address selects the samples on it and under it.
         under = "" if address == name else " AND (node = ? OR node LIKE ?)"
         rows = self._query(
@@ -711,7 +1002,7 @@ class SqliteStore:
         for r in rows:
             row = samples.get(r["seq"])
             if row is None:
-                row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"], r["node"], {})
+                row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"] - shift, r["node"], {})
             signal = signals[r["signal_id"]]
             row.values[signal.address] = _decode_reading(signal.dtype, r["value"])
         return list(samples.values())
@@ -720,10 +1011,11 @@ class SqliteStore:
         self, session_id: int, address: str, window: Window | None = None
     ) -> list[WriteStateRow]:
         signal = self._signal(session_id, address)
-        where, params = _window_clause(window, "offset_ns")
+        shift = self._shift(session_id)
+        where, params = _window_clause(window, "offset_ns", shift)
         return [
             WriteStateRow(
-                r["offset_ns"],
+                r["offset_ns"] - shift,
                 r["value"],
                 r["requested"],
                 None if r["at_limit"] is None else Limit(r["at_limit"]),
@@ -744,13 +1036,14 @@ class SqliteStore:
         window: Window | None = None,
         every: int | None = None,
     ) -> list[Tick]:
-        where, params = _window_clause(window, "offset_ns")
+        shift = self._shift(session_id)
+        where, params = _window_clause(window, "offset_ns", shift)
         # Ticks have no sequence number of their own: number them in order and keep every nth.
         thin = "" if every is None or every <= 1 else f" AND (rn - 1) % {int(every)} = 0"
         return [
             Tick(
                 controller=r["controller"],
-                offset_ns=r["offset_ns"],
+                offset_ns=r["offset_ns"] - shift,
                 mode=r["mode"],
                 correction=r["correction"],
                 reading=r["reading"],
@@ -773,12 +1066,13 @@ class SqliteStore:
     def events(
         self, session_id: int, window: Window | None = None, kind: str | None = None
     ) -> list[Event]:
-        where, params = _window_clause(window, "offset_ns")
+        shift = self._shift(session_id)
+        where, params = _window_clause(window, "offset_ns", shift)
         if kind is not None:
             where += " AND kind = ?"
             params.append(kind)  # type: ignore[arg-type]
         return [
-            Event(r["offset_ns"], r["kind"], r["source"], _loads(r["detail"]), r["id"])
+            Event(r["offset_ns"] - shift, r["kind"], r["source"], _loads(r["detail"]), r["id"])
             for r in self._query(
                 "SELECT * FROM event WHERE session_id = ?" + where + " ORDER BY offset_ns, id",
                 [session_id, *params],
@@ -786,13 +1080,14 @@ class SqliteStore:
         ]
 
     def spans(self, session_id: int) -> list[Span]:
+        shift = self._shift(session_id)
         return [
             Span(
                 r["id"],
                 SpanKind(r["kind"]),
                 r["label"],
-                r["start_ns"],
-                r["end_ns"],
+                r["start_ns"] - shift,
+                None if r["end_ns"] is None else r["end_ns"] - shift,
                 r["parent_id"],
                 _loads(r["details"]),
             )
@@ -811,11 +1106,18 @@ class SqliteStore:
         self, time_ns: int, reason: str, document: dict[str, Any], files: Sequence[str] = ()
     ) -> RigVersionRow:
         with self._transaction() as connection:
+            head = connection.execute("SELECT version_id FROM rig_head").fetchone()
             cursor = connection.execute(
-                "INSERT INTO rig_version (time_ns, reason, files, document) VALUES (?, ?, ?, ?)",
-                (time_ns, reason, _dumps(list(files)), _dumps(document)),
+                "INSERT INTO rig_version (time_ns, reason, files, document, parent_id)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (time_ns, reason, _dumps(list(files)), _dumps(document), head and head[0]),
             )
             version_id = int(cursor.lastrowid or 0)
+            connection.execute(
+                "INSERT INTO rig_head (one, version_id) VALUES (1, ?)"
+                " ON CONFLICT (one) DO UPDATE SET version_id = excluded.version_id",
+                (version_id,),
+            )
         return self.rig_version(version_id)
 
     def rig_versions(self, limit: int | None = None) -> list[RigVersionRow]:
@@ -831,9 +1133,19 @@ class SqliteStore:
             raise NotFoundError(f"Rig version {version_id} not found")
         return _rig_version_row(rows[0])
 
-    def latest_rig_version(self) -> RigVersionRow | None:
-        rows = self._query("SELECT * FROM rig_version ORDER BY id DESC LIMIT 1")
+    def head_rig_version(self) -> RigVersionRow | None:
+        rows = self._query("SELECT v.* FROM rig_version v JOIN rig_head h ON h.version_id = v.id")
         return _rig_version_row(rows[0]) if rows else None
+
+    def set_rig_head(self, version_id: int) -> RigVersionRow:
+        row = self.rig_version(version_id)  # 404 before anything moves
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO rig_head (one, version_id) VALUES (1, ?)"
+                " ON CONFLICT (one) DO UPDATE SET version_id = excluded.version_id",
+                (version_id,),
+            )
+        return row
 
     # endregion
 

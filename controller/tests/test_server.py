@@ -857,7 +857,17 @@ class TestSimRoutes:
         reset = client.post("/api/sim/plants/tank/reset", json={"output": 12.0}).json()
         assert reset["output"] == pytest.approx(12.0, abs=0.5)
         assert client.get("/api/sim/config").json()["links"]["tank"]["gain"] == 2.5
-        saved = client.post("/api/sim/save").json()["path"]
+        r = client.post("/api/sim/save")
+        assert r.status_code == 409 and "--allow-save" in r.json()["detail"]
+        from conftest import FakeDaemon
+        from flyball.runtime.config import DaemonConfig
+        from flyball.server.deps import set_daemon
+
+        set_daemon(FakeDaemon(DaemonConfig(allow_save=True)))
+        try:
+            saved = client.post("/api/sim/save").json()["path"]
+        finally:
+            set_daemon(None)
         assert saved == str(tmp_path / "tank.yaml") and (tmp_path / "tank.yaml").exists()
         assert client.get("/api/sim").json()["changed"] == []
         devices = {d["name"]: d for d in client.get("/api/devices").json()}

@@ -25,11 +25,12 @@ longer parse; `temp-docs/DEVICE-MODEL-PLAN.md` §6 says so.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
 
 # The built-in kinds register their tags when imported; a rig file can name
 # them without the application importing anything.
@@ -110,6 +111,147 @@ class ClockEntry(BaseModel):
     )
 
 
+_DURATION = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ns|us|ms|s|m|h|d|w)?\s*$", re.IGNORECASE)
+_DURATION_NS = {
+    "ns": 1,
+    "us": 1_000,
+    "ms": 1_000_000,
+    "s": 1_000_000_000,
+    "m": 60_000_000_000,
+    "h": 3_600_000_000_000,
+    "d": 86_400_000_000_000,
+    "w": 604_800_000_000_000,
+}
+_SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)(i?)b?\s*$", re.IGNORECASE)
+_SIZE_EXPONENT = {"": 0, "k": 1, "m": 2, "g": 3, "t": 4}
+
+
+def parse_duration_ns(text: str | int | float) -> int:
+    """`1h`, `30m`, `90s`, `2d`, `500ms` -- or a bare number of seconds -- as nanoseconds.
+
+    `0` (any spelling) is zero: the daemon reads that as *off* or *forever*.
+    Anything else raises `ValueError`.
+    """
+    if isinstance(text, (int, float)):
+        return round(text * 1_000_000_000)
+    match = _DURATION.match(text)
+    if match is None:
+        raise ValueError(f"{text!r} is not a duration: a number with ns, us, ms, s, m, h, d or w")
+    number, unit = match.groups()
+    return round(float(number) * _DURATION_NS[(unit or "s").lower()])
+
+
+def parse_size_bytes(text: str | int | float) -> int:
+    """`256MB`, `20GB`, `1.5GiB`, `4096` -- as bytes: decimal for `kB`..`TB`, binary with an `i`.
+
+    `0` is zero, which the daemon reads as *no cap*. Anything else raises `ValueError`.
+    """
+    if isinstance(text, (int, float)):
+        return round(text)
+    match = _SIZE.match(text)
+    if match is None:
+        raise ValueError(f"{text!r} is not a size: a number with kB, MB, GB, TB or KiB, MiB, ...")
+    number, prefix, binary = match.groups()
+    base = 1024 if binary else 1000
+    return round(float(number) * base ** _SIZE_EXPONENT[prefix.lower()])
+
+
+class DaemonConfig(BaseModel):
+    """The `daemon:` section: how the process serves, not what the rig is.
+
+    Everything here is fixed for the life of the process and says nothing
+    about the equipment, so it may live in the rig file or in a file of its
+    own that layers with it. A command-line flag overrides a value here.
+    A path is relative to the first rig file's directory.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(default="127.0.0.1", description="Bind address; loopback unless reachable.")
+    port: int = 8000
+    log_level: str = "info"
+    store: Path | None = Field(
+        default=None, description="Sessions and versions; default <rig>.sqlite beside the file."
+    )
+    store_dir: Path | None = Field(
+        default=None, description="Where stores live, one per rig by name: <dir>/<name>.sqlite."
+    )
+    programs: Path | None = Field(
+        default=None, description="Program files to import; default programs/ beside the file."
+    )
+    tunings: Path | None = Field(
+        default=None, description="Control-law configs; default tunings/ beside the file."
+    )
+    drivers: Path | None = Field(
+        default=None, description="Driver .py files; default drivers/ beside the file."
+    )
+    token: str | None = Field(default=None, description="Bearer token every request must carry.")
+    compose: bool = Field(default=False, description="Build up a hardware rig over the API.")
+    mcp: bool = Field(default=True, description="Mount the MCP servers at /mcp.")
+    root_path: str | None = Field(default=None, description="Serve under this path prefix.")
+    allow_save: bool = Field(
+        default=False, description="Let the API write rig files: a save to a path, a sim save."
+    )
+    allow_shutdown: bool = Field(
+        default=False, description="Let the API stop or restart the daemon."
+    )
+    keep: str = Field(
+        default="1h",
+        description="How much the scratch record holds while nothing is recorded, in the rig's"
+        " clock (`1h`, `30m`); `0` keeps none.",
+    )
+    keep_size: str = Field(
+        default="256MB",
+        description="The most the scratch record may take on disk; the oldest goes first.",
+    )
+    retain: str = Field(
+        default="0",
+        description="Delete an unpinned session this long after it ended (`30d`); `0` keeps all.",
+    )
+    rotate: str = Field(
+        default="0",
+        description="Close a recording at this length and continue it in a new session (`24h`);"
+        " `0` never rotates.",
+    )
+    max_store: str = Field(
+        default="0",
+        description="Keep the store under this size by deleting the oldest data, of any kind,"
+        " never pinned (`20GB`); `0` sets no cap.",
+    )
+
+    @field_validator("keep", "retain", "rotate", mode="before")
+    @classmethod
+    def _duration(cls, value: Any) -> str:
+        parse_duration_ns(value)  # a bad spelling fails here, not when the daemon first sweeps
+        return str(value)
+
+    @field_validator("keep_size", "max_store", mode="before")
+    @classmethod
+    def _size(cls, value: Any) -> str:
+        parse_size_bytes(value)
+        return str(value)
+
+    @property
+    def keep_ns(self) -> int:
+        return parse_duration_ns(self.keep)
+
+    @property
+    def keep_bytes(self) -> int:
+        return parse_size_bytes(self.keep_size)
+
+    @property
+    def retain_ns(self) -> int:
+        return parse_duration_ns(self.retain)
+
+    @property
+    def rotate_ns(self) -> int:
+        return parse_duration_ns(self.rotate)
+
+    @property
+    def max_bytes(self) -> int:
+        return parse_size_bytes(self.max_store)
+
+
 def is_simulated(links: dict[str, Any]) -> bool:
     """Whether every link is a fake or a simulation, so time may be played with."""
     return all(
@@ -145,6 +287,8 @@ class RigConfig(BaseModel):
     controllers: dict[str, ControllerEntry] = Field(
         default_factory=dict, description="Keyed by the target signal's address."
     )
+    daemon: DaemonConfig | None = Field(default=None, exclude=True)
+    """How the daemon serves; not part of the rig, so not of its document or versions."""
     files: list[Path] = Field(default_factory=list, exclude=True)
     """The files this was loaded from, set by `load_rig_config`; not part of the document."""
     resumed: bool = Field(default=False, exclude=True)

@@ -16,10 +16,17 @@ from flyball.core.utils import Labelled
 # region Declarations
 
 
+SessionKind = Literal["session", "scratch"]
+"""`session`: a recording someone started. `scratch`: the rolling record the daemon keeps
+while nothing is being recorded, trimmed to the last `keep` of the rig's clock."""
+
+
 @dataclass(frozen=True, slots=True)
 class SessionRow:
     id: int
     start_ns: int
+    """When the session started -- or, for a scratch session, the oldest row it still holds:
+    trimming moves it forward. Offsets are from here either way."""
     end_ns: int | None
     version: str | None
     config: Any
@@ -27,10 +34,21 @@ class SessionRow:
     details: Any
     rig_version_id: int | None = None
     """The rig version the session started on, when the store keeps rig versions."""
+    kind: SessionKind = "session"
+    pinned: bool = False
+    """Never aged out by retention."""
+    continues: int | None = None
+    """The session this one carried on from when the daemon rotated at a boundary."""
+    bytes: int | None = None
+    """What a scratch session holds on disk, as last estimated; None where not measured."""
 
     @property
     def open(self) -> bool:
         return self.end_ns is None
+
+    @property
+    def scratch(self) -> bool:
+        return self.kind == "scratch"
 
     @property
     def duration_ns(self) -> int | None:
@@ -110,6 +128,8 @@ class RigVersionRow:
     """The files the daemon loaded, for provenance; empty for a rig started bare."""
     document: dict[str, Any]
     """The whole rig document, `RigConfig`'s canonical form: self-contained, never a diff."""
+    parent: int | None = None
+    """The version this one was made from -- the head when it was saved; None for a first."""
 
 
 @dataclass(frozen=True, slots=True)

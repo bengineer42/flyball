@@ -27,7 +27,7 @@ from flyball.db import RigVersionRow
 from flyball.runtime.config import RigConfig, canonical, is_simulated, registered
 from flyball.runtime.rig import Rig
 from flyball.runtime.simulation import dumps
-from flyball.server.deps import RigDep, compose_allowed, get_store
+from flyball.server.deps import RigDep, compose_allowed, get_store, save_allowed
 from flyball.server.routes.devices import device_out
 from flyball.server.schemas import DeviceOut
 
@@ -214,10 +214,27 @@ class VersionOut(BaseModel):
     time_ns: int
     reason: str
     files: list[str]
+    parent: int | None
+    """The version this was made from: the head at the time. A restore moves the head, so a
+    change after one branches from what was restored."""
+    head: bool
+    """Whether the running rig is at this version."""
 
     @classmethod
-    def of(cls, row: RigVersionRow) -> VersionOut:
-        return cls(id=row.id, time_ns=row.time_ns, reason=row.reason, files=row.files)
+    def of(cls, row: RigVersionRow, head: int | None) -> VersionOut:
+        return cls(
+            id=row.id,
+            time_ns=row.time_ns,
+            reason=row.reason,
+            files=row.files,
+            parent=row.parent,
+            head=row.id == head,
+        )
+
+
+def _head() -> int | None:
+    head = get_store().head_rig_version()
+    return None if head is None else head.id
 
 
 class VersionDocumentOut(VersionOut):
@@ -226,14 +243,19 @@ class VersionDocumentOut(VersionOut):
 
 @router.get("/rig/versions")
 def read_versions(limit: int | None = None) -> list[VersionOut]:
-    """Every version of the rig this store has seen, newest first: when, and why it changed."""
-    return [VersionOut.of(row) for row in get_store().rig_versions(limit)]
+    """Every version of the rig this store has seen, newest first: when, and why it changed.
+
+    Each names its `parent` and whether it is the `head` -- the one the
+    running rig is at.
+    """
+    head = _head()
+    return [VersionOut.of(row, head) for row in get_store().rig_versions(limit)]
 
 
 @router.get("/rig/versions/{version_id}")
 def read_version(version_id: int) -> VersionDocumentOut:
     row = get_store().rig_version(version_id)
-    return VersionDocumentOut(**VersionOut.of(row).model_dump(), document=row.document)
+    return VersionDocumentOut(**VersionOut.of(row, _head()).model_dump(), document=row.document)
 
 
 @router.post("/rig/versions/{version_id}/restore")
@@ -242,17 +264,18 @@ def restore_version(rig: RigDep, version_id: int) -> dict[str, Any]:
 
     Everything not in the version is removed; everything in it that is not
     running is added; a device whose entry differs is rebuilt. Controllers
-    are re-attached from the version. Records a version of its own.
+    are re-attached from the version. No version is written: the head moves
+    to this one, and the next change branches from it.
     """
     target = get_store().rig_version(version_id).document
     _composable(rig)
     with rig.lock:
-        hook, rig.on_change = rig.on_change, None  # one version for the whole restore
+        hook, rig.on_change = rig.on_change, None  # the head moves; nothing is recorded
         try:
             _apply(rig, target)
         finally:
             rig.on_change = hook
-        rig._changed(f"restored {version_id}")
+        get_store().set_rig_head(version_id)
     return rig.document()
 
 
@@ -294,7 +317,8 @@ def _apply(rig: Rig, target: dict[str, Any]) -> None:
 class SaveIn(BaseModel):
     path: str | None = None
     """Where to write. None: the daemon's own overlay beside the first rig file, holding what
-    changed since the files were loaded. A path: the whole rig, flattened."""
+    changed since the files were loaded. A path: the whole rig, flattened -- only on a daemon
+    started with `--allow-save`."""
     overwrite: bool = False
     """Allow `path` to be one of the files the rig was loaded from."""
 
@@ -313,6 +337,12 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
         document = _changes(rig)
         target.parent.mkdir(exist_ok=True)
     else:
+        if not save_allowed():
+            raise HTTPException(
+                status_code=409,
+                detail="Saving to a path needs the daemon started with --allow-save"
+                " (daemon.allow_save); with no path, the overlay is always written",
+            )
         target = Path(body.path)
         if target.suffix.lower() not in SUFFIXES:
             raise HTTPException(
