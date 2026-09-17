@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
 from typing import TYPE_CHECKING, Any
 
+from .clock import Rate
 from .errors import NotFoundError
 from .quantity import Quantity
 from .units import Unit
@@ -247,10 +248,18 @@ class SignalSpec:
     """The band a value is acceptable inside (EPICS LOLO/HIHI); outside it, an alarm."""
     poll_s: float | None = None
     """None: the enclosing node's; only meaningful with `P`."""
+    stale_after: float | None = None
+    """Seconds since the last reading beyond which a controller regulated from this signal
+    treats it as untrustworthy: its demand is held rather than applied. None (default):
+    never checked, today's behaviour."""
     # write side (W)
     limits: tuple[Bound, Bound] | None = None
     """What a demand is clamped to, in the signal's unit: numbers, or references to signals of
     the same device whose current values bound it (a config's max flow, an input's humidity)."""
+    max_rate: Rate | None = None
+    """How fast a demand may move, in the signal's unit per `Rate.per`: a demand that would
+    move further than the elapsed time since the last commit allows is clamped to the
+    largest step allowed, not refused. None (default): unlimited, today's behaviour."""
 
     def __post_init__(self) -> None:
         _check_segment(self.name)
