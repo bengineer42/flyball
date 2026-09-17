@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
-import { Stack, TextField, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { IconButton, Popover, Stack, TextField, ToggleButton, ToggleButtonGroup, useMediaQuery, useTheme } from "@mui/material";
+import TuneIcon from "@mui/icons-material/Tune";
 import type { YScale } from "@flyball/react";
 import { Labelled, WindowSelect, controlSx, segmentSx } from "./WindowSelect.js";
 
@@ -132,11 +133,33 @@ export const EverySelect = memo(function EverySelect({ value, onChange }: { valu
 
 /** The chart controls side by side, on one baseline; memoised for the same reason as `WindowSelect`. Lives once per page, in the page bar. */
 export const ChartControls = memo(function ChartControls({ windowS, onWindow, yScale, onYScale, every, onEvery, unit }: ChartSettings & { unit?: string }) {
-  return (
-    <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
+  const theme = useTheme();
+  const narrow = useMediaQuery(theme.breakpoints.down("sm"));
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const controls = (
+    <>
       <WindowSelect value={windowS} onChange={onWindow} />
       <EverySelect value={every} onChange={onEvery} />
       <YScaleSelect value={yScale} onChange={onYScale} unit={unit} />
+    </>
+  );
+  // At phone width three segmented rows would take the page bar's whole height: one button, the rows in a popover.
+  if (narrow)
+    return (
+      <>
+        <IconButton size="small" aria-label="chart settings" title="window, sampling and y axis" onClick={(e) => setAnchor(e.currentTarget)}>
+          <TuneIcon fontSize="small" />
+        </IconButton>
+        <Popover open={anchor !== null} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}>
+          <Stack spacing={1.5} sx={{ p: 1.5 }} alignItems="flex-start">
+            {controls}
+          </Stack>
+        </Popover>
+      </>
+    );
+  return (
+    <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
+      {controls}
     </Stack>
   );
 });

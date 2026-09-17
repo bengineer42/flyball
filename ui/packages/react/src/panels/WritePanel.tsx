@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { describeSignal, describeUnit, deviceOf, publishes, withUnit, type SignalOut, type WriteOut } from "@flyball/client";
 import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
@@ -126,11 +126,17 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The box is seeded with the committed value (else the last reading) once, and again after the signal changes hands.
+  // The box is seeded with the committed value (else the last reading) once it is known -- which may be a
+  // moment after mount, when the store has caught up -- and again after the signal changes hands. Typing
+  // afterwards is never overwritten by a readback.
+  const seedValue = write?.value ?? reading?.v;
+  const seededFor = useRef<string | null>(null);
   useEffect(() => {
-    setText(demandText(write?.value ?? reading?.v, precision));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signal.address, write?.controller]);
+    const key = `${signal.address}|${write?.controller ?? ""}`;
+    if (seededFor.current === key || seedValue == null) return;
+    seededFor.current = key;
+    setText(demandText(seedValue, precision));
+  }, [signal.address, write?.controller, seedValue, precision]);
 
   const driven = attached?.name ?? write?.controller ?? null;
   const limits = signal.limits;

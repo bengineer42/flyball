@@ -616,3 +616,9 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
     linear-gradient(to left, var(--fb-bg-1) 40%, transparent) right / 24px 100% no-repeat local,
     linear-gradient(to left, var(--fb-border-3), transparent) right / 10px 100% no-repeat scroll;
 }
+
+/* A controller's header at phone width: the source it regulates wraps under the name rather than cutting mid-word. */
+@media (max-width: 600px) {
+  .fb-loop-head { flex-wrap: wrap; }
+  .fb-loop-head > .fb-muted { flex-basis: 100%; white-space: normal; overflow: visible; }
+}

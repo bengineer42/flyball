@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Alert, Button, ButtonBase, Chip, Link, Paper, Stack, Typography } from "@mui/material";
-import { PanelFrame, Readout, Ref, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef } from "@flyball/react";
+import { PanelFrame, Readout, Ref, UnitCharts, groupByUnit, useHealth, countRender, useController, useControllers, useDeviceRuns, useEvents, useSignal, useTraceRef, type TraceRef, useStreamStatus } from "@flyball/react";
 import { captionUnder, describeNamespace, deviceOf, isHousekeeping, signalTitleAt, deviceTitle, isNamespace, placeOf, publishes, setpointOf, signalsOf, titleFor, unitTitle, withUnit, type ControllerOut, type DeviceOut, type Place, type SignalOut } from "@flyball/client";
 import { CircleIcon, OkIcon, SignalIcon, WarnIcon, signalIcon, PAGE_ICONS, type IconComponent } from "../icons.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
@@ -128,10 +128,17 @@ export function sampleBoxes(device: DeviceOut): SampleBox[] {
   return boxes;
 }
 
-/** When a device last published, from its first publishing signal's newest point; re-renders this line alone. */
+/**
+ * When a device last published, from its first publishing signal's newest
+ * point; re-renders this line alone. Says nothing while the stream is still
+ * connecting: "no sample yet" beside a tile that already shows one reads as
+ * a contradiction, and on first paint that is the usual case.
+ */
 function LastSample({ first }: { first: SignalOut | undefined }) {
   const point = useSignal(first?.address);
-  return <>{point ? `sample ${new Date(point.t * 1000).toLocaleTimeString()}` : "no sample yet"}</>;
+  const { streams } = useStreamStatus();
+  const settled = streams.length > 0 && streams.every((s) => s !== "connecting");
+  return <>{point ? `sample ${new Date(point.t * 1000).toLocaleTimeString()}` : settled ? "no sample yet" : ""}</>;
 }
 
 /** The devices' cards, subscribed to their runs (a last-read time that moves once a second) so the page above is not. */

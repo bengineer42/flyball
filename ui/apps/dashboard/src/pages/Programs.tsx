@@ -76,6 +76,9 @@ const warningLines = (warnings: Record<string, string>) =>
 
 /** A program's `notes`: a known `{ source }` note reads as "from &lt;file&gt;" (full path on hover), any
  * other object as `key: value` pairs, and a plain string as itself. */
+/** Columns a phone has no room for: the name, its check, its steps and the run/delete buttons are what matters there. */
+const wideOnly = { display: { xs: "none", sm: "table-cell" } } as const;
+
 function NotesCell({ notes }: { notes: unknown }) {
   if (notes == null) return <>—</>;
   if (typeof notes === "string") return <>{notes}</>;
@@ -212,16 +215,16 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
             {p.name}
           </Link>
         </TableCell>
-        <TableCell>
+        <TableCell sx={wideOnly}>
           <Chip label={p.format} variant="outlined" />
         </TableCell>
         <TableCell>
           <CheckChip check={check} />
         </TableCell>
         <TableCell sx={{ color: "text.secondary" }}>{normalised ? stepsSummary(normalised) : check.data && !check.data.ok ? check.data.error : "…"}</TableCell>
-        <TableCell>{p.label ?? "—"}</TableCell>
-        <TableCell sx={{ whiteSpace: "nowrap" }}>{when(p.created_ns)}</TableCell>
-        <TableCell sx={{ color: "text.secondary" }}>
+        <TableCell sx={wideOnly}>{p.label ?? "—"}</TableCell>
+        <TableCell sx={[wideOnly, { whiteSpace: "nowrap" }]}>{when(p.created_ns)}</TableCell>
+        <TableCell sx={[wideOnly, { color: "text.secondary" }]}>
           <NotesCell notes={p.notes} />
         </TableCell>
         <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
@@ -361,12 +364,12 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
             <TableHead>
               <TableRow>
                 <TableCell>name</TableCell>
-                <TableCell>format</TableCell>
+                <TableCell sx={wideOnly}>format</TableCell>
                 <TableCell>check</TableCell>
                 <TableCell>steps</TableCell>
-                <TableCell>label</TableCell>
-                <TableCell>saved</TableCell>
-                <TableCell>notes</TableCell>
+                <TableCell sx={wideOnly}>label</TableCell>
+                <TableCell sx={wideOnly}>saved</TableCell>
+                <TableCell sx={wideOnly}>notes</TableCell>
                 <TableCell padding="checkbox" />
                 <TableCell padding="checkbox" />
               </TableRow>
