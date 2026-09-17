@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic.json_schema import GenerateJsonSchema
 
 # The built-in kinds register their tags when imported; a rig file can name
 # them without the application importing anything.
@@ -762,7 +763,9 @@ def load_rig(path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[st
 def rig_schema() -> dict[str, Any]:
     """The rig file's JSON schema, for an editor, with every tag installed here."""
     discover()
-    return RigConfig.model_json_schema()
+    schema = RigConfig.model_json_schema()
+    schema["$schema"] = GenerateJsonSchema.schema_dialect
+    return schema
 
 
 # endregion

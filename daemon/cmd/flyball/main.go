@@ -8,12 +8,15 @@
 // export/program */sim */logs), plus daemon-management commands the
 // Python CLI never had (it predates the Go daemon). Deliberately NOT
 // reimplemented:
-// `rig check`, `rig schema`, `program schema` -- these are local operations
-// against Python's own rig-config/dialect code, not requests to a running
-// runner at all, so they don't fit this client/addressing model and still
-// need the flyball Python package installed either way. See the handoff
-// notes for where that gap is left. (`password` and `new` were in this
-// list too, but are ported below -- see local.go.)
+// `rig check`, `program schema` -- these are local operations against
+// Python's own rig-config/dialect code, not requests to a running runner
+// at all, so they don't fit this client/addressing model and still need
+// the flyball Python package installed either way. See the handoff notes
+// for where that gap is left. (`password` and `new` were in this list
+// too, but are ported below -- see local.go.) `rig schema` IS
+// reimplemented (rig.go): it only ever prints the embedded, checked-in
+// JSON Schema (daemon/internal/schema), generated from the Python
+// RigConfig model but not requiring Python at runtime.
 //
 // Dynamic per-device argparse flags (schema -> --dotted-flag, per
 // cli.py's "Schema -> argparse" region) are NOT reimplemented either --
@@ -51,6 +54,17 @@ func main() {
 	// since there's nothing to address yet.
 	if args[0] == "run" {
 		if err := runDirect(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// `rig ...` is a local operation against the rig file/schema itself,
+	// not a request to a running runner -- dispatched before target
+	// resolution for the same reason `run`/`daemon`/`logs` are.
+	if args[0] == "rig" {
+		if err := runRigCommand(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
@@ -144,10 +158,9 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   program check|run|status|stop PATH  program files
   sim show|clock|step|set|reset|config|save   a simulated rig's knobs
 
-no-daemon:
-  run RIG-FILE [flyball-runner flags...]   start a runner directly, foreground
-
 local (no runner or daemon involved):
+  rig schema                          the rig file's JSON Schema, for an editor
+  run RIG-FILE [flyball-runner flags...]   start a runner directly, foreground
   password [PASSWORD]                 hash a password for runner.auth.password
   new NAME [--dir PATH]                write a starting point for a device driver
 
