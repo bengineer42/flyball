@@ -60,15 +60,19 @@ func LoadDaemonConfig(path string) (DaemonConfig, error) {
 // Manifest is layer 2: a runner's identity and what's needed to start it
 // up. Not a daemon-exclusive concept -- the same information CLI flags
 // already provide by hand (config-layers.md's Layer 2).
+// JSON tags added alongside the existing YAML ones so the same struct
+// also decodes POST /api/runners' body correctly (interface.md's table)
+// -- encoding/json's tagless case-insensitive matching doesn't bridge
+// snake_case wire names like server_config to Go's ServerConfig field.
 type Manifest struct {
-	Name         string `yaml:"name"`
-	ServerConfig string `yaml:"server_config"` // path to the layer-3 daemon: file
-	Restart      string `yaml:"restart"`       // always | on-failure | never
-	Host         string `yaml:"host"`          // always 127.0.0.1 when daemon-supervised
-	Port         int    `yaml:"port"`
-	RootPath     string `yaml:"root_path"`
-	Store        string `yaml:"store"`
-	Enabled      *bool  `yaml:"enabled"`
+	Name         string `yaml:"name" json:"name"`
+	ServerConfig string `yaml:"server_config" json:"server_config"` // path to the layer-3 daemon: file
+	Restart      string `yaml:"restart" json:"restart"`             // always | on-failure | never
+	Host         string `yaml:"host" json:"host"`                   // always 127.0.0.1 when daemon-supervised
+	Port         int    `yaml:"port" json:"port"`
+	RootPath     string `yaml:"root_path" json:"root_path"`
+	Store        string `yaml:"store" json:"store"`
+	Enabled      *bool  `yaml:"enabled" json:"enabled"`
 }
 
 func (m Manifest) IsEnabled() bool {

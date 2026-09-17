@@ -83,11 +83,44 @@ func ResolveDefault(daemonURL string) (Target, error) {
 	}
 }
 
+// Raw sends a request relative to t and returns the raw response body,
+// for endpoints that don't return JSON (e.g. history export's csv/zip).
+func (t Target) Raw(method, path string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequest(method, strings.TrimRight(t.BaseURL, "/")+t.Prefix+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, string(data))
+	}
+	return data, nil
+}
+
 // Do sends a request relative to t and decodes a JSON response.
 func (t Target) Do(method, path string, body io.Reader, out any) error {
 	req, err := http.NewRequest(method, strings.TrimRight(t.BaseURL, "/")+t.Prefix+path, body)
 	if err != nil {
 		return err
+	}
+	if body != nil {
+		// Required, not cosmetic: without it, the runner's FastAPI layer
+		// parses a JSON-object body as a Python string rather than a
+		// dict (confirmed live -- a raw curl POST without this header
+		// gets the same "Input should be a valid dictionary" error the
+		// Go client hit before this was added).
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

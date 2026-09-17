@@ -2,20 +2,28 @@
 // section and its "Language" section's decision to rewrite it in Go
 // alongside the daemon, sharing internal/client with it.
 //
-// This is a first pass: the addressing/resolution logic plan.md actually
-// designed (-s/--server, FLYBALL_URL vs FLYBALLD_URL, default-runner
-// precedence, daemon-crash fallback) is implemented for real. The full
-// schema-driven command set today's Python cli.py builds dynamically
-// from a rig's schema is NOT reimplemented here yet -- read/demand/status
-// are illustrative commands proving the addressing works end to end, not
-// the complete command surface. That's real remaining work, not an
-// oversight.
+// Capability parity with the old Python cli.py (engine/src/flyball/cli.py):
+// every HTTP-addressed capability is here (read/demand/watch/status/waits/
+// wait/clock/schema/devices/controllers/device view+invoke/sessions/
+// export/program */sim */logs), plus daemon-management commands the
+// Python CLI never had (it predates the Go daemon). Deliberately NOT
+// reimplemented:
+// `rig check`, `rig schema`, `program schema`, `password`, `new` -- these
+// are local operations against Python's own rig-config/dialect/scaffold
+// code, not requests to a running runner at all, so they don't fit this
+// client/addressing model and still need the flyball Python package
+// installed either way. See the handoff notes for where that gap is left.
+//
+// Dynamic per-device argparse flags (schema -> --dotted-flag, per
+// cli.py's "Schema -> argparse" region) are NOT reimplemented either --
+// `flyball run <device> <command> [KEY=VALUE|JSON ...]` takes positional
+// KEY=VALUE pairs (or a single raw JSON object) instead. Equivalent
+// capability (you can still call any device command with any arguments),
+// different, simpler shape, per the task's explicit allowance for Go
+// idioms over an exact port.
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 
@@ -23,13 +31,11 @@ import (
 )
 
 func main() {
-	server := flag.String("s", "", "runner identity, daemon-routed (also --server)")
-	flag.StringVar(server, "server", "", "runner identity, daemon-routed")
-	flag.Parse()
+	server := flagServer()
+	args := restArgs()
 
-	args := flag.Args()
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: flyball [-s NAME] <run|read|demand|status> ...")
+		usage()
 		os.Exit(2)
 	}
 
@@ -45,7 +51,31 @@ func main() {
 		return
 	}
 
-	target, err := resolveTarget(*server)
+	// `daemon ...` talks to flyballd's own API (start/stop/restart/list
+	// runners), never routed through a runner -- distinct addressing from
+	// everything else, so it's dispatched before target resolution too.
+	if args[0] == "daemon" {
+		if err := runDaemonCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// `logs` is also daemon-addressed (interface.md's GET
+	// /api/runners/{name}/logs is the daemon's own endpoint, not
+	// pass-through routing), so it's dispatched the same way, before -s
+	// resolution -- -s picks a runner behind the daemon's proxy, which
+	// isn't what a log fetch wants.
+	if args[0] == "logs" {
+		if err := runLogsCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	target, err := resolveTarget(server)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "flyball:", err)
 		os.Exit(1)
@@ -70,46 +100,35 @@ func resolveTarget(server string) (client.Target, error) {
 	return client.Resolve("")
 }
 
-func runCommand(t client.Target, args []string) error {
-	switch args[0] {
-	case "read":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: flyball read <address>")
-		}
-		var out any
-		if err := t.Do("GET", "/api/read/"+args[1], nil, &out); err != nil {
-			return err
-		}
-		return printJSON(out)
+func usage() {
+	fmt.Fprint(os.Stderr, `usage: flyball [-s NAME] <command> ...
 
-	case "demand":
-		if len(args) != 3 {
-			return fmt.Errorf("usage: flyball demand <address> <value>")
-		}
-		body, err := json.Marshal(map[string]any{"value": args[2]})
-		if err != nil {
-			return err
-		}
-		var out any
-		if err := t.Do("PUT", "/api/signals/"+args[1], bytes.NewReader(body), &out); err != nil {
-			return err
-		}
-		return printJSON(out)
+runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
+  read ADDRESS [--fresh]              GET /api/read/{address}
+  demand ADDRESS VALUE                PUT /api/signals/{address}
+  status [--json]                     one screen: devices, controllers, waits
+  schema                              the rig's schema
+  clock                               the rig's timebase
+  waits                               what the rig is waiting on
+  wait fire|interrupt NAME            answer or cancel a wait
+  watch samples|controllers|writes|signals   follow a live stream
+  devices / controllers               list them
+  view DEVICE                         one device's tree
+  device-schema DEVICE                one device's schema
+  invoke DEVICE COMMAND [KEY=VALUE ...]   run a device command
+  sessions                            list recorded sessions
+  export SESSION [--out PATH]         a session as Bluesky documents
+  program check|run|status|stop PATH  program files
+  sim show|clock|step|set|reset|config|save   a simulated rig's knobs
 
-	case "status":
-		var out any
-		if err := t.Do("GET", "/api/status", nil, &out); err != nil {
-			return err
-		}
-		return printJSON(out)
+no-daemon:
+  run RIG-FILE [flyball-runner flags...]   start a runner directly, foreground
 
-	default:
-		return fmt.Errorf("unknown command %q", args[0])
-	}
-}
-
-func printJSON(v any) error {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+daemon-managed (talks to flyballd via FLYBALLD_URL, never routed through a runner):
+  daemon runners                      list registered runners
+  daemon start MANIFEST.json          POST /api/runners
+  daemon stop NAME                    DELETE /api/runners/{name}
+  daemon restart NAME                 POST /api/runners/{name}/restart
+  logs NAME                           GET /api/runners/{name}/logs
+`)
 }
