@@ -39,6 +39,8 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` |
 | [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` |
 | [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` |
+| [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-linux` |
+| [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` |
 | [`dual_pump_blender`](#dual_pump_blender) | the humidity rig's split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
 
 Browsing what's available before wiring a rig: `linux/drivers-manifest.yaml`
@@ -488,14 +490,60 @@ A peristaltic pump, PWM-driven DC or a relay: a `dispense(volume_ml)`
 command on top of an existing `pwm_channel` or `gpio_line`, converting a
 volume to a run duration from one calibration point. Always stops the
 pump on the way out, including on an error mid-dispense. Stepper-driven
-pumps (step/direction) aren't supported -- no pulse-generating actuator
-link exists yet.
+pumps (step/direction) aren't supported directly here -- pair a `stepper`
+with your own dispense logic instead.
 
 | field | default | |
 | --- | --- | --- |
 | `pump` | required | a `pwm_channel` or `gpio_line` config |
 | `ml_per_s` | required | the pump's rate at full drive (PWM) or while on (relay) |
 | `max_dispense_ml` | none | an optional per-call cap |
+
+### `mcp4725`
+
+Microchip MCP4725: single-channel, 12-bit buffered I²C DAC. The write-side
+mirror of an analog input like `ads1115`/`mcp3008` -- drives a 0-1
+fraction of full scale into an external op-amp stage a rig uses for a
+0-10 V (or similar) control signal: a VFD speed reference, a dimmable
+ballast, a damper actuator. Only the chip's "Fast Mode" write is used
+(no register-address byte, unlike `i2c_table`'s chips -- it needs its own
+driver). With `unit` and `span` (as `pwm_channel` has) the signal is
+commanded directly in engineering units instead of a bare fraction.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `i2c` link |
+| `address` | `0x60` | `0x61` on the -A0T variant |
+| `unit`, `quantity`, `span` | none | omitted, `drive` is the fraction itself (0-1). Given, `drive` is set in `unit` and `span: [lo, hi]` maps it linearly onto 0-100 % -- the same rule as `pwm_channel` |
+
+### `stepper`
+
+A step/direction stepper motor -- the interface almost every real driver
+IC exposes (A4988, DRV8825, TMC-series), not raw phase bit-banging, which
+would be exactly the kind of fragile Python timing `hx711` is already
+flagged for. A motorized valve, damper, vent or linear actuator. A
+`move(steps)` command (not `move_to(position)` -- no homing/limit-switch
+story to trust an absolute target against) clocks out a pulse train at
+`steps_per_s`, always leaving the driver safe (direction settled,
+`enable_line` released) even on an error mid-move.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | a `gpio` link |
+| `step_line`, `direction_line` | required | |
+| `steps_per_s` | required | |
+| `enable_line` | none | driven active for the move's duration, released after |
+| `enable_active_low` | `true` | the common driver-IC convention |
+| `steps_per_unit` | none | lets `move()` take engineering units (degrees, mm) instead of raw steps |
+| `pulse_width_s` | `0.0005` | how long the step line is held high per pulse |
+
+`position` -- the raw step count -- is `[R]` only (readable on demand,
+never published/recorded by default): internal plumbing for the move
+command, not a quantity a rig cares to trend. A rig-file `signals:`
+override cannot widen this to `[RP]` unless the driver names it a
+[ceiling](../../7-reference/rig-file.md) -- `stepper` doesn't, on
+purpose, so upgrading it needs a driver code change, not a config
+change.
 
 ## From an application
 
