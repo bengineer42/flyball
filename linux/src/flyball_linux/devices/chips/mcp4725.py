@@ -30,10 +30,16 @@ from __future__ import annotations
 from flyball.core.config import resolve
 from flyball.core.device import Committable, DriverConfig
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Band, Role, Signal, SignalSpec
+from flyball.core.signal import Band, Signal
 from flyball.core.units import DIMENSIONLESS
 from pydantic import Field, model_validator
 
+from flyball_linux.devices.spanned_demand import (
+    drive_spec,
+    from_fraction,
+    to_fraction,
+    validate_span,
+)
 from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
 
 MCP4725_ADDRESS = 0x60
@@ -92,32 +98,10 @@ class Mcp4725(Committable):
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
-        if (unit is None) != (span is None):
-            raise ValueError(f"{name}: `unit` and `span` go together")
-        if span is not None and span[1] <= span[0]:
-            raise ValueError(f"{name}: span must be a rising pair, not {list(span)}")
+        validate_span(unit, span, prefix=f"{name}: ")
         self.output = Mcp4725Output(link, address)
         self.span = span
-        if unit is None:
-            drive = SignalSpec(
-                name="drive",
-                quantity=DRIVE,
-                access=Access.RPW,
-                role=Role.DEMAND,
-                limits=(0.0, 1.0),
-                initial=0.0,
-            )
-        else:
-            assert span is not None  # `unit` and `span` go together, checked above
-            drive = SignalSpec(
-                name="drive",
-                quantity=Quantity(quantity or "drive", unit),
-                access=Access.RPW,
-                role=Role.DEMAND,
-                limits=span,
-                initial=span[0],
-            )
-        self.bind((drive,))
+        self.bind((drive_spec(unit, quantity, span, bare=DRIVE),))
         self._write(0.0)
 
     @property
@@ -133,19 +117,13 @@ class Mcp4725(Committable):
 
     def fraction(self, value: float) -> float:
         """The 0-1 fraction a value of `drive` asks for: itself, or linear over `span`."""
-        if self.span is None:
-            return value
-        d0, d1 = self.span
-        return (value - d0) / (d1 - d0)
+        return to_fraction(value, self.span)
 
     def _write(self, fraction: float) -> float:
         return self.output.write(fraction)
 
     def write_signal(self, signal: Signal, value: float) -> None:
-        achieved = self._write(self.fraction(value))
-        if self.span is not None:
-            d0, d1 = self.span
-            achieved = d0 + achieved * (d1 - d0)
+        achieved = from_fraction(self._write(self.fraction(value)), self.span)
         if achieved != value:
             signal.push(achieved)
 
@@ -167,10 +145,7 @@ class Mcp4725Config(DriverConfig[Mcp4725], tag="mcp4725"):
 
     @model_validator(mode="after")
     def _unit_with_span(self) -> Mcp4725Config:
-        if (self.unit is None) != (self.span is None):
-            raise ValueError("`unit` and `span` go together")
-        if self.span is not None and self.span[1] <= self.span[0]:
-            raise ValueError("span must be a rising pair")
+        validate_span(self.unit, self.span)
         return self
 
     def build(self, name: str, label: str | None = None) -> Mcp4725:

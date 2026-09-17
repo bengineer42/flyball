@@ -14,11 +14,17 @@ from __future__ import annotations
 from flyball.core.config import resolve
 from flyball.core.device import Committable, DriverConfig, Setting, command
 from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Band, Role, Signal, SignalSpec
+from flyball.core.signal import Band, Signal
 from flyball.core.units import DIMENSIONLESS
 from flyball.core.units.si import Hertz
 from pydantic import Field, model_validator
 
+from flyball_linux.devices.spanned_demand import (
+    drive_spec,
+    from_fraction,
+    to_fraction,
+    validate_span,
+)
 from flyball_linux.links.pwm import PwmLink, PwmLinkConfig
 
 # The same unit `flyball.sim.devices` gives a plant's drive, defined alike so the two agree.
@@ -49,10 +55,7 @@ class PwmChannel(Committable):
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
-        if (unit is None) != (span is None):
-            raise ValueError(f"{name}: `unit` and `span` go together")
-        if span is not None and span[1] <= span[0]:
-            raise ValueError(f"{name}: span must be a rising pair, not {list(span)}")
+        validate_span(unit, span, prefix=f"{name}: ")
         self.link = link
         self.channel = channel
         self.invert = invert
@@ -61,26 +64,7 @@ class PwmChannel(Committable):
         self._duty = 0.0
         """The fraction last driven, 0 to 1: independent of `drive`'s reading, to re-apply at a
         new `frequency_hz` even when the commit that set it pushed no readback."""
-        if unit is None:
-            drive = SignalSpec(
-                name="drive",
-                quantity=DRIVE,
-                access=Access.RPW,
-                role=Role.DEMAND,
-                limits=(0.0, 1.0),
-                initial=0.0,
-            )
-        else:
-            assert span is not None  # `unit` and `span` go together, checked above
-            drive = SignalSpec(
-                name="drive",
-                quantity=Quantity(quantity or "drive", unit),
-                access=Access.RPW,
-                role=Role.DEMAND,
-                limits=span,
-                initial=span[0],
-            )
-        self.bind((drive,))
+        self.bind((drive_spec(unit, quantity, span, bare=DRIVE),))
         self.frequency_hz.push(frequency_hz)
         self._drive(0.0)
 
@@ -99,10 +83,7 @@ class PwmChannel(Committable):
 
     def fraction(self, value: float) -> float:
         """The duty a value of `drive` asks for: itself, or linear over `span`."""
-        if self.span is None:
-            return value
-        d0, d1 = self.span
-        return (value - d0) / (d1 - d0)
+        return to_fraction(value, self.span)
 
     def _drive(self, duty: float) -> float:
         """Drive the channel at `duty` (0 to 1, clamped); returns the duty actually achieved."""
@@ -118,10 +99,7 @@ class PwmChannel(Committable):
         return 1.0 - achieved if self.invert else achieved
 
     def write_signal(self, signal: Signal, value: float) -> None:
-        achieved = self._drive(self.fraction(value))
-        if self.span is not None:
-            d0, d1 = self.span
-            achieved = d0 + achieved * (d1 - d0)
+        achieved = from_fraction(self._drive(self.fraction(value)), self.span)
         if achieved != value:
             signal.push(achieved)
 
@@ -161,10 +139,7 @@ class PwmChannelConfig(DriverConfig[PwmChannel], tag="pwm_channel"):
 
     @model_validator(mode="after")
     def _unit_with_span(self) -> PwmChannelConfig:
-        if (self.unit is None) != (self.span is None):
-            raise ValueError("`unit` and `span` go together")
-        if self.span is not None and self.span[1] <= self.span[0]:
-            raise ValueError("span must be a rising pair")
+        validate_span(self.unit, self.span)
         return self
 
     def build(self, name: str, label: str | None = None) -> PwmChannel:
