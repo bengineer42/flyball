@@ -98,7 +98,7 @@ devices:
   fan:
     driver: gpio_line
     label: Fan
-    pin: GPIO18                      # becomes link: header, line: 18 -- `flyball fan on`, `flyball fan off`
+    pin: GPIO18                      # becomes link: header, line: 18 -- `flyball invoke fan on`, `flyball invoke fan off`
 
 controllers:
   heater.drive:

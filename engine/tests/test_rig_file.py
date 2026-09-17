@@ -6,14 +6,13 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball import cli
 from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import loads
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, NodeSpec, Role, Sample, Signal, SignalSpec
 from flyball.core.units.si import Celsius, Percent, Watt
-from flyball.runtime.config import RigConfig, canonical, rig_schema
+from flyball.runtime.config import RigConfig, canonical, resolve_documents, rig_schema
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -375,13 +374,12 @@ class TestBuild:
 
 
 class TestOverlay:
-    def test_an_overlay_swaps_the_driver_behind_the_same_name(
-        self, tmp_path, daq_tag, sim_daq_tag, capsys
-    ):
+    def test_an_overlay_swaps_the_driver_behind_the_same_name(self, tmp_path, daq_tag, sim_daq_tag):
         base = tmp_path / "furnace.yaml"
         base.write_text(f"devices:\n  furnace: {{driver: {daq_tag}, zones: 2}}\n")
         overlay = tmp_path / "sim.yaml"
         overlay.write_text(f"devices:\n  furnace: {{driver: {sim_daq_tag}, zones: 2}}\n")
-        assert cli.main(["rig", "check", str(base), str(overlay)]) == 0
-        out = capsys.readouterr().out
-        assert "1 devices" in out
+        document, files = resolve_documents([base, overlay])
+        rig = RigConfig.model_validate(document).build(start=False)
+        assert len(files) == 2
+        assert list(rig.devices) == ["furnace"]

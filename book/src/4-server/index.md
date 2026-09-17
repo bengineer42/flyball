@@ -37,7 +37,7 @@ process was started and what it allows.
 | client | is | uses |
 | --- | --- | --- |
 | the UI ([Running a rig](../1-running/ui/index.md)) | a React app rendered from `/api/schema`, live on the websockets | everything |
-| `flyball` ([The CLI](../1-running/cli/index.md)) | argparse over the Python client, a subcommand per device and command | `/api` |
+| `flyball` ([The CLI](../1-running/cli/index.md)) | a standalone Go binary (`daemon/cmd/flyball`), fixed subcommands rather than one per device | `/api`, `/ws` |
 | `flyball.client.Rig` | a pure HTTP client that synthesises a method per device command from the schema | `/api`, `/ws` |
 | `@flyball/client` (`ui/packages/client`) | the same in TypeScript, typed from the wire format | `/api`, `/ws` |
 | a model ([The MCP server](mcp.md)) | tools generated from the same routes | `/mcp/<tier>` |

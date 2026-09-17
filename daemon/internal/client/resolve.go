@@ -23,6 +23,15 @@ const (
 type Target struct {
 	BaseURL string
 	Prefix  string // "" direct-to-runner; "/NAME" when daemon-routed
+	token   string // bearer token, if any -- set via WithToken
+}
+
+// WithToken returns a copy of t that sends token as a bearer token on
+// every request (see auth.go's AuthHeaders), taking precedence over any
+// saved session cookie.
+func (t Target) WithToken(token string) Target {
+	t.token = token
+	return t
 }
 
 // Resolve implements plan.md's precedence exactly:
@@ -93,6 +102,11 @@ func (t Target) Raw(method, path string, body io.Reader) ([]byte, error) {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	for name, values := range t.AuthHeaders() {
+		for _, v := range values {
+			req.Header.Add(name, v)
+		}
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -103,7 +117,7 @@ func (t Target) Raw(method, path string, body io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, string(data))
+		return nil, authAwareError(method, path, resp, data)
 	}
 	return data, nil
 }
@@ -122,6 +136,11 @@ func (t Target) Do(method, path string, body io.Reader, out any) error {
 		// Go client hit before this was added).
 		req.Header.Set("Content-Type", "application/json")
 	}
+	for name, values := range t.AuthHeaders() {
+		for _, v := range values {
+			req.Header.Add(name, v)
+		}
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -129,10 +148,24 @@ func (t Target) Do(method, path string, body io.Reader, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, string(data))
+		return authAwareError(method, path, resp, data)
 	}
 	if out == nil {
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// authAwareError wraps a >=400 response, adding a hint for 401s since
+// "unauthorized" alone doesn't tell the caller what to do about it --
+// matching the runner's own WWW-Authenticate: Bearer convention
+// (auth.py's Auth.__call__).
+func authAwareError(method, path string, resp *http.Response, data []byte) error {
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf(
+			"%s %s: %s: %s (sign in with `flyball login`, or set FLYBALL_TOKEN/--token)",
+			method, path, resp.Status, strings.TrimSpace(string(data)),
+		)
+	}
+	return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, string(data))
 }

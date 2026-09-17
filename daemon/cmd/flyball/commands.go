@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
@@ -406,7 +405,7 @@ func watchStream(t client.Target, stream string) error {
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	wsURL += t.Prefix + "/ws/" + stream
 
-	conn, err := wsclient.Dial(wsURL, http.Header{})
+	conn, err := wsclient.Dial(wsURL, t.AuthHeaders())
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", wsURL, err)
 	}

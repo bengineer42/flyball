@@ -7,7 +7,7 @@
 | --- | --- |
 | `flyball controllers` | every controller's view: mode, setpoint, reading, demand, the law and its gains (`GET /api/controllers`) |
 | `flyball demand ADDRESS VALUE` | drive a controller's target directly -- refused (409) while the controller is regulating it |
-| `flyball <device> <command>` | a device's own commands, including one a driver marks as its demand's (`set_demand` is synthesised where there is none) |
+| `flyball invoke <device> <command>` | a device's own commands, including one a driver marks as its demand's (`set_demand` is synthesised where there is none) |
 
 Regulating, going to manual and choosing a tuning have no subcommand yet;
 the routes are `POST /api/controllers/{address}/regulate {"at": …}`,

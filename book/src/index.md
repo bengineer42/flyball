@@ -20,14 +20,16 @@ programs, sessions.
    [recording a session](1-running/ui/sessions.md#sessions), then
    [getting the data out](1-running/ui/charts.md#downloads).
 3. [The CLI](1-running/cli/index.md) when a terminal is closer than a browser:
-   `flyball status`, `flyball devices`, `flyball <device> <command>`.
+   `flyball status`, `flyball devices`, `flyball invoke <device> <command>`.
 
 **I'm setting up a rig.** A rig is one file: what is on it and how it is
 served. Start with a simulated one, then swap the links for real ones.
 
 1. Install: `cd engine && uv sync --all-extras`; the UI is
    `cd ui && npm install && npm run build` (or `npm run dev` while working
-   on a rig -- see [The UI](1-running/ui/index.md)).
+   on a rig -- see [The UI](1-running/ui/index.md)); the `flyball` CLI is
+   `cd daemon && go build ./cmd/flyball` (see
+   [Installing](1-running/runner/index.md#installing)).
 2. [Starting a rig](1-running/runner/index.md): `flyball-runner rig.yaml`,
    what it serves, the door, a sub-path, `--record`.
 3. [The config file](2-config/index.md): the annotated example, then
@@ -92,7 +94,8 @@ cd engine
 uv run flyball-runner ../examples/simulated/furnace.yaml      # a three-zone furnace at 60×
 ```
 
-then open the UI (see [The UI](1-running/ui/index.md)) or `uv run flyball status`.
+then open the UI (see [The UI](1-running/ui/index.md)) or, with the CLI
+built ([Installing](1-running/runner/index.md#installing)), `flyball status`.
 The oven the *Extending* chapters build in Python is
 [`oven.py`](snippets/oven.py):
 

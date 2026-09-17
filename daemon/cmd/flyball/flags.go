@@ -18,11 +18,28 @@ func flagServer() string {
 	return ""
 }
 
+// flagToken finds a global --token, same treatment as -s/--server (may
+// appear before or after the subcommand). Precedence against
+// FLYBALL_TOKEN is client.Token's job, not this function's.
+func flagToken() string {
+	args := os.Args[1:]
+	for i, a := range args {
+		if a == "--token" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func restArgs() []string {
 	args := os.Args[1:]
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		if (args[i] == "-s" || args[i] == "--server") && i+1 < len(args) {
+			i++
+			continue
+		}
+		if args[i] == "--token" && i+1 < len(args) {
 			i++
 			continue
 		}

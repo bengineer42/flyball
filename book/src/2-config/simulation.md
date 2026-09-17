@@ -235,8 +235,8 @@ unchanged.
 for exercising fault handling:
 
 ```
-flyball furnace fail --signal zone3     # opens the thermocouple: reads on it raise HardwareError
-flyball furnace restore --signal zone3  # mends it; a command on an offline device polls it again
+flyball invoke furnace fail signal=zone3     # opens the thermocouple: reads on it raise HardwareError
+flyball invoke furnace restore signal=zone3  # mends it; a command on an offline device polls it again
 ```
 
 `fail` raises `HardwareError` on the next read of that signal until

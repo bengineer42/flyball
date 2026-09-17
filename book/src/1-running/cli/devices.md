@@ -13,29 +13,23 @@
 | `flyball clock` | the rig's timebase (`GET /api/clock`) |
 | `flyball schema` | the schema document, for saving or `jq` (`GET /api/schema`) |
 
-## Device subcommands
+## Device commands
 
-Every device is a subcommand named after it:
-
-```
-flyball heater                 the signal tree, conditions, readable/writable
-flyball heater schema          the config schema, every signal's and command's
-flyball heater --help          the device's docstring and its commands
-```
-
-and every `@command` is a subcommand under it, with a flag per argument:
+Three fixed subcommands take the device's name as an argument, rather than
+each device growing its own subcommand tree:
 
 ```
-flyball heater set_limit --limit 0.5
-flyball heater set_limit 0.5           # one argument may be given positionally
-flyball heater off
+flyball view heater                              the signal tree, conditions, readable/writable
+flyball device-schema heater                      the config schema, every signal's and command's
+flyball invoke heater set_limit limit=0.5         run a command, KEY=VALUE
+flyball invoke heater set_limit '{"limit": 0.5}'  or a single raw JSON object
+flyball invoke heater off
 ```
 
-Flags come from the argument schema: `--name` per property, dotted for
-nested objects (`--flow.tag absolute --flow.flow 8`), `--flag/--no-flag` for
-booleans, choices for enums. Help text is the docstrings, units and bounds
-the schema carries. Any flag also takes a JSON literal, for shapes the flags
-cannot spell.
+`invoke`'s trailing arguments are either `KEY=VALUE` pairs or one JSON
+object -- there's no dotted-flag nesting or per-argument `--flag`/units in
+`--help` the way a schema-driven argparse tree would have; `"4"` parses as
+the number 4, `"on"` stays a string.
 
 A device's commands, their arguments and hints are the same the UI draws as
-command cards; both come from the device's schema.
+command cards; both come from the device's schema (`device-schema`).

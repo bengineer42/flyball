@@ -17,7 +17,7 @@
 | [Starting a rig](runner/index.md) | `flyball-runner rig.yaml`; what it serves; [access](runner/access.md) (the door, a sub-path, stopping); [building a rig while it runs](runner/building.md) |
 | [The UI](ui/index.md) | the pages, the app bar, then a page each for [devices](ui/devices.md), [controllers](ui/controllers.md), [charts](ui/charts.md), [sessions](ui/sessions.md), [the Rig page](ui/rig.md), [dashboards](dashboards.md) |
 | [Programs](programs/index.md) | what a program is; [writing and running one](programs/writing.md) |
-| [The CLI](cli/index.md) | `flyball status`, `flyball devices`, a subcommand per device |
+| [The CLI](cli/index.md) | `flyball status`, `flyball devices`, `flyball invoke <device> <command>` |
 | [Tuning and autotune](autotune.md) | a step test or a relay test, and the tuning it writes |
 
 Everything on these pages is a client of [the server](../4-server/index.md);

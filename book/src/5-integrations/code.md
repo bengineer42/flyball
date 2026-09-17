@@ -5,7 +5,7 @@ a script, a notebook, a LabVIEW box or another service can do the same.
 
 | client | language | |
 | --- | --- | --- |
-| `flyball.client.Rig` | Python | a method per device command synthesised from the schema, `read`, `demand`, `watch`, and `get`/`post`/`put` for any route; the CLI is built on it |
+| `flyball.client.Rig` | Python | a method per device command synthesised from the schema, `read`, `demand`, `watch`, and `get`/`post`/`put` for any route; the runner and MCP server build on it |
 | `@flyball/client` (`ui/packages/client`) | TypeScript | the same, typed from the wire format; the UI is built on it |
 | `curl`, `requests`, a browser | anything | plain JSON over HTTP; downloads are `GET`s with `?token=` |
 
