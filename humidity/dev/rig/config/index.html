@@ -1,0 +1,1442 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A humidity chamber controlled by flyball on a Raspberry Pi">
+      
+      
+        <meta name="author" content="Ben Laurence">
+      
+      
+      
+        <link rel="prev" href="../sht4x/">
+      
+      
+        <link rel="next" href="../../operating/first-run/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Configuration - Flyball: humidity rig</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Flyball: humidity rig" class="md-header__button md-logo" aria-label="Flyball: humidity rig" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Flyball: humidity rig
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Configuration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Dark"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Dark" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Light"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Light" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Flyball: humidity rig" class="md-nav__button md-logo" aria-label="Flyball: humidity rig" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Flyball: humidity rig
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Hardware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hardware/pi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raspberry Pi setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hardware/board/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Board and wiring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hardware/pumps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pumps and PWM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hardware/bom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bill of materials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The rig
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    The rig
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Devices and signals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dual-pumps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The blender device: dual pumps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sht4x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The sensor device: SHT4x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rigyaml-the-real-rig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rig.yaml: the real rig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simyaml-the-same-addresses-no-hardware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sim.yaml: the same addresses, no hardware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-plant-sim_humidity_chamber" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The plant: sim_humidity_chamber
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tunings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tunings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-set-and-multiple-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --set and multiple overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operating
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operating
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operating/first-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operating/programs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Humidity programs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operating/autotune/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Autotune on this rig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operating/failures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operating/limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/humidity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    humidity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/humidity/pumps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    humidity.pumps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rigyaml-the-real-rig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rig.yaml: the real rig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simyaml-the-same-addresses-no-hardware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sim.yaml: the same addresses, no hardware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-plant-sim_humidity_chamber" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The plant: sim_humidity_chamber
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tunings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tunings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-set-and-multiple-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --set and multiple overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h1>
+<p><em><code>rig.yaml</code> for this rig, field by field — and <code>sim.yaml</code>, the overlay that runs it with no hardware.</em></p>
+<h2 id="rigyaml-the-real-rig"><code>rig.yaml</code>: the real rig<a class="headerlink" href="#rigyaml-the-real-rig" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">humidity</span>
+
+<span class="nt">links</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">i2c1</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> tag</span><span class="p">:</span><span class="w"> </span><span class="nv">i2c</span><span class="p p-Indicator">,</span><span class="nt"> bus</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">pwm0</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> tag</span><span class="p">:</span><span class="w"> </span><span class="nv">pwm</span><span class="p p-Indicator">,</span><span class="nt"> chip</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="nt">devices</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">hum_sensors</span><span class="p">:</span><span class="w">                             </span><span class="c1"># hum_sensors.chamber/dry/wet .humidity/.temperature [RP]</span>
+<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sht4x_set</span>
+<span class="w">    </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Humidity sensors</span>
+<span class="w">    </span><span class="nt">poll_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">link</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">i2c1</span>
+<span class="w">      </span><span class="nt">sensors</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">chamber</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">0x44</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">dry</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">0x45</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">wet</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">0x46</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">signals</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">chamber</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> signals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> humidity</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> warn</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">20</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">80</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">dry</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> poll_s</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">     </span><span class="c1"># the supply lines drift slowly; no need to poll them as often</span>
+<span class="w">      </span><span class="nt">wet</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> poll_s</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="w">  </span><span class="nt">blender</span><span class="p">:</span><span class="w">                                 </span><span class="c1"># two pumps blended into one settable humidity</span>
+<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dual_pump_blender</span>
+<span class="w">    </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Pump blender</span>
+<span class="w">    </span><span class="nt">poll_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">link</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pwm0</span>
+<span class="w">      </span><span class="nt">dry</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> channel</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="nt"> deadband</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> max_flow</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># L/min</span>
+<span class="w">      </span><span class="nt">wet</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> channel</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> deadband</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> max_flow</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">blend_flow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<span class="w">    </span><span class="nt">bound</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> dry</span><span class="p">:</span><span class="w"> </span><span class="nv">hum_sensors.dry.humidity</span><span class="p p-Indicator">,</span><span class="nt"> wet</span><span class="p">:</span><span class="w"> </span><span class="nv">hum_sensors.wet.humidity</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="nt">controllers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">blender.humidity</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hum_sensors.chamber.humidity</span>
+<span class="w">    </span><span class="nt">law</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> tag</span><span class="p">:</span><span class="w"> </span><span class="nv">PI</span><span class="p p-Indicator">,</span><span class="nt"> kp</span><span class="p">:</span><span class="w"> </span><span class="nv">0.8</span><span class="p p-Indicator">,</span><span class="nt"> ki</span><span class="p">:</span><span class="w"> </span><span class="nv">0.02</span><span class="p p-Indicator">,</span><span class="nt"> tt</span><span class="p">:</span><span class="w"> </span><span class="nv">60</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>Two links, two devices, one controller. <code>links</code> are transports, not
+devices, and neither is this package's own any more — both <code>i2c</code> and <code>pwm</code>
+are <code>flyball-linux</code> links (<code>examples/humidity/pyproject.toml</code> depends on
+<code>flyball-linux[i2c]</code>; this rig has no hardware driver of its own left,
+only <code>dual_pump_blender</code>'s split-range arithmetic and
+<code>sim_humidity_chamber</code>'s plant). <code>i2c1</code> is the Pi's I²C bus 1
+(<code>flyball_linux.links.i2c.I2cConfig</code>, <code>/dev/i2c-1</code> through <code>smbus2</code>);
+<code>pwm0</code> is PWM chip 0 (<code>flyball_linux.links.pwm.PwmConfig</code>, sysfs
+<code>/sys/class/pwm/pwmchip0</code>, no extra library). Field by field:</p>
+<ul>
+<li><strong><code>hum_sensors.config.sensors</code></strong> declares the device's tree — one
+  namespace per key, each an SHT4x at that I²C address. This is
+  <code>sht4x_set</code>'s own config (<code>flyball_linux.devices.chips.sht4x</code>), not an
+  envelope key, so the tree can't be changed by <code>signals:</code> overrides, only
+  by editing <code>sensors:</code> itself.</li>
+<li><strong><code>hum_sensors.signals</code></strong> is envelope overrides only: <code>chamber</code>'s
+  <code>humidity</code> gets a warn band, <code>dry</code> and <code>wet</code> are polled every 5 s instead
+  of inheriting the device's <code>poll_s: 1</code>.</li>
+<li><strong><code>blender.config</code></strong> is the two pump lines (PWM channel, deadband,
+  max flow) and the starting <code>blend_flow</code>; <code>link: pwm0</code> is driven directly
+  through <code>flyball_linux</code>'s <code>PwmLink</code> protocol (<code>configure</code>/<code>enable</code>) —
+  the blender owns both channels itself rather than wrapping a
+  <code>pwm_channel</code> device each, since the split-range arithmetic is its own.
+  A <code>frequency_hz</code> field (default 20 000 Hz) is also available in
+  <code>config</code>, shared by both lines, if <code>rig.yaml</code> needs to override it.</li>
+<li><strong><code>blender.bound</code></strong> wires the blender to follow the two supply sensors'
+  humidity directly — see <a href="../dual-pumps/#following-the-supply-lines">The blender device</a>.</li>
+<li><strong><code>controllers.blender.humidity</code></strong> is named by its target (<code>blender</code>'s
+  <code>humidity</code> signal), regulates the chamber's published humidity through a
+  PI law, and is <code>default: true</code> — the controller a program step or a
+  <code>flyball</code> command uses when it names none.</li>
+</ul>
+<p>Run it: <code>flyball-daemon rig.yaml</code> — real hardware, loopback-only by
+default. This package has no daemon of its own; the generic
+<code>flyball-daemon</code> also picks up a <code>tunings/</code> (and a <code>programs/</code>) directory
+beside the rig file automatically — see <a href="#tunings">Configuration: tunings</a>
+below.</p>
+<h2 id="simyaml-the-same-addresses-no-hardware"><code>sim.yaml</code>: the same addresses, no hardware<a class="headerlink" href="#simyaml-the-same-addresses-no-hardware" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">humidity-sim</span>
+<span class="nt">clock</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> speed</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="nt">links</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">i2c1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">pwm0</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">chamber</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sim_humidity_chamber</span>
+<span class="w">    </span><span class="nt">volume_l</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span><span class="w">                  </span><span class="c1"># litres</span>
+<span class="w">    </span><span class="nt">dry_flow_l_per_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">        </span><span class="c1"># match blender.dry.max_flow below</span>
+<span class="w">    </span><span class="nt">wet_flow_l_per_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">        </span><span class="c1"># match blender.wet.max_flow below</span>
+<span class="w">    </span><span class="nt">flow_l_per_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">            </span><span class="c1"># nominal total, feedforward only</span>
+<span class="w">    </span><span class="nt">dry_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">                   </span><span class="c1"># %RH, before drift</span>
+<span class="w">    </span><span class="nt">wet_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90.0</span><span class="w">                   </span><span class="c1"># %RH, before drift</span>
+<span class="w">    </span><span class="nt">ambient_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">45.0</span><span class="w">               </span><span class="c1"># %RH the chamber leaks towards</span>
+<span class="w">    </span><span class="nt">exchange_per_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span><span class="w">         </span><span class="c1"># fraction of volume/min exchanged with the room</span>
+<span class="w">    </span><span class="nt">initial_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">40.0</span><span class="w">               </span><span class="c1"># %RH</span>
+<span class="w">    </span><span class="nt">temperature_c</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">21.0</span><span class="w">            </span><span class="c1"># °C, every temperature's steady baseline</span>
+<span class="w">    </span><span class="nt">sensor_tau_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span><span class="w">              </span><span class="c1"># s, the chamber sensor's own lag</span>
+<span class="w">    </span><span class="nt">noise_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span><span class="w">                  </span><span class="c1"># %RH, Gaussian, chamber reading only</span>
+<span class="w">    </span><span class="nt">supply_noise_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.15</span><span class="w">          </span><span class="c1"># %RH, Gaussian, dry/wet readings each sample</span>
+<span class="w">    </span><span class="nt">supply_drift_rh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">           </span><span class="c1"># ± %RH, slow sinusoidal supply wander (wet: 88-92)</span>
+<span class="w">    </span><span class="nt">supply_drift_period_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600.0</span><span class="w">   </span><span class="c1"># s, period of the supply and temperature drift</span>
+<span class="w">    </span><span class="nt">temperature_noise_c</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.05</span><span class="w">      </span><span class="c1"># °C, Gaussian, every temperature reading</span>
+<span class="w">    </span><span class="nt">temperature_drift_c</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span><span class="w">       </span><span class="c1"># ± °C, slow sinusoidal drift around temperature_c</span>
+<span class="w">    </span><span class="nt">flow_warming_c_per_lpm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span><span class="w">    </span><span class="c1"># °C per L/min: chamber warms a little under flow</span>
+<span class="w">    </span><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7</span>
+
+<span class="nt">devices</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">hum_sensors</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sim_daq</span>
+<span class="w">    </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Humidity sensors (simulated)</span>
+<span class="w">    </span><span class="nt">poll_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">link</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chamber</span>
+<span class="w">      </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">chamber.humidity</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">chamber_humidity</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">humidity</span><span class="p p-Indicator">,</span><span class="nt"> unit</span><span class="p">:</span><span class="w"> </span><span class="s">"%RH"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">chamber.temperature</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">chamber_temperature</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">temperature</span><span class="p p-Indicator">,</span><span class="nt"> unit</span><span class="p">:</span><span class="w"> </span><span class="s">"°C"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">dry.humidity</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">dry_humidity</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">humidity</span><span class="p p-Indicator">,</span><span class="nt"> unit</span><span class="p">:</span><span class="w"> </span><span class="s">"%RH"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">dry.temperature</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">dry_temperature</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">temperature</span><span class="p p-Indicator">,</span><span class="nt"> unit</span><span class="p">:</span><span class="w"> </span><span class="s">"°C"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">wet.humidity</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">wet_humidity</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">humidity</span><span class="p p-Indicator">,</span><span class="nt"> unit</span><span class="p">:</span><span class="w"> </span><span class="s">"%RH"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">wet.temperature</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">wet_temperature</span><span class="p p-Indicator">,</span><span class="nt"> quantity</span><span class="p">:</span><span class="w"> </span><span class="nv">temperature</span><span class="p p-Indicator">,</span><span class="nt"> unit</span><span class="p">:</span><span class="w"> </span><span class="s">"°C"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="w">  </span><span class="nt">blender</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dual_pump_blender</span><span class="w">               </span><span class="c1"># the *real* driver: the chamber stands in for pwm0</span>
+<span class="w">    </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Pump blender (simulated)</span>
+<span class="w">    </span><span class="nt">poll_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">link</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chamber</span>
+<span class="w">      </span><span class="nt">dry</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> channel</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="nt"> deadband</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> max_flow</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># L/min</span>
+<span class="w">      </span><span class="nt">wet</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> channel</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> deadband</span><span class="p">:</span><span class="w"> </span><span class="nv">0.05</span><span class="p p-Indicator">,</span><span class="nt"> max_flow</span><span class="p">:</span><span class="w"> </span><span class="nv">2.0</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># L/min</span>
+<span class="w">      </span><span class="nt">blend_flow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<span class="w">    </span><span class="nt">bound</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> dry</span><span class="p">:</span><span class="w"> </span><span class="nv">hum_sensors.dry.humidity</span><span class="p p-Indicator">,</span><span class="nt"> wet</span><span class="p">:</span><span class="w"> </span><span class="nv">hum_sensors.wet.humidity</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="c1"># blender.humidity -&gt; hum_sensors.chamber.humidity: the same addresses as</span>
+<span class="c1"># rig.yaml, so its controllers entry needs no override here.</span>
+</code></pre></div>
+<p>An overlay is a second file passed alongside the first — <code>flyball-daemon
+rig.yaml sim.yaml</code> — merged later-over-earlier: <code>null</code> deletes a key
+(here, <code>i2c1</code> and <code>pwm0</code>, so no real link is built), a new link
+(<code>chamber</code>, a <code>sim_humidity_chamber</code> plant — see <a href="#the-plant-sim_humidity_chamber"><code>HumidityChamber</code>
+below</a>) is added, and <code>hum_sensors</code> swaps
+its real driver for the generic <code>sim_daq</code>. <code>blender</code> keeps its <em>real</em>
+driver, <code>dual_pump_blender</code>, unmodified: <code>HumidityChamber</code> doubles as a
+<code>flyball_linux.links.pwm.PwmLink</code> (<code>configure</code>/<code>enable</code>), so the blender
+drives it exactly as it would drive <code>pwm0</code> -- channel 0 the dry line,
+channel 1 the wet line, matching <code>rig.yaml</code>'s <code>dry.channel</code>/<code>wet.channel</code>.
+<code>dry.max_flow</code>/<code>wet.max_flow</code> above are set equal to the chamber's own
+<code>dry_flow_l_per_min</code>/<code>wet_flow_l_per_min</code>, so what the blender believes it
+delivers is what the chamber actually receives.</p>
+<p>Every <code>hum_sensors</code> address <code>rig.yaml</code> declares is mirrored here, same
+unit and access — <code>sim_daq</code>'s <code>ports:</code> keys may contain a dot
+(<code>chamber.humidity: {...}</code>), which puts that port in a namespace exactly
+as <code>sht4x_set</code> does. Because <code>blender</code> is the genuine <code>DualPumpBlender</code>
+class in both files, <em>every</em> one of its signals, units, access, limits and
+commands match exactly — <code>dry_flow</code>/<code>wet_flow</code>/<code>dry_effort</code>/<code>wet_effort</code>/
+<code>blend_flow</code>/<code>expected_humidity</code> are the blender's own bookkeeping (from
+its configured <code>max_flow</code>s and the supply humidity it observes through
+<code>bound</code>), not read back from the chamber, precisely as on the real rig. A
+program, dashboard or session built against <code>rig.yaml</code> runs unchanged
+against the overlay.</p>
+<h2 id="the-plant-sim_humidity_chamber">The plant: <code>sim_humidity_chamber</code><a class="headerlink" href="#the-plant-sim_humidity_chamber" title="Permanent link">&para;</a></h2>
+<p><code>humidity.sim.HumidityChamber</code> is two things at once:</p>
+<ul>
+<li>a <code>MultiPlant</code> — <code>sim_daq</code> (<code>hum_sensors</code>) reads its six named outputs,
+  one per leaf <code>hum_sensors</code> declares (<code>chamber_humidity</code>,
+  <code>chamber_temperature</code>, <code>dry_humidity</code>, <code>dry_temperature</code>,
+  <code>wet_humidity</code>, <code>wet_temperature</code>);</li>
+<li>a <code>PwmLink</code> (<code>configure</code>/<code>enable</code>) — the real <code>dual_pump_blender</code> driver
+  drives it exactly as it would a hardware PWM chip.</li>
+</ul>
+<p>The chamber mixes the dry and wet lines' actual delivered flow (each
+line's channel duty times its own <code>..._flow_l_per_min</code>) into a chamber of
+<code>volume_l</code>, settling on the mixing arithmetic (<code>wet_fraction</code> 0 rests at
+<code>dry_rh</code>, 1 at <code>wet_rh</code>, in between along that span), diluted further
+towards <code>ambient_rh</code> at <code>exchange_per_min</code>; the chamber's own sensor lags
+the true value by <code>sensor_tau_s</code>, plus Gaussian noise (<code>noise_rh</code>, seeded
+by <code>seed</code>). The dry and wet supplies drift slowly — a sinusoid of
+±<code>supply_drift_rh</code> over <code>supply_drift_period_s</code>, decorrelated by phase so
+they don't move in lockstep — and carry their own reading noise
+(<code>supply_noise_rh</code>); this drift feeds the <em>real</em> physics (the blender
+observes it through <code>bound</code>, same as a real sensor's drift would), not
+just the display. Every temperature drifts the same slow way around
+<code>temperature_c</code> with its own noise (<code>temperature_noise_c</code>), the chamber's
+also warming a little under total flow (<code>flow_warming_c_per_lpm</code>).</p>
+<h2 id="tunings">Tunings<a class="headerlink" href="#tunings" title="Permanent link">&para;</a></h2>
+<p><code>examples/humidity/tunings/*.yaml</code> — each file a control law config, named
+by its filename stem — are loaded onto <code>rig.tunings</code> when
+<code>flyball-daemon</code> starts (<code>--tunings DIR</code> to point elsewhere; default
+<code>tunings/</code> beside the first rig file). This rig ships two:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># tunings/gentle.yaml -- the demo's starting law</span>
+<span class="c1"># Proportional only, on top of the blender's feedforward: settles a little</span>
+<span class="c1"># short of the setpoint and never oscillates.</span>
+<span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">P</span>
+<span class="nt">kp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="c1"># tunings/brisk.yaml</span>
+<span class="c1"># PID for the simulated chamber: 1 s samples on a ~6 s lag at full flow, so</span>
+<span class="c1"># the derivative gain is kept small -- at 8 it drove the pumps bang-bang on</span>
+<span class="c1"># sensor noise. Integral time 10 s; tracking time 5 s for anti-windup.</span>
+<span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PID</span>
+<span class="nt">kp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.8</span>
+<span class="nt">ki</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.08</span>
+<span class="nt">kd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<span class="nt">tt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</code></pre></div>
+<p>A <code>regulate</code> program step's <code>tuning</code> names one by its stem —
+<code>{setpoint: 45, tuning: brisk}</code> swaps <code>blender.humidity</code>'s law bumplessly
+before aiming — see <a href="../../operating/programs/">Humidity programs</a>. Neither
+file changes <code>rig.yaml</code>'s own <code>controllers.blender.humidity.law</code> (the PI
+gains the controller starts with); they're alternatives a program or an
+operator picks at runtime.</p>
+<h2 id="-set-and-multiple-overlays"><code>--set</code> and multiple overlays<a class="headerlink" href="#-set-and-multiple-overlays" title="Permanent link">&para;</a></h2>
+<p><code>--set devices.blender.config.blend_flow=1.5</code> overrides one value from the
+command line, applied after every file. A third file (say, a noisier
+plant) would overlay both <code>rig.yaml</code> and <code>sim.yaml</code> the same way — later
+file wins, in the order given.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.indexes", "navigation.top", "content.code.copy", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
