@@ -144,17 +144,23 @@ func (s *Server) handleRestartRunner(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleLogs streams the runner's captured log file straight through --
+// plain chunked text, per interface.md's "leaning simplest" note, not
+// SSE. A first pass: no --follow/tail semantics, just whatever the
+// backend's Logs(name) reader currently holds.
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
-	be, ok := s.reg.Get(r.PathValue("name"))
-	if !ok {
+	name := r.PathValue("name")
+	if _, ok := s.reg.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	_ = be
-	// Backend.Logs is reached via the registry's backend in a fuller
-	// version; wiring deferred, see daemon's cmd/flyballd for the
-	// concrete backend instance used at startup.
-	http.Error(w, "not wired yet", http.StatusNotImplemented)
+	rd, err := s.reg.Logs(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	io.Copy(w, rd)
 }
 
 // handleLandingOrProxy: "/" is the landing page; "/{name}/*" is optional

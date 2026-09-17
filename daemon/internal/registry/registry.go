@@ -6,6 +6,7 @@
 package registry
 
 import (
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -36,7 +37,7 @@ func New(be backend.Backend) *Registry {
 // a process that's running but not yet answering shouldn't be routable
 // yet, so it's marked StatusStarting until the poll succeeds.
 func (r *Registry) Start(m config.Manifest) error {
-	endpoint, err := r.be.Start(m.Name, m.ServerConfig, m.Host, m.Port)
+	endpoint, err := r.be.Start(m.Name, m.ServerConfig, m.Host, m.Port, m.RootPath)
 	if err != nil {
 		return err
 	}
@@ -44,15 +45,18 @@ func (r *Registry) Start(m config.Manifest) error {
 	r.entries[m.Name] = &Entry{Manifest: m, Endpoint: endpoint, Status: backend.StatusStarting}
 	r.mu.Unlock()
 
-	go r.pollUntilUp(m.Name, endpoint)
+	go r.pollUntilUp(m.Name, endpoint, m.RootPath)
 	return nil
 }
 
-func (r *Registry) pollUntilUp(name, endpoint string) {
+func (r *Registry) pollUntilUp(name, endpoint, rootPath string) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := client.Get("http://" + endpoint + "/api/auth")
+		// The runner only answers under its own root_path once started
+		// with --root-path (backend.ProcessBackend.Start) -- an unprefixed
+		// /api/auth 404s against a root_path-aware runner.
+		resp, err := client.Get("http://" + endpoint + rootPath + "/api/auth")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -83,6 +87,14 @@ func (r *Registry) Stop(name string) error {
 
 func (r *Registry) Restart(name string) error {
 	return r.be.Restart(name)
+}
+
+// Logs reaches the backend's own Logs(name), per interface.md's Backend
+// abstraction table -- the registry is the only thing above Backend that
+// the API layer talks to, so it needs a narrow accessor rather than
+// exposing the whole backend.Backend.
+func (r *Registry) Logs(name string) (io.Reader, error) {
+	return r.be.Logs(name)
 }
 
 func (r *Registry) Get(name string) (*Entry, bool) {
