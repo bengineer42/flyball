@@ -75,6 +75,24 @@ path = "src/flyball/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/flyball"]
 
+# Pulls the built dashboard UI into the wheel from outside the package root
+# (ui/ is a separate npm workspace, two directories up from engine/). This
+# requires `ui/apps/dashboard` to have been built (`npm run build`) BEFORE
+# `hatch build`/`uv build` runs -- hatchling only copies files that already
+# exist at build time, it does not (and cannot) invoke npm itself.
+#
+# A plain `[tool.hatch.build.targets.wheel.force-include]` entry would work
+# for CI (which always builds the UI first) but fails hard -- FileNotFoundError
+# -- the moment the source directory is missing, which it is on every ordinary
+# dev checkout (`ui/apps/dashboard/dist` is gitignored) and would break
+# `uv sync`/`make test`'s editable install for anyone who hasn't run
+# `npm run build`. `hatch_build.py`'s build hook does the same force-include,
+# but only when the built dist actually exists, so a dev checkout without it
+# still installs/tests fine (see server/app.py's fallback for what that means
+# for serving the UI at runtime).
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

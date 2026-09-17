@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import secrets
 from collections.abc import AsyncIterator
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +50,29 @@ from flyball.server.routes.auth import router as auth_router
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-# Monorepo-relative path; packaging into the installed wheel (importlib.resources) is future work.
-DASHBOARD_DIST = Path(__file__).resolve().parents[4] / "ui" / "apps" / "dashboard" / "dist"
+
+def _find_dashboard_dist() -> Path:
+    """Locate the built dashboard's static files, installed wheel or dev checkout alike.
+
+    An installed wheel force-includes `ui/apps/dashboard/dist` at
+    `flyball/server/static` (see `pyproject.toml`), so the package-relative path
+    resolves correctly wherever the package actually lives. In this monorepo's own
+    dev checkout, though, nothing puts files there unless someone has run `hatch
+    build`/`uv build` locally -- `importlib.resources.files("flyball")` just
+    resolves to `engine/src/flyball`, and `server/static` won't exist under it. So
+    a dev checkout falls back to the old monorepo-relative path (`ui/apps/dashboard/dist`
+    next to `engine/`), which keeps `make test`/local runs showing the UI without
+    requiring a wheel build first. Neither path existing (headless/no-UI install,
+    or a dev checkout that's never run `npm run build`) is fine -- the caller checks
+    `is_dir()` before mounting.
+    """
+    installed = resources.files("flyball") / "server" / "static"
+    if isinstance(installed, Path) and installed.is_dir():
+        return installed
+    return Path(__file__).resolve().parents[4] / "ui" / "apps" / "dashboard" / "dist"
+
+
+DASHBOARD_DIST = _find_dashboard_dist()
 
 
 @contextlib.asynccontextmanager
