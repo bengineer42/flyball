@@ -111,7 +111,9 @@ driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by); `access` names the set to keep (`"r"`), and
 `readable`/`publishing`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
-it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
+it, unless the driver also names a ceiling for that signal (a Python-level
+option, not a rig-file key), in which case `access` may ask for anything up
+to and including it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
 the same way into a namespace's own children; its `tags` apply to every
 signal under it, a signal's own winning.
 

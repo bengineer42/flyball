@@ -106,6 +106,17 @@ _LETTERS = (("r", Access.R), ("p", Access.P), ("w", Access.W))
 _ROLE_ACCESS: dict[Any, Access] = {}
 
 
+def _excess(requested: Access, allowed: Access) -> str:
+    """The letters of `requested` not in `allowed`; `""` if none.
+
+    Plain int bit-work, not `Access.__invert__`: inverting a flag missing
+    `P` (bare `R`, bare `W`) builds a `P`-without-`R` composite that
+    `Access._missing_` refuses on sight, even mid-expression.
+    """
+    extra = requested.value & ~allowed.value
+    return "".join(letter for letter, flag in _LETTERS if extra & flag.value)
+
+
 type Band = tuple[float, float]
 
 
@@ -198,13 +209,19 @@ class SignalSpec:
     """A device's declaration of one signal.
 
     From the driver; the rig file may restrict `access` and override the
-    metadata, never add access the driver cannot honour.
+    metadata, never add access the driver cannot honour -- except up to
+    `ceiling`, when the driver names one.
     """
 
     name: str
     """One address segment: `"voltage"` under device `psu` is `psu.voltage`."""
     quantity: Quantity
     access: Access
+    ceiling: Access | None = None
+    """None (default): the rig file may only narrow `access`, as before. Set: the rig file may
+    set `access` to anything from the driver's declared value up to and including `ceiling` --
+    a driver opting a signal into being widened (an internal detail's `R` raised to `RP` for
+    recording) without ever sanctioning access it did not name here."""
     role: Role = Role.OUTPUT
     section: Section | None = None
     tags: dict[str, str] = field(default_factory=dict)
@@ -238,6 +255,13 @@ class SignalSpec:
     def __post_init__(self) -> None:
         _check_segment(self.name)
         Access.check(self.access)
+        if self.ceiling is not None:
+            Access.check(self.ceiling)
+            if missing := _excess(self.access, self.ceiling):
+                raise ValueError(
+                    f"signal {self.name!r}: ceiling {self.ceiling!s} excludes {missing},"
+                    " part of its own declared access"
+                )
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
         if self.section is not None and self.section.axis not in self.tags:
@@ -564,11 +588,16 @@ class Signal:
         self.spec = replace(self.spec, **changes)
 
     def restrict(self, access: Access) -> None:
-        """Narrow `access` to a subset of what the driver declared."""
-        if added := access & ~self.spec.access:
+        """Set `access` to a subset of what the driver declared, or up to its `ceiling`.
+
+        Without a ceiling this only narrows, as before; with one, the rig
+        file may widen up to it, never beyond.
+        """
+        allowed = self.spec.access if self.spec.ceiling is None else self.spec.ceiling
+        if added := _excess(access, allowed):
             raise ValueError(
-                f"Signal '{self.address}' cannot add access {added!s}:"
-                f" the driver declares {self.spec.access!s}"
+                f"Signal '{self.address}' cannot add access {added}:"
+                f" the driver allows at most {allowed!s}"
             )
         self.access = Access.check(access)
 
