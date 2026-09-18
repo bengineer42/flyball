@@ -293,7 +293,8 @@ What the UI shows and how, saved per rig. The server keeps every version
 under a name, as it does for programs; the document's `widgets` are the
 UI's to define, validated only in outline (`{id, kind, title?, x, y, w, h,
 config}` on a `grid` of `cols` (12 or 24) × `row_height`). A rig can ship
-`dashboards/*.json` beside its file; they are imported on start.
+`dashboards/*.toml`, `*.yaml` or `*.json` beside its file (any format a rig
+file itself takes); they are imported on start.
 
 | | | |
 | --- | --- | --- |

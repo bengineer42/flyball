@@ -110,6 +110,24 @@ def test_import_directory_is_idempotent_and_versions_changed_files(tmp_path):
     assert len(store.dashboard_history("overview")) == 2
 
 
+def test_import_directory_reads_yaml_and_toml_too(tmp_path):
+    """A dashboard is any of SUFFIXES, same as a rig file -- not JSON-only."""
+    store = SqliteStore(tmp_path / "t.db")
+    boards = tmp_path / "dashboards"
+    boards.mkdir()
+    (boards / "overview.yaml").write_text(
+        "rig: t\ndescription: the one\nwidgets:\n"
+        "  - id: a\n    kind: readout\n    x: 0\n    y: 0\n    w: 3\n    h: 2\n"
+        "    config:\n      address: p.t\n"
+    )
+    (boards / "panel.toml").write_text('rig = "t"\ndescription = "second"\nwidgets = []\n')
+    rows = {r.name: r for r in import_directory(store, boards, "furnace", 1)}
+    assert set(rows) == {"overview", "panel"}
+    assert rows["overview"].rig == "furnace"
+    assert store.dashboard("overview").body["description"] == "the one"
+    assert store.dashboard("panel").body["description"] == "second"
+
+
 @pytest.fixture
 def furnace_rig(rig) -> Rig:
     """A rig with a DAQ, a drive and one controller, for the bindings a dashboard names."""

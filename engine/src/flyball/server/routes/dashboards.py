@@ -4,8 +4,10 @@ A dashboard is a document the UI owns -- a grid of widgets, each bound to a
 signal address, a controller, a device or nothing -- validated here only in
 outline, so the widget catalogue can grow without a server release. The
 server keeps every version under a name, like programs; the newest is what
-`GET` returns. A rig can ship dashboards as ``dashboards/*.json`` beside its
-file: they are imported on start, and an edited file becomes a new version.
+`GET` returns. A rig can ship dashboards as ``dashboards/*.toml``,
+``dashboards/*.yaml`` or ``dashboards/*.json`` beside its file (whichever
+format the author prefers, per [flyball.core.files][]): they are imported
+on start, and an edited file becomes a new version.
 
 Documents carry a `schema_version`; an older one is migrated on read (see
 [migrate][flyball.server.routes.dashboards.migrate]), never refused, and
@@ -24,6 +26,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from flyball.core.files import SUFFIXES, load_document
 from flyball.core.signal import Access
 from flyball.db import DashboardRow
 from flyball.db.errors import DashboardNotFoundError
@@ -227,18 +230,21 @@ def _migrated(row: DashboardRow) -> DashboardRow:
 
 
 def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> list[DashboardRow]:
-    """Bring every ``*.json`` dashboard in `directory` into the store, for `rig`.
+    """Bring every dashboard file in `directory` into the store, for `rig`.
 
-    The file's stem is the name; the document's own `name`/`rig` are set from
-    it. An unchanged file is left alone; an invalid one is skipped, not fatal.
+    Any of `SUFFIXES` (`.toml`, `.yaml`/`.yml`, `.json`) is read, by suffix,
+    same as a rig file. The file's stem is the name; the document's own
+    `name`/`rig` are set from it. An unchanged file is left alone; an
+    invalid one is skipped, not fatal.
     """
     imported: list[DashboardRow] = []
-    for path in sorted(directory.glob("*.json")):
+    paths = sorted(p for suffix in SUFFIXES for p in directory.glob(f"*{suffix}"))
+    for path in paths:
         if not path.is_file():
             continue
         try:
             document = Dashboard.model_validate({
-                **json.loads(path.read_text()),
+                **load_document(path),
                 "name": path.stem,
                 "rig": rig,
             })

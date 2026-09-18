@@ -57,7 +57,7 @@ separate, not yet documented piece -- see `daemon/cmd/flyballd`.
 | `/mcp/read`, `/mcp/author`, `/mcp/operate` | the rig for a model: [the MCP server](../../4-server/mcp.md) |
 | `/api/waits` | what a program is waiting on; fire or interrupt one |
 | `/api/programs` | check a program file, run one, see what is running |
-| `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.json` beside the rig file are imported on start |
+| `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.toml`/`*.yaml`/`*.json` beside the rig file are imported on start |
 | `/api/events`, `/ws/events` | what has happened: a step failed, a device went offline |
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
