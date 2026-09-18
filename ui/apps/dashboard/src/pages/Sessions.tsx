@@ -63,11 +63,12 @@ function previewIds(ids: number[], max = 5): string {
 }
 
 /** Start a session, or end the open one. */
-/** The choices for "include the last …" and "keep the last …", in minutes, cut to what the scratch record holds. */
+/** The choices for "include the last …" and "keep the last …", in minutes, cut to what the buffer holds
+ * as of `asOfS` -- `nowS` for one still rolling, `end_ns` for one that already stopped. */
 const LAST_MINUTES = [5, 15, 30, 60, 180, 720, 1440];
-const lastChoices = (scratch: SessionRow | undefined, nowS: number): number[] => {
+const lastChoices = (scratch: SessionRow | undefined, asOfS: number): number[] => {
   if (!scratch) return [];
-  const heldMin = Math.max(0, (nowS - scratch.start_ns / 1e9) / 60);
+  const heldMin = Math.max(0, (asOfS - scratch.start_ns / 1e9) / 60);
   const fits = LAST_MINUTES.filter((m) => m <= heldMin);
   return heldMin >= 1 && (fits.length === 0 || heldMin > fits[fits.length - 1]! * 1.5) ? [...fits, Math.floor(heldMin)] : fits;
 };
@@ -98,12 +99,23 @@ function keptUntil(s: SessionRow, runner: RunnerInfo | undefined): string | unde
 
 const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.round(n / 1e3)} kB`);
 
-/** The rolling scratch record's row: what it holds, and Keep… to make a session of some of it. */
-function ScratchRow({ scratch, nowS, runner, onKeep, onSelect }: { scratch: SessionRow; nowS: number; runner: RunnerInfo | undefined; onKeep(): void; onSelect(): void }) {
-  const heldS = Math.max(0, nowS - scratch.start_ns / 1e9);
+/**
+ * One buffer's row: what it holds, and Keep… to make a session of some of it. `current` is the
+ * one still rolling (at most one at a time) -- highlighted, its held time grows with `nowS`; an
+ * older one already stopped at its own `end_ns` and never grows again.
+ */
+function BufferRow({ buffer, current, nowS, runner, onKeep, onSelect }: { buffer: SessionRow; current: boolean; nowS: number; runner: RunnerInfo | undefined; onKeep(): void; onSelect(): void }) {
+  const asOfS = current ? nowS : buffer.end_ns! / 1e9;
+  const heldS = Math.max(0, asOfS - buffer.start_ns / 1e9);
   const keep = runner?.keep_ns;
+  const hasData = buffer.bytes != null && buffer.bytes > 0;
   return (
-    <TableRow hover sx={{ cursor: "pointer", "& td": { bgcolor: "action.hover" } }} onClick={onSelect} data-testid="scratch-row">
+    <TableRow
+      hover
+      sx={{ cursor: "pointer", "& td": { bgcolor: current ? "action.selected" : "action.hover" }, ...(current ? { "& td:first-of-type": { borderLeft: 3, borderLeftColor: "primary.main" } } : {}) }}
+      onClick={onSelect}
+      data-testid={current ? "current-buffer-row" : "older-buffer-row"}
+    >
       <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
         <Tooltip title="What the runner holds while nothing is recorded: the newest data, trimmed as it ages. Not a session until kept.">
           <Box sx={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: "text.secondary" }}>
@@ -111,21 +123,19 @@ function ScratchRow({ scratch, nowS, runner, onKeep, onSelect }: { scratch: Sess
           </Box>
         </Tooltip>
       </TableCell>
-      <TableCell>{scratch.id}</TableCell>
+      <TableCell>{buffer.id}</TableCell>
       <TableCell colSpan={2}>
-        <Typography fontWeight={500}>last {duration(heldS)} held</Typography>
+        <Typography fontWeight={500}>{duration(heldS)} held</Typography>
         <Typography variant="body2" color="text.secondary">
-          not a recording{keep ? ` — trimmed to ${span(keep / 1e9)}` : ""}
-          {scratch.bytes ? ` · ${bytes(scratch.bytes)}` : ""}
+          not recorded{current && keep ? ` — trimmed to ${span(keep / 1e9)}` : ""}
+          {hasData ? ` · ${bytes(buffer.bytes!)}` : !current ? " · trimmed away" : ""}
         </Typography>
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{when(scratch.start_ns)}</TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>
-        <Chip label="rolling" variant="outlined" />
-      </TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>{when(buffer.start_ns)}</TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>{current ? <Chip label="current" color="primary" variant="outlined" /> : when(buffer.end_ns!)}</TableCell>
       <TableCell>{fmtDuration(heldS)}</TableCell>
       <TableCell padding="checkbox" colSpan={2} onClick={(e) => e.stopPropagation()}>
-        <Button size="small" variant="outlined" onClick={onKeep} disabled={heldS < 60} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
+        <Button size="small" variant="outlined" onClick={onKeep} disabled={current ? heldS < 60 : !hasData} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
           Keep…
         </Button>
       </TableCell>
@@ -133,10 +143,40 @@ function ScratchRow({ scratch, nowS, runner, onKeep, onSelect }: { scratch: Sess
   );
 }
 
+/** Every scratch-kind row, apart from real sessions: the one still rolling (if any) highlighted
+ * first, older ones that already stopped -- and were never fully deleted -- below, newest first. */
+function BufferTable({ current, older, nowS, runner, onKeep, onSelect }: { current: SessionRow | undefined; older: SessionRow[]; nowS: number; runner: RunnerInfo | undefined; onKeep(b: SessionRow): void; onSelect(id: number): void }) {
+  if (!current && older.length === 0) return null;
+  return (
+    <TableContainer component={Paper} className="fb-scroll-shadow-x" sx={{ mb: 2 }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell padding="checkbox" />
+            <TableCell>id</TableCell>
+            <TableCell colSpan={2}>held</TableCell>
+            <TableCell>started</TableCell>
+            <TableCell>status</TableCell>
+            <TableCell>duration</TableCell>
+            <TableCell padding="checkbox" colSpan={2} />
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {current && <BufferRow key={current.id} buffer={current} current nowS={nowS} runner={runner} onKeep={() => onKeep(current)} onSelect={() => onSelect(current.id)} />}
+          {older.map((b) => (
+            <BufferRow key={b.id} buffer={b} current={false} nowS={nowS} runner={runner} onKeep={() => onKeep(b)} onSelect={() => onSelect(b.id)} />
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
 /** Keep the last N minutes of the scratch record as a session of its own. */
 function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; nowS: number; onClose(): void; onKept(): void }) {
   const rig = useRig();
-  const choices = lastChoices(scratch, nowS);
+  const ended = scratch.end_ns != null;
+  const choices = lastChoices(scratch, ended ? scratch.end_ns! / 1e9 : nowS);
   const [minutes, setMinutes] = useState(choices.includes(15) ? 15 : (choices[0] ?? 0));
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
@@ -148,8 +188,9 @@ function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; n
       const details: Record<string, string> = {};
       if (name.trim()) details.name = name.trim();
       if (notes.trim()) details.notes = notes.trim();
-      const clock = await rig.clock(); // the rig's own now: a simulated clock is not the wall's
-      const end_ns = clock.now_ns;
+      // A buffer that already stopped has a fixed end; only a still-rolling one needs the rig's
+      // live clock (not the wall's, a simulated one runs at its own speed) to know where "now" is.
+      const end_ns = ended ? scratch.end_ns! : (await rig.clock()).now_ns;
       const start_ns = Math.max(scratch.start_ns, end_ns - Math.round(minutes * 60 * 1e9));
       await rig.keepRange(scratch.id, { start_ns, end_ns, details });
       onKept();
@@ -481,6 +522,8 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
   const rows = (sessions.data ?? []).map((r) => (recording.data && r.id === recording.data.id && recording.data.end_ns == null ? { ...r, end_ns: null } : r));
   // The runner's rolling scratch record (the last `keep` while nothing is recorded): shown apart, kept from, never selected.
   const scratch = rows.find((r) => isScratch(r) && r.end_ns == null);
+  // Buffers that already stopped -- a leftover from an earlier runner process -- shown below the current one, newest first.
+  const olderBuffers = rows.filter((r) => isScratch(r) && r.end_ns != null).sort((a, b) => b.end_ns! - a.end_ns!);
   const runner = useQuery(() => rig.runner().catch(() => undefined), [rig], { refreshMs: 30000 });
   const [keeping, setKeeping] = useState<SessionRow | null>(null);
   const [pinBusy, setPinBusy] = useState<number | null>(null);
@@ -618,6 +661,12 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
     <>
       <RecordingControl recording={recording} scratch={scratch} onChange={sessions.refresh} />
       {keeping && <KeepDialog scratch={keeping} nowS={nowS} onClose={() => setKeeping(null)} onKept={() => { setKeeping(null); sessions.refresh(); }} />}
+      {(scratch || olderBuffers.length > 0) && (
+        <>
+          <SectionHead icon={HistoryIcon} title="Buffers" count={olderBuffers.length + (scratch ? 1 : 0)} />
+          <BufferTable current={scratch} older={olderBuffers} nowS={nowS} runner={runner.data} onKeep={setKeeping} onSelect={onSelect} />
+        </>
+      )}
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2.25 }}>
           {error}
@@ -653,8 +702,8 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
         }
       />
       {!sessions.data && !sessions.error && <StateBlock state="loading" message="Loading sessions…" />}
-      {sessions.data && sessions.data.length === 0 && <StateBlock state="empty" message="No sessions recorded yet. Start recording to capture one." />}
-      {sessions.data && sessions.data.length > 0 && (
+      {sessions.data && rows.every(isScratch) && <StateBlock state="empty" message="No sessions recorded yet. Start recording to capture one." />}
+      {sessions.data && !rows.every(isScratch) && (
         <TableContainer
           component={Paper}
           className="fb-scroll-shadow-x"
@@ -691,14 +740,13 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((s) => {
+              {rows.filter((s) => !isScratch(s)).map((s) => {
                 // `config` is the whole rig file as recorded: the drill-in shows it, a row never does.
                 const { id, start_ns, end_ns, details, config, hardware, version } = s as SessionRow & { config?: unknown; hardware?: unknown; version?: unknown };
                 const { name, notes, ...otherDetails } = (details && typeof details === "object" ? details : {}) as Record<string, unknown>;
                 const rigName = config && typeof config === "object" && typeof (config as { name?: unknown }).name === "string" ? (config as { name: string }).name : null;
                 const extra = Object.keys(otherDetails).length;
                 const isOpen = id === openId;
-                if (isScratch(s)) return <ScratchRow key={id} scratch={s} nowS={nowS} runner={runner.data} onKeep={() => setKeeping(s)} onSelect={() => onSelect(id)} />;
                 return (
                   <TableRow key={id} hover sx={{ cursor: "pointer" }} onClick={() => onSelect(id)}>
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
