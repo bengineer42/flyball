@@ -36,8 +36,9 @@ export interface PlaybackHook {
 
 /**
  * A video-style transport over the rig's own recorded history: play (live),
- * pause, rewind, fast-forward and scrub, all reading `/api/history` on the
- * open (scratch) session -- no new recorder or storage work, that already
+ * pause, rewind, fast-forward and scrub. Bounds (`sessionId`/`startS`) come
+ * from `/api/recording`; a consumer reads the samples themselves from
+ * `/api/history` on `atS` -- no new recorder or storage work, that already
  * keeps a rolling record of everything, this only reads it back. Read-only
  * by construction: nothing here writes a demand or a setpoint, so scrubbing
  * back never risks touching the running rig.

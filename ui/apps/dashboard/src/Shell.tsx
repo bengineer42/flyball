@@ -229,6 +229,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
       {/* The page uses the width it has: one gutter on a phone, two on a desktop, capped only where a card row would get absurd. */}
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: "16px", md: "24px" }, pb: "24px", maxWidth: 2200 }}>
         <Toolbar variant="dense" sx={{ mb: "16px" }} />
+        {/* Reserves the playback bar's own height (a dense Toolbar row) so the page below doesn't jump when it mounts. */}
         {playbackSlot && <Box sx={{ height: 33 }} />}
         {children}
       </Box>
