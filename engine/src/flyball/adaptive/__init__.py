@@ -15,7 +15,7 @@ what is controlled.
 
     # every tick
     identifier.push(Sample(reading.value, loop.demand, (supply_reading.value,)))
-    tuner.observe(identifier.residual)
+    tuner.observe()
     tuner.elapsed(interval)
 
     # on a much slower clock
@@ -26,8 +26,12 @@ what is controlled.
 
 The model is ARX because it is linear in its parameters, so the estimate can
 recurse; [Arx.plant][flyball.adaptive.types.Arx.plant] gives the continuous
-form. Updates are gated on excitation. Dead time is not identifiable by
-recursion, so it comes from calibration.
+form, operating point included, so a plant that rests away from zero (a
+chiller against a warm room) fits as well as one whose demand is already in
+the controlled quantity's units. Updates are gated on excitation, and the
+gate stays open for a while after the demand last moved, since the response
+to a step is where a slow plant's time constant shows. Dead time is not
+identifiable by recursion, so it comes from calibration.
 """
 
 from .errors import (

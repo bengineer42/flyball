@@ -24,30 +24,46 @@ class Excitation:
 
     A loop holding a setpoint says nothing about the plant, and a forgetting
     estimator drifts on noise while it waits; ramps and steps in a program
-    supply the excitation.
+    supply the excitation. A response outlasts its cause -- a slow plant is
+    still settling long after the demand stopped moving, and that settling is
+    where the time constant shows -- so the gate stays open for `hold`
+    samples after the input last moved.
 
     Args:
         window: How many recent inputs to judge on.
         threshold: The spread the window must show, in the input's units.
+        hold: Samples the gate stays open after the input last moved; a few
+            time constants' worth at the sample rate.
     """
 
-    __slots__ = ("_window", "threshold")
+    __slots__ = ("_since_moved", "_window", "hold", "threshold")
 
-    def __init__(self, window: PositiveInt = 20, threshold: Positive = 0.5) -> None:
+    def __init__(
+        self, window: PositiveInt = 20, threshold: Positive = 0.5, hold: int = 100
+    ) -> None:
         self._window: deque[float] = deque(maxlen=window)
         self.threshold = threshold
+        self.hold = hold
+        self._since_moved: int | None = None
 
     @property
     def spread(self) -> float:
         return max(self._window) - min(self._window) if self._window else 0.0
 
     def push(self, value: float) -> bool:
-        """Add an input and say whether the window is now excited enough."""
+        """Add an input and say whether the loop is excited: moving now, or moved lately."""
         self._window.append(value)
-        return self.spread >= self.threshold
+        if self.spread >= self.threshold:
+            self._since_moved = 0
+            return True
+        if self._since_moved is None:
+            return False
+        self._since_moved += 1
+        return self._since_moved <= self.hold
 
     def reset(self) -> None:
         self._window.clear()
+        self._since_moved = None
 
 
 class Identifier:
@@ -62,8 +78,9 @@ class Identifier:
             discrete estimate.
         delay_samples: Input delay in samples. Not identifiable by recursion,
             so it comes from calibration.
-        forgetting: Passed to the estimator.
-        excitation: The gate. Omit for the default window.
+        forgetting: Passed to the estimator. The default keeps about 200
+            samples in view; a slow plant seen at a fast rate wants it nearer 1.
+        excitation: The gate. Omit for the default window and hold.
         settle: Excited samples required before a model is offered.
     """
 
@@ -85,9 +102,9 @@ class Identifier:
         schema: Schema,
         interval: Positive = 1.0,
         delay_samples: int = 0,
-        forgetting: NormalisedPositive = 0.98,
+        forgetting: NormalisedPositive = 0.995,
         excitation: Excitation | None = None,
-        settle: PositiveInt = 30,
+        settle: PositiveInt = 100,
     ) -> None:
         self.schema = schema
         self.interval = interval
@@ -134,7 +151,7 @@ class Identifier:
         if previous is None or not excited or len(self._inputs) <= self.delay_samples:
             return False
 
-        regressor = [previous, self._inputs[0], *sample.disturbances]
+        regressor = [previous, self._inputs[0], 1.0, *sample.disturbances]
         self.residual = self._rls.update(regressor, sample.controlled)
         self._seen += 1
         return True
@@ -147,10 +164,11 @@ class Identifier:
         """
         if not self.identified:
             raise NotIdentifiedError(self._seen, self.settle)
-        a, b, *gains = self._rls.parameters
+        a, b, offset, *gains = self._rls.parameters
         return Arx(
             a=a,
             b=b,
+            offset=offset,
             disturbance_gains=tuple(gains),
             interval=self.interval,
             delay_samples=self.delay_samples,
@@ -178,4 +196,4 @@ class Identifier:
         plant = self.plant()
         if not plant.gain:
             return setpoint
-        return (setpoint + plant.tau * rate) / plant.gain
+        return (setpoint - plant.ambient + plant.tau * rate) / plant.gain
