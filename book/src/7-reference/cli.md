@@ -74,15 +74,37 @@ number 4, `"on"` stays a string, matching the old CLI's literal parsing.
 (`POST /api/programs/check`, the runner-addressed table above); there is
 no local, offline-against-installed-commands mode as `cli.py` had.
 
-## Daemon-managed (via `$FLYBALLD_URL`, never routed through a runner)
+## The daemon
+
+`flyballd` starts one `flyball-runner` per manifest and proxies each under
+its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
+
+| key | default | |
+| --- | --- | --- |
+| `listen` | `127.0.0.1:9000` | the address it serves on |
+| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled` |
+| `data_dir` | `data` | captured runner logs, under `logs/` |
+| `log_max_size` | 10 MiB | per-runner captured-log cap |
+| `auth.token` | none | the bearer token the registration routes below need. **With no token they answer 503**: the runners in `manifests_dir` still start, but nothing can start, stop, restart or read one over the API |
+
+A runner's `name` is lower-case letters, digits, `-` and `_` (it names the
+log file and the URL prefix); `root_path` is `/segments` of the same. A
+manifest that says otherwise is refused, at start-up or over the API (400).
+
+### Daemon-managed commands (via `$FLYBALLD_URL`, never routed through a runner)
 
 | command | | |
 | --- | --- | --- |
-| `daemon runners` | `GET /api/runners` | list registered runners |
+| `daemon runners` | `GET /api/runners` | list registered runners; open |
 | `daemon start MANIFEST.json` | `POST /api/runners` | register and start one |
 | `daemon stop NAME` | `DELETE /api/runners/NAME` | stop and deregister it |
 | `daemon restart NAME` | `POST /api/runners/NAME/restart` | restart it |
 | `logs NAME` | `GET /api/runners/NAME/logs` | its captured stdout/stderr |
+
+All but `daemon runners` send `Authorization: Bearer $FLYBALLD_TOKEN` --
+the daemon's token, not a runner's -- and are 401 without it. `GET
+/api/auth` says which you are: `level: read` anonymously, `operate` with
+the token.
 
 ## Exit codes
 

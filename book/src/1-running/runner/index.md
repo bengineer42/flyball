@@ -38,8 +38,9 @@ above produces a `flyball` binary, put it on `PATH` or run it from
 application such as `examples/humidity` has its own `uv sync` and brings
 its drivers with it. Extras per integration: [Integrations](../../5-integrations/index.md).
 
-The `flyballd` daemon (supervising several runners behind one address) is a
-separate, not yet documented piece -- see `daemon/cmd/flyballd`.
+The `flyballd` daemon supervises several runners behind one address: the
+same `daemon/` build produces it, and [the CLI reference](../../7-reference/cli.md#the-daemon)
+says how it is configured and driven.
 
 ## What it exposes
 

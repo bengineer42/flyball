@@ -5,7 +5,7 @@
 
 | command | |
 | --- | --- |
-| `flyball rig check FILE… [--set KEY=VALUE] [--print]` | validate rig files (later overlays earlier) against the drivers installed *here*; `--print` prints the merged document. No runner needed |
+| `flyball rig check FILE… [--set KEY=VALUE] [--print]` | validate rig files (later overlays earlier) against the schema built into the binary -- `flyball`'s own drivers, not extras such as `flyball-linux`, whose tags it does not know (start the runner to check those); `--print` prints the merged document. No runner needed |
 | `flyball rig schema` | the rig file's JSON Schema, for an editor |
 | `flyball sim` | a simulated rig's clock and every plant's parameters (`GET /api/sim`) |
 | `flyball sim clock N` | run the rig's time at N× (`PUT /api/sim/clock`) |

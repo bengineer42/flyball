@@ -65,7 +65,8 @@ that same URL picks the saved cookie back up automatically -- no need to
 log in again until the session expires (`--session`, default 12h) or
 `flyball logout` clears it. A wrong password is refused (401, after a
 short pause; ten wrong ones in a minute from one address are 429). This is
-separate from the daemon's own access control (`flyballd`, not yet built)
+separate from the daemon's own access control (`flyballd`'s `auth.token`,
+[the CLI reference](../../7-reference/cli.md#the-daemon))
 -- `flyball login` authenticates to a *runner*, whether reached direct
 (`FLYBALL_URL`) or through the daemon's proxy (`-s`/`FLYBALLD_URL`).
 

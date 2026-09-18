@@ -85,7 +85,7 @@ Then, from another shell:
 ```
 flyball status
 flyball devices
-flyball heater
+flyball view heater
 flyball controllers
 ```
 

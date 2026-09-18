@@ -25,6 +25,7 @@ once it is installed.
 | `gpio` | `/dev/<chip>` via libgpiod v2 | `fake_gpio` — levels per line |
 | `pwm` | `/sys/class/pwm/pwmchip<chip>` | `fake_pwm` — period and duty per channel |
 | `onewire` | `/sys/bus/w1/devices` | `fake_onewire` — `w1_slave` text per device |
+| `uart` | a kernel serial device via pyserial: `port` (required, e.g. `/dev/ttyUSB0`), `baudrate` (`9600`), `timeout` (`1.0` s per read) | `fake_uart` — scripted `replies` |
 
 | device tag | what | on |
 | --- | --- | --- |
