@@ -30,6 +30,7 @@ export { LinksProvider, Ref, useHref, type HrefFor, type RefKind } from "./links
 export { UnitCharts, groupByUnit, type UnitChartsProps } from "./panels/UnitCharts.js";
 export { DevicePanel, type DevicePanelProps } from "./panels/DevicePanel.js";
 export { useSimulation, type SimulationHook } from "./hooks/useSimulation.js";
+export { usePlayback, PLAYBACK_STEP_S, type PlaybackHook } from "./hooks/usePlayback.js";
 export { yRange, type YScale } from "./panels/yscale.js";
 export { thin } from "./panels/thin.js";
 export { navigation, type Navigation } from "./panels/navigation.js";

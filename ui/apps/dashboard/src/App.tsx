@@ -1,9 +1,10 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
+import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, usePlayback, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
+import { PlaybackBar } from "./PlaybackBar.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip } from "./Status.js";
@@ -151,6 +152,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // stack and the Events page itself, so they never disagree about what's unread.
   const { events: liveEvents } = useEvents(500);
   const unreadEvents = useUnreadEvents(liveEvents);
+  const playback = usePlayback();
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first
@@ -200,6 +202,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               current={name}
               eventsUnread={unreadEvents.unreadCount}
               startSlot={page === "dashboards" ? <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} /> : undefined}
+              playbackSlot={simulated && playback.startS !== undefined ? <PlaybackBar playback={playback} /> : undefined}
             >
               <Waits />
               {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}

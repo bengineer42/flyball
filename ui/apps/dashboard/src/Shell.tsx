@@ -46,6 +46,8 @@ export interface ShellProps {
   current?: string | null;
   /** Unread WARNING+ event count (`useUnreadEvents`), shown as a badge on the Events entry. */
   eventsUnread?: number;
+  /** A second, slim app-bar row -- the sim playback transport, when there is one to show. */
+  playbackSlot?: ReactNode;
   children: ReactNode;
 }
 
@@ -154,7 +156,7 @@ function Nav({ page, mini, simulated, devices = [], current = null, eventsUnread
  * drawer that shrinks to icons on narrow screens and becomes a temporary
  * drawer on phones.
  */
-export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, devices, current, eventsUnread = 0, children }: ShellProps) {
+export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, devices, current, eventsUnread = 0, playbackSlot, children }: ShellProps) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
@@ -205,6 +207,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
             </IconButton>
           </Tooltip>
         </Toolbar>
+        {playbackSlot}
       </AppBar>
 
       {phone ? (
@@ -226,6 +229,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
       {/* The page uses the width it has: one gutter on a phone, two on a desktop, capped only where a card row would get absurd. */}
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: "16px", md: "24px" }, pb: "24px", maxWidth: 2200 }}>
         <Toolbar variant="dense" sx={{ mb: "16px" }} />
+        {playbackSlot && <Box sx={{ height: 33 }} />}
         {children}
       </Box>
     </Box>
