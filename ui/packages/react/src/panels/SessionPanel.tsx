@@ -203,8 +203,8 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 appearing/disappearing button here is exactly the layout-shift bug
                 brain/UI.md's "No layout shift from a state change" convention exists for;
                 caught this one only once it was live, hence this comment. */}
-            <button type="button" className="fb-tb" onClick={() => void save()} disabled={saving || !dirty} data-testid="save-session-name">
-              {saving ? "saving…" : saved ? "saved" : "save name"}
+            <button type="button" className="fb-tb" onClick={() => void save()} disabled={saving || !dirty} data-testid="save-session">
+              {saving ? "saving…" : saved ? "saved" : "save session"}
             </button>
           </span>
         ) : (

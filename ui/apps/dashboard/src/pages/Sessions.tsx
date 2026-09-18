@@ -392,7 +392,7 @@ function DownloadMenu({ id }: { id: number }) {
 }
 
 /** One session top to bottom, from the library's `SessionPanel`; back link and delete above it. */
-function SessionDrillIn({ id, onBack, onDelete }: { id: number; onBack(): void; onDelete(id: number): void }) {
+function SessionDrillIn({ id, onBack, onDelete, onSelect }: { id: number; onBack(): void; onDelete(id: number): void; onSelect(id: number | null): void }) {
   const rig = useRig();
   const detail = useSession(id);
   const nowS = useNowS();
@@ -435,6 +435,16 @@ function SessionDrillIn({ id, onBack, onDelete }: { id: number; onBack(): void; 
           exports={exports}
           nowS={nowS}
           onRename={async (name) => {
+            const session = detail.data?.session;
+            if (session && isScratch(session)) {
+              // A scratch record rolls: `retention.py` trims its rows regardless of any name
+              // or pin, so renaming it in place would just label data that's about to age out.
+              // "Save" means keep it as a session of its own -- `keep_range` over everything
+              // it holds so far -- then follow the new id, not the (still-rolling) old one.
+              const kept = await rig.keepRange(id, { start_ns: session.start_ns, end_ns: Math.round(nowS * 1e9), details: { name } });
+              onSelect(kept.id);
+              return;
+            }
             await rig.renameSession(id, name);
             detail.refresh();
           }}
@@ -598,7 +608,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
             {error}
           </Alert>
         )}
-        <SessionDrillIn id={selected} onBack={() => onSelect(null)} onDelete={setPending} />
+        <SessionDrillIn id={selected} onBack={() => onSelect(null)} onDelete={setPending} onSelect={onSelect} />
         {dialog}
       </>
     );
