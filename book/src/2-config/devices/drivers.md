@@ -531,6 +531,7 @@ with your own dispense logic instead.
 | `pump` | required | a `pwm_channel` or `gpio_line` config |
 | `ml_per_s` | required | the pump's rate at full drive (PWM) or while on (relay) |
 | `max_dispense_ml` | none | an optional per-call cap |
+| `drive_fraction` | `1.0` | the duty to run a `pwm_channel` pump at during a dispense; refused on a `gpio_line` pump unless left at `1.0` |
 
 ### `mcp4725`
 
