@@ -158,14 +158,22 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
   const name = details && typeof details.name === "string" ? details.name : `session ${session.id}`;
   const [draft, setDraft] = useState(name);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   // A different session (or a rename landing from elsewhere) resets the draft to match it.
   useEffect(() => setDraft(name), [name, session.id]);
   const dirty = onRename !== undefined && draft.trim() !== "" && draft !== name;
+  useEffect(() => {
+    if (!saved) return undefined;
+    const id = setTimeout(() => setSaved(false), 3000);
+    return () => clearTimeout(id);
+  }, [saved]);
   const save = async () => {
     if (!onRename || !dirty) return;
     setSaving(true);
+    setSaved(false);
     try {
       await onRename(draft.trim());
+      setSaved(true);
     } finally {
       setSaving(false);
     }
@@ -179,7 +187,10 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
             <input
               className="fb-session-name-input"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setSaved(false);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void save();
                 else if (e.key === "Escape") setDraft(name);
@@ -192,8 +203,8 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 appearing/disappearing button here is exactly the layout-shift bug
                 brain/UI.md's "No layout shift from a state change" convention exists for;
                 caught this one only once it was live, hence this comment. */}
-            <button type="button" className={`fb-tb${dirty && !saving ? " active" : ""}`} onClick={() => void save()} disabled={saving || !dirty} data-testid="save-session-name">
-              {saving ? "saving…" : "save name"}
+            <button type="button" className="fb-tb" onClick={() => void save()} disabled={saving || !dirty} data-testid="save-session-name">
+              {saving ? "saving…" : saved ? "saved" : "save name"}
             </button>
           </span>
         ) : (
