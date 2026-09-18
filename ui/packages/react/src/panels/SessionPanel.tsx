@@ -142,6 +142,16 @@ const duration = (s: number) => {
 /** `duration()`, but never negative: a `nowS` that hasn't caught up to `start_ns` yet reads "just started". */
 const fmtDuration = (s: number) => (s < 0 ? "just started" : duration(s));
 
+const pad = (n: number) => String(n).padStart(2, "0");
+/** "#3 2026-09-18 11:41:05" -- a sensible default name, editable from there: the session's own
+ * id and its actual start (not "now", in case naming it happens well after it started). Local
+ * time, sortable order, no ambiguity between DD/MM and MM/DD the way the header's own locale-
+ * formatted `when()` timestamp can have. */
+const defaultSessionName = (session: { id: number; start_ns: number }): string => {
+  const d = new Date(session.start_ns / 1e6);
+  return `#${session.id} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 /**
  * One recorded session, top to bottom: header, a chart per signal over the
  * whole session (with spans as annotations under it), the devices, writes
@@ -155,7 +165,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
   const { session, traces, devices, writes, controllers, events, spans, startS } = detail;
   const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
   const details = session.details as Record<string, unknown> | null;
-  const name = details && typeof details.name === "string" ? details.name : `session ${session.id}`;
+  const name = details && typeof details.name === "string" ? details.name : defaultSessionName(session);
   const [draft, setDraft] = useState(name);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
