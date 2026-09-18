@@ -25,6 +25,19 @@ func daemonURL() string {
 	return strings.TrimRight(client.DefaultDaemonURL, "/")
 }
 
+// daemonRequest carries FLYBALLD_TOKEN as the bearer the daemon's
+// registration routes require -- the daemon's own token, not a runner's.
+func daemonRequest(method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if t := os.Getenv("FLYBALLD_TOKEN"); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+	return req, nil
+}
+
 func runDaemonCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: flyball daemon runners|start|stop|restart ...")
@@ -74,7 +87,11 @@ func runLogsCommand(args []string) error {
 		return fmt.Errorf("usage: flyball logs <name>")
 	}
 	base := daemonURL()
-	resp, err := http.Get(base + "/api/runners/" + args[0] + "/logs")
+	req, err := daemonRequest("GET", base+"/api/runners/"+args[0]+"/logs", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("reaching daemon at %s: %w", base, err)
 	}
@@ -88,7 +105,7 @@ func runLogsCommand(args []string) error {
 }
 
 func doJSON(method, url string, body io.Reader, out any) error {
-	req, err := http.NewRequest(method, url, body)
+	req, err := daemonRequest(method, url, body)
 	if err != nil {
 		return err
 	}

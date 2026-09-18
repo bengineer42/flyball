@@ -11,7 +11,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,8 +27,11 @@ type DaemonConfig struct {
 	DataDir       string `yaml:"data_dir"`       // registry state, captured logs
 	LogMaxSize    int64  `yaml:"log_max_size"`   // per-runner captured-log cap, bytes
 
+	// Auth.Token is the bearer token every mutating route (start, stop,
+	// restart, logs) requires, the same shape as a runner's own --token.
+	// Empty: those routes answer 503 until one is set.
 	Auth struct {
-		Password string `yaml:"password"`
+		Token string `yaml:"token"`
 	} `yaml:"auth"`
 }
 
@@ -79,6 +84,30 @@ func (m Manifest) IsEnabled() bool {
 	return m.Enabled == nil || *m.Enabled
 }
 
+var (
+	namePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	rootPathPattern = regexp.MustCompile(`^(/[a-z0-9][a-z0-9_-]*)+$`)
+)
+
+// Validate refuses a manifest whose name or root path could reach outside
+// its lane: the name becomes a log file name and a URL prefix, the root
+// path a proxy prefix and a line of HTML.
+func (m Manifest) Validate() error {
+	if !namePattern.MatchString(m.Name) {
+		return fmt.Errorf("runner name %q: lower-case letters, digits, - and _ only, up to 64", m.Name)
+	}
+	if m.ServerConfig == "" {
+		return fmt.Errorf("runner %s: server_config is required", m.Name)
+	}
+	if m.Port <= 0 || m.Port > 65535 {
+		return fmt.Errorf("runner %s: port %d is not a TCP port", m.Name, m.Port)
+	}
+	if rp := m.RootPath; !rootPathPattern.MatchString(rp) || path.Clean(rp) != rp {
+		return fmt.Errorf("runner %s: root_path %q must be /segments of lower-case letters, digits, - and _, such as /%s", m.Name, rp, m.Name)
+	}
+	return nil
+}
+
 // LoadManifests reads every *.yaml file in dir as one runner's layer-2
 // identity -- one file per runner, per config-layers.md's leaning (not
 // finally decided there, but this is what's implemented).
@@ -115,6 +144,9 @@ func LoadManifests(dir string) ([]Manifest, error) {
 		}
 		if m.Restart == "" {
 			m.Restart = "on-failure"
+		}
+		if err := m.Validate(); err != nil {
+			return nil, fmt.Errorf("manifest %s: %w", path, err)
 		}
 		manifests = append(manifests, m)
 	}

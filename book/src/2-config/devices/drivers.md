@@ -366,7 +366,8 @@ silently-wrong resistance.
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x76` | `0x77` on SDO-high |
-| `heater_target_c`, `heater_duration_ms` | `320`, `150` | the gas-sensing heater profile |
+| `osrs_t`, `osrs_p`, `osrs_h` | `2`, `4`, `2` | oversampling per channel: `0` (skip), `1`, `2`, `4`, `8` or `16` |
+| `gas_heater_c`, `gas_wait_ms` | `320`, `150` | the gas-sensing heater profile used on every read, 0-400 °C and 0-4032 ms |
 
 ### `scd30`
 
@@ -378,7 +379,11 @@ mode isn't wired up.
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x61` | fixed |
-| `interval_s` | `2` | the continuous-measurement period |
+| `pressure_mbar` | `0` | ambient pressure for the chip's own compensation; `0` turns it off |
+| `sleep` | `true` | wait for the chip's data-ready flag before each read (up to its timeout) rather than read whatever it last measured |
+
+The chip runs in continuous mode at its own 2 s period; there is no
+`interval_s` here -- pace it with the device's `poll_s`.
 
 ### `scd40`
 
@@ -390,30 +395,35 @@ Same three-value CRC family as `scd30`, a different command set.
 | `link` | required | an `i2c` link |
 | `address` | `0x62` | fixed |
 | `variant` | `scd40` | `scd40` or `scd41` -- SCD41 adds a single-shot mode |
+| `low_power` | `false` | periodic measurement every 30 s instead of 5 s |
+| `single_shot` | `false` | SCD41 only: measure on demand at each read rather than periodically; refused on an SCD40 |
+| `sleep` | `true` | wait for the chip's data-ready flag before each read (up to the period) rather than read whatever it last measured |
 
 ### `sgp30`
 
 Sensirion SGP30: `co2eq` (ppm) and `tvoc` (ppb), both `[RP]`. Needs a
-periodic baseline (get/set) for long-term accuracy -- exposed as commands,
-not silently managed.
+periodic baseline (get/set) for long-term accuracy. The driver class has
+`get_baseline`/`set_baseline`, but nothing exposes them yet: there is no
+rig-file field or device command for a saved baseline, so the chip starts
+from scratch every power cycle and takes its usual time to settle.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x58` | fixed |
-| `baseline` | none | restore a saved `(co2eq, tvoc)` baseline pair at start |
 
 ### `sgp40`
 
 Sensirion SGP40: `voc_raw` (dimensionless), `[RP]`. Raw signal only -- no
-VOC-index algorithm. Takes a humidity/temperature compensation input per
-read rather than assuming ambient defaults.
+VOC-index algorithm. The chip takes a humidity/temperature compensation
+input per read; the driver class can be given the addresses of another
+sensor's readings for that, but the rig file cannot set them yet, so every
+read uses the datasheet defaults (50 %RH, 25 °C).
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x59` | fixed |
-| `humidity_percent_rh`, `temperature_c` | `50.0`, `25.0` | compensation input; wire from another sensor's reading where accuracy matters |
 
 ### `ccs811`
 
@@ -484,7 +494,9 @@ clock/data, not I²C or SPI -- two raw GPIO lines, not a shared bus.
 
 | field | default | |
 | --- | --- | --- |
-| `clock_line`, `data_line` | required | `gpio_line`-style line numbers |
+| `link` | required | a `gpio` link |
+| `clock_line`, `data_line` | required | `gpio_line`-style line numbers: PD_SCK (host drives) and DOUT (chip drives) |
+| `gain` | `a128` | channel and gain, `a128`, `b32` or `a64` -- the chip's three pulse-count selections |
 | `scale`, `offset` | `1.0`, `0.0` | `weight = raw * scale + offset` -- calibrate per load cell: tare at zero, then a known reference weight |
 
 Timing-sensitive: decoded per datasheet, but no fake can meaningfully
@@ -502,7 +514,7 @@ fault, not a real reading (the NAMUR NE43 convention).
 | field | default | |
 | --- | --- | --- |
 | `adc` | required | an `ads1115` or `mcp3008` config |
-| `channels` | required | `{signal: {channel, resistor_ohms, scale?, offset?}}` |
+| `channels` | required | `{signal: {channel, unit?, resistor_ohms?, scale?, offset?}}` -- `resistor_ohms` defaults to `250`, `unit` to `1`, and `value = mA * scale + offset` with `scale` `1.0`, `offset` `0.0` |
 
 ### `pulse_counter`
 
@@ -516,6 +528,7 @@ debounce -- no hand-rolled polling loop.
 | `line` | required | |
 | `pulses_per_litre` | required | the sensor's own calibration constant, e.g. 450 for a YF-S201 |
 | `debounce_s` | `0` | passed straight to `gpiod`'s native debounce |
+| `pull_up` | omitted | the line's bias: `true` pulls up, `false` pulls down, omitted leaves it as the board has it |
 
 ### `dosing_pump`
 

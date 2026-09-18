@@ -189,7 +189,8 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   device-schema DEVICE                one device's schema
   invoke DEVICE COMMAND [KEY=VALUE ...]   run a device command
   sessions                            list recorded sessions
-  export SESSION [--out PATH]         a session as Bluesky documents
+  export SESSION [--format csv|json|zip] [--out PATH]
+                                      a session's data, as the runner exports it
   program check|run|status|stop PATH  program files
   sim show|clock|step|set|reset|config|save   a simulated rig's knobs
 

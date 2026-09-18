@@ -1,7 +1,7 @@
 // Package api is the daemon's own external interface, per
 // brain/plans/rig-deployment/interface.md's "External: the daemon's own
-// HTTP API" table. Registration-only actions (start/stop/restart/logs)
-// are gated by daemon auth; GET /api/runners is open, per plan.md's
+// HTTP API" table. Registration actions (start/stop/restart/logs) need
+// the daemon's bearer token; GET /api/runners is open, per plan.md's
 // "reading the list is fine open" note. Optional convenience routing
 // (/{name}/*, pass-through to a runner) is also here, per the
 // Architecture revision -- no longer the daemon's core job, but kept as
@@ -9,7 +9,9 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -46,28 +48,41 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/", s.handleLandingOrProxy)
 }
 
-// requireAuth is a stub matching interface.md's table -- daemon auth
-// design is still an open question in plan.md ("Daemon's own auth --
-// needs its own design, not inherited"). Currently a no-op placeholder,
-// deliberately not wired to anything real yet, so it isn't mistaken for
-// a finished security boundary.
+// requireAuth gates a route on the daemon's bearer token. No token
+// configured means the route is unavailable, not open: a POST here starts
+// a process from a caller-named config file, so the default has to be
+// closed. A richer scheme (plan.md's "Daemon's own auth" question) can
+// replace this without moving the routes.
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.daemon.Auth.Password == "" {
-			next(w, r)
+		if s.daemon.Auth.Token == "" {
+			http.Error(w, "flyballd has no auth.token: set one in its config to start, stop, restart or read runners over the API",
+				http.StatusServiceUnavailable)
 			return
 		}
-		// TODO: real session/token check once daemon auth is designed
-		// (plan.md, "Daemon's own auth" open question).
+		if !s.bearerOK(r) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="flyballd"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		next(w, r)
 	}
 }
 
+func (s *Server) bearerOK(r *http.Request) bool {
+	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.daemon.Auth.Token)) == 1
+}
+
 func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
+	scheme, level := "anonymous", "read"
+	if s.daemon.Auth.Token != "" && s.bearerOK(r) {
+		scheme, level = "token", "operate"
+	}
 	writeJSON(w, map[string]any{
-		"scheme":   "anonymous",
-		"level":    "operate",
-		"password": s.daemon.Auth.Password != "",
+		"scheme": scheme,
+		"level":  level,
+		"token":  s.daemon.Auth.Token != "",
 	})
 }
 
@@ -110,15 +125,15 @@ func (s *Server) handleStartRunner(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if m.Name == "" || m.ServerConfig == "" || m.Port == 0 {
-		http.Error(w, "name, server_config and port are required", http.StatusBadRequest)
-		return
-	}
 	if m.Host == "" {
 		m.Host = "127.0.0.1"
 	}
 	if m.RootPath == "" {
 		m.RootPath = "/" + m.Name
+	}
+	if err := m.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	if err := s.reg.Start(m); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -192,15 +207,23 @@ func (s *Server) handleLandingOrProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLanding(w http.ResponseWriter, r *http.Request) {
-	entries := s.reg.List()
+	var rootPaths []string
+	for _, e := range s.reg.List() {
+		rootPaths = append(rootPaths, e.Manifest.RootPath)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, renderLanding(rootPaths))
+}
+
+func renderLanding(rootPaths []string) string {
 	var b strings.Builder
 	b.WriteString("<!doctype html><html><head><title>flyball</title></head><body><h1>flyball</h1><ul>\n")
-	for _, e := range entries {
-		b.WriteString("<li><a href=\"" + e.Manifest.RootPath + "/\">" + e.Manifest.RootPath + "/</a></li>\n")
+	for _, rp := range rootPaths {
+		rp = html.EscapeString(rp)
+		b.WriteString("<li><a href=\"" + rp + "/\">" + rp + "/</a></li>\n")
 	}
 	b.WriteString("</ul></body></html>")
-	w.Header().Set("Content-Type", "text/html")
-	io.WriteString(w, b.String())
+	return b.String()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

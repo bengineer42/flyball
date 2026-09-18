@@ -840,8 +840,16 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
         raise SchemaError(f"search_drivers: {script} is not a file here")
     flags = ["--json"]
     for key in (
-        "tag", "category", "interface", "tier", "status", "manufacturer", "domain", "unit",
-        "dimension", "text",
+        "tag",
+        "category",
+        "interface",
+        "tier",
+        "status",
+        "manufacturer",
+        "domain",
+        "unit",
+        "dimension",
+        "text",
     ):
         if (value := a.get(key)) is not None:
             flags += [f"--{key}", str(value)]
@@ -849,7 +857,10 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
     # dependency, not this server's -- `uv run` resolves it from `linux_dir`'s own venv.
     run = subprocess.run(
         ["uv", "run", "--", "python", str(script), *flags],
-        capture_output=True, text=True, timeout=30, cwd=linux_dir,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=linux_dir,
     )
     if run.returncode != 0:
         raise SchemaError(f"search_drivers: {run.stderr.strip()[-2000:]}")
@@ -896,8 +907,9 @@ DRIVERS: tuple[Tool, ...] = (
         "verification status, price, which rig leads it serves, and (introspected from the "
         "code, not hand-maintained) each signal's real unit and physical dimension. For "
         "choosing what to buy or wire up before a driver exists, not for a running rig's own "
-        "tags -- that's `list_drivers`. Reads `<linux_dir>/drivers-manifest.yaml` and "
-        "`drivers-signals.yaml` on the machine this server runs on.",
+        "tags -- that's `list_drivers`. Runs `<linux_dir>/scripts/search_drivers.py` in that "
+        "checkout's own environment on the machine this server runs on, so it is a drive-tier "
+        "tool like `check_driver`: it executes what it finds there.",
         _object(
             {
                 "linux_dir": _str("The `linux/` checkout's path, where this server runs."),
@@ -914,7 +926,7 @@ DRIVERS: tuple[Tool, ...] = (
             },
             "linux_dir",
         ),
-        Tier.READ,
+        Tier.DRIVE,
         _search_drivers,
     ),
     Tool(
