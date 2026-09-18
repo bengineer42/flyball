@@ -28,7 +28,7 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
-| **Sessions** | start/stop recording, list recorded sessions (and the runner's rolling record, if it keeps one), keep a range of it, pin, open one, export, delete |
+| **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
 | **Rig** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
 
@@ -40,10 +40,17 @@ back to a client-side count from the samples stream on an older runner):
 - an always-present **alarm** chip — the count of active device conditions
   plus signals outside their warn/alarm bands, coloured by the worst one
   (amber for warn, red for alarm; otherwise the neutral outline every
-  healthy state uses — colour is reserved for abnormal conditions);
-- a **stream health** dot (`live` / `reconnecting` / `offline`) folding
-  every websocket the page has open;
-- a **recording** dot: the open session's name, or "not recording";
+  healthy state uses — colour is reserved for abnormal conditions), held to
+  one width across its own states so it doesn't reflow its neighbours as the
+  count changes;
+- a **server** chip folding every websocket the page has open into two
+  states, not three: green when every stream is open, red otherwise — a
+  dropped stream is shown as reconnecting (not yet red) for a few seconds
+  before it escalates, so a brief reconnect doesn't read as an outage.
+  Hovering names which stream (readings, controllers, waits, events) is the
+  problem, when it's known;
+- a **recording** dot (a filled circle in a ring, the standard record
+  symbol): the open session's name, or "not recording";
 - a **program** chip, only while one is running: its name and step;
 - a **devices** chip, only while some polled devices are not running: `n/total`;
 - a **sim** chip, only when the simulated clock is not at ×1: its speed.

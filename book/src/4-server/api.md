@@ -238,7 +238,7 @@ Reads the store, never the rig.
 | --- | --- | --- |
 | `GET` | `/api/history/sessions?limit=&kind=` | `[SessionRow]`, newest first; `kind=session` or `scratch` filters, unfiltered lists both |
 | `GET` | `/api/history/sessions/{id}` | `SessionRow` |
-| `PUT`/`PATCH` | `/api/history/sessions/{id}` | `{pinned: bool}`; `SessionRow`. A pinned session is exempt from `retain` and `max_store` |
+| `PUT`/`PATCH` | `/api/history/sessions/{id}` | `{pinned?: bool, name?: str}`, either or both; `SessionRow`. Pinned is exempt from `retain` and `max_store`; `name` sets or (given `null`) clears `details.name`, keeping every other `details` key untouched |
 | `POST` | `/api/history/sessions/{id}/keep` | `{start_ns, end_ns, details}` (absolute ns in the rig's clock); 201 `SessionRow`, closed: declarations copied whole, readings / write states / ticks / events in `[start, end)` rebased to the new start, spans not copied. 422 when empty, before what the session holds, after its end, or in the future |
 | `POST` | `/api/history/sessions/{id}/end` | close a session; 409 on the live scratch record |
 | `DELETE` | `/api/history/sessions/{id}` | 204; everything the session recorded goes; tunings survive. 409 on the live scratch record or the session being recorded |
