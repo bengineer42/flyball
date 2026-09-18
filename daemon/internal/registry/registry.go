@@ -6,6 +6,7 @@
 package registry
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -37,6 +38,15 @@ func New(be backend.Backend) *Registry {
 // a process that's running but not yet answering shouldn't be routable
 // yet, so it's marked StatusStarting until the poll succeeds.
 func (r *Registry) Start(m config.Manifest) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	r.mu.RLock()
+	_, taken := r.entries[m.Name]
+	r.mu.RUnlock()
+	if taken {
+		return fmt.Errorf("a runner named %q is already registered", m.Name)
+	}
 	endpoint, err := r.be.Start(m.Name, m.ServerConfig, m.Host, m.Port, m.RootPath)
 	if err != nil {
 		return err
