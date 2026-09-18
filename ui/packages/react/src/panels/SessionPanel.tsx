@@ -1,6 +1,6 @@
 import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
 import { useEffect, useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
+import { describeDevice, describeEventKind, describeStateKey, describeSubject, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
@@ -161,7 +161,11 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
   const [saved, setSaved] = useState(false);
   // A different session (or a rename landing from elsewhere) resets the draft to match it.
   useEffect(() => setDraft(name), [name, session.id]);
-  const dirty = onRename !== undefined && draft.trim() !== "" && draft !== name;
+  // A scratch record has no real stored name to compare against -- `name` here is just the
+  // computed `session N` fallback -- and "save" on one always promotes it to a real session
+  // regardless of whether the text changed, so any non-empty draft is enough. An already-real
+  // session only has something to do once the draft actually differs.
+  const dirty = onRename !== undefined && draft.trim() !== "" && (isScratch(session) || draft !== name);
   useEffect(() => {
     if (!saved) return undefined;
     const id = setTimeout(() => setSaved(false), 3000);
