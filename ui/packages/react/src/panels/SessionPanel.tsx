@@ -222,7 +222,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 the "saved" state (a click already happened) stays plain, not blue -- nothing
                 pending to draw the eye to. */}
             <button type="button" className={`fb-tb${dirty && !saving ? " active" : ""}`} onClick={() => void save()} disabled={saving || !dirty} data-testid="save-session">
-              {saving ? "saving…" : saved ? "saved" : "save session"}
+              {saving ? "saving…" : saved ? "saved" : isScratch(session) ? "save session" : "save name"}
             </button>
           </span>
         ) : (
