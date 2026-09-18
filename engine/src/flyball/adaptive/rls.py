@@ -37,7 +37,7 @@ class RecursiveLeastSquares:
     def __init__(
         self,
         width: int,
-        forgetting: NormalisedPositive = 0.98,
+        forgetting: NormalisedPositive = 0.995,
         covariance: Positive = 1_000.0,
         covariance_limit: Positive = 1e8,
     ) -> None:
