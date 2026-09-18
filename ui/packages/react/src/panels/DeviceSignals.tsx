@@ -242,12 +242,18 @@ export function DeviceSignals({ device, sparkline = true, windowS, controls, eve
             ))}
           </span>
         )}
-        {axis && (
-          <button type="button" className="fb-tb" onClick={() => setPivot((p) => !p)} title={`Group by ${axis} instead of the signal tree`}>
-            {pivot ? "by tree" : `by ${axis}`}
-          </button>
+        {/* Anchored to the row's end regardless of what the conditions span above does --
+            the device's live condition count grows/shrinks while this stays put. */}
+        {(axis || controls) && (
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            {axis && (
+              <button type="button" className="fb-tb" onClick={() => setPivot((p) => !p)} title={`Group by ${axis} instead of the signal tree`}>
+                {pivot ? "by tree" : `by ${axis}`}
+              </button>
+            )}
+            {controls && <span className="fb-source-controls">{controls}</span>}
+          </span>
         )}
-        {controls && <span className="fb-source-controls">{controls}</span>}
       </header>
       {body}
     </article>

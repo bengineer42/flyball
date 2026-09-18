@@ -105,7 +105,8 @@ export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height,
         </span>
         <span className="fb-gauge-unit">{describeUnit(signal.unit)}</span>
       </div>
-      {stale && <div className="fb-gauge-footer">last sample {ageS} s ago</div>}
+      {/* Always rendered, even blank: an appearing/disappearing footer would resize the tile every time freshness flips. */}
+      <div className="fb-gauge-footer">{stale ? `last sample ${ageS} s ago` : " "}</div>
     </div>
   );
 }

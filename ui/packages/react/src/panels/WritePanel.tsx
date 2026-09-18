@@ -207,7 +207,9 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
     <div className="fb-write fb-write-compact">
       {!entryOnly && committed}
       {entry}
-      {note && <span className="fb-muted">{note}</span>}
+      {/* Reserved even when there's nothing to say, matching the full (non-compact) row below --
+          an appearing/disappearing caption in this flex row pushes the entry beside it around. */}
+      <span className="fb-muted">{note ?? " "}</span>
       {error && <div className="fb-error fb-write-error">{error}</div>}
     </div>
   ) : (
