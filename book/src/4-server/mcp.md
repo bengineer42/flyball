@@ -98,6 +98,9 @@ Put a token on any runner a model can drive; the read tier is what
   module that already runs; `check_driver` imports one where the server
   runs and reports what it registers; `reload_drivers` imports the
   runner's `--drivers` directory again so the tag can be attached;
+  `search_drivers` searches a `linux/` checkout's hardware catalogue by
+  part, category, interface, unit or domain (it runs that checkout's
+  search script, so it is drive-tier like `check_driver`);
   `probe_hardware` says what buses the board has and `link_query` sends
   one raw command down a link, to find out what an instrument is before
   writing its entry. Most instruments need no code: the `scpi` and

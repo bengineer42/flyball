@@ -326,6 +326,7 @@ class TestDriverTools:
         monkeypatch.setattr(tools, "_served", lambda rig: {("post", "/api/devices")})
         assert gated & names(tools_for(client, "operate")) == {"attach_device"}
         assert "check_driver" not in names(tools_for(client, "author")), "imports a file: drive"
+        assert "search_drivers" not in names(tools_for(client, "author")), "runs a script: drive"
 
     def test_served_is_read_from_the_runner_s_openapi(self, client):
         from flyball.mcp.tools import _served
