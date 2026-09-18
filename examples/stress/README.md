@@ -35,8 +35,8 @@ of full, and its controller carries the plant's static inverse as an
 ```bash
 cd engine
 uv run flyball-runner ../examples/stress/plant.yaml --record
-uv run flyball program run ../examples/stress/programs/plant-firing.yaml
-uv run flyball rig check ../examples/stress/chaos.yaml
+flyball program run ../examples/stress/programs/plant-firing.yaml   # cd daemon && go build ./cmd/flyball first
+flyball rig check ../examples/stress/chaos.yaml
 ```
 
 Every stress rig has at least one program in `programs/`, except `sparse.yaml`
@@ -50,7 +50,7 @@ exercise the "timed out" outcome — see
 for both. Run it on its own:
 
 ```bash
-uv run flyball program run ../examples/stress/programs/chaos-run.yaml
+flyball program run ../examples/stress/programs/chaos-run.yaml
 ```
 
 `scripts/chaos-disturb.sh` predates the `command` step and drives the same

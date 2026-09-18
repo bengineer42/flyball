@@ -50,12 +50,12 @@ Five programs in `programs/`, each a different lesson:
 
 ```bash
 uv run flyball-runner ../examples/simulated/furnace.yaml      # clock at 60x from the file
-uv run flyball program run ../examples/simulated/programs/firing.yaml
-uv run flyball program status
-uv run flyball sim                                              # the tube's parameters
-uv run flyball sim set tube coupling_w_per_k=20                 # couple the zones harder, live
-uv run flyball furnace fail --signal zone3                      # open-circuit a thermocouple
-uv run flyball watch controllers
+flyball program run ../examples/simulated/programs/firing.yaml   # cd daemon && go build ./cmd/flyball first
+flyball program status
+flyball sim show                                                 # the tube's parameters
+flyball sim set tube coupling_w_per_k=20                         # couple the zones harder, live
+flyball invoke furnace fail signal=zone3                         # open-circuit a thermocouple
+flyball watch controllers
 ```
 
 `flyball program run ../examples/simulated/programs/firing.yaml` starts a
@@ -122,8 +122,8 @@ file's schema for completion and checking. The schema is generated from the
 installed configs, so write it next to the files once:
 
 ```bash
-uv run flyball rig schema > ../examples/simulated/rig.schema.json
-uv run flyball rig check ../examples/simulated/oven.yaml        # the same check, from the shell
+flyball rig schema > ../examples/simulated/rig.schema.json
+flyball rig check ../examples/simulated/oven.yaml        # the same check, from the shell
 ```
 
 A program file gets the same from `flyball program schema` and a
