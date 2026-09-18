@@ -78,6 +78,15 @@ const minutesLabel = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : m
 const span = (seconds: number): string =>
   seconds % 86400 === 0 ? `${seconds / 86400} d` : seconds % 3600 === 0 ? `${seconds / 3600} h` : seconds % 60 === 0 ? `${seconds / 60} min` : duration(seconds);
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** "2026-09-18 11:47:03" -- a sensible default for the start-recording name box: the rig's own
+ * clock (`nowS`, not the wall's -- a simulated rig can run at its own speed), sortable order. No
+ * id prefix here (unlike SessionPanel's `defaultSessionName`): the session doesn't exist yet. */
+const defaultRecordingName = (nowS: number): string => {
+  const d = new Date(nowS * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+};
+
 /** "kept 30 d unless pinned · rotates daily · 20 GB cap" -- sessions only, no store path (that's an operator detail, not a user one). */
 function sessionsRetentionLine(runner: RunnerInfo | undefined): string | null {
   if (!runner) return null;
@@ -255,7 +264,7 @@ function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; n
 
 function RecordingControl({ recording, scratch, onChange }: { recording: Recording; scratch?: SessionRow; onChange(): void }) {
   const nowS = useNowS();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => defaultRecordingName(nowS));
   const [notes, setNotes] = useState("");
   const [includeMin, setIncludeMin] = useState(0);
   const choices = lastChoices(scratch, nowS);
@@ -283,7 +292,7 @@ function RecordingControl({ recording, scratch, onChange }: { recording: Recordi
     if (notes.trim()) details.notes = notes.trim();
     const include = includeMin > 0 && choices.includes(includeMin) ? { include_ns: Math.round(includeMin * 60 * 1e9) } : {};
     void run(() => recording.start(details, include)).then(() => {
-      setName("");
+      setName(defaultRecordingName(nowS));
       setNotes("");
       setIncludeMin(0);
     });
