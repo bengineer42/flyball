@@ -125,6 +125,16 @@ def test_a_session_has_a_kind_and_a_pin_and_lists_by_kind(store):
     assert [s.id for s in store.sessions()] == [named.id, scratch.id]
 
 
+def test_set_session_name_keeps_the_rest_of_details(store):
+    session = store.open_session(0, details={"note": "kept"}).session
+    renamed = store.set_session_name(session.id, "the good run")
+    assert renamed.details == {"note": "kept", "name": "the good run"}
+    again = store.set_session_name(session.id, "renamed again")
+    assert again.details == {"note": "kept", "name": "renamed again"}
+    cleared = store.set_session_name(session.id, None)
+    assert cleared.details == {"note": "kept"}
+
+
 def test_trimming_moves_the_start_up_and_offsets_stay_true(rig, oven, clock, store):
     """After a trim the row's start is the oldest kept and every read counts from there."""
     address = f"{oven.name}.zone"
@@ -492,6 +502,18 @@ def test_pin_over_the_api(client, store):
     assert store.session(sid).pinned
     assert not client.patch(f"/api/history/sessions/{sid}", json={"pinned": False}).json()["pinned"]
     assert client.put("/api/history/sessions/999", json={"pinned": True}).status_code == 404
+
+
+def test_rename_over_the_api(client, store):
+    session = store.open_session(0)
+    session.end(S)
+    sid = session.session.id
+    body = client.patch(f"/api/history/sessions/{sid}", json={"name": "the good run"}).json()
+    assert body["details"] == {"name": "the good run"}
+    assert store.session(sid).details == {"name": "the good run"}
+    # both fields in one call
+    body = client.patch(f"/api/history/sessions/{sid}", json={"name": "renamed", "pinned": True}).json()
+    assert body["details"] == {"name": "renamed"} and body["pinned"]
 
 
 def test_recording_with_include_ns_is_backfilled_from_scratch(client, rig, oven, clock, store):

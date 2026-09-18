@@ -52,7 +52,8 @@ class KeepRange(BaseModel):
 
 
 class SessionPatch(BaseModel):
-    pinned: bool
+    pinned: bool | None = None
+    name: str | None = None
 
 
 def _being_written(session_id: int) -> SessionRow | None:
@@ -116,8 +117,14 @@ async def delete_session(store: StoreDep, session_id: int) -> None:
 @router.patch("/sessions/{session_id}")
 @router.put("/sessions/{session_id}")
 async def update_session(store: StoreDep, session_id: int, body: SessionPatch) -> SessionRow:
-    """Pin or unpin: a pinned session is never aged out by `retain` or `max_store`."""
-    return store.set_pinned(session_id, body.pinned)
+    """Pin/unpin (a pinned session is never aged out by `retain` or `max_store`) and/or rename
+    (`details.name`, what `sessionName` shows) -- either field, or both, in one call."""
+    row = store.session(session_id)
+    if body.pinned is not None:
+        row = store.set_pinned(session_id, body.pinned)
+    if body.name is not None:
+        row = store.set_session_name(session_id, body.name)
+    return row
 
 
 @router.post("/sessions/{session_id}/keep", status_code=201)

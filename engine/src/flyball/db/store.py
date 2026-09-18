@@ -151,6 +151,12 @@ class Store(Protocol):
         """A pinned session is never aged out by retention."""
         ...
 
+    def set_session_name(self, session_id: int, name: str | None) -> SessionRow:
+        """Set or clear `details.name` (`sessionName`'s display name), keeping every other
+        `details` key untouched -- a name is one field of the free-form document, not the
+        whole of it."""
+        ...
+
     def trim_session(self, session_id: int, before_ns: int) -> SessionRow:
         """Drop everything the session recorded before `before_ns` (absolute, in the rig's clock).
 

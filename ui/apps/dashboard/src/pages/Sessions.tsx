@@ -429,7 +429,17 @@ function SessionDrillIn({ id, onBack, onDelete }: { id: number; onBack(): void; 
       </PageBar>
       {detail.error && <Alert severity="error">{detail.error.message}</Alert>}
       {!detail.data && !detail.error && <Typography color="text.secondary">loading…</Typography>}
-      {detail.data && <SessionPanel detail={detail.data} exports={exports} nowS={nowS} />}
+      {detail.data && (
+        <SessionPanel
+          detail={detail.data}
+          exports={exports}
+          nowS={nowS}
+          onRename={async (name) => {
+            await rig.renameSession(id, name);
+            detail.refresh();
+          }}
+        />
+      )}
     </>
   );
 }

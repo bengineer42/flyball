@@ -264,6 +264,9 @@
 .fb-range-fill { height: 100%; background: var(--fb-accent); }
 .fb-source-head { display: flex; align-items: center; gap: 0.5rem 0.75rem; flex-wrap: wrap; min-height: 2rem; }
 .fb-source-head h3, .fb-source-head h4 { margin: 0; }
+.fb-session-name-edit { display: inline-flex; align-items: center; gap: 0.5rem; }
+.fb-session-name-input { font: inherit; font-weight: 600; font-size: 1.05em; color: var(--fb-fg); background: var(--fb-bg-2); border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); padding: 0.15rem 0.5rem; min-width: 12rem; }
+.fb-session-name-input:focus { outline: none; border-color: var(--fb-accent); }
 .fb-source-controls { margin-left: auto; display: inline-flex; align-items: center; }
 
 /* loops & events: series colours and the legacy warning/error badge aliases now live in the token block at the top. */

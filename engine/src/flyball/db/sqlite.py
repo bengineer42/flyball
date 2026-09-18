@@ -660,6 +660,25 @@ class SqliteStore:
                 raise SessionNotFoundError(session_id)
         return self.session(session_id)
 
+    def set_session_name(self, session_id: int, name: str | None) -> SessionRow:
+        with self._transaction() as connection:
+            rows = connection.execute(
+                "SELECT details FROM session WHERE id = ?", (session_id,)
+            ).fetchall()
+            if not rows:
+                raise SessionNotFoundError(session_id)
+            details = _loads(rows[0]["details"])
+            details = dict(details) if isinstance(details, dict) else {}
+            if name:
+                details["name"] = name
+            else:
+                details.pop("name", None)
+            connection.execute(
+                "UPDATE session SET details = ? WHERE id = ?",
+                (_dumps(details or None), session_id),
+            )
+        return self.session(session_id)
+
     def trim_session(self, session_id: int, before_ns: int) -> SessionRow:
         session = self.session(session_id)
         if session.end_ns is not None:

@@ -437,6 +437,11 @@ export class RigClient {
     return this.call({ method: "PUT", path: `/api/history/sessions/${id}`, body: { pinned } });
   }
 
+  /** Set a session's display name (`details.name`, what `sessionName` shows). */
+  renameSession(id: number, name: string): Promise<SessionRow> {
+    return this.call({ method: "PATCH", path: `/api/history/sessions/${id}`, body: { name } });
+  }
+
   /**
    * Delete several sessions; there is no bulk route, so each is its own
    * request, a few at a time (`concurrency`). Resolves to the ones that

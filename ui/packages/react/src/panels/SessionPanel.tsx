@@ -1,5 +1,5 @@
 import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { describeDevice, describeEventKind, describeStateKey, describeSubject, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
@@ -121,6 +121,8 @@ export interface SessionPanelProps {
    * Omit to fall back to the wall clock.
    */
   nowS?: number;
+  /** Given: the name box is editable, and a Save button appears once its text differs from the current name. Omit for a read-only header. */
+  onRename?(name: string): void | Promise<void>;
 }
 
 const when = (s: number) => new Date(s * 1000).toLocaleString();
@@ -146,7 +148,7 @@ const fmtDuration = (s: number) => (s < 0 ? "just started" : duration(s));
  * and controllers as recorded, then events. Pure: `useSession` supplies
  * the detail.
  */
-export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports, nowS }: SessionPanelProps) {
+export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports, nowS, onRename }: SessionPanelProps) {
   const [own, setOwn] = useState<SessionGrouping>("unit");
   const mode = grouping ?? own;
   const setMode = (g: SessionGrouping) => (onGrouping ? onGrouping(g) : setOwn(g));
@@ -154,11 +156,47 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
   const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
   const details = session.details as Record<string, unknown> | null;
   const name = details && typeof details.name === "string" ? details.name : `session ${session.id}`;
+  const [draft, setDraft] = useState(name);
+  const [saving, setSaving] = useState(false);
+  // A different session (or a rename landing from elsewhere) resets the draft to match it.
+  useEffect(() => setDraft(name), [name, session.id]);
+  const dirty = onRename !== undefined && draft.trim() !== "" && draft !== name;
+  const save = async () => {
+    if (!onRename || !dirty) return;
+    setSaving(true);
+    try {
+      await onRename(draft.trim());
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <article className="fb-panel fb-session">
       <header className="fb-source-head">
-        <h3>{name}</h3>
+        {onRename ? (
+          <span className="fb-session-name-edit">
+            <input
+              className="fb-session-name-input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void save();
+                else if (e.key === "Escape") setDraft(name);
+              }}
+              disabled={saving}
+              aria-label="session name"
+              title="session name"
+            />
+            {dirty && (
+              <button type="button" className="fb-tb" onClick={() => void save()} disabled={saving} data-testid="save-session-name">
+                {saving ? "saving…" : "save name"}
+              </button>
+            )}
+          </span>
+        ) : (
+          <h3>{name}</h3>
+        )}
         <span className="fb-muted">
           #{session.id} · {when(startS)} → {session.end_ns ? when(endS) : "open"} · {fmtDuration(endS - startS)}
           {session.hardware ? ` · ${String(session.hardware)}` : ""}
