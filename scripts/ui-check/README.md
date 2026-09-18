@@ -17,6 +17,8 @@ the top of each `.mjs` if they move. Working files go to `$FLYBALL_CHECK_DIR` (d
 | `programForm-roundtrip.mjs <api-url>` | text ⇄ builder-form fidelity for every example program against the runner's rig, a rig-less model and an empty rig |
 | `programText-roundtrip.mjs` | parses every example program with the app's `programText.ts`, round-trips yaml/toml/json, cross-checks PyYAML |
 | `sweep.sh <rig file> <api> <ui>` | one rig through every page at 1440 light, dark, 400 px, plus a channel and a loop detail page |
+| `auth-e2e.mjs <ui-url> <secret> [--shots --anonymous-read --token-link]` | password/token login door end to end: wrong secret refused, right one opens sockets with an HttpOnly cookie, sign out; `--anonymous-read`/`--token-link` cover those modes |
+| `events-e2e.mjs <ui-url> <api-url> [--shots]` | proactive event notifications end to end, against `examples/simulated/furnace.yaml`: a real WARNING+/ERROR event (via the furnace's own `fail`/`restore` simulation commands) toasts while off the Events page, the nav badge tracks the unread count, dismissing a toast marks it read, "Mark all read" and revisiting the page clear the badge; must print `ALL PASS` |
 
 Typical session:
 
@@ -28,3 +30,26 @@ node scripts/ui-check/shot.mjs http://127.0.0.1:5201/#/loops $FLYBALL_CHECK_DIR/
 node scripts/ui-check/dash-e2e.mjs http://127.0.0.1:5201 http://127.0.0.1:8001
 scripts/ui-check/rig-down.sh furnace
 ```
+
+## Gotcha: `rig-up.sh` in a worktree
+
+`rig-up.sh` hard-codes `cd /home/ben/flyball/engine` and `cd /home/ben/flyball/ui` before
+launching the runner and the Vite dev server. Run from a git worktree (`.claude/worktrees/…`),
+it silently serves the **main repo's** engine/UI, not the worktree's -- any code only committed
+or edited in the worktree is invisible to the check. Not patched (shared infra other work may
+depend on the current behaviour); work around it by starting the runner and Vite by hand from the
+worktree's own `engine/` and `ui/` instead of `rig-up.sh`, e.g.:
+
+```bash
+S=/tmp/flyball-check; mkdir -p "$S/logs" "$S/stores"
+rig=$(realpath examples/simulated/furnace.yaml)   # from the worktree root
+(cd engine && setsid nohup uv run --extra web --extra cli flyball-runner "$rig" --port 8091 \
+  --store "$S/stores/furnace.sqlite" > "$S/logs/furnace-runner.log" 2>&1 &)
+(cd ui && FLYBALL_URL="http://127.0.0.1:8091" setsid nohup npx vite \
+  --config apps/dashboard/vite.config.ts apps/dashboard --port 5291 --strictPort \
+  > "$S/logs/furnace-vite.log" 2>&1 &)
+```
+
+`rig-down.sh` still works to tear these down by rig name. Confirm you actually killed the prior
+runner before assuming a store is empty -- `kill $(cat pids)` can miss the `uv run` wrapper's
+child; `fuser -k <port>/tcp` and a `ss -ltnp | grep <port>` check are more reliable.
