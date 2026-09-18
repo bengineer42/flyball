@@ -78,16 +78,19 @@ const minutesLabel = (m: number) => (m >= 60 && m % 60 === 0 ? `${m / 60} h` : m
 const span = (seconds: number): string =>
   seconds % 86400 === 0 ? `${seconds / 86400} d` : seconds % 3600 === 0 ? `${seconds / 3600} h` : seconds % 60 === 0 ? `${seconds / 60} min` : duration(seconds);
 
-/** "kept 1 h · rotates daily · 30 d retention · 20 GB cap" from what the runner says of its store; nothing when it says nothing. */
-function retentionLine(runner: RunnerInfo | undefined): string | null {
+/** "kept 30 d unless pinned · rotates daily · 20 GB cap" -- sessions only, no store path (that's an operator detail, not a user one). */
+function sessionsRetentionLine(runner: RunnerInfo | undefined): string | null {
   if (!runner) return null;
   const parts: string[] = [];
-  if (runner.keep_ns) parts.push(`unrecorded data kept ${span(runner.keep_ns / 1e9)}`);
-  if (runner.retain_ns) parts.push(`sessions ${span(runner.retain_ns / 1e9)} unless pinned`);
+  if (runner.retain_ns) parts.push(`kept ${span(runner.retain_ns / 1e9)} unless pinned`);
   if (runner.rotate_ns) parts.push(`rotates every ${span(runner.rotate_ns / 1e9)}`);
   if (runner.max_bytes) parts.push(`${bytes(runner.max_bytes)} cap`);
-  if (runner.store) parts.push(`in ${runner.store}`);
   return parts.join(" · ") || null;
+}
+
+/** "up to 1 h of history kept temporarily" -- the note beside the Buffers heading. */
+function bufferNote(runner: RunnerInfo | undefined): string | null {
+  return runner?.keep_ns ? `up to ${span(runner.keep_ns / 1e9)} of history kept temporarily` : null;
 }
 
 /** When the runner's retention will age a closed session out, for its "ended" cell's hint; nothing for a pinned or open one. */
@@ -104,7 +107,7 @@ const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e10 
  * one still rolling (at most one at a time) -- highlighted, its held time grows with `nowS`; an
  * older one already stopped at its own `end_ns` and never grows again.
  */
-function BufferRow({ buffer, current, nowS, runner, onKeep, onSelect }: { buffer: SessionRow; current: boolean; nowS: number; runner: RunnerInfo | undefined; onKeep(): void; onSelect(): void }) {
+function BufferRow({ buffer, current, nowS, runner, onKeep, onForget, onSelect }: { buffer: SessionRow; current: boolean; nowS: number; runner: RunnerInfo | undefined; onKeep(): void; onForget?(): void; onSelect(): void }) {
   const asOfS = current ? nowS : buffer.end_ns! / 1e9;
   const heldS = Math.max(0, asOfS - buffer.start_ns / 1e9);
   const keep = runner?.keep_ns;
@@ -135,9 +138,18 @@ function BufferRow({ buffer, current, nowS, runner, onKeep, onSelect }: { buffer
       <TableCell sx={{ whiteSpace: "nowrap" }}>{current ? <Chip label="current" color="primary" variant="outlined" /> : when(buffer.end_ns!)}</TableCell>
       <TableCell>{fmtDuration(heldS)}</TableCell>
       <TableCell padding="checkbox" colSpan={2} onClick={(e) => e.stopPropagation()}>
-        <Button size="small" variant="outlined" onClick={onKeep} disabled={current ? heldS < 60 : !hasData} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
-          Keep…
-        </Button>
+        <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+          <Button size="small" variant="outlined" onClick={onKeep} disabled={current ? heldS < 60 : !hasData} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
+            Keep
+          </Button>
+          {!current && onForget && (
+            <Tooltip title="Forget: gone for good, nothing is kept">
+              <Button size="small" variant="outlined" color="error" onClick={onForget} data-testid="forget-button" sx={{ whiteSpace: "nowrap" }}>
+                Forget
+              </Button>
+            </Tooltip>
+          )}
+        </Stack>
       </TableCell>
     </TableRow>
   );
@@ -145,7 +157,7 @@ function BufferRow({ buffer, current, nowS, runner, onKeep, onSelect }: { buffer
 
 /** Every scratch-kind row, apart from real sessions: the one still rolling (if any) highlighted
  * first, older ones that already stopped -- and were never fully deleted -- below, newest first. */
-function BufferTable({ current, older, nowS, runner, onKeep, onSelect }: { current: SessionRow | undefined; older: SessionRow[]; nowS: number; runner: RunnerInfo | undefined; onKeep(b: SessionRow): void; onSelect(id: number): void }) {
+function BufferTable({ current, older, nowS, runner, onKeep, onForget, onSelect }: { current: SessionRow | undefined; older: SessionRow[]; nowS: number; runner: RunnerInfo | undefined; onKeep(b: SessionRow): void; onForget(b: SessionRow): void; onSelect(id: number): void }) {
   if (!current && older.length === 0) return null;
   return (
     <TableContainer component={Paper} className="fb-scroll-shadow-x" sx={{ mb: 2 }}>
@@ -164,7 +176,7 @@ function BufferTable({ current, older, nowS, runner, onKeep, onSelect }: { curre
         <TableBody>
           {current && <BufferRow key={current.id} buffer={current} current nowS={nowS} runner={runner} onKeep={() => onKeep(current)} onSelect={() => onSelect(current.id)} />}
           {older.map((b) => (
-            <BufferRow key={b.id} buffer={b} current={false} nowS={nowS} runner={runner} onKeep={() => onKeep(b)} onSelect={() => onSelect(b.id)} />
+            <BufferRow key={b.id} buffer={b} current={false} nowS={nowS} runner={runner} onKeep={() => onKeep(b)} onForget={() => onForget(b)} onSelect={() => onSelect(b.id)} />
           ))}
         </TableBody>
       </Table>
@@ -193,6 +205,10 @@ function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; n
       const end_ns = ended ? scratch.end_ns! : (await rig.clock()).now_ns;
       const start_ns = Math.max(scratch.start_ns, end_ns - Math.round(minutes * 60 * 1e9));
       await rig.keepRange(scratch.id, { start_ns, end_ns, details });
+      // An already-stopped buffer is redundant once kept from -- its data now lives in the new
+      // session -- so forget it rather than leaving a second, orphaned copy sitting in the list.
+      // The still-rolling one can't be forgotten the same way: it's the live scratch record.
+      if (ended) await rig.deleteSession(scratch.id).catch(() => undefined);
       onKept();
     } catch (e) {
       setError((e as Error).message);
@@ -538,6 +554,14 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
       setPinBusy(null);
     }
   };
+  const forget = async (b: SessionRow) => {
+    try {
+      await rig.deleteSession(b.id);
+      sessions.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   // Only one session can be open at a time; it can't be selected or deleted.
   const openId = rows.find((r) => r.end_ns == null && !isScratch(r))?.id ?? null;
   const selectableIds = rows.filter((r) => r.id !== openId && !isScratch(r)).map((r) => r.id);
@@ -663,8 +687,19 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
       {keeping && <KeepDialog scratch={keeping} nowS={nowS} onClose={() => setKeeping(null)} onKept={() => { setKeeping(null); sessions.refresh(); }} />}
       {(scratch || olderBuffers.length > 0) && (
         <>
-          <SectionHead icon={HistoryIcon} title="Buffers" count={olderBuffers.length + (scratch ? 1 : 0)} />
-          <BufferTable current={scratch} older={olderBuffers} nowS={nowS} runner={runner.data} onKeep={setKeeping} onSelect={onSelect} />
+          <SectionHead
+            icon={HistoryIcon}
+            title="Buffers"
+            count={olderBuffers.length + (scratch ? 1 : 0)}
+            end={
+              bufferNote(runner.data) && (
+                <Typography variant="body2" color="text.secondary" component="span">
+                  {bufferNote(runner.data)}
+                </Typography>
+              )
+            }
+          />
+          <BufferTable current={scratch} older={olderBuffers} nowS={nowS} runner={runner.data} onKeep={setKeeping} onForget={(b) => void forget(b)} onSelect={onSelect} />
         </>
       )}
       {error && (
@@ -694,7 +729,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
           <Typography variant="body2" color="text.secondary" component="span">
             {[
               simulation.speed !== undefined && simulation.speed !== 1 ? `times are the rig's clock, ×${simulation.speed}` : null,
-              retentionLine(runner.data),
+              sessionsRetentionLine(runner.data),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -736,7 +771,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                 <TableCell>started</TableCell>
                 <TableCell>ended</TableCell>
                 <TableCell>duration</TableCell>
-                <TableCell padding="checkbox" />
+                <TableCell padding="checkbox" colSpan={2} />
               </TableRow>
             </TableHead>
             <TableBody>
@@ -811,33 +846,46 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                       {end_ns ? when(end_ns) : <Chip label="open" color="success" variant="outlined" />}
                     </TableCell>
                     <TableCell>{fmtDuration(sessionSeconds(s, nowS))}</TableCell>
-                    <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                      {runner.data?.retain_ns != null && runner.data.retain_ns > 0 && (
-                        <Tooltip title={s.pinned ? "Pinned: never aged out. Unpin?" : `Pin: keep past the ${span(runner.data.retain_ns / 1e9)} retention`}>
-                          <span>
-                            <IconButton aria-label={`${s.pinned ? "unpin" : "pin"} session ${id}`} disabled={pinBusy === id} onClick={() => void pin(s)}>
-                              {s.pinned ? <PushPinIcon fontSize="small" color="primary" /> : <PushPinOutlinedIcon fontSize="small" />}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      )}
-                      <Tooltip title="Download everything (zip)">
-                        <IconButton
+                    <TableCell padding="checkbox" colSpan={2} onClick={(e) => e.stopPropagation()}>
+                      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
+                        {runner.data?.retain_ns != null && runner.data.retain_ns > 0 && (
+                          <Tooltip title={s.pinned ? "Pinned: never aged out. Unpin?" : `Pin: keep past the ${span(runner.data.retain_ns / 1e9)} retention`}>
+                            <span>
+                              <IconButton aria-label={`${s.pinned ? "unpin" : "pin"} session ${id}`} disabled={pinBusy === id} onClick={() => void pin(s)}>
+                                {s.pinned ? <PushPinIcon fontSize="small" color="primary" /> : <PushPinOutlinedIcon fontSize="small" />}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        )}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<DownloadIcon fontSize="small" />}
                           component="a"
-                          aria-label={`download session ${id}`}
                           href={rig.exportUrl(id, { format: "zip" })}
                           download={`session-${id}.zip`}
+                          aria-label={`download session ${id}`}
+                          sx={{ whiteSpace: "nowrap" }}
                         >
-                          <DownloadIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={end_ns ? "Delete session" : "Still recording"}>
-                        <span>
-                          <IconButton aria-label={`delete session ${id}`} disabled={!end_ns} onClick={() => setPending(id)}>
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                          Download
+                        </Button>
+                        <Tooltip title={end_ns ? "" : "Still recording"}>
+                          <span>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              startIcon={<DeleteOutlineIcon fontSize="small" />}
+                              disabled={!end_ns}
+                              onClick={() => setPending(id)}
+                              aria-label={`delete session ${id}`}
+                              sx={{ whiteSpace: "nowrap" }}
+                            >
+                              Delete
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 );
