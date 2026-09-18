@@ -489,7 +489,7 @@ export function ControllerPanel({
         </div>
         <div className="fb-loop-row">
           <dt title="what the target was set to, after limits — OP">Output</dt>
-          <dd>{fmt(output, dUnit)}</dd>
+          <dd style={clamped ? { color: "var(--fb-alarm)" } : undefined}>{fmt(output, dUnit)}</dd>
           {opFraction !== null && (
             <div
               className={`fb-range${clamped ? ` fb-range-limit-${limitEdge}` : ""}`}

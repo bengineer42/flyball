@@ -1,5 +1,5 @@
 import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
-import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import { useHealth, type StreamStatus } from "@flyball/react";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
 import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, type IconComponent } from "./icons.js";
@@ -56,7 +56,7 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href }: { icon: Ic
   );
 }
 
-/** A chip with its own coloured dot, for a state no MUI `color` reads as "quiet": recording (red dot or none). */
+/** A chip with its own coloured record symbol (a filled circle in a ring), for a state no MUI `color` reads as "quiet": recording. */
 function DotChip({ dotColour, label, short, href, title }: { dotColour: string; label: string; short?: string; href?: string; title: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
@@ -65,7 +65,7 @@ function DotChip({ dotColour, label, short, href, title }: { dotColour: string; 
       <Chip
         variant="outlined"
         color="default"
-        icon={<FiberManualRecordIcon sx={{ fontSize: 10, "&&": { color: dotColour } }} />}
+        icon={<RadioButtonCheckedIcon sx={{ fontSize: 14, "&&": { color: dotColour } }} />}
         label={narrow && short !== undefined ? short : label}
         sx={narrow && short === "" ? { "& .MuiChip-label": { display: "none" }, "& .MuiChip-icon": { m: 0 } } : undefined}
         component={href ? "a" : "div"}

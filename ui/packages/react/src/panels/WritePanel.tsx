@@ -190,7 +190,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const note = requested != null ? `requested ${fmt(requested)}` : null;
   const committed =
     write?.value != null ? (
-      <span className="fb-write-value" title="what the signal was last set to, after limits">
+      <span className="fb-write-value" style={atLimit ? { color: "var(--fb-alarm)" } : undefined} title="what the signal was last set to, after limits">
         {fmt(write.value)} {badge}
       </span>
     ) : reading ? (
