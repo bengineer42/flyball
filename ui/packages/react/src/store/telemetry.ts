@@ -14,7 +14,7 @@ export type StreamStatus = "connecting" | "open" | "closed";
  */
 export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "waits" | "events";
 /** The streams that actually open a socket; `writes` and `devices` share `samples`'s. */
-type SocketStream = "samples" | "controllers" | "waits" | "events";
+export type SocketStream = "samples" | "controllers" | "waits" | "events";
 const STREAMS: SocketStream[] = ["samples", "controllers", "waits", "events"];
 /**
  * How long a dropped socket is shown as `"reconnecting"` before escalating to

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { alarmLevel, deviceOf, staleAfterS, type Address, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WaitState, type WriteOut } from "@flyball/client";
 import { useTelemetry } from "../provider.js";
-import type { StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
+import type { SocketStream, StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
 
 /** How often a readout, tile or list is allowed to re-render on live data. */
 export const READOUT_MS = 250;
@@ -172,12 +172,12 @@ export function useStoreStatus(stream: StoreStream): StreamStatus {
 }
 
 /** For the app bar's live chip: the state of every stream the store has opened. */
-export function useStreamStatus(): { streams: StreamStatus[] } {
+export function useStreamStatus(): { streams: StreamStatus[]; byStream: Readonly<Record<SocketStream, StreamStatus | "idle">> } {
   const store = useTelemetry();
   const subscribe = useCallback((cb: () => void) => store.subscribeStatus(cb), [store]);
   const version = useSyncExternalStore(subscribe, () => store.statusVersionNow());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => ({ streams: store.openStatuses() }), [store, version]);
+  return useMemo(() => ({ streams: store.openStatuses(), byStream: store.status() }), [store, version]);
 }
 
 // A shared one-second tick for anything that ages: stale detection needs a clock, not a sample.

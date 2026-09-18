@@ -1,6 +1,6 @@
 import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
 import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
-import { useHealth, type StreamStatus } from "@flyball/react";
+import { useHealth, type StreamStatus, type SocketStream } from "@flyball/react";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
 import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
@@ -96,9 +96,13 @@ export const SimChip = ({ speed }: { speed: number | undefined }) => {
 export interface StatusProps {
   recording: Recording;
   programmer: Programmer;
-  /** Every stream the app opens; folded into one live/reconnecting/offline chip. */
+  /** Every stream the app opens; folded into one live/offline chip. */
   streams: StreamStatus[];
+  /** The same streams, by name, so the chip's tooltip can say which one is the problem. */
+  byStream: Readonly<Record<SocketStream, StreamStatus | "idle">>;
 }
+
+const STREAM_LABEL: Record<SocketStream, string> = { samples: "readings", controllers: "controllers", waits: "waits", events: "events" };
 
 /**
  * The app bar's condition summary: an always-present alarm chip, one folded
@@ -109,7 +113,7 @@ export interface StatusProps {
  * live, per Ben's explicit ask: it is the one state where "still connected"
  * is worth a positive, not just quiet, signal.
  */
-export function Status({ recording, programmer, streams }: StatusProps) {
+export function Status({ recording, programmer, streams, byStream }: StatusProps) {
   const health = useHealth(5000);
   const h = health.data;
 
@@ -122,11 +126,12 @@ export function Status({ recording, programmer, streams }: StatusProps) {
   const worst = h?.alarms.max_level ?? 0;
   const alarmColour: Colour = red > 0 || worst >= 40 ? "error" : amber > 0 || worst >= 30 ? "warning" : "default";
 
-  const offline = streams.some((s) => s === "closed");
-  const reconnecting = !offline && streams.some((s) => s !== "open");
-  const liveState = offline ? "offline" : reconnecting ? "reconnecting" : "live";
-  const liveIcon = offline ? ErrorIcon : reconnecting ? WarnIcon : OkIcon;
-  const liveColour: Colour = offline ? "error" : reconnecting ? "warning" : "success";
+  // Two states, not three: Ben's word, 18 Sep, after seeing a mid-outage "reconnecting" read as
+  // less serious than it was. Anything not fully open is red -- no amber middle ground.
+  const live = streams.length > 0 && streams.every((s) => s === "open");
+  const liveIcon = live ? OkIcon : ErrorIcon;
+  const liveColour: Colour = live ? "success" : "error";
+  const down = (Object.entries(byStream) as [SocketStream, StreamStatus | "idle"][]).filter(([, s]) => s !== "open" && s !== "idle");
 
   const devices = Object.entries(h?.devices ?? {});
   const running = devices.filter(([, d]) => d.running).length;
@@ -172,11 +177,16 @@ export function Status({ recording, programmer, streams }: StatusProps) {
       )}
       <StatusChip
         icon={liveIcon}
-        full={`server ${liveState}`}
-        short={liveState === "live" ? "" : liveState}
+        full="server"
+        short="server"
         colour={liveColour}
-        minWidth="10.5rem"
-        lines={[{ name: "server", state: liveState === "live" ? "connected" : liveState === "reconnecting" ? "reconnecting…" : "not responding" }]}
+        lines={
+          live
+            ? [{ name: "server", state: "connected" }]
+            : down.length > 0
+              ? down.map(([stream, status]) => ({ name: STREAM_LABEL[stream], state: status === "idle" ? "not subscribed" : status === "open" ? "connected" : "disconnected, reconnecting…" }))
+              : [{ name: "server", state: "disconnected" }]
+        }
       />
       {devices.length > 0 && running < devices.length && (
         <StatusChip

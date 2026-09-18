@@ -74,10 +74,10 @@ function LiveProvider({ children }: { children: ReactNode }) {
 function AppStatus({ onSignIn }: { onSignIn(): void }) {
   const { recording, programmer, simulationSpeed } = useLive();
   const simulated = useContext(SimulatedContext);
-  const { streams } = useStreamStatus();
+  const { streams, byStream } = useStreamStatus();
   return (
     <>
-      <Status recording={recording} programmer={programmer} streams={streams} />
+      <Status recording={recording} programmer={programmer} streams={streams} byStream={byStream} />
       {simulated && <SimChip speed={simulationSpeed} />}
       <AuthChip onSignIn={onSignIn} />
     </>
