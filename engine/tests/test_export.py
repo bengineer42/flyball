@@ -147,7 +147,7 @@ def test_session_long_json_and_zip(client):
             {
                 "name": f"{heater}.power",
                 "source": f"{probe}.temperature",
-                "law": {"tag": "PI", "kp": 1.0, "ki": 0.0, "tt": 0.0},
+                "law": {"tag": "PI", "kp": 1.0, "ki": 0.0, "tt": 0.0, "b": 1.0},
                 "feedforward": {"tag": "none"},
             }
         ]

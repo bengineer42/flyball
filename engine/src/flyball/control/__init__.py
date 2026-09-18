@@ -20,7 +20,18 @@ from .feedforward import (
     Setpoint,
     Table,
 )
-from .laws import PI, PID, OpenLoop, OpenLoopTuning, P
+from .laws import (
+    IMC,
+    PI,
+    PID,
+    OnOff,
+    OpenLoop,
+    OpenLoopTuning,
+    P,
+    Scheduled,
+    SlidingMode,
+    SmithPredictor,
+)
 from .setpoint import (
     GeneratorConfig,
     Hold,
@@ -47,6 +58,7 @@ from .types import (
 )
 
 __all__ = [
+    "IMC",
     "PI",
     "PID",
     "Affine",
@@ -74,15 +86,19 @@ __all__ = [
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "NoFeedforward",
+    "OnOff",
     "OpenLoop",
     "OpenLoopTuning",
     "P",
     "Profile",
     "RegulateResult",
+    "Scheduled",
     "SetPointGenerator",
     "SetPointGeneratorConfig",
     "SetPointGenerators",
     "Setpoint",
+    "SlidingMode",
+    "SmithPredictor",
     "Table",
     "Transfer",
     "Tuning",

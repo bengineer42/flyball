@@ -148,10 +148,15 @@
             {
               "discriminator": {
                 "mapping": {
+                  "IMC": "#/$defs/IMCConfig",
                   "P": "#/$defs/PConfig",
                   "PI": "#/$defs/PIConfig",
                   "PID": "#/$defs/PIDConfig",
-                  "open_loop": "#/$defs/OpenLoopConfig"
+                  "on_off": "#/$defs/OnOffConfig",
+                  "open_loop": "#/$defs/OpenLoopConfig",
+                  "scheduled": "#/$defs/ScheduledConfig",
+                  "sliding": "#/$defs/SlidingModeConfig",
+                  "smith": "#/$defs/SmithPredictorConfig"
                 },
                 "propertyName": "tag"
               },
@@ -167,6 +172,21 @@
                 },
                 {
                   "$ref": "#/$defs/PIDConfig"
+                },
+                {
+                  "$ref": "#/$defs/IMCConfig"
+                },
+                {
+                  "$ref": "#/$defs/OnOffConfig"
+                },
+                {
+                  "$ref": "#/$defs/SmithPredictorConfig"
+                },
+                {
+                  "$ref": "#/$defs/ScheduledConfig"
+                },
+                {
+                  "$ref": "#/$defs/SlidingModeConfig"
                 }
               ]
             },
@@ -477,6 +497,58 @@
       "title": "FurnaceConfigTagged",
       "type": "object"
     },
+    "IMCConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "const": "IMC",
+          "default": "IMC",
+          "title": "Tag",
+          "type": "string"
+        },
+        "gain": {
+          "title": "Gain",
+          "type": "number"
+        },
+        "tau": {
+          "title": "Tau",
+          "type": "number"
+        },
+        "dead_time": {
+          "default": 0.0,
+          "title": "Dead Time",
+          "type": "number"
+        },
+        "lam": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lam"
+        },
+        "derivative": {
+          "default": true,
+          "title": "Derivative",
+          "type": "boolean"
+        },
+        "b": {
+          "default": 1.0,
+          "title": "B",
+          "type": "number"
+        }
+      },
+      "required": [
+        "gain",
+        "tau"
+      ],
+      "title": "IMCConfig",
+      "type": "object"
+    },
     "ModbusRtuConfigTagged": {
       "properties": {
         "port": {
@@ -599,6 +671,36 @@
       "title": "NoFeedforwardConfig",
       "type": "object"
     },
+    "OnOffConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "const": "on_off",
+          "default": "on_off",
+          "title": "Tag",
+          "type": "string"
+        },
+        "high": {
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "default": 0.0,
+          "title": "Low",
+          "type": "number"
+        },
+        "hysteresis": {
+          "default": 0.0,
+          "title": "Hysteresis",
+          "type": "number"
+        }
+      },
+      "required": [
+        "high"
+      ],
+      "title": "OnOffConfig",
+      "type": "object"
+    },
     "OpenLoopConfig": {
       "additionalProperties": false,
       "properties": {
@@ -655,6 +757,11 @@
           "default": 0,
           "title": "Tt",
           "type": "number"
+        },
+        "b": {
+          "default": 1.0,
+          "title": "B",
+          "type": "number"
         }
       },
       "title": "PIConfig",
@@ -687,6 +794,11 @@
         "tt": {
           "default": 0.0,
           "title": "Tt",
+          "type": "number"
+        },
+        "b": {
+          "default": 1.0,
+          "title": "B",
           "type": "number"
         }
       },
@@ -958,6 +1070,42 @@
       "title": "RunnerConfig",
       "type": "object"
     },
+    "ScheduledConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "const": "scheduled",
+          "default": "scheduled",
+          "title": "Tag",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "tt": {
+          "default": 0.0,
+          "title": "Tt",
+          "type": "number"
+        },
+        "b": {
+          "default": 1.0,
+          "title": "B",
+          "type": "number"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "title": "ScheduledConfig",
+      "type": "object"
+    },
     "SerialLinkConfigTagged": {
       "properties": {
         "port": {
@@ -1211,6 +1359,91 @@
         }
       },
       "title": "SignalOverride",
+      "type": "object"
+    },
+    "SlidingModeConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "const": "sliding",
+          "default": "sliding",
+          "title": "Tag",
+          "type": "string"
+        },
+        "k": {
+          "title": "K",
+          "type": "number"
+        },
+        "lam": {
+          "title": "Lam",
+          "type": "number"
+        },
+        "boundary": {
+          "title": "Boundary",
+          "type": "number"
+        }
+      },
+      "required": [
+        "k",
+        "lam",
+        "boundary"
+      ],
+      "title": "SlidingModeConfig",
+      "type": "object"
+    },
+    "SmithPredictorConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "const": "smith",
+          "default": "smith",
+          "title": "Tag",
+          "type": "string"
+        },
+        "kp": {
+          "title": "Kp",
+          "type": "number"
+        },
+        "ki": {
+          "title": "Ki",
+          "type": "number"
+        },
+        "gain": {
+          "title": "Gain",
+          "type": "number"
+        },
+        "tau": {
+          "title": "Tau",
+          "type": "number"
+        },
+        "dead_time": {
+          "title": "Dead Time",
+          "type": "number"
+        },
+        "tt": {
+          "default": 0.0,
+          "title": "Tt",
+          "type": "number"
+        },
+        "feedforward": {
+          "default": 1.0,
+          "title": "Feedforward",
+          "type": "number"
+        },
+        "b": {
+          "default": 1.0,
+          "title": "B",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kp",
+        "ki",
+        "gain",
+        "tau",
+        "dead_time"
+      ],
+      "title": "SmithPredictorConfig",
       "type": "object"
     },
     "TableConfig": {
