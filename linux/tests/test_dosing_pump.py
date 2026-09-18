@@ -15,12 +15,8 @@ def make_pwm_pump(monkeypatch, ml_per_s=2.0, drive_fraction=1.0, max_dispense_ml
     pwm = FakePwm()
     channel = PwmChannel("motor", pwm, 0, frequency_hz=1000)
     slept: list[float] = []
-    monkeypatch.setattr(
-        "flyball_linux.devices.dosing_pump.time.sleep", lambda s: slept.append(s)
-    )
-    pump = DosingPump(
-        "dosing", channel, ml_per_s, drive_fraction, max_dispense_ml, label=None
-    )
+    monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", lambda s: slept.append(s))
+    pump = DosingPump("dosing", channel, ml_per_s, drive_fraction, max_dispense_ml, label=None)
     return pump, pwm, slept
 
 
@@ -28,9 +24,7 @@ def make_gpio_pump(monkeypatch, ml_per_s=2.0, max_dispense_ml=None):
     chip = FakeGpio()
     line = GpioLine("motor", chip, 3)
     slept: list[float] = []
-    monkeypatch.setattr(
-        "flyball_linux.devices.dosing_pump.time.sleep", lambda s: slept.append(s)
-    )
+    monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", lambda s: slept.append(s))
     pump = DosingPump("dosing", line, ml_per_s, max_dispense_ml=max_dispense_ml)
     return pump, chip, slept
 

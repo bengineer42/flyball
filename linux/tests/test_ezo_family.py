@@ -14,9 +14,12 @@ from flyball_linux.links.uart import FakeUart
 
 class TestParseEc:
     def test_parses_a_realistic_csv_reading(self):
-        assert ezo_ec.parse_ec(b"1413.000,706.500,0.700,1.000\r") == pytest.approx(
-            (1413.000, 706.500, 0.700, 1.000)
-        )
+        assert ezo_ec.parse_ec(b"1413.000,706.500,0.700,1.000\r") == pytest.approx((
+            1413.000,
+            706.500,
+            0.700,
+            1.000,
+        ))
 
     def test_a_status_frame_is_not_a_reading(self):
         with pytest.raises(HardwareError, match="status frame"):
@@ -68,14 +71,12 @@ class TestEzoEc:
         probe = ezo_ec.EzoEc("water", uart, sleep=False)
         (sample,) = probe.read(9)
         assert sample.node is probe.root and sample.time_ns == 9
-        assert sample.by_name() == pytest.approx(
-            {
-                "conductivity": 1413.000,
-                "total_dissolved_solids": 706.500,
-                "salinity": 0.700,
-                "specific_gravity": 1.000,
-            }
-        )
+        assert sample.by_name() == pytest.approx({
+            "conductivity": 1413.000,
+            "total_dissolved_solids": 706.500,
+            "salinity": 0.700,
+            "specific_gravity": 1.000,
+        })
         assert uart.written == [b"R\r"]
 
     def test_config_reports_the_tag(self):

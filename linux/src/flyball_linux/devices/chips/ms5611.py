@@ -97,9 +97,7 @@ class Ms5611Sensor:
 
     __slots__ = ("address", "coefficients", "link", "osr", "sleep")
 
-    def __init__(
-        self, link: I2cLink, address: int, osr: Osr = 4096, sleep: bool = True
-    ) -> None:
+    def __init__(self, link: I2cLink, address: int, osr: Osr = 4096, sleep: bool = True) -> None:
         self.link = link
         self.address = address
         self.osr: Osr = osr

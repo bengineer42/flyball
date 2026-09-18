@@ -120,9 +120,12 @@ class TestSettle:
         assert s.drivers == tmp_path / "drivers" and s.tunings == tmp_path / "tunings"
 
     def test_a_deployment_wrapper_finds_the_extended_base_file_s_programs(self, tmp_path):
-        """A wrapper `extends`ing a base rig in another directory still finds the base's
-        `programs/`/`tunings`/`drivers`, not just what's beside the wrapper itself -- the bug
-        confirmed 18 Sep (six Docker sims silently found no libraries at all)."""
+        """A wrapper `extends`ing a base rig.
+
+        Still finds the base's `programs/`/`tunings`/`drivers`, not just what's beside the
+        wrapper itself -- the bug confirmed 18 Sep (six Docker sims silently found no
+        libraries at all).
+        """
         base_dir = tmp_path / "base"
         wrapper_dir = tmp_path / "site"
         (base_dir / "programs").mkdir(parents=True)

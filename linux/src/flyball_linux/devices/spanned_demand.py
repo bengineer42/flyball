@@ -42,8 +42,12 @@ def spanned_signal_spec(
     """
     if unit is None:
         return SignalSpec(
-            name=name, quantity=bare, access=Access.RPW, role=Role.DEMAND,
-            limits=(0.0, 1.0), initial=0.0,
+            name=name,
+            quantity=bare,
+            access=Access.RPW,
+            role=Role.DEMAND,
+            limits=(0.0, 1.0),
+            initial=0.0,
         )
     assert span is not None  # `unit` and `span` go together, checked by `validate_span`
     return SignalSpec(

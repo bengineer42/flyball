@@ -20,7 +20,9 @@ class TestCurrentLoop:
         # 250 ohm sense resistor, 12 mA -> 3.0 V, gain 1 (+-4.096 V full scale).
         bus = FakeI2c(registers={0x48: {0x00: _raw_for(3.0)}})
         adc = ads1115.Ads1115(
-            "adc", bus, {"o2": ads1115.Channel(channel=0, unit="mA", scale=1000.0 / 250.0)},
+            "adc",
+            bus,
+            {"o2": ads1115.Channel(channel=0, unit="mA", scale=1000.0 / 250.0)},
             sleep=False,
         )
         loop = current_loop.CurrentLoop(

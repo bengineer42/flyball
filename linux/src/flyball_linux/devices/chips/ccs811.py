@@ -143,9 +143,7 @@ class Ccs811Sensor:
 class Ccs811(Readable):
     """One chip on the device root: `co2eq`, `tvoc` [RP], booted once, a register read per read."""
 
-    co2eq = Output(
-        "co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 8192.0), precision=0
-    )
+    co2eq = Output("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 8192.0), precision=0)
     tvoc = Output("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 1187.0), precision=0)
 
     def __init__(

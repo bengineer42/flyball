@@ -19,11 +19,11 @@ import (
 // DaemonConfig is layer 1: settings about the daemon itself, never about
 // any one runner. See config-layers.md's Layer 1 table.
 type DaemonConfig struct {
-	Listen       string `yaml:"listen"`        // default 127.0.0.1:9000
+	Listen        string `yaml:"listen"`         // default 127.0.0.1:9000
 	DefaultServer string `yaml:"default_server"` // which identity when -s is omitted
-	ManifestsDir string `yaml:"manifests_dir"`  // where layer-2 files live
-	DataDir      string `yaml:"data_dir"`       // registry state, captured logs
-	LogMaxSize   int64  `yaml:"log_max_size"`   // per-runner captured-log cap, bytes
+	ManifestsDir  string `yaml:"manifests_dir"`  // where layer-2 files live
+	DataDir       string `yaml:"data_dir"`       // registry state, captured logs
+	LogMaxSize    int64  `yaml:"log_max_size"`   // per-runner captured-log cap, bytes
 
 	Auth struct {
 		Password string `yaml:"password"`
