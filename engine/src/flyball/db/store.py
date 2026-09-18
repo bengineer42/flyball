@@ -152,9 +152,11 @@ class Store(Protocol):
         ...
 
     def set_session_name(self, session_id: int, name: str | None) -> SessionRow:
-        """Set or clear `details.name` (`sessionName`'s display name), keeping every other
-        `details` key untouched -- a name is one field of the free-form document, not the
-        whole of it."""
+        """Set or clear `details.name` (`sessionName`'s display name).
+
+        Keeps every other `details` key untouched -- a name is one field of the
+        free-form document, not the whole of it.
+        """
         ...
 
     def trim_session(self, session_id: int, before_ns: int) -> SessionRow:

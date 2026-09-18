@@ -512,7 +512,9 @@ def test_rename_over_the_api(client, store):
     assert body["details"] == {"name": "the good run"}
     assert store.session(sid).details == {"name": "the good run"}
     # both fields in one call
-    body = client.patch(f"/api/history/sessions/{sid}", json={"name": "renamed", "pinned": True}).json()
+    body = client.patch(
+        f"/api/history/sessions/{sid}", json={"name": "renamed", "pinned": True}
+    ).json()
     assert body["details"] == {"name": "renamed"} and body["pinned"]
 
 

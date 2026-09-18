@@ -117,8 +117,11 @@ async def delete_session(store: StoreDep, session_id: int) -> None:
 @router.patch("/sessions/{session_id}")
 @router.put("/sessions/{session_id}")
 async def update_session(store: StoreDep, session_id: int, body: SessionPatch) -> SessionRow:
-    """Pin/unpin (a pinned session is never aged out by `retain` or `max_store`) and/or rename
-    (`details.name`, what `sessionName` shows) -- either field, or both, in one call."""
+    """Pin/unpin and/or rename, either field or both in one call.
+
+    Pinning means a session is never aged out by `retain` or `max_store`; a
+    rename sets `details.name`, what `sessionName` shows.
+    """
     row = store.session(session_id)
     if body.pinned is not None:
         row = store.set_pinned(session_id, body.pinned)
