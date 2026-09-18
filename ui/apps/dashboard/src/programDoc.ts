@@ -400,6 +400,7 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
       if (name === "device" && devices) {
         const names = Object.keys(devices.commands).filter((d) => offeredCommands(devices, d).length > 0);
         field = pickField(field, names, current.device, has, "only simulation commands");
+        ui[name] = { "ui:widget": "select" }; // a dropdown, not a segmented button, even with few options -- it belongs at the top with `device_command`, not buried mid-form
       } else if (name === "device_command" && devices) {
         const known = (name: string) => typeof current.device === "string" && name in (devices.commands[current.device] ?? {});
         field = pickField(field, offeredCommands(devices, current.device), current.device_command, known, "simulation");
@@ -418,6 +419,7 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
     if (command.tag === "set" && devices) {
       if (name === "device") {
         field = pickField(field, Object.keys(devices.demands), current.device, has, "no demands");
+        ui[name] = { "ui:widget": "select" };
       } else if (name === "values") {
         const signals = (typeof current.device === "string" && devices.demands[current.device]) || {};
         const shown = Object.keys(signals);
@@ -443,6 +445,10 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
     properties[name] = field;
   }
   const schema: JsonSchema = { type: "object", title: command.title, properties, ...(command.args.required ? { required: command.args.required.filter((r) => r in properties) } : {}), ...(defs ? { $defs: withoutDefaults({ $defs: defs }).$defs } : {}) };
+  // `device`/`device_command` first -- everything else (`args`, `values`, ...) picks up
+  // after them, in whatever order they were declared.
+  const front = ["device", "device_command"].filter((k) => k in properties);
+  if (front.length > 0) ui["ui:order"] = [...front, "*"];
   return { schema, uiSchema: ui };
 }
 
