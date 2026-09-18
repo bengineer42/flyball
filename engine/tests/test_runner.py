@@ -119,6 +119,38 @@ class TestSettle:
         assert s.store == tmp_path / "lab.sqlite" and s.programs == tmp_path / "programs"
         assert s.drivers == tmp_path / "drivers" and s.tunings == tmp_path / "tunings"
 
+    def test_a_deployment_wrapper_finds_the_extended_base_file_s_programs(self, tmp_path):
+        """A wrapper `extends`ing a base rig.
+
+        Still finds the base's `programs/`/`tunings`/`drivers`, not just what's beside the
+        wrapper itself -- the bug confirmed 18 Sep (six Docker sims silently found no
+        libraries at all).
+        """
+        base_dir = tmp_path / "base"
+        wrapper_dir = tmp_path / "site"
+        (base_dir / "programs").mkdir(parents=True)
+        (base_dir / "tunings").mkdir(parents=True)
+        wrapper_dir.mkdir()
+        first = wrapper_dir / "wrapper.yaml"
+        s = runner.settle(None, self.parse(), first, layers=[base_dir / "rig.yaml"])
+        assert s.programs == base_dir / "programs"
+        assert s.tunings == base_dir / "tunings"
+        # drivers/ exists beside neither -- falls back to the first file, unchanged behaviour
+        assert s.drivers == wrapper_dir / "drivers"
+
+    def test_the_wrapper_s_own_directory_still_wins_when_it_has_one_too(self, tmp_path):
+        base_dir = tmp_path / "base"
+        wrapper_dir = tmp_path / "site"
+        (base_dir / "programs").mkdir(parents=True)
+        (wrapper_dir / "programs").mkdir(parents=True)
+        first = wrapper_dir / "wrapper.yaml"
+        s = runner.settle(None, self.parse(), first, layers=[base_dir / "rig.yaml"])
+        assert s.programs == wrapper_dir / "programs"
+
+    def test_no_layers_given_behaves_exactly_as_before(self, tmp_path):
+        s = runner.settle(None, self.parse(), tmp_path / "lab.yaml", layers=[])
+        assert s.programs == tmp_path / "programs"
+
     def test_the_file_sets_and_the_command_line_overrides(self, tmp_path, monkeypatch):
         monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
         section = RunnerConfig(port=9000, allow_save=True, mcp=False, token="filed")

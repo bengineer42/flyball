@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=rig.schema.json
+# Overlay: no hardware. A generic `sim_plant` (fopdt) stands in for the
+# room -- slower than the humidity example's chamber (a whole room's air,
+# not a 3 L box), same mechanism.
+
+name: aging-room-sim
+clock: { speed: 1 }
+
+links:
+  i2c1: null
+  humidifier_pwm: null
+  room:
+    tag: sim_plant
+    model: fopdt
+    tau_s: 900.0        # a walk-in room responds far slower than the 3L humidity chamber
+    dead_s: 30.0
+    gain: 30.0           # full humidifier duty adds 30 %RH over ambient
+    ambient: 55.0
+    initial: 80.0        # starts humid, as a newly loaded room would
+    noise: 0.2
+    seed: 5
+
+devices:
+  climate:
+    driver: sim_daq
+    label: Cave climate (simulated)
+    poll_s: 30
+    config:
+      link: room
+      ports:
+        chamber.humidity: { port: output, quantity: humidity, unit: "%RH" }
+        chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
+
+  humidifier:
+    driver: sim_drive
+    label: Humidifier (simulated)
+    config:
+      link: room
+      ports:
+        drive: { port: input }

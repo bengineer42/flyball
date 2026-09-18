@@ -775,6 +775,24 @@
       "title": "PlantConfigTagged",
       "type": "object"
     },
+    "Rate": {
+      "description": "`value` per `per`. On the wire also `{\"per_minute\": 2}`: one key naming the unit.",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "per": {
+          "$ref": "#/$defs/TimeUnit",
+          "default": "second"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "Rate",
+      "type": "object"
+    },
     "RunnerConfig": {
       "additionalProperties": false,
       "description": "The `runner:` section: how the process serves, not what the rig is.\n\nEverything here is fixed for the life of the process and says nothing\nabout the equipment, so it may live in the rig file or in a file of its\nown that layers with it. A command-line flag overrides a value here.\nA path is relative to the first rig file's directory.",
@@ -1060,10 +1078,67 @@
           "default": null,
           "title": "Poll S"
         },
+        "stale_after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stale After"
+        },
         "limits": {
           "anyOf": [
             {
               "$ref": "#/$defs/Band"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_rate": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Rate"
+                },
+                {
+                  "additionalProperties": false,
+                  "maxProperties": 1,
+                  "minProperties": 1,
+                  "properties": {
+                    "per_nanosecond": {
+                      "type": "number"
+                    },
+                    "per_microsecond": {
+                      "type": "number"
+                    },
+                    "per_millisecond": {
+                      "type": "number"
+                    },
+                    "per_second": {
+                      "type": "number"
+                    },
+                    "per_minute": {
+                      "type": "number"
+                    },
+                    "per_hour": {
+                      "type": "number"
+                    },
+                    "per_day": {
+                      "type": "number"
+                    }
+                  },
+                  "type": "object"
+                }
+              ],
+              "title": "Rate"
             },
             {
               "type": "null"
@@ -1182,6 +1257,41 @@
       ],
       "title": "TableConfig",
       "type": "object"
+    },
+    "TimeUnit": {
+      "description": "The unit a rate is expressed per.",
+      "oneOf": [
+        {
+          "const": "nanosecond",
+          "title": "per nanosecond"
+        },
+        {
+          "const": "microsecond",
+          "title": "per microsecond"
+        },
+        {
+          "const": "millisecond",
+          "title": "per millisecond"
+        },
+        {
+          "const": "second",
+          "title": "per second"
+        },
+        {
+          "const": "minute",
+          "title": "per minute"
+        },
+        {
+          "const": "hour",
+          "title": "per hour"
+        },
+        {
+          "const": "day",
+          "title": "per day"
+        }
+      ],
+      "title": "TimeUnit",
+      "type": "string"
     },
     "VisaLinkConfigTagged": {
       "properties": {

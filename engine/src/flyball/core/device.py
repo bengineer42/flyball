@@ -42,6 +42,7 @@ from pydantic.errors import (
 )
 from pydantic.json_schema import JsonSchemaMode
 
+from .clock import Rate
 from .config import Config
 from .errors import NotFoundError, NotReadyError
 from .quantity import Quantity
@@ -1060,7 +1061,9 @@ class SignalOverride(BaseModel):
     warn: Band | None = None
     alarm: Band | None = None
     poll_s: float | None = None
+    stale_after: float | None = None
     limits: Band | None = None
+    max_rate: Rate | None = None
     tags: dict[str, str] | None = None
     """Groupings across the tree, `{axis: name}`, added to the driver's."""
     access: str | None = None
@@ -1167,7 +1170,17 @@ class DeviceEntry(BaseModel):
         return device
 
 
-_SIGNAL_FIELDS = ("label", "range", "precision", "warn", "alarm", "poll_s", "limits")
+_SIGNAL_FIELDS = (
+    "label",
+    "range",
+    "precision",
+    "warn",
+    "alarm",
+    "poll_s",
+    "stale_after",
+    "limits",
+    "max_rate",
+)
 _NODE_FIELDS = ("label", "poll_s", "tags")
 
 

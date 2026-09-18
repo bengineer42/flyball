@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=rig.schema.json
+# Cheese/charcuterie/wine aging (curing) room: humidity held to a staged,
+# slowly-falling target as a wheel ages, temperature monitored only. Zero
+# new drivers vs. the humidity example -- same `sht4x_set` sensor, same
+# single PWM-driven humidifier loop, config-only.
+#
+#   flyball-runner rig.yaml                 # real hardware
+#   flyball-runner rig.yaml sim.yaml        # the same addresses, no hardware
+
+name: aging-room
+
+links:
+  i2c1: { tag: i2c, bus: 1 }
+  humidifier_pwm: { tag: pwm, chip: 0 }
+
+devices:
+  climate:                                 # climate.chamber.humidity/temperature [RP]
+    driver: sht4x_set
+    label: Cave climate
+    poll_s: 30                              # a curing room moves slowly; no need to poll fast
+    config:
+      link: i2c1
+      sensors:
+        chamber: { address: 0x44 }
+    signals:
+      chamber:
+        label: Chamber
+        signals:
+          humidity: { label: Chamber humidity, warn: [60, 98] }
+          temperature: { label: Chamber temperature, warn: [8, 16] }
+
+  humidifier:                              # humidifier.drive [W]
+    driver: pwm_channel
+    label: Humidifier
+    config:
+      link: humidifier_pwm
+      channel: 0
+      frequency_hz: 1000
+
+controllers:
+  humidifier.drive:
+    signal: climate.chamber.humidity
+    law: { tag: PI, kp: 0.03, ki: 0.0005 }
+    default: true

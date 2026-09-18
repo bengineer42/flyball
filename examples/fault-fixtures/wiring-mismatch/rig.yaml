@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=rig.schema.json
+# DELIBERATELY BROKEN -- see ../README.md before using this file for
+# anything. This is a wiring-mistake fixture, not a working example: it
+# never reaches its own setpoint by design. Do not copy this shape.
+#
+# `zone.temperature`'s DAQ (`config.link: unrelated`) reads a different
+# plant than the one `heater.drive` actually drives (`config.link: driven`)
+# -- a config/wiring mistake shape (an address pointed at the wrong
+# device), not a plant-physics fault. The controller, seeing no progress
+# toward its setpoint, winds its integral up while the heater stays pinned
+# near its output limit; the "regulated" reading barely moves the entire
+# run.
+
+name: wiring-mismatch
+
+links:
+  driven: { tag: sim_plant, model: fopdt, tau_s: 30, dead_s: 2, gain: 60, ambient: 20, initial: 20, noise: 0.2, seed: 11 }
+  unrelated: { tag: sim_plant, model: lag, tau_s: 20, gain: 1.0, ambient: 21, initial: 21, noise: 0.3, seed: 12 }
+
+devices:
+  zone:
+    driver: sim_daq
+    label: Zone temperature
+    poll_s: 1
+    config: { link: unrelated, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
+    signals: { temperature: { range: [0, 100], warn: [0, 60], alarm: [0, 80], precision: 1 } }
+  heater:
+    driver: sim_drive
+    label: Zone heater
+    config: { link: driven, ports: { drive: { port: input, demand: output, quantity: temperature, unit: "°C" } } }
+
+controllers:
+  heater.drive:
+    signal: zone.temperature
+    law: { tag: PI, kp: 1.0, ki: 0.05 }
+    default: true

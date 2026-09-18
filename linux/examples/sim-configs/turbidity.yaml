@@ -1,0 +1,24 @@
+# Overlay for ../sensors/turbidity.yaml: no hardware. `turbidity` swaps
+# `ads1115` for `sim_daq`. As with ph_probe, `raw_v` and `ntu` are the same
+# ADC channel through a placeholder scale=1/offset=0, so they share one
+# plant. `turbidity_plant` settles fast (tau 3 s -- an optical scatter
+# reading has no real lag) around a clear-water baseline (ambient 4.1 V,
+# the base file's "clear water" voltage), dipping towards 0 V as simulated
+# turbidity rises.
+
+links:
+  i2c1: null
+  turbidity_plant: { tag: sim_plant, tau_s: 3.0, gain: -3.5, ambient: 4.1, initial: 4.1, noise: 0.02, seed: 6 }
+
+devices:
+  turbidity:
+    driver: sim_daq
+    label: Turbidity (simulated)
+    poll_s: 2
+    address: null
+    gain: null
+    channels: null
+    link: turbidity_plant
+    ports:
+      raw_v: { port: output, quantity: voltage, unit: V }
+      ntu: { port: output, quantity: turbidity, unit: NTU }

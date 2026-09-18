@@ -21,6 +21,8 @@ export interface EventsPanelProps {
    * long `hold` step). Omit to fall back to the wall clock / newest event.
    */
   nowS?: number;
+  /** Keys (`eventKey(e)`) of events not yet read, e.g. from `useUnreadEvents`. Omit to show no read/unread state. */
+  unread?: ReadonlySet<string>;
 }
 
 export const EVENT_LEVELS: EventLevel[] = ["DEBUG", "INFO", "WARNING", "ERROR"];
@@ -43,14 +45,15 @@ function relative(ms: number, now: number): string {
 /** Event scopes that name a thing with a page (`device` is the one the backend emits today; the rest are for a scope a driver might add). */
 const SCOPE_KINDS: Record<string, RefKind> = { device: "device", controller: "controller", signal: "signal", session: "session" };
 
-const key = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.kind}`;
+/** An event's identity, stable across the seed/live boundary: used to key rows, track expansion and track read/unread (`useUnreadEvents`). */
+export const eventKey = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.kind}`;
 
 /**
  * The rig's events as a table, newest first: time, level, scope·subject,
  * kind, message; click a row for its details. The level and text filters
  * are view state and live here. Pure; `useEvents` supplies the events.
  */
-export function EventsPanel({ events, levels: initialLevels, onSelect, controls, nowS }: EventsPanelProps) {
+export function EventsPanel({ events, levels: initialLevels, onSelect, controls, nowS, unread }: EventsPanelProps) {
   const [levels, setLevels] = useState<Set<EventLevel>>(() => new Set(initialLevels ?? EVENT_LEVELS));
   const [text, setText] = useState("");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -86,7 +89,7 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
     });
 
   const toggleRow = (e: RigEvent) => {
-    const k = key(e);
+    const k = eventKey(e);
     setOpen((s) => {
       const next = new Set(s);
       if (next.has(k)) next.delete(k);
@@ -140,17 +143,21 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
               </tr>
             )}
             {shown.map((e) => {
-              const k = key(e);
+              const k = eventKey(e);
               const date = new Date(e.time_ns / 1e6);
               const expanded = open.has(k);
+              const isUnread = unread?.has(k) ?? false;
               return [
                 <tr
                   key={k}
-                  className={`fb-event-row${expanded ? " fb-event-open" : ""}`}
+                  className={`fb-event-row${expanded ? " fb-event-open" : ""}${isUnread ? " fb-event-unread" : ""}`}
                   onClick={() => toggleRow(e)}
                   title={date.toLocaleString()}
                 >
-                  <td className="fb-event-time" title={date.toLocaleString()}>{relative(date.getTime(), now)}</td>
+                  <td className="fb-event-time" title={date.toLocaleString()}>
+                    {isUnread && <span className="fb-event-dot" aria-label="unread" data-testid="event-unread-dot" />}
+                    {relative(date.getTime(), now)}
+                  </td>
                   <td>
                     <span className={`fb-badge fb-event-level fb-event-${e.level}`} title={e.level}>
                       <span aria-hidden="true">{LEVEL_ICON[e.level]}</span> {e.level}

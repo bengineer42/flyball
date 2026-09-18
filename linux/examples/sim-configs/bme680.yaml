@@ -1,0 +1,46 @@
+# Sim for the BME680 driver (`bme680`, `temperature`/`humidity`/`pressure`/
+# `gas_resistance` [RP], flat -- no base example to overlay yet). Four
+# quantities, four small plants (see README): temperature tau 30 s,
+# ambient 21 degC; humidity tau 45 s, ambient 45 %RH; pressure tau 300 s,
+# ambient 101325 Pa; gas_resistance tau 20 s (VOC heater response),
+# ambient 50000 Ohm baseline, falling as simulated VOCs rise (negative
+# gain -- resistance drops when the gas sensor sees more reducing gases).
+
+links:
+  temperature_plant: { tag: sim_plant, tau_s: 30.0, gain: 5.0, ambient: 21.0, initial: 21.0, noise: 0.05, seed: 30 }
+  humidity_plant: { tag: sim_plant, tau_s: 45.0, gain: 30.0, ambient: 45.0, initial: 45.0, noise: 0.3, seed: 31 }
+  pressure_plant: { tag: sim_plant, tau_s: 300.0, gain: 1500.0, ambient: 101325.0, initial: 101325.0, noise: 5.0, seed: 32 }
+  gas_plant: { tag: sim_plant, tau_s: 20.0, gain: -20000.0, ambient: 50000.0, initial: 50000.0, noise: 500.0, seed: 33 }
+
+devices:
+  temperature:
+    driver: sim_daq
+    label: Temperature (simulated)
+    poll_s: 2
+    link: temperature_plant
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
+
+  humidity:
+    driver: sim_daq
+    label: Humidity (simulated)
+    poll_s: 2
+    link: humidity_plant
+    ports:
+      humidity: { port: output, quantity: humidity, unit: "%RH" }
+
+  pressure:
+    driver: sim_daq
+    label: Pressure (simulated)
+    poll_s: 2
+    link: pressure_plant
+    ports:
+      pressure: { port: output, quantity: pressure, unit: Pa }
+
+  gas_resistance:
+    driver: sim_daq
+    label: Gas resistance (simulated)
+    poll_s: 2
+    link: gas_plant
+    ports:
+      gas_resistance: { port: output, quantity: gas_resistance, unit: Ohm }

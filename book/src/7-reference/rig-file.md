@@ -105,10 +105,14 @@ devices:
 file this became).
 
 A `SignalOverride` is `{label, range, precision, warn, alarm, poll_s,
-limits, tags, access, readable, publishing, writable}`: the first
-group replaces metadata the driver declared (`tags` are added to the
+stale_after, limits, max_rate, tags, access, readable, publishing, writable}`:
+the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
-filters by); `access` names the set to keep (`"r"`), and
+filters by; `stale_after` is seconds since the last reading beyond which a
+controller regulated from the signal holds its demand rather than apply it;
+`max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
+fastest a demand may move -- a faster one is clamped to the largest step the
+elapsed time allows, not refused); `access` names the set to keep (`"r"`), and
 `readable`/`publishing`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
 it, unless the driver also names a ceiling for that signal (a Python-level

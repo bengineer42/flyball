@@ -265,9 +265,7 @@ class Bme280Sensor:
         """(°C, Pa, %RH or `None`): one forced-mode conversion, one burst read."""
         if self.has_humidity:
             self.link.write_register(self.address, CTRL_HUM, [ctrl_hum(self.osrs_h)])
-        self.link.write_register(
-            self.address, CTRL_MEAS, [ctrl_meas(self.osrs_t, self.osrs_p)]
-        )
+        self.link.write_register(self.address, CTRL_MEAS, [ctrl_meas(self.osrs_t, self.osrs_p)])
         if self.sleep:
             time.sleep(max_measurement_s(self.osrs_t, self.osrs_p, self.osrs_h))
         length = 8 if self.has_humidity else 6

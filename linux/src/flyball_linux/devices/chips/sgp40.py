@@ -89,11 +89,7 @@ class Sgp40Sensor:
             if humidity_percent_rh is None
             else humidity_ticks(humidity_percent_rh)
         )
-        t = (
-            DEFAULT_TEMPERATURE_TICKS
-            if temperature_c is None
-            else temperature_ticks(temperature_c)
-        )
+        t = DEFAULT_TEMPERATURE_TICKS if temperature_c is None else temperature_ticks(temperature_c)
         self.link.write(self.address, [*command(MEASURE_RAW), *word_with_crc(h), *word_with_crc(t)])
         if self.sleep:
             time.sleep(0.030)

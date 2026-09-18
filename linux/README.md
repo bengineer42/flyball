@@ -7,13 +7,18 @@ has is a profile in [../boards/](../boards/).
 ```sh
 uv sync --all-extras          # dev environment; the extras are the bus libraries
 make check                    # ruff, pyright, pytest -- all on fake buses
-uv run flyball rig check examples/greenhouse.yaml examples/sim.yaml
+uv run flyball-runner examples/greenhouse.yaml examples/sim.yaml   # invalid config fails fast on start
 uv run flyball-linux probe    # what this machine has, as rig-file fragments
 ```
 
-The package registers its tags through the `flyball.configs` entry point,
-so `flyball rig check`, `flyball rig schema` and the runner know them once
-it is installed.
+The package registers its tags through the `flyball.configs` entry point, so
+the runner knows them once it is installed alongside `flyball`. The `flyball`
+Go CLI's own `rig check`/`rig schema` are a separate story: they validate
+against a schema baked into the binary from a bare `engine/` install (see
+`daemon/internal/schema/regen.sh`), which never has `flyball_linux` on it --
+so they don't know these tags at all, on any machine. A rig using them is
+only ever validated live, by starting a runner that has this package
+installed.
 
 ## Links
 
@@ -97,7 +102,6 @@ link a fake and the I²C and 1-Wire buses scripted, so the same drivers,
 names and addresses run on any machine:
 
 ```sh
-uv run flyball rig check examples/greenhouse.yaml examples/sim.yaml
 uv run flyball-runner examples/greenhouse.yaml examples/sim.yaml
 ```
 

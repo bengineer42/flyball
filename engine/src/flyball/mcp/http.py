@@ -38,8 +38,13 @@ def mount(app: FastAPI, rig: Rig) -> None:
         )
         for mode in MODES
     }
-    for mode, manager in managers.items():
-        app.router.routes.append(Route(f"/mcp/{mode}", endpoint=StreamableHTTPASGIApp(manager)))
+    # Inserted at the front, not appended: `create_app()` mounts the built dashboard's
+    # static files at "/" last (server/app.py), and Starlette matches routes in list
+    # order -- appending here would put `/mcp/<mode>` behind that catch-all `Mount`,
+    # which only serves GET/HEAD, so every MCP request would 405 on a runner with a
+    # built UI (confirmed 18 Sep: production-real, not just a test-ordering quirk).
+    for mode, manager in reversed(managers.items()):
+        app.router.routes.insert(0, Route(f"/mcp/{mode}", endpoint=StreamableHTTPASGIApp(manager)))
 
     inner = app.router.lifespan_context
 

@@ -1,0 +1,17 @@
+# Sim for the EZO-pH driver (`ezo_ph`, UART, `ph` [RP] -- no base example
+# to overlay yet; null its `uart0` link once one lands). A probe responds
+# in seconds: tau 5 s, ambient pH 7.0 (neutral), gain 3.0 so it can swing
+# 4-10 across the readable range.
+
+links:
+  uart0: null
+  ph_plant: { tag: sim_plant, tau_s: 5.0, gain: 3.0, ambient: 7.0, initial: 7.0, noise: 0.02, seed: 91 }
+
+devices:
+  ph:
+    driver: sim_daq
+    label: pH (simulated)
+    poll_s: 2
+    link: ph_plant
+    ports:
+      ph: { port: output, quantity: ph, unit: pH }

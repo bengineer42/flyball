@@ -407,15 +407,24 @@ def parser() -> argparse.ArgumentParser:
 
 
 def settle(
-    section: RunnerConfig | None, args: argparse.Namespace, first: Path, name: str | None = None
+    section: RunnerConfig | None,
+    args: argparse.Namespace,
+    first: Path,
+    name: str | None = None,
+    layers: Sequence[Path] = (),
 ) -> RunnerConfig:
     """The file's `runner:` section under the command line, with every directory resolved.
 
     A flag given (or its environment variable) beats the file; a path in the
-    file is taken relative to the first rig file's directory; a directory
-    not named at all is the conventional one beside that file. The store is
-    `--store`, else `store` in the file, else `<store_dir>/<name>.sqlite`
-    (the rig's name, else the file's stem), else `<rig>.sqlite` beside the file.
+    file is taken relative to the first rig file's directory. A directory not
+    named at all is the conventional one (`programs/`, `tunings/`, `drivers/`)
+    beside the first file that actually has it -- checked in `layers` order (the
+    command line, then each file an `extends` chain pulled in), not beside the
+    first rig file alone, so a deployment wrapper that `extends` a shared base
+    still finds the base's libraries. Beside the first file if none of them do,
+    same as before. The store is `--store`, else `store` in the file, else
+    `<store_dir>/<name>.sqlite` (the rig's name, else the file's stem), else
+    `<rig>.sqlite` beside the file.
     """
     given = {
         key: value
@@ -441,8 +450,17 @@ def settle(
             settings.store = first.with_suffix(".sqlite")
     for key in ("programs", "tunings", "drivers"):
         if getattr(settings, key) is None:
-            setattr(settings, key, first.parent / key)
+            setattr(settings, key, _find_beside(key, first, layers))
     return settings
+
+
+def _find_beside(key: str, first: Path, layers: Sequence[Path]) -> Path:
+    """`<dir>/<key>` beside the first file that has one, else beside `first`."""
+    for layer in (first, *layers):
+        candidate = layer.parent / key
+        if candidate.is_dir():
+            return candidate
+    return first.parent / key
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -459,7 +477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # the rig file may name a driver from there.
         section = RunnerConfig.model_validate(document.get("runner") or {})
         name = document.get("name")
-        settings = settle(section, args, first, name if isinstance(name, str) else None)
+        settings = settle(section, args, first, name if isinstance(name, str) else None, files)
         logging.getLogger().setLevel(settings.log_level.upper())
         assert settings.store is not None and settings.drivers is not None
         report = load_drivers(settings.drivers)

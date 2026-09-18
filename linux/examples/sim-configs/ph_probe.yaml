@@ -1,0 +1,27 @@
+# Overlay for ../sensors/ph_probe.yaml: no hardware. `ph` swaps `ads1115`
+# for `sim_daq`. The base file's `raw_v` and `ph` are the *same* ADC
+# channel read through two different placeholder scales -- so here they
+# are two ports on the *same* plant (the one case in this directory where
+# sharing a plant is honest, not a hack: they are genuinely the same
+# underlying number, just labelled in two units). `ph_plant` settles
+# around neutral (tau 5 s -- a probe's electrode responds in seconds,
+# ambient pH 7.0, gain 3.0 so it can swing 4-10) and `raw_v` mirrors the
+# same value 1:1 (the base file's placeholder calibration is scale=1,
+# offset=0, i.e. volts == pH numerically).
+
+links:
+  i2c1: null
+  ph_plant: { tag: sim_plant, tau_s: 5.0, gain: 3.0, ambient: 7.0, initial: 7.0, noise: 0.02, seed: 5 }
+
+devices:
+  ph:
+    driver: sim_daq
+    label: pH (simulated)
+    poll_s: 2
+    address: null
+    gain: null
+    channels: null
+    link: ph_plant
+    ports:
+      raw_v: { port: output, quantity: voltage, unit: V }
+      ph: { port: output, quantity: ph, unit: pH }

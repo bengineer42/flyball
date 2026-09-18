@@ -334,6 +334,8 @@
 .fb-event-message { width: 100%; }
 .fb-event-details td { background: var(--fb-bg-2); padding-left: 1.5rem; }
 .fb-event-details .fb-state { margin: 0.2rem 0; }
+.fb-event-unread .fb-event-message { font-weight: 600; }
+.fb-event-dot { display: inline-block; width: 0.4rem; height: 0.4rem; margin-right: 0.35rem; border-radius: 50%; background: var(--fb-warning); vertical-align: middle; }
 .fb-event-DEBUG { color: var(--fb-fg-2); }
 .fb-event-level.fb-event-DEBUG { background: transparent; border: 1px solid var(--fb-border-1); font-weight: normal; }
 .fb-event-level.fb-event-INFO { background: var(--fb-border-1); }

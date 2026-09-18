@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   AppBar,
+  Badge,
   Box,
   Collapse,
   Drawer,
@@ -43,13 +44,15 @@ export interface ShellProps {
   devices?: ReadonlyArray<{ name: string; label?: string | null }>;
   /** The thing the current page shows (a device's name on its page), so its entry reads as current. */
   current?: string | null;
+  /** Unread WARNING+ event count (`useUnreadEvents`), shown as a badge on the Events entry. */
+  eventsUnread?: number;
   children: ReactNode;
 }
 
 const DRAWER_W = 196;
 const MINI_W = 56;
 
-function Nav({ page, mini, simulated, devices = [], current = null, onNavigate }: { page: Page; mini: boolean; simulated: boolean; devices?: ReadonlyArray<{ name: string; label?: string | null }>; current?: string | null; onNavigate(p: Page): void }) {
+function Nav({ page, mini, simulated, devices = [], current = null, eventsUnread = 0, onNavigate }: { page: Page; mini: boolean; simulated: boolean; devices?: ReadonlyArray<{ name: string; label?: string | null }>; current?: string | null; eventsUnread?: number; onNavigate(p: Page): void }) {
   // The Devices entry opens into one link per device; open while a device page is showing, or when asked.
   const [devicesOpen, setDevicesOpen] = useState<boolean | null>(null);
   const showDevices = !mini && devices.length > 0 && (devicesOpen ?? page === "devices");
@@ -77,7 +80,13 @@ function Nav({ page, mini, simulated, devices = [], current = null, onNavigate }
             }}
           >
             <ListItemIcon sx={{ minWidth: mini ? 0 : 36, color: p.id === page ? "primary.main" : "inherit" }}>
-              <Icon fontSize="small" />
+              {p.id === "events" && eventsUnread > 0 ? (
+                <Badge badgeContent={eventsUnread} max={99} color="warning" data-testid="events-nav-badge">
+                  <Icon fontSize="small" />
+                </Badge>
+              ) : (
+                <Icon fontSize="small" />
+              )}
             </ListItemIcon>
             {!mini && <ListItemText primary={p.label} />}
             {expandable && (
@@ -145,7 +154,7 @@ function Nav({ page, mini, simulated, devices = [], current = null, onNavigate }
  * drawer that shrinks to icons on narrow screens and becomes a temporary
  * drawer on phones.
  */
-export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, devices, current, children }: ShellProps) {
+export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, devices, current, eventsUnread = 0, children }: ShellProps) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
@@ -201,7 +210,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
       {phone ? (
         <Drawer open={open} onClose={() => setOpen(false)} PaperProps={{ sx: { width: DRAWER_W } }}>
           {brand}
-          <Nav page={page} mini={false} simulated={simulated} devices={devices} current={current} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
+          <Nav page={page} mini={false} simulated={simulated} devices={devices} current={current} eventsUnread={eventsUnread} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
         </Drawer>
       ) : (
         <Drawer
@@ -210,7 +219,7 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
           sx={{ width, flexShrink: 0 }}
         >
           {brand}
-          <Nav page={page} mini={mini} simulated={simulated} devices={devices} current={current} onNavigate={onNavigate} />
+          <Nav page={page} mini={mini} simulated={simulated} devices={devices} current={current} eventsUnread={eventsUnread} onNavigate={onNavigate} />
         </Drawer>
       )}
 

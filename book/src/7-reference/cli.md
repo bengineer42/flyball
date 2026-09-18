@@ -15,11 +15,12 @@ flyball [-s NAME] <command> ...
 | `-s`/`--server NAME` | talk to the runner named `NAME`, through a daemon | uses `$FLYBALLD_URL` (default `http://127.0.0.1:9000`) |
 | neither given | talk to one runner directly | uses `$FLYBALL_URL` (default `http://127.0.0.1:8000`), with the prefix for a runner started with `--root-path` (`http://host/furnace`) |
 
-There is no `--url`, `--token`, `--offline` or schema-caching flag, and no
-per-device subcommand tree built from the schema -- those were `cli.py`'s
-(the old Python CLI, removed); the Go CLI's device commands are the fixed
-`view`/`device-schema`/`invoke` below instead. A runner started with a
-token has no CLI-side support yet (only the UI sends one).
+There is no `--url`, `--offline` or schema-caching flag, and no per-device
+subcommand tree built from the schema -- those were `cli.py`'s (the old
+Python CLI, removed); the Go CLI's device commands are the fixed
+`view`/`device-schema`/`invoke` below instead. `--token TOKEN`/`$FLYBALL_TOKEN`
+sends a bearer token on every request; `login`/`logout` (below) trade a
+password or token for a session cookie instead, so it doesn't need repeating.
 
 ## Runner-addressed subcommands
 
@@ -43,6 +44,8 @@ token has no CLI-side support yet (only the UI sends one).
 | `export SESSION [--format csv\|json\|zip] [--out PATH]` | `GET /api/history/sessions/SESSION/export` | a session as a table; written to `PATH` or stdout |
 | `program check\|run\|status\|stop PATH` | `/api/programs/*` | validate, start, watch, stop a program (`run` takes `[--interrupt]`) |
 | `sim show\|clock\|step\|set\|reset\|config\|save` | `/api/sim/*` | a simulated rig's knobs |
+| `login [SECRET]` | `POST /api/auth/login` | trade a password or token for a session cookie, persisted for later invocations; prompts if `SECRET` omitted |
+| `logout` | | drop the saved session cookie |
 
 `invoke`'s trailing arguments are either `KEY=VALUE` pairs or a single raw
 JSON object -- there is no dotted-flag nesting or per-argument `--flag`
@@ -56,7 +59,6 @@ number 4, `"on"` stays a string, matching the old CLI's literal parsing.
 | `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print` |
 | `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
 | `program schema` | the program file's JSON Schema |
-| `program check --local FILE` | validate a program file against the commands installed here |
 | `run RIG-FILE [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig" |
 | `password [PASSWORD]` | hash a password for `runner.auth.password` (prompts if omitted) |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
@@ -68,9 +70,9 @@ number 4, `"on"` stays a string, matching the old CLI's literal parsing.
     `.0`; a schema-defaulted field like `recording: false` that isn't in
     the input files doesn't appear). Same data, not byte-identical output.
 
-There is no `program check --local FILE` -- `program check` always
-validates against a running rig (`POST /api/programs/check`); the old
-Python CLI's offline-against-installed-commands mode isn't ported.
+`program check` always validates against a running rig
+(`POST /api/programs/check`, the runner-addressed table above); there is
+no local, offline-against-installed-commands mode as `cli.py` had.
 
 ## Daemon-managed (via `$FLYBALLD_URL`, never routed through a runner)
 

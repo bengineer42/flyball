@@ -147,7 +147,9 @@ func Login(t Target, secret string) error {
 		}
 	}
 	var out authOut
-	_ = json.Unmarshal(data, &out)
+	if err := json.Unmarshal(data, &out); err != nil && cookie == "" {
+		return fmt.Errorf("login: no session cookie returned and the response body didn't parse: %w", err)
+	}
 	if cookie == "" {
 		if out.Level != "operate" {
 			return fmt.Errorf("login: no session cookie returned and level is %q", out.Level)
