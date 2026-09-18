@@ -143,10 +143,10 @@ const duration = (s: number) => {
 const fmtDuration = (s: number) => (s < 0 ? "just started" : duration(s));
 
 const pad = (n: number) => String(n).padStart(2, "0");
-/** "#3 2026-09-18 11:41:05" -- a sensible default name, editable from there: the session's own
- * id and its actual start (not "now", in case naming it happens well after it started). Local
- * time, sortable order, no ambiguity between DD/MM and MM/DD the way the header's own locale-
- * formatted `when()` timestamp can have. */
+/** "#3 2026-09-18 11:41:05" -- what an unnamed session reads as where there's no box to type
+ * into (the read-only header): the session's own id and its actual start (not "now"). Never
+ * used to pre-fill the *editable* name box itself -- that starts blank, a placeholder says
+ * "session name" instead, so clicking save without typing can't silently store this text. */
 const defaultSessionName = (session: { id: number; start_ns: number }): string => {
   const d = new Date(session.start_ns / 1e6);
   return `#${session.id} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -165,17 +165,21 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
   const { session, traces, devices, writes, controllers, events, spans, startS } = detail;
   const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
   const details = session.details as Record<string, unknown> | null;
-  const name = details && typeof details.name === "string" ? details.name : defaultSessionName(session);
-  const [draft, setDraft] = useState(name);
+  const savedName = details && typeof details.name === "string" ? details.name : "";
+  // The read-only header (no onRename) falls back to something identifiable when there's no
+  // real name; the *editable* box does not -- it starts genuinely empty and says so as
+  // placeholder text only, never as text that would get saved just by clicking without typing.
+  const name = savedName || defaultSessionName(session);
+  const [draft, setDraft] = useState(savedName);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // A different session (or a rename landing from elsewhere) resets the draft to match it.
-  useEffect(() => setDraft(name), [name, session.id]);
-  // A scratch record has no real stored name to compare against -- `name` here is just the
-  // computed `session N` fallback -- and "save" on one always promotes it to a real session
-  // regardless of whether the text changed, so any non-empty draft is enough. An already-real
-  // session only has something to do once the draft actually differs.
-  const dirty = onRename !== undefined && draft.trim() !== "" && (isScratch(session) || draft !== name);
+  useEffect(() => setDraft(savedName), [savedName, session.id]);
+  // A scratch record has no real stored name to compare against -- `savedName` is always "" for
+  // one -- and "save" on one always promotes it to a real session regardless of whether the text
+  // changed, so any non-empty draft is enough. An already-real session only has something to do
+  // once the draft actually differs from what's actually stored.
+  const dirty = onRename !== undefined && draft.trim() !== "" && (isScratch(session) || draft !== savedName);
   useEffect(() => {
     if (!saved) return undefined;
     const id = setTimeout(() => setSaved(false), 3000);
@@ -201,13 +205,14 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
             <input
               className="fb-session-name-input"
               value={draft}
+              placeholder="session name"
               onChange={(e) => {
                 setDraft(e.target.value);
                 setSaved(false);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void save();
-                else if (e.key === "Escape") setDraft(name);
+                else if (e.key === "Escape") setDraft(savedName);
               }}
               disabled={saving}
               aria-label="session name"
