@@ -274,11 +274,14 @@
 .fb-loop-head h3 { margin: 0; flex: 0 0 auto; min-width: max-content; }
 .fb-loop-head > .fb-muted { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fb-loop-head > .fb-badge { flex: none; }
+.fb-loop-head > .fb-loop-warn { flex: none; }
 .fb-mode-manual { background: var(--fb-border-1); }
 .fb-mode-open { background: var(--fb-warning); color: var(--fb-warning-fg); }
 .fb-mode-regulating { background: var(--fb-accent); color: #fff; }
 /* PlantPAx-style banner for the faceplate's single top condition; shown only when one exists. */
-.fb-loop-banner { background: var(--fb-warn-fill); color: var(--fb-warn); border-radius: var(--fb-radius); padding: 0.2rem 0.5rem; font-size: 0.85em; font-weight: 600; }
+/* In the header, not its own grid row -- see ControllerPanel.tsx's comment: a row that
+   appears/disappears as the condition flips would reflow everything below it each time. */
+.fb-loop-warn { background: var(--fb-warn-fill); color: var(--fb-warn); border-radius: var(--fb-radius); padding: 0.2rem 0.5rem; font-size: 0.85em; font-weight: 600; white-space: nowrap; }
 /* PV / SP / OP: three aligned rows, each a label, a value, an optional bar, and a caption line that never grows the row (reserved even when empty). */
 .fb-loop-rows { display: grid; grid-template-columns: minmax(3.6rem, max-content) minmax(5.5rem, max-content) minmax(6rem, 1fr); align-items: center; gap: 0.3rem 0.6rem; margin: 0; min-width: 0; }
 .fb-loop-row { display: contents; }
@@ -517,9 +520,8 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-loop { container-type: inline-size; }
 /* `bare` (a dashboard tile draws the card and header itself): same layout, no box, no card padding. */
 .fb-loop-bare { min-width: 0; box-sizing: border-box; }
-.fb-loop-frame { display: grid; grid-template-columns: minmax(18rem, 1.2fr) minmax(20rem, 1fr); grid-template-areas: "head stop" "banner banner" "rows trends" "law law" "extra extra"; gap: 0.3rem var(--fb-gap); align-content: start; }
+.fb-loop-frame { display: grid; grid-template-columns: minmax(18rem, 1.2fr) minmax(20rem, 1fr); grid-template-areas: "head stop" "rows trends" "law law" "extra extra"; gap: 0.3rem var(--fb-gap); align-content: start; }
 .fb-loop-frame > .fb-loop-head { grid-area: head; }
-.fb-loop-frame > .fb-loop-banner { grid-area: banner; }
 .fb-loop-frame > .fb-loop-rows { grid-area: rows; align-content: start; }
 .fb-loop-frame > .fb-loop-stop { grid-area: stop; justify-self: end; }
 .fb-loop-frame > .fb-loop-trends { grid-area: trends; display: grid; grid-template-rows: repeat(2, auto); gap: 0.5rem; align-content: start; min-width: 0; border-left: 1px solid var(--fb-border-1); padding-left: var(--fb-gap); }
@@ -528,9 +530,9 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-loop-trends > * { min-width: 0; }
 .fb-loop-chart-title { margin: 0.2rem 0 0.1rem; font-size: 0.85em; }
 /* No trends (a small dashboard tile, or `trends={false}`): the rows alone, full width. */
-.fb-loop-frame.fb-loop-no-trends { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head stop" "banner banner" "rows rows" "law law" "extra extra"; }
+.fb-loop-frame.fb-loop-no-trends { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head stop" "rows rows" "law law" "extra extra"; }
 @container (max-width: 39.99rem) {
-  .fb-loop-frame:not(.fb-loop-no-trends) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "stop" "banner" "rows" "trends" "law" "extra"; }
+  .fb-loop-frame:not(.fb-loop-no-trends) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "stop" "rows" "trends" "law" "extra"; }
   .fb-loop-frame:not(.fb-loop-no-trends) > .fb-loop-stop { justify-self: start; }
   .fb-loop-frame:not(.fb-loop-no-trends) > .fb-loop-trends { grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); grid-template-rows: none; border-left: 0; padding-left: 0; border-top: 1px solid var(--fb-border-1); padding-top: var(--fb-gap); }
 }

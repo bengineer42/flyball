@@ -354,6 +354,25 @@ describe("TelemetryStore", () => {
     open.get("samples")!.onOpen?.();
     expect(store.status().samples).toBe("open");
     open.get("samples")!.onClose?.("error");
+    // Shown as "connecting" (reconnecting) immediately, not "closed" (offline) -- a drop and an
+    // immediate reopen is normal churn; only escalate to offline if it stays down a while.
+    expect(store.openStatuses()).toEqual(["connecting"]);
+    vi.advanceTimersByTime(2999);
+    expect(store.openStatuses()).toEqual(["connecting"]);
+    vi.advanceTimersByTime(1);
     expect(store.openStatuses()).toEqual(["closed"]);
+  });
+
+  it("a reconnect before the offline grace elapses cancels it, staying open", () => {
+    const { rig, open } = fakeRig();
+    const store = new TelemetryStore(rig);
+    store.subscribeWrites(null, () => undefined);
+    open.get("samples")!.onOpen?.();
+    open.get("samples")!.onClose?.("error");
+    vi.advanceTimersByTime(1000);
+    open.get("samples")!.onOpen?.();
+    expect(store.openStatuses()).toEqual(["open"]);
+    vi.advanceTimersByTime(5000); // the cancelled offline timer must not fire late and override "open"
+    expect(store.openStatuses()).toEqual(["open"]);
   });
 });

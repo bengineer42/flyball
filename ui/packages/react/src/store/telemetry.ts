@@ -16,6 +16,14 @@ export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "wa
 /** The streams that actually open a socket; `writes` and `devices` share `samples`'s. */
 type SocketStream = "samples" | "controllers" | "waits" | "events";
 const STREAMS: SocketStream[] = ["samples", "controllers", "waits", "events"];
+/**
+ * How long a dropped socket is shown as `"reconnecting"` before escalating to
+ * `"closed"` (offline). A drop-and-immediate-reopen is normal churn (a
+ * session boundary, a brief network blip) and the transport already retries
+ * on its own with backoff -- showing it as an outage from the first
+ * `onclose` would make a routine reconnect look identical to a genuine one.
+ */
+const OFFLINE_GRACE_MS = 3000;
 const socketOf = (stream: StoreStream): SocketStream => (stream === "writes" || stream === "devices" ? "samples" : stream);
 
 /** Plain arrays a chart reuses between refreshes: time in seconds since the epoch, value. */
@@ -126,7 +134,10 @@ export class TelemetryStore {
   private frame: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  private sockets = new Map<SocketStream, { subscription: Subscription; count: number; closer: ReturnType<typeof setTimeout> | null }>();
+  private sockets = new Map<
+    SocketStream,
+    { subscription: Subscription; count: number; closer: ReturnType<typeof setTimeout> | null; offlineTimer: ReturnType<typeof setTimeout> | null }
+  >();
   private statuses: Record<SocketStream, StreamStatus | "idle"> = { samples: "idle", controllers: "idle", waits: "idle", events: "idle" };
   private statusVersion = 0;
 
@@ -814,10 +825,31 @@ export class TelemetryStore {
     };
     const subscription = this.rig.stream(stream, {
       onMessage,
-      onOpen: () => this.setStatus(stream, "open"),
-      onClose: () => this.setStatus(stream, "closed"),
+      onOpen: () => {
+        const s = this.sockets.get(stream);
+        if (s?.offlineTimer !== null && s?.offlineTimer !== undefined) {
+          clearTimeout(s.offlineTimer);
+          s.offlineTimer = null;
+        }
+        this.setStatus(stream, "open");
+      },
+      onClose: () => {
+        // Shown as "connecting" (reconnecting, amber) immediately -- the transport already has
+        // a retry scheduled -- and only escalated to "closed" (offline, red) if it is still down
+        // after OFFLINE_GRACE_MS, so a routine drop-and-reopen never reads as an outage.
+        this.setStatus(stream, "connecting");
+        const s = this.sockets.get(stream);
+        if (s) {
+          if (s.offlineTimer !== null) clearTimeout(s.offlineTimer);
+          s.offlineTimer = setTimeout(() => {
+            const still = this.sockets.get(stream);
+            if (still) still.offlineTimer = null;
+            if (this.statuses[stream] !== "open") this.setStatus(stream, "closed");
+          }, OFFLINE_GRACE_MS);
+        }
+      },
     });
-    this.sockets.set(stream, { subscription, count: 1, closer: null });
+    this.sockets.set(stream, { subscription, count: 1, closer: null, offlineTimer: null });
   }
 
   private release(stream: SocketStream): void {
@@ -825,6 +857,10 @@ export class TelemetryStore {
     if (!held) return;
     held.count--;
     if (held.count > 0 || held.closer !== null) return;
+    if (held.offlineTimer !== null) {
+      clearTimeout(held.offlineTimer);
+      held.offlineTimer = null;
+    }
     held.closer = setTimeout(() => {
       this.sockets.delete(stream);
       held.subscription.close();
@@ -841,6 +877,7 @@ export class TelemetryStore {
   dispose(): void {
     for (const [stream, held] of this.sockets) {
       if (held.closer !== null) clearTimeout(held.closer);
+      if (held.offlineTimer !== null) clearTimeout(held.offlineTimer);
       held.subscription.close();
       this.setStatus(stream, "idle");
     }

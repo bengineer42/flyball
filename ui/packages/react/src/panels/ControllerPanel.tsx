@@ -455,12 +455,14 @@ export function ControllerPanel({
             {controller.default && " · default"}
           </span>
           <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span>
+          {/* In the header, not its own row: a row that appears/disappears as `banner` flips
+              would otherwise reflow everything below it each time (grid rows size to content). */}
+          {banner && (
+            <span className="fb-loop-warn" title={banner.hint}>
+              ⚠ {banner.text}
+            </span>
+          )}
         </header>
-      )}
-      {banner && (
-        <div className="fb-loop-banner" title={banner.hint}>
-          ⚠ {banner.text}
-        </div>
       )}
       <dl className="fb-loop-rows">
         <div className="fb-loop-row">

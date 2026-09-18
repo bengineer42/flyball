@@ -4,6 +4,7 @@ import AirIcon from "@mui/icons-material/Air";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import LoopIcon from "@mui/icons-material/Loop";
 import MemoryIcon from "@mui/icons-material/Memory";
 import MultilineChartIcon from "@mui/icons-material/MultilineChart";
@@ -56,4 +57,5 @@ export {
   SensorsIcon as SignalIcon,
   TuneIcon as WriteIcon,
   WarningAmberIcon as WarnIcon,
+  ErrorOutlineIcon as ErrorIcon,
 };

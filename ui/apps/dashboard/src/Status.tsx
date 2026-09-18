@@ -2,7 +2,7 @@ import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@m
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import { useHealth, type StreamStatus } from "@flyball/react";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
-import { PAGE_ICONS, WarnIcon, type IconComponent } from "./icons.js";
+import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
 
 type Colour = NonNullable<ChipProps["color"]>;
@@ -56,7 +56,7 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href }: { icon: Ic
   );
 }
 
-/** A chip with its own coloured dot, for the two states no MUI `color` reads as "quiet": recording (red dot or none) and stream health (grey/amber/red dot). */
+/** A chip with its own coloured dot, for a state no MUI `color` reads as "quiet": recording (red dot or none). */
 function DotChip({ dotColour, label, short, href, title }: { dotColour: string; label: string; short?: string; href?: string; title: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
@@ -96,9 +96,12 @@ export interface StatusProps {
 
 /**
  * The app bar's condition summary: an always-present alarm chip, one folded
- * stream-health chip, recording, the running program, and polled devices
+ * server-connection chip, recording, the running program, and polled devices
  * only when one is not running. Every healthy state is `color="default"`
- * outlined — colour is reserved for abnormal conditions (ISA-101 §0).
+ * outlined — colour is reserved for abnormal conditions (ISA-101 §0) — except
+ * the server-connection chip, deliberately `color="success"` (green) when
+ * live, per Ben's explicit ask: it is the one state where "still connected"
+ * is worth a positive, not just quiet, signal.
  */
 export function Status({ recording, programmer, streams }: StatusProps) {
   const health = useHealth(5000);
@@ -116,7 +119,8 @@ export function Status({ recording, programmer, streams }: StatusProps) {
   const offline = streams.some((s) => s === "closed");
   const reconnecting = !offline && streams.some((s) => s !== "open");
   const liveState = offline ? "offline" : reconnecting ? "reconnecting" : "live";
-  const liveDot = offline ? "error.main" : reconnecting ? "warning.main" : "text.disabled";
+  const liveIcon = offline ? ErrorIcon : reconnecting ? WarnIcon : OkIcon;
+  const liveColour: Colour = offline ? "error" : reconnecting ? "warning" : "success";
 
   const devices = Object.entries(h?.devices ?? {});
   const running = devices.filter(([, d]) => d.running).length;
@@ -159,7 +163,13 @@ export function Status({ recording, programmer, streams }: StatusProps) {
           href={hashFor("programs")}
         />
       )}
-      <DotChip dotColour={liveDot} label={liveState} short={liveState === "live" ? "" : liveState} title={`streams ${liveState}`} />
+      <StatusChip
+        icon={liveIcon}
+        full={`server ${liveState}`}
+        short={liveState === "live" ? "" : liveState}
+        colour={liveColour}
+        lines={[{ name: "server", state: liveState === "live" ? "connected" : liveState === "reconnecting" ? "reconnecting…" : "not responding" }]}
+      />
       {devices.length > 0 && running < devices.length && (
         <StatusChip
           icon={PAGE_ICONS.devices}
