@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=rig.schema.json
+# DELIBERATELY BROKEN -- see ../README.md before using this file for
+# anything. This is a sensor-calibration fixture, not a working example:
+# its two "redundant" probes never agree, by design. Do not copy this shape.
+#
+# Two sensors meant to be reading the same physical quantity (redundant
+# probes on one process, the way a real rig might cross-check) -- but one
+# has a real calibration offset baked into its plant (the two `ambient`/
+# `gain` values below differ on purpose), so they steadily disagree by a
+# wide, growing margin even though EACH ONE individually sits comfortably
+# inside its own configured warn band the entire time. Neither signal
+# alone ever looks wrong; only comparing the two exposes it.
+
+name: calibration-mismatch
+
+links:
+  probe_a: { tag: sim_plant, model: lag, tau_s: 15, gain: 1.0, ambient: 45.0, initial: 45.0, noise: 0.4, seed: 31 }
+  probe_b: { tag: sim_plant, model: lag, tau_s: 15, gain: 1.3, ambient: 52.0, initial: 45.0, noise: 0.4, seed: 32 }
+
+devices:
+  probe_a:
+    driver: sim_daq
+    label: Probe A
+    poll_s: 1
+    config: { link: probe_a, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
+    signals: { temperature: { range: [0, 100], warn: [20, 70], precision: 1 } }
+  probe_b:
+    driver: sim_daq
+    label: Probe B
+    poll_s: 1
+    config: { link: probe_b, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
+    signals: { temperature: { range: [0, 100], warn: [20, 70], precision: 1 } }
+
+# No controllers, no drives: both plants just settle toward their own
+# `ambient` -- the fault is purely that they don't settle toward the SAME
+# ambient, despite being presented as two readings of one process.
