@@ -59,6 +59,17 @@ Every chip's tooltip lists the names behind the count (conditions, devices)
 and links to the page that explains it (Events, Sessions, Programs, Devices,
 Simulation).
 
+### The playback bar
+
+On a simulated rig, a second, slim row appears under the app bar once the
+open session has some history: a video-style transport (rewind, play/pause,
+fast-forward, a scrub slider from the session's start to now) over that
+session's recorded samples, read from `/api/history`. Scrubbing back or
+pausing only changes what the bar reports — it never writes a demand or a
+setpoint, so it is read-only by construction; resuming (the play button, or
+fast-forwarding past now) goes straight back to live. Hidden on a real rig,
+and on a simulated one until there is a session with some history to scrub.
+
 ## Density and theme
 
 Two toggles in the app bar, both persisted to `localStorage` and applied as

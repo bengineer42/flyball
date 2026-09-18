@@ -4,7 +4,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import FastRewindIcon from "@mui/icons-material/FastRewind";
 import FastForwardIcon from "@mui/icons-material/FastForward";
-import type { PlaybackHook } from "@flyball/react";
+import { PLAYBACK_STEP_S, type PlaybackHook } from "@flyball/react";
 
 function hms(s: number): string {
   const d = new Date(s * 1000);
@@ -27,7 +27,7 @@ export const PlaybackBar = memo(function PlaybackBar({ playback }: { playback: P
   const range = Math.max(1, nowS - startS);
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 0.25, borderBottom: 1, borderColor: "divider" }}>
-      <Tooltip title={`Rewind ${30}s`}>
+      <Tooltip title={`Rewind ${PLAYBACK_STEP_S}s`}>
         <span>
           <IconButton size="small" aria-label="rewind" onClick={() => rewind()} disabled={atS <= startS}>
             <FastRewindIcon fontSize="small" />
@@ -39,7 +39,7 @@ export const PlaybackBar = memo(function PlaybackBar({ playback }: { playback: P
           {paused ? <PlayArrowIcon fontSize="small" /> : <PauseIcon fontSize="small" />}
         </IconButton>
       </Tooltip>
-      <Tooltip title={`Fast-forward ${30}s`}>
+      <Tooltip title={`Fast-forward ${PLAYBACK_STEP_S}s`}>
         <span>
           <IconButton size="small" aria-label="fast-forward" onClick={() => fastForward()} disabled={!paused}>
             <FastForwardIcon fontSize="small" />
