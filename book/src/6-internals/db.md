@@ -91,6 +91,11 @@ once; the rig turns it into a `recording_failed` event) without touching
 control. `close` stops the thread, writes what is left, and ends the
 session.
 
+The recorder is a write-behind log of what happened: nothing on the
+delivery or control path ever reads it back, and a controller's law never
+does either — reading it back is what [Reading back](#reading-back) above
+is for.
+
 ## Bluesky documents
 
 `flyball.db.documents` walks a session and yields it as Bluesky event-model
