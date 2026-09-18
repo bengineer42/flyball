@@ -15,8 +15,12 @@ interface Line {
   state: string;
 }
 
-/** A status chip: icon, a short label (count only on narrow screens), a tooltip listing the names. */
-function StatusChip({ icon: Icon, full, short, colour, lines, href }: { icon: IconComponent; full: string; short: string; colour: Colour; lines: Line[]; href?: string }) {
+/** A status chip: icon, a short label (count only on narrow screens), a tooltip listing the names.
+ * `minWidth`: when a chip's own label text varies by state (not by open-ended data like a name),
+ * pass the widest of its own possible labels so it holds one size across its states and doesn't
+ * reflow its neighbours every time it changes -- Ben's ask, 18 Sep: chips should be a single size
+ * "within reason" (a genuinely unbounded value, like a session name, is out of scope for this). */
+function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth }: { icon: IconComponent; full: string; short: string; colour: Colour; lines: Line[]; href?: string; minWidth?: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("md"));
   const title = lines.length ? (
@@ -49,6 +53,8 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href }: { icon: Ic
         clickable={Boolean(href)}
         sx={{
           maxWidth: narrow ? 180 : 360,
+          minWidth: narrow ? undefined : minWidth,
+          justifyContent: minWidth ? "flex-start" : undefined,
           "& .MuiChip-label": { fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         }}
       />
@@ -135,6 +141,7 @@ export function Status({ recording, programmer, streams }: StatusProps) {
         full={`${conditionCount} condition${conditionCount === 1 ? "" : "s"}`}
         short={`${conditionCount}`}
         colour={alarmColour}
+        minWidth="7rem"
         lines={[
           ...active.map((c) => ({ name: `${c.device} ${c.kind}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
           ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
@@ -168,6 +175,7 @@ export function Status({ recording, programmer, streams }: StatusProps) {
         full={`server ${liveState}`}
         short={liveState === "live" ? "" : liveState}
         colour={liveColour}
+        minWidth="10.5rem"
         lines={[{ name: "server", state: liveState === "live" ? "connected" : liveState === "reconnecting" ? "reconnecting…" : "not responding" }]}
       />
       {devices.length > 0 && running < devices.length && (
