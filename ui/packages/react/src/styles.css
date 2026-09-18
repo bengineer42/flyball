@@ -472,6 +472,7 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 /* chart navigation */
 .fb-toolbar { display: inline-flex; gap: 2px; margin: 0.2rem 0 0; }
 .fb-tb { border: 1px solid var(--fb-border-1); background: var(--fb-bg-2); color: var(--fb-fg-2); font: inherit; font-size: 0.75em; padding: 0.05rem 0.45rem; border-radius: var(--fb-radius); cursor: pointer; }
+.fb-tb:disabled { opacity: 0.4; cursor: not-allowed; }
 .fb-tb:hover { color: var(--fb-fg); border-color: var(--fb-accent); }
 .fb-tb.active { background: var(--fb-accent); color: #fff; border-color: var(--fb-accent); }
 .fb-tb-menu-wrap { position: relative; display: inline-flex; }

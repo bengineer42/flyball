@@ -188,11 +188,13 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               aria-label="session name"
               title="session name"
             />
-            {dirty && (
-              <button type="button" className="fb-tb" onClick={() => void save()} disabled={saving} data-testid="save-session-name">
-                {saving ? "saving…" : "save name"}
-              </button>
-            )}
+            {/* Always rendered, greyed out until there's something to save -- an
+                appearing/disappearing button here is exactly the layout-shift bug
+                brain/UI.md's "No layout shift from a state change" convention exists for;
+                caught this one only once it was live, hence this comment. */}
+            <button type="button" className={`fb-tb${dirty && !saving ? " active" : ""}`} onClick={() => void save()} disabled={saving || !dirty} data-testid="save-session-name">
+              {saving ? "saving…" : "save name"}
+            </button>
           </span>
         ) : (
           <h3>{name}</h3>
