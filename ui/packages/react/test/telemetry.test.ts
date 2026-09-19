@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControllerOut, RigClient, StreamHandlers, Subscription } from "@flyball/client";
-import { TelemetryStore, emptyTrace, emptyControllerView } from "../src/store/telemetry.js";
+import { TelemetryStore, emptyTrace, emptyControllerView, PLAYBACK_DEBOUNCE_MS, PLAYBACK_MARGIN_S } from "../src/store/telemetry.js";
 
 /** A rig whose streams are driven by the test. */
 function fakeRig(overrides: Partial<Record<string, unknown>> = {}) {
@@ -374,5 +374,168 @@ describe("TelemetryStore", () => {
     expect(store.openStatuses()).toEqual(["open"]);
     vi.advanceTimersByTime(5000); // the cancelled offline timer must not fire late and override "open"
     expect(store.openStatuses()).toEqual(["open"]);
+  });
+
+  describe("playback", () => {
+    /** A session that started at t=0 and holds `a.x` = t for every whole second, and one controller's ticks. */
+    const session = { id: 7, startS: 0, windowS: 10 };
+    const historyRig = () => {
+      const series = vi.fn(async (_id: number, _address: string, q: { start_ns: number; end_ns: number }) => {
+        const points = [];
+        for (let t = Math.ceil(q.start_ns / 1e9); t * 1e9 < q.end_ns; t++) points.push({ offset_ns: t * 1e9, value: t });
+        return { signal: { address: "a.x" }, points, downsample: null };
+      });
+      const ticks = vi.fn(async (_id: number, _name: string, q: { start_ns: number; end_ns: number }) => {
+        const out = [];
+        for (let t = Math.ceil(q.start_ns / 1e9); t * 1e9 < q.end_ns; t++) out.push({ controller: "heaters.heater1", offset_ns: t * 1e9, mode: "regulating", correction: 0, reading: t, setpoint: 100, demand: 2 * t, expected: null, delivered_correction: null });
+        return out;
+      });
+      const fake = fakeRig({
+        series,
+        ticks,
+        sessionSignals: async () => [{ address: "a.x" }, { address: "furnace.zone1" }],
+        sessionControllers: async () => [{ name: "heaters.heater1", source: "furnace.zone1" }],
+      });
+      return { ...fake, series, ticks };
+    };
+    const flushFetch = async () => {
+      vi.advanceTimersByTime(PLAYBACK_DEBOUNCE_MS + 1);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      vi.advanceTimersByTime(20);
+    };
+
+    it("serves the window ending at `atS` from the live ring when it reaches back far enough, without a request", () => {
+      const { rig, send, series } = historyRig();
+      const store = new TelemetryStore(rig);
+      const cb = vi.fn();
+      store.subscribeLatest("a.x", cb, 0);
+      for (let t = 1; t <= 100; t++) send("samples", samples(["a", t, { x: t }]));
+      vi.advanceTimersByTime(20);
+      const calls = cb.mock.calls.length;
+      store.playback(50, session);
+      vi.advanceTimersByTime(20);
+      expect(cb.mock.calls.length).toBe(calls + 1); // woken once by the seek
+      expect(store.playbackAtS()).toBe(50);
+      expect(store.latest("a.x")).toEqual({ t: 50, v: 50 });
+      expect(store.latestValue("a.x")).toEqual({ t: 50, value: 50 });
+      const view = store.read("a.x", emptyTrace());
+      expect(view.t[0]).toBe(50 - session.windowS - PLAYBACK_MARGIN_S < 1 ? 1 : 50 - session.windowS - PLAYBACK_MARGIN_S);
+      expect(view.t[view.t.length - 1]).toBe(50);
+      expect(store.count("a.x")).toBe(view.t.length);
+      expect(series).not.toHaveBeenCalled();
+      // The live clock and the live ring carry on underneath.
+      expect(store.nowS()).toBe(100);
+      expect(store.clockS()).toBe(50);
+    });
+
+    it("live samples fill the ring silently while paused; resume wakes once and shows them with no gap", () => {
+      const { rig, send } = historyRig();
+      const store = new TelemetryStore(rig);
+      const cb = vi.fn();
+      store.subscribeLatest("a.x", cb, 0);
+      for (let t = 1; t <= 100; t++) send("samples", samples(["a", t, { x: t }]));
+      vi.advanceTimersByTime(20);
+      store.playback(50, session);
+      vi.advanceTimersByTime(20);
+      const calls = cb.mock.calls.length;
+      const version = store.version("a.x");
+      for (let t = 101; t <= 110; t++) send("samples", samples(["a", t, { x: t }]));
+      vi.advanceTimersByTime(20);
+      expect(cb.mock.calls.length).toBe(calls); // not woken: the panel shows the past
+      expect(store.latest("a.x")).toEqual({ t: 50, v: 50 });
+      store.playback(null);
+      vi.advanceTimersByTime(20);
+      expect(cb.mock.calls.length).toBe(calls + 1);
+      expect(store.version("a.x")).toBeGreaterThan(version);
+      expect(store.playbackAtS()).toBeNull();
+      expect(store.latest("a.x")).toEqual({ t: 110, v: 110 });
+      expect(store.read("a.x", emptyTrace()).t.length).toBe(110);
+    });
+
+    it("fetches the window from the session when the live ring does not reach it, once per settled seek", async () => {
+      const { rig, send, series } = historyRig();
+      const store = new TelemetryStore(rig);
+      const cb = vi.fn();
+      store.subscribeLatest("a.x", cb, 0);
+      for (let t = 500; t <= 520; t++) send("samples", samples(["a", t, { x: t }]));
+      vi.advanceTimersByTime(20);
+      // Three seeks inside the debounce: one request, for the last.
+      store.playback(300, session);
+      store.playback(200, session);
+      store.playback(100, session);
+      expect(store.latest("a.x")).toBeUndefined(); // nothing yet: not the live value
+      expect(series).not.toHaveBeenCalled();
+      await flushFetch();
+      expect(series).toHaveBeenCalledTimes(1);
+      const [, address, query] = series.mock.calls[0]!;
+      expect(address).toBe("a.x");
+      expect(query.start_ns).toBe((100 - session.windowS - PLAYBACK_MARGIN_S) * 1e9);
+      expect(query.end_ns).toBe(100 * 1e9 + 1); // half-open: the point on `atS` is kept
+      expect(store.latest("a.x")).toEqual({ t: 100, v: 100 });
+      expect(store.read("a.x", emptyTrace()).t.length).toBe(session.windowS + PLAYBACK_MARGIN_S + 1);
+      expect(cb).toHaveBeenCalled();
+    });
+
+    it("drops a fetch that lands after playback moved on, and asks nothing of a signal the session did not declare", async () => {
+      const { rig, send, series } = historyRig();
+      const store = new TelemetryStore(rig);
+      store.subscribeLatest("a.x", () => undefined, 0);
+      store.subscribeLatest("b.y", () => undefined, 0);
+      send("samples", samples(["a", 500, { x: 500 }], ["b", 500, { y: 1 }]));
+      store.playback(100, session);
+      vi.advanceTimersByTime(PLAYBACK_DEBOUNCE_MS + 1);
+      await Promise.resolve();
+      store.playback(null); // resumed while the request is in flight
+      await flushFetch();
+      expect(series).toHaveBeenCalledTimes(1);
+      expect(series.mock.calls.every(([, address]) => address === "a.x")).toBe(true); // b.y undeclared: never asked
+      expect(store.latest("a.x")).toEqual({ t: 500, v: 500 }); // live again, the stale window discarded
+      expect(store.latestValue("b.y")).toEqual({ t: 500, value: 1 });
+    });
+
+    it("a subscriber arriving while paused gets the past too, and a bool/str reads as nothing", async () => {
+      const { rig, send, series } = historyRig();
+      const store = new TelemetryStore(rig);
+      store.subscribeLatest("b.y", () => undefined, 0); // opens the socket; undeclared, so never fetched
+      send("samples", { samples: [{ node: "a", time_ns: 500e9, values: { x: 500, mode: "heating" } }] });
+      store.playback(100, session);
+      await flushFetch();
+      expect(series).toHaveBeenCalledTimes(0); // nobody asked for `a.x` yet
+      store.subscribeLatest("a.x", () => undefined, 0);
+      await flushFetch();
+      expect(series).toHaveBeenCalledTimes(1);
+      expect(store.latest("a.x")).toEqual({ t: 100, v: 100 });
+      expect(store.latestValue("a.mode")).toBeUndefined();
+      store.playback(null);
+      expect(store.latestValue("a.mode")).toEqual({ t: 500, value: "heating" });
+    });
+
+    it("a controller keeps its live state but reads and trends from the window", async () => {
+      const { rig, send, ticks } = historyRig();
+      const store = new TelemetryStore(rig);
+      store.subscribeLatest("furnace.zone1", () => undefined, 0);
+      store.subscribeController(null, () => undefined, 0);
+      for (let t = 90; t <= 100; t++) {
+        send("samples", samples(["furnace", t, { zone1: t }]));
+        send("controllers", { controllers: [controller(t, 2 * t)] });
+      }
+      vi.advanceTimersByTime(20);
+      expect(store.controller("heaters.heater1")?.reading?.value).toBe(99);
+      // Within what the live ring holds (it starts at 90; the window from 50 - 70 asks for a fetch).
+      store.playback(95, session);
+      expect(store.readController("heaters.heater1", emptyControllerView()).t).toEqual([]); // fetch pending
+      await flushFetch();
+      expect(ticks).toHaveBeenCalledTimes(1);
+      const trend = store.readController("heaters.heater1", emptyControllerView());
+      expect(trend.t[trend.t.length - 1]).toBe(95);
+      expect(trend.demand[trend.t.length - 1]).toBe(190);
+      const c = store.controller("heaters.heater1")!;
+      expect(c.reading).toEqual({ signal: "furnace.zone1", time_ns: 95e9, value: 95 });
+      expect(c.demand).toBe(200); // commanded: live
+      expect(store.controller("heaters.heater1")).toBe(c); // the same object until something changes
+      store.playback(null);
+      expect(store.controller("heaters.heater1")?.reading?.value).toBe(99);
+      expect(store.readController("heaters.heater1", emptyControllerView()).t.length).toBe(11);
+    });
   });
 });
