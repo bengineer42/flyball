@@ -363,6 +363,21 @@ describe("TelemetryStore", () => {
     expect(store.openStatuses()).toEqual(["closed"]);
   });
 
+  it("a socket the store let go closes late without leaving its stream 'connecting'", () => {
+    const { rig, open, closed } = fakeRig();
+    const store = new TelemetryStore(rig, { graceMs: 100 });
+    const stop = store.subscribeController(null, () => undefined);
+    open.get("controllers")!.onOpen?.();
+    stop();
+    vi.advanceTimersByTime(200);
+    expect(closed).toEqual(["controllers"]);
+    expect(store.status().controllers).toBe("idle");
+    open.get("controllers")!.onClose?.("closed"); // the browser's close event, after the fact
+    vi.advanceTimersByTime(5000);
+    expect(store.status().controllers).toBe("idle");
+    expect(store.openStatuses()).toEqual([]);
+  });
+
   it("a reconnect before the offline grace elapses cancels it, staying open", () => {
     const { rig, open } = fakeRig();
     const store = new TelemetryStore(rig);
@@ -380,10 +395,13 @@ describe("TelemetryStore", () => {
     /** A session that started at t=0 and holds `a.x` = t for every whole second, and one controller's ticks. */
     const session = { id: 7, startS: 0, windowS: 10 };
     const historyRig = () => {
-      const series = vi.fn(async (_id: number, _address: string, q: { start_ns: number; end_ns: number }) => {
-        const points = [];
-        for (let t = Math.ceil(q.start_ns / 1e9); t * 1e9 < q.end_ns; t++) points.push({ offset_ns: t * 1e9, value: t });
-        return { signal: { address: "a.x" }, points, downsample: null };
+      const series = vi.fn(async (_id: number, address: string, q: { start_ns: number; end_ns: number }) => {
+        const points: Array<{ offset_ns: number; value: unknown }> = [];
+        // `a.mode` is an enum the session kept only when it changed: "heating" at t=20 and nothing since; every other address is t itself.
+        if (address === "a.mode") {
+          if (q.start_ns <= 20e9 && 20e9 < q.end_ns) points.push({ offset_ns: 20e9, value: "heating" });
+        } else for (let t = Math.ceil(q.start_ns / 1e9); t * 1e9 < q.end_ns; t++) points.push({ offset_ns: t * 1e9, value: t });
+        return { signal: { address, dtype: address === "a.mode" ? "enum" : "float" }, points, downsample: null };
       });
       const ticks = vi.fn(async (_id: number, _name: string, q: { start_ns: number; end_ns: number }) => {
         const out = [];
@@ -393,7 +411,7 @@ describe("TelemetryStore", () => {
       const fake = fakeRig({
         series,
         ticks,
-        sessionSignals: async () => [{ address: "a.x" }, { address: "furnace.zone1" }],
+        sessionSignals: async () => [{ address: "a.x" }, { address: "a.mode" }, { address: "furnace.zone1" }],
         sessionControllers: async () => [{ name: "heaters.heater1", source: "furnace.zone1" }],
       });
       return { ...fake, series, ticks };
@@ -493,11 +511,11 @@ describe("TelemetryStore", () => {
       expect(store.latestValue("b.y")).toEqual({ t: 500, value: 1 });
     });
 
-    it("a subscriber arriving while paused gets the past too, and a bool/str reads as nothing", async () => {
+    it("a subscriber arriving while paused gets the past too, and a bool/str reads what the session recorded", async () => {
       const { rig, send, series } = historyRig();
       const store = new TelemetryStore(rig);
       store.subscribeLatest("b.y", () => undefined, 0); // opens the socket; undeclared, so never fetched
-      send("samples", { samples: [{ node: "a", time_ns: 500e9, values: { x: 500, mode: "heating" } }] });
+      send("samples", { samples: [{ node: "a", time_ns: 500e9, values: { x: 500, mode: "off" } }] });
       store.playback(100, session);
       await flushFetch();
       expect(series).toHaveBeenCalledTimes(0); // nobody asked for `a.x` yet
@@ -505,9 +523,18 @@ describe("TelemetryStore", () => {
       await flushFetch();
       expect(series).toHaveBeenCalledTimes(1);
       expect(store.latest("a.x")).toEqual({ t: 100, v: 100 });
-      expect(store.latestValue("a.mode")).toBeUndefined();
+      expect(store.latestValue("a.mode")).toBeUndefined(); // nobody asked for it yet
+      store.subscribeLatest("a.mode", () => undefined, 0);
+      await flushFetch();
+      // Nothing in the window [30, 100]: the row before it is still what the mode read at `atS`, so it is asked for and found.
+      expect(series.mock.calls.filter(([, a]) => a === "a.mode").map(([, , q]) => [q.start_ns, q.end_ns])).toEqual([[30e9, 100e9 + 1], [0, 30e9]]);
+      expect(store.latestValue("a.mode")).toEqual({ t: 20, value: "heating" });
+      expect(store.latest("a.mode")).toBeUndefined(); // never on a ring
+      expect(store.lastSampleS("a.mode")).toBeUndefined(); // a recorded enum has no age: the session may keep it only when it changes
+      expect(store.lastSampleS("a.x")).toBe(100);
       store.playback(null);
-      expect(store.latestValue("a.mode")).toEqual({ t: 500, value: "heating" });
+      expect(store.lastSampleS("a.mode")).toBe(500);
+      expect(store.latestValue("a.mode")).toEqual({ t: 500, value: "off" });
     });
 
     it("a controller keeps its live state but reads and trends from the window", async () => {

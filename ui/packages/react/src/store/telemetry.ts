@@ -1,4 +1,4 @@
-import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
+import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Series, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
 import { addressOf, deviceOf, setpointOf, signalsOf, isScratch } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
@@ -189,6 +189,8 @@ export class TelemetryStore {
   private playbackGen = 0;
   /** The window of history per signal and per controller, ending at `atS`. */
   private playbackRings = new Map<Address, Ring>();
+  /** The last bool/str/json value at or before `atS` per signal (a number goes on its playback ring). */
+  private playbackValues = new Map<Address, { t: number; value: Value }>();
   private playbackTicks = new Map<Address, Ring>();
   /** Signals and controllers whose window must come from the recording store, waiting for the debounce. */
   private playbackPending = new Set<Address>();
@@ -237,13 +239,29 @@ export class TelemetryStore {
 
   /**
    * The newest value of a signal whatever its dtype: a number, a bool, a
-   * string (an enum) or JSON. In playback only a number has a past (the
-   * recording store keeps numbers): a bool/str/json signal reads as nothing.
+   * string (an enum) or JSON. In playback: the last value at or before
+   * `atS` -- a number from its window, anything else from the session's
+   * series (the recording store keeps every dtype).
    */
   latestValue(address: Address): { t: number; value: Value } | undefined {
     if (this.atS === null) return this.latestValues[address];
+    const held = this.playbackValues.get(address);
+    if (held) return held;
     const point = this.latest(address);
     return point && { t: point.t, value: point.v };
+  }
+
+  /**
+   * When the signal last delivered, whatever its dtype (a number's ring, or a
+   * bool/str/json's latest value): what freshness ages. In playback, a
+   * number's last point at or before `atS`; a bool/str/json has no age there
+   * -- the session keeps some of those only when they change (a device's
+   * mode: one row, then nothing), so the row's time says when it changed,
+   * not when it was last read, and ageing it would call a live mode stale.
+   */
+  lastSampleS(address: Address): number | undefined {
+    if (this.atS === null) return this.latestValues[address]?.t ?? this.latest(address)?.t;
+    return this.latest(address)?.t;
   }
 
   /** Bumps whenever the signal gains a point (or its history lands), and on every seek and resume. */
@@ -435,10 +453,12 @@ export class TelemetryStore {
       await Promise.all(
         addresses.filter((address) => declared.has(address)).map(async (address) => {
           const series = await rig.series(session.id, address, { start_ns: startOffset, max_points: maxPoints }).catch(() => null);
-          if (!series || !series.points.length) return;
+          // Only a number belongs on a ring: the store records a bool/str/json signal too, and those used to land as NaN rows.
+          const points = series?.points.filter((p) => typeof p.value === "number") ?? [];
+          if (!points.length) return;
           (parts.get(address) ?? parts.set(address, []).get(address)!).push({
-            t: series.points.map((p) => startS + p.offset_ns / 1e9),
-            v: series.points.map((p) => p.value),
+            t: points.map((p) => startS + p.offset_ns / 1e9),
+            v: points.map((p) => p.value),
           });
         }),
       );
@@ -835,6 +855,7 @@ export class TelemetryStore {
 
   private clearPlayback(): void {
     this.playbackRings.clear();
+    this.playbackValues.clear();
     this.playbackTicks.clear();
     this.playbackPending.clear();
     this.playbackPendingTicks.clear();
@@ -873,6 +894,7 @@ export class TelemetryStore {
       const first = live?.firstT();
       if (live && first !== undefined && (first <= fromS || first <= this.playbackSession!.startS + 1)) {
         this.playbackRings.set(address, sliceRing(live, fromS, toS, this.capacity));
+        this.playbackValues.delete(address);
       } else {
         this.playbackPending.add(address);
         queued = true;
@@ -939,14 +961,32 @@ export class TelemetryStore {
     await Promise.all([
       ...addresses.map(async (address) => {
         const ring = new Ring({ width: 1, initial: 64, cap: this.capacity });
+        let last: { t: number; value: Value } | undefined;
         if (signals.has(address)) {
-          const series = await this.rig.series(session.id, address, { start_ns, end_ns, max_points: maxPoints }).catch(() => null);
+          const take = (series: Series | null) => {
+            for (const p of series?.points ?? []) {
+              const t = session.startS + p.offset_ns / 1e9;
+              // The wire says `number`, but the store keeps a bool/str/json signal's values too: those are a latest value, never a ring row.
+              const value = p.value as Value;
+              if (typeof value === "number") ring.push(t, [value]);
+              else if (value !== null) last = { t, value };
+            }
+            return series;
+          };
+          const series = take(await this.rig.series(session.id, address, { start_ns, end_ns, max_points: maxPoints }).catch(() => null));
           if (gen !== this.playbackGen) return;
-          for (const p of series?.points ?? []) ring.push(session.startS + p.offset_ns / 1e9, [p.value]);
+          // A bool/str/json with nothing in the window (a mode the session keeps only when it changes): its last
+          // row before the window is still what the signal read at `atS`. Sparse by construction, so unbounded.
+          if (series && series.signal.dtype !== "float" && !series.points.length && start_ns > 0) {
+            take(await this.rig.series(session.id, address, { start_ns: 0, end_ns: start_ns }).catch(() => null));
+            if (gen !== this.playbackGen) return;
+          }
         }
         if (gen !== this.playbackGen) return;
         // An undeclared signal gets an empty window: nothing, not the live value.
         this.playbackRings.set(address, ring);
+        if (last) this.playbackValues.set(address, last);
+        else this.playbackValues.delete(address);
         this.signalVersions.set(address, (this.signalVersions.get(address) ?? 0) + 1);
         this.mark("samples", address);
       }),
@@ -1088,7 +1128,9 @@ export class TelemetryStore {
       }
       this.flushSoon();
     };
-    const subscription = this.rig.stream(stream, {
+    // eslint-disable-next-line prefer-const
+    let subscription: Subscription;
+    subscription = this.rig.stream(stream, {
       onMessage,
       onOpen: () => {
         const s = this.sockets.get(stream);
@@ -1099,19 +1141,21 @@ export class TelemetryStore {
         this.setStatus(stream, "open");
       },
       onClose: () => {
+        // A socket this store let go (`release` after the grace) closes asynchronously, after its
+        // status went back to idle: that close is not a drop, and must not leave the stream
+        // "connecting" for good (the app bar's chip read red on every page without the stream).
+        const s = this.sockets.get(stream);
+        if (!s || s.subscription !== subscription) return;
         // Shown as "connecting" (reconnecting, amber) immediately -- the transport already has
         // a retry scheduled -- and only escalated to "closed" (offline, red) if it is still down
         // after OFFLINE_GRACE_MS, so a routine drop-and-reopen never reads as an outage.
         this.setStatus(stream, "connecting");
-        const s = this.sockets.get(stream);
-        if (s) {
-          if (s.offlineTimer !== null) clearTimeout(s.offlineTimer);
-          s.offlineTimer = setTimeout(() => {
-            const still = this.sockets.get(stream);
-            if (still) still.offlineTimer = null;
-            if (this.statuses[stream] !== "open") this.setStatus(stream, "closed");
-          }, OFFLINE_GRACE_MS);
-        }
+        if (s.offlineTimer !== null) clearTimeout(s.offlineTimer);
+        s.offlineTimer = setTimeout(() => {
+          const still = this.sockets.get(stream);
+          if (still) still.offlineTimer = null;
+          if (this.statuses[stream] !== "open") this.setStatus(stream, "closed");
+        }, OFFLINE_GRACE_MS);
       },
     });
     this.sockets.set(stream, { subscription, count: 1, closer: null, offlineTimer: null });

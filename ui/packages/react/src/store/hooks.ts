@@ -236,13 +236,13 @@ export function useFreshness(address: Address | undefined, periodS?: number | nu
   const period = () => (periodS !== undefined ? periodS : address === undefined ? undefined : store.periodOf(address));
   // The snapshot is the stale age in whole seconds, or -1 while fresh: only that changing re-renders.
   const age = useSyncExternalStore(subscribe, () => {
-    const last = address === undefined ? undefined : store.latest(address)?.t;
+    const last = address === undefined ? undefined : store.lastSampleS(address);
     const now = store.clockS(); // `atS` in playback: a point just before it is fresh, whatever the live clock says
     if (last === undefined || now === null) return -1;
     const ageS = now - last;
     return ageS > staleAfterS(period()) ? Math.round(ageS) : -1;
   });
-  const last = address === undefined ? null : (store.latest(address)?.t ?? null);
+  const last = address === undefined ? null : (store.lastSampleS(address) ?? null);
   const now = store.clockS();
   const resolved = period() ?? null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -278,7 +278,7 @@ export function useAlarmSummary(signals: ReadonlyArray<Pick<SignalOut, "address"
     const now = store.clockS();
     for (const s of signals) {
       const point = store.latest(s.address);
-      counts[alarmLevel(point?.v, s, { periodS: store.periodOf(s.address), lastSampleS: point?.t ?? null, nowS: now })]++;
+      counts[alarmLevel(point?.v, s, { periodS: store.periodOf(s.address), lastSampleS: store.lastSampleS(s.address) ?? null, nowS: now })]++;
     }
     return `${counts.ok}:${counts.warn}:${counts.alarm}:${counts.stale}`;
   });
