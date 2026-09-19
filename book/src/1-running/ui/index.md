@@ -75,8 +75,9 @@ from the telemetry store, which cuts the window from what it already holds
 (up to an hour) or reads it from the session's `/api/history` once a seek
 settles — a panel never knows the difference, and nothing moves or changes
 size when the page flips between live and history. A signal with no sample
-in that window shows a blank value, not a stale or alarm state; a bool or
-enum signal (a mode) shows blank too, since only numbers are recorded.
+in that window shows a blank value, not a stale or alarm state; a bool, enum
+or JSON signal (a mode, a device's blend) shows what was recorded at that
+moment, read from the session.
 
 What is **not** a sample stays live: a controller's mode, target and demand,
 a demand's write state, device runs and conditions, program state, waits and
