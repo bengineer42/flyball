@@ -93,7 +93,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
               Sign in
             </Button>
           </Stack>
-          {passkeysSupported() && (
+          {info?.passkey && passkeysSupported() && (
             <>
               <Divider>or</Divider>
               <Button
@@ -132,7 +132,7 @@ export function AuthChip({ onSignIn }: { onSignIn(): void }) {
           <Chip variant="outlined" icon={<LockOpenOutlinedIcon fontSize="small" />} label={narrow ? "" : "signed in"} sx={compact} onClick={(e) => setAnchor(e.currentTarget)} data-testid="auth-chip" />
         </Tooltip>
         <Menu open={anchor !== null} anchorEl={anchor} onClose={() => setAnchor(null)}>
-          {passkeysSupported() && (
+          {info?.passkey && passkeysSupported() && (
             <MenuItem
               onClick={() => {
                 setAnchor(null);

@@ -23,7 +23,7 @@ reachable.
 
 | | route | |
 | --- | --- | --- |
-| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token}`: how this caller got in (`anonymous`, `password`, `token`), what they may do (`none`, `read`, `operate`), what anyone may do, and which of a password and a token the runner has |
+| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token, passkey}`: how this caller got in (`anonymous`, `password`, `token`, `passkey`), what they may do (`none`, `read`, `operate`), what anyone may do, and which doors the runner has -- `passkey` says a door exists, never whether one is registered |
 | `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` |
 | `POST` | `/api/auth/logout` | clears the cookie |
 
@@ -31,12 +31,11 @@ Started with `--root-path /p`, every path below sits under `/p`
 (`/p/api/health`, `/p/ws/samples`, `/p/mcp/read`); anything not under it
 is `404` (a socket is closed with 4404).
 
-With a `runner.auth.password`, a person may also register **passkeys**:
-each one grants the same `operate` level as a bearer token, additively --
-registering one needs an already-authenticated caller (an existing login,
-or an open, anonymous-operate runner), there is no separate bootstrap.
-`/api/auth/passkey/login*` is how one signs in with a passkey instead of
-the password.
+With any door open at all (a password or a token configured), a person may
+also register **passkeys**: each one grants the same `operate` level as a
+bearer token, additively -- registering one needs an already-authenticated
+caller, there is no separate bootstrap. `/api/auth/passkey/login*` is how
+one signs in with a passkey instead of the password.
 
 | | | |
 | --- | --- | --- |

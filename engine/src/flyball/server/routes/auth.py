@@ -30,6 +30,10 @@ class AuthOut(BaseModel):
     anonymous: Anonymous = Field(description="What a caller who has not signed in may do.")
     password: bool = Field(description="Whether the runner has a password to sign in with.")
     token: bool = Field(description="Whether the runner has a bearer token for machines.")
+    passkey: bool = Field(
+        description="Whether this runner takes passkey sign-in at all (a door exists; say "
+        "nothing about whether one is registered yet -- that would leak it to a stranger)."
+    )
 
 
 class Login(BaseModel):
@@ -42,9 +46,14 @@ def _auth(request: Request) -> Auth | None:
 
 def _out(request: Request) -> AuthOut:
     auth = _auth(request)
-    if auth is None:  # no password, no token: the runner is open
+    if auth is None:  # no password, no token: the runner is open, so no door to register one at
         return AuthOut(
-            scheme="anonymous", level="operate", anonymous="none", password=False, token=False
+            scheme="anonymous",
+            level="operate",
+            anonymous="none",
+            password=False,
+            token=False,
+            passkey=False,
         )
     principal: Principal = request.state.auth
     return AuthOut(
@@ -53,6 +62,7 @@ def _out(request: Request) -> AuthOut:
         anonymous=auth.config.anonymous,
         password=auth.config.password is not None,
         token=auth.config.token is not None,
+        passkey=True,  # not config-gated like password/token -- any signed-in caller can add one
     )
 
 

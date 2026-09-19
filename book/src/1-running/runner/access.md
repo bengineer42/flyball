@@ -51,7 +51,43 @@ passwords in a minute from one address are refused for the rest of it.
 The runner's own MCP mount still works on a password-only runner (it uses a
 token of its own, never shown); a model connecting from outside needs the
 runner to have `--token` as well. `GET /api/runner` reports none of these
-values; `GET /api/auth` says which the runner has.
+values; `GET /api/auth` says which the runner has (`password`, `token`,
+`passkey`) -- never whether one is actually registered, only whether the
+door exists, so a stranger cannot learn that from an unauthenticated call.
+
+## Passkeys
+
+A signed-in person (with a password, a token, or `auth.anonymous: read`
+already inside the door) may add a passkey from the UI's account menu
+("Manage passkeys") and sign in with it afterwards -- 1Password, a phone,
+a YubiKey, whatever the browser's own WebAuthn UI offers. Additive to
+password/token, never a replacement: registering one needs an
+already-authenticated session, so there is no separate passkey bootstrap.
+A passkey grants the same `operate` level a token does; several passkeys
+on one runner are equal, not tiered by whose they are.
+
+The runner is the WebAuthn relying party, keyed off whatever hostname the
+browser reached it under -- a runner served under more than one hostname
+(a raw IP and a proxied domain, say) needs a separate passkey registered
+per name, since a credential is bound to the RP ID it was made for. **The
+browser will not attempt the ceremony at all unless the page is served
+from `localhost` or over HTTPS** -- WebAuthn's own secure-context rule, not
+a flyball restriction; a plain-HTTP runner reached by IP has no passkey
+button in the UI at all.
+
+Passkey credentials live in the runner's own sqlite store alongside
+sessions and readings. A runner started without one (`--store` pointed
+nowhere writable, or none configured) still accepts registration --
+credentials are then held in the process's own memory instead, silently:
+gone on the next restart, not persisted anywhere. The UI's passkey manager
+shows a discreet warning when this is the case, so it is a visible choice,
+not a surprise. Revoking a passkey is immediate and does not need the
+credential itself present.
+
+A sign-in attempt with no passkey registered on that runner fails
+silently in the browser's own UI (a `NotAllowedError` the page treats as
+"cancelled, nothing to say") -- expected, not a bug, but there is
+currently no on-page message beyond the button going idle again.
 
 ## The password, from the Go CLI
 

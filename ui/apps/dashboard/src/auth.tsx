@@ -61,7 +61,11 @@ function tokenFromLocation(): string | null {
   return fromQuery;
 }
 
-const OPEN: Pick<AuthInfo, "password" | "token"> = { password: false, token: false };
+const OPEN: Pick<AuthInfo, "password" | "token" | "passkey"> = {
+  password: false,
+  token: false,
+  passkey: false,
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Its own client: the one in <RigProvider> below is rebuilt on every sign in, and this one must outlive it.

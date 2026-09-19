@@ -682,8 +682,10 @@ export interface RunnerInfo {
  * `level` is what this caller may do -- `none` (sign in first), `read` (an
  * anonymous reader on a runner with `auth.anonymous: read`), `operate`.
  * `scheme` is how they got in: a session cookie (`password` or `passkey`), a
- * bearer `token`, or not at all. `password` / `token` say which the runner
- * has; with neither it is open and `level` is `operate` for everyone.
+ * bearer `token`, or not at all. `password` / `token` / `passkey` say which
+ * the runner takes at all -- not whether one is registered yet, that would
+ * leak it to a stranger; with none of the three it is open and `level` is
+ * `operate` for everyone.
  */
 export interface AuthInfo {
   scheme: "anonymous" | "password" | "token" | "passkey";
@@ -691,6 +693,7 @@ export interface AuthInfo {
   anonymous: "none" | "read";
   password: boolean;
   token: boolean;
+  passkey: boolean;
 }
 
 /** A registered passkey, as `GET /api/auth/passkey` and registration report it. */

@@ -93,6 +93,7 @@ def test_mcp_is_behind_it_but_the_docs_and_the_door_are_not(secured):
         "anonymous": "none",
         "password": False,
         "token": True,
+        "passkey": True,
     }
 
 
@@ -129,7 +130,9 @@ def test_no_password_and_no_token_means_open(rig):
     try:
         with TestClient(create_app()) as http:
             assert http.get("/api/health").status_code == 200
-            assert http.get("/api/auth").json()["level"] == "operate"
+            out = http.get("/api/auth").json()
+            assert out["level"] == "operate"
+            assert out["passkey"] is False, "no door open, so no passkey door either"
             assert http.post("/api/auth/login", json={"secret": "x"}).status_code == 200
     finally:
         set_rig(None)
@@ -142,7 +145,9 @@ def test_no_password_and_no_token_means_open(rig):
 
 def test_login_sets_a_cookie_that_gets_everything_and_logout_clears_it(password):
     assert password.get("/api/health").status_code == 401
-    assert password.get("/api/auth").json()["password"] is True
+    out = password.get("/api/auth").json()
+    assert out["password"] is True
+    assert out["passkey"] is True, "a door is open, so a signed-in caller may add a passkey"
     wrong = password.post("/api/auth/login", json={"secret": "hunter3"})
     assert wrong.status_code == 401 and COOKIE not in password.cookies
     right = password.post("/api/auth/login", json={"secret": "hunter2"})
@@ -201,6 +206,7 @@ def test_anyone_may_read_but_only_a_login_may_operate(public):
         "anonymous": "read",
         "password": True,
         "token": False,
+        "passkey": True,
     }
     refused = public.post("/api/recording/start", json={})
     assert refused.status_code == 401 and "Sign in" in refused.json()["detail"]

@@ -19,6 +19,7 @@ relative to the first rig file's directory.
 | `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with neither may do: nothing, or every `GET` and stream |
 | `auth.session` | duration | `12h` | `--session`, `FLYBALL_SESSION` | how long a login lasts |
 | `auth.secret` | string | a key file beside the store | | what signs sessions; set it to keep sessions across machines or without a store |
+| *(no `auth.passkey` key)* | | | | passkeys are not config -- any door open at all (`auth.password` or `auth.token`) lets a signed-in person register one from the UI; see [passkeys](../1-running/runner/access.md#passkeys) |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
 | `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
