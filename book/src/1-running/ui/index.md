@@ -12,7 +12,7 @@ with no front-end change. This section is what the app does, a page per area:
 | [Controllers](controllers.md) | the faceplate: reading, target, output, trends, the law |
 | [Charts and the Graph page](charts.md) | Inputs, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
 | [Sessions](sessions.md) | recording, the rolling record, keep, pin, export, delete |
-| [The Rig page](rig.md) | the running document, versions and restore, save, restart, connect a model |
+| [The Config page](rig.md) | the running document, versions and restore, save, restart, connect a model |
 | [Dashboards](../dashboards.md) | saved and generated layouts of widgets |
 
 The visual language is *Design rationale* below and `ui/README.md`.
@@ -29,8 +29,8 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
-| **Rig** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
+| **Config** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. Last in the navigation; the route is still `#/rig` |
 
 ## The app bar
 

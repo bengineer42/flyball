@@ -1,6 +1,6 @@
 # Building a rig while it runs
 
-A rig file is one way to populate a rig; the API is the other. This page is the composition API from the operator's side; the routes are [Composition](../../4-server/api.md#composition), the UI for it [The Rig page](../ui/rig.md).
+A rig file is one way to populate a rig; the API is the other. This page is the composition API from the operator's side; the routes are [Composition](../../4-server/api.md#composition), the UI for it [The Config page](../ui/rig.md).
 
 A runner needs no file at all:
 

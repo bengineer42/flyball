@@ -2,18 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
 export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "rig" | "programs" | "events" | "sessions" | "simulation";
-/** The pages in the navigation; `inputs` only exists as the signal detail page (`#/inputs/<address>`) reached from readouts. Dashboards leads (spec §2: dashboard identity comes first), Overview second. */
+/** The pages in the navigation; `inputs` only exists as the signal detail page (`#/inputs/<address>`) reached from readouts. Dashboards leads (spec §2: dashboard identity comes first), Overview second; Config (`rig`: the running rig's document, versions and the runner) last. */
 export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
   { id: "overview", label: "Overview" },
   { id: "devices", label: "Devices" },
-  { id: "rig", label: "Rig" },
   { id: "graph", label: "Graph" },
   { id: "controllers", label: "Controllers" },
   { id: "programs", label: "Programs" },
   { id: "events", label: "Events" },
   { id: "sessions", label: "Sessions" },
   { id: "simulation", label: "Simulation" },
+  { id: "rig", label: "Config" },
 ];
 const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "inputs"];
 

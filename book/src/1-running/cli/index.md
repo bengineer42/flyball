@@ -14,7 +14,7 @@ pages point back here.
 | [Controllers and tuning](controllers.md) | `controllers`, regulate / manual (via the API today), tunings | [Controllers](../ui/controllers.md), [Tuning](../autotune.md) |
 | [Programs and waits](programs.md) | `program check / run / status / stop`, `waits`, `wait fire / interrupt` | [Programs](../programs/writing.md#running-one) |
 | [Sessions and export](sessions.md) | `sessions`, `export`, downloads by URL | [Sessions](../ui/sessions.md) |
-| [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, save / versions / restart (via the API today) | [The Rig page](../ui/rig.md) |
+| [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, save / versions / restart (via the API today) | [The Config page](../ui/rig.md) |
 | [Without a rig](offline.md) | `rig check`, `rig schema`, `program schema`, `new` | -- |
 
 It talks to one runner directly, or through a `flyballd` daemon by name --
