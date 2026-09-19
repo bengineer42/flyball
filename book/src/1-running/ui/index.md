@@ -64,11 +64,27 @@ Simulation).
 On a simulated rig, a second, slim row appears under the app bar once the
 open session has some history: a video-style transport (rewind, play/pause,
 fast-forward, a scrub slider from the session's start to now) over that
-session's recorded samples, read from `/api/history`. Scrubbing back or
-pausing only changes what the bar reports — it never writes a demand or a
-setpoint, so it is read-only by construction; resuming (the play button, or
-fast-forwarding past now) goes straight back to live. Hidden on a real rig,
-and on a simulated one until there is a session with some history to scrub.
+session's recorded samples. Hidden on a real rig, and on a simulated one
+until there is a session with some history to scrub.
+
+Paused, or scrubbed back, every page shows the rig **as it was at that
+moment**: charts end there and show the page's window before it, readouts,
+gauges and the Overview tiles hold the last sample at or before it, a
+controller faceplate's reading and trends are from then. The samples come
+from the telemetry store, which cuts the window from what it already holds
+(up to an hour) or reads it from the session's `/api/history` once a seek
+settles — a panel never knows the difference, and nothing moves or changes
+size when the page flips between live and history. A signal with no sample
+in that window shows a blank value, not a stale or alarm state; a bool or
+enum signal (a mode) shows blank too, since only numbers are recorded.
+
+What is **not** a sample stays live: a controller's mode, target and demand,
+a demand's write state, device runs and conditions, program state, waits and
+events. The bar is the only sign of the paused state — an amber `HH:MM:SS ·
+read-only` stamp and a faint tint; there is no badge on the panels. Scrubbing
+never writes a demand or a setpoint, so it is read-only by construction;
+resuming (the play button, or fast-forwarding past now) goes straight back to
+live with no gap, since the live samples kept arriving underneath.
 
 ## Density and theme
 
