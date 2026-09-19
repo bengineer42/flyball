@@ -101,30 +101,6 @@ const ColorModeContext = createContext<{ mode: PaletteMode; toggle(): void }>({ 
 
 export const useColorMode = () => useContext(ColorModeContext);
 
-export type Density = "comfortable" | "compact";
-const DENSITY_KEY = "flyball.density";
-
-const readDensity = (): Density => {
-  try {
-    return window.localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable";
-  } catch {
-    return "comfortable";
-  }
-};
-
-const writeDensity = (d: Density) => {
-  try {
-    window.localStorage.setItem(DENSITY_KEY, d);
-  } catch {
-    /* not persisted */
-  }
-};
-
-const DensityContext = createContext<{ density: Density; toggle(): void }>({ density: "comfortable", toggle() {} });
-
-/** `comfortable`/`compact`, stored beside the theme; sets `data-density` on `<html>` (DESIGN-SPEC.md §2 "Density"). */
-export const useDensity = () => useContext(DensityContext);
-
 /** Theme + baseline + the stored light/dark choice (system preference until the user picks). */
 export function AppTheme({ children }: { children: ReactNode }) {
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
@@ -147,28 +123,16 @@ export function AppTheme({ children }: { children: ReactNode }) {
     [mode],
   );
 
-  const [density, setDensity] = useState<Density>(readDensity);
-  if (typeof document !== "undefined") document.documentElement.setAttribute("data-density", density);
-  const densityCtx = useMemo(
-    () => ({
-      density,
-      toggle() {
-        const next: Density = density === "comfortable" ? "compact" : "comfortable";
-        setDensity(next);
-        writeDensity(next);
-      },
-    }),
-    [density],
-  );
+  // One density. The attribute stays because `styles.css` and `widgets/size.ts`'s `headPx()`
+  // read it; the compact setting and its toggle were removed on 19 Sep 2026.
+  if (typeof document !== "undefined") document.documentElement.setAttribute("data-density", "comfortable");
 
   return (
     <ColorModeContext.Provider value={ctx}>
-      <DensityContext.Provider value={densityCtx}>
-        <ThemeProvider theme={theme}>
-          <CssBaseline enableColorScheme />
-          {children}
-        </ThemeProvider>
-      </DensityContext.Provider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline enableColorScheme />
+        {children}
+      </ThemeProvider>
     </ColorModeContext.Provider>
   );
 }

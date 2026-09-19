@@ -72,15 +72,15 @@ and on a simulated one until there is a session with some history to scrub.
 
 ## Density and theme
 
-Two toggles in the app bar, both persisted to `localStorage` and applied as
-attributes on `<html>` so the whole app (MUI and the plain-CSS `packages/react`
-components alike) reads them from the same CSS custom properties:
+One toggle in the app bar, **theme** (`flyball.theme` in `localStorage`):
+light/dark, defaulting to the OS preference (`prefers-color-scheme`) until
+chosen explicitly. It is applied as `data-theme` on `<html>` so the whole app
+(MUI and the plain-CSS `packages/react` components alike) reads it from the
+same CSS custom properties.
 
-- **Theme** (`flyball.theme`): light/dark, defaulting to the OS preference
-  (`prefers-color-scheme`) until chosen explicitly (`data-theme`).
-- **Density** (`flyball.density`): comfortable/compact (`data-density`),
-  changing tile gaps, a tile's title-row height and a readout's minimum
-  height.
+Density is fixed at comfortable (`data-density="comfortable"` on `<html>`,
+which sets tile gaps, a tile's title-row height and a readout's minimum
+height); there is no compact setting and no toggle.
 
 ## Signing in
 
