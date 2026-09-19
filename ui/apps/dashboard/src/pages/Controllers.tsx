@@ -105,10 +105,12 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
 
 /**
  * Make a controller in four steps: the writable signal to drive (the
- * target), a publishing signal to regulate (the source), the law, and the
- * feedforward that maps the setpoint into the target's unit (defaulted from
- * the units, as the rig would). Sources another controller already
- * regulates and targets already driven are disabled. Opened either from the
+ * target, labelled "Actuator"), a publishing signal to regulate (the
+ * source, labelled "Sensor"), the law, and the feedforward that maps the
+ * setpoint into the target's unit (defaulted from the units, as the rig
+ * would). Sources another controller already regulates and targets already
+ * driven are disabled; sources in the target's own unit that nothing
+ * regulates yet are listed first as "Suggested". Opened either from the
  * page bar (any target) or from an undriven signal's own card, which
  * preselects it (`initialTarget`) and jumps straight to the source step.
  */
@@ -151,16 +153,30 @@ const AddControllerDialog = memo(function AddControllerDialog({
     }
   }, [open, initialTarget]);
 
-  // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
-  const byDevice = useMemo(() => {
-    const groups: Record<string, SignalChoice[]> = {};
-    for (const c of schema?.sources ?? []) (groups[c.device] ??= []).push(c);
-    return groups;
-  }, [schema]);
-
   const source = useMemo(() => schema?.sources.find((c) => c.address === draft.source) ?? null, [schema, draft.source]);
   const demandUnit = draft.target?.unit ?? null;
   const unitsAgree = source !== null && demandUnit === source.unit;
+
+  // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
+  // Ranked once a target is chosen: a "Suggested" group (the target's own unit, not yet regulated)
+  // above "All signals"; one flat list when there is no target or nothing matches -- never an empty
+  // Suggested group.
+  const sourceGroups = useMemo(() => {
+    const group = (choices: SignalChoice[]) => {
+      const groups: Record<string, SignalChoice[]> = {};
+      for (const c of choices) (groups[c.device] ??= []).push(c);
+      return groups;
+    };
+    const all = schema?.sources ?? [];
+    const suggested = demandUnit === null ? [] : all.filter((c) => c.unit === demandUnit && !schema?.regulated[c.address]);
+    if (suggested.length === 0) return [{ title: null, byDevice: group(all) }];
+    const rest = all.filter((c) => !suggested.includes(c));
+    return [
+      { title: "Suggested", byDevice: group(suggested) },
+      { title: "All signals", byDevice: group(rest) },
+    ];
+  }, [schema, demandUnit]);
+  const hasSources = (schema?.sources.length ?? 0) > 0;
   // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
   const feedforward = draft.feedforward ?? defaultFeedforward(draft.target, source);
   const feedforwardSchema = useMemo(
@@ -198,10 +214,13 @@ const AddControllerDialog = memo(function AddControllerDialog({
           <Stepper activeStep={active} orientation="vertical" nonLinear>
             <Step completed={draft.target !== null}>
               <StepLabel onClick={() => setActive(0)} sx={{ cursor: "pointer" }}>
-                Target{draft.target && active !== 0 ? `: ${draft.target.address}` : ""}
+                Actuator{draft.target && active !== 0 ? `: ${draft.target.address}` : ""}
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  the writable signal being commanded
+                </Typography>
               </StepLabel>
               <StepContent>
-                {schema.targets.length === 0 && <Typography color="text.secondary">This rig has no writable signal to drive.</Typography>}
+                {schema.targets.length === 0 && <Typography color="text.secondary">This rig has no writable signal to command.</Typography>}
                 <List dense disablePadding>
                   {schema.targets.map((t) => {
                     const taken = schema.driven[t.address];
@@ -228,43 +247,60 @@ const AddControllerDialog = memo(function AddControllerDialog({
             </Step>
             <Step completed={draft.source !== null}>
               <StepLabel onClick={() => draft.target && setActive(1)} sx={{ cursor: draft.target ? "pointer" : "default" }}>
-                Source{draft.source && active !== 1 ? `: ${draft.source}` : ""}
+                Sensor{draft.source && active !== 1 ? `: ${draft.source}` : ""}
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  the published signal used to correct it
+                </Typography>
               </StepLabel>
               <StepContent>
-                {Object.keys(byDevice).length === 0 && <Typography color="text.secondary">{draft.target ? "No signal on this rig publishes." : "Pick a target first."}</Typography>}
-                <List dense disablePadding>
-                  {Object.entries(byDevice).map(([device, choices]) => (
-                    <li key={device}>
-                      <ul style={{ padding: 0 }}>
-                        <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
-                          {deviceLabel(device)}
-                          {deviceLabel(device) !== device && (
-                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
-                              {device}
-                            </Typography>
-                          )}
-                        </ListSubheader>
-                        {choices.map((c) => {
-                          const by = schema.regulated[c.address];
-                          return (
-                            <ListItemButton
-                              key={c.address}
-                              selected={draft.source === c.address}
-                              disabled={Boolean(by)}
-                              onClick={() => {
-                                patch({ source: c.address, feedforward: null });
-                                setActive(2);
-                              }}
-                              data-source={c.address}
-                            >
-                              <ListItemText primary={`${choiceLabel(c)} · ${c.unit}`} secondary={`${c.address}${c.dimension ? ` · ${c.dimension}` : ""}${by ? ` · regulated by ${by}` : ""}`} />
-                            </ListItemButton>
-                          );
-                        })}
-                      </ul>
-                    </li>
-                  ))}
-                </List>
+                {!hasSources && <Typography color="text.secondary">{draft.target ? "No signal on this rig publishes." : "Pick an actuator first."}</Typography>}
+                {sourceGroups.map(({ title, byDevice }) => (
+                  <Box key={title ?? "all"} data-testid={title === null ? "sources" : `sources-${title.split(" ")[0]!.toLowerCase()}`}>
+                    {title !== null && (
+                      <Typography variant="overline" component="div" color={title === "Suggested" ? "primary" : "text.secondary"} sx={{ mt: title === "Suggested" ? 0 : 1.5 }}>
+                        {title}
+                        {title === "Suggested" && (
+                          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1, textTransform: "none", letterSpacing: 0 }}>
+                            in {demandUnit}, the actuator's unit, and not yet regulated
+                          </Typography>
+                        )}
+                      </Typography>
+                    )}
+                    <List dense disablePadding>
+                      {Object.entries(byDevice).map(([device, choices]) => (
+                        <li key={device}>
+                          <ul style={{ padding: 0 }}>
+                            <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
+                              {deviceLabel(device)}
+                              {deviceLabel(device) !== device && (
+                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
+                                  {device}
+                                </Typography>
+                              )}
+                            </ListSubheader>
+                            {choices.map((c) => {
+                              const by = schema.regulated[c.address];
+                              return (
+                                <ListItemButton
+                                  key={c.address}
+                                  selected={draft.source === c.address}
+                                  disabled={Boolean(by)}
+                                  onClick={() => {
+                                    patch({ source: c.address, feedforward: null });
+                                    setActive(2);
+                                  }}
+                                  data-source={c.address}
+                                >
+                                  <ListItemText primary={`${choiceLabel(c)} · ${c.unit}`} secondary={`${c.address}${c.dimension ? ` · ${c.dimension}` : ""}${by ? ` · regulated by ${by}` : ""}`} />
+                                </ListItemButton>
+                              );
+                            })}
+                          </ul>
+                        </li>
+                      ))}
+                    </List>
+                  </Box>
+                ))}
               </StepContent>
             </Step>
             <Step completed={lawReady && draft.lawChoice !== "none"}>
@@ -324,7 +360,7 @@ const AddControllerDialog = memo(function AddControllerDialog({
               </StepLabel>
               <StepContent>
                 <Stack spacing={1.5}>
-                  {!(draft.target && source) && <Typography color="text.secondary">Pick a target and a source first.</Typography>}
+                  {!(draft.target && source) && <Typography color="text.secondary">Pick an actuator and a sensor first.</Typography>}
                   {draft.target && source && (
                     <Typography variant="body2" color="text.secondary" data-testid="feedforward-help">
                       {unitsAgree
