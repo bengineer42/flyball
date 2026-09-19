@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
-import { useRig } from "../provider.js";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRig, useTelemetry } from "../provider.js";
 import { useQuery } from "./useQuery.js";
 import { useNowS } from "../store/hooks.js";
 
@@ -34,28 +34,40 @@ export interface PlaybackHook {
   error: Error | undefined;
 }
 
+export interface PlaybackOptions {
+  /** Seconds of history the widest chart on the page shows: what a paused panel needs behind `atS`. Default 300. */
+  windowS?: number;
+}
+
 /**
  * A video-style transport over the rig's own recorded history: play (live),
  * pause, rewind, fast-forward and scrub. Bounds (`sessionId`/`startS`) come
- * from `/api/recording`; a consumer reads the samples themselves from
- * `/api/history` on `atS` -- no new recorder or storage work, that already
- * keeps a rolling record of everything, this only reads it back. Read-only
- * by construction: nothing here writes a demand or a setpoint, so scrubbing
- * back never risks touching the running rig.
- *
- * `atS`/`paused` are the extent of what this hook decides; which widgets
- * honour them (fetch `rig.series(sessionId, address, {start_ns, end_ns})`
- * around `atS` instead of reading the live store) is the next piece, not
- * built here yet -- see brain/tasks/sim-scrubber.md.
+ * from `/api/recording`; the samples come from the telemetry store's
+ * `playback(atS, session)`, which serves every reader of samples (charts,
+ * readouts, gauges, faceplates' PV and trends) a window of history ending
+ * at `atS` -- from what it already holds, or from `/api/history` -- so no
+ * panel knows the difference. No new recorder or storage work: the runner
+ * already keeps a rolling record of everything, this only reads it back.
+ * Read-only by construction: nothing here writes a demand or a setpoint,
+ * so scrubbing back never risks touching the running rig. Commanded
+ * values, program state and events are not samples and stay live.
  */
-export function usePlayback(): PlaybackHook {
+export function usePlayback({ windowS = 300 }: PlaybackOptions = {}): PlaybackHook {
   const rig = useRig();
+  const store = useTelemetry();
   const nowS = useNowS();
   const recording = useQuery(() => rig.recording(), [rig], { refreshMs: 5000 });
   const sessionId = recording.data?.id;
   const startS = recording.data ? recording.data.start_ns / 1e9 : undefined;
 
   const [atS, setAtS] = useState<number | null>(null); // null: live
+
+  // The store follows this hook: paused, it serves the window ending at `atS`; live, the rings. Unmounting resumes.
+  useEffect(() => {
+    if (atS === null || sessionId === undefined || startS === undefined) store.playback(null);
+    else store.playback(atS, { id: sessionId, startS, windowS });
+  }, [store, atS, sessionId, startS, windowS]);
+  useEffect(() => () => store.playback(null), [store]);
 
   const clamp = useCallback(
     (t: number) => Math.min(nowS, Math.max(startS ?? t, t)),

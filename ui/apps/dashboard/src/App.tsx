@@ -152,7 +152,8 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // stack and the Events page itself, so they never disagree about what's unread.
   const { events: liveEvents } = useEvents(500);
   const unreadEvents = useUnreadEvents(liveEvents);
-  const playback = usePlayback();
+  // Paused, the store serves the page the past instead of the live rings: as much of it as the widest chart shows.
+  const playback = usePlayback({ windowS });
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first

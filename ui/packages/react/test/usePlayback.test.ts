@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { Request, Response, StreamHandlers, Subscription, Transport } from "@flyball/client";
-import { RigProvider } from "../src/provider.js";
+import { RigProvider, useTelemetry } from "../src/provider.js";
 import { usePlayback, PLAYBACK_STEP_S } from "../src/hooks/usePlayback.js";
 
 /** A transport whose only route this hook needs (`GET /api/recording`) returns a fixed session;
@@ -98,5 +98,23 @@ describe("usePlayback", () => {
     const { result } = await renderPlayback(1_000_000 - 3600);
     act(() => result.current.seek(0));
     expect(result.current.atS).toBeCloseTo(1_000_000 - 3600, 0);
+  });
+
+  it("drives the store: a seek puts it in playback at `atS` for the session; resume and unmount take it back to live", async () => {
+    const transport = fakeTransport(1_000_000 - 3600);
+    const rendered = renderHook(() => ({ playback: usePlayback({ windowS: 120 }), store: useTelemetry() }), {
+      wrapper: ({ children }) => createElement(RigProvider, { transport }, children),
+    });
+    await flush();
+    const { result, unmount } = rendered;
+    expect(result.current.store.playbackAtS()).toBeNull();
+    act(() => result.current.playback.rewind());
+    expect(result.current.store.playbackAtS()).toBeCloseTo(1_000_000 - PLAYBACK_STEP_S, 0);
+    act(() => result.current.playback.resume());
+    expect(result.current.store.playbackAtS()).toBeNull();
+    act(() => result.current.playback.seek(1_000_000 - 1800));
+    expect(result.current.store.playbackAtS()).toBeCloseTo(1_000_000 - 1800, 0);
+    unmount();
+    expect(result.current.store.playbackAtS()).toBeNull();
   });
 });
