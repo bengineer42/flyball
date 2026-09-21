@@ -16,15 +16,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, TypeAdapter
 
-from flyball.control import (
-    ControlLaws,
-    ControlLawView,
-    Controller,
-    ControllerState,
-    ControllerView,
-    FeedforwardConfig,
-    SetPointGenerator,
-)
 from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import (
     CommandSpec,
@@ -40,6 +31,15 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.foundation.time import Clock
+from flyball.model import (
+    ControlLaws,
+    ControlLawView,
+    Controller,
+    ControllerState,
+    ControllerView,
+    FeedforwardConfig,
+    SetPointGenerator,
+)
 from flyball.rig import DeviceRun
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)

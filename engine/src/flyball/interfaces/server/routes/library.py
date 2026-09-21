@@ -27,6 +27,7 @@ from flyball.interfaces.server.deps import (
 from flyball.interfaces.server.dialect import StepError, normalise_program, program_from_document
 from flyball.interfaces.server.formats import MEDIA_TYPES, FormatError, detect, dump, parse
 from flyball.interfaces.server.routes.program import ProgramCheck
+from flyball.library.tunings import Tuning
 from flyball.programmer.programmer import ProgrammerState
 from flyball.record import ProgramFormat, ProgramRow
 from flyball.record.errors import ProgramNotFoundError
@@ -71,7 +72,7 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
         if not path.is_file() or path.suffix.lower() not in SUFFIXES:
             continue
         config = adapter.validate_python(loads(path.read_text(), path.suffix))
-        rig.tunings.add(config.to_tuning(path.stem))
+        rig.tunings.add(Tuning(tag=path.stem, config=config))
         loaded.append(path.stem)
     return loaded
 

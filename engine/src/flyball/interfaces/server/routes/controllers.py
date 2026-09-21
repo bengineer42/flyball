@@ -15,14 +15,20 @@ from typing import Annotated, Any, Union
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, TypeAdapter
 
-from flyball.control import ControlLaws, Controller, Feedforwards, SetPointGenerators
 from flyball.control.errors import LastReadingNotAvailableError
-from flyball.control.types import Transfer, ValueSource
 from flyball.foundation.device import Access, Signal
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep
 from flyball.interfaces.server.schemas import ControllerOut
+from flyball.model import (
+    ControlLaws,
+    Controller,
+    Feedforwards,
+    SetPointGenerators,
+    Transfer,
+    ValueSource,
+)
 from flyball.rig import Rig
 
 router = APIRouter(prefix="/api/controllers", tags=["controllers"])

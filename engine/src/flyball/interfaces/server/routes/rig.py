@@ -12,7 +12,6 @@ from typing import Annotated, Any, Union
 from fastapi import APIRouter, HTTPException
 from pydantic import Field, SerializeAsAny, ValidationError
 
-from flyball.control import ControlLawConfig, ControlLaws, ControlLawView, Tuning
 from flyball.control.errors import TuningNotRegisteredError
 from flyball.foundation.device import Condition, Device
 from flyball.interfaces.server.deps import (
@@ -22,6 +21,8 @@ from flyball.interfaces.server.deps import (
     current_simulation,
 )
 from flyball.interfaces.server.schemas import ClockOut
+from flyball.library.tunings import Tuning
+from flyball.model import ControlLawConfig, ControlLaws, ControlLawView
 from flyball.rig import Rig
 from flyball.runtime.config import RigConfig, canonical, rig_schema
 

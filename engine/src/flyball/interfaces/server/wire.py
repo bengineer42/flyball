@@ -14,9 +14,9 @@ from typing import Any, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, create_model
 
-from flyball.control import ControlLaw, ControlLawConfig, ControlLawLike
-from flyball.control.types import ControlLawView, Tuning
 from flyball.interfaces.server.schemas import LawConfig
+from flyball.library.tunings import Tuning
+from flyball.model import ControlLaw, ControlLawConfig, ControlLawLike, ControlLawView
 
 WIRE_TYPES: dict[Any, Any] = {
     # Durations and rates carry their own wire forms (see `core.clock`);
