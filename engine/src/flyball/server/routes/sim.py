@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, Field
 
-from flyball.core.device import Device
+from flyball.foundation.device import Device
 from flyball.server.deps import (
     RigDep,
     SimulationDep,
@@ -119,7 +119,7 @@ def save_config(simulation: SimulationDep, body: SaveIn | None = None) -> dict[s
 #
 # What a simulation can change that a rig file cannot name -- the humidity
 # chamber's time constant, its sensors' noise -- an application exposes as one
-# [Device][flyball.core.device.Device] attached with
+# [Device][flyball.foundation.device.device.Device] attached with
 # [set_simulation_device][flyball.server.deps.set_simulation_device]. The
 # same three routes as a device's, so the same panel renders it. 404 when
 # the simulation has none, so a client can hide it.

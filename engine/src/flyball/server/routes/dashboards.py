@@ -6,7 +6,7 @@ outline, so the widget catalogue can grow without a server release. The
 server keeps every version under a name, like programs; the newest is what
 `GET` returns. A rig can ship dashboards as ``dashboards/*.toml``,
 ``dashboards/*.yaml`` or ``dashboards/*.json`` beside its file (whichever
-format the author prefers, per [flyball.core.files][]): they are imported
+format the author prefers, per [flyball.foundation.files][]): they are imported
 on start, and an edited file becomes a new version.
 
 Documents carry a `schema_version`; an older one is migrated on read (see
@@ -26,11 +26,11 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from flyball.core.files import SUFFIXES, load_document
-from flyball.core.signal import Access
 from flyball.db import DashboardRow
 from flyball.db.errors import DashboardNotFoundError
 from flyball.db.store import Store
+from flyball.foundation.device import Access
+from flyball.foundation.files import SUFFIXES, load_document
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep, StoreDep
 

@@ -22,7 +22,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from flyball.core.model import ModelOf, creation_model
+from flyball.foundation.config import ModelOf, creation_model
 
 from .errors import FeedforwardNotInvertibleError
 

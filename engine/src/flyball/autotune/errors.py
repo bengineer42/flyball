@@ -1,4 +1,4 @@
-from flyball.core.errors import ConflictError, FlyballError, NotReadyError, UnachievableError
+from flyball.foundation.errors import ConflictError, FlyballError, NotReadyError, UnachievableError
 
 
 class AutotuneError(FlyballError):

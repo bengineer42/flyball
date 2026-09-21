@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import log
 
-from flyball.core import Labelled, NonNegative, Positive, Signal
+from flyball.foundation import Labelled, NonNegative, Positive, Signal
 
 from .errors import ModelRejectedError
 

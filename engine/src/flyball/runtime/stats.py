@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from math import sqrt
 
-from flyball.core.signal import Reading
+from flyball.foundation.device import Reading
 
 __all__ = ["noise", "rate"]
 

@@ -23,8 +23,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from flyball.core.config import discover
 from flyball.db.store import Store
+from flyball.foundation.config import discover
 from flyball.runtime.config import AuthConfig, RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers

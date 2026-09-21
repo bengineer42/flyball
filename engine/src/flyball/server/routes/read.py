@@ -16,8 +16,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from flyball.core.errors import NotReadyError
-from flyball.core.signal import Reading, Sample
+from flyball.foundation.device import Reading, Sample
+from flyball.foundation.errors import NotReadyError
 from flyball.server.deps import RigDep
 from flyball.server.schemas import ReadingOut, SampleOut
 

@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
-from flyball.core.signal import Band, Limit
-from flyball.core.utils import Labelled
+from flyball.foundation.device import Band, Limit
+from flyball.foundation.primitives import Labelled
 
 # region Declarations
 

@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 
 log = logging.getLogger("flyball.drivers")
 

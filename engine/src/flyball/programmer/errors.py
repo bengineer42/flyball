@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from flyball.core.errors import ConflictError
+from flyball.foundation.errors import ConflictError
 
 if TYPE_CHECKING:
     from .command import Activity, Command

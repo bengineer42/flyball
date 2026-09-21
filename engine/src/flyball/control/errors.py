@@ -1,4 +1,4 @@
-from flyball.core import (
+from flyball.foundation import (
     ConflictError,
     FlyballError,
     NotFoundError,

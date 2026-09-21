@@ -19,9 +19,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic_core import to_jsonable_python
 
-from flyball.core.device import Device
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.signal import Access, Band, Limit, Sample, Signal, WriteState
+from flyball.foundation.device import Access, Band, Device, Limit, Sample, Signal, WriteState
+from flyball.foundation.errors import ConflictError, NotFoundError
 
 from .errors import (
     DashboardNotFoundError,

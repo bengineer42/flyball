@@ -155,7 +155,7 @@ warn_unreachable = true
 # moved out to extensions/{bluesky,qcodes,pymeasure}; flyball.sim moved out to
 # flyball-sim (its own top-level package, ../sim); flyball.devices (the
 # generic `scpi`/`modbus` drivers) moved out to extensions/{visa,modbus} --
-# all depend only on flyball.core (and, for Bluesky and flyball-sim's
+# all depend only on flyball.foundation (and, for Bluesky and flyball-sim's
 # Simulation, flyball.runtime.rig/config), so none of them is a layer here
 # any more. Run with `uv run lint-imports`.
 [tool.importlinter]
@@ -172,7 +172,7 @@ layers = [
     "flyball.runtime",
     "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db",
     "flyball.control",
-    "flyball.core",
+    "flyball.foundation",
 ]
 
 [[tool.importlinter.contracts]]
@@ -180,5 +180,5 @@ name = "The client, the scaffold and the MCP server stand alone"
 type = "forbidden"
 source_modules = ["flyball.client", "flyball.scaffold", "flyball.mcp"]
 forbidden_modules = [
-    "flyball.core", "flyball.control", "flyball.runtime", "flyball.server", "flyball.programmer",
+    "flyball.foundation", "flyball.control", "flyball.runtime", "flyball.server", "flyball.programmer",
 ]

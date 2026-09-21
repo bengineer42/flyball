@@ -9,8 +9,8 @@ a signal's value and the fraction actually written. Originally `pwm.py` and `mcp
 
 from __future__ import annotations
 
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Band, Role, SignalSpec
+from flyball.foundation.device import Access, Band, Role, SignalSpec
+from flyball.foundation.quantities import Quantity
 
 
 def validate_span(unit: str | None, span: Band | None, *, prefix: str = "") -> None:

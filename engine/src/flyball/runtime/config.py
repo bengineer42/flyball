@@ -4,7 +4,7 @@ A tree of tagged configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
 config (plan §1.5), keyed by name; a controller is keyed by the address of
 the signal it drives and names its source. Formats are
-[flyball.core.files][]'s business; which driver and link kinds exist is the
+[flyball.foundation.files][]'s business; which driver and link kinds exist is the
 tag registry's.
 
 Every tag resolves to a real constructor, so the file validates against the
@@ -38,13 +38,11 @@ from pydantic.json_schema import GenerateJsonSchema
 # flyball-sim's sim_plant/sim_daq/sim_drive all register through the
 # `flyball.configs` entry point instead, read by `discover()`.
 from flyball.control import ControlLaws, Feedforwards
-from flyball.core.clock import Clock
-from flyball.core.config import Config, discover, discover_paths
-from flyball.core.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.files import SUFFIXES, load_document
-from flyball.core.model import discriminated_union
-from flyball.core.signal import Signal
+from flyball.foundation.config import Config, discover, discover_paths, discriminated_union
+from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.files import SUFFIXES, load_document
+from flyball.foundation.time import Clock
 from flyball.runtime.rig import Rig
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)

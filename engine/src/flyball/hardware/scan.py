@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from flyball.core.signal import Access, Signal
+from flyball.foundation.device import Access, Signal
 
 
 class Scan:

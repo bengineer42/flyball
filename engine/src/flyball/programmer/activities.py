@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from threading import Thread
 
 from flyball.control import Controller
-from flyball.core import Operator, Positive, Reading
-from flyball.core.clock import Clock, Duration
+from flyball.foundation import Operator, Positive, Reading
+from flyball.foundation.time import Clock, Duration
 from flyball.runtime.rig import Rig
 
 from .command import Activity, Command

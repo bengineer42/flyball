@@ -15,11 +15,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from flyball.core.device import Condition, Device, Level, Readable
-from flyball.core.errors import NotFoundError
-from flyball.core.signal import Sample
-from flyball.core.topic import Latest
-from flyball.core.utils import PeriodicLoop
+from flyball.foundation.device import Condition, Device, Level, Readable, Sample
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.router import Latest
+from flyball.foundation.time import PeriodicLoop
 
 log = logging.getLogger("flyball.polling")
 

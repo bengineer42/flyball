@@ -18,9 +18,9 @@ from pydantic import BaseModel, Field, TypeAdapter
 from flyball.control import ControlLaws, Controller, Feedforwards, SetPointGenerators
 from flyball.control.errors import LastReadingNotAvailableError
 from flyball.control.types import Transfer, ValueSource
-from flyball.core.errors import NotFoundError
-from flyball.core.signal import Access, Signal
-from flyball.core.typing import Positive
+from flyball.foundation.device import Access, Signal
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.typing import Positive
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep
 from flyball.server.schemas import ControllerOut

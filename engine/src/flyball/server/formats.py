@@ -17,7 +17,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
-from flyball.core.errors import UnachievableError
+from flyball.foundation.errors import UnachievableError
 
 Format = Literal["yaml", "toml", "json"]
 

@@ -776,8 +776,8 @@ from pathlib import Path
 path = Path(sys.argv[1])
 out = {"path": str(path), "ok": False, "drivers": [], "errors": []}
 try:
-    from flyball.core.config import Config, discover
-    from flyball.core.device import DriverConfig
+    from flyball.foundation.config import Config, discover
+    from flyball.foundation.device import DriverConfig
     discover()
     before = set(Config.registry)
     spec = importlib.util.spec_from_file_location(path.stem, path)

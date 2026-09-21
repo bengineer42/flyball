@@ -2,7 +2,7 @@
 
 Every socket sends what the rig knows on connect, then every `FLUSH_S` one
 frame of whatever changed: the rig keeps only the newest value per key in
-a [Latest][flyball.core.topic.Latest] cell -- samples by node address,
+a [Latest][flyball.foundation.router.topic.Latest] cell -- samples by node address,
 controller states and device runs by name, waits by name -- so a socket
 costs at most one frame per flush at any tick rate, and an idle server
 builds nothing. `/ws/samples` carries a demand's write record with its
@@ -20,8 +20,8 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.core.signal import Node, Sample, Signal
-from flyball.core.topic import Latest
+from flyball.foundation.device import Node, Sample, Signal
+from flyball.foundation.router import Latest
 from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
 from flyball.runtime.triggers import TriggerState

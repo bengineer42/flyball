@@ -19,11 +19,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
-from flyball.core.config import Config
-from flyball.core.device import DeviceEntry
-from flyball.core.errors import ConflictError
-from flyball.core.files import SUFFIXES, dumps_without_none
 from flyball.db import RigVersionRow
+from flyball.foundation.config import Config
+from flyball.foundation.device import DeviceEntry
+from flyball.foundation.errors import ConflictError
+from flyball.foundation.files import SUFFIXES, dumps_without_none
 from flyball.runtime.config import RigConfig, canonical, is_simulated, registered
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep, compose_allowed, get_store, save_allowed
@@ -158,7 +158,7 @@ def add_document(rig: RigDep, document: dict[str, Any]) -> dict[str, Any]:
 
 
 def _signal(rig: Rig, address: str) -> Any:
-    from flyball.core.signal import Signal
+    from flyball.foundation.device import Signal
 
     found = rig.resolve(address)
     if not isinstance(found, Signal):

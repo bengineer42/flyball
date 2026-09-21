@@ -15,7 +15,7 @@ from __future__ import annotations
 from math import pi
 from statistics import fmean
 
-from flyball.core.typing import Positive
+from flyball.foundation.typing import Positive
 
 from .errors import ExperimentIncompleteError, ExperimentTimeoutError, ResponseTooSmallError
 from .fit import SteadyState, fit_fopdt

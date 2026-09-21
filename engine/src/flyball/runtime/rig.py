@@ -21,32 +21,29 @@ from typing import TYPE_CHECKING, Any, overload
 
 from flyball.control import ControlLawLike, Controller, ControllerState, Tunings
 from flyball.control.feedforward import FeedforwardLike, Feedforwards
-from flyball.core import Clock, Rate
-from flyball.core.device import (
+from flyball.foundation import Clock, Rate
+from flyball.foundation.device import (
     RESERVED_NAMES,
+    Access,
+    AddressNotFoundError,
     Committable,
     Condition,
     Device,
     DeviceEntry,
     Event,
     Level,
-    Readable,
-)
-from flyball.core.errors import ConflictError, NotFoundError, NotReadyError
-from flyball.core.router import RECENT_READINGS, Router
-from flyball.core.signal import (
-    Access,
-    AddressNotFoundError,
     Limit,
     Node,
+    Readable,
     Reading,
     Role,
     Sample,
     Signal,
     WriteState,
 )
-from flyball.core.topic import Latest, Topic
-from flyball.core.typing import OrderedSet
+from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
+from flyball.foundation.typing import OrderedSet
 from flyball.runtime.triggers import Triggers
 from flyball.runtime.writer import Writer
 

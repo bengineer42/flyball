@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_snake
 from pydantic_core import core_schema
 
-from flyball.core import Duration, Rate, Speed
-from flyball.core.model import ModelOf, creation_model
+from flyball.foundation import Duration, Rate, Speed
+from flyball.foundation.config import ModelOf, creation_model
 
 SetPointGenerators: dict[str, type[SetPointGenerator]] = {}
 """Every registered generator, keyed by the tag it crosses the wire under."""

@@ -25,10 +25,9 @@ from threading import Event as StopEvent
 from threading import Lock, Thread, current_thread
 from typing import TYPE_CHECKING
 
-from flyball.core.device import Event
-from flyball.core.signal import Access, Reading, Sample, Signal, WriteState
 from flyball.db import SessionWriter, Tick
 from flyball.db.types import Event as StoredEvent
+from flyball.foundation.device import Access, Event, Reading, Sample, Signal, WriteState
 
 if TYPE_CHECKING:
     from flyball.control import Controller

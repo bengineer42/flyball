@@ -1,4 +1,4 @@
-from flyball.core.errors import ConflictError, FlyballError, NotFoundError
+from flyball.foundation.errors import ConflictError, FlyballError, NotFoundError
 
 
 class StoreError(FlyballError):

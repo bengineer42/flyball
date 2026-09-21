@@ -25,10 +25,21 @@ from flyball.control import (
     FeedforwardConfig,
     SetPointGenerator,
 )
-from flyball.core.clock import Clock
-from flyball.core.device import CommandSpec, Condition, Device, Input
-from flyball.core.model import discriminated_union
-from flyball.core.signal import Limit, Node, Reading, Role, Sample, Signal, WriteState
+from flyball.foundation.config import discriminated_union
+from flyball.foundation.device import (
+    CommandSpec,
+    Condition,
+    Device,
+    Input,
+    Limit,
+    Node,
+    Reading,
+    Role,
+    Sample,
+    Signal,
+    WriteState,
+)
+from flyball.foundation.time import Clock
 from flyball.runtime.polling import DeviceRun
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)

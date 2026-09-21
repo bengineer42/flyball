@@ -27,8 +27,8 @@ from typing import Any, get_args, get_type_hints
 import yaml
 from pydantic import TypeAdapter
 
-from flyball.core.clock import DURATION_KEYS, RATE_KEYS, Duration, Rate
-from flyball.core.files import load_document
+from flyball.foundation.files import load_document
+from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.programmer.command import Command, Commands
 from flyball.programmer.program import Program
 from flyball.server.commands import command_request, request_for

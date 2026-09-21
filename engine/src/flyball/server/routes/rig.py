@@ -14,7 +14,7 @@ from pydantic import Field, SerializeAsAny, ValidationError
 
 from flyball.control import ControlLawConfig, ControlLaws, ControlLawView, Tuning
 from flyball.control.errors import TuningNotRegisteredError
-from flyball.core.device import Condition, Device
+from flyball.foundation.device import Condition, Device
 from flyball.runtime.config import RigConfig, canonical, rig_schema
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep, current_rig, current_rig_config, current_simulation

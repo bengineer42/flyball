@@ -6,8 +6,8 @@ from typing import Any, ClassVar, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, create_model
 
-from flyball.core import Labelled
-from flyball.core.model import ModelOf, creation_model
+from flyball.foundation import Labelled
+from flyball.foundation.config import ModelOf, creation_model
 
 
 class Transfer(Labelled):
@@ -115,7 +115,7 @@ class ControlLaw:
     - `view`: both flattened, round-tripping through
       [ControlLawView.build][flyball.control.types.ControlLawView.build].
 
-    Each is a [ModelOf][flyball.core.model.ModelOf]: `Law.config` is the model
+    Each is a [ModelOf][flyball.foundation.config.model.ModelOf]: `Law.config` is the model
     class, `law.config` that law's values. A law that declares one itself keeps
     it. The wire name is the class keyword `tag`
     (`class PI(ControlLaw, tag="PI")`), defaulting to the class name.

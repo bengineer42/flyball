@@ -11,8 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
-from flyball.core.device import Device
-from flyball.core.signal import Sample, Signal, WriteState
+from flyball.foundation.device import Device, Sample, Signal, WriteState
 
 from .types import (
     ControllerRow,

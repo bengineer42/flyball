@@ -1,6 +1,6 @@
 """What the rig is waiting on, by name, so a person or a client can answer.
 
-Anything that blocks a program is a [Trigger][flyball.core.trigger.Trigger].
+Anything that blocks a program is a [Trigger][flyball.foundation.router.trigger.Trigger].
 Registering it here gives it a name and a message, so the server can list,
 fire or interrupt it. Outcomes are pushed through `latest` as they settle.
 """
@@ -10,10 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import Lock
 
-from flyball.core.clock import Clock
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.topic import Latest
-from flyball.core.trigger import Outcome, Trigger
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.router import Latest, Outcome, Trigger
+from flyball.foundation.time import Clock
 
 
 @dataclass(frozen=True, slots=True)

@@ -18,7 +18,7 @@ from flyball.runtime.rig import Rig
 from .dialect import Dialect
 
 if TYPE_CHECKING:
-    from flyball.core.device import Device
+    from flyball.foundation.device import Device
     from flyball.programmer import ProgrammerState
     from flyball.runtime.config import RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention

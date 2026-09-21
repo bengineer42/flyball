@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
 
-from flyball.core.device import Level
-from flyball.core.resource import Operator
+from flyball.foundation.device import Level
+from flyball.foundation.resource import Operator
 
 from .activities import Prompt
 from .errors import CommandRuntimeError, ProgramAlreadyRunningError

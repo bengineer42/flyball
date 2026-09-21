@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 from flyball.control import Controller
 from flyball.control.setpoint import LinearRampSetpoint
-from flyball.core import Operator
-from flyball.core.clock import Duration, Speed
+from flyball.foundation import Operator
+from flyball.foundation.time import Duration, Speed
 from flyball.runtime.rig import Rig
 
 from .activities import Arrived, Timed

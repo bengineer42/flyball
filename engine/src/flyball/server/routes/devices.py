@@ -19,9 +19,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body
 from pydantic import TypeAdapter, create_model
 
-from flyball.core.device import CommandSpec, Device
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.signal import Node, Signal
+from flyball.foundation.device import CommandSpec, Device, Node, Signal
+from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.runtime.polling import DeviceRun
 from flyball.runtime.rig import Rig
 from flyball.server.deps import RigDep

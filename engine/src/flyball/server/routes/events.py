@@ -1,6 +1,6 @@
 """What has happened: the recent events, and a stream of them as they occur.
 
-An [Event][flyball.core.device.Event] is a point in time -- a step failed, a
+An [Event][flyball.foundation.device.device.Event] is a point in time -- a step failed, a
 reader went offline, a pump clamped a request. `/api/events` is the last few
 hundred; `/ws/events` sends those on connect, then each new one.
 """
@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.core.device import Event, Level
+from flyball.foundation.device import Event, Level
 from flyball.server.deps import RigDep, current_rig
 from flyball.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig
 

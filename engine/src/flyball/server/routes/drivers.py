@@ -15,9 +15,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from flyball.core.config import Config
-from flyball.core.device import DriverConfig
-from flyball.core.errors import ConflictError, NotFoundError
+from flyball.foundation.config import Config
+from flyball.foundation.device import DriverConfig
+from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.runtime.drivers import load_drivers
 from flyball.server.deps import RigDep, current_drivers_dir
 

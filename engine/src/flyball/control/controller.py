@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
 
-from flyball.core import Clock, ConflictError, Reading, Signal, WriteState, require
-from flyball.core.signal import Access
+from flyball.foundation import Clock, ConflictError, Reading, Signal, WriteState, require
+from flyball.foundation.device import Access
 
 from .errors import (
     ControlLawNotSetError,

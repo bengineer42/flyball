@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
-from flyball.core.errors import (
+from flyball.foundation.errors import (
     ConflictError,
     FlyballError,
     HardwareError,

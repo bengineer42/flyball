@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import ItemsView, Iterator
 
 from flyball.control import Controller, ControllerSettings, ControllerState, ControllerView
-from flyball.core.errors import ConflictError, NotFoundError, NotReadyError
-from flyball.core.signal import Signal
+from flyball.foundation.device import Signal
+from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 
 
 class ControllerNotFoundError(NotFoundError):
