@@ -12,11 +12,11 @@ models the code is built from, including configs another package registered
 through the `flyball.configs` entry point. The same file with `fake_text`
 and `fake_registers` links runs without hardware.
 
-A file may start from a **board**: a profile, kept outside any package, that
-declares the links a machine has and names its pins. `board = "rpi5"` is
-looked up on the board path; the file's own `links` are added to the
-profile's, and a device's `pin = "GPIO18"` becomes the link and line the
-profile says.
+A file may start from a **board**: a profile, an installed package's data or
+kept outside any package, that declares the links a machine has and names
+its pins. `board = "rpi5"` is looked up on the board path; the file's own
+`links` are added to the profile's, and a device's `pin = "GPIO18"` becomes
+the link and line the profile says.
 
 The `readers`, `actuators` and `loops` sections of the legacy model no
 longer parse; `temp-docs/DEVICE-MODEL-PLAN.md` §6 says so.
@@ -42,7 +42,7 @@ import flyball.integrations.qcodes  # ruff: ignore[unused-import]
 import flyball.sim.devices  # ruff: ignore[unused-import]
 from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock
-from flyball.core.config import Config, discover
+from flyball.core.config import Config, discover, discover_paths
 from flyball.core.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.core.files import SUFFIXES, load_document
@@ -601,16 +601,22 @@ class Board(BaseModel):
 BOARDS_ENV = "FLYBALL_BOARDS"
 """Directories to look in for `<name>.toml`, colon-separated, before the defaults."""
 
+BOARD_DIRS_GROUP = "flyball.board_dirs"
+"""Entry-point group an installed package registers its board profiles' directory under."""
+
 
 def board_dirs(near: Path | None = None) -> Iterator[Path]:
     """Where a board name is looked up, in order.
 
-    `$FLYBALL_BOARDS`; a `boards/` directory beside the rig file or in any
-    directory above it; `~/.config/flyball/boards`; `/etc/flyball/boards`.
+    `$FLYBALL_BOARDS`; each installed package's own profiles (`extensions/linux`
+    ships `rpi4`, `rpi5`, `beaglebone_black`, `generic`, `sim` this way); a
+    `boards/` directory beside the rig file or in any directory above it, for
+    profiles of your own; `~/.config/flyball/boards`; `/etc/flyball/boards`.
     """
     for entry in os.environ.get(BOARDS_ENV, "").split(os.pathsep):
         if entry:
             yield Path(entry).expanduser()
+    yield from discover_paths(BOARD_DIRS_GROUP)
     if near is not None:
         for directory in (near.resolve(), *near.resolve().parents):
             yield directory / "boards"
@@ -772,6 +778,7 @@ def rig_schema() -> dict[str, Any]:
 
 __all__ = [
     "BOARDS_ENV",
+    "BOARD_DIRS_GROUP",
     "Board",
     "ClockEntry",
     "ControllerEntry",

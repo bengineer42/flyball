@@ -9,6 +9,7 @@ union to validate against.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Union, overload
 
 from pydantic import BaseModel, Field, create_model
@@ -86,6 +87,23 @@ def discover(group: str = "flyball.configs") -> list[str]:
         entry.load()
         loaded.append(entry.name)
     return loaded
+
+
+def discover_paths(group: str) -> list[Path]:
+    """Every installed package's registered path in `group`.
+
+    Like [discover][flyball.core.config.discover], entries come from a
+    package's own `pyproject.toml`::
+
+        [project.entry-points."flyball.board_dirs"]
+        linux = "flyball_linux.boards:board_dir"
+
+    but here each entry loads to a `Path` (package data) rather than a
+    module imported for its side effect.
+    """
+    from importlib.metadata import entry_points
+
+    return [entry.load() for entry in entry_points(group=group)]
 
 
 def import_object(dotted: str) -> Any:

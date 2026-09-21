@@ -23,6 +23,10 @@ all = ["flyball-linux[i2c,spi,gpio,serial]"]
 [project.entry-points."flyball.configs"]
 linux = "flyball_linux.configs"
 
+# Where `flyball.runtime.config.board_dirs()` finds this package's board profiles.
+[project.entry-points."flyball.board_dirs"]
+linux = "flyball_linux.boards:board_dir"
+
 [project.scripts]
 flyball-linux = "flyball_linux.probe:main"
 
