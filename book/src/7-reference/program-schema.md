@@ -38,7 +38,7 @@ declares. Any other key is an error.
 Every rig has these; `loop` (kept as the field name — a controller is what
 today's `Loop` is called, but the argument is unchanged) is one address, a
 list of addresses, or omitted for the rig's default controller. Source:
-`flyball.programmer.{loops,devices,activities}`.
+`flyball.sequencing.{loops,devices,activities}`.
 
 | tag | field | type | default |
 | --- | --- | --- | --- |

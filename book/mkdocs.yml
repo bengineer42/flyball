@@ -162,7 +162,7 @@ nav:
           - flyball.autotune: 7-reference/python/flyball/autotune.md
           - flyball.runtime: 7-reference/python/flyball/runtime.md
           - flyball.rig: 7-reference/python/flyball/rig.md
-          - flyball.programmer: 7-reference/python/flyball/programmer.md
+          - flyball.sequencing: 7-reference/python/flyball/sequencing.md
           - flyball.hardware: 7-reference/python/flyball/hardware.md
           - flyball.record: 7-reference/python/flyball/record.md
           - flyball.interfaces.server: 7-reference/python/flyball/interfaces/server.md

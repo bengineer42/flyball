@@ -77,7 +77,7 @@ server at it:
 ## Running one
 
 ```python
-from flyball.programmer import Programmer
+from flyball.sequencing import Programmer
 from flyball.interfaces.server.dialect import Dialect, program_from_file
 
 program = program_from_file("bake.yaml", Dialect(commands=Commands))
