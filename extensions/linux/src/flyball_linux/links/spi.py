@@ -4,17 +4,10 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Sequence
-from typing import Protocol, runtime_checkable
 
 from flyball.core.config import Config
+from flyball.hardware.spi import SpiLink
 from pydantic import Field
-
-
-@runtime_checkable
-class SpiLink(Protocol):
-    """A full-duplex transfer: as many bytes come back as go out."""
-
-    def transfer(self, data: Sequence[int]) -> bytes: ...
 
 
 class FakeSpi:

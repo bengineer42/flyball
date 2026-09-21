@@ -3,21 +3,10 @@
 from __future__ import annotations
 
 import threading
-from typing import Protocol, runtime_checkable
 
 from flyball.core.config import Config
+from flyball.hardware.uart import UartLink
 from pydantic import Field
-
-
-@runtime_checkable
-class UartLink(Protocol):
-    """A serial port: write bytes, read exactly N, or read up to a terminator."""
-
-    def write(self, data: bytes) -> None: ...
-
-    def read(self, length: int) -> bytes: ...
-
-    def read_until(self, terminator: bytes = b"\r") -> bytes: ...
 
 
 class FakeUart:

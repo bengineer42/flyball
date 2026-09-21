@@ -3,29 +3,11 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from flyball.core.config import Config
+from flyball.hardware.gpio import GpioLink
 from pydantic import Field
-
-
-@runtime_checkable
-class GpioLink(Protocol):
-    """A chip of lines; each is claimed as input or output before use."""
-
-    def claim_output(self, line: int, initial: bool = False) -> None: ...
-
-    def claim_input(self, line: int, pull_up: bool | None = None) -> None: ...
-
-    def set(self, line: int, value: bool) -> None: ...
-
-    def get(self, line: int) -> bool: ...
-
-    def claim_edge(
-        self, line: int, debounce_s: float = 0.0, pull_up: bool | None = None
-    ) -> None: ...
-
-    def count_edges(self, line: int) -> int: ...
 
 
 class FakeGpio:
