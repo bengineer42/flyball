@@ -43,9 +43,9 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` |
 | [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/flyball/humidity/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
 
-Browsing what's available before wiring a rig: `linux/drivers-manifest.yaml`
+Browsing what's available before wiring a rig: `extensions/linux/drivers-manifest.yaml`
 (part number, manufacturer, verification status, price, which application
-each serves) and `linux/scripts/search_drivers.py` (filter it by category,
+each serves) and `extensions/linux/scripts/search_drivers.py` (filter it by category,
 interface, unit or physical dimension -- units and dimensions are read
 straight from each driver's own signals, not hand-maintained) -- or the
 MCP `search_drivers` tool, the same catalogue over a running server.

@@ -80,7 +80,7 @@ GPIO18 = { link = "header", line = 18 }
 PWM0   = { link = "pwm", channel = 0 }
 ```
 
-A rig file names it and then refers to pins by label. `linux/examples/greenhouse.yaml`,
+A rig file names it and then refers to pins by label. `extensions/linux/examples/greenhouse.yaml`,
 quoted in part:
 
 ```yaml
@@ -122,12 +122,12 @@ is loaded until a rig file asks for it, and adding a board is adding a file.
 
 `sim` is every link as a fake. A rig file written for a real board runs on
 any machine with an overlay that sets `board: sim`, its pin labels resolving
-to fake chips — `linux/examples/sim.yaml` does exactly this over
+to fake chips — `extensions/linux/examples/sim.yaml` does exactly this over
 `greenhouse.yaml`, scripting the I²C and 1-Wire fakes to answer fixed
 readings, which is how the example is tested:
 
 ```
-cd linux/examples
+cd extensions/linux/examples
 flyball rig check greenhouse.yaml sim.yaml
 flyball-runner greenhouse.yaml sim.yaml
 ```

@@ -8,7 +8,7 @@ from flyball.runtime.config import load_board, load_rig_config, resolve_document
 from flyball.sim import SteppedClock
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-BOARDS = Path(__file__).resolve().parents[2] / "boards"
+BOARDS = Path(__file__).resolve().parents[3] / "boards"
 REAL = EXAMPLES / "greenhouse.yaml"
 SIM = EXAMPLES / "sim.yaml"
 

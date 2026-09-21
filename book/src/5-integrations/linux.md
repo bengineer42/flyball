@@ -1,6 +1,6 @@
 # Raspberry Pi and Linux buses
 
-**What.** `flyball-linux` (`linux/` in the repository): the kernel's I²C, SPI,
+**What.** `flyball-linux` (`extensions/linux/` in the repository): the kernel's I²C, SPI,
 GPIO, PWM and 1-Wire interfaces as links, and drivers for the chips that
 commonly sit on them -- SHT4x humidity sensors, ADS1115 and MCP3008 ADCs,
 DS18B20 thermometers, a GPIO line as a relay or switch, a PWM channel as an
