@@ -23,19 +23,19 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from flyball.db.store import Store
 from flyball.foundation.config import discover
+from flyball.record.store import Store
+from flyball.rig import Rig
 from flyball.runtime.config import AuthConfig, RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 from flyball.runtime.retention import Retention
-from flyball.runtime.rig import Rig
 
 if TYPE_CHECKING:
     # A structural type, not an import: `flyball-sim` is an optional package
-    # (see `flyball.server.deps.Simulation`), so `runner`/`server` never
+    # (see `flyball.interfaces.server.deps.Simulation`), so `runner`/`server` never
     # import the concrete `flyball_sim.simulation.Simulation` at module load.
-    from flyball.server.deps import Simulation
+    from flyball.interfaces.server.deps import Simulation
 
 log = logging.getLogger("flyball.runner")
 
@@ -91,12 +91,11 @@ def serve(
     """
     import uvicorn
 
-    from flyball.client import Rig as Client
-    from flyball.mcp.http import mount
-    from flyball.programmer import Programmer
-    from flyball.server import create_app, set_programmer, set_rig, set_simulation
-    from flyball.server.auth import signing_secret
-    from flyball.server.deps import (
+    from flyball.interfaces.client import Rig as Client
+    from flyball.interfaces.mcp.http import mount
+    from flyball.interfaces.server import create_app, set_programmer, set_rig, set_simulation
+    from flyball.interfaces.server.auth import signing_secret
+    from flyball.interfaces.server.deps import (
         set_compose,
         set_drivers_dir,
         set_programs_dir,
@@ -105,8 +104,9 @@ def serve(
         set_runner,
         set_store,
     )
-    from flyball.server.routes import dashboards
-    from flyball.server.routes.library import import_directory, load_tunings
+    from flyball.interfaces.server.routes import dashboards
+    from flyball.interfaces.server.routes.library import import_directory, load_tunings
+    from flyball.programmer import Programmer
 
     settings = settings or RunnerConfig()
     programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers
@@ -193,7 +193,7 @@ def start_with_store(
     The store is opened whether or not a session is: past sessions are
     readable and recording can be started from the API either way.
     """
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     rig = config.build()
     store = SqliteStore(store_path)
@@ -241,7 +241,7 @@ def resumed(store_path: str | Path) -> RigConfig:
     Raises:
         ValueError: The store has no version to resume from.
     """
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     store = SqliteStore(store_path)
     try:

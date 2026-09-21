@@ -6,7 +6,7 @@ run twice, or on two rigs at once.
 
 The library's own steps, each a `Command` subclass whose wire form (and the
 program file's JSON schema) is derived from its constructor by
-[flyball.server.dialect][]: `regulate`/`ramp`/`hold`/`arrive`/`manual` name a
+[flyball.interfaces.server.dialect][]: `regulate`/`ramp`/`hold`/`arrive`/`manual` name a
 controller by its target address, or a list, or none for the rig's default
 (`programmer/loops.py`); `set` puts values on one device's writable signals
 as a demand, and `command` calls one of a device's own commands
@@ -21,7 +21,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
-    from flyball.runtime.rig import Rig
+    from flyball.rig import Rig
 
     from .command import Command
 
