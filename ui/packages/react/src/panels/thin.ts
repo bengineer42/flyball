@@ -20,3 +20,33 @@ export function thin<T>(values: T[], every: number | undefined): T[] {
 
 /** Points a chart of `widthPx` is worth drawing: two per pixel, between 300 and 4 000 (DESIGN-SPEC §6). */
 export const pointCap = (widthPx: number): number => Math.max(300, Math.min(4000, 2 * Math.round(widthPx)));
+
+/**
+ * `[t, v]`, with a `NaN` point inserted at the midpoint of any gap wider
+ * than `maxGapS` between two consecutive samples: a restart, a reader gone
+ * offline, anything with no samples for a while. uPlot already treats a
+ * `NaN`/`null` value as a break in the line (the same way a non-numeric
+ * reading is hidden, see `store/telemetry.ts`) -- without this, a chart
+ * draws a straight line through dead time as if it were continuous data
+ * (brain/plans/ui-fixes.md). Both real endpoints either side of the gap
+ * stay in the output untouched; only a synthetic point between them is
+ * added. Returns `t`/`v` themselves, no copy, when there is no gap to
+ * break -- the common case, every redraw.
+ */
+export function breakGaps(t: readonly number[], v: readonly number[], maxGapS: number | undefined): [readonly number[], readonly number[]] {
+  if (!maxGapS || t.length < 2) return [t, v];
+  let hasGap = false;
+  for (let i = 1; i < t.length && !hasGap; i++) hasGap = t[i]! - t[i - 1]! > maxGapS;
+  if (!hasGap) return [t, v];
+  const t2: number[] = [t[0]!];
+  const v2: number[] = [v[0]!];
+  for (let i = 1; i < t.length; i++) {
+    if (t[i]! - t[i - 1]! > maxGapS) {
+      t2.push((t[i - 1]! + t[i]!) / 2);
+      v2.push(Number.NaN);
+    }
+    t2.push(t[i]!);
+    v2.push(v[i]!);
+  }
+  return [t2, v2];
+}

@@ -17,10 +17,12 @@ export interface ChartToolbarProps {
   onDownload?: (format: "csv" | "json") => void;
   /** The same data in the store, as an export URL; offered beside the two above. */
   exportHref?: string;
+  /** Show the "live" button and its `l` shortcut. Default true; false for a closed/historical session, which has no live edge to return to. */
+  live?: boolean;
 }
 
 /** Back / forward / zoom / fit / live / download / expand, for the chart above it. Wheel zooms, drag pans, double-click opens the chart full-size. */
-export function ChartToolbar({ nav, chart, following, onFitY, yLabel, onExpand, expanded = false, onDownload, exportHref }: ChartToolbarProps) {
+export function ChartToolbar({ nav, chart, following, onFitY, yLabel, onExpand, expanded = false, onDownload, exportHref, live = true }: ChartToolbarProps) {
   const [menu, setMenu] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -79,7 +81,7 @@ export function ChartToolbar({ nav, chart, following, onFitY, yLabel, onExpand, 
         break;
       case "l":
       case "L":
-        nav.follow(u);
+        if (live) nav.follow(u);
         break;
       default:
         return;
@@ -94,7 +96,7 @@ export function ChartToolbar({ nav, chart, following, onFitY, yLabel, onExpand, 
       {btn("+", "Zoom in", run((u) => nav.zoom(u, 0.8)), false, "+")}
       {btn("fit time", "Show everything held on the time axis", run((u) => nav.fitX(u)), false, "0")}
       {onFitY && btn(`fit ${yLabel || "y"}`, `Fit the ${yLabel ? `${yLabel} axis` : "y axis"} to the data`, onFitY)}
-      {btn("live", following ? "Following the newest data" : "Return to live: follow the newest data", run((u) => nav.follow(u)), following, "l")}
+      {live && btn("live", following ? "Following the newest data" : "Return to live: follow the newest data", run((u) => nav.follow(u)), following, "l")}
       {(onDownload || exportHref) && (
         <span className="fb-tb-menu-wrap" ref={wrap}>
           <button

@@ -153,6 +153,16 @@ export class Ring {
    * caller asked for a stride meant for a much longer series. The effective
    * step is capped so a window with at least a handful of rows keeps a
    * handful of them; a window twice `step`'s length or longer is unaffected.
+   *
+   * The stride is anchored to the *newest* row, counting backward, not to
+   * `start`: `start` is wherever the caller's visible window currently begins,
+   * which creeps forward on nearly every call as a live window slides -- an
+   * anchor there re-picks which rows survive decimation almost every redraw,
+   * so a noisy trace looked like it was popping to an unrelated shape each
+   * tick instead of scrolling by one sample (see brain/plans/ui-fixes.md).
+   * Anchored to the newest row instead, the same physical rows keep landing
+   * on the stride as the window advances; only the oldest one drops each
+   * tick, same as any ordinary scrolling chart.
    */
   read(out: RingView, { fromS = Number.NEGATIVE_INFINITY, every = 1, maxPoints = Number.POSITIVE_INFINITY }: { fromS?: number; every?: number; maxPoints?: number } = {}): RingView {
     const start = fromS === Number.NEGATIVE_INFINITY ? 0 : this.indexAtOrAfter(fromS);
@@ -163,17 +173,22 @@ export class Ring {
     const { t, cols } = out;
     let k = 0;
     if (n > 0) {
-      for (let i = start; i < this.count; i += step, k++) {
+      const lastLogical = this.count - 1;
+      for (let i = lastLogical; i >= start; i -= step, k++) {
         const j = this.at(i);
         t[k] = this.t[j]!;
         for (let c = 0; c < this.width; c++) cols[c]![k] = this.cols[c]![j]!;
       }
-      const lastLogical = this.count - 1;
-      if ((lastLogical - start) % step !== 0) {
-        const j = this.at(lastLogical);
-        t[k] = this.t[j]!;
-        for (let c = 0; c < this.width; c++) cols[c]![k] = this.cols[c]![j]!;
-        k++;
+      // Collected newest-first; flip in place to the ascending order every reader expects.
+      for (let a = 0, b = k - 1; a < b; a++, b--) {
+        const ta = t[a]!;
+        t[a] = t[b]!;
+        t[b] = ta;
+        for (let c = 0; c < this.width; c++) {
+          const va = cols[c]![a]!;
+          cols[c]![a] = cols[c]![b]!;
+          cols[c]![b] = va;
+        }
       }
     }
     t.length = k;

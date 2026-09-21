@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import { describeSignal, describeUnit, withUnit, type SignalOut, fixed, tickDigits } from "@flyball/client";
 import { axisSize, yRange, type YScale } from "./yscale.js";
-import { thin, pointCap } from "./thin.js";
+import { thin, pointCap, breakGaps } from "./thin.js";
 import { navigation } from "./navigation.js";
 import { showLatestInLegend } from "./legend.js";
 import { ChartToolbar } from "./ChartToolbar.js";
@@ -73,6 +73,8 @@ export interface TimeSeriesProps {
   every?: number;
   /** Pan/zoom toolbar and wheel/drag navigation; on by default for full charts, never for sparklines. */
   navigable?: boolean;
+  /** Show the toolbar's "live" button. Default true; false for a closed/historical session. */
+  live?: boolean;
   /** Heading of the full-size view; default the signal's address. */
   title?: string;
   /**
@@ -91,7 +93,7 @@ export interface TimeSeriesProps {
  * per signal and fed new data on every render, so a live trace at 10 Hz
  * costs a `setData`, not a rebuild. Axis label and unit come from the signal.
  */
-export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey, id, height = 160, fixedRange = false, compact: compactProp = false, windowS, yScale, every, navigable, title, expanded, onExpandChange, exportHref }: TimeSeriesProps) {
+export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey, id, height = 160, fixedRange = false, compact: compactProp = false, windowS, yScale, every, navigable, live = true, title, expanded, onExpandChange, exportHref }: TimeSeriesProps) {
   const nav = useRef(navigation()).current;
   const [following, setFollowing] = useState(true);
   nav.onChange = setFollowing;
@@ -112,8 +114,29 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
   const [yFit, setYFit] = useState<YScale | null>(null);
   const wanted: YScale = yScale ?? (fixedRange ? "range" : "auto");
   const effective = yFit !== null && yFit === wanted ? "auto" : wanted;
-  const y = yRange(effective, signal.range);
-  const yKey = typeof effective === "object" ? `${effective.min}:${effective.max}` : effective;
+  // Alt+wheel pans y. A ref, not state: the installed scale's `range` function reads it fresh on
+  // every live redraw (same trick `xRange`'s closure `held` uses), so a pan survives a live
+  // chart's own `setData` calls instead of being overwritten by the next auto-fit. `yPanned` only
+  // flips once, to rebuild the chart exactly once with a range function that consults the ref --
+  // panning itself never rebuilds; it calls `setScale` directly (see `onWheelY`).
+  const heldYRef = useRef<[number, number] | null>(null);
+  const [yPanned, setYPanned] = useState(false);
+  useEffect(() => {
+    heldYRef.current = null;
+    setYPanned(false);
+  }, [wanted]);
+  nav.onWheelY = (u, deltaY) => {
+    const scale = u.scales["y"];
+    const [min, max] = heldYRef.current ?? [scale?.min ?? 0, scale?.max ?? 1];
+    const shift = (deltaY < 0 ? -0.1 : 0.1) * (max - min);
+    const next: [number, number] = [min + shift, max + shift];
+    heldYRef.current = next;
+    u.setScale("y", { min: next[0], max: next[1] });
+    if (!yPanned) setYPanned(true);
+  };
+  const baseY = yRange(effective, signal.range);
+  const y = yPanned || baseY ? () => heldYRef.current ?? baseY?.() ?? [0, 1] : undefined;
+  const yKey = `${typeof effective === "object" ? `${effective.min}:${effective.max}` : effective}:${yPanned}`;
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
   const theme = useThemeVersion();
@@ -198,6 +221,10 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
   const everyRef = useRef(every);
   everyRef.current = every;
   const key = signal.address;
+  // A few multiples of the signal's own poll period: normal jitter between samples never counts
+  // as a gap, only real dead time (a restart, an offline reader). No known period: nothing to
+  // compare a gap against, so no gap is ever drawn -- better silent than a false break.
+  const maxGapS = signal.poll_s ? signal.poll_s * 3 : undefined;
   const { redraw } = useChartLifecycle({
     host,
     source,
@@ -211,7 +238,8 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         source.store.read(key, view.current, { every: everyRef.current, maxPoints });
         latest.current = view.current;
       }
-      u?.setData([latest.current.t, latest.current.v]);
+      const [gt, gv] = breakGaps(latest.current.t, latest.current.v, maxGapS);
+      u?.setData([gt as number[], gv as number[]]);
       if (u && !compact) showLatestInLegend(u);
     },
   });
@@ -239,6 +267,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
           saveTable(signal.address, seriesTable([{ label: signal.address, unit: describeUnit(signal.unit), ...held() }]), format)
         }
         exportHref={exportHref}
+        live={live}
       />
       {plot}
     </div>

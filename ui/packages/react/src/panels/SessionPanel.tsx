@@ -164,6 +164,8 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
   const setMode = (g: SessionGrouping) => (onGrouping ? onGrouping(g) : setOwn(g));
   const { session, traces, devices, writes, controllers, events, spans, startS } = detail;
   const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
+  // A closed session has no live edge to return to: its charts get no "live" button.
+  const live = session.end_ns === null;
   const details = session.details as Record<string, unknown> | null;
   const savedName = details && typeof details.name === "string" ? details.name : "";
   // The read-only header (no onRename) falls back to something identifiable when there's no
@@ -281,7 +283,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                 </span>
                 {exports && <Download what={key} href={(f) => exports.series(tr.signal.address, f)} />}
               </h4>
-              <TimeSeries signal={asSignal(tr.signal)} t={tr.t} v={tr.v} height={height} yScale={yScale} every={every} exportHref={exports?.series(tr.signal.address, "csv")} />
+              <TimeSeries signal={asSignal(tr.signal)} t={tr.t} v={tr.v} height={height} yScale={yScale} every={every} exportHref={exports?.series(tr.signal.address, "csv")} live={live} />
             </div>
           ))}
         {mode === "unit" && byUnit(traces).map(([unit, group]) => (
@@ -303,6 +305,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               height={height}
               yScale={yScale}
               every={every}
+              live={live}
               exportHref={
                 exports && group.length === 1 ? exports.series(group[0]!.signal.address, "csv") : undefined
               }

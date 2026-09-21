@@ -4,10 +4,13 @@
  * A chart has two states. *Following*: the x range is the scrolling window
  * (or everything, when no window is set) and every `setData` keeps the newest
  * point at the right edge. *Held*: the user zoomed or panned, so the x range
- * is theirs and new data does not move it. Wheel zooms about the pointer,
- * drag on the plot pans (shift-drag keeps uPlot's select-to-zoom), and the
- * toolbar steps back and forth, fits, and returns to following. (Double-click
- * is the chart's: it opens the chart full-size.)
+ * is theirs and new data does not move it. Wheel zooms x about the pointer,
+ * Alt+wheel pans y (`onWheelY`, wired by the caller -- not Shift, which
+ * uPlot's own select-to-zoom drag already owns, and not Ctrl, which a
+ * trackpad pinch turns into a page-zoom gesture the browser would fight
+ * over), drag on the plot pans x (shift-drag keeps uPlot's select-to-zoom),
+ * and the toolbar steps back and forth, fits, and returns to following.
+ * (Double-click is the chart's: it opens the chart full-size.)
  */
 
 import type uPlot from "uplot";
@@ -26,6 +29,12 @@ export interface Navigation {
   zoom(u: uPlot, factor: number, about?: number): void;
   /** Called whenever `following` changes, so a toolbar can re-render. */
   onChange?: (following: boolean) => void;
+  /**
+   * Alt+wheel pans the y axis instead of zooming x -- set by the caller (the
+   * y range is chart-specific: single scale for `TimeSeries`, one of several
+   * for `MultiSeries`), a no-op until wired. `deltaY` is the wheel event's own.
+   */
+  onWheelY?: (u: uPlot, deltaY: number) => void;
 }
 
 export function navigation(): Navigation {
@@ -56,6 +65,10 @@ export function navigation(): Navigation {
               (e) => {
                 if (!e.deltaY) return;
                 e.preventDefault();
+                if (e.altKey) {
+                  nav.onWheelY?.(u, e.deltaY);
+                  return;
+                }
                 const { left } = u.cursor;
                 const at = u.posToVal(left ?? u.bbox.width / 2 / devicePixelRatio, "x");
                 nav.zoom(u, e.deltaY < 0 ? 0.8 : 1.25, at);

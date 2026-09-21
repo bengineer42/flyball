@@ -29,8 +29,11 @@ describe("Ring", () => {
     expect(all.cols[0]).toEqual([40, 50, 60, 70, 80, 90, 100, 110]);
     const from = ring.read(emptyView(1), { fromS: 9 });
     expect(from.t).toEqual([9, 10, 11]);
+    // Anchored to the newest row (11), stepping backward by 3: 11, 8, 5 -- not to the window's
+    // start (0), which would re-pick a different set of rows almost every call as a live window
+    // slides (the bug this anchoring fixes; see Ring.read's own docstring).
     const every = ring.read(emptyView(1), { every: 3 });
-    expect(every.t).toEqual([4, 7, 10, 11]);
+    expect(every.t).toEqual([5, 8, 11]);
     const capped = ring.read(emptyView(1), { maxPoints: 3 });
     expect(capped.t.length).toBeLessThanOrEqual(4);
     expect(capped.t[capped.t.length - 1]).toBe(11);

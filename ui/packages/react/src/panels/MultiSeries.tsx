@@ -68,6 +68,8 @@ export interface MultiSeriesProps {
   every?: number;
   /** Pan/zoom toolbar and wheel/drag navigation; on by default. */
   navigable?: boolean;
+  /** Show the toolbar's "live" button. Default true; false for a closed/historical session. */
+  live?: boolean;
   /** Heading of the full-size view; default the trace labels and unit. */
   title?: string;
   /** Shown full-size in an overlay. Uncontrolled unless given: the toolbar button or a double-click opens it; Escape or the close button closes it. */
@@ -133,7 +135,7 @@ export const pageSyncKey = (): string | undefined => (typeof window === "undefin
  * second y axis on the right, so a demand in watts can sit over a reading in
  * degrees. Legend and cursor on.
  */
-export function MultiSeries({ series, source, paused, syncKey, id, unit, height = 200, windowS , yScale, range , every , navigable = true, title, expanded, onExpandChange, exportHref }: MultiSeriesProps) {
+export function MultiSeries({ series, source, paused, syncKey, id, unit, height = 200, windowS , yScale, range , every , navigable = true, live = true, title, expanded, onExpandChange, exportHref }: MultiSeriesProps) {
   const nav = useRef(navigation()).current;
   const [following, setFollowing] = useState(true);
   nav.onChange = setFollowing;
@@ -159,7 +161,25 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
   const [yFit, setYFit] = useState<YScale | null>(null);
   const wantedY: YScale = yScale ?? "auto";
   const effectiveY: YScale = yFit !== null && yFit === wantedY ? "auto" : wantedY;
-  const yKey = typeof effectiveY === "object" ? `${effectiveY.min}:${effectiveY.max}` : `${effectiveY}:${range?.join(",") ?? ""}`;
+  // Alt+wheel pans the primary ("y") scale only -- see `TimeSeries.tsx` for why a ref, not state.
+  // A chart with several axes (extra units) only pans the primary one; targeting whichever axis
+  // is under the cursor is a real, separate feature, not attempted here.
+  const heldYRef = useRef<[number, number] | null>(null);
+  const [yPanned, setYPanned] = useState(false);
+  useEffect(() => {
+    heldYRef.current = null;
+    setYPanned(false);
+  }, [wantedY]);
+  nav.onWheelY = (u, deltaY) => {
+    const scale = u.scales["y"];
+    const [min, max] = heldYRef.current ?? [scale?.min ?? 0, scale?.max ?? 1];
+    const shift = (deltaY < 0 ? -0.1 : 0.1) * (max - min);
+    const next: [number, number] = [min + shift, max + shift];
+    heldYRef.current = next;
+    u.setScale("y", { min: next[0], max: next[1] });
+    if (!yPanned) setYPanned(true);
+  };
+  const yKey = `${typeof effectiveY === "object" ? `${effectiveY.min}:${effectiveY.max}` : `${effectiveY}:${range?.join(",") ?? ""}`}:${yPanned}`;
 
   const isFill = height === "fill";
   const fillMode = open || isFill;
@@ -178,7 +198,10 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         time: true,
         range: (u, min, max) => nav.xRange(u, min, max, windowS),
       },
-      y: yRange(effectiveY, range) ? { range: yRange(effectiveY, range)! } : {},
+      y: (() => {
+        const baseY = yRange(effectiveY, range);
+        return yPanned || baseY ? { range: () => heldYRef.current ?? baseY?.() ?? [0, 1] } : {};
+      })(),
     };
     const axes: uPlot.Axis[] = [
       // 80px between ticks: the first label carries the date on a second line and is wider than the times after it.
@@ -331,6 +354,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
           saveTable(title ?? series.map((s) => s.label).join("-") ?? "chart", table(), format)
         }
         exportHref={exportHref}
+        live={live}
       />
       {plot}
     </div>
