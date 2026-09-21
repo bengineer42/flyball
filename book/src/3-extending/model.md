@@ -16,8 +16,8 @@ no separate reader or actuator class: a device is `Readable` (implements
 falls out of that is which access flags its signals carry.
 
 ```python
-from flyball.core import Quantity
-from flyball.core.units.si import Celsius
+from flyball.foundation import Quantity
+from flyball.foundation.quantities.si import Celsius
 
 TEMPERATURE = Quantity("temperature", Celsius)
 ```
@@ -55,7 +55,7 @@ in `__init__` with the same factories and bound with `Device.bind`.
 `Section("dry", "Dry line")` in place of a name tags a second grouping axis
 across the tree, orthogonal to the namespace. On the class a descriptor is
 its spec; on an instance it is the bound
-[`Signal`][flyball.core.signal.Signal] (`self.dry_flow.value`,
+[`Signal`][flyball.foundation.device.signal.Signal] (`self.dry_flow.value`,
 `.push(v)`, `.pending`, `.limits`).
 
 ## Signals: R, P, W

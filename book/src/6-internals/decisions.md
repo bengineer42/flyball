@@ -28,7 +28,7 @@ chapter describes intent rather than fact, it says which.
   no failsafe on a stale sensor.
 - **Adaptation in control.** Estimator and retune policy exist; wiring them
   into a controller is not done.
-- **Per-driver registries.** Driver tags (`flyball.core.config.Config.registry`)
+- **Per-driver registries.** Driver tags (`flyball.foundation.config.config.Config.registry`)
   are one process-wide namespace, so two plugins declaring the same tag
   would collide. No longer hypothetical: D-013's restructure created ten
   separate `flyball.configs`-registering packages (`extensions/{linux,chips,

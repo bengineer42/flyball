@@ -291,4 +291,4 @@ tick gets no anti-windup term rather than a wrong one.
 
 `mode` says what the controller is doing. Whether a caller is *allowed* to
 change it is a separate question the controller does not answer;
-`flyball.core.resource` holds a claim graph for that.
+`flyball.foundation.resource` holds a claim graph for that.

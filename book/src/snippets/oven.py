@@ -3,10 +3,10 @@
 from collections.abc import Iterator
 
 from flyball.control import PI
-from flyball.core.device import Committable, Demand, Output, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Sample
-from flyball.core.units.si import Celsius
+from flyball.foundation.device.device import Committable, Demand, Output, Readable
+from flyball.foundation.quantities.quantity import Quantity
+from flyball.foundation.device.signal import Sample
+from flyball.foundation.quantities.si import Celsius
 from flyball.runtime import Rig
 from flyball_sim import Lag, SteppedClock
 

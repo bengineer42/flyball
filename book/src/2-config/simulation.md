@@ -50,9 +50,9 @@ anything, which is enough to drive a bare plant by hand:
 
 ```python
 from flyball.control import PI, Controller
-from flyball.core import Access, Quantity, Reading, Role, SignalSpec
-from flyball.core.device import Device
-from flyball.core.units.si import Celsius
+from flyball.foundation import Access, Quantity, Reading, Role, SignalSpec
+from flyball.foundation.device.device import Device
+from flyball.foundation.quantities.si import Celsius
 from flyball_sim import Lag, SteppedClock
 
 TEMPERATURE = Quantity("temperature", Celsius)

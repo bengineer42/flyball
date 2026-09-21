@@ -148,7 +148,7 @@ demand may drive the target again.
 ## Triggers
 
 Anything a program waits on — a prompt, a settle test, a hold — is a
-[Trigger][flyball.core.trigger.Trigger] registered by name in
+[Trigger][flyball.foundation.router.trigger.Trigger] registered by name in
 `rig.triggers` (`flyball.runtime.triggers.Triggers`) for as long as the wait
 lasts. `fire` settles it as met; `interrupt` cancels it. Outcomes are pushed
 through `Latest` as they settle, from whichever thread settles them; on the

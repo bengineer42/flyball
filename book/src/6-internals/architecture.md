@@ -17,7 +17,7 @@ control         a controller, a control law, a reference trajectory, and the
                 arithmetic of handing control over. Beside it, identification
                 and the tuning rules
 
-core            values and infrastructure with no opinions: time, units,
+foundation      values and infrastructure with no opinions: time, units,
                 quantities, signals, devices, errors, resources,
                 publish/subscribe, config
 ```
@@ -35,7 +35,7 @@ writing a device driver rather than editing the rig.
 
 | package | layer | holds |
 | --- | --- | --- |
-| `flyball.core` | core | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; `Config`; errors; `Topic`, `Latest`, `Trigger` |
+| `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; `Config`; errors; `Topic`, `Latest`, `Trigger` |
 | `flyball.control` | control | `Controller`, `ControlLaw` and the laws (`P`, `PI`, `PID`, `OpenLoop`), `SetPointGenerator`, `Feedforward`, `Tuning`, `Transfer` |
 | `flyball.autotune` | `hardware\|adaptive\|autotune\|db` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
 | `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
@@ -66,7 +66,7 @@ steps — is derived from those, so nothing is described twice.
 
 ## Dependencies
 
-`flyball.core` has none: the pure controller, the device protocol and the
+`flyball.foundation` has none: the pure controller, the device protocol and the
 SQLite store are stdlib-only, so a downstream package can depend on the
 algorithm without pulling in a serial stack. The simulated plant moved out
 to `flyball-sim` (`flyball_sim`, `../sim`), its own top-level package with
@@ -93,11 +93,11 @@ flyball.programmer
 flyball.runtime
 flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db
 flyball.control
-flyball.core
+flyball.foundation
 ```
 
 A second contract keeps `flyball.client` and `flyball.scaffold` standing
-apart from all of it: neither may import `flyball.core`, `flyball.control`,
+apart from all of it: neither may import `flyball.foundation`, `flyball.control`,
 `flyball.runtime`, `flyball.server` or `flyball.programmer`, so a client
 built from the wire alone cannot quietly start depending on the rig's
 internals.

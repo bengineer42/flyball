@@ -153,8 +153,8 @@ nav:
       - CLI: 7-reference/cli.md
       - Python API:
           - flyball: 7-reference/python/flyball.md
-          - flyball.core: 7-reference/python/flyball/core.md
-          - flyball.core.units: 7-reference/python/flyball/core/units.md
+          - flyball.foundation: 7-reference/python/flyball/foundation.md
+          - flyball.foundation.quantities: 7-reference/python/flyball/foundation/quantities.md
           - flyball.control: 7-reference/python/flyball/control.md
           - flyball.adaptive: 7-reference/python/flyball/adaptive.md
           - flyball.autotune: 7-reference/python/flyball/autotune.md
