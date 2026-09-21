@@ -496,9 +496,9 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "fastapi" },
+    { name = "flyball-sim" },
     { name = "httpx" },
     { name = "mcp" },
-    { name = "pyserial" },
     { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
@@ -514,18 +514,9 @@ mcp = [
     { name = "pyyaml" },
     { name = "websockets" },
 ]
-modbus = [
-    { name = "pymodbus" },
-]
-serial = [
-    { name = "pyserial" },
-]
-visa = [
-    { name = "pyvisa" },
-    { name = "pyvisa-py" },
-]
 web = [
     { name = "fastapi" },
+    { name = "flyball-sim" },
     { name = "httpx" },
     { name = "mcp" },
     { name = "pyyaml" },
@@ -535,13 +526,16 @@ web = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "flyball-modbus" },
+    { name = "flyball-sim" },
+    { name = "flyball-visa" },
+    { name = "furnace" },
     { name = "import-linter" },
     { name = "ipykernel" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
-    { name = "types-pyserial" },
 ]
 docs = [
     { name = "griffe-pydantic" },
@@ -553,6 +547,8 @@ docs = [
 requires-dist = [
     { name = "fastapi", marker = "extra == 'all'", specifier = ">=0.115" },
     { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115" },
+    { name = "flyball-sim", marker = "extra == 'all'", editable = "../sim" },
+    { name = "flyball-sim", marker = "extra == 'web'", editable = "../sim" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'cli'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.27" },
@@ -561,11 +557,6 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.12" },
     { name = "mcp", marker = "extra == 'web'", specifier = ">=1.12" },
     { name = "pydantic", specifier = ">=2.9" },
-    { name = "pymodbus", marker = "extra == 'modbus'", specifier = ">=3.6" },
-    { name = "pyserial", marker = "extra == 'all'", specifier = ">=3.5" },
-    { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
-    { name = "pyvisa", marker = "extra == 'visa'", specifier = ">=1.14" },
-    { name = "pyvisa-py", marker = "extra == 'visa'", specifier = ">=0.7" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'mcp'", specifier = ">=6" },
@@ -578,22 +569,111 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'mcp'", specifier = ">=13" },
     { name = "websockets", marker = "extra == 'web'", specifier = ">=13" },
 ]
-provides-extras = ["all", "cli", "mcp", "modbus", "serial", "visa", "web"]
+provides-extras = ["all", "cli", "mcp", "web"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "flyball-modbus", editable = "../extensions/modbus" },
+    { name = "flyball-sim", editable = "../sim" },
+    { name = "flyball-visa", editable = "../extensions/visa" },
+    { name = "furnace", editable = "../examples/furnace" },
     { name = "import-linter", specifier = ">=2.1" },
     { name = "ipykernel", specifier = ">=7.3.0" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.8" },
-    { name = "types-pyserial" },
 ]
 docs = [
     { name = "griffe-pydantic", specifier = ">=1.0" },
     { name = "mkdocs-material", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26" },
+]
+
+[[package]]
+name = "flyball-modbus"
+version = "0.1.0"
+source = { editable = "../extensions/modbus" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flyball", editable = "." },
+    { name = "pymodbus", marker = "extra == 'modbus'", specifier = ">=3.6" },
+]
+provides-extras = ["modbus"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "flyball-sim", editable = "../sim" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "flyball-sim"
+version = "0.1.0"
+source = { editable = "../sim" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flyball", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "flyball-visa"
+version = "0.1.0"
+source = { editable = "../extensions/visa" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flyball", editable = "." },
+    { name = "flyball-visa", extras = ["serial", "visa"], marker = "extra == 'all'" },
+    { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
+    { name = "pyvisa", marker = "extra == 'visa'", specifier = ">=1.14" },
+    { name = "pyvisa-py", marker = "extra == 'visa'", specifier = ">=0.7" },
+]
+provides-extras = ["visa", "serial", "all"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "flyball-sim", editable = "../sim" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "furnace"
+version = "0.1.0"
+source = { editable = "../examples/furnace" }
+dependencies = [
+    { name = "flyball" },
+    { name = "flyball-sim" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flyball", editable = "." },
+    { name = "flyball-sim", editable = "../sim" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "ruff", specifier = ">=0.8" },
 ]
 
 [[package]]
@@ -1644,24 +1724,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pymodbus"
-version = "3.15.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e5/b8/03dace16e0e5d1c3eb16e8b9bcce9885f5e8a38db34345ec375cd70ed2e2/pymodbus-3.15.0.tar.gz", hash = "sha256:4c5f715128bfeba59f4c9fb3542b0c32a8afd4b90081111e39c12f7af0c89aae", size = 168238 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/7b/fa75ca74270ad3786234c6573f3c6c524441d3eb686882e280c717ce6d04/pymodbus-3.15.0-py3-none-any.whl", hash = "sha256:74d8dee961f23845f18a8481253183504dca05c4fcd102890cd28f4d7ce09267", size = 167602 },
-]
-
-[[package]]
-name = "pyserial"
-version = "3.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb", size = 159125 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/bc/587a445451b253b285629263eb51c2d8e9bcea4fc97826266d186f96f558/pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0", size = 90585 },
-]
-
-[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1718,31 +1780,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042 },
-]
-
-[[package]]
-name = "pyvisa"
-version = "1.16.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/13/72/a50adff945e66f2161a44b243970f809de19152a2e7da0473ae8ff96d642/pyvisa-1.16.2.tar.gz", hash = "sha256:75beb93eeafe20a50be5726fa4e3a645948c93d86819f9c1f8c542efa4085a38", size = 238729 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/a9/776da4f397003cca093659524c3526590522f81b642936838428c11274e6/pyvisa-1.16.2-py3-none-any.whl", hash = "sha256:54f034adafd3e8d1858d57cdafec64e920444f4b84b31c9fd17487fbad0a197a", size = 181413 },
-]
-
-[[package]]
-name = "pyvisa-py"
-version = "0.8.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyvisa" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/55/8d/0f1af2b39feca8868d0692a2c5d0c47f4ad559a051fb678c441fe1e99536/pyvisa_py-0.8.1.tar.gz", hash = "sha256:db53d3219d971d16b8f7c764a93e08475875063635b9ad8ea3c988439833ccdd", size = 102061 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/0b/06ccf917ce30d78d75e452d0afc89236b1d384b776c5c33d75c8cc55fbe7/pyvisa_py-0.8.1-py3-none-any.whl", hash = "sha256:31208a2933c1793b4e829ba5f07d265b83f280668df440ee7ee6ac505dea4ee9", size = 82206 },
 ]
 
 [[package]]
@@ -2124,15 +2161,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/53/a3/1585216310e344e8102c22482f6060c7a6ea0322b63e026372e6dcefcfd6/truststore-0.10.4.tar.gz", hash = "sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301", size = 26169 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/19/97/56608b2249fe206a67cd573bc93cd9896e1efb9e98bce9c163bcdc704b88/truststore-0.10.4-py3-none-any.whl", hash = "sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981", size = 18660 },
-]
-
-[[package]]
-name = "types-pyserial"
-version = "3.5.0.20260712"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ec/e7/6ce4a4ea526397fd0a1ac122085673f3f81fd3e43f4c77bd2dbe7743d644/types_pyserial-3.5.0.20260712.tar.gz", hash = "sha256:19c0a184e9f39e1282783ed7d35d89d73503bd482b39e072299983704e805d00", size = 20875 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/66/00bb637724c659494a41687bf06ac613a860720f7183109fca62986d4f69/types_pyserial-3.5.0.20260712-py3-none-any.whl", hash = "sha256:ee4f34b7432a0608bb016c88cb5b1ad3b960df4784289de56dda471503ceb53d", size = 25323 },
 ]
 
 [[package]]

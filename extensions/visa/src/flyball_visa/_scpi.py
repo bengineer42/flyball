@@ -1,6 +1,6 @@
 """SCPI instruments over a text link: one query or command per signal.
 
-`MEAS:VOLT:DC?` answers `+1.23456E-02`. A [Scpi][flyball.devices.scpi.Scpi]
+`MEAS:VOLT:DC?` answers `+1.23456E-02`. A [Scpi][flyball_visa.Scpi]
 device's tree is its own config: `channels` maps each signal's name to a
 query, a write template, or both (plan §1.8.2 -- a generic driver's tree
 lives in its own config, not the envelope). Replies parse as a float by
@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from flyball.core.config import resolve
 from flyball.core.device import Committable, DriverConfig, Readable, command
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
-from flyball.hardware.links import FakeTextLink, TextLink, TextLinkConfig
+from flyball.hardware.links import TextLink
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ._links import FakeTextLink, TextLinkConfig
 
 Parser = Callable[[str], float]
 

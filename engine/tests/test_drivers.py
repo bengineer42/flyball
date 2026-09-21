@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flyball.core.config import Config
-from flyball.hardware.links import FakeTextLink
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
@@ -56,9 +55,23 @@ def test_a_directory_of_drivers_loads_and_reloads(drivers: Path) -> None:
     assert load_drivers(drivers / "missing").registered == {}
 
 
+class _FakeTextLink:
+    """A minimal stand-in for a text link: `/api/links/{name}/query` only needs `query()`.
+
+    `flyball.hardware.links` has no `FakeTextLink` of its own any more -- the
+    scripted fake (and every real text-link kind) lives in extensions/visa.
+    """
+
+    def __init__(self, replies: dict[str, str]) -> None:
+        self.replies = replies
+
+    def query(self, command: str) -> str:
+        return self.replies[command]
+
+
 def test_the_routes_list_reload_and_query(drivers: Path) -> None:
     rig = Rig("r")
-    rig.links["dmm"] = FakeTextLink({"*IDN?": "ACME,DMM,1"})
+    rig.links["dmm"] = _FakeTextLink({"*IDN?": "ACME,DMM,1"})
     rig.links["plain"] = object()
     set_rig(rig)
     set_drivers_dir(drivers)

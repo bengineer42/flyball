@@ -15,7 +15,7 @@
 
 | | status | page |
 | --- | --- | --- |
-| SCPI over VISA / serial; Modbus TCP / RTU | shipped, extras `flyball[visa]`, `[serial]`, `[modbus]` | [Instrument protocols](protocols.md) |
+| SCPI over VISA / serial; Modbus TCP / RTU | `flyball-visa`, `flyball-modbus` | [Instrument protocols](protocols.md) |
 | QCoDeS (~200 drivers), PyMeasure (~150) | `flyball-qcodes`, `flyball-pymeasure` | [Instrument libraries](libraries.md) |
 | Raspberry Pi: I²C, SPI, GPIO, PWM, 1-Wire and the chips on them | `flyball-linux` | [Raspberry Pi and Linux buses](linux.md) |
 | Bluesky: readables and movables over any signal; event-model export | `flyball-bluesky` | [Bluesky](bluesky.md) |

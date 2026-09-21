@@ -1,6 +1,6 @@
 """Modbus controllers over a register link: one register per signal.
 
-A [Modbus][flyball.devices.modbus.Modbus] device's tree is its own config:
+A [Modbus][flyball_modbus.Modbus] device's tree is its own config:
 `registers` maps each signal's name to where it lives and how it converts.
 Block reads where addresses are contiguous would be an optimisation; this
 driver reads and writes one register at a time.
@@ -11,13 +11,14 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
-
 from flyball.core.config import resolve
 from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
-from flyball.hardware.links import FakeRegisterLink, RegisterLink, RegisterLinkConfig
+from flyball.hardware.links import RegisterLink
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from ._links import FakeRegisterLink, RegisterLinkConfig
 
 Kind = Literal["holding", "input", "coil"]
 

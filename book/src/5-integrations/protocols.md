@@ -20,9 +20,12 @@ scripted fake (`fake_text`, `fake_registers`), so the same file runs with
 nothing plugged in. Each real link holds one lock, so two devices sharing an
 instrument never interleave a query with a write.
 
-**Code.** `flyball.hardware.links` (the links), `flyball.devices.scpi`,
-`flyball.devices.modbus`. Extras: `flyball[visa]` (pyvisa + pyvisa-py, no NI
-runtime), `flyball[serial]`, `flyball[modbus]`.
+**Code.** `flyball.hardware.links` (the `TextLink`/`RegisterLink` protocols
+only); `extensions/visa` (`flyball_visa`: the text links and `scpi`) and
+`extensions/modbus` (`flyball_modbus`: the register links and `modbus`),
+each its own installable package, like `extensions/qcodes` and
+`extensions/pymeasure`. `pip install flyball-visa[visa]` (pyvisa +
+pyvisa-py, no NI runtime), `flyball-visa[serial]`, `flyball-modbus[modbus]`.
 
 **Beyond the table.** A reply that is not a number, a command sequence, an
 instrument's own error queue: subclass `Scpi` or write a `Device` --

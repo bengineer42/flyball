@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyball-visa"
+version = "0.1.0"
+description = "VISA and serial text-instrument links and the generic scpi device"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+dependencies = ["flyball"]
+classifiers = ["Private :: Do Not Upload"]
+
+[project.optional-dependencies]
+# VisaLink/SerialLink import their driver only when a real link is built;
+# FakeTextLink needs neither.
+visa = ["pyvisa>=1.14", "pyvisa-py>=0.7"]
+serial = ["pyserial>=3.5"]
+all = ["flyball-visa[serial,visa]"]
+
+# What `flyball rig check`, the runner and the schema load to make `driver: scpi` valid.
+[project.entry-points."flyball.configs"]
+visa = "flyball_visa"
+
+[dependency-groups]
+# flyball-sim: RigConfig.build() reaches for a stepped/scaled clock whenever
+# no clock is given and every link is fake_*/sim_* -- true of the
+# fake_text bench rig this package's own tests build.
+dev = ["pytest>=8.0", "ruff>=0.8", "flyball-sim"]
+
+[tool.uv.sources]
+flyball = { path = "../../engine", editable = true }
+flyball-sim = { path = "../../sim", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyball_visa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../engine/pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "RUF", "D"]

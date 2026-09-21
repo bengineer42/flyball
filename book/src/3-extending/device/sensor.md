@@ -102,9 +102,9 @@ line-oriented serial, `RegisterLink` (`read_registers`, `write_registers`)
 for Modbus. Each link has a real implementation that imports its driver
 only when built, and a fake for tests and hardware-free rigs. A driver
 config's `link` field names one by key in the rig file's `links:` — see
-[Config and build](config.md). `flyball.hardware` and `flyball.devices`
-have table-driven devices over both; subclass those before writing a
-driver from scratch.
+[Config and build](config.md). `extensions/visa` (`Scpi`) and
+`extensions/modbus` (`Modbus`) have table-driven devices over both;
+subclass those before writing a driver from scratch.
 
 ## Several signals, one instant
 
