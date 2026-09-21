@@ -347,6 +347,8 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", marker = "extra == 'all'", specifier = ">=0.115" },
     { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115" },
+    { name = "flyball-sim", marker = "extra == 'all'", editable = "../../sim" },
+    { name = "flyball-sim", marker = "extra == 'web'", editable = "../../sim" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'cli'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.27" },
@@ -355,11 +357,6 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.12" },
     { name = "mcp", marker = "extra == 'web'", specifier = ">=1.12" },
     { name = "pydantic", specifier = ">=2.9" },
-    { name = "pymodbus", marker = "extra == 'modbus'", specifier = ">=3.6" },
-    { name = "pyserial", marker = "extra == 'all'", specifier = ">=3.5" },
-    { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
-    { name = "pyvisa", marker = "extra == 'visa'", specifier = ">=1.14" },
-    { name = "pyvisa-py", marker = "extra == 'visa'", specifier = ">=0.7" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'mcp'", specifier = ">=6" },
@@ -372,17 +369,20 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'mcp'", specifier = ">=13" },
     { name = "websockets", marker = "extra == 'web'", specifier = ">=13" },
 ]
-provides-extras = ["all", "cli", "mcp", "modbus", "serial", "visa", "web"]
+provides-extras = ["all", "cli", "mcp", "web"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "flyball-modbus", editable = "../modbus" },
+    { name = "flyball-sim", editable = "../../sim" },
+    { name = "flyball-visa", editable = "../visa" },
+    { name = "furnace", editable = "../../examples/furnace" },
     { name = "import-linter", specifier = ">=2.1" },
     { name = "ipykernel", specifier = ">=7.3.0" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.8" },
-    { name = "types-pyserial" },
 ]
 docs = [
     { name = "griffe-pydantic", specifier = ">=1.0" },
