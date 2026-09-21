@@ -52,6 +52,12 @@ all = ["flyball[cli,web]"]
 flyball-runner = "flyball.runner:main"
 flyball-mcp = "flyball.interfaces.mcp.server:main"
 
+# Engine's own built-in laws, registered through the same `flyball.configs`
+# mechanism as every extension -- no special-cased "what's compiled in" path
+# (brain/tasks/registry-redesign.md).
+[project.entry-points."flyball.configs"]
+flyball = "flyball.control.configs"
+
 
 [dependency-groups]
 dev = [
@@ -177,6 +183,36 @@ warn_unreachable = true
 # `flyball.rig` stays unlisted (unconstrained by this contract, same as
 # `flyball.scaffold` already is) rather than encoding a layering that isn't
 # true yet.
+#
+# `flyball.model` (engine-structure.md layer 2) is deliberately left OUT of
+# this list too, for the same reason as flyball.rig above: a real,
+# unavoidable cycle, not an oversight. `flyball.control` (laws/feedforwards/
+# generators that ship) imports `ControlLaw`/`Feedforward`/`SetPointGenerator`
+# from `flyball.model`, so model has to sit below control -- but
+# `flyball.foundation.device.device.DriverConfig` subclasses `flyball.model
+# .config.Config` (`Config[T]`'s home moved out of `foundation/config/` to
+# `model/` with the registry redesign), so model also has to sit below
+# foundation, model's own supposed base layer. Checked directly
+# (`uv run lint-imports`): listing model anywhere between control and
+# foundation breaks on `foundation.device.device -> model.config`, not on
+# anything model-internal. Fixing this for real means moving `DriverConfig`
+# itself into `model/` (it's conceptually the Config tier of the device
+# Catalog per engine-structure.md's own description) -- out of scope for the
+# agent that split control/controller.py|types.py into model/, since it
+# wasn't chartered to touch `foundation/device/device.py`'s device-tree code.
+# Until then, `flyball.model` stays unlisted rather than asserting an order
+# that isn't true; `flyball.control`, `flyball.foundation` and everything
+# above both are still fully ordered and enforced against each other.
+#
+# `flyball.library` (layer 4, saved/named Configs -- `Tuning`/`Tunings` so
+# far) sits below the hardware|adaptive|autotune|record line, not above:
+# `flyball.autotune.types.Gains.to_tuning` builds a `library.tunings.Tuning`
+# directly (checked: `uv run lint-imports` broke on
+# `autotune.types -> library.tunings` when library was placed higher).
+# `flyball.library.tunings` itself imports `flyball.control.laws.OpenLoop`
+# (deferred, inside a function, to build `OpenLoopTuning` -- still a real
+# edge import-linter's layers contract catches) so library sits above
+# control too, per the ordering below.
 [tool.importlinter]
 root_packages = ["flyball"]
 
@@ -189,6 +225,7 @@ layers = [
     "flyball.programmer",
     "flyball.runtime",
     "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record",
+    "flyball.library",
     "flyball.control",
     "flyball.foundation",
 ]
@@ -198,5 +235,5 @@ name = "The client, the scaffold and the MCP server stand alone"
 type = "forbidden"
 source_modules = ["flyball.interfaces.client", "flyball.scaffold", "flyball.interfaces.mcp"]
 forbidden_modules = [
-    "flyball.foundation", "flyball.control", "flyball.runtime", "flyball.rig", "flyball.interfaces.server", "flyball.programmer",
+    "flyball.foundation", "flyball.control", "flyball.model", "flyball.library", "flyball.runtime", "flyball.rig", "flyball.interfaces.server", "flyball.programmer",
 ]
