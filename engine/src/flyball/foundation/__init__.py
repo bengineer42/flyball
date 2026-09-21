@@ -26,7 +26,7 @@ from .device import (
     WriteState,
     command,
 )
-from .device.device import Demand as DemandSignal
+from .device.descriptors import Demand as DemandSignal
 from .device.signal import Demand
 from .errors import (
     ConflictError,

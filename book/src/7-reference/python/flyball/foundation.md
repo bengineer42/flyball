@@ -5,7 +5,17 @@
       members: false
       show_root_heading: false
 
+::: flyball.foundation.device.state
+
+::: flyball.foundation.device.commands
+
+::: flyball.foundation.device.descriptors
+
+::: flyball.foundation.device.building
+
 ::: flyball.foundation.device.device
+
+::: flyball.foundation.device.entry
 
 ::: flyball.foundation.device.signal
 

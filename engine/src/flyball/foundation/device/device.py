@@ -15,132 +15,66 @@ A device that produces samples on a schedule is
 [Readable][flyball.foundation.device.device.Readable] (`read`); one with demands is
 [Committable][flyball.foundation.device.device.Committable] (`commit`: everything
 recorded since the last commit goes to the hardware once). Methods marked
-[command][flyball.foundation.device.device.command] are what people and programs run;
+[command][flyball.foundation.device.commands.command] are what people and programs run;
 the rig runs them, sets the device's `mode`, and records them.
 
 Every device has `conditions`: an output the driver pushes what is true of
 it now onto (railed, overdriven, waiting), beside what the runtime knows of
 polling it. The rig file wraps every device in the same
-[envelope][flyball.foundation.device.device.DeviceEntry] around the driver's own
+[envelope][flyball.foundation.device.entry.DeviceEntry] around the driver's own
 [config][flyball.foundation.device.device.DriverConfig].
+
+Split across this package by concern: [state][flyball.foundation.device.state]
+(`Condition`/`Event`), [commands][flyball.foundation.device.commands] (`@command`,
+`CommandSpec`), [descriptors][flyball.foundation.device.descriptors] (`Namespace`,
+`Demand`, `Output`, ...), [building][flyball.foundation.device.building] (the
+`__init_subclass__` helpers that turn descriptors into a tree and commands),
+[entry][flyball.foundation.device.entry] (the rig file's envelope, `DeviceEntry`).
+`DriverConfig` stays here rather than in `entry`: its generic bound
+(`DriverConfig[D: Device]`) is evaluated at class-definition time, not lazily
+like an annotation, so it needs `Device` as a real import -- keeping it here
+instead of in `entry.py` (which needs `DriverConfig` too, for the `issubclass`
+check in `DeviceEntry.build`) keeps the import direction one-way: `entry` ->
+`device`, never the reverse.
 """
 
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
-from enum import IntEnum
-from typing import Annotated, Any, ClassVar, Self, get_args, get_origin, get_type_hints, overload
+from dataclasses import replace
+from typing import Any, ClassVar, get_type_hints
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
-from pydantic.errors import (
-    PydanticInvalidForJsonSchema,
-    PydanticSchemaGenerationError,
-    PydanticUndefinedAnnotation,
-)
-from pydantic.json_schema import JsonSchemaMode
+from pydantic import Field
 
-from flyball.model.catalog import Catalogs, get_catalog
 from flyball.model.config import Config
 
-from ..errors import NotFoundError, NotReadyError
-from ..quantities.quantity import Quantity
-from ..quantities.si import Unitless
+from ..errors import NotReadyError
 from ..router.router import Router
-from ..time.clock import Rate
+from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
+from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
+from .descriptors import Descriptor, Input, Namespace, Output, _descriptors
 from .signal import (
     Access,
-    Band,
-    Bound,
     Node,
     NodeSpec,
     Path,
     Role,
     Sample,
-    Section,
     Signal,
-    SignalRef,
     SignalSpec,
     Value,
     WriteState,
 )
+from .state import Condition
 
-
-class Level(IntEnum):
-    """How much a condition or an event matters. `logging`'s numbers, so they interleave."""
-
-    DEBUG = 10
-    INFO = 20
-    WARNING = 30
-    ERROR = 40
-
-
-@dataclass(frozen=True, slots=True)
-class Condition:
-    """Something true of a device now: offline, railed, overdriven, waiting.
-
-    In the device's state while it holds; a late-joining client sees the
-    present, not a log.
-    """
-
-    kind: str  # stable and machine-readable: "offline", "railed"
-    level: Level
-    message: str
-    since_ns: int
-
-
-@dataclass(frozen=True, slots=True)
-class Event:
-    """Something that happened, for a log: a step failed, a pump clamped a request, a reader died.
-
-    A [Condition][flyball.foundation.device.device.Condition] is what is true now and lives
-    in state; an event is a point in time and lives in a stream and the
-    session store.
-    """
-
-    time_ns: int
-    level: Level
-    scope: str
-    """Which part: `loop`, `actuator`, `reader`, `program`, `rig`."""
-    subject: str
-    """The loop, device or step it concerns."""
-    kind: str
-    """Stable and machine-readable: `step_failed`, `offline`, `clamped`."""
-    message: str
-    details: Any = None
-
-
-def _schemable(owner: type, attr: str, model: Any, mode: JsonSchemaMode) -> None:
-    """Fail at class definition if pydantic cannot describe `model`."""
-    try:
-        TypeAdapter(model).json_schema(mode=mode)
-    except PydanticUndefinedAnnotation:
-        pass  # a forward reference; resolved on first real use
-    except (PydanticSchemaGenerationError, PydanticInvalidForJsonSchema) as e:
-        shown = getattr(model, "__name__", repr(model))
-        raise TypeError(f"{owner.__name__}.{attr} ({shown}) has no JSON schema: {e}") from e
-
-
-def _check_command_signature(owner: type, spec: CommandSpec) -> None:
-    """Every argument and the return of a command must cross the wire.
-
-    Checked at class definition, not on the first request.
-    """
-    try:
-        hints = get_type_hints(spec.method)
-    except NameError:
-        return  # a forward reference; the server's model derives it later
-    for name, annotation in hints.items():
-        where = (
-            f"{spec.method.__name__}() -> "
-            if name == "return"
-            else f"{spec.method.__name__}({name})"
-        )
-        if annotation is type(None):
-            continue
-        _schemable(owner, where, annotation, "serialization" if name == "return" else "validation")
+__all__ = [
+    "Committable",
+    "Device",
+    "DriverConfig",
+    "Readable",
+    "command",
+]
 
 
 def _declared_return(cls: type, prop: str) -> Any:
@@ -154,512 +88,6 @@ def _declared_return(cls: type, prop: str) -> Any:
         return None  # a forward reference; the inherited type stands
 
 
-RESERVED_NAMES = frozenset({"schema"})
-"""Route segments the server uses after a device's name; no device or command may take them."""
-
-
-@dataclass(frozen=True, slots=True)
-class Param:
-    """One argument of a command: its type, and the demand it is a value for, if any."""
-
-    name: str
-    annotation: Any
-    link: str | None = None
-    """The path of the demand or setting this argument is a value for: from a descriptor in an
-    `Annotated[...]` annotation, or a parameter named like a descriptor of the class. The rig
-    fills a missing argument from its current value and clamps a demand's to its limits; the
-    schema shows its unit, limits and address."""
-    default: Any = inspect.Parameter.empty
-
-    @property
-    def required(self) -> bool:
-        """Whether a request must give it: no default, and no demand to take the value from."""
-        return self.default is inspect.Parameter.empty and self.link is None
-
-
-@dataclass(frozen=True, slots=True)
-class CommandSpec:
-    """One method exposed as a command.
-
-    Marked by [command][flyball.foundation.device.device.command].
-    """
-
-    tag: str
-    method: Callable[..., Any]
-    params: dict[str, Param] = field(default_factory=dict)
-    simulation: bool = False
-    """Only meaningful on a simulated device -- a scripted fault, a disturbance. A UI keeps
-    these on its simulation page, not beside the device's real commands."""
-    commit: bool = False
-    """The method only records; the rig commits the device afterwards. Most commands do their
-    own I/O and need none."""
-    mode: Any = None
-    """What the device's `mode` output becomes when this runs, if it has one."""
-    interrupts: bool = False
-    """Puts a controller driving one of the device's demands into manual and runs (`stop`,
-    a manual flow); without it, such a command is refused while the controller is active."""
-    demand_of: str | None = None
-    """For a synthesised `set_<name>`: the path of the demand it sets; the rig routes it through
-    its demand path."""
-
-    @property
-    def doc(self) -> str | None:
-        return self.method.__doc__
-
-
-@overload
-def command[F: Callable[..., Any]](fn: F, /) -> F: ...
-@overload
-def command[F: Callable[..., Any]](
-    *,
-    tag: str | None = None,
-    simulation: bool = False,
-    commit: bool = False,
-    mode: Any = None,
-    interrupts: bool = False,
-) -> Callable[[F], F]: ...
-def command(
-    fn: Any = None,
-    /,
-    *,
-    tag: str | None = None,
-    simulation: bool = False,
-    commit: bool = False,
-    mode: Any = None,
-    interrupts: bool = False,
-) -> Any:
-    """Mark a device method as a command, under its name or `tag`.
-
-    `@command` or `@command(tag="stop")`. The method's signature is the
-    command's; an argument annotated `Annotated[<type>, <descriptor>]` (or
-    named like a descriptor) is a value for that demand -- legal in the
-    class body, since the descriptor's name is already bound there. `mode`
-    is what the device's `mode` output becomes when it runs. `commit=True`
-    for a method that only records and needs the device committed after.
-    `interrupts=True` puts a controller
-    driving the device into manual and runs; without it the command is
-    refused while one is active. `simulation=True` marks one that only
-    makes sense on a simulated device (a scripted fault, a disturbance): it
-    is served like any other, but the schema says so, so a UI can keep it
-    off the device's page.
-    """
-
-    def mark(f: Any) -> Any:
-        f.__command__ = tag or f.__name__
-        f.__command_options__ = {
-            "simulation": simulation,
-            "commit": commit,
-            "mode": mode,
-            "interrupts": interrupts,
-        }
-        return f
-
-    return mark(fn) if fn is not None else mark
-
-
-# region Descriptors
-
-
-class Namespace:
-    """A namespace declared in a class body, or built from config: a builder for a NodeSpec.
-
-    `flows = Namespace("flows", "Flows")` on the class; `self.flows` is the
-    bound [Node][flyball.foundation.device.signal.Node]. Its `demand`, `output`, `config`
-    and `input` make the signals under it.
-    """
-
-    def __init__(
-        self,
-        name: str,
-        label: str = "",
-        *,
-        atomic: bool = False,
-        poll_s: float | None = None,
-        parent: Namespace | None = None,
-    ) -> None:
-        # Instance attributes only: a class-level annotation of a type that
-        # has `__get__` reads as a descriptor to a checker.
-        self.name = name
-        self.label = label
-        self.atomic = atomic
-        self.poll_s = poll_s
-        self.parent = parent
-        self.children: list[Namespace | Descriptor[Any]] = []
-        self.attr: str | None = None
-        if parent is not None:
-            parent.children.append(self)
-
-    @property
-    def path(self) -> str:
-        """The dotted path relative to the device: `"flows"`, `"bank_a.ch1"`."""
-        return self.name if self.parent is None else f"{self.parent.path}.{self.name}"
-
-    def namespace(self, name: str, label: str = "", **options: Any) -> Namespace:
-        """A namespace under this one; `atomic` and `poll_s` as for the top level."""
-        return Namespace(name, label, parent=self, **options)
-
-    def demand(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Demand:
-        """A settable signal under this namespace, with a readback; what a controller drives."""
-        return Demand(name, label, *args, parent=self, **meta)
-
-    def output(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Output:
-        """A produced signal under this namespace: a measurement, a derived value, a mode."""
-        return Output(name, label, *args, parent=self, **meta)
-
-    def setting(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Setting:
-        """A signal under this namespace that a command re-sets; shown, not driven."""
-        return Setting(name, label, *args, parent=self, **meta)
-
-    def config(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> ConfigSignal:
-        """A signal under this namespace effective at build: the driver pushes it once."""
-        return ConfigSignal(name, label, *args, parent=self, **meta)
-
-    def input(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Input:
-        """An input grouped under this namespace for the schema; not in the tree (rig-bound)."""
-        return Input(name, label, *args, parent=self, **meta)
-
-    def spec(self) -> NodeSpec | None:
-        """The namespace as a spec; None for one holding only inputs (they are not in the tree)."""
-        children = [c.spec() for c in self.children if not isinstance(c, Input)]
-        if self.children and not children:
-            return None
-        return NodeSpec(
-            name=self.name,
-            label=self.label,
-            atomic=self.atomic,
-            poll_s=self.poll_s,
-            children=tuple(c for c in children if c is not None),
-        )
-
-    def __set_name__(self, owner: type, attr: str) -> None:
-        self.attr = attr
-        if self.parent is None:
-            _declare(owner, self)
-
-    @overload
-    def __get__(self, instance: None, owner: type) -> Namespace: ...
-    @overload
-    def __get__(self, instance: Device, owner: type) -> Node: ...
-    def __get__(self, instance: Device | None, owner: type) -> Namespace | Node:
-        if instance is None:
-            return self
-        return instance.nodes[self.path]
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.path!r})"
-
-
-class Descriptor[B]:
-    """A signal declared in a class body, or built from config: a builder for a SignalSpec.
-
-    `dry_flow = flows.demand("dry", "Dry pump flow", FLOW, limits=(0.0, dry_max_flow))`
-    on the class; `self.dry_flow` is the bound [Signal][flyball.foundation.device.signal.Signal].
-    A [Section][flyball.foundation.device.signal.Section] in place of the name gives the
-    segment and tags the signal. `quantity` None: the name, unitless (a mode, a
-    count). A limit may be another descriptor of the same device: its
-    current value bounds this one. `ceiling` lets the rig file widen `access`
-    up to it (never beyond); without one, the rig file may only narrow.
-    """
-
-    role: ClassVar[Role]
-
-    def __init__(
-        self,
-        name: str | Section,
-        label: str = "",
-        quantity: Quantity | None = None,
-        vtype: Any = float,
-        *,
-        access: Access | None = None,
-        ceiling: Access | None = None,
-        parent: Namespace | None = None,
-        **meta: Any,
-    ) -> None:
-        self.section: Section | None
-        if isinstance(name, Section):
-            self.section, self.name = name, name.name
-            if not label:
-                label = name.label
-        else:
-            self.section, self.name = meta.pop("section", None), name
-        self.label = label
-        self.quantity = Quantity(self.name, Unitless) if quantity is None else quantity
-        self.vtype = vtype
-        self.access = self.role.access if access is None else Access.check(access)
-        self.ceiling = None if ceiling is None else Access.check(ceiling)
-        self.meta = meta
-        self.parent = parent
-        self.attr: str | None = None
-        if parent is not None:
-            parent.children.append(self)
-
-    @property
-    def path(self) -> str:
-        """The dotted path relative to the device: `"humidity"`, `"flows.dry"`."""
-        return self.name if self.parent is None else f"{self.parent.path}.{self.name}"
-
-    def spec(self) -> SignalSpec:
-        """The signal as a spec, a descriptor limit resolved to a reference by path."""
-        meta = dict(self.meta)
-        if (limits := meta.get("limits")) is not None:
-            meta["limits"] = tuple(_bound(b) for b in limits)
-        return SignalSpec(
-            name=self.name,
-            quantity=self.quantity,
-            access=self.access,
-            ceiling=self.ceiling,
-            role=self.role,
-            section=self.section,
-            vtype=self.vtype,
-            label=self.label,
-            **meta,
-        )
-
-    def __set_name__(self, owner: type, attr: str) -> None:
-        self.attr = attr
-        if self.parent is None:
-            _declare(owner, self)
-
-    @overload
-    def __get__(self, instance: None, owner: type) -> Self: ...
-    @overload
-    def __get__(self, instance: Device, owner: type) -> B: ...
-    def __get__(self, instance: Device | None, owner: type) -> Self | B:
-        if instance is None:
-            return self
-        return self.on(instance)
-
-    def on(self, device: Device) -> B:
-        """What this descriptor is on an instance: the bound signal."""
-        return device.signals[self.path]  # type: ignore[return-value]
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.path!r})"
-
-
-def _bound(bound: Any) -> Bound:
-    """A limit as the spec carries it: a number, or a reference to a descriptor's signal.
-
-    An input is referenced by its role, wherever it was grouped for the schema.
-    """
-    if isinstance(bound, Input):
-        return SignalRef(bound.name)
-    if isinstance(bound, Descriptor):
-        return SignalRef(bound.path)
-    if isinstance(bound, SignalRef):
-        return bound
-    return float(bound)
-
-
-class Demand(Descriptor[Signal]):
-    """Settable, with a current value that updates; what a controller drives. `RPW`."""
-
-    role = Role.DEMAND
-
-
-class Output(Descriptor[Signal]):
-    """Produced, never set: a measurement, a derived value, a mode. `RP`."""
-
-    role = Role.OUTPUT
-
-
-class Setting(Descriptor[Signal]):
-    """Re-set by a command while the device runs; shown, not driven. `RP`."""
-
-    role = Role.SETTING
-
-
-class ConfigSignal(Descriptor[Signal]):
-    """Effective at build, shown, never set at run time: the driver pushes it once. `R`."""
-
-    role = Role.CONFIG
-
-
-class BoundInput:
-    """An input on an instance: the source signal the rig bound, and its current value."""
-
-    __slots__ = ("device", "input")
-
-    def __init__(self, device: Device, input: Input) -> None:
-        self.device = device
-        self.input: Any = input  # not a class-level Descriptor annotation: see Namespace
-
-    @property
-    def signal(self) -> Signal | None:
-        """The bound source, or None until the rig binds one."""
-        bound = self.device.bound.get(self.input.name)
-        return bound if isinstance(bound, Signal) else None
-
-    @property
-    def value(self) -> Value:
-        """The source's newest value; the input's default before one arrives.
-
-        Raises:
-            NotReadyError: Nothing bound or read, and no default.
-        """
-        if (signal := self.signal) is not None and (reading := signal.reading) is not None:
-            return reading.value
-        default = self.input.default
-        if isinstance(default, Descriptor):
-            return self.device.signals[default.path].value
-        if default is None:
-            raise NotReadyError(f"{self.device.name}.{self.input.name}: nothing has been read")
-        return default
-
-
-class Input(Descriptor[BoundInput]):
-    """Another device's signal, bound by the rig to this role (`bound: {dry: ...}`).
-
-    Not in the device's tree: `self.dry_supply` is the source signal once
-    bound, and reads `default` (a number, or a config descriptor) before
-    that or when nothing has been read on it yet.
-    """
-
-    role = Role.INPUT
-
-    def __init__(
-        self,
-        name: str | Section,
-        label: str = "",
-        quantity: Quantity | None = None,
-        vtype: Any = float,
-        *,
-        default: Any = None,
-        parent: Namespace | None = None,
-        **meta: Any,
-    ) -> None:
-        super().__init__(name, label, quantity, vtype, parent=parent, **meta)
-        self.default = default
-
-    def on(self, device: Device) -> BoundInput:
-        """What this input is on an instance: the bound source and its current value."""
-        return BoundInput(device, self)
-
-
-def _declare(owner: type, item: Namespace | Descriptor[Any]) -> None:
-    """Note a top-level descriptor on its class, in declaration order, for `__init_subclass__`."""
-    declared = owner.__dict__.get("_declared")
-    if declared is None:
-        declared = []
-        owner._declared = declared  # type: ignore[attr-defined]
-    declared.append(item)
-
-
-def _descriptors(cls: type) -> dict[str, Descriptor[Any]]:
-    """Every signal descriptor reachable from `cls` and its bases, by attribute name."""
-    found: dict[str, Descriptor[Any]] = {}
-    for base in reversed(cls.__mro__):
-        for item in base.__dict__.get("_declared", ()):
-            _collect(item, found)
-    return found
-
-
-def _collect(item: Namespace | Descriptor[Any], found: dict[str, Descriptor[Any]]) -> None:
-    if isinstance(item, Descriptor):
-        if item.attr is not None:
-            found[item.attr] = item
-    else:
-        for child in item.children:
-            _collect(child, found)
-
-
-# endregion
-
-
-def _inputs(items: Iterable[Namespace | Descriptor[Any]]) -> Iterator[Input]:
-    for item in items:
-        if isinstance(item, Input):
-            yield item
-        elif isinstance(item, Namespace):
-            yield from _inputs(item.children)
-
-
-@dataclass(frozen=True, slots=True)
-class _Leaf:
-    path: str
-    role: Role
-    spec: SignalSpec
-
-
-def _leaves(tree: Iterable[NodeSpec | SignalSpec], above: str = "") -> Iterator[_Leaf]:
-    for spec in tree:
-        path = f"{above}.{spec.name}" if above else spec.name
-        if isinstance(spec, SignalSpec):
-            yield _Leaf(path, spec.role, spec)
-        else:
-            yield from _leaves(spec.children, path)
-
-
-_LINKABLE = frozenset({Role.DEMAND, Role.SETTING})
-"""What a command argument may be a value for: a demand (clamped to its limits) or a setting."""
-
-
-def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
-    """Each argument of `fn` with the demand it is for: `Annotated[...]` first, then by name.
-
-    Resolves the annotations against the class body, so `Annotated[Flow,
-    dry_flow]` finds the descriptor, and writes the resolved ones back onto the
-    function: whatever builds a request model from it later needs no
-    class namespace.
-    """
-    try:
-        hints = get_type_hints(fn, include_extras=True, localns=dict(vars(cls)))
-    except NameError:
-        return {}  # a forward reference; the server's model derives it later
-    fn.__annotations__ = hints
-    descriptors = cls.DESCRIPTORS
-    params: dict[str, Param] = {}
-    for name, parameter in list(inspect.signature(fn).parameters.items())[1:]:
-        annotation = hints.get(name, Any)
-        link: Descriptor[Any] | None = None
-        if get_origin(annotation) is Annotated:
-            link = next((m for m in get_args(annotation)[1:] if isinstance(m, Descriptor)), None)
-        if link is None and (d := descriptors.get(name)) is not None and d.role in _LINKABLE:
-            link = d
-        if link is not None and name not in hints:
-            # No annotation: the demand's type is the argument's, for the request model.
-            annotation = hints[name] = Annotated[link.vtype, link]
-        params[name] = Param(
-            name, annotation, None if link is None else link.path, parameter.default
-        )
-    return params
-
-
-def _setter(cls: type[Device], leaf: _Leaf) -> CommandSpec:
-    """`set_<path>(value)` for a demand no command sets; the rig routes it to its demand path."""
-    tag = "set_" + leaf.path.replace(".", "_")
-    label = leaf.spec.label or leaf.spec.name.replace("_", " ")
-
-    def setter(self: Device, value: float) -> None:
-        raise NotImplementedError("a synthesised setter runs through the rig's demand path")
-
-    setter.__name__ = tag
-    setter.__qualname__ = f"{cls.__qualname__}.{tag}"
-    setter.__doc__ = f"Set {label}."
-    setter.__annotations__ = {"value": leaf.spec.vtype, "return": None}
-    param = Param("value", leaf.spec.vtype, None, inspect.Parameter.empty)
-    return CommandSpec(tag, setter, {"value": param}, demand_of=leaf.path)
-
-
-def _last_of(cls: type[Device]) -> NodeSpec:
-    """`last.<tag>`: when each command last ran and with what, for the wire and the record."""
-    return NodeSpec(
-        name="last",
-        label="Last run",
-        children=tuple(
-            SignalSpec(
-                name=tag,
-                quantity=Quantity(tag, Unitless),
-                access=Access.RP,
-                vtype=dict[str, Any],
-                label=tag.replace("_", " "),
-            )
-            for tag, spec in cls.commands.items()
-            if not spec.simulation and spec.demand_of is None
-        ),
-    )
-
-
 class Device:
     """Something with a name, a tree of signals (each with a role), commands, and conditions.
 
@@ -671,7 +99,7 @@ class Device:
 
     `config_type` is read off the `config` property's annotation on
     subclassing. `commands` collects every method marked
-    [command][flyball.foundation.device.device.command], parents' included, plus a
+    [command][flyball.foundation.device.commands.command], parents' included, plus a
     synthesised `set_<name>` for every demand no command sets.
     """
 
@@ -1015,8 +443,6 @@ class Committable(Device):
         """Put one committed value on the hardware. Default: nothing -- the device just holds it."""
 
 
-# region The rig-file envelope
-
 ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "bound", "config"})
 """The keys of a device entry that are flyball's, the same for every driver."""
 
@@ -1048,209 +474,3 @@ class DriverConfig[D: Device](Config[D]):
 
 
 Device.config_type = DriverConfig  # declared above it; the bare device's tier
-
-
-class SignalOverride(BaseModel):
-    """The envelope's per-signal keys: metadata to override, access to remove.
-
-    `access` names the set to keep (`"r"`); `readable`, `publishing` and
-    `writable` drop one flag each and take only `false` -- the driver
-    declares what it can honour, the file cannot add to it.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    label: str | None = None
-    range: Band | None = None
-    precision: int | None = None
-    warn: Band | None = None
-    alarm: Band | None = None
-    poll_s: float | None = None
-    stale_after: float | None = None
-    limits: Band | None = None
-    max_rate: Rate | None = None
-    tags: dict[str, str] | None = None
-    """Groupings across the tree, `{axis: name}`, added to the driver's."""
-    access: str | None = None
-    readable: bool | None = None
-    publishing: bool | None = None
-    writable: bool | None = None
-
-    @field_validator("access")
-    @classmethod
-    def _wire_form(cls, value: str | None) -> str | None:
-        return None if value is None else str(Access.parse(value))
-
-    @field_validator("readable", "publishing", "writable")
-    @classmethod
-    def _only_removes(cls, value: bool | None) -> bool | None:
-        if value:
-            raise ValueError(
-                "only `false` is allowed: the driver declares the access it can honour"
-            )
-        return value
-
-
-class NamespaceOverride(BaseModel):
-    """The envelope of a namespace: label, period and the overrides of what is under it.
-
-    A namespace's own driver settings (an I²C address) are not here: the
-    driver declares its namespaces in its own config, typed, and the
-    envelope only overrides what the driver declared.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    label: str | None = None
-    poll_s: float | None = None
-    tags: dict[str, str] | None = None
-    """Applied to every signal under the namespace; a signal's own win."""
-    signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
-
-
-NamespaceOverride.model_rebuild()
-
-
-class DeviceEntry(BaseModel):
-    """The envelope of one device in the rig file: flyball's keys, the same for every driver.
-
-    `driver:` picks the driver's config model by tag; the driver's own
-    settings sit flat beside these keys or under `config`, and both parse to
-    the same thing. If `config` is present it is the whole of the driver
-    config and any other leftover key is an error.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    driver: str
-    label: str | None = None
-    poll_s: float | None = None
-    signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
-    bound: dict[str, str] = Field(default_factory=dict)
-    """Role -> address on another device; the rig resolves it."""
-    config: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _flat_or_layered(cls, data: Any) -> Any:
-        if not isinstance(data, Mapping):
-            return data
-        leftover = {key: value for key, value in data.items() if key not in ENVELOPE_KEYS}
-        if not leftover:
-            return data
-        if "config" in data:
-            raise ValueError(
-                f"{', '.join(sorted(leftover))} beside `config`: the driver's settings go"
-                " under `config` or flat beside the envelope, not both"
-            )
-        envelope = {key: value for key, value in data.items() if key in ENVELOPE_KEYS}
-        return {**envelope, "config": leftover}
-
-    def build(
-        self,
-        name: str,
-        links: Mapping[str, Any] | None = None,
-        catalogs: Catalogs | None = None,
-    ) -> Device:
-        """Build the device `driver` describes and apply this envelope to it.
-
-        The driver binds its tree; the overrides are then applied onto the
-        bound objects in place, so nothing holds a stale reference. Unknown
-        names and added access are errors that name the address. When the
-        driver config's `link` names a key in `links`, it is substituted with
-        the built object first; an undeclared name is a `NotFoundError`
-        naming the device and the link.
-
-        Args:
-            name: The device's name in the rig.
-            links: Name -> built link, for a config whose `link` names one.
-            catalogs: Where `driver` is looked up. Default:
-                [get_catalog][flyball.model.catalog.get_catalog] -- the
-                process's installed `Catalogs`, set once by `runner.py`.
-        """
-        catalogs = catalogs or get_catalog()
-        driver = catalogs.devices.get(self.driver)
-        if driver is None:
-            raise ValueError(f"driver {self.driver!r} is not registered")
-        if not issubclass(driver, DriverConfig):
-            raise ValueError(f"driver {self.driver!r} is a {driver.__name__}, not a device driver")
-        config = driver.model_validate(self.config)
-        if isinstance(config.link, str):
-            if links is None or config.link not in links:
-                raise NotFoundError(f"device {name!r}: link {config.link!r} is not declared")
-            config = config.model_copy(update={"link": links[config.link]})
-        device = config.build(name, self.label)
-        if self.label is not None:
-            device.label = self.label
-        if self.poll_s is not None:
-            device.poll_s = self.poll_s
-        _override_under(device.root, self.signals)
-        return device
-
-
-_SIGNAL_FIELDS = (
-    "label",
-    "range",
-    "precision",
-    "warn",
-    "alarm",
-    "poll_s",
-    "stale_after",
-    "limits",
-    "max_rate",
-)
-_NODE_FIELDS = ("label", "poll_s", "tags")
-
-
-def _override_under(
-    node: Node, overrides: Mapping[str, SignalOverride | NamespaceOverride]
-) -> None:
-    for name, override in overrides.items():
-        address = f"{node.address}.{name}"
-        if (signal := node.signals.get(name)) is not None:
-            if isinstance(override, NamespaceOverride):
-                raise ValueError(f"'{address}' is a signal, not a namespace")
-            _override_signal(signal, override)
-        elif (child := node.children.get(name)) is not None:
-            if isinstance(override, SignalOverride):
-                # `{poll_s: 5}` alone parses as a signal's override; on a
-                # namespace it means the same thing.
-                if extra := override.model_fields_set - set(_NODE_FIELDS):
-                    raise ValueError(
-                        f"'{address}' is a namespace: {', '.join(sorted(extra))} is a signal's"
-                    )
-                override = NamespaceOverride(
-                    label=override.label, poll_s=override.poll_s, tags=override.tags
-                )
-            changes = {f: v for f in _NODE_FIELDS if (v := getattr(override, f)) is not None}
-            if changes:
-                child.override(**changes)
-            if override.tags:
-                for signal in child.walk():
-                    signal.override(tags={**override.tags, **signal.spec.tags})
-            _override_under(child, override.signals)
-        else:
-            raise ValueError(f"'{address}' is not a signal or namespace of {node.device.name!r}")
-
-
-def _override_signal(signal: Signal, override: SignalOverride) -> None:
-    changes = {f: v for f in _SIGNAL_FIELDS if (v := getattr(override, f)) is not None}
-    if override.tags:
-        changes["tags"] = {**signal.spec.tags, **override.tags}
-    if changes:
-        signal.override(**changes)
-    value = signal.access.value if override.access is None else Access.parse(override.access).value
-    for flag, keep in (
-        (Access.R, override.readable),
-        (Access.P, override.publishing),
-        (Access.W, override.writable),
-    ):
-        if keep is False:
-            value &= ~flag.value
-    if value & Access.P.value and not value & Access.R.value:
-        raise ValueError(f"Signal '{signal.address}': readable: false leaves it publishing")
-    if value != signal.access.value:
-        signal.restrict(Access(value))
-
-
-# endregion

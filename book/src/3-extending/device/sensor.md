@@ -24,12 +24,12 @@ rig can differ in all three.
 --8<-- "sensor.py:15:22"
 ```
 
-Each signal is a **descriptor** on the class: [`Output`][flyball.foundation.device.device.Output]
+Each signal is a **descriptor** on the class: [`Output`][flyball.foundation.device.descriptors.Output]
 for something produced (`RP`), the only role a pure sensor needs. Its
 arguments are the signal's name, a label, its quantity, then metadata:
 `range` and `precision` for a gauge or an axis, `warn` and `alarm` bands,
 `poll_s` for a signal read at its own rate, `tags` to group it across
-devices. A [`Namespace`][flyball.foundation.device.device.Namespace] groups several
+devices. A [`Namespace`][flyball.foundation.device.descriptors.Namespace] groups several
 under one path (`hum_sensors.dry.humidity`), for a device that is really
 several sensors. `Device.__init__` binds the tree once: every descriptor
 becomes a bound [`Signal`][flyball.foundation.device.signal.Signal] with its address

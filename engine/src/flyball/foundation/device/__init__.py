@@ -1,24 +1,16 @@
-from .device import (
-    RESERVED_NAMES,
+from .commands import RESERVED_NAMES, CommandSpec, command
+from .descriptors import (
     BoundInput,
-    CommandSpec,
-    Committable,
-    Condition,
     ConfigSignal,
     Demand,
     Descriptor,
-    Device,
-    DeviceEntry,
-    DriverConfig,
-    Event,
     Input,
-    Level,
     Namespace,
     Output,
-    Readable,
     Setting,
-    command,
 )
+from .device import Committable, Device, DriverConfig, Readable
+from .entry import DeviceEntry
 from .signal import (
     Access,
     AddressNotFoundError,
@@ -40,6 +32,7 @@ from .signal import (
 from .signal import (
     Demand as WriteDemand,
 )
+from .state import Condition, Event, Level
 
 __all__ = [
     "RESERVED_NAMES",
