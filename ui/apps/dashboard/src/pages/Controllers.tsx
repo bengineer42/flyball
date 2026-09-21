@@ -114,7 +114,7 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
  * page bar (any target) or from an undriven signal's own card, which
  * preselects it (`initialTarget`) and jumps straight to the source step.
  */
-const AddControllerDialog = memo(function AddControllerDialog({
+export const AddControllerDialog = memo(function AddControllerDialog({
   open,
   schema,
   devices,
