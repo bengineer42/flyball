@@ -12,7 +12,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from flyball.db import (
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.interfaces.server.deps import StoreDep, current_rig
+from flyball.record import (
     ControllerRow,
     DeviceRow,
     Downsample,
@@ -28,10 +30,8 @@ from flyball.db import (
     WriteRow,
     WriteStateRow,
 )
-from flyball.db.documents import documents
-from flyball.db.errors import NotDeclaredError
-from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.server.deps import StoreDep, current_rig
+from flyball.record.documents import documents
+from flyball.record.errors import NotDeclaredError
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 

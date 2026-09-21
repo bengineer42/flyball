@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from flyball.foundation.device import Reading, Sample
 from flyball.foundation.errors import NotReadyError
-from flyball.server.deps import RigDep
-from flyball.server.schemas import ReadingOut, SampleOut
+from flyball.interfaces.server.deps import RigDep
+from flyball.interfaces.server.schemas import ReadingOut, SampleOut
 
 router = APIRouter(prefix="/api/read", tags=["read"])
 

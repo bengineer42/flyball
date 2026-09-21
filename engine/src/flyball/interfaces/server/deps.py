@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import Depends, HTTPException
 
-from flyball.db import Store
-from flyball.runtime.rig import Rig
+from flyball.record import Store
+from flyball.rig import Rig
 
 from .dialect import Dialect
 

@@ -16,17 +16,23 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from flyball.db import ProgramFormat, ProgramRow
-from flyball.db.errors import ProgramNotFoundError
-from flyball.db.store import Store
 from flyball.foundation.files import SUFFIXES, loads
+from flyball.interfaces.server.deps import (
+    DialectDep,
+    ProgrammerDep,
+    RigDep,
+    StoreDep,
+    current_programs_dir,
+)
+from flyball.interfaces.server.dialect import StepError, normalise_program, program_from_document
+from flyball.interfaces.server.formats import MEDIA_TYPES, FormatError, detect, dump, parse
+from flyball.interfaces.server.routes.program import ProgramCheck
 from flyball.programmer.programmer import ProgrammerState
+from flyball.record import ProgramFormat, ProgramRow
+from flyball.record.errors import ProgramNotFoundError
+from flyball.record.store import Store
+from flyball.rig import Rig
 from flyball.runtime.config import LawConfig
-from flyball.runtime.rig import Rig
-from flyball.server.deps import DialectDep, ProgrammerDep, RigDep, StoreDep, current_programs_dir
-from flyball.server.dialect import StepError, normalise_program, program_from_document
-from flyball.server.formats import MEDIA_TYPES, FormatError, detect, dump, parse
-from flyball.server.routes.program import ProgramCheck
 
 router = APIRouter(prefix="/api/programs/library", tags=["programs"])
 

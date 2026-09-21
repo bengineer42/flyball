@@ -15,8 +15,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
 from flyball.foundation.device import Event, Level
-from flyball.server.deps import RigDep, current_rig
-from flyball.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig
+from flyball.interfaces.server.deps import RigDep, current_rig
+from flyball.interfaces.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig
 
 router = APIRouter(tags=["events"])
 

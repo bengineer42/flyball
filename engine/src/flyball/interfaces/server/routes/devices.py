@@ -21,11 +21,10 @@ from pydantic import TypeAdapter, create_model
 
 from flyball.foundation.device import CommandSpec, Device, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.runtime.polling import DeviceRun
-from flyball.runtime.rig import Rig
-from flyball.server.deps import RigDep
-from flyball.server.schemas import DeviceOut, WriteOut, writes_out
-from flyball.server.wire import ArgumentsBase, wire_fields
+from flyball.interfaces.server.deps import RigDep
+from flyball.interfaces.server.schemas import DeviceOut, WriteOut, writes_out
+from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
+from flyball.rig import DeviceRun, Rig
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 

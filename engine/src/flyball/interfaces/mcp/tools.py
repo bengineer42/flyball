@@ -16,7 +16,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any
 
-from flyball.client import Rig, RigError, SchemaError
+from flyball.interfaces.client import Rig, RigError, SchemaError
 from flyball.scaffold import render
 
 __all__ = ["GUIDES", "MODES", "Tier", "Tool", "tools_for"]

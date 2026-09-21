@@ -12,8 +12,8 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from flyball.interfaces.server.auth import COOKIE, Auth, Level, Principal, Scheme
 from flyball.runtime.config import Anonymous
-from flyball.server.auth import COOKIE, Auth, Level, Principal, Scheme
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

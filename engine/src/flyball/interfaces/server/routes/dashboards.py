@@ -26,13 +26,13 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from flyball.db import DashboardRow
-from flyball.db.errors import DashboardNotFoundError
-from flyball.db.store import Store
 from flyball.foundation.device import Access
 from flyball.foundation.files import SUFFIXES, load_document
-from flyball.runtime.rig import Rig
-from flyball.server.deps import RigDep, StoreDep
+from flyball.interfaces.server.deps import RigDep, StoreDep
+from flyball.record import DashboardRow
+from flyball.record.errors import DashboardNotFoundError
+from flyball.record.store import Store
+from flyball.rig import Rig
 
 log = logging.getLogger(__name__)
 

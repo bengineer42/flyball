@@ -15,10 +15,15 @@ from pydantic import Field, SerializeAsAny, ValidationError
 from flyball.control import ControlLawConfig, ControlLaws, ControlLawView, Tuning
 from flyball.control.errors import TuningNotRegisteredError
 from flyball.foundation.device import Condition, Device
+from flyball.interfaces.server.deps import (
+    RigDep,
+    current_rig,
+    current_rig_config,
+    current_simulation,
+)
+from flyball.interfaces.server.schemas import ClockOut
+from flyball.rig import Rig
 from flyball.runtime.config import RigConfig, canonical, rig_schema
-from flyball.runtime.rig import Rig
-from flyball.server.deps import RigDep, current_rig, current_rig_config, current_simulation
-from flyball.server.schemas import ClockOut
 
 router = APIRouter(prefix="/api", tags=["rig"])
 

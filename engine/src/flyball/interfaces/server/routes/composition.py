@@ -19,16 +19,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
-from flyball.db import RigVersionRow
 from flyball.foundation.config import Config
 from flyball.foundation.device import DeviceEntry
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.files import SUFFIXES, dumps_without_none
+from flyball.interfaces.server.deps import RigDep, compose_allowed, get_store, save_allowed
+from flyball.interfaces.server.routes.devices import device_out
+from flyball.interfaces.server.schemas import DeviceOut
+from flyball.record import RigVersionRow
+from flyball.rig import Rig
 from flyball.runtime.config import RigConfig, canonical, is_simulated, registered
-from flyball.runtime.rig import Rig
-from flyball.server.deps import RigDep, compose_allowed, get_store, save_allowed
-from flyball.server.routes.devices import device_out
-from flyball.server.schemas import DeviceOut
 
 router = APIRouter(prefix="/api", tags=["composition"])
 

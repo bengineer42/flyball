@@ -15,7 +15,7 @@ from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
-from flyball.client import Rig, RigError, SchemaError
+from flyball.interfaces.client import Rig, RigError, SchemaError
 
 from .tools import GUIDES, MODES, Tier, Tool, tools_for
 

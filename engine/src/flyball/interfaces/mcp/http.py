@@ -19,7 +19,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, Streamable
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.routing import Route
 
-from flyball.client import Rig
+from flyball.interfaces.client import Rig
 
 from .server import build
 from .tools import MODES

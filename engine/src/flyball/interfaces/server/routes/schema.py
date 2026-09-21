@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from flyball.server.deps import RigDep
+from flyball.interfaces.server.deps import RigDep
 
 from .devices import device_schema
 

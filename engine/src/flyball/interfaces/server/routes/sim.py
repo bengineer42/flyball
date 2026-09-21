@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, Field
 
 from flyball.foundation.device import Device
-from flyball.server.deps import (
+from flyball.interfaces.server.deps import (
     RigDep,
     SimulationDep,
     SimulationDeviceDep,

@@ -40,7 +40,7 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.foundation.time import Clock
-from flyball.runtime.polling import DeviceRun
+from flyball.rig import DeviceRun
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
 LawsSchema = TypeAdapter(LawConfig).json_schema()

@@ -11,9 +11,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
+from flyball.interfaces.server.schemas import discriminated_union
+from flyball.interfaces.server.wire import WIRE_TYPES, wire_fields
 from flyball.programmer.command import Command, Commands
-from flyball.server.schemas import discriminated_union
-from flyball.server.wire import WIRE_TYPES, wire_fields
 
 __all__ = ["WIRE_TYPES", "CommandBase", "command_request", "commands_schema", "request_for"]
 

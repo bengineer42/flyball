@@ -25,8 +25,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
-from flyball.db import SignalRow, Store
-from flyball.server.deps import StoreDep
+from flyball.interfaces.server.deps import StoreDep
+from flyball.record import SignalRow, Store
 
 router = APIRouter(prefix="/api/history/sessions/{session_id}", tags=["history"])
 

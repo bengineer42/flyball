@@ -11,8 +11,8 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import TypeAdapter
 
-from flyball.runtime.triggers import TriggerState
-from flyball.server.deps import RigDep
+from flyball.interfaces.server.deps import RigDep
+from flyball.rig import TriggerState
 
 router = APIRouter(prefix="/api/waits", tags=["waits"])
 

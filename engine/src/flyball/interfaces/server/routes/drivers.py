@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from flyball.foundation.config import Config
 from flyball.foundation.device import DriverConfig
 from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.interfaces.server.deps import RigDep, current_drivers_dir
 from flyball.runtime.drivers import load_drivers
-from flyball.server.deps import RigDep, current_drivers_dir
 
 router = APIRouter(prefix="/api", tags=["drivers"])
 

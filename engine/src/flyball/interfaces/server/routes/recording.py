@@ -17,9 +17,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from flyball.db import SessionRow
 from flyball.foundation.errors import ConflictError
-from flyball.server.deps import RigDep, StoreDep, get_store
+from flyball.interfaces.server.deps import RigDep, StoreDep, get_store
+from flyball.record import SessionRow
 
 router = APIRouter(prefix="/api/recording", tags=["recording"])
 

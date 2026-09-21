@@ -22,11 +22,9 @@ from pydantic import TypeAdapter
 
 from flyball.foundation.device import Node, Sample, Signal
 from flyball.foundation.router import Latest
-from flyball.runtime.polling import DeviceRun
-from flyball.runtime.rig import Rig
-from flyball.runtime.triggers import TriggerState
-from flyball.server.deps import current_rig
-from flyball.server.schemas import ControllerOut, SampleOut
+from flyball.interfaces.server.deps import current_rig
+from flyball.interfaces.server.schemas import ControllerOut, SampleOut
+from flyball.rig import DeviceRun, Rig, TriggerState
 
 router = APIRouter(tags=["telemetry"])
 

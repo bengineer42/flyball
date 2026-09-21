@@ -22,10 +22,9 @@ from flyball.foundation.errors import (
     NotReadyError,
     UnachievableError,
 )
-from flyball.runtime.config import AuthConfig
-from flyball.server.auth import Auth
-from flyball.server.deps import current_retention, current_rig
-from flyball.server.routes import (
+from flyball.interfaces.server.auth import Auth
+from flyball.interfaces.server.deps import current_retention, current_rig
+from flyball.interfaces.server.routes import (
     composition_router,
     controllers_router,
     dashboards_router,
@@ -45,7 +44,8 @@ from flyball.server.routes import (
     telemetry_router,
     waits_router,
 )
-from flyball.server.routes.auth import router as auth_router
+from flyball.interfaces.server.routes.auth import router as auth_router
+from flyball.runtime.config import AuthConfig
 
 # The UI is served from its own dev server during development.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]

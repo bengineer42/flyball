@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from flyball.server.deps import Runner, current_runner
+from flyball.interfaces.server.deps import Runner, current_runner
 
 router = APIRouter(prefix="/api/runner", tags=["runner"])
 

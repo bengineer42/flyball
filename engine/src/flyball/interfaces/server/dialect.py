@@ -29,9 +29,9 @@ from pydantic import TypeAdapter
 
 from flyball.foundation.files import load_document
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
+from flyball.interfaces.server.commands import command_request, request_for
 from flyball.programmer.command import Command, Commands
 from flyball.programmer.program import Program
-from flyball.server.commands import command_request, request_for
 
 
 @dataclass(frozen=True, slots=True)

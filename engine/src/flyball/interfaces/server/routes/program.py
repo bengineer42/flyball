@@ -13,16 +13,16 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from flyball.programmer import Program
-from flyball.programmer.programmer import ProgrammerState
-from flyball.server.commands import command_request, commands_schema
-from flyball.server.deps import DialectDep, ProgrammerDep, RigDep
-from flyball.server.dialect import (
+from flyball.interfaces.server.commands import command_request, commands_schema
+from flyball.interfaces.server.deps import DialectDep, ProgrammerDep, RigDep
+from flyball.interfaces.server.dialect import (
     StepError,
     normalise_program,
     program_from_document,
     program_schema,
 )
+from flyball.programmer import Program
+from flyball.programmer.programmer import ProgrammerState
 
 router = APIRouter(prefix="/api/programs", tags=["programs"])
 
