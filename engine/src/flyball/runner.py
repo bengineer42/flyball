@@ -107,7 +107,7 @@ def serve(
     from flyball.interfaces.server.routes import dashboards
     from flyball.interfaces.server.routes.library import import_directory, load_tunings
     from flyball.model.catalog import ensure_discovered
-    from flyball.programmer import Programmer
+    from flyball.sequencing import Programmer
 
     settings = settings or RunnerConfig()
     programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers

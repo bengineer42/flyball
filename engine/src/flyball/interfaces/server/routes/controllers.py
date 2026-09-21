@@ -151,7 +151,7 @@ def _start(controller: Controller, start: float | ValueSource | None) -> float |
 def _generator_start(controller: Controller) -> float:
     """Where a generator spec starts from: the controller's own setpoint, or its last reading.
 
-    The same rule the `ramp` program step uses in `programmer/loops.py`.
+    The same rule the `ramp` program step uses in `sequencing/loops.py`.
 
     Raises:
         LastReadingNotAvailableError: Neither is available yet.

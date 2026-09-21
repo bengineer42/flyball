@@ -1,7 +1,7 @@
 """The wait primitive: something fires, and says whether it was cancelled.
 
 Not an extension point; user logic belongs in an
-[Activity][flyball.programmer.Activity].
+[Activity][flyball.sequencing.Activity].
 """
 
 from __future__ import annotations

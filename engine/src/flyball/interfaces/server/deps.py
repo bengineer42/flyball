@@ -21,13 +21,13 @@ from .dialect import Dialect
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Device
-    from flyball.programmer import ProgrammerState
     from flyball.runtime.config import RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
+    from flyball.sequencing import ProgrammerState
 
 
 class Programmer(Protocol):
-    """What the program routes need of `flyball.programmer.Programmer`, without importing it."""
+    """What the program routes need of `flyball.sequencing.Programmer`, without importing it."""
 
     @property
     def state(self) -> ProgrammerState: ...

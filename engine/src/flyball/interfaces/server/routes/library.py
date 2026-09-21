@@ -28,12 +28,12 @@ from flyball.interfaces.server.dialect import StepError, normalise_program, prog
 from flyball.interfaces.server.formats import MEDIA_TYPES, FormatError, detect, dump, parse
 from flyball.interfaces.server.routes.program import ProgramCheck
 from flyball.library.tunings import Tuning
-from flyball.programmer.programmer import ProgrammerState
 from flyball.record import ProgramFormat, ProgramRow
 from flyball.record.errors import ProgramNotFoundError
 from flyball.record.store import Store
 from flyball.rig import Rig
 from flyball.runtime.config import LawConfig
+from flyball.sequencing.programmer import ProgrammerState
 
 router = APIRouter(prefix="/api/programs/library", tags=["programs"])
 

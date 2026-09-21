@@ -30,8 +30,8 @@ from pydantic import TypeAdapter
 from flyball.foundation.files import load_document
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.interfaces.server.commands import command_request, request_for
-from flyball.programmer.command import Command, Commands
-from flyball.programmer.program import Program
+from flyball.sequencing.command import Command, Commands
+from flyball.sequencing.program import Program
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +164,7 @@ def program_from_file(path: str | Path, dialect: Dialect) -> Program:
 
 
 def program_from_document(document: Any, dialect: Dialect) -> Program:
-    """A loaded program document -> a [Program][flyball.programmer.program.Program] of commands."""
+    """A loaded program document -> a [Program][flyball.sequencing.program.Program] of commands."""
     normalised = normalise_program(document, dialect)
     adapter = TypeAdapter(command_request())
     commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
@@ -172,7 +172,7 @@ def program_from_document(document: Any, dialect: Dialect) -> Program:
 
 
 def commands_from_yaml(text: str, dialect: Dialect) -> Program:
-    """Parse a program file into a [Program][flyball.programmer.program.Program] of commands.
+    """Parse a program file into a [Program][flyball.sequencing.program.Program] of commands.
 
     Modifiers are validated but not attached: wrapping a command in a
     completion or duration is the programmer's job.

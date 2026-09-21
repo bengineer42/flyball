@@ -21,8 +21,8 @@ from flyball.interfaces.server.dialect import (
     program_from_document,
     program_schema,
 )
-from flyball.programmer import Program
-from flyball.programmer.programmer import ProgrammerState
+from flyball.sequencing import Program
+from flyball.sequencing.programmer import ProgrammerState
 
 router = APIRouter(prefix="/api/programs", tags=["programs"])
 
