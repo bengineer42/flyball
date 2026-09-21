@@ -12,7 +12,7 @@ from collections.abc import ItemsView, Iterator
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
-from flyball.model import Controller, ControllerSettings, ControllerState, ControllerView
+from flyball.model.controller import Controller, ControllerSettings, ControllerState, ControllerView
 
 
 class ControllerNotFoundError(NotFoundError):

@@ -43,8 +43,9 @@ from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyErro
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.typing import OrderedSet
 from flyball.library.tunings import Tunings
-from flyball.model import ControlLawLike, Controller, ControllerState
+from flyball.model.controller import Controller, ControllerState
 from flyball.model.feedforward import FeedforwardLike, Feedforwards
+from flyball.model.law import ControlLawLike
 from flyball.runtime.writer import Writer
 
 from .controllers import Controllers
