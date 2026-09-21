@@ -6,11 +6,10 @@ import threading
 from enum import Enum
 from typing import Any
 
-from flyball.core.device import Committable, Device
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, Sample, SignalSpec
-from flyball.core.trigger import Trigger
-from flyball.core.units.si import Celsius
+from flyball.foundation.device import Access, Committable, Device, Role, Sample, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
+from flyball.foundation.router import Trigger
 
 from flyball_bluesky import NodeReadable, SignalMovable, Status
 

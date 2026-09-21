@@ -21,8 +21,8 @@ import threading
 from collections.abc import Callable
 from typing import Any, get_origin
 
-from flyball.core.signal import Access, Node, Signal
-from flyball.core.trigger import Trigger
+from flyball.foundation.device import Access, Node, Signal
+from flyball.foundation.router import Trigger
 from flyball.runtime.rig import Rig
 
 DataKey = dict[str, Any]
@@ -85,7 +85,7 @@ class NodeReadable:
 
 
 class Status:
-    """A Bluesky *Status* over a [Trigger][flyball.core.trigger.Trigger].
+    """A Bluesky *Status* over a [Trigger][flyball.foundation.router.Trigger].
 
     Done when it settles; success if it fired.
     """
