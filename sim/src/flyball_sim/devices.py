@@ -17,8 +17,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from flyball.core.config import Config, resolve
 from flyball.core.device import (
     Committable,
@@ -42,6 +40,7 @@ from flyball.core.signal import (
 )
 from flyball.core.units import DIMENSIONLESS
 from flyball.core.units.si import Celsius, Watt
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant
 

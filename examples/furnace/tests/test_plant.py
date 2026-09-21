@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from flyball.control.feedforward import NoFeedforward, Table
 from flyball.programmer import Hold, Manual, Program, Programmer, Ramp, Regulate
 from flyball.runtime.config import RigConfig, resolve_document

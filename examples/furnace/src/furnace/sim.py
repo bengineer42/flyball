@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ConfigDict, Field
-
 from flyball.core.config import Config
+from pydantic import ConfigDict, Field
 
 from .plant import Furnace
 

@@ -7,7 +7,6 @@ Generic `sim_daq`/`sim_drive` coverage against an ordinary `MultiPlant` (no
 from __future__ import annotations
 
 import pytest
-
 from flyball.control.laws import PI
 from flyball.core.device import DeviceEntry
 from flyball.core.errors import ConflictError, HardwareError, NotFoundError

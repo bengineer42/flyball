@@ -8,14 +8,22 @@ quantity) lives in `examples/furnace/tests/test_devices.py` instead --
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from flyball.control.feedforward import Affine
 from flyball.control.laws import PI, P
 from flyball.core.errors import NotFoundError
 from flyball.core.signal import Access, Signal
 from flyball.runtime.rig import Rig
-from flyball_sim import DaqPort, DrivePort, Noisy, PlantConfig, SimDaqConfig, SimDriveConfig, SteppedClock
+from pydantic import ValidationError
+
+from flyball_sim import (
+    DaqPort,
+    DrivePort,
+    Noisy,
+    PlantConfig,
+    SimDaqConfig,
+    SimDriveConfig,
+    SteppedClock,
+)
 from flyball_sim.devices import Drive
 
 
