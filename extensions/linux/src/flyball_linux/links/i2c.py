@@ -8,57 +8,8 @@ from typing import Any
 
 from flyball.core.config import Config
 from flyball.hardware.i2c import I2cLink
+from flyball_sim.links import FakeI2c, FakeI2cConfig
 from pydantic import Field
-
-
-class FakeI2c:
-    """Registers per address, and scripted replies per address for raw reads.
-
-    `registers = {0x48: {0x00: [0x12, 0x34]}}` answers `read_register(0x48, 0, 2)`;
-    `replies = {0x44: [[...6 bytes...]]}` answers successive `read(0x44, 6)`.
-    Every write is kept.
-    """
-
-    def __init__(
-        self,
-        registers: dict[int, dict[int, list[int]]] | None = None,
-        replies: dict[int, list[list[int]]] | None = None,
-    ) -> None:
-        self.registers = {a: dict(r) for a, r in (registers or {}).items()}
-        self.replies = {a: list(r) for a, r in (replies or {}).items()}
-        self.written: list[tuple[int, int | None, list[int]]] = []
-        """`(address, register or None, data)` per write, in order."""
-
-    def read_register(self, address: int, register: int, length: int) -> bytes:
-        try:
-            data = self.registers[address][register]
-        except KeyError:
-            raise OSError(f"no device at 0x{address:02x} register 0x{register:02x}") from None
-        return bytes(data[:length])
-
-    def write_register(self, address: int, register: int, data: Sequence[int]) -> None:
-        self.registers.setdefault(address, {})[register] = list(data)
-        self.written.append((address, register, list(data)))
-
-    def write(self, address: int, data: Sequence[int]) -> None:
-        self.written.append((address, None, list(data)))
-
-    def read(self, address: int, length: int) -> bytes:
-        queue = self.replies.get(address)
-        if not queue:
-            raise OSError(f"no reply scripted for 0x{address:02x}")
-        reply = queue[0] if len(queue) == 1 else queue.pop(0)  # the last reply repeats
-        return bytes(reply[:length])
-
-
-class FakeI2cConfig(Config[I2cLink], tag="fake_i2c"):
-    """A scripted bus, for a rig file that runs without hardware."""
-
-    registers: dict[int, dict[int, list[int]]] = Field(default_factory=dict)
-    replies: dict[int, list[list[int]]] = Field(default_factory=dict)
-
-    def build(self) -> I2cLink:
-        return FakeI2c(self.registers, self.replies)
 
 
 class SmbusI2c:

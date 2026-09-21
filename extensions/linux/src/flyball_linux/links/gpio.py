@@ -7,60 +7,7 @@ from typing import Any
 
 from flyball.core.config import Config
 from flyball.hardware.gpio import GpioLink
-from pydantic import Field
-
-
-class FakeGpio:
-    """Lines as a dict; sets are kept in order. Reading an unclaimed line is an error."""
-
-    def __init__(self, levels: dict[int, bool] | None = None) -> None:
-        self.levels = dict(levels or {})
-        self.claimed: dict[int, str] = {}
-        self.sets: list[tuple[int, bool]] = []
-        self._pending_edges: dict[int, int] = {}
-
-    def claim_output(self, line: int, initial: bool = False) -> None:
-        self.claimed[line] = "output"
-        self.levels[line] = initial
-
-    def claim_input(self, line: int, pull_up: bool | None = None) -> None:
-        self.claimed[line] = "input"
-        self.levels.setdefault(line, bool(pull_up))
-
-    def set(self, line: int, value: bool) -> None:
-        if self.claimed.get(line) != "output":
-            raise OSError(f"line {line} is not claimed as an output")
-        self.levels[line] = value
-        self.sets.append((line, value))
-
-    def get(self, line: int) -> bool:
-        if line not in self.claimed:
-            raise OSError(f"line {line} is not claimed")
-        return self.levels[line]
-
-    def claim_edge(self, line: int, debounce_s: float = 0.0, pull_up: bool | None = None) -> None:
-        self.claimed[line] = "edge"
-        self._pending_edges[line] = 0
-
-    def pulse(self, line: int, n: int = 1) -> None:
-        """Test-only: simulate `n` edges arriving on `line`, for `count_edges` to drain."""
-        if self.claimed.get(line) != "edge":
-            raise OSError(f"line {line} is not claimed for edge detection")
-        self._pending_edges[line] += n
-
-    def count_edges(self, line: int) -> int:
-        if self.claimed.get(line) != "edge":
-            raise OSError(f"line {line} is not claimed for edge detection")
-        count = self._pending_edges[line]
-        self._pending_edges[line] = 0
-        return count
-
-
-class FakeGpioConfig(Config[GpioLink], tag="fake_gpio"):
-    levels: dict[int, bool] = Field(default_factory=dict, description="Input levels by line.")
-
-    def build(self) -> GpioLink:
-        return FakeGpio(self.levels)
+from flyball_sim.links import FakeGpio, FakeGpioConfig
 
 
 class GpiodChip:

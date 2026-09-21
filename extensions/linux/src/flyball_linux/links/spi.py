@@ -3,38 +3,12 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from flyball.core.config import Config
 from flyball.hardware.spi import SpiLink
+from flyball_sim.links import FakeSpi, FakeSpiConfig
 from pydantic import Field
-
-
-class FakeSpi:
-    """Answers each transfer from a list, or a function of the bytes sent; keeps every transfer."""
-
-    def __init__(
-        self, replies: list[list[int]] | Callable[[list[int]], Sequence[int]] | None = None
-    ) -> None:
-        self.replies = replies if callable(replies) else list(replies or [])
-        self.sent: list[list[int]] = []
-
-    def transfer(self, data: Sequence[int]) -> bytes:
-        sent = list(data)
-        self.sent.append(sent)
-        if callable(self.replies):
-            return bytes(self.replies(sent))
-        if not self.replies:
-            return bytes(len(sent))
-        reply = self.replies[0] if len(self.replies) == 1 else self.replies.pop(0)
-        return bytes(reply[: len(sent)]).ljust(len(sent), b"\0")
-
-
-class FakeSpiConfig(Config[SpiLink], tag="fake_spi"):
-    replies: list[list[int]] = Field(default_factory=list)
-
-    def build(self) -> SpiLink:
-        return FakeSpi(self.replies)
 
 
 class SpidevSpi:
