@@ -5,11 +5,7 @@ from typing import Annotated, Any, ClassVar, Literal, Union
 from pydantic import Field
 
 from flyball.foundation import Duration, Rate, Speed
-from flyball.model.generator import (
-    SetPointGenerator,
-    SetPointGeneratorConfig,
-    SetPointGenerators,
-)
+from flyball.model.generator import SetPointGenerator, SetPointGeneratorConfig
 from flyball.model.model import ModelOf
 
 
@@ -164,7 +160,7 @@ class Profile(SetPointGenerator):
 ProfileConfig.generator = Profile
 
 GeneratorConfig = Annotated[  # type: ignore[valid-type]
-    Union[tuple(g.config for g in SetPointGenerators.values())],  # ruff: ignore[non-pep604-annotation-union]
+    Union[LinearRampSetpoint.config, Hold.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
 ]
 """Every built-in generator's config, discriminated by `tag`; a profile's segments are these."""

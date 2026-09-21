@@ -17,7 +17,7 @@ from .errors import (
     ControllerSuspendedError,
     LastReadingNotAvailableError,
 )
-from .feedforward import Affine, Feedforward, FeedforwardConfig, Feedforwards, Table
+from .feedforward import Affine, Feedforward, FeedforwardConfig, Table
 from .laws import (
     IMC,
     PI,
@@ -36,7 +36,6 @@ from .setpoint import (
     Profile,
     SetPointGenerator,
     SetPointGeneratorConfig,
-    SetPointGenerators,
 )
 
 __all__ = [
@@ -49,7 +48,6 @@ __all__ = [
     "ControllerSuspendedError",
     "Feedforward",
     "FeedforwardConfig",
-    "Feedforwards",
     "GeneratorConfig",
     "Hold",
     "LastReadingNotAvailableError",
@@ -61,7 +59,6 @@ __all__ = [
     "Scheduled",
     "SetPointGenerator",
     "SetPointGeneratorConfig",
-    "SetPointGenerators",
     "SlidingMode",
     "SmithPredictor",
     "Table",

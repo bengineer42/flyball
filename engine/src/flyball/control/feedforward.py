@@ -31,7 +31,6 @@ from flyball.model.feedforward import (  # ruff: ignore[unused-import]
     Feedforward,
     FeedforwardConfig,
     FeedforwardLike,
-    Feedforwards,
     NoFeedforward,
     Setpoint,
 )
