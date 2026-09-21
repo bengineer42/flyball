@@ -3,7 +3,7 @@ package main
 import "testing"
 
 // TestVerifyAgainstPython checks a hash produced by Python's
-// hash_password (flyball.server.auth) against the Go verifyPassword,
+// hash_password (flyball.interfaces.server.auth) against the Go verifyPassword,
 // proving the format/parsing round-trips in the Python -> Go direction.
 func TestVerifyAgainstPython(t *testing.T) {
 	const pythonHash = "$scrypt$n=16384,r=8,p=1$36M9tNDQnT4LXnO_XFWyaA$H_N0KkLlVTY4PF16x5xY16V42DHL6cAnJKuvBxBjFRjuHTForWqlYIRGmlH0_9ehZ_2RmUJWhS_k8bCiO0V6eg"

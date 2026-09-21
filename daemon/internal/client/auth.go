@@ -4,7 +4,7 @@
 // Two mechanisms, matching the runner's own (see auth.py's docstring):
 //   - a bearer token, sent as `Authorization: Bearer T` -- the machine
 //     case, e.g. FLYBALL_TOKEN or --token, unchanged shape from the old
-//     Python client/CLI (flyball.client.rig.Rig).
+//     Python client/CLI (flyball.interfaces.client.rig.Rig).
 //   - a session cookie, minted by POST /api/auth/login from a password
 //     and persisted to a file so later CLI invocations reuse it without
 //     asking again -- new: the old cli.py never had a login flow, only
@@ -26,7 +26,7 @@ import (
 
 // Token is the bearer token to send, if any: --token wins over
 // FLYBALL_TOKEN, matching the old Python client's precedence
-// (flyball.client.rig.Rig.__init__).
+// (flyball.interfaces.client.rig.Rig.__init__).
 func Token(flag string) string {
 	if flag != "" {
 		return flag

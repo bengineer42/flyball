@@ -29,7 +29,7 @@ func TestEmbeddedProgramSchemaIsCurrent(t *testing.T) {
 
 	cmd := exec.Command("uv", "run", "python", "-c", `
 import json
-from flyball.server.dialect import Dialect, program_schema
+from flyball.interfaces.server.dialect import Dialect, program_schema
 print(json.dumps(program_schema(Dialect()), indent=2))
 `)
 	cmd.Dir = engineDir
