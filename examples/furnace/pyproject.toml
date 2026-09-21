@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "furnace"
+version = "0.1.0"
+description = "A three-zone tube furnace: the complicated simulated rig, conducting zones and radiative losses, no hardware"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+dependencies = ["flyball", "flyball-sim"]
+classifiers = ["Private :: Do Not Upload"]
+
+# What `flyball rig check`, the runner and the schema load to make
+# `sim_furnace` a valid tag in a rig file.
+[project.entry-points."flyball.configs"]
+furnace = "furnace"
+
+[tool.uv.sources]
+flyball = { path = "../../engine", editable = true }
+flyball-sim = { path = "../../sim", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/furnace"]
+
+[tool.ruff]
+extend = "../../engine/pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "RUF", "D"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pyyaml>=6"]

@@ -9,10 +9,11 @@ import pytest
 from flyball.control.feedforward import NoFeedforward, Table
 from flyball.programmer import Hold, Manual, Program, Programmer, Ramp, Regulate
 from flyball.runtime.config import RigConfig, resolve_document
-from flyball.sim import Furnace, Port, SteppedClock
-from flyball.sim.furnace import KELVIN, STEFAN_BOLTZMANN
+from flyball_sim import Port, SteppedClock
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
+from furnace.plant import KELVIN, STEFAN_BOLTZMANN, Furnace
+
+RIG = Path(__file__).resolve().parents[1] / "rig.yaml"
 
 
 class TestFurnace:
@@ -76,7 +77,7 @@ HEATERS = ["heaters.heater1", "heaters.heater2", "heaters.heater3"]
 
 
 def _fresh_furnace_rig():
-    document, _ = resolve_document(EXAMPLES / "furnace.yaml")
+    document, _ = resolve_document(RIG)
     document["clock"] = {"stepped": True}
     return RigConfig.model_validate(document).build()
 
