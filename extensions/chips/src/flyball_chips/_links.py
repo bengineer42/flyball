@@ -12,7 +12,7 @@ need to know about this package's own dependency, `fake_*`, not a real bus.
 
 from __future__ import annotations
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball_sim.links import FakeGpioConfig, FakeI2cConfig, FakeSpiConfig, FakeUartConfig
 
 I2cLinkConfig = Config.union(FakeI2cConfig)

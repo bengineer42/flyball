@@ -13,7 +13,7 @@ config fields and tags -- those differ per chip and stay in each module.
 
 from __future__ import annotations
 
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 
 SENSIRION_CRC_INIT = 0xFF
 """The initial CRC value Sensirion's own chips use; HTU21D/Si7021 use 0x00 instead."""

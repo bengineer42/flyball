@@ -1,7 +1,7 @@
 """EZO-pH over a scripted UART: the `*OK`-prefixed and bare-reading cases, and errors."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeUart
 
 from flyball_chips import ezo_ph

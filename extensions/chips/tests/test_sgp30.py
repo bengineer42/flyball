@@ -1,7 +1,7 @@
 """SGP30: command/CRC protocol and baseline round trip, against a scripted bus."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeI2c
 
 from flyball_chips import sgp30

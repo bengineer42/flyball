@@ -10,10 +10,17 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
+from flyball.foundation.config import resolve
+from flyball.foundation.device import (
+    Access,
+    DriverConfig,
+    Node,
+    Readable,
+    Sample,
+    Signal,
+    SignalSpec,
+)
+from flyball.foundation.quantities import Quantity
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field

@@ -29,12 +29,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.errors import HardwareError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Node, Sample
-from flyball.core.units import Unit
+from flyball.foundation.config import resolve
+from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.errors import HardwareError
+from flyball.foundation.quantities import Quantity, Unit
 from flyball.hardware.uart import UartLink
 
 from flyball_chips._links import UartLinkConfig

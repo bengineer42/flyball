@@ -1,7 +1,7 @@
 """SGP40: humidity/temperature compensated raw-VOC reads, against a scripted bus."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeI2c
 
 from flyball_chips import sgp40

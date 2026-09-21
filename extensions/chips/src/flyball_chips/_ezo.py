@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball.hardware.uart import UartLink
 
 READ_COMMAND = b"R\r"

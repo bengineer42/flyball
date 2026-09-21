@@ -13,7 +13,7 @@ counts, not that the driver would survive real hardware timing.
 from __future__ import annotations
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 
 from flyball_chips.hx711 import GAIN_PULSES, Hx711Sensor, decode
 

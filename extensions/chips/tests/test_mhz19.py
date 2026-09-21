@@ -1,7 +1,7 @@
 """MH-Z19: fixed 9-byte binary frames over a scripted UART."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeUart
 
 from flyball_chips import mhz19

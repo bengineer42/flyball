@@ -1,8 +1,8 @@
 """The chips with a protocol, against scripted buses."""
 
 import pytest
-from flyball.core.errors import HardwareError
-from flyball.core.signal import Access
+from flyball.foundation.device import Access
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeI2c, FakeSpi
 
 from flyball_chips import ads1115, mcp3008, sht4x

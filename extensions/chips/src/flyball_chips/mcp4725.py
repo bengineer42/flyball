@@ -27,11 +27,9 @@ engineering units instead of a bare fraction.
 
 from __future__ import annotations
 
-from flyball.core.config import resolve
-from flyball.core.device import Committable, DriverConfig
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Band, Signal
-from flyball.core.units import DIMENSIONLESS
+from flyball.foundation.config import resolve
+from flyball.foundation.device import Band, Committable, DriverConfig, Signal
+from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.spanned_demand import (
     from_fraction,

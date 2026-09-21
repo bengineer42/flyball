@@ -55,12 +55,11 @@ import time
 from collections.abc import Iterator
 from typing import Literal
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.errors import HardwareError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Node, Sample
-from flyball.core.units.si import Gram
+from flyball.foundation.config import resolve
+from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.errors import HardwareError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Gram
 from flyball.hardware.gpio import GpioLink
 from pydantic import Field
 

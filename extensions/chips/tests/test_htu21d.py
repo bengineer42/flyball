@@ -1,7 +1,7 @@
 """TE Connectivity / Silicon Labs HTU21D, against a scripted `FakeI2c` -- never real hardware."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeI2c
 
 from flyball_chips import htu21d

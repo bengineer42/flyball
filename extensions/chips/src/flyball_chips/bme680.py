@@ -45,13 +45,12 @@ import time
 from collections.abc import Iterator
 from typing import NamedTuple
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Readable
-from flyball.core.errors import HardwareError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, SignalSpec
-from flyball.core.units.dimensions import Fraction
-from flyball.core.units.si import Celsius, Ohm, Pascal
+from flyball.foundation.config import resolve
+from flyball.foundation.device import Access, DriverConfig, Node, Readable, Sample, SignalSpec
+from flyball.foundation.errors import HardwareError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.dimensions import Fraction
+from flyball.foundation.quantities.si import Celsius, Ohm, Pascal
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 

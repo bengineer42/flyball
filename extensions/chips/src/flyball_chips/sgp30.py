@@ -24,11 +24,10 @@ import time
 from collections.abc import Iterator
 from typing import NamedTuple
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample
-from flyball.core.units.si import PartsPerBillion, PartsPerMillion
+from flyball.foundation.config import resolve
+from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import PartsPerBillion, PartsPerMillion
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 

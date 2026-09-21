@@ -1,7 +1,7 @@
 """BME680: calibration parsing, T/H/P/gas compensation and the heater sequence."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_sim.links import FakeI2c
 
 from flyball_chips import bme680

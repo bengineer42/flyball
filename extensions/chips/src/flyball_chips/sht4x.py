@@ -13,12 +13,20 @@ import time
 from collections.abc import Iterator, Mapping
 from typing import Literal
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, NodeSpec, Sample, SignalSpec
-from flyball.core.units.dimensions import Fraction
-from flyball.core.units.si import Celsius
+from flyball.foundation.config import resolve
+from flyball.foundation.device import (
+    Access,
+    DriverConfig,
+    Node,
+    NodeSpec,
+    Output,
+    Readable,
+    Sample,
+    SignalSpec,
+)
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.dimensions import Fraction
+from flyball.foundation.quantities.si import Celsius
 from flyball.hardware.i2c import I2cLink
 from pydantic import BaseModel, ConfigDict, Field
 
