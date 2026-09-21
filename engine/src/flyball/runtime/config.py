@@ -43,7 +43,7 @@ from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, Drive
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
 FeedforwardConfig = discriminated_union(Feedforwards, "tag", lambda ff: ff.config)

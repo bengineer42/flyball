@@ -2,7 +2,7 @@
 
 The rig records into at most one session at a time. While nobody has
 started one, the runner records into a *scratch* session of its own
-([SessionKind][flyball.db.types.SessionKind] `"scratch"`), so a chart has
+([SessionKind][flyball.record.types.SessionKind] `"scratch"`), so a chart has
 the last `keep` of history on a rig nobody is recording, and any part of
 it can be kept as a session proper (`Store.keep_range`) or folded into the
 recording that follows (`Store.backfill`). A recording someone starts
@@ -31,11 +31,11 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.db import SessionRow, Store
+from flyball.record import SessionRow, Store
 
 if TYPE_CHECKING:
+    from flyball.rig import Rig
     from flyball.runtime.config import RunnerConfig
-    from flyball.runtime.rig import Rig
 
 log = logging.getLogger("flyball.retention")
 
