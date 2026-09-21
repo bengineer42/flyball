@@ -8,9 +8,10 @@ from flyball.control.laws import P
 from flyball.foundation.device import Access, Device, Reading, SignalSpec
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.model.catalog import get_catalog
 from flyball.model.controller import Controller, ValueSource
 from flyball.model.errors import FeedforwardNotInvertibleError
-from flyball.model.feedforward import Feedforwards, NoFeedforward, Setpoint
+from flyball.model.feedforward import NoFeedforward, Setpoint
 from flyball.model.law import Transfer
 
 
@@ -43,7 +44,7 @@ def controller(clock: SteppedClock, heater: Heater, **kwargs) -> Controller:
 
 class TestFeedforwards:
     def test_builtins_and_their_configs_round_trip(self):
-        assert set(Feedforwards) >= {"setpoint", "none", "affine", "table"}
+        assert set(get_catalog().feedforwards) >= {"setpoint", "none", "affine", "table"}
         assert Setpoint()(50.0) == 50.0
         assert NoFeedforward()(50.0) == 0.0
         affine = Affine.config.model_validate({"tag": "affine", "gain": 2.0, "bias": 1.0}).build()

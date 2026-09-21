@@ -46,7 +46,31 @@ def test_every_installed_flyball_configs_entry_point_registers_something() -> No
 
 
 def test_discover_populates_the_kinds_engine_itself_ships() -> None:
-    """`Catalogs().discover()` end to end: what `runner.py` does once at startup."""
+    """`Catalogs().discover()` end to end: what `runner.py` does once at startup.
+
+    Laws, feedforwards and generators are all engine-only today (no
+    extension ships its own), so this also confirms `control/configs.py`
+    actually registers each of the three kinds, not just laws -- the gap
+    `catalog-wiring` (devices/links) left open, per
+    `brain/tasks/registry-redesign.md`.
+    """
     catalogs = Catalogs()
     catalogs.discover()
     assert catalogs.laws.tags(), "engine's own built-in laws (control/configs.py) did not load"
+    assert set(catalogs.laws.tags()) >= {
+        "open_loop",
+        "P",
+        "PI",
+        "PID",
+        "IMC",
+        "on_off",
+        "smith",
+        "scheduled",
+        "sliding",
+    }, "one of engine's 9 built-in laws is missing"
+    assert set(catalogs.feedforwards.tags()) >= {"setpoint", "none", "affine", "table"}, (
+        "engine's own built-in feedforwards (control/configs.py) did not all load"
+    )
+    assert set(catalogs.generators.tags()) >= {"hold", "linear_ramp_setpoint", "profile"}, (
+        "engine's own built-in generators (control/configs.py) did not all load"
+    )

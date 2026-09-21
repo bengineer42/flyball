@@ -15,7 +15,6 @@ from flyball.control import (
     LinearRampSetpoint,
     Profile,
     SetPointGenerator,
-    SetPointGenerators,
 )
 from flyball.control.laws import P
 from flyball.foundation.device import Access, Device, Reading, Sample, SignalSpec, WriteState
@@ -23,6 +22,7 @@ from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.foundation.time import Duration, Speed, TimeUnit
+from flyball.model.catalog import get_catalog
 from flyball.model.controller import Controller, ControllerMode
 from flyball.model.feedforward import NoFeedforward, Setpoint
 from flyball.model.law import Transfer
@@ -248,7 +248,7 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
 
 
 def test_linear_ramp_setpoint_config_round_trips_and_builds():
-    assert SetPointGenerators["linear_ramp_setpoint"] is LinearRampSetpoint
+    assert get_catalog().generators["linear_ramp_setpoint"] is LinearRampSetpoint
     config = LinearRampSetpoint.config.model_validate({
         "tag": "linear_ramp_setpoint",
         "pace": {"per_minute": 10},
@@ -330,7 +330,7 @@ def test_arrived_follows_the_reference(furnace):
     controller.regulate(50.0, transfer=Transfer.RESET)
     assert controller.arrived is True and controller.view.arrived is True
 
-    class Endless(SetPointGenerator, register=False):
+    class Endless(SetPointGenerator):
         def __init__(self) -> None:
             pass
 
@@ -342,7 +342,7 @@ def test_arrived_follows_the_reference(furnace):
 
 
 def test_hold_is_a_fixed_setpoint_that_may_end():
-    assert SetPointGenerators["hold"] is Hold
+    assert get_catalog().generators["hold"] is Hold
     forever = Hold.config.model_validate({"tag": "hold", "value": 30.0}).build()
     assert isinstance(forever, Hold) and forever.bounded is False
     forever.start(10.0, 20.0)
@@ -364,7 +364,7 @@ def test_hold_is_a_fixed_setpoint_that_may_end():
 
 
 def test_profile_runs_its_segments_back_to_back():
-    assert SetPointGenerators["profile"] is Profile
+    assert get_catalog().generators["profile"] is Profile
     config = Profile.config.model_validate({
         "tag": "profile",
         "segments": [
