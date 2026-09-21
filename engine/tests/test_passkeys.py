@@ -295,3 +295,75 @@ def test_passkeys_persist_in_a_store_but_not_without_one(rig, tmp_path):
     set_rig(None)
     set_store(None)
     store.close()
+
+
+def test_an_open_runner_takes_no_passkeys(rig):
+    """No password, no token: nothing a passkey could open, so registering one is refused.
+
+    Otherwise anyone passing an open runner could register a credential that
+    would still open the door after a password is set.
+    """
+    rig.name = "t"
+    set_rig(rig)
+    set_store(None)
+    reset_memory_repo()
+    http = TestClient(create_app(None, secret=b"k", login_delay=0))
+    with http:
+        assert http.get("/api/auth").json()["passkey"] is False
+        assert http.post("/api/auth/passkey/challenge").status_code == 409
+        assert http.post("/api/auth/passkey/login/challenge").status_code == 409
+        assert http.get("/api/auth/passkey").status_code == 409
+    set_rig(None)
+    set_store(None)
+
+
+def test_revoking_a_passkey_ends_its_sessions(loggedin):
+    """A passkey session names its credential; once that is gone, so is the session."""
+    authenticator = _FakeAuthenticator()
+    body = _register(loggedin, authenticator).json()
+    loggedin.post("/api/auth/logout")
+    challenge = loggedin.post("/api/auth/passkey/login/challenge").json()
+    signed_in = loggedin.post(
+        "/api/auth/passkey/login",
+        json={
+            "credential": authenticator.assertion(
+                "testserver", challenge["challenge"], "http://testserver"
+            )
+        },
+    )
+    assert signed_in.status_code == 200
+    assert loggedin.get("/api/health").status_code == 200
+
+    assert loggedin.delete(f"/api/auth/passkey/{body['id']}").status_code == 200
+    assert loggedin.get("/api/health").status_code == 401, "the session died with the credential"
+    assert loggedin.get("/api/auth").json()["scheme"] == "anonymous"
+
+
+def test_a_password_session_is_not_bound_to_any_passkey(loggedin):
+    authenticator = _FakeAuthenticator()
+    body = _register(loggedin, authenticator).json()
+    assert loggedin.delete(f"/api/auth/passkey/{body['id']}").status_code == 200
+    assert loggedin.get("/api/health").status_code == 200, "signed in by password, unaffected"
+
+
+def test_the_login_challenge_is_rate_limited_with_the_password_login(loggedin):
+    loggedin.post("/api/auth/logout")
+    for _ in range(10):
+        assert loggedin.post("/api/auth/login", json={"secret": "wrong"}).status_code == 401
+    assert loggedin.post("/api/auth/login", json={"secret": "wrong"}).status_code == 429
+    assert loggedin.post("/api/auth/passkey/login/challenge").status_code == 429
+
+
+def test_the_challenge_cache_is_capped():
+    from flyball.server.passkeys import ChallengeCache
+
+    cache = ChallengeCache(ttl=300, cap=3)
+    first = cache.issue()
+    cache.issue()
+    cache.issue()
+    assert cache.consume(first), "within the cap, the oldest is still live"
+    first = cache.issue()
+    cache.issue()
+    cache.issue()
+    cache.issue()  # one over: the oldest goes
+    assert not cache.consume(first)

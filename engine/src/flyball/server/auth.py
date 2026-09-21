@@ -19,6 +19,7 @@ stays accepted on a GET and a socket for the CLI's export links.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
@@ -48,6 +49,11 @@ COOKIE = "flyball_session"
 SIDE_EFFECT_GETS = ("/api/probe",)
 # Reachable by anyone: the door itself, and the API's own description of itself.
 OPEN_PATHS = ("/api/auth", "/docs", "/redoc", "/openapi.json")
+# Everything the rig itself answers lives under these; a GET anywhere else is the
+# dashboard bundle (`index.html`, its assets), which anyone may load -- the login
+# page is part of it, and a locked runner that could not serve its own login page
+# would be locked to everyone.
+GUARDED_PREFIXES = ("/api", "/ws", "/mcp")
 
 _SCRYPT = "$scrypt$"
 _N, _R, _P = 16384, 8, 1
@@ -91,11 +97,13 @@ def _unb64(text: str) -> bytes:
 
 
 class Sessions:
-    """Mints and checks session cookies: `<issued>.<nonce>.<hmac>`, no table.
+    """Mints and checks session cookies: `<issued>.<nonce>.<scheme>.<hmac>`, no table.
 
     `secret` is the runner's; the signing key is `HMAC(secret, stored password)`,
     so a changed password (or a changed secret) makes every cookie invalid at
-    once. `lifetime` is in seconds.
+    once. `lifetime` is in seconds. A passkey session's scheme carries the
+    credential it was minted from (`passkey:<credential id>`), so revoking that
+    credential ends the session too -- the check is `Auth.principal`'s.
     """
 
     def __init__(self, secret: bytes, password: str | None, lifetime: float) -> None:
@@ -108,7 +116,7 @@ class Sessions:
         return f"{body}.{self._sign(body)}"
 
     def verify(self, cookie: str, now: float | None = None) -> str | None:
-        """The scheme the cookie was minted with, or None if it does not check out."""
+        """The scheme the cookie was minted with (`passkey:<id>` for a passkey), or None."""
         parts = cookie.split(".")
         if len(parts) != 4:
             return None
@@ -171,6 +179,10 @@ def needed(scope: Any) -> Level:
         return "none"
     if scope["type"] == "websocket":
         return "read"
+    if scope.get("method") in ("GET", "HEAD") and not any(
+        path == guarded or path.startswith(guarded + "/") for guarded in GUARDED_PREFIXES
+    ):
+        return "none"  # the dashboard bundle
     if scope.get("method") in ("GET", "HEAD") and not path.startswith(SIDE_EFFECT_GETS):
         return "read"
     return "operate"
@@ -244,10 +256,31 @@ class Auth:
         cookie = SimpleCookie()
         cookie.load(headers.get(b"cookie", b"").decode(errors="replace"))
         if COOKIE in cookie and (scheme := self.sessions.verify(cookie[COOKIE].value)) is not None:
-            return PASSKEY if scheme == "passkey" else PERSON
+            if scheme.startswith("passkey"):
+                return PASSKEY if self._passkey_live(scheme) else self.anonymous
+            return PERSON
         if (given := self._bearer(scope, headers)) is not None and self.is_token(given):
             return MACHINE
         return self.anonymous
+
+    @staticmethod
+    def _passkey_live(scheme: str) -> bool:
+        """Whether the credential a `passkey:<id>` session was minted from is still registered.
+
+        One point lookup per request: it is what makes revoking a passkey end its
+        sessions, since the cookie itself is stateless. A cookie with no id (an
+        older format) is refused: better one sign-in than a session nothing can end.
+        """
+        from flyball.server import deps, passkeys  # routes-level modules; here to avoid a cycle
+
+        _, sep, credential = scheme.partition(":")
+        if not sep or not credential:
+            return False
+        try:
+            credential_id = _unb64(credential)
+        except (ValueError, binascii.Error):
+            return False
+        return passkeys.repo_for(deps.current_store()).passkey(credential_id) is not None
 
     def _bearer(self, scope: Any, headers: dict[bytes, bytes]) -> str | None:
         auth = headers.get(b"authorization", b"").decode(errors="replace")

@@ -64,7 +64,11 @@ a YubiKey, whatever the browser's own WebAuthn UI offers. Additive to
 password/token, never a replacement: registering one needs an
 already-authenticated session, so there is no separate passkey bootstrap.
 A passkey grants the same `operate` level a token does; several passkeys
-on one runner are equal, not tiered by whose they are.
+on one runner are equal, not tiered by whose they are. An **open** runner
+(no password, no token) takes no passkeys at all -- every passkey route
+answers 409 and the UI shows no passkey button -- because there is no door
+for one to open, and a credential registered while the runner was open
+would still open the door once a password was set.
 
 The runner is the WebAuthn relying party, keyed off whatever hostname the
 browser reached it under -- a runner served under more than one hostname
@@ -82,7 +86,16 @@ credentials are then held in the process's own memory instead, silently:
 gone on the next restart, not persisted anywhere. The UI's passkey manager
 shows a discreet warning when this is the case, so it is a visible choice,
 not a surprise. Revoking a passkey is immediate and does not need the
-credential itself present.
+credential itself present: a passkey session's cookie names the credential
+it came from, and the runner checks that credential still exists on every
+request, so revoking it ends every session it opened -- including your own,
+if you revoke the one you signed in with. (A password session is not tied
+to any passkey; it is unaffected.)
+
+The login challenge is under the same guard as the password login: an
+address that has failed ten times in a minute is refused a new challenge
+for the rest of it, and the runner holds at most a few hundred live
+challenges, so a flood of requests costs it nothing that grows.
 
 A sign-in attempt with no passkey registered on that runner fails
 silently in the browser's own UI (a `NotAllowedError` the page treats as

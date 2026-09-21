@@ -110,17 +110,27 @@ await step('signing in with the passkey alone reaches the signed-in app', async 
   await shot('passkey-signed-in');
 });
 
-await step('revoking the passkey removes it from the list and the server', async () => {
+await step('revoking the passkey you are signed in with ends that session: the login page is back', async () => {
+  // The session cookie names its credential and the runner checks it on every request, so
+  // the revoke's own follow-up (the list refetch) is the first 401 -- the app shows the door.
   await T('auth-chip').click();
   await T('auth-manage-passkeys').click();
   await T('passkey-manager').waitFor({ timeout: 5000 });
   await T(`passkey-revoke-${registeredId}`).click();
-  await page.waitForFunction(() => document.querySelector('[data-testid="passkey-list"]')?.textContent?.includes('No passkeys registered'), null, { timeout: 10000 });
-  await shot('passkey-revoked');
-  await T('passkey-manager-close').click();
+  await T('login').waitFor({ timeout: 10000 });
+  await shot('passkey-revoked-signed-out');
 });
 
-await step('sign out again', async () => {
+await step('the revoked credential is gone from the server, not just the session', async () => {
+  await T('login-secret').fill(password);
+  await T('login-submit').click();
+  await T('auth-chip').waitFor({ timeout: 10000 });
+  await T('auth-chip').click();
+  await T('auth-manage-passkeys').click();
+  await T('passkey-manager').waitFor({ timeout: 5000 });
+  await page.waitForFunction(() => document.querySelector('[data-testid="passkey-list"]')?.textContent?.includes('No passkeys registered'), null, { timeout: 10000 });
+  await shot('passkey-revoked-list-empty');
+  await T('passkey-manager-close').click();
   await T('auth-chip').click();
   await T('auth-signout').click();
   await T('login').waitFor({ timeout: 10000 });

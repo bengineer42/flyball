@@ -97,6 +97,21 @@ def test_mcp_is_behind_it_but_the_docs_and_the_door_are_not(secured):
     }
 
 
+def test_the_dashboard_bundle_is_served_to_anyone_but_the_api_is_not(password):
+    """A locked runner still hands out its own login page: bundle open, API shut."""
+    from flyball.server.app import DASHBOARD_DIST
+
+    if not (DASHBOARD_DIST / "index.html").is_file():
+        pytest.skip("no built dashboard in this checkout")
+    assert password.get("/").status_code == 200
+    assert password.get("/index.html").status_code == 200
+    assert password.get("/#/anything").status_code == 200
+    assert password.get("/api/health").status_code == 401
+    assert password.get("/api").status_code in (401, 404)
+    assert password.get("/mcp/read").status_code in (401, 404, 405)
+    assert password.post("/", json={}).status_code in (401, 405)
+
+
 def test_websocket_takes_the_token_as_a_query_parameter(secured):
     with pytest.raises(WebSocketDisconnect) as closed, secured.websocket_connect("/ws/events"):
         pass

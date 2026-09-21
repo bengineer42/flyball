@@ -14,6 +14,7 @@ from typing import Any
 import webauthn
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from webauthn.helpers import bytes_to_base64url
 
 from flyball.runtime.config import Anonymous
 from flyball.server import deps, passkeys
@@ -123,9 +124,11 @@ def logout(request: Request, response: Response) -> AuthOut:
 #
 # Additive to password/token: each registered credential grants the same
 # `operate` level as a bearer token (flyball.server.auth.PASSKEY). Registering
-# one needs an already-authenticated caller -- the existing password login, or
-# an anonymous-operate (open) runner -- there is no separate bootstrap. The RP
-# ID is the request's own hostname; a runner reached under more than one name
+# one needs an already-authenticated caller -- the existing password login;
+# there is no separate bootstrap. An open runner (no password, no token) has no
+# door at all, so it takes no passkeys either: otherwise anyone passing by could
+# register a credential that would still open the door once one is fitted. The
+# RP ID is the request's own hostname; a runner reached under more than one name
 # needs the credential registered under each.
 
 
@@ -137,18 +140,28 @@ def _origin(request: Request) -> str:
     return f"{request.url.scheme}://{request.url.netloc}"
 
 
-def _require_operate(request: Request) -> None:
-    """401 unless the caller may operate.
+def _door(request: Request) -> Auth:
+    """The runner's `Auth`, or 409: an open runner has nothing a passkey could open."""
+    auth = _auth(request)
+    if auth is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This runner is open (no password, no token); passkeys need a door to open",
+        )
+    return auth
+
+
+def _require_operate(request: Request) -> Auth:
+    """The door, after a 401 unless the caller may operate.
 
     Passkey routes are under the open `/api/auth` prefix, so `Auth` never blocks
     them; registration and revocation gate on the caller's level themselves.
     """
-    auth = _auth(request)
-    if auth is None:
-        return  # no password, no token: this runner is open to everyone
+    auth = _door(request)
     principal: Principal = request.state.auth
     if principal.level != "operate":
         raise HTTPException(status_code=401, detail="Sign in first")
+    return auth
 
 
 def _repo() -> passkeys.PasskeyRepo:
@@ -179,7 +192,7 @@ class PasskeyLogin(BaseModel):
 
 @router.post("/passkey/challenge")
 def passkey_challenge(request: Request) -> Response:
-    """A registration challenge. Needs an authenticated (or anonymous-operate) caller."""
+    """A registration challenge. Needs a signed-in caller who may operate."""
     _require_operate(request)
     challenge = passkeys.challenges.issue()
     options = passkeys.registration_options(
@@ -216,9 +229,21 @@ def passkey_register(request: Request, body: PasskeyRegister) -> PasskeyOut:
     return _passkey_out(row)
 
 
+def _address(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
 @router.post("/passkey/login/challenge")
 def passkey_login_challenge(request: Request) -> Response:
-    """An authentication challenge. No prior auth needed -- this is how one signs in."""
+    """An authentication challenge. No prior auth needed -- this is how one signs in.
+
+    The same address-based limiter as the password login applies, so an address
+    that has failed ten times in a minute gets no new challenge either; the
+    challenge cache itself is capped, so a flood costs bounded memory.
+    """
+    auth = _door(request)
+    if auth.attempts.blocked(_address(request)):
+        raise HTTPException(status_code=429, detail="Too many failed attempts; wait a minute")
     challenge = passkeys.challenges.issue()
     options = passkeys.login_options(_repo(), rp_id=_rp_id(request), challenge=challenge)
     return Response(content=webauthn.options_to_json(options), media_type="application/json")
@@ -226,11 +251,13 @@ def passkey_login_challenge(request: Request) -> Response:
 
 @router.post("/passkey/login")
 async def passkey_login(request: Request, response: Response, body: PasskeyLogin) -> AuthOut:
-    """Trade a verified assertion for the same kind of session cookie `login` mints."""
-    auth = _auth(request)
-    if auth is None:
-        return _out(request)  # nothing to sign in to
-    address = request.client.host if request.client else "?"
+    """Trade a verified assertion for a session cookie bound to that credential.
+
+    Like `login`'s cookie, but its scheme names the credential (`passkey:<id>`),
+    so revoking the credential ends every session it opened.
+    """
+    auth = _door(request)
+    address = _address(request)
     if auth.attempts.blocked(address):
         raise HTTPException(status_code=429, detail="Too many failed attempts; wait a minute")
     try:
@@ -241,7 +268,7 @@ async def passkey_login(request: Request, response: Response, body: PasskeyLogin
         auth.attempts.failure(address)
         raise HTTPException(status_code=400, detail="challenge expired or already used")
     try:
-        passkeys.verify_login(
+        row = passkeys.verify_login(
             _repo(),
             body.credential,
             expected_challenge=challenge,
@@ -253,7 +280,8 @@ async def passkey_login(request: Request, response: Response, body: PasskeyLogin
         if auth.delay:
             await asyncio.sleep(auth.delay)
         raise HTTPException(status_code=401, detail="passkey did not verify") from e
-    _set_cookie(request, response, auth.sessions.mint("passkey"), int(auth.config.session_s))
+    scheme = f"passkey:{bytes_to_base64url(row.credential_id)}"
+    _set_cookie(request, response, auth.sessions.mint(scheme), int(auth.config.session_s))
     request.state.auth = Principal("passkey", "operate")
     return _out(request)
 
@@ -278,7 +306,12 @@ def list_passkeys(request: Request) -> PasskeyListOut:
 
 @router.delete("/passkey/{passkey_id}")
 def revoke_passkey(request: Request, passkey_id: int) -> None:
-    """Forget a credential; anyone using it is refused from their next request."""
+    """Forget a credential.
+
+    Its sessions end with it: each passkey cookie names the credential it came
+    from, and `Auth` looks that up on every request -- so anyone using it is
+    refused from their next request, including the caller if it is their own.
+    """
     _require_operate(request)
     if not _repo().delete_passkey(passkey_id):
         raise HTTPException(status_code=404, detail="no such passkey")

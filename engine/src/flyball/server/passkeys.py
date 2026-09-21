@@ -39,6 +39,7 @@ from webauthn.helpers.structs import (
 from flyball.db.types import PasskeyRow
 
 CHALLENGE_TTL_S = 300.0  # one browser round trip, generously
+CHALLENGE_CAP = 256  # live challenges at once; a flood evicts the oldest, never grows memory
 
 
 class PasskeyRepo(Protocol):
@@ -143,14 +144,23 @@ def reset_memory_repo() -> None:
 
 
 class ChallengeCache:
-    """One-time-use WebAuthn challenges, in-process, gone after `ttl` seconds either way."""
+    """One-time-use WebAuthn challenges, in-process, gone after `ttl` seconds either way.
 
-    def __init__(self, ttl: float = CHALLENGE_TTL_S) -> None:
+    Holds at most `cap` at once: the login challenge is issued to anyone (that is
+    how one signs in), so an unauthenticated flood must cost memory bounded by
+    `cap`, not by the flood. Insertion order is expiry order, so the sweep stops
+    at the first live one.
+    """
+
+    def __init__(self, ttl: float = CHALLENGE_TTL_S, cap: int = CHALLENGE_CAP) -> None:
         self._ttl = ttl
+        self._cap = cap
         self._live: dict[bytes, float] = {}
 
     def issue(self) -> bytes:
         self._sweep()
+        while len(self._live) >= self._cap:
+            del self._live[next(iter(self._live))]
         challenge = webauthn.helpers.generate_challenge()
         self._live[challenge] = time.monotonic() + self._ttl
         return challenge
@@ -162,8 +172,10 @@ class ChallengeCache:
 
     def _sweep(self) -> None:
         now = time.monotonic()
-        for stale in [c for c, expires in self._live.items() if expires < now]:
-            del self._live[stale]
+        for challenge, expires in list(self._live.items()):
+            if expires >= now:
+                break
+            del self._live[challenge]
 
 
 challenges = ChallengeCache()

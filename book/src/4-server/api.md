@@ -19,7 +19,9 @@ every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
 `WWW-Authenticate: Bearer`, and a socket is closed with code 4401. With
 `auth.anonymous: read`, a `GET` or a stream passes without any of them
 (bar `/api/probe`). `/api/auth`, `/docs` and `/openapi.json` are always
-reachable.
+reachable, and so is the dashboard bundle itself (`/`, its assets) -- a
+locked runner still serves its own login page; only `/api`, `/ws` and `/mcp`
+are behind the door.
 
 | | route | |
 | --- | --- | --- |
@@ -35,16 +37,18 @@ With any door open at all (a password or a token configured), a person may
 also register **passkeys**: each one grants the same `operate` level as a
 bearer token, additively -- registering one needs an already-authenticated
 caller, there is no separate bootstrap. `/api/auth/passkey/login*` is how
-one signs in with a passkey instead of the password.
+one signs in with a passkey instead of the password. On an open runner (no
+password, no token) every one of them is 409: there is no door for a passkey
+to open.
 
 | | | |
 | --- | --- | --- |
-| `POST` | `/api/auth/passkey/challenge` | A registration challenge (WebAuthn `PublicKeyCredentialCreationOptions`). Needs an authenticated caller. |
+| `POST` | `/api/auth/passkey/challenge` | A registration challenge (WebAuthn `PublicKeyCredentialCreationOptions`). Needs a signed-in caller who may operate. |
 | `POST` | `/api/auth/passkey/register` | `{credential, label}` -> the stored credential's `{id, label, created_ns, transports}`. |
-| `POST` | `/api/auth/passkey/login/challenge` | An authentication challenge (`PublicKeyCredentialRequestOptions`). No prior auth needed. |
-| `POST` | `/api/auth/passkey/login` | `{credential}` -> the same session cookie a password login sets; the caller's scheme is then `passkey`. |
+| `POST` | `/api/auth/passkey/login/challenge` | An authentication challenge (`PublicKeyCredentialRequestOptions`). No prior auth needed; 429 for an address the password limiter has blocked. |
+| `POST` | `/api/auth/passkey/login` | `{credential}` -> a session cookie like the password login's, bound to that credential; the caller's scheme is then `passkey`. |
 | `GET` | `/api/auth/passkey` | This runner's registered credentials: `label`, `created_ns`, `transports` -- never the public key. |
-| `DELETE` | `/api/auth/passkey/{id}` | Revoke a credential. |
+| `DELETE` | `/api/auth/passkey/{id}` | Revoke a credential; every session it opened ends with it. |
 
 The RP ID is the request's own hostname; a runner reached under more than
 one name needs a credential registered under each. Credentials persist in
