@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from flyball.foundation.config import Config
+from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, dumps_without_none
-from flyball.foundation.device import Signal
+from flyball.rig import Rig
 from flyball.runtime.config import ClockEntry, RigConfig, is_simulated, resolve_live
-from flyball.runtime.rig import Rig
 from flyball.runtime.stats import noise, rate
 
 from .clock import ScaledClock, SteppedClock
