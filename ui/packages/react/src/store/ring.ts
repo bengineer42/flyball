@@ -143,51 +143,67 @@ export class Ring {
   }
 
   /**
-   * Copy rows from `fromS` on into `out`, one in `every` with the newest always
-   * kept; `maxPoints` raises `every` so no more than that many land. The arrays
-   * in `out` are reused: their lengths are set, not their identities.
+   * Copy rows from `fromS` on into `out`, thinned to roughly `maxPoints` (raised
+   * by `every`, coarser still if given) with the newest row always kept. The
+   * arrays in `out` are reused: their lengths are set, not their identities.
    *
-   * `every`/`maxPoints` are a floor, not a fixed stride to obey no matter what:
-   * a short window (few rows since `fromS`) is never thinned down to just its
-   * first and last row -- a straight line with no shape -- merely because the
-   * caller asked for a stride meant for a much longer series. The effective
-   * step is capped so a window with at least a handful of rows keeps a
-   * handful of them; a window twice `step`'s length or longer is unaffected.
+   * Thinning is by fixed time bucket, not a row-count stride: `bucketWidth`
+   * (derived once per call from `windowS`/the held span and the target point
+   * count, never from "now" or a row index) partitions time into
+   * `floor(t / bucketWidth)` buckets, and the *last* row seen in each bucket
+   * is kept. A bucket's boundaries are anchored to absolute time, so a
+   * bucket's identity never changes call to call -- what changes between two
+   * redraws is only a new bucket appearing at the live edge and an old one
+   * falling out of the window, never a reshuffle of which rows represent the
+   * middle of the series.
    *
-   * The stride is anchored to the *newest* row, counting backward, not to
-   * `start`: `start` is wherever the caller's visible window currently begins,
-   * which creeps forward on nearly every call as a live window slides -- an
-   * anchor there re-picks which rows survive decimation almost every redraw,
-   * so a noisy trace looked like it was popping to an unrelated shape each
-   * tick instead of scrolling by one sample (see brain/plans/ui-fixes.md).
-   * Anchored to the newest row instead, the same physical rows keep landing
-   * on the stride as the window advances; only the oldest one drops each
-   * tick, same as any ordinary scrolling chart.
+   * A row-count stride (keep one row in every N, counting from some
+   * reference point) cannot give this guarantee regardless of which end it
+   * counts from: between two redraws, however many raw rows arrived shifts
+   * the stride's phase by that many positions, and unless that count happens
+   * to be an exact multiple of the stride, the kept set changes almost
+   * completely -- anchoring to the newest row instead of the window's start
+   * was tried first and still had this flaw (see brain/plans/ui-fixes.md for
+   * the worked example). Bucketing by fixed time avoids it because a
+   * bucket's boundary is never relative to anything that moves.
+   *
+   * A short window (few rows since `fromS`) is never thinned to just its
+   * first and last row: with fewer real samples than target buckets, most
+   * buckets hold at most one row, so every row keeps its own bucket -- no
+   * special case needed, it falls out of the bucket width being small
+   * relative to the actual sample spacing.
    */
   read(out: RingView, { fromS = Number.NEGATIVE_INFINITY, every = 1, maxPoints = Number.POSITIVE_INFINITY }: { fromS?: number; every?: number; maxPoints?: number } = {}): RingView {
     const start = fromS === Number.NEGATIVE_INFINITY ? 0 : this.indexAtOrAfter(fromS);
     const n = this.count - start;
-    let step = Math.max(1, Math.floor(every) || 1);
-    if (n / step > maxPoints) step = Math.ceil(n / maxPoints);
-    step = Math.min(step, Math.max(1, Math.floor((n - 1) / 2)));
     const { t, cols } = out;
     let k = 0;
     if (n > 0) {
       const lastLogical = this.count - 1;
-      for (let i = lastLogical; i >= start; i -= step, k++) {
-        const j = this.at(i);
-        t[k] = this.t[j]!;
-        for (let c = 0; c < this.width; c++) cols[c]![k] = this.cols[c]![j]!;
-      }
-      // Collected newest-first; flip in place to the ascending order every reader expects.
-      for (let a = 0, b = k - 1; a < b; a++, b--) {
-        const ta = t[a]!;
-        t[a] = t[b]!;
-        t[b] = ta;
-        for (let c = 0; c < this.width; c++) {
-          const va = cols[c]![a]!;
-          cols[c]![a] = cols[c]![b]!;
-          cols[c]![b] = va;
+      const thinning = Number.isFinite(maxPoints) || (every && every > 1);
+      if (!thinning) {
+        for (let i = start; i <= lastLogical; i++, k++) {
+          const j = this.at(i);
+          t[k] = this.t[j]!;
+          for (let c = 0; c < this.width; c++) cols[c]![k] = this.cols[c]![j]!;
+        }
+      } else {
+        const span = Number.isFinite(this.windowS) ? this.windowS : Math.max(this.t[this.at(lastLogical)]! - this.t[this.at(start)]!, 1e-9);
+        const targetPoints = Number.isFinite(maxPoints) ? maxPoints : n;
+        const points = Math.max(1, Math.floor(targetPoints / Math.max(1, every)));
+        const bucketWidth = Math.max(span / points, 1e-9);
+        let bucket = Number.NaN;
+        for (let i = start; i <= lastLogical; i++) {
+          const j = this.at(i);
+          const ti = this.t[j]!;
+          const b = Math.floor(ti / bucketWidth);
+          if (b !== bucket) {
+            bucket = b;
+            k++;
+          }
+          const row = k - 1;
+          t[row] = ti;
+          for (let c = 0; c < this.width; c++) cols[c]![row] = this.cols[c]![j]!;
         }
       }
     }
