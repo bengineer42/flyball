@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Sequence
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.hardware.spi import SpiLink
 from flyball_sim.links import FakeSpi, FakeSpiConfig
 from pydantic import Field

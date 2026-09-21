@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.hardware.uart import UartLink
 from flyball_sim.links import FakeUart, FakeUartConfig
 from pydantic import Field

@@ -11,12 +11,10 @@ feedforward the controller's correction works around. A heater that holds
 
 from __future__ import annotations
 
-from flyball.core.config import resolve
-from flyball.core.device import Committable, DriverConfig, Setting, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Band, Signal
-from flyball.core.units import DIMENSIONLESS
-from flyball.core.units.si import Hertz
+from flyball.foundation.config import resolve
+from flyball.foundation.device import Band, Committable, DriverConfig, Setting, Signal, command
+from flyball.foundation.quantities import DIMENSIONLESS, Quantity
+from flyball.foundation.quantities.si import Hertz
 from flyball.hardware.spanned_demand import (
     from_fraction,
     spanned_signal_spec,

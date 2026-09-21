@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from flyball.core.signal import Access
+from flyball.foundation.device import Access
 
 from flyball_linux.devices.stepper import Stepper
 from flyball_linux.links.gpio import FakeGpio

@@ -3,7 +3,7 @@
 
 Every `Output`/`Signal` a driver declares already carries a `Quantity`, and a `Quantity`
 already carries its `Unit` (symbol) and the unit's `Dimension` (label) -- see
-`flyball.core.quantity.Quantity`. So "search by unit" or "search by dimension" doesn't need
+`flyball.foundation.quantities.Quantity`. So "search by unit" or "search by dimension" doesn't need
 a hand-maintained field in `drivers-manifest.yaml`; it needs one read of what every driver
 already declares. This script does that read: for each tag in `Config.registry` whose class
 builds with only a fake link (no real hardware, no extra required config), it builds one
@@ -17,8 +17,8 @@ from __future__ import annotations
 import sys
 
 import yaml
-from flyball.core.config import Config
-from flyball.core.device import DriverConfig, Readable
+from flyball.foundation.config import Config
+from flyball.foundation.device import DriverConfig, Readable
 
 import flyball_linux.configs  # ruff: ignore[unused-import]  (populates Config.registry)
 

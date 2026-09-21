@@ -1,7 +1,7 @@
 """A pulse counter against the fake GPIO link, to pulses and litres/minute."""
 
 import pytest
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 
 from flyball_linux.devices.pulse_counter import PulseCounter
 from flyball_linux.links.gpio import FakeGpio

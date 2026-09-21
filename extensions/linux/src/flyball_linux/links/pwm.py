@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from pydantic import Field
 
 

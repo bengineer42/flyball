@@ -1,8 +1,8 @@
 """Each device against its fake bus, to the byte."""
 
 import pytest
-from flyball.core.errors import ConflictError, HardwareError
-from flyball.core.signal import Access
+from flyball.foundation.device import Access
+from flyball.foundation.errors import ConflictError, HardwareError
 
 from flyball_linux.devices.gpio import GpioLine
 from flyball_linux.devices.i2c_table import I2cTable, Register

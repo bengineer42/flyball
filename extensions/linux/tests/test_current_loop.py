@@ -1,7 +1,7 @@
 """4-20mA current-loop scaling and fault detection, against a fake ADS1115 bus."""
 
 import pytest
-from flyball.core.errors import HardwareError
+from flyball.foundation.errors import HardwareError
 from flyball_chips import ads1115
 from flyball_sim.links import FakeI2c, FakeI2cConfig
 

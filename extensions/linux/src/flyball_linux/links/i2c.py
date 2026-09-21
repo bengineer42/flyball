@@ -6,7 +6,7 @@ import threading
 from collections.abc import Sequence
 from typing import Any
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.hardware.i2c import I2cLink
 from flyball_sim.links import FakeI2c, FakeI2cConfig
 from pydantic import Field

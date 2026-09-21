@@ -1,9 +1,9 @@
 """Every driver read and committed through a rig built from a rig file, on the fakes."""
 
 import pytest
-from flyball.core.config import Config, discover
-from flyball.core.errors import ConflictError
-from flyball.core.signal import Reading, Signal
+from flyball.foundation.config import Config, discover
+from flyball.foundation.device import Reading, Signal
+from flyball.foundation.errors import ConflictError
 from flyball.runtime.config import RigConfig, rig_schema
 from flyball_chips.sht4x import encode
 from flyball_sim import SteppedClock

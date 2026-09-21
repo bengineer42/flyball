@@ -39,7 +39,7 @@ declared `[R]`, not `[RP]`: it is an internal detail of the move command (like a
 phase state), not a quantity a rig author normally wants trended on a dashboard or written to
 the recorder by default. It stays readable on demand for debugging, but is not published on
 schedule. A rig's `signals:` override can only *narrow* a driver's declared access (see
-`flyball.core.device._override_signal`, which only clears flags via `Signal.restrict` and
+`flyball.foundation.device._override_signal`, which only clears flags via `Signal.restrict` and
 never sets them) -- so turning `position` into a recorded `[RP]` signal is not something a
 rig file can do; it needs a driver code change.
 """
@@ -49,11 +49,21 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 
-from flyball.core.config import resolve
-from flyball.core.device import Committable, DriverConfig, Readable, Setting, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
-from flyball.core.units.si import Hertz, One
+from flyball.foundation.config import resolve
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    Node,
+    Readable,
+    Role,
+    Sample,
+    Setting,
+    SignalSpec,
+    command,
+)
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Hertz, One
 from pydantic import Field
 
 from flyball_linux.links.gpio import GpioLink, GpioLinkConfig

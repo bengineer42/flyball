@@ -1,7 +1,7 @@
 """The fakes behave like the buses they stand in for, and the configs build them."""
 
 import pytest
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 
 from flyball_linux.links.gpio import FakeGpio
 from flyball_linux.links.i2c import FakeI2c

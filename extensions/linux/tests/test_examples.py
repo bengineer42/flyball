@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from flyball.core.signal import Reading, Signal
+from flyball.foundation.device import Reading, Signal
 from flyball.runtime.config import load_board, load_rig_config, resolve_documents
 from flyball_sim import SteppedClock
 

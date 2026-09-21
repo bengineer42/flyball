@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.hardware.gpio import GpioLink
 from flyball_sim.links import FakeGpio, FakeGpioConfig
 

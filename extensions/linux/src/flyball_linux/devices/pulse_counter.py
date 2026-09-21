@@ -19,11 +19,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from flyball.core.config import resolve
-from flyball.core.device import DriverConfig, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
-from flyball.core.units.si import Litre, Minute, One
+from flyball.foundation.config import resolve
+from flyball.foundation.device import Access, DriverConfig, Node, Readable, Role, Sample, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Litre, Minute, One
 from pydantic import Field
 
 from flyball_linux.links.gpio import GpioLink, GpioLinkConfig

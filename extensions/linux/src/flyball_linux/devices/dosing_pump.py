@@ -34,11 +34,18 @@ from __future__ import annotations
 import time
 from typing import Literal
 
-from flyball.core.device import Committable, DriverConfig, Setting, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, SignalSpec
-from flyball.core.units.dimensions import Volume
-from flyball.core.units.si import Second
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    Role,
+    Setting,
+    SignalSpec,
+    command,
+)
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.dimensions import Volume
+from flyball.foundation.quantities.si import Second
 from pydantic import Field, model_validator
 
 from flyball_linux.devices.gpio import GpioLine, GpioLineConfig

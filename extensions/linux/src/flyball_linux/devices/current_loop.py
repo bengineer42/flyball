@@ -24,7 +24,7 @@ thresholds are widely cited in industrial-instrumentation practice but the
 primary NAMUR document itself was not consulted here; 3.6/21.0 mA is the
 commonly quoted approximation and is what this driver uses.]
 
-That is surfaced as a [HardwareError][flyball.core.errors.HardwareError],
+That is surfaced as a [HardwareError][flyball.foundation.errors.HardwareError],
 the same as a bad CRC on an SHT4x or a missing 1-Wire sensor elsewhere in
 this package: a current-loop fault is exactly the kind of "the device
 failed, not the caller's fault, try again" condition that error already
@@ -37,10 +37,17 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 
-from flyball.core.device import DriverConfig, Readable
-from flyball.core.errors import HardwareError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
+from flyball.foundation.device import (
+    Access,
+    DriverConfig,
+    Node,
+    Readable,
+    Sample,
+    Signal,
+    SignalSpec,
+)
+from flyball.foundation.errors import HardwareError
+from flyball.foundation.quantities import Quantity
 from flyball.hardware.scan import Scan
 from flyball_chips import ads1115, mcp3008
 from pydantic import BaseModel, ConfigDict, Field

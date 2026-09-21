@@ -11,12 +11,21 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Literal
 
-from flyball.core.config import resolve
-from flyball.core.device import Committable, DriverConfig, Readable, command
-from flyball.core.errors import ConflictError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
-from flyball.core.units.si import One
+from flyball.foundation.config import resolve
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    Node,
+    Readable,
+    Role,
+    Sample,
+    SignalSpec,
+    command,
+)
+from flyball.foundation.errors import ConflictError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import One
 from pydantic import Field
 
 from flyball_linux.links.gpio import GpioLink, GpioLinkConfig
