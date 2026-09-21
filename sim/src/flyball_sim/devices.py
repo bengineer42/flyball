@@ -19,26 +19,23 @@ from typing import Any, Literal
 
 from flyball.foundation.config import Config, resolve
 from flyball.foundation.device import (
+    Access,
+    Band,
     Committable,
     Condition,
     DriverConfig,
     Level,
-    Readable,
-    command,
-)
-from flyball.foundation.errors import HardwareError, NotFoundError
-from flyball.foundation.quantities import Quantity
-from flyball.foundation.device import (
-    Access,
-    Band,
     Node,
     NodeSpec,
+    Readable,
     Role,
     Sample,
     Signal,
     SignalSpec,
+    command,
 )
-from flyball.foundation.quantities import DIMENSIONLESS
+from flyball.foundation.errors import HardwareError, NotFoundError
+from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

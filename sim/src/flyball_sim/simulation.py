@@ -14,10 +14,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from flyball.foundation.config import Config
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, dumps_without_none
+from flyball.model.catalog import get_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import ClockEntry, RigConfig, is_simulated, resolve_live
 from flyball.runtime.stats import noise, rate
@@ -137,7 +137,7 @@ class Simulation:
         if "model" in parameters and parameters["model"] != getattr(current, "model", None):
             raise ValueError("a plant's model cannot change while it runs; edit the file")
         # The tagged form, as the file's union holds, so the config still dumps as its tag.
-        model = Config.registry[current.config_tag].tagged()
+        model = get_catalog().links[current.config_tag].tagged()
         updated = model.model_validate({**current.model_dump(), **parameters})
         updated.retune(self.plants[name])  # type: ignore[attr-defined]
         links = {**self.config.links, name: updated}
