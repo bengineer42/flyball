@@ -112,9 +112,6 @@ def _merged_state(cls: type) -> dict[str, Any]:
     return merged
 
 
-ControlLaws: dict[str, type[ControlLaw]] = {}
-
-
 class ControlLaw:
     """Base for control laws. Subclassing generates the law's pydantic models.
 
@@ -136,9 +133,7 @@ class ControlLaw:
     view: ClassVar[Any] = None
     _state_fields: ClassVar[dict[str, Any]] = {}
 
-    def __init_subclass__(
-        cls, tag: str | None = None, register: bool = True, **kwargs: Any
-    ) -> None:
+    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls.tag = tag or cls.__dict__.get("tag") or cls.__name__
 
@@ -186,11 +181,6 @@ class ControlLaw:
             view_model.init_names = config_model.init_names  # pyright: ignore[reportAttributeAccessIssue]
             view_model.state_names = state_model.state_names  # pyright: ignore[reportAttributeAccessIssue]
             cls.view = ModelOf(view_model, tuple(view_model.model_fields))
-
-        if register:
-            if cls.tag in ControlLaws:
-                raise ValueError(f"Law with tag '{cls.tag}' is already registered.")
-            ControlLaws[cls.tag] = cls
 
     def reset(self) -> None:
         return None

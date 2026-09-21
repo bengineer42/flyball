@@ -17,9 +17,6 @@ from pydantic_core import core_schema
 
 from flyball.model.model import ModelOf, creation_model
 
-SetPointGenerators: dict[str, type[SetPointGenerator]] = {}
-"""Every registered generator, keyed by the tag it crosses the wire under."""
-
 
 class SetPointGeneratorConfig(BaseModel):
     """How a generator was specified: its constructor arguments and its tag.
@@ -43,7 +40,12 @@ class SetPointGeneratorConfig(BaseModel):
 
 
 class SetPointGenerator:
-    """A reference trajectory. Registered by tag when subclassed."""
+    """A reference trajectory. Subclassing derives `config`; registering is explicit.
+
+    A tag is assigned when subclassed (`class Hold(SetPointGenerator, tag="hold")`),
+    but nothing is written into a shared registry any more -- see
+    [Catalogs][flyball.model.catalog.Catalogs].
+    """
 
     tag: ClassVar[str] = ""
     config: ClassVar[Any] = None
@@ -52,9 +54,7 @@ class SetPointGenerator:
     end_time: float | None = None
     """When the trajectory lands, in the time `start` was given; None until started, or endless."""
 
-    def __init_subclass__(
-        cls, tag: str | None = None, register: bool = True, **kwargs: Any
-    ) -> None:
+    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls.tag = tag or cls.__dict__.get("tag") or to_snake(cls.__name__)
 
@@ -70,16 +70,6 @@ class SetPointGenerator:
             config_model.generator = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(config_model, tuple(config_model.model_fields))
-
-        if not register:
-            return
-        clash = SetPointGenerators.get(cls.tag)
-        if clash is not None and (clash.__module__, clash.__qualname__) != (
-            cls.__module__,
-            cls.__qualname__,
-        ):
-            raise ValueError(f"tag {cls.tag!r} is already {clash.__name__}")
-        SetPointGenerators[cls.tag] = cls
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:

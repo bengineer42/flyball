@@ -30,18 +30,13 @@ class FeedforwardConfig(BaseModel):
         return self.feedforward(**{name: getattr(self, name) for name in self.init_names})
 
 
-Feedforwards: dict[str, type[Feedforward]] = {}
-
-
 class Feedforward:
     """Base for feedforwards. `Sub.config` is the model; `sub.config` its values."""
 
     tag: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
     config: ClassVar[Any] = None
 
-    def __init_subclass__(
-        cls, tag: str | None = None, register: bool = True, **kwargs: Any
-    ) -> None:
+    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls.tag = tag or cls.__dict__.get("tag") or cls.__name__
         if "config" not in cls.__dict__:
@@ -54,10 +49,6 @@ class Feedforward:
             model.feedforward = cls  # pyright: ignore[reportAttributeAccessIssue]
             model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(model, tuple(model.model_fields))
-        if register:
-            if cls.tag in Feedforwards:
-                raise ValueError(f"Feedforward with tag '{cls.tag}' is already registered.")
-            Feedforwards[cls.tag] = cls
 
     def __call__(self, setpoint: float, rate: float = 0.0) -> float:
         """The demand, in the actuator's unit, that ought to hold `setpoint`.
