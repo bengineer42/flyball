@@ -21,14 +21,10 @@ from flyball.foundation.errors import NotFoundError
 from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep
 from flyball.interfaces.server.schemas import ControllerOut
-from flyball.model import (
-    ControlLaws,
-    Controller,
-    Feedforwards,
-    SetPointGenerators,
-    Transfer,
-    ValueSource,
-)
+from flyball.model.controller import Controller, ValueSource
+from flyball.model.feedforward import Feedforwards
+from flyball.model.generator import SetPointGenerators
+from flyball.model.law import ControlLaws, Transfer
 from flyball.rig import Rig
 
 router = APIRouter(prefix="/api/controllers", tags=["controllers"])

@@ -22,7 +22,7 @@ from flyball.interfaces.server.deps import (
 )
 from flyball.interfaces.server.schemas import ClockOut
 from flyball.library.tunings import Tuning
-from flyball.model import ControlLawConfig, ControlLaws, ControlLawView
+from flyball.model.law import ControlLawConfig, ControlLaws, ControlLawView
 from flyball.rig import Rig
 from flyball.runtime.config import RigConfig, canonical, rig_schema
 

@@ -31,15 +31,10 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.foundation.time import Clock
-from flyball.model import (
-    ControlLaws,
-    ControlLawView,
-    Controller,
-    ControllerState,
-    ControllerView,
-    FeedforwardConfig,
-    SetPointGenerator,
-)
+from flyball.model.controller import Controller, ControllerState, ControllerView
+from flyball.model.feedforward import FeedforwardConfig
+from flyball.model.generator import SetPointGenerator
+from flyball.model.law import ControlLaws, ControlLawView
 from flyball.rig import DeviceRun
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
