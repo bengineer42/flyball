@@ -68,7 +68,7 @@ from what its command line says -- unless you keep it:
   built with.
 
 An application with hardware the file cannot describe writes its own entry
-point around [serve][flyball.runner.serve], which is all the command does
+point around [serve][flyball.runner.serving.serve], which is all the command does
 after building the rig. For the simulated oven it is ten lines:
 
 ```python

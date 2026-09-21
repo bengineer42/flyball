@@ -192,7 +192,9 @@ def test_main_reads_the_runner_section_from_the_rig_file(tmp_path, monkeypatch):
     rig_file = tmp_path / "lab.yaml"
     rig_file.write_text("name: lab\nrunner: {port: 9123, allow_shutdown: true}\n")
     seen = {}
-    monkeypatch.setattr("flyball.runner.serve", lambda rig, settings, **kw: seen.update(s=settings))
+    monkeypatch.setattr(
+        "flyball.runner.entrypoint.serve", lambda rig, settings, **kw: seen.update(s=settings)
+    )
     assert runner.main([str(rig_file)]) == 0
     assert seen["s"].port == 9123 and seen["s"].allow_shutdown is True
     assert runner.main([str(rig_file), "--port", "9124"]) == 0
@@ -205,7 +207,8 @@ def test_a_runner_only_file_extends_the_rig(tmp_path, monkeypatch):
     site.write_text("extends: [lab.yaml]\nrunner: {port: 9125}\n")
     seen = {}
     monkeypatch.setattr(
-        "flyball.runner.serve", lambda rig, settings, **kw: seen.update(s=settings, rig=rig)
+        "flyball.runner.entrypoint.serve",
+        lambda rig, settings, **kw: seen.update(s=settings, rig=rig),
     )
     assert runner.main([str(site)]) == 0
     assert seen["s"].port == 9125 and seen["rig"].name == "lab"
