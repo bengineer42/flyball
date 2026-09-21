@@ -63,8 +63,13 @@ export function usePlayback({ windowS = 300 }: PlaybackOptions = {}): PlaybackHo
   const [atS, setAtS] = useState<number | null>(null); // null: live
 
   // The store follows this hook: paused, it serves the window ending at `atS`; live, the rings. Unmounting resumes.
+  // A session that ends under a paused bar takes the history with it: the bar resumes too, rather than
+  // reading "paused" over a page the store has already put back to live.
   useEffect(() => {
-    if (atS === null || sessionId === undefined || startS === undefined) store.playback(null);
+    if (sessionId === undefined || startS === undefined) {
+      store.playback(null);
+      if (atS !== null) setAtS(null);
+    } else if (atS === null) store.playback(null);
     else store.playback(atS, { id: sessionId, startS, windowS });
   }, [store, atS, sessionId, startS, windowS]);
   useEffect(() => () => store.playback(null), [store]);

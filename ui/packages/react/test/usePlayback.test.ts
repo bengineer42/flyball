@@ -8,10 +8,11 @@ import { usePlayback, PLAYBACK_STEP_S } from "../src/hooks/usePlayback.js";
 
 /** A transport whose only route this hook needs (`GET /api/recording`) returns a fixed session;
  * `stream` never delivers anything, so `nowS` always falls back to the (fake) wall clock. */
-function fakeTransport(sessionStartS: number): Transport {
+function fakeTransport(sessionStartS: number, state: { ended?: boolean } = {}): Transport {
   return {
     async request({ path }: Request): Promise<Response> {
       if (path === "/api/recording") {
+        if (state.ended) return { status: 200, json: null };
         return { status: 200, json: { id: 7, start_ns: Math.round(sessionStartS * 1e9), end_ns: null, kind: "scratch", pinned: false } };
       }
       return { status: 404, json: undefined };
@@ -116,5 +117,25 @@ describe("usePlayback", () => {
     expect(result.current.store.playbackAtS()).toBeCloseTo(1_000_000 - 1800, 0);
     unmount();
     expect(result.current.store.playbackAtS()).toBeNull();
+  });
+
+  it("resumes when the session it scrubs ends: the bar never reads paused over a page the store put back to live", async () => {
+    const state = { ended: false };
+    const transport = fakeTransport(1_000_000 - 3600, state);
+    const rendered = renderHook(() => ({ playback: usePlayback(), store: useTelemetry() }), {
+      wrapper: ({ children }) => createElement(RigProvider, { transport }, children),
+    });
+    await flush();
+    act(() => rendered.result.current.playback.rewind());
+    expect(rendered.result.current.playback.paused).toBe(true);
+    expect(rendered.result.current.store.playbackAtS()).not.toBeNull();
+    state.ended = true;
+    await act(async () => {
+      vi.advanceTimersByTime(5000); // the 5 s poll of /api/recording
+    });
+    await flush();
+    expect(rendered.result.current.playback.startS).toBeUndefined();
+    expect(rendered.result.current.playback.paused).toBe(false);
+    expect(rendered.result.current.store.playbackAtS()).toBeNull();
   });
 });
