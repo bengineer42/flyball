@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_programmer, set_store
-from flyball.programmer.programmer import Programmer
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
+from flyball.sequencing.programmer import Programmer
 
 YAML = """# a comment that must survive storage
 name: dry-then-hold

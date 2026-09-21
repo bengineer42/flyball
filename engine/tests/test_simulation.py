@@ -55,7 +55,7 @@ class TestSteppedClock:
 
     def test_a_program_s_timed_wait_passes_at_once(self, rig, clock):
         from flyball.foundation.time import Duration
-        from flyball.programmer import Program, Programmer, Wait
+        from flyball.sequencing import Program, Programmer, Wait
 
         programmer = Programmer(rig)
         programmer.start(Program([Wait("hold", timeout=Duration(600))]))
@@ -276,7 +276,7 @@ def test_a_stall_resynchronises_the_poll_instead_of_bursting():
 
 
 def test_a_timed_activity_whose_wait_raises_fails_the_step(rig):
-    from flyball.programmer import Timed
+    from flyball.sequencing import Timed
 
     class Broken:
         def wait(self, event, timeout):

@@ -15,9 +15,9 @@ import pytest
 from flyball_sim.clock import SteppedClock
 
 from flyball.model.catalog import Catalogs, set_catalog
-from flyball.programmer.command import Commands
 from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
+from flyball.sequencing.command import Commands
 
 _counter = itertools.count()
 

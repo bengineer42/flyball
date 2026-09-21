@@ -684,7 +684,7 @@ def test_waits_stream(client, rig):
 @pytest.fixture
 def programmer(client, rig):
     from flyball.interfaces.server import set_programmer
-    from flyball.programmer import Programmer
+    from flyball.sequencing import Programmer
 
     programmer = Programmer(rig)
     set_programmer(programmer)
@@ -774,7 +774,7 @@ def test_program_runs_step_by_step_as_waits_are_answered(client, programmer, rig
 def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig):
     from dataclasses import dataclass
 
-    from flyball.programmer import Command
+    from flyball.sequencing import Command
 
     seen = []
 

@@ -19,9 +19,9 @@ while on, for the GPIO case). This is deliberately the simplest possible model -
 one point, no flow curve -- and is a placeholder until real calibration data exists.
 
 `dispense` is synchronous: it runs the pump for `volume_ml / ml_per_s` seconds and blocks the
-caller. Nothing in this codebase's `programmer/` models a durational *command* as anything
+caller. Nothing in this codebase's `sequencing/` models a durational *command* as anything
 other than a step whose duration the program itself waits out (see
-`flyball.programmer`), and there is no existing precedent here for a device-level timed
+`flyball.sequencing`), and there is no existing precedent here for a device-level timed
 action tracked by the runtime -- `PwmChannel` and `GpioLine` commands are all instantaneous.
 Rather than invent a new asynchronous-action mechanism for this one driver, `dispense` blocks
 like any other slow I/O call a driver might make, and -- critically for a real dosing skid --

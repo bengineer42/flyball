@@ -21,7 +21,7 @@ from flyball.interfaces.server.dialect import (
     normalise_step,
     program_schema,
 )
-from flyball.programmer.command import Command
+from flyball.sequencing.command import Command
 
 
 @pytest.fixture

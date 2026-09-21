@@ -19,8 +19,8 @@ from flyball.interfaces.mcp import Tier, tools_for
 from flyball.interfaces.mcp.server import build
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_rig_config, set_store
-from flyball.programmer.command import Command
 from flyball.record.sqlite import SqliteStore
+from flyball.sequencing.command import Command
 from test_server import Daq, Drive
 
 
