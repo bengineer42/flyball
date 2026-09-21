@@ -1,8 +1,8 @@
 """Rig and store injection.
 
 The server owns no hardware and no database; whatever builds them calls
-[set_rig][flyball.server.deps.set_rig] and
-[set_store][flyball.server.deps.set_store] before serving.
+[set_rig][flyball.interfaces.server.deps.set_rig] and
+[set_store][flyball.interfaces.server.deps.set_store] before serving.
 """
 
 from __future__ import annotations

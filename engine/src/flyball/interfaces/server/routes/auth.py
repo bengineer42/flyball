@@ -2,7 +2,7 @@
 
 Always reachable, whatever the runner's settings, so the UI can ask which door
 to draw before its first refused request. The login sets the session cookie
-described in [flyball.server.auth][]; the browser carries it from then on.
+described in [flyball.interfaces.server.auth][]; the browser carries it from then on.
 """
 
 from __future__ import annotations

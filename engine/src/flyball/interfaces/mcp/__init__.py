@@ -3,7 +3,7 @@
 `read` answers questions: nothing changes anywhere. `author` adds the store:
 programs, dashboards and tunings can be saved, never hardware touched.
 `operate` adds the rig itself: device commands, demands, controllers,
-programs, recording. Every tool is one HTTP call through `flyball.client`,
+programs, recording. Every tool is one HTTP call through `flyball.interfaces.client`,
 so the server runs wherever the CLI does.
 
     flyball-mcp --url http://pi:8000 --mode author

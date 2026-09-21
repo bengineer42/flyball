@@ -1,4 +1,7 @@
-"""A client for a running rig, built from the schema it publishes. See [flyball.client.rig][]."""
+"""A client for a running rig, built from the schema it publishes.
+
+See [flyball.interfaces.client.rig][].
+"""
 
 from .rig import Device, Devices, Rig, RigError, Unreachable
 from .validate import SchemaError, validate

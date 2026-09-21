@@ -147,7 +147,7 @@ def create_app(
     """The app.
 
     With `auth` naming a password or a token, everything it serves is behind
-    the door (see [flyball.server.auth][]; `secret` signs the sessions,
+    the door (see [flyball.interfaces.server.auth][]; `secret` signs the sessions,
     `internal_token` is the runner's own way in for its MCP mount); with
     `root_path`, everything it serves is under that prefix (see `RootPath`).
     """

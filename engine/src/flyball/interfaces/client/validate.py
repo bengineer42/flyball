@@ -17,7 +17,7 @@ class SchemaError(ValueError):
 def validate(
     schema: dict[str, Any], value: Any, where: str = "", defs: dict[str, Any] | None = None
 ) -> None:
-    """Raise [SchemaError][flyball.client.validate.SchemaError] if `value` fails `schema`."""
+    """Raise [SchemaError][flyball.interfaces.client.validate.SchemaError] if `value` is invalid."""
     defs = {**(defs or {}), **schema.get("$defs", {})}
     _check(schema, value, where or "value", defs)
 

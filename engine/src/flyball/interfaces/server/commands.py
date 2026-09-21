@@ -1,7 +1,7 @@
 """Wire format for commands.
 
 Each request model is derived from the command's `__init__`, so a command is
-described once. [WIRE_TYPES][flyball.server.wire.WIRE_TYPES] substitutes the
+described once. [WIRE_TYPES][flyball.interfaces.server.wire.WIRE_TYPES] substitutes the
 domain types that cannot cross the wire; everything else is used verbatim.
 """
 

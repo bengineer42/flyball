@@ -4,7 +4,7 @@ A client then needs a URL and nothing installed:
 
     claude mcp add --transport http rig http://pi:8000/mcp/author
 
-The tools still go through `flyball.client`, so the runner hands `mount` a
+The tools still go through `flyball.interfaces.client`, so the runner hands `mount` a
 client pointed back at itself.
 """
 

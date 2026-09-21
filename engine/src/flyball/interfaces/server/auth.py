@@ -1,6 +1,6 @@
 """Who is asking, and what they may do: the door in front of everything the runner serves.
 
-One *principal* per request or socket, resolved by [`Auth`][flyball.server.auth.Auth]
+One *principal* per request or socket, resolved by [`Auth`][flyball.interfaces.server.auth.Auth]
 from, in order, a session cookie (a person who logged in), a bearer token (a machine),
 and nothing (anonymous). Each principal has a *level* -- `none < read < operate` -- and
 each request *needs* one: a GET or a stream needs `read`, anything else `operate`, bar the

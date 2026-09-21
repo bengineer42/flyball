@@ -1,7 +1,7 @@
 """How a method's arguments cross the wire.
 
 Each request model is derived from the callable's signature.
-[WIRE_TYPES][flyball.server.wire.WIRE_TYPES] substitutes the domain types
+[WIRE_TYPES][flyball.interfaces.server.wire.WIRE_TYPES] substitutes the domain types
 that cannot cross as they stand. Touches no registry, so it imports before
 any command exists.
 """

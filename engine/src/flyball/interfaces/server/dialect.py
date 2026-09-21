@@ -14,7 +14,7 @@ before validation, and a schema emitter describes the file form from the same
 command registry, so the two cannot disagree.
 
 Modifiers -- keys allowed beside the command -- are declared in a
-[Dialect][flyball.server.dialect.Dialect] by the application.
+[Dialect][flyball.interfaces.server.dialect.Dialect] by the application.
 """
 
 from __future__ import annotations

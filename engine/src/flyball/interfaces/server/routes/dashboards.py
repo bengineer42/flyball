@@ -10,7 +10,7 @@ format the author prefers, per [flyball.foundation.files][]): they are imported
 on start, and an edited file becomes a new version.
 
 Documents carry a `schema_version`; an older one is migrated on read (see
-[migrate][flyball.server.routes.dashboards.migrate]), never refused, and
+[migrate][flyball.interfaces.server.routes.dashboards.migrate]), never refused, and
 what is stored is left as saved.
 """
 

@@ -1,6 +1,6 @@
 """Programs: checking a file, running it, and what the programmer is doing.
 
-A file is a document in the server's [Dialect][flyball.server.dialect.Dialect];
+A file is a document in the server's [Dialect][flyball.interfaces.server.dialect.Dialect];
 `check` normalises it to the internally tagged form without running anything,
 which is what an editor wants back. `run` does the same and hands the result
 to the programmer.
