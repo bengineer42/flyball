@@ -18,7 +18,7 @@ qcodes = ["qcodes>=0.45"]
 
 # What `flyball rig check`, the runner and the schema load to make `driver: qcodes` valid.
 [project.entry-points."flyball.configs"]
-qcodes = "flyball_qcodes"
+qcodes = "flyball_qcodes.configs"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.8", "flyball-modbus", "flyball-visa", "flyball-sim"]
