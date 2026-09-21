@@ -20,26 +20,26 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sim_daq`](#sim_daq) | read a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` |
 | [`sim_drive`](#sim_drive) | drive a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` |
 | [`i2c_table`](#i2c_table) | any register-mapped I²C chip | `i2c` | `flyball-linux` |
-| [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-linux` |
-| [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-linux` |
-| [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-linux` |
+| [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-chips` |
+| [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-chips` |
+| [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` |
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` |
-| [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-linux` |
-| [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-linux` |
-| [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-linux` |
-| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-linux` |
-| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-linux` |
-| [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-linux` |
-| [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-linux` |
-| [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-linux` |
-| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-linux` |
-| [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-linux` |
+| [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` |
+| [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` |
+| [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` |
+| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-chips` |
+| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` |
+| [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` |
+| [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` |
+| [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` |
+| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-chips` |
+| [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-chips` |
 | [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` |
 | [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` |
 | [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` |
-| [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-linux` |
+| [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` |
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` |
 | [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/flyball/humidity/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
 
@@ -192,11 +192,15 @@ heaters:
   ports: { heater1: heater1, heater2: heater2 }
 ```
 
-## Board chips (`flyball-linux`)
+## Board chips
 
 Each sits on a board link ([Boards and Linux I/O](../boards.md)); `link` may
 be the link's name or, with a `board:` in the file, `pin: LABEL` in its
-place. Every one is tested to the byte against its link's fake.
+place. Every one is tested to the byte against its link's fake. Most ship
+in `flyball-chips` (protocol-level, OS-agnostic); a few -- `i2c_table`,
+`gpio_line`, `pwm_channel`, `ds18b20`, `current_loop`, `pulse_counter`,
+`dosing_pump`, `stepper` -- are board-level Linux drivers and ship in
+`flyball-linux` instead. See the table above for which is which.
 
 ### `i2c_table`
 

@@ -125,9 +125,12 @@ thermocouples that lag. Ports: inputs `heater1…N` (0–1), outputs
 
 ## A board's buses
 
-`i2c`, `spi`, `gpio`, `pwm`, `onewire` and `uart`, with a `fake_*` each,
-come with `flyball-linux` and are usually declared by a board profile
-rather than by hand: [Boards and Linux I/O](boards.md). `uart` (tag
+`i2c`, `spi`, `gpio`, `pwm`, `onewire` and `uart` come with `flyball-linux`
+and are usually declared by a board profile rather than by hand: [Boards
+and Linux I/O](boards.md). `fake_i2c`/`fake_spi`/`fake_gpio`/`fake_uart`
+come with `flyball-sim` instead (real, rig-file-usable features, not
+test-only fixtures -- the same package `sim_plant`/`sim_daq`/`sim_drive`
+ship in); `fake_pwm` and `fake_onewire` are still `flyball-linux`'s. `uart` (tag
 `uart`, not `serial` -- that tag is the text-instrument link above) is a
 raw byte-level serial port: `write`, `read` an exact length, or `read_until`
 a terminator, for chips with their own binary or ASCII framing (`mhz19`,

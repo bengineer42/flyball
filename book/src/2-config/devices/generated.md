@@ -69,7 +69,8 @@ the one registry, so `GET /api/drivers` lists links beside drivers and
 | `sim_furnace` | `furnace.sim` (`examples/furnace`) |
 | `visa`, `serial`, `fake_text` | `flyball_visa` |
 | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball_modbus` |
-| the board chips and links | `flyball_linux.devices.chips.*`, `flyball_linux.links.*` |
+| the board chips | `flyball_chips.*` |
+| board-level Linux drivers and links | `flyball_linux.devices.*`, `flyball_linux.links.*` |
 | a `drivers/` file, a package's | wherever it is: `GET /api/drivers` names the module per tag |
 
 A tag registers when its module is imported: the built-ins on `import

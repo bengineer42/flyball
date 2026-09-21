@@ -55,7 +55,7 @@ served. Start with a simulated one, then swap the links for real ones.
 | **Recording** | every reading, demand and controller tick into SQLite as sessions; export as CSV, JSON or a zip; rig versions beside the data so a session always has its rig |
 | **Simulation** | plants (lags, furnaces, tanks) and a clock that runs at 60× or in steps, so a rig, a program and a dashboard are built and tested with nothing plugged in, then run unchanged on hardware |
 | **The server** | one runner per rig: an HTTP and websocket API, a browser UI rendered from the rig's own schema, a command line, a Python client, and an MCP server so a model can read or drive the rig |
-| **Boards** | Raspberry Pi I²C, SPI, GPIO, PWM and 1-Wire links with drivers on them (`flyball-linux`), board profiles by name |
+| **Boards** | Raspberry Pi I²C, SPI, GPIO, PWM and 1-Wire links (`flyball-linux`) with chip drivers on them (`flyball-chips`), board profiles by name |
 
 ## The ideas, in one paragraph
 
