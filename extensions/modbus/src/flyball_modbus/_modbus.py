@@ -11,10 +11,19 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from typing import Literal
 
-from flyball.core.config import resolve
-from flyball.core.device import Committable, DriverConfig, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
+from flyball.foundation.config import resolve
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    Node,
+    Readable,
+    Role,
+    Sample,
+    Signal,
+    SignalSpec,
+)
+from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import RegisterLink
 from pydantic import BaseModel, ConfigDict, model_validator
 
