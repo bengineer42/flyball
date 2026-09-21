@@ -7,7 +7,7 @@ from threading import Thread
 from flyball.control import Controller
 from flyball.foundation import Operator, Positive, Reading
 from flyball.foundation.time import Clock, Duration
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 from .command import Activity, Command
 

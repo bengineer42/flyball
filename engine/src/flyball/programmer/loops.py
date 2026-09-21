@@ -13,7 +13,7 @@ from flyball.control import Controller
 from flyball.control.setpoint import LinearRampSetpoint
 from flyball.foundation import Operator
 from flyball.foundation.time import Duration, Speed
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 from .activities import Arrived, Timed
 from .command import Activity, Command

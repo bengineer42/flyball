@@ -7,7 +7,7 @@ from pydantic.alias_generators import to_snake
 
 from flyball.foundation import Operator, Trigger
 from flyball.foundation.time import Clock
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 Commands: dict[str, type[Command]] = {}
 

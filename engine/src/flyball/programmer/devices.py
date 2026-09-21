@@ -11,7 +11,7 @@ from typing import Any
 
 from flyball.foundation import AddressNotFoundError, NotFoundError, Operator
 from flyball.foundation.device import Access, Signal
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 from .command import Activity, Command
 

@@ -30,7 +30,7 @@ from .program import Program
 
 if TYPE_CHECKING:
     from flyball.programmer.command import Activity, Command
-    from flyball.runtime.rig import Rig
+    from flyball.rig import Rig
 
 
 @dataclass(frozen=True, slots=True)
