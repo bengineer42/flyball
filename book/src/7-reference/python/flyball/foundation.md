@@ -19,10 +19,6 @@
 
 ::: flyball.foundation.router.trigger
 
-::: flyball.foundation.config.config
-
-::: flyball.foundation.config.model
-
 ::: flyball.foundation.errors
 
 ::: flyball.foundation.files

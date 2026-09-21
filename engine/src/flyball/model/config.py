@@ -92,7 +92,7 @@ def discover(group: str = "flyball.configs") -> list[str]:
 def discover_paths(group: str) -> list[Path]:
     """Every installed package's registered path in `group`.
 
-    Like [discover][flyball.foundation.config.config.discover], entries come from a
+    Like [discover][flyball.model.config.discover], entries come from a
     package's own `pyproject.toml`::
 
         [project.entry-points."flyball.board_dirs"]

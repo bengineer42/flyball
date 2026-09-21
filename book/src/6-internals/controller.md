@@ -118,7 +118,7 @@ Five things to note:
    returns `{}` — nothing committed yet — and `write` passes `None` back.
    `self.expected` is then `None` and `delivered_correction` is `None` too,
    until the delivery's single `device.commit()` runs at its end and
-   [`delivered(state)`][flyball.control.controller.Controller.delivered]
+   [`delivered(state)`][flyball.model.controller.Controller.delivered]
    fills them in, closing the tick with what the target actually took.
 5. **A target that never reports (`write` always returns `None`) gets no
    anti-windup.** `step`'s `last_applied` argument is `self.delivered_correction`

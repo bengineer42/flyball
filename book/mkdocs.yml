@@ -155,7 +155,9 @@ nav:
           - flyball: 7-reference/python/flyball.md
           - flyball.foundation: 7-reference/python/flyball/foundation.md
           - flyball.foundation.quantities: 7-reference/python/flyball/foundation/quantities.md
+          - flyball.model: 7-reference/python/flyball/model.md
           - flyball.control: 7-reference/python/flyball/control.md
+          - flyball.library: 7-reference/python/flyball/library.md
           - flyball.adaptive: 7-reference/python/flyball/adaptive.md
           - flyball.autotune: 7-reference/python/flyball/autotune.md
           - flyball.runtime: 7-reference/python/flyball/runtime.md

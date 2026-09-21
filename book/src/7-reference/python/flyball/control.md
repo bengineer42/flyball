@@ -5,7 +5,7 @@
       members: false
       show_root_heading: false
 
-::: flyball.control.controller
+::: flyball.control.configs
 
 ::: flyball.control.errors
 
@@ -14,5 +14,3 @@
 ::: flyball.control.laws
 
 ::: flyball.control.setpoint
-
-::: flyball.control.types

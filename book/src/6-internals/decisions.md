@@ -28,7 +28,7 @@ chapter describes intent rather than fact, it says which.
   no failsafe on a stale sensor.
 - **Adaptation in control.** Estimator and retune policy exist; wiring them
   into a controller is not done.
-- **Per-driver registries.** Driver tags (`flyball.foundation.config.config.Config.registry`)
+- **Per-driver registries.** Driver tags (`flyball.model.config.Config.registry`)
   are one process-wide namespace, so two plugins declaring the same tag
   would collide. No longer hypothetical: D-013's restructure created ten
   separate `flyball.configs`-registering packages (`extensions/{linux,chips,
@@ -37,7 +37,11 @@ chapter describes intent rather than fact, it says which.
   collision has been hit yet, but nothing prevents one. Device *names* don't
   have this problem: they are claimed per rig (`Rig.claim`), not
   process-wide, which is part of what D-006 fixed relative to D-004's
-  interned sources and measurands. Two further gaps D-013 flagged: `discover()`
+  interned sources and measurands. The registry redesign (`brain/tasks/
+  registry-redesign.md`) replaces this with an explicit, collision-checked
+  `Catalog[T]` (`flyball.model.catalog`) -- built and used for engine's own
+  laws so far, `Config.registry` still the live path for devices/links,
+  migrating them is that plan's next rollout step. Two further gaps D-013 flagged: `discover()`
   (the `flyball.configs` entry-point reader) only runs at runner startup, so
   installing a new extension package into a running deployment doesn't make
   its tags available without a restart — unlike a driver dropped into a rig's
