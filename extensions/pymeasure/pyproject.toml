@@ -18,7 +18,7 @@ pymeasure = ["pymeasure>=0.13"]
 
 # What `flyball rig check`, the runner and the schema load to make `driver: pymeasure` valid.
 [project.entry-points."flyball.configs"]
-pymeasure = "flyball_pymeasure"
+pymeasure = "flyball_pymeasure.configs"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.8", "flyball-modbus", "flyball-visa", "flyball-sim"]
