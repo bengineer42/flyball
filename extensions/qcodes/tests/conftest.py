@@ -5,6 +5,8 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable
 
+import flyball_modbus  # ruff: ignore[unused-import]  registers the modbus link tag
+import flyball_visa  # ruff: ignore[unused-import]  registers the visa link tag
 import pytest
 
 _counter = itertools.count()
