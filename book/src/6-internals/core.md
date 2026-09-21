@@ -67,7 +67,7 @@ identity-hashed, made once, so a `Reading`, `Sample`, `Demand` or
 [Path][flyball.foundation.device.signal.Path] is the address's value type — a tuple of
 segments, hashable, `str()` giving the dotted form (`"dry.humidity"`) —
 owned by the bound object it belongs to. Strings exist only at the wire and
-in the rig file; [Rig.resolve][flyball.runtime.rig.Rig.resolve] is the one
+in the rig file; [Rig.resolve][flyball.rig.rig.Rig.resolve] is the one
 place an address is parsed, below which everything carries the bound
 objects.
 
@@ -173,7 +173,7 @@ The wait primitive (`flyball.foundation.router.trigger.Trigger`, not to be confu
 once, says how it ended (fired, timed out, interrupted), and calls
 `on_settle` so a registry can publish the outcome from whichever thread
 settled it. Not an extension point — user logic belongs in an `Activity`.
-The rig's `Triggers` registry (`flyball.runtime.triggers`) gives a trigger a
+The rig's `Triggers` registry (`flyball.rig.triggers`) gives a trigger a
 name and a message so the server can list, fire or interrupt it; on the
 wire these are "waits" (`/api/waits`).
 

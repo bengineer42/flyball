@@ -68,7 +68,7 @@ is not an observer: it wants the whole delivery, after the controllers have
 ticked and the touched devices have committed, so it records what each tick
 produced and what each commit set. The rig holds at most one and calls
 `recorder.record(samples, ticks, states, time_ns=...)` at the end of every
-delivery ([on_samples][flyball.runtime.rig.Rig.on_samples]), and again with
+delivery ([on_samples][flyball.rig.rig.Rig.on_samples]), and again with
 empty samples and ticks after a manual demand made outside one; a blocking
 device's deferred write states reach it the same way, through
 `Rig.written`, once its writer thread finishes the commit.
