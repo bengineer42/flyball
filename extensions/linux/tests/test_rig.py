@@ -1,7 +1,6 @@
 """Every driver read and committed through a rig built from a rig file, on the fakes."""
 
 import pytest
-from flyball.foundation.config import Config, discover
 from flyball.foundation.device import Reading, Signal
 from flyball.foundation.errors import ConflictError
 from flyball.runtime.config import RigConfig, rig_schema
@@ -209,7 +208,10 @@ def test_a_controller_drives_the_heater_and_a_manual_demand_is_refused(rig):
 
 
 def test_the_entry_point_registers_every_tag():
-    assert "linux" in discover()
+    from flyball.model.catalog import Catalogs
+
+    fresh = Catalogs()
+    assert "linux" in fresh.discover()
     for tag in (
         "sht4x",
         "sht4x_set",
@@ -219,13 +221,10 @@ def test_the_entry_point_registers_every_tag():
         "gpio_line",
         "pwm_channel",
         "ds18b20",
-        "i2c",
-        "spi",
-        "gpio",
-        "pwm",
-        "onewire",
     ):
-        assert Config.registry[tag].config_tag == tag
+        assert fresh.devices[tag].config_tag == tag
+    for tag in ("i2c", "spi", "gpio", "pwm", "onewire"):
+        assert fresh.links[tag].config_tag == tag
 
 
 def test_the_schema_describes_every_driver_flat_and_layered():

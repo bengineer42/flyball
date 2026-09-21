@@ -5,7 +5,7 @@ Every `Output`/`Signal` a driver declares already carries a `Quantity`, and a `Q
 already carries its `Unit` (symbol) and the unit's `Dimension` (label) -- see
 `flyball.foundation.quantities.Quantity`. So "search by unit" or "search by dimension" doesn't need
 a hand-maintained field in `drivers-manifest.yaml`; it needs one read of what every driver
-already declares. This script does that read: for each tag in `Config.registry` whose class
+already declares. This script does that read: for each registered device whose class
 builds with only a fake link (no real hardware, no extra required config), it builds one
 instance and records each signal's `(name, unit_symbol, dimension)`.
 
@@ -17,10 +17,8 @@ from __future__ import annotations
 import sys
 
 import yaml
-from flyball.foundation.config import Config
 from flyball.foundation.device import DriverConfig, Readable
-
-import flyball_linux.configs  # ruff: ignore[unused-import]  (populates Config.registry)
+from flyball.model.catalog import Catalogs
 
 LINK_CANDIDATES = ({"tag": "fake_i2c"}, {"tag": "fake_uart"})
 """Every driver here needs only a link to construct -- no scripted reply is read until
@@ -46,9 +44,11 @@ def try_build(tag: str, cls: type) -> Readable | None:
 
 
 def main() -> int:
+    catalog = Catalogs()
+    catalog.discover()
     entries: dict[str, list[dict[str, str]]] = {}
     skipped: list[str] = []
-    for tag, cls in sorted(Config.registry.items()):
+    for tag, cls in sorted(catalog.devices.items()):
         device = try_build(tag, cls)
         if device is None:
             skipped.append(tag)

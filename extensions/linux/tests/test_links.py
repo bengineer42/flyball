@@ -1,7 +1,7 @@
 """The fakes behave like the buses they stand in for, and the configs build them."""
 
 import pytest
-from flyball.foundation.config import Config
+from flyball.model.catalog import get_catalog
 
 from flyball_linux.links.gpio import FakeGpio
 from flyball_linux.links.i2c import FakeI2c
@@ -81,9 +81,9 @@ def test_fake_onewire_serves_texts_in_turn():
 
 @pytest.mark.parametrize("tag", ["fake_i2c", "fake_spi", "fake_gpio", "fake_pwm", "fake_onewire"])
 def test_every_fake_has_a_tag_that_builds(tag):
-    assert Config.registry[tag]().build() is not None
+    assert get_catalog().links[tag]().build() is not None
 
 
 @pytest.mark.parametrize("tag", ["i2c", "spi", "gpio", "pwm", "onewire"])
 def test_every_real_link_has_a_tag(tag):
-    assert Config.registry[tag].config_tag == tag
+    assert get_catalog().links[tag].config_tag == tag

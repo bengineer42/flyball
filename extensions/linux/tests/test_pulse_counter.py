@@ -1,7 +1,7 @@
 """A pulse counter against the fake GPIO link, to pulses and litres/minute."""
 
 import pytest
-from flyball.foundation.config import Config
+from flyball.model.catalog import get_catalog
 
 from flyball_linux.devices.pulse_counter import PulseCounter
 from flyball_linux.links.gpio import FakeGpio
@@ -58,4 +58,4 @@ def test_reading_an_unclaimed_line_is_an_error():
 
 
 def test_tag_builds():
-    assert Config.registry["pulse_counter"] is not None
+    assert get_catalog().devices["pulse_counter"] is not None
