@@ -30,11 +30,20 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from flyball.core.device import Committable, Demand, DriverConfig, Output, Readable, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Node, Sample
-from flyball.core.units.si import Celsius
-from flyball.hardware.links import TextLink, TextLinkConfig  # a link config, or a str name
+from flyball.foundation.device import (
+    Committable,
+    Demand,
+    DriverConfig,
+    Node,
+    Output,
+    Readable,
+    Sample,
+    command,
+)
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
+from flyball.hardware.links import TextLink
+from flyball_visa import TextLinkConfig  # a link config, or a str name
 
 TEMP = Quantity("temperature", Celsius)
 
@@ -101,7 +110,7 @@ committed) and `.at_limit`.
 - `Readable` ⇒ implement `read(time_ns, node)`. Yield `self.sample(time_ns,
   **values)` or `Sample(self.root, time_ns, {self.signals["x"]: v})`.
   Strings never reach a driver: keys are bound signals. Yield nothing when
-  nothing is due. Raise `flyball.core.errors.HardwareError` to go offline;
+  nothing is due. Raise `flyball.foundation.errors.HardwareError` to go offline;
   the rig records the condition and retries next poll.
 - `Committable` ⇒ implement `commit(time_ns)`. The rig has already
   validated and clamped every demand and recorded it under `pending`; the
