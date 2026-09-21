@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, SerializeAsAny, TypeAdapter
 
+from flyball.control import IMC, PI, PID, OnOff, OpenLoop, P, Scheduled, SlidingMode, SmithPredictor
 from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import (
     CommandSpec,
@@ -34,10 +35,17 @@ from flyball.foundation.time import Clock
 from flyball.model.controller import Controller, ControllerState, ControllerView
 from flyball.model.feedforward import FeedforwardConfig
 from flyball.model.generator import SetPointGenerator
-from flyball.model.law import ControlLaws, ControlLawView
+from flyball.model.law import ControlLawView
 from flyball.rig import DeviceRun
 
-LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
+# Every built-in law, direct: no extension defines one today
+# (`control/configs.py` registers all of them), and building this from
+# `get_catalog()`/`Catalogs.discover()` at import time would risk
+# `discover()` re-entering a module still mid-import through some
+# extension's own import chain -- see `runtime/config.py`'s equivalent
+# comment on `LawConfig`/`FeedforwardConfig` there.
+_LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
+LawConfig = discriminated_union({law.tag: law for law in _LAWS}, "tag", lambda law: law.config)
 LawsSchema = TypeAdapter(LawConfig).json_schema()
 
 ANY = TypeAdapter(Any)

@@ -10,39 +10,37 @@ unions, the stored tunings, and which signals are already spoken for.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Union
+from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
+from flyball.control import Affine, GeneratorConfig, Table
 from flyball.control.errors import LastReadingNotAvailableError
+from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import Access, Signal
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep
-from flyball.interfaces.server.schemas import ControllerOut
+from flyball.interfaces.server.schemas import ControllerOut, LawConfig
 from flyball.model.controller import Controller, ValueSource
-from flyball.model.feedforward import Feedforwards
-from flyball.model.generator import SetPointGenerators
-from flyball.model.law import ControlLaws, Transfer
+from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.law import Transfer
 from flyball.rig import Rig
 
 router = APIRouter(prefix="/api/controllers", tags=["controllers"])
 
-LawConfig = Annotated[  # type: ignore[valid-type]
-    Union[tuple(law.config for law in ControlLaws.values())],  # ruff: ignore[non-pep604-annotation-union]
-    Field(discriminator="tag"),
-]
-FeedforwardConfig = Annotated[  # type: ignore[valid-type]
-    Union[tuple(ff.config for ff in Feedforwards.values())],  # ruff: ignore[non-pep604-annotation-union]
-    Field(discriminator="tag"),
-]
-GeneratorConfig = Annotated[  # type: ignore[valid-type]
-    Union[tuple(g.config for g in SetPointGenerators.values())],  # ruff: ignore[non-pep604-annotation-union]
-    Field(discriminator="tag"),
-]
-"""Built here from the registry, as the law and feedforward unions are; `profile` is in it, and
-its own segments are `flyball.control.GeneratorConfig`, the same union closed at import."""
+# `LawConfig` is `interfaces.server.schemas`'s, reused rather than rebuilt.
+# `FeedforwardConfig` is every built-in feedforward's, direct -- no extension
+# defines one today (`control/configs.py` registers all of them); see that
+# module's comment for why this isn't `get_catalog()`/`Catalogs.discover()`.
+# `GeneratorConfig` is `flyball.control`'s own closed union over the built-in
+# generators (`control/setpoint.py`); `profile`'s segments are this same
+# union.
+_FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
+FeedforwardConfig = discriminated_union(
+    {ff.tag: ff for ff in _FEEDFORWARDS}, "tag", lambda ff: ff.config
+)
 
 
 class NewController(BaseModel):

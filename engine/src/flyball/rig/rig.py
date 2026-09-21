@@ -43,8 +43,9 @@ from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyErro
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.typing import OrderedSet
 from flyball.library.tunings import Tunings
+from flyball.model.catalog import get_catalog
 from flyball.model.controller import Controller, ControllerState
-from flyball.model.feedforward import FeedforwardLike, Feedforwards
+from flyball.model.feedforward import FeedforwardLike
 from flyball.model.law import ControlLawLike
 from flyball.runtime.writer import Writer
 
@@ -992,7 +993,7 @@ class Rig:
         if isinstance(law, str):
             law = self.tunings.get(law)
         if isinstance(feedforward, str):
-            feedforward = Feedforwards[feedforward]()
+            feedforward = get_catalog().feedforwards[feedforward]()
 
         def write(demand: float) -> float | None:
             states = self.demand(target.node, {target: demand}, by=controller)

@@ -7,10 +7,10 @@ made of is under `/api/devices` and `/api/controllers`.
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Annotated, Any, Union
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import Field, SerializeAsAny, ValidationError
+from pydantic import SerializeAsAny, ValidationError
 
 from flyball.control.errors import TuningNotRegisteredError
 from flyball.foundation.device import Condition, Device
@@ -20,21 +20,18 @@ from flyball.interfaces.server.deps import (
     current_rig_config,
     current_simulation,
 )
-from flyball.interfaces.server.schemas import ClockOut
+from flyball.interfaces.server.schemas import ClockOut, LawConfig
 from flyball.library.tunings import Tuning
-from flyball.model.law import ControlLawConfig, ControlLaws, ControlLawView
+from flyball.model.law import ControlLawConfig, ControlLawView
 from flyball.rig import Rig
 from flyball.runtime.config import RigConfig, canonical, rig_schema
 
 router = APIRouter(prefix="/api", tags=["rig"])
 
-# A tuning body is any registered law's config, told apart by its tag. Built
-# from the registry so a law added by a package is accepted without a change
-# here.
-LawConfig = Annotated[  # type: ignore[valid-type]
-    Union[tuple(law.config for law in ControlLaws.values())],  # ruff: ignore[non-pep604-annotation-union]
-    Field(discriminator="tag"),
-]
+# A tuning body is any registered law's config, told apart by its tag --
+# every built-in law's, direct, same as `interfaces.server.schemas.LawConfig`
+# (reused here rather than rebuilt): see that module's comment on why this
+# isn't `get_catalog()`/`Catalogs.discover()`.
 
 
 def _outside(value: float, band: tuple[float, float] | None) -> bool:

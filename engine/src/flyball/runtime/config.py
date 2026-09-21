@@ -36,22 +36,49 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
 from pydantic.json_schema import GenerateJsonSchema
 
-# Nothing built into flyball core registers a tag any more -- `scpi`/`modbus`
-# (extensions/visa, extensions/modbus), the Linux buses and chips, and
-# flyball-sim's sim_plant/sim_daq/sim_drive all register through the
+# Nothing built into flyball core registers a tag implicitly any more --
+# `scpi`/`modbus` (extensions/visa, extensions/modbus), the Linux buses and
+# chips, flyball-sim's sim_plant/sim_daq/sim_drive, and engine's own laws,
+# feedforwards and generators (`control/configs.py`) all register through the
 # `flyball.configs` entry point instead, read by `Catalogs.discover()`.
+from flyball.control import (
+    IMC,
+    PI,
+    PID,
+    Affine,
+    OnOff,
+    OpenLoop,
+    P,
+    Scheduled,
+    SlidingMode,
+    SmithPredictor,
+    Table,
+)
 from flyball.foundation.config import Config, discover_paths, discriminated_union
 from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
-from flyball.model.feedforward import Feedforwards
-from flyball.model.law import ControlLaws
+from flyball.model.feedforward import NoFeedforward, Setpoint
 from flyball.rig import Rig
 
-LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)
-FeedforwardConfig = discriminated_union(Feedforwards, "tag", lambda ff: ff.config)
+# `LawConfig`/`FeedforwardConfig` are static pydantic field types
+# (`ControllerEntry` below), so they need every built-in law/feedforward at
+# import time, not `get_catalog()` -- unlike `registered()`, which reads it
+# lazily per call for devices/links (the extension point; a third-party
+# driver may not be imported yet). Laws and feedforwards have no extension
+# point today (nothing outside engine defines one, `control/configs.py`
+# registers all of them), so importing the built-ins directly here is
+# equivalent, and doesn't risk `Catalogs.discover()` re-entering this module
+# through an extension's own import chain (`flyball_sim`, notably, imports
+# `RigConfig` from here).
+_LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
+_FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
+LawConfig = discriminated_union({law.tag: law for law in _LAWS}, "tag", lambda law: law.config)
+FeedforwardConfig = discriminated_union(
+    {ff.tag: ff for ff in _FEEDFORWARDS}, "tag", lambda ff: ff.config
+)
 
 Role = Literal["link", "driver"]
 
