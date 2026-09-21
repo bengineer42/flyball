@@ -12,8 +12,7 @@ import yaml
 
 from flyball.foundation.time import Duration, Rate, TimeUnit
 from flyball.foundation.typing import Percent
-from flyball.programmer.command import Command
-from flyball.server.dialect import (
+from flyball.interfaces.server.dialect import (
     Dialect,
     Modifier,
     StepError,
@@ -22,6 +21,7 @@ from flyball.server.dialect import (
     normalise_step,
     program_schema,
 )
+from flyball.programmer.command import Command
 
 
 @pytest.fixture
@@ -161,7 +161,7 @@ def test_program_schema_is_externally_tagged_with_shorthand_and_folds(dialect, c
 
 def test_a_program_loads_from_toml_json_and_yaml(tmp_path, dialect, commands):
     tags, classes = commands
-    from flyball.server.dialect import program_from_file
+    from flyball.interfaces.server.dialect import program_from_file
 
     steps = [
         {tags["setpoint"]: 50},

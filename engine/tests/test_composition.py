@@ -7,13 +7,13 @@ from fastapi.testclient import TestClient
 from flyball_sim import SteppedClock
 
 from conftest import FakeRunner
-from flyball.db.sqlite import SqliteStore
 from flyball.foundation.config import Config
 from flyball.foundation.files import load_document
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_runner, set_store
+from flyball.record.sqlite import SqliteStore
+from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
-from flyball.runtime.rig import Rig
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_runner, set_store
 
 
 class _RealLinkConfig(Config[object], tag="test_real_link"):
@@ -228,7 +228,7 @@ class TestRoutes:
 
 class TestHardwareGate:
     def test_a_hardware_rig_composes_only_with_the_flag(self, client: TestClient, rig: Rig) -> None:
-        from flyball.server.deps import set_compose
+        from flyball.interfaces.server.deps import set_compose
 
         # A bare rig may always be built up, even with a real link: that is what it is for.
         rig.link_entries["dmm"] = _RealLinkConfig()

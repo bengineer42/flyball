@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.db.sqlite import SqliteStore
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_programmer, set_store
 from flyball.programmer.programmer import Programmer
-from flyball.runtime.rig import Rig
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_programmer, set_store
+from flyball.record.sqlite import SqliteStore
+from flyball.rig import Rig
 
 YAML = """# a comment that must survive storage
 name: dry-then-hold
@@ -121,7 +121,7 @@ def test_check_and_run_and_delete(client):
 
 
 def test_import_directory_imports_new_and_changed_files_only(client, tmp_path):
-    from flyball.server.deps import set_programs_dir
+    from flyball.interfaces.server.deps import set_programs_dir
 
     (tmp_path / "firing.yaml").write_text(YAML)
     (tmp_path / "notes.txt").write_text("not a program")

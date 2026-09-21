@@ -8,11 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flyball.control.laws import P
-from flyball.db.sqlite import SqliteStore
-from flyball.runtime.rig import Rig
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_store
-from flyball.server.routes.dashboards import import_directory, migrate, problems_for
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_store
+from flyball.interfaces.server.routes.dashboards import import_directory, migrate, problems_for
+from flyball.record.sqlite import SqliteStore
+from flyball.rig import Rig
 from test_server import Daq, Drive
 
 DOC = {

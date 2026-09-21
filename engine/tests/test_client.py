@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from flyball.client import SchemaError, validate
+from flyball.interfaces.client import SchemaError, validate
 
 FLOW = {
     "$defs": {
@@ -61,7 +61,7 @@ class TestClientSurfaces:
     """`Rig.demand`/`.read`/`.controllers` build the routes the plan documents."""
 
     def test_demand_read_and_controllers_build_the_documented_routes(self):
-        from flyball.client import Rig
+        from flyball.interfaces.client import Rig
 
         calls = []
         rig = Rig("http://x")
@@ -80,7 +80,7 @@ class TestClientSurfaces:
         ]
 
     def test_devices_surface_replaces_actuators_and_readers(self):
-        from flyball.client import Rig
+        from flyball.interfaces.client import Rig
 
         rig = Rig("http://x", schema={"devices": {"furnace": {"type": "SimDaq", "commands": {}}}})
         assert rig.devices.names() == ["furnace"]

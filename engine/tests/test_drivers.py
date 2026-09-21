@@ -8,10 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flyball.foundation.config import Config
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_drivers_dir
+from flyball.rig import Rig
 from flyball.runtime.drivers import load_drivers
-from flyball.runtime.rig import Rig
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_drivers_dir
 
 DRIVER = """
 from flyball.foundation.device import DriverConfig, Output, Readable

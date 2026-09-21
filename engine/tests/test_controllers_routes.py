@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from flyball.control import Transfer
 from flyball.control.laws import P
-from flyball.server import create_app, set_rig
+from flyball.interfaces.server import create_app, set_rig
 from test_server import Daq, Drive, deliver
 
 

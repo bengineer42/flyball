@@ -13,14 +13,14 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
-from flyball.client import Rig as Client
-from flyball.client import RigError
-from flyball.db.sqlite import SqliteStore
-from flyball.mcp import Tier, tools_for
-from flyball.mcp.server import build
+from flyball.interfaces.client import Rig as Client
+from flyball.interfaces.client import RigError
+from flyball.interfaces.mcp import Tier, tools_for
+from flyball.interfaces.mcp.server import build
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_rig_config, set_store
 from flyball.programmer.command import Command
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_rig_config, set_store
+from flyball.record.sqlite import SqliteStore
 from test_server import Daq, Drive
 
 
@@ -34,7 +34,7 @@ class InProcess(Client):
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         response = self.http.request(method, path, json=body)
         if response.status_code >= 400:
-            from flyball.client.rig import RigError
+            from flyball.interfaces.client.rig import RigError
 
             raise RigError(response.status_code, response.json().get("detail", response.text))
         return response.json() if response.content else None
@@ -122,7 +122,7 @@ class TestTools:
         assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
 
     def test_a_device_command_runs_and_is_validated(self, client):
-        from flyball.client import SchemaError
+        from flyball.interfaces.client import SchemaError
 
         tool = self.tool(client, "heaters-set_duty")
         assert tool.run(client, {"duty": 0.4}) == 0.4
@@ -186,7 +186,7 @@ class TestTools:
         assert len(client.get("/api/dashboards/d/history")) == 2
 
     def test_update_dashboard_refuses_an_unknown_widget(self, client):
-        from flyball.client import SchemaError
+        from flyball.interfaces.client import SchemaError
 
         self.tool(client, "save_dashboard").run(
             client, {"name": "d", "document": {"name": "d", "rig": "t"}}
@@ -201,13 +201,13 @@ class TestRigRoutes:
     def test_check_validates_and_canonicalises(self, client):
         out = client.post("/api/rig/check", {"name": "x", "devices": {}})
         assert out["name"] == "x"
-        from flyball.client.rig import RigError
+        from flyball.interfaces.client.rig import RigError
 
         with pytest.raises(RigError, match="devices"):
             client.post("/api/rig/check", {"devices": "no"})
 
     def test_config_is_what_the_runner_was_given(self, client):
-        from flyball.client.rig import RigError
+        from flyball.interfaces.client.rig import RigError
         from flyball.runtime.config import RigConfig
 
         with pytest.raises(RigError, match="not started from a rig file"):
@@ -253,7 +253,7 @@ class TestMounted:
 
     @pytest.fixture
     def http(self, tmp_path, rig):
-        from flyball.mcp.http import mount
+        from flyball.interfaces.mcp.http import mount
 
         rig.name = "t"
         rig.add_device(Drive("heaters"))
@@ -316,7 +316,7 @@ class TestDriverTools:
         return next(t for t in tools_for(client, mode) if t.name == name)
 
     def test_tools_whose_routes_the_runner_lacks_are_not_listed(self, client, monkeypatch):
-        from flyball.mcp import tools
+        from flyball.interfaces.mcp import tools
 
         gated = {t.name for t in tools.DRIVERS if t.route is not None}
         monkeypatch.setattr(tools, "_served", lambda rig: set())
@@ -329,7 +329,7 @@ class TestDriverTools:
         assert "search_drivers" not in names(tools_for(client, "author")), "runs a script: drive"
 
     def test_served_is_read_from_the_runner_s_openapi(self, client):
-        from flyball.mcp.tools import _served
+        from flyball.interfaces.mcp.tools import _served
 
         assert ("get", "/api/devices/{name}/schema") in _served(client)
 
@@ -346,7 +346,7 @@ class TestDriverTools:
         assert guide.startswith("# Writing a device driver")
         out = self.tool(client, "driver_scaffold", "read").run(client, {"name": "foo-200"})
         assert 'tag="foo_200"' in out["source"]
-        from flyball.client import SchemaError
+        from flyball.interfaces.client import SchemaError
 
         with pytest.raises(SchemaError, match="identifier"):
             self.tool(client, "driver_scaffold", "read").run(client, {"name": "1"})

@@ -24,7 +24,7 @@ from flyball.foundation.device import (
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.router import Trigger
-from flyball.server import create_app, set_rig
+from flyball.interfaces.server import create_app, set_rig
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -683,8 +683,8 @@ def test_waits_stream(client, rig):
 
 @pytest.fixture
 def programmer(client, rig):
+    from flyball.interfaces.server import set_programmer
     from flyball.programmer import Programmer
-    from flyball.server import set_programmer
 
     programmer = Programmer(rig)
     set_programmer(programmer)
@@ -694,7 +694,7 @@ def programmer(client, rig):
 
 
 def test_load_tunings_stores_law_configs_under_the_directory_from_their_file_stem(tmp_path, rig):
-    from flyball.server.routes.library import load_tunings
+    from flyball.interfaces.server.routes.library import load_tunings
 
     (tmp_path / "gentle.yaml").write_text("tag: P\nkp: 0.5\n")
     (tmp_path / "brisk.toml").write_text('tag = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
@@ -827,8 +827,8 @@ class TestSimRoutes:
     def sim(self, client, tmp_path):
         from flyball_sim.simulation import Simulation
 
+        from flyball.interfaces.server import set_simulation
         from flyball.runtime.config import RigConfig
-        from flyball.server import set_simulation
 
         document = {
             "name": "tank",
@@ -871,8 +871,8 @@ class TestSimRoutes:
         r = client.post("/api/sim/save")
         assert r.status_code == 409 and "--allow-save" in r.json()["detail"]
         from conftest import FakeRunner
+        from flyball.interfaces.server.deps import set_runner
         from flyball.runtime.config import RunnerConfig
-        from flyball.server.deps import set_runner
 
         set_runner(FakeRunner(RunnerConfig(allow_save=True)))
         try:

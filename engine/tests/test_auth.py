@@ -6,11 +6,17 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from flyball.client import Rig as Client
-from flyball.mcp.http import mount
+from flyball.interfaces.client import Rig as Client
+from flyball.interfaces.mcp.http import mount
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.auth import (
+    COOKIE,
+    Sessions,
+    hash_password,
+    signing_secret,
+    verify_password,
+)
 from flyball.runtime.config import AuthConfig
-from flyball.server import create_app, set_rig
-from flyball.server.auth import COOKIE, Sessions, hash_password, signing_secret, verify_password
 
 
 class _InProcess(Client):
@@ -21,7 +27,7 @@ class _InProcess(Client):
     def _request(self, method, path, body=None):
         response = self.http.request(method, path, json=body, headers=self.headers)
         if response.status_code >= 400:
-            from flyball.client.rig import RigError
+            from flyball.interfaces.client.rig import RigError
 
             raise RigError(response.status_code, response.json()["detail"])
         return response.json() if response.content else None

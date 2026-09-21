@@ -61,8 +61,8 @@ def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
 
 
 def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):
-    from flyball.runtime.rig import Rig
-    from flyball.server import deps
+    from flyball.interfaces.server import deps
+    from flyball.rig import Rig
 
     seen = {}
 
@@ -80,7 +80,7 @@ def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):
 
 
 def _routes_served(monkeypatch, **settings):
-    from flyball.runtime.rig import Rig
+    from flyball.rig import Rig
 
     seen = {}
     monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.setdefault("app", self.config.app))
@@ -212,7 +212,7 @@ def test_a_runner_only_file_extends_the_rig(tmp_path, monkeypatch):
 
 
 def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, oven):
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     path = tmp_path / "s.sqlite"
     store = SqliteStore(path)
@@ -229,8 +229,8 @@ def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, ove
 
 
 def test_a_restart_asked_over_the_api_execs_the_same_command_line(monkeypatch):
-    from flyball.runtime.rig import Rig
-    from flyball.server import deps
+    from flyball.interfaces.server import deps
+    from flyball.rig import Rig
 
     execs = []
 
@@ -254,7 +254,7 @@ SIM_LINK = {"tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
 
 
 def test_resume_follows_the_head_back_to_the_last_change(tmp_path):
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     path = tmp_path / "s.sqlite"
     store = SqliteStore(path)
@@ -286,7 +286,7 @@ def test_a_start_at_the_head_records_nothing(tmp_path, oven):
 def test_the_migration_chains_versions_already_stored(tmp_path):
     import sqlite3
 
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     path = tmp_path / "old.sqlite"
     store = SqliteStore(path)  # every migration, including 0009, on an empty store
