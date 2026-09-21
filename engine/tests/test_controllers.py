@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from flyball_sim.clock import SteppedClock
 
 from flyball.control import Controller
 from flyball.control.laws import P
@@ -12,7 +13,6 @@ from flyball.runtime.controllers import (
     NoDefaultControllerError,
     SourceClaimedError,
 )
-from flyball.sim.clock import SteppedClock
 from test_rig_devices import Furnace
 
 

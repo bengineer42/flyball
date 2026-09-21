@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from flyball_sim.plant import Fopdt, Lag, Noisy
 
 from flyball.autotune.rules import imc
 from flyball.autotune.types import FOPDT
 from flyball.control import IMC, PI, PID, OnOff, Scheduled, SlidingMode, SmithPredictor
 from flyball.control.laws import Weighted
 from flyball.control.types import ControlLaw, ControlLaws
-from flyball.sim.plant import Fopdt, Lag, Noisy
 
 
 class Loop:

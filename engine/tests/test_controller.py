@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from flyball_sim.clock import SteppedClock
+from flyball_sim.plant import Lag
 from pydantic import TypeAdapter
 
 from flyball.control import (
@@ -27,8 +29,6 @@ from flyball.core.errors import ConflictError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Reading, Sample, SignalSpec, WriteState
 from flyball.core.units.si import Celsius, Watt
-from flyball.sim.clock import SteppedClock
-from flyball.sim.plant import Lag
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

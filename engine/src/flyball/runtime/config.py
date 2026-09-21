@@ -33,11 +33,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
 from pydantic.json_schema import GenerateJsonSchema
 
-# The built-in kinds register their tags when imported; a rig file can name
-# them without the application importing anything.
-import flyball.devices  # ruff: ignore[unused-import]
-import flyball.hardware.links  # ruff: ignore[unused-import]
-import flyball.sim.devices  # ruff: ignore[unused-import]
+# Nothing built into flyball core registers a tag any more -- `scpi`/`modbus`
+# (extensions/visa, extensions/modbus), the Linux buses and chips, and
+# flyball-sim's sim_plant/sim_daq/sim_drive all register through the
+# `flyball.configs` entry point instead, read by `discover()`.
 from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock
 from flyball.core.config import Config, discover, discover_paths
@@ -330,6 +329,34 @@ def is_simulated(links: dict[str, Any]) -> bool:
     )
 
 
+def resolve_live(path: str, root: Any) -> Any:
+    """What a config field's `live` path points at in `root`, the object it is resolved against.
+
+    The grammar: dot-separated keys walked from `root` (`output`,
+    `stats.noise`, `readings.zone1.value`); a `*` segment fans out over
+    every key at that level and yields a dict keyed by them
+    (`outputs.*` -> `{"zone1": 603.7, ...}`, `readings.*.value`). None when
+    a key is missing; a fan-out drops keys the rest of the path misses.
+
+    Generic dict-path resolution, not simulation-specific itself; used by
+    `flyball_sim.simulation.Simulation.live` to resolve a plant's `live`
+    fields against its own description.
+    """
+    return _resolve_live(path.split(".") if path else [], root)
+
+
+def _resolve_live(segments: list[str], node: Any) -> Any:
+    if not segments:
+        return node
+    head, rest = segments[0], segments[1:]
+    if not isinstance(node, dict):
+        return None
+    if head == "*":
+        found = {key: _resolve_live(rest, value) for key, value in node.items()}
+        return {key: value for key, value in found.items() if value is not None}
+    return _resolve_live(rest, node.get(head))
+
+
 class RigConfig(BaseModel):
     """The whole file.
 
@@ -443,7 +470,7 @@ class RigConfig(BaseModel):
         """
         links = {name: config.build() for name, config in self.links.items()}
         if clock is None and self.simulated:
-            from flyball.sim.clock import ScaledClock, SteppedClock
+            from flyball_sim.clock import ScaledClock, SteppedClock
 
             entry = self.clock or ClockEntry()
             clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
@@ -792,6 +819,7 @@ __all__ = [
     "registered",
     "resolve_document",
     "resolve_documents",
+    "resolve_live",
     "rig_model",
     "rig_schema",
     "role_of",

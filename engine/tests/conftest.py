@@ -12,11 +12,11 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from flyball_sim.clock import SteppedClock
 
 from flyball.programmer.command import Commands
 from flyball.runtime.config import RunnerConfig
 from flyball.runtime.rig import Rig
-from flyball.sim.clock import SteppedClock
 
 _counter = itertools.count()
 

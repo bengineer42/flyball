@@ -7,11 +7,11 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from flyball_sim import ScaledClock, SteppedClock
+from flyball_sim.simulation import Simulation
 
 from flyball.core.errors import ConflictError, NotFoundError
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
-from flyball.runtime.simulation import Simulation
-from flyball.sim import ScaledClock, SteppedClock
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -166,7 +166,7 @@ class TestSimulation:
 
 class TestLiveValues:
     def test_readings_and_live_links_pair_config_with_what_is_read(self):
-        path = EXAMPLES / "furnace.yaml"
+        path = EXAMPLES.parent / "furnace" / "rig.yaml"
         document, _ = resolve_document(path)
         document["clock"] = {"stepped": True}
         config = RigConfig.model_validate(document)
@@ -228,7 +228,7 @@ class TestLiveValues:
             oven.readings("ghost")
 
     def test_a_live_path_walks_the_description_and_fans_out_on_a_star(self):
-        from flyball.runtime.simulation import resolve_live
+        from flyball.runtime.config import resolve_live
 
         root = {
             "output": 1.5,
@@ -254,8 +254,9 @@ class TestLiveValues:
 def test_a_stall_resynchronises_the_poll_instead_of_bursting():
     from threading import Event
 
+    from flyball_sim import ScaledClock
+
     from flyball.core.utils import PeriodicLoop
-    from flyball.sim import ScaledClock
 
     calls = []
     clock = ScaledClock(1)

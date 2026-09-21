@@ -9,6 +9,7 @@ import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
+from flyball_sim.clock import SteppedClock
 
 from flyball.control import PI, Controller, NoFeedforward
 from flyball.core.device import Device
@@ -20,7 +21,6 @@ from flyball.db.types import Event, Tick
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
 from flyball.server.deps import set_store
-from flyball.sim.clock import SteppedClock
 
 START_NS = 1_700_000_000_000_000_000
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
+from flyball_sim import SteppedClock
 
 from flyball.control.laws import P
 from flyball.core.device import Committable, Demand, Namespace, Output, Readable, command
@@ -14,7 +15,6 @@ from flyball.core.signal import Access, Role, Sample, Section
 from flyball.core.units.si import Celsius, Percent
 from flyball.core.utils import Labelled
 from flyball.runtime.rig import Rig
-from flyball.sim import SteppedClock
 
 TEMP = Quantity("temperature", Celsius)
 DUTY = Quantity("duty", Percent)

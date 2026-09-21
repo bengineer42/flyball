@@ -1,6 +1,7 @@
 """A controller's demand is feedforward(setpoint) + correction, in the target's unit."""
 
 import pytest
+from flyball_sim.clock import SteppedClock
 
 from flyball.control import (
     Affine,
@@ -18,7 +19,6 @@ from flyball.core.device import Device
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Reading, SignalSpec
 from flyball.core.units.si import Celsius, Watt
-from flyball.sim.clock import SteppedClock
 
 
 class Oven(Device):

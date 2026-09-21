@@ -815,8 +815,9 @@ def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_i
 class TestSimRoutes:
     @pytest.fixture
     def sim(self, client, tmp_path):
+        from flyball_sim.simulation import Simulation
+
         from flyball.runtime.config import RigConfig
-        from flyball.runtime.simulation import Simulation
         from flyball.server import set_simulation
 
         document = {

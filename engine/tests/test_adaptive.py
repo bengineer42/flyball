@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from flyball_sim.plant import Fopdt, Integrator, Lag, Noisy
 
 from flyball.adaptive import (
     Bounds,
@@ -29,7 +30,6 @@ from flyball.adaptive import (
 from flyball.adaptive.types import Arx
 from flyball.autotune.rules import imc
 from flyball.autotune.types import FOPDT, Gains
-from flyball.sim.plant import Fopdt, Integrator, Lag, Noisy
 
 SCHEMA = Schema(None, None)  # type: ignore[arg-type]  the signals are not consulted here
 
