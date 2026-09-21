@@ -56,7 +56,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from flyball.control import Controller
+    from flyball.model import Controller
 
 # region Helpers
 
