@@ -1,13 +1,24 @@
+"""`ControlLaw`: the base a law subclasses, and the schema it generates by doing so.
+
+`control/laws.py` holds the concrete laws that ship (`PI`, `PID`, ...); this
+is just the machinery every one of them subclasses -- `__init_subclass__`,
+`creation_model()` wiring -- the Config/Instance tiers of the Catalog model
+for one kind of component (laws). A `Tuning` (a saved, named `ControlLawConfig`
+or `ControlLawView`) lives in `flyball.library.tunings`, not here: `library`
+sits above `model` in the layer ordering, so nothing in this module imports
+it -- see `ControlLawBuilder`/`ControlLawLike` below, which accept a `Tuning`
+structurally (anything with a `build()`) rather than by name.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 from inspect import signature
-from typing import Any, ClassVar, Literal, NamedTuple, Self
+from typing import Any, ClassVar, Literal, Protocol, Self, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, SerializeAsAny, create_model
+from pydantic import BaseModel, ConfigDict, create_model
 
 from flyball.foundation import Labelled
-from flyball.foundation.config import ModelOf, creation_model
+from flyball.model.model import ModelOf, creation_model
 
 
 class Transfer(Labelled):
@@ -21,7 +32,8 @@ class ControlLawConfig(BaseModel):
     """How a law was specified: its constructor arguments and its tag.
 
     `tag` is declared on the base so the base has a schema; each subclass
-    narrows it to a `Literal`, which lets a union of configs discriminate on it.
+    narrows it to a `Literal`, which lets a union of configs discriminate on
+    it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -34,12 +46,9 @@ class ControlLawConfig(BaseModel):
     def build(self) -> Any:
         """A fresh law with cold state.
 
-        [ControlLawView][flyball.control.types.ControlLawView] resumes one.
+        [ControlLawView][flyball.model.law.ControlLawView] resumes one.
         """
         return self.law(**{name: getattr(self, name) for name in self.init_names})
-
-    def to_tuning(self, tag) -> Tuning:
-        return Tuning(tag=tag, config=self)
 
 
 class ControlLawState(BaseModel):
@@ -110,12 +119,12 @@ class ControlLaw:
     """Base for control laws. Subclassing generates the law's pydantic models.
 
     - `config`: one field per `__init__` parameter, plus `tag`; builds the law
-      with [ControlLawConfig.build][flyball.control.types.ControlLawConfig.build].
+      with [ControlLawConfig.build][flyball.model.law.ControlLawConfig.build].
     - `state`: one field per name in `_state_fields`, merged up the MRO.
     - `view`: both flattened, round-tripping through
-      [ControlLawView.build][flyball.control.types.ControlLawView.build].
+      [ControlLawView.build][flyball.model.law.ControlLawView.build].
 
-    Each is a [ModelOf][flyball.foundation.config.model.ModelOf]: `Law.config` is the model
+    Each is a [ModelOf][flyball.model.model.ModelOf]: `Law.config` is the model
     class, `law.config` that law's values. A law that declares one itself keeps
     it. The wire name is the class keyword `tag`
     (`class PI(ControlLaw, tag="PI")`), defaulting to the class name.
@@ -206,64 +215,19 @@ class ControlLaw:
         return 0.0
 
 
-type ControlLawLike = ControlLaw | ControlLawConfig | ControlLawView | Tuning
+@runtime_checkable
+class ControlLawBuildable(Protocol):
+    """Anything that builds a `ControlLaw` -- a config, a view, or a `Tuning`.
+
+    Structural, not by name: a `Tuning` (`flyball.library.tunings`, above this
+    layer) satisfies this without `model/law.py` importing it.
+    """
+
+    def build(self) -> Any: ...
+
 
 type ControlLawBuilder = ControlLawConfig | ControlLawView
+"""The two pydantic-model shapes a law can be specified by -- what a `Tuning.config` holds."""
 
-
-@dataclass(slots=True, frozen=True)
-class Tuning:
-    tag: str
-    # Serialised by its runtime type: declared as the base, a response would
-    # carry only `tag` and drop every gain the law actually has.
-    config: SerializeAsAny[ControlLawBuilder]
-
-    def build(self) -> ControlLaw:
-        return self.config.build()
-
-    @property
-    def tuple(self) -> tuple[str, SerializeAsAny[ControlLawBuilder]]:
-        return (self.tag, self.config)
-
-
-class ValueSource(Labelled):
-    """Where a ramp begins."""
-
-    PROCESS = "process", "The current reading"
-    SETPOINT = "setpoint", "The current target"
-    DEMAND = "demand", "The current demand"
-
-
-class ApplyResult(NamedTuple):
-    demand: float
-    expected: float | None
-    delivered_correction: float | None
-
-
-class RegulateResult(NamedTuple):
-    demand: float
-    expected: float | None
-    delivered_correction: float | None
-    bump: float
-
-
-class Tunings:
-    def __init__(self, tunings: list[Tuning] | None = None) -> None:
-        self._tunings: dict[str, ControlLawBuilder] = {}
-        if tunings is not None:
-            for tuning in tunings:
-                if tuning.tag in self._tunings:
-                    raise ValueError(f"duplicate tuning tag {tuning.tag!r}")
-                self._tunings[tuning.tag] = tuning.config
-
-    def add(self, tuning: Tuning) -> None:
-        self._tunings[tuning.tag] = tuning.config
-
-    def get(self, tag: str) -> SerializeAsAny[ControlLawBuilder] | None:
-        return self._tunings.get(tag)
-
-    def all(self) -> dict[str, ControlLawConfig | ControlLawView]:
-        return dict(self._tunings)
-
-    def list(self) -> list[Tuning]:
-        return [Tuning(tag=tag, config=config) for tag, config in self._tunings.items()]
+type ControlLawLike = ControlLaw | ControlLawBuildable
+"""Anything settable as a controller's law: a live law, a config, a view, or a `Tuning`."""

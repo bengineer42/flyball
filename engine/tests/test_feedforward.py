@@ -3,21 +3,15 @@
 import pytest
 from flyball_sim.clock import SteppedClock
 
-from flyball.control import (
-    Affine,
-    Controller,
-    Feedforwards,
-    NoFeedforward,
-    Setpoint,
-    Table,
-    Transfer,
-)
-from flyball.control.errors import FeedforwardNotInvertibleError
+from flyball.control import Affine, Table
 from flyball.control.laws import P
-from flyball.control.types import ValueSource
 from flyball.foundation.device import Access, Device, Reading, SignalSpec
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.model.controller import Controller, ValueSource
+from flyball.model.errors import FeedforwardNotInvertibleError
+from flyball.model.feedforward import Feedforwards, NoFeedforward, Setpoint
+from flyball.model.law import Transfer
 
 
 class Oven(Device):

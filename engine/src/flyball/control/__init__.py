@@ -1,32 +1,29 @@
-from .controller import (
-    Controller,
-    ControllerMode,
-    ControllerSettings,
-    ControllerState,
-    ControllerView,
-)
+"""The laws, feedforwards and generators that ship, plus what's left of `control`'s own concerns.
+
+`Controller`/`ControlLaw`/`Feedforward`/`SetPointGenerator` (the Catalog/Config
+machinery every one of these subclasses) moved to `flyball.model` with the
+registry redesign (`brain/tasks/registry-redesign.md`); `Tuning`/`Tunings`
+moved to `flyball.library.tunings` (`brain/tasks/engine-structure.md`, layer
+4). What's left here is what ships built on top of that machinery: the 9
+built-in laws, the plant-model feedforwards (`Affine`, `Table` -- `Setpoint`/
+`NoFeedforward`, `Controller`'s own defaults, live in `flyball.model
+.feedforward` instead, see that module's docstring), and the built-in
+generators (`Hold`, `LinearRampSetpoint`, `Profile`).
+"""
+
 from .errors import (
     ControlLawNotRegisteredError,
     ControlLawNotSetError,
     ControllerSuspendedError,
     LastReadingNotAvailableError,
 )
-from .feedforward import (
-    Affine,
-    Feedforward,
-    FeedforwardConfig,
-    Feedforwards,
-    NoFeedforward,
-    Setpoint,
-    Table,
-)
+from .feedforward import Affine, Feedforward, FeedforwardConfig, Feedforwards, Table
 from .laws import (
     IMC,
     PI,
     PID,
     OnOff,
     OpenLoop,
-    OpenLoopTuning,
     P,
     Scheduled,
     SlidingMode,
@@ -41,43 +38,15 @@ from .setpoint import (
     SetPointGeneratorConfig,
     SetPointGenerators,
 )
-from .types import (
-    ApplyResult,
-    ControlLaw,
-    ControlLawBuilder,
-    ControlLawConfig,
-    ControlLawLike,
-    ControlLaws,
-    ControlLawState,
-    ControlLawView,
-    RegulateResult,
-    Transfer,
-    Tuning,
-    Tunings,
-    ValueSource,
-)
 
 __all__ = [
     "IMC",
     "PI",
     "PID",
     "Affine",
-    "ApplyResult",
-    "ControlLaw",
-    "ControlLawBuilder",
-    "ControlLawConfig",
-    "ControlLawLike",
     "ControlLawNotRegisteredError",
     "ControlLawNotSetError",
-    "ControlLawState",
-    "ControlLawView",
-    "ControlLaws",
-    "Controller",
-    "ControllerMode",
-    "ControllerSettings",
-    "ControllerState",
     "ControllerSuspendedError",
-    "ControllerView",
     "Feedforward",
     "FeedforwardConfig",
     "Feedforwards",
@@ -85,23 +54,15 @@ __all__ = [
     "Hold",
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
-    "NoFeedforward",
     "OnOff",
     "OpenLoop",
-    "OpenLoopTuning",
     "P",
     "Profile",
-    "RegulateResult",
     "Scheduled",
     "SetPointGenerator",
     "SetPointGeneratorConfig",
     "SetPointGenerators",
-    "Setpoint",
     "SlidingMode",
     "SmithPredictor",
     "Table",
-    "Transfer",
-    "Tuning",
-    "Tunings",
-    "ValueSource",
 ]

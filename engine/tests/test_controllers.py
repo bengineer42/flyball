@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from flyball_sim.clock import SteppedClock
 
-from flyball.control import Controller
 from flyball.control.laws import P
+from flyball.model.controller import Controller
 from flyball.rig import (
     ControllerNotFoundError,
     Controllers,

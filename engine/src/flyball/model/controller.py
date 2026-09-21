@@ -6,7 +6,7 @@ unit to the target's; the law adds a correction in the target's unit. The
 demand reaches the target through a `write` callable the rig injects: it
 calls the rig's `demand()` and returns the committed value, or None when
 the commit is deferred to the end of the delivery -- then
-[delivered][flyball.control.controller.Controller.delivered] closes the tick
+[delivered][flyball.model.controller.Controller.delivered] closes the tick
 with the write state. Until one is injected, a demand is recorded on the
 controller and nothing is written.
 """
@@ -17,28 +17,32 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
+from typing import NamedTuple
 
-from flyball.foundation import Clock, ConflictError, Reading, Signal, WriteState, require
+from flyball.foundation import (
+    Clock,
+    ConflictError,
+    Labelled,
+    Reading,
+    Signal,
+    WriteState,
+    require,
+)
 from flyball.foundation.device import Access
-
-from .errors import (
+from flyball.model.errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
     LastReadingNotAvailableError,
 )
-from .feedforward import Feedforward, FeedforwardConfig, NoFeedforward, Setpoint
-from .setpoint import SetPointGenerator
-from .types import (
-    ApplyResult,
+from flyball.model.feedforward import Feedforward, FeedforwardConfig, NoFeedforward, Setpoint
+from flyball.model.generator import SetPointGenerator
+from flyball.model.law import (
     ControlLaw,
     ControlLawConfig,
     ControlLawLike,
     ControlLawState,
     ControlLawView,
-    RegulateResult,
     Transfer,
-    Tuning,
-    ValueSource,
 )
 
 type ControllerTickCallback = Callable[["Controller", Reading | None], None]
@@ -51,6 +55,27 @@ class ControllerMode(Enum):
 
     def active(self) -> bool:
         return self is not ControllerMode.MANUAL
+
+
+class ValueSource(Labelled):
+    """Where a ramp begins."""
+
+    PROCESS = "process", "The current reading"
+    SETPOINT = "setpoint", "The current target"
+    DEMAND = "demand", "The current demand"
+
+
+class ApplyResult(NamedTuple):
+    demand: float
+    expected: float | None
+    delivered_correction: float | None
+
+
+class RegulateResult(NamedTuple):
+    demand: float
+    expected: float | None
+    delivered_correction: float | None
+    bump: float
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -144,7 +169,7 @@ class Controller:
         target: Signal,
         source: Signal,
         *,
-        law: ControlLaw | ControlLawConfig | ControlLawView | Tuning | None = None,
+        law: ControlLawLike | None = None,
         feedforward: Feedforward | FeedforwardConfig | None = None,
         min_period_s: float | None = None,
         write: Callable[[float], float | None] | None = None,
@@ -265,10 +290,10 @@ class Controller:
     def demand_at(self, time_ns: int) -> float:
         return self.feedforward(self.setpoint_at(time_ns), self.rate_at(time_ns)) + self.correction
 
-    def _set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
+    def _set_law(self, law: ControlLawLike) -> None:
         self.law = law if isinstance(law, ControlLaw) else law.build()
 
-    def set_law(self, law: ControlLaw | ControlLawConfig | ControlLawView | Tuning) -> None:
+    def set_law(self, law: ControlLawLike) -> None:
         self._set_law(law)
 
     def resolve_value(self, at: ValueSource | float, time_ns: int | None = None) -> float:

@@ -16,7 +16,7 @@ from itertools import pairwise
 from math import exp
 from typing import Any, ClassVar
 
-from .types import ControlLaw, Tuning
+from flyball.model.law import ControlLaw
 
 
 class Weighted:
@@ -518,6 +518,3 @@ class SlidingMode(ControlLaw, tag="sliding"):
             self.integral += error * dt
         surface = error + self.lam * self.integral
         return self.k * min(max(surface / self.boundary, -1.0), 1.0)
-
-
-OpenLoopTuning = Tuning("open_loop", OpenLoop.config())

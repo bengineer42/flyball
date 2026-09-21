@@ -10,17 +10,12 @@ from pydantic import TypeAdapter
 from flyball.control import (
     PI,
     Affine,
-    Controller,
-    ControllerMode,
     GeneratorConfig,
     Hold,
     LinearRampSetpoint,
-    NoFeedforward,
     Profile,
-    Setpoint,
     SetPointGenerator,
     SetPointGenerators,
-    Transfer,
 )
 from flyball.control.laws import P
 from flyball.foundation.device import Access, Device, Reading, Sample, SignalSpec, WriteState
@@ -28,6 +23,9 @@ from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.foundation.time import Duration, Speed, TimeUnit
+from flyball.model.controller import Controller, ControllerMode
+from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.law import Transfer
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

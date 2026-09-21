@@ -11,7 +11,7 @@ from flyball.autotune.rules import imc
 from flyball.autotune.types import FOPDT
 from flyball.control import IMC, PI, PID, OnOff, Scheduled, SlidingMode, SmithPredictor
 from flyball.control.laws import Weighted
-from flyball.control.types import ControlLaw, ControlLaws
+from flyball.model.law import ControlLaw, ControlLaws
 
 
 class Loop:
