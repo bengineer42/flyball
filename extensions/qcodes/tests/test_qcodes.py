@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from flyball.core.signal import Access, Role
+from flyball.foundation.device import Access, Role
 from pydantic import ValidationError
 
 from flyball_qcodes import QCoDeS, QCoDeSSignal, bounds, unit_for
