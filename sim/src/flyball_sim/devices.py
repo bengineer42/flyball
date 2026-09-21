@@ -1,13 +1,15 @@
 """Simulated devices, declarable in a rig file.
 
-A `sim_plant` or `sim_furnace` under `links` is one plant model shared by
-the devices that use it: a `sim_daq` reads chosen plant outputs as its
-signals and advances the plant by the time since the last read; a
-`sim_drive` sets chosen plant inputs from demands on its signals. Several
-of each may share one plant, so a furnace's zones interact through it. A
-rig of these runs on a laptop, ticks like a real one, records, tunes and
-serves the same API -- with nothing plugged in -- and, laid over a real
-rig's file, stands in for its hardware under the same names (plan §1.6).
+A `sim_plant` under `links` is one plant model shared by the devices that
+use it: a `sim_daq` reads chosen plant outputs as its signals and advances
+the plant by the time since the last read; a `sim_drive` sets chosen plant
+inputs from demands on its signals. Several of each may share one plant, so
+a multi-zone plant's zones interact through it (`examples/furnace`'s worked
+scenario, or an application's own [MultiPlant][flyball_sim.plant.MultiPlant]
+such as `examples/humidity`'s chamber). A rig of these runs on a laptop,
+ticks like a real one, records, tunes and serves the same API -- with
+nothing plugged in -- and, laid over a real rig's file, stands in for its
+hardware under the same names (plan §1.6).
 """
 
 from __future__ import annotations
@@ -41,8 +43,7 @@ from flyball.core.signal import (
 from flyball.core.units import DIMENSIONLESS
 from flyball.core.units.si import Celsius, Watt
 
-from .furnace import Furnace, MultiPlant
-from .plant import Fopdt, Integrator, Lag, Noisy, Plant
+from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant
 
 # A plant's drive is a fraction of full power: 0 is off, 1 is everything it has.
 Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
@@ -129,58 +130,14 @@ class PlantConfig(Config[Plant], tag="sim_plant"):
                 raise ValueError(f"plant is a {type(inner).__name__}, not a {self.model}")
 
 
-class FurnaceConfig(Config[Furnace], tag="sim_furnace"):
-    """A multi-zone furnace ([Furnace][flyball.sim.furnace.Furnace]).
-
-    Ports: inputs `heaterN` (a power in W, full drive being `power_w`),
-    outputs `zoneN` and `sample` (temperatures in °C).
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    zones: int = Field(default=3, ge=1)
-    power_w: float | list[float] = 2000.0
-    capacity_j_per_k: float | list[float] = 5000.0
-    coupling_w_per_k: float = Field(default=5.0, ge=0)
-    loss_w_per_k: float = Field(default=2.0, ge=0)
-    emissivity: float = Field(default=0.8, ge=0, le=1)
-    area_m2: float = Field(default=0.02, ge=0)
-    ambient_c: float = Field(default=20.0, json_schema_extra={"live": "outputs.*"})
-    sample_capacity_j_per_k: float = Field(default=800.0, gt=0)
-    sample_coupling_w_per_k: float = Field(default=4.0, ge=0)
-    sample_zone: int = Field(default=2, ge=1)
-    sensor_lag_s: float = Field(default=3.0, ge=0)
-    noise: float = Field(default=0.0, ge=0, json_schema_extra={"live": "stats.noise"})
-    seed: int | None = None
-    initial_c: float | None = Field(default=None, json_schema_extra={"live": "outputs.*"})
-
-    def build(self) -> Furnace:
-        return Furnace(**self.model_dump(exclude={"tag"}))
-
-    def retune(self, plant: Any) -> None:
-        """Apply the parameters to a running furnace; its temperatures stay where they are."""
-        if not isinstance(plant, Furnace) or plant.zones != self.zones:
-            raise ValueError("the number of zones cannot change while it runs")
-        fresh = self.build()
-        for attr in (
-            "power",
-            "capacity",
-            "coupling",
-            "loss",
-            "emissivity",
-            "area",
-            "ambient",
-            "sample_capacity",
-            "sample_coupling",
-            "sample_zone",
-            "sensor_lag_s",
-            "noise",
-        ):
-            setattr(plant, attr, getattr(fresh, attr))
-
-
 type AnyPlant = Plant | MultiPlant
-type PlantLink = PlantConfig | FurnaceConfig | str
+type PlantLink = PlantConfig | str
+"""A `sim_daq`/`sim_drive`'s `link`: a `sim_plant` config, or -- the ordinary rig-file case,
+several devices sharing one plant -- the name of a link declared once and built separately
+(`resolve()` builds a `Config`, passes anything else through unchanged, so an application's
+own `MultiPlant` config such as `examples/furnace`'s `FurnaceConfig`, or an already-built
+plant object, both work here too even though this narrower type is what a bare `sim_plant`
+validates against inline)."""
 
 
 def _plant(link: Any) -> AnyPlant:
@@ -193,11 +150,14 @@ def _plant(link: Any) -> AnyPlant:
     return plant
 
 
-# A plant is one of three shapes: a `Furnace`, which knows what its ports are
-# (temperatures out, a power in per zone); any other `MultiPlant`, with named
-# ports whose outputs the file must describe and whose inputs are a fraction
-# of full; or a bare `Plant`, whose one output and one input are `output` and
-# `input`.
+# A plant is one of three shapes: a `MultiPlant` that knows its own ports'
+# quantities -- optional `output_quantity(port)`/`input_quantity(port)` hooks,
+# duck-typed rather than on the `MultiPlant` protocol itself so an ordinary
+# `MultiPlant` need not implement them (`examples/furnace`'s `Furnace` is the
+# worked example: temperatures out, a power in per zone); any other
+# `MultiPlant`, with named ports whose outputs the file must describe and
+# whose inputs are a fraction of full; or a bare `Plant`, whose one output
+# and one input are `output` and `input`.
 
 
 def _output_ports(plant: AnyPlant) -> tuple[str, ...]:
@@ -209,19 +169,20 @@ def _input_ports(plant: AnyPlant) -> tuple[str, ...]:
 
 
 def _output_quantity(plant: AnyPlant, port: str) -> Quantity | None:
-    """What a plant's output port measures, if the plant knows: a furnace's are temperatures."""
+    """What a plant's output port measures, if the plant knows -- a furnace's are temperatures."""
     if port not in _output_ports(plant):
         raise ValueError(f"no output port {port!r}; there are {_output_ports(plant)}")
-    return TEMPERATURE_C if isinstance(plant, Furnace) else None
+    hook = getattr(plant, "output_quantity", None)
+    return hook(port) if hook is not None else None
 
 
 def _input_quantity(plant: AnyPlant, port: str) -> tuple[Quantity, Band]:
     """What a plant's input port takes and its range: watts for a heater, a fraction otherwise."""
     if port not in _input_ports(plant):
         raise ValueError(f"no input port {port!r}; there are {_input_ports(plant)}")
-    if isinstance(plant, Furnace):
-        return POWER_W, (0.0, plant.power[int(port.removeprefix("heater")) - 1])
-    return DRIVE, (0.0, 1.0)
+    hook = getattr(plant, "input_quantity", None)
+    known = hook(port) if hook is not None else None
+    return known if known is not None else (DRIVE, (0.0, 1.0))
 
 
 def _read_output(plant: AnyPlant, port: str) -> float:
@@ -274,10 +235,11 @@ def _static_range(name: str, path: str, plant: AnyPlant, port: str) -> Band:
 
 
 def _demand_quantity(
-    name: str, path: str, plant: AnyPlant, quantity: str | None, unit: str | None
+    name: str, path: str, plant: AnyPlant, port: str, quantity: str | None, unit: str | None
 ) -> Quantity:
     """What a `demand: output` port measures: a furnace zone's temperature, or spelled out."""
-    known = TEMPERATURE_C if isinstance(plant, Furnace) else None
+    hook = getattr(plant, "output_quantity", None)
+    known = hook(port) if hook is not None else None
     if quantity is not None or unit is not None:
         if quantity is None or unit is None:
             raise ValueError(f"{name}.{path}: say both `quantity` and `unit`, or neither")
@@ -501,7 +463,10 @@ class SimDaq(Readable):
 class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
     """Read chosen outputs of a simulated plant as this device's `[RP]` signals."""
 
-    link: PlantLink = Field(description="The `sim_plant` or `sim_furnace` link read.")  # pyright: ignore[reportIncompatibleVariableOverride]
+    link: PlantLink = Field(
+        description="The plant link read: `sim_plant`, or another package's own `MultiPlant`"
+        " link, such as `examples/furnace`'s `sim_furnace`."
+    )  # pyright: ignore[reportIncompatibleVariableOverride]
     ports: dict[str, str | DaqPort] = Field(
         description="Signal path -> the plant's output port; spelled out with `quantity` and"
         " `unit` when the plant does not say what a port measures (a bare `sim_plant`)."
@@ -605,7 +570,7 @@ class SimDrive(Committable):
                 port = spec
             elif spec.demand == "output":
                 _input_quantity(plant, spec.port)  # the port exists
-                quantity = _demand_quantity(name, path, plant, spec.quantity, spec.unit)
+                quantity = _demand_quantity(name, path, plant, spec.port, spec.quantity, spec.unit)
                 limits = spec.limits
                 if limits is None:
                     limits = _static_range(name, path, plant, spec.port)
@@ -681,7 +646,10 @@ class SimDrive(Committable):
 class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
     """Drive chosen inputs of a simulated plant from this device's `[W]` signals."""
 
-    link: PlantLink = Field(description="The `sim_plant` or `sim_furnace` link driven.")  # pyright: ignore[reportIncompatibleVariableOverride]
+    link: PlantLink = Field(
+        description="The plant link driven: `sim_plant`, or another package's own `MultiPlant`"
+        " link, such as `examples/furnace`'s `sim_furnace`."
+    )  # pyright: ignore[reportIncompatibleVariableOverride]
     ports: dict[str, str | DrivePort] = Field(
         description="Signal path -> the plant's input port, or spelled out with the `quantity`,"
         " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive),"

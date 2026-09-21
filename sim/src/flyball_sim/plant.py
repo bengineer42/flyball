@@ -4,6 +4,13 @@ Each is a small model with an `input`, an `output`, and `step(dt_s)`, held
 exactly between steps so the step size does not change the trajectory. A
 `Plant` is what a simulated reader reads and a simulated actuator drives;
 one plant object is shared between them, the way one chamber is.
+
+[MultiPlant][flyball_sim.plant.MultiPlant] is the same idea with several
+named inputs and outputs, stepped once per instant however many devices
+read it -- a multi-zone furnace, a chamber with several sensed lines. Any
+object shaped this way will do, not only the worked furnace example
+(`examples/furnace`); a rig's own `sim.py` may define one, the way
+`examples/humidity`'s `HumidityChamber` does.
 """
 
 from __future__ import annotations
@@ -178,3 +185,78 @@ class Noisy:
     def step(self, dt_s: float) -> float:
         self.plant.step(dt_s)
         return self.output
+
+
+@runtime_checkable
+class MultiPlant(Protocol):
+    """A plant with named inputs and outputs, stepped once per instant however many read it."""
+
+    @property
+    def inputs(self) -> dict[str, float]: ...
+
+    @property
+    def output_names(self) -> tuple[str, ...]: ...
+
+    def output(self, port: str) -> float: ...
+
+    def advance(self, time_ns: int) -> None:
+        """Step to `time_ns`; a second call with the same instant does nothing."""
+        ...
+
+    def feedforward(self, port: str, demand: float) -> float: ...
+
+    def inverse_feedforward(self, port: str, drive: float) -> float: ...
+
+
+class Port:
+    """One output (and optionally one input) of a multi-port plant, seen as a single-port plant."""
+
+    __slots__ = ("input_name", "output_name", "plant")
+
+    def __init__(
+        self, plant: MultiPlant, output: str | None = None, input: str | None = None
+    ) -> None:
+        if output is not None and output not in plant.output_names:
+            raise ValueError(f"no output {output!r}; there are {plant.output_names}")
+        if input is not None and input not in plant.inputs:
+            raise ValueError(f"no input {input!r}; there are {tuple(plant.inputs)}")
+        self.plant = plant
+        self.output_name = output
+        self.input_name = input
+
+    @property
+    def input(self) -> float:
+        if self.input_name is None:
+            raise AttributeError("this port has no input")
+        return self.plant.inputs[self.input_name]
+
+    @input.setter
+    def input(self, value: float) -> None:
+        if self.input_name is None:
+            raise AttributeError("this port has no input")
+        self.plant.inputs[self.input_name] = value
+
+    @property
+    def output(self) -> float:
+        if self.output_name is None:
+            raise AttributeError("this port has no output")
+        return self.plant.output(self.output_name)
+
+    def advance(self, time_ns: int) -> None:
+        self.plant.advance(time_ns)
+
+    def step(self, dt_s: float) -> float:
+        raise TypeError("a multi-port plant is stepped by time, not by interval: use advance()")
+
+    def feedforward(self, demand: float) -> float:
+        if self.input_name is None:
+            raise AttributeError("this port has no input")
+        return self.plant.feedforward(self.input_name, demand)
+
+    def inverse_feedforward(self, drive: float) -> float:
+        if self.input_name is None:
+            raise AttributeError("this port has no input")
+        return self.plant.inverse_feedforward(self.input_name, drive)
+
+
+__all__ = ["Fopdt", "Integrator", "Lag", "MultiPlant", "Noisy", "Plant", "Port"]
