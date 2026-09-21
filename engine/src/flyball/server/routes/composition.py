@@ -22,11 +22,10 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from flyball.core.config import Config
 from flyball.core.device import DeviceEntry
 from flyball.core.errors import ConflictError
-from flyball.core.files import SUFFIXES
+from flyball.core.files import SUFFIXES, dumps_without_none
 from flyball.db import RigVersionRow
 from flyball.runtime.config import RigConfig, canonical, is_simulated, registered
 from flyball.runtime.rig import Rig
-from flyball.runtime.simulation import dumps
 from flyball.server.deps import RigDep, compose_allowed, get_store, save_allowed
 from flyball.server.routes.devices import device_out
 from flyball.server.schemas import DeviceOut
@@ -354,7 +353,7 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
                 detail=f"{target} is a file the rig was loaded from; overwrite: true to flatten it",
             )
         document = rig.document()
-    text = dumps(document, target.suffix)
+    text = dumps_without_none(document, target.suffix)
     partial = target.with_name(target.name + ".tmp")
     partial.write_text(text)
     os.replace(partial, target)

@@ -21,7 +21,7 @@ import secrets
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flyball.core.config import discover
 from flyball.db.store import Store
@@ -30,7 +30,12 @@ from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 from flyball.runtime.retention import Retention
 from flyball.runtime.rig import Rig
-from flyball.runtime.simulation import Simulation
+
+if TYPE_CHECKING:
+    # A structural type, not an import: `flyball-sim` is an optional package
+    # (see `flyball.server.deps.Simulation`), so `runner`/`server` never
+    # import the concrete `flyball_sim.simulation.Simulation` at module load.
+    from flyball.server.deps import Simulation
 
 log = logging.getLogger("flyball.runner")
 
@@ -498,6 +503,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     simulation = None
     if config.simulated and args.rig:
+        try:
+            from flyball_sim.simulation import Simulation
+        except ImportError:
+            names = ", ".join(str(p) for p in args.rig)
+            print(
+                f"flyball-runner: {names}: every link is simulated, but flyball-sim is not"
+                " installed here",
+                file=sys.stderr,
+            )
+            return 2
         # What `sim save` writes back: the layers merged, but before the board
         # was applied, so a board's links are not inlined into the rig file.
         layered, _ = resolve_layers([Path(p) for p in args.rig], args.sets)

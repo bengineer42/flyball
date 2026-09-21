@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from flyball.programmer import ProgrammerState
     from flyball.runtime.config import RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
-    from flyball.runtime.simulation import Simulation
 
 
 class Programmer(Protocol):
@@ -32,6 +31,32 @@ class Programmer(Protocol):
     def state(self) -> ProgrammerState: ...
     def start(self, work: Any, interrupt: bool = False) -> None: ...
     def interrupt(self) -> None: ...
+
+
+class Simulation(Protocol):
+    """What the sim routes and the runner need of `flyball_sim.simulation.Simulation`.
+
+    A structural type, not an import: `flyball-sim` is a genuinely optional
+    package (engine does not depend on it, even for type-checking), only
+    built when a rig turns out to be fully simulated -- see
+    `flyball.runner.main`.
+    """
+
+    @property
+    def plants(self) -> dict[str, Any]: ...
+    @property
+    def speed(self) -> float: ...
+    def describe(self) -> dict[str, Any]: ...
+    def set_speed(self, speed: float) -> float: ...
+    def step(self, seconds: float) -> int: ...
+    def plant_config(self, name: str) -> Any: ...
+    def plant_state(self, name: str) -> dict[str, Any]: ...
+    def set_plant(self, name: str, **parameters: Any) -> Any: ...
+    def reset_plant(
+        self, name: str, output: float | None = None, input: float | None = None
+    ) -> dict[str, Any]: ...
+    def config_document(self) -> dict[str, Any]: ...
+    def save(self, path: str | Path | None = None) -> Path: ...
 
 
 _rig: Rig | None = None
@@ -226,5 +251,5 @@ RigDep = Annotated[Rig, Depends(get_rig)]
 StoreDep = Annotated[Store, Depends(get_store)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
 DialectDep = Annotated[Dialect, Depends(get_dialect)]
-SimulationDep = Annotated["Simulation", Depends(get_simulation)]
+SimulationDep = Annotated[Simulation, Depends(get_simulation)]
 SimulationDeviceDep = Annotated["Device", Depends(get_simulation_device)]

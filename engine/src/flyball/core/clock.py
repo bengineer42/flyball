@@ -274,9 +274,10 @@ class Clock:
 
     Everything that stamps a sample or waits for a duration goes through the
     rig's clock, so a simulated rig can run faster than real time
-    ([ScaledClock][flyball.sim.clock.ScaledClock]) or only when stepped
-    ([SteppedClock][flyball.sim.clock.SteppedClock]) by swapping this one
-    object. Subclasses override `monotonic_ns`, `sleep` and `wait`.
+    (`flyball_sim.clock.ScaledClock`) or only when stepped
+    (`flyball_sim.clock.SteppedClock`) by swapping this one object --
+    `flyball-sim` is its own top-level package, outside this reference.
+    Subclasses override `monotonic_ns`, `sleep` and `wait`.
     """
 
     start_mono_ns: int

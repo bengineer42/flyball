@@ -112,3 +112,34 @@ def dumps(data: Any, suffix: str) -> str:
         case ".json":
             return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     raise ValueError(f"unknown document format {suffix!r}; use one of {', '.join(SUFFIXES)}")
+
+
+def dumps_without_none(data: Any, suffix: str) -> str:
+    """Serialise `data` like [dumps][flyball.core.files.dumps], but drop `None` values first.
+
+    TOML has no null; a document built by overlaying a change (an unset
+    override coming out as `None`) onto a loaded file would otherwise fail
+    to dump as `.toml`. Used for saving a rig's or a simulation's current
+    state back to its file.
+    """
+    match suffix.lower():
+        case ".toml":
+            import tomli_w
+
+            return tomli_w.dumps(_without_none(data))
+        case ".yaml" | ".yml":
+            import yaml
+
+            return yaml.safe_dump(data, sort_keys=False)
+        case ".json":
+            return json.dumps(data, indent=2) + "\n"
+    raise ValueError(f"unknown document format {suffix!r}; use one of {', '.join(SUFFIXES)}")
+
+
+def _without_none(value: Any) -> Any:
+    """Drop `None` values recursively, so a TOML dump does not need to represent null."""
+    if isinstance(value, dict):
+        return {k: _without_none(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_without_none(v) for v in value]
+    return value
