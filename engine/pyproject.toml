@@ -226,7 +226,7 @@ type = "layers"
 layers = [
     "flyball.runner",
     "flyball.interfaces.mcp | flyball.interfaces.server",
-    "flyball.programmer",
+    "flyball.sequencing",
     "flyball.runtime",
     "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record",
     "flyball.library",
@@ -239,5 +239,5 @@ name = "The client, the scaffold and the MCP server stand alone"
 type = "forbidden"
 source_modules = ["flyball.interfaces.client", "flyball.scaffold", "flyball.interfaces.mcp"]
 forbidden_modules = [
-    "flyball.foundation", "flyball.control", "flyball.model", "flyball.library", "flyball.runtime", "flyball.rig", "flyball.interfaces.server", "flyball.programmer",
+    "flyball.foundation", "flyball.control", "flyball.model", "flyball.library", "flyball.runtime", "flyball.rig", "flyball.interfaces.server", "flyball.sequencing",
 ]
