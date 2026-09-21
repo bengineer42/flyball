@@ -4,7 +4,7 @@ The rig is what the equipment *is*; the programmer is what it is *doing*. Each
 has its own lock, so "abort the program" never tangles with "stop the pumps".
 A single command is a program of one step: one execution path, one interrupt.
 
-The rig *drives* an [Activity][flyball.programmer.Activity] (it owns the clock
+The rig *drives* an [Activity][flyball.sequencing.Activity] (it owns the clock
 and sensors); the programmer owns its *lifetime* (it owns the sequence). Attach
 and detach bracket the wait in `Programmer._wait_out`, and teardown is one
 `finally` reached by completion, failure and cancellation alike.
@@ -29,8 +29,8 @@ from .errors import CommandRuntimeError, ProgramAlreadyRunningError
 from .program import Program
 
 if TYPE_CHECKING:
-    from flyball.programmer.command import Activity, Command
     from flyball.rig import Rig
+    from flyball.sequencing.command import Activity, Command
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +163,7 @@ class Programmer:
         """Apply `work` and block until it finishes or is interrupted.
 
         For use off the request path; routes want
-        [start][flyball.programmer.programmer.Programmer.start].
+        [start][flyball.sequencing.programmer.Programmer.start].
         """
         self.start(work, interrupt)
         self.join()
