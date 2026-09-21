@@ -1,4 +1,4 @@
-"""Apply the numbered SQL files in `flyball/migrations` in order.
+"""Apply the numbered SQL files in `flyball/db/migrations` in order.
 
 Each file (`NNNN_name.sql`) is one transaction; `schema_version` records the
 last applied.
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .errors import SchemaError
 
-_MIGRATIONS = resources.files("flyball") / "migrations"
+_MIGRATIONS = resources.files("flyball.db") / "migrations"
 _NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 
 

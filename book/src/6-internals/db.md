@@ -110,7 +110,7 @@ reader normally each open their own on the same file, and WAL lets them
 overlap. Declarations are interned in the writer so the hot path — a
 delivery — is one `executemany` per table with integer keys already known.
 
-Migrations are numbered SQL files in `flyball/migrations`, each one
+Migrations are numbered SQL files in `flyball/db/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
 database brings it forward. `":memory:"` for tests.
 
