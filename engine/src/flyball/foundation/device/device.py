@@ -42,7 +42,8 @@ from pydantic.errors import (
 )
 from pydantic.json_schema import JsonSchemaMode
 
-from ..config.config import Config
+from flyball.model.config import Config
+
 from ..errors import NotFoundError, NotReadyError
 from ..quantities.quantity import Quantity
 from ..quantities.si import Unitless

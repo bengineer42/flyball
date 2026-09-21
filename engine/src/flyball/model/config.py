@@ -2,7 +2,7 @@
 
 `Config[T]` is a pydantic model with `build() -> T`. Where a field admits
 several implementations, each config declares a `tag` and
-[Config.union][flyball.foundation.config.config.Config.union] gives the discriminated
+[Config.union][flyball.model.config.Config.union] gives the discriminated
 union to validate against.
 """
 

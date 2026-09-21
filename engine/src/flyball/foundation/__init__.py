@@ -1,4 +1,3 @@
-from .config import Config, ConfigOr, resolve
 from .device import (
     Access,
     AddressNotFoundError,
@@ -63,8 +62,6 @@ __all__ = [
     "BoundInput",
     "Clock",
     "Committable",
-    "Config",
-    "ConfigOr",
     "ConfigSignal",
     "ConflictError",
     "Demand",
@@ -121,5 +118,4 @@ __all__ = [
     "WriteState",
     "command",
     "require",
-    "resolve",
 ]
