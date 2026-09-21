@@ -2,7 +2,7 @@
 
 *Not to be confused with the `flyball.model` Python package* (`Catalog` →
 `Config` → `Instance`, the type-registration machinery for devices, links,
-laws, feedforwards and generators — see [6-internals](../6-internals/)). This
+laws, feedforwards and generators — see [6-internals](../6-internals/index.md)). This
 page is about the concepts below: `Device`, `Signal`, `Quantity`.
 
 Flyball's vocabulary is small. A handful of nouns cover everything the rig
