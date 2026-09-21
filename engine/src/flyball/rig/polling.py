@@ -23,7 +23,7 @@ from flyball.foundation.time import PeriodicLoop
 log = logging.getLogger("flyball.polling")
 
 if TYPE_CHECKING:
-    from flyball.runtime.rig import Rig
+    from .rig import Rig
 
 
 def poll_period(device: Device) -> float | None:
@@ -131,7 +131,7 @@ class Polling:
         """One scheduled poll: deliver what it returns -- or note the failure and stop polling.
 
         Only `read` itself can put the device offline; delivery failures are
-        handled in [delivered][flyball.runtime.polling.Polling.delivered].
+        handled in [delivered][flyball.rig.polling.Polling.delivered].
         A device that went offline stays stopped until `restart`.
         """
         started = self.rig.clock.monotonic()  # in the rig's time, as the period is

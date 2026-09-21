@@ -1,10 +1,10 @@
 """The rig: every device by name, the controllers between their signals, and one delivery.
 
-A device's samples arrive through [on_samples][flyball.runtime.rig.Rig.on_samples]
+A device's samples arrive through [on_samples][flyball.rig.rig.Rig.on_samples]
 -- from a poll, a push, or a fresh read -- and one delivery runs observers,
 then the controllers, then one `commit` per device touched, then the
 recorder. Addresses are parsed once, at
-[resolve][flyball.runtime.rig.Rig.resolve]; everything below carries the
+[resolve][flyball.rig.rig.Rig.resolve]; everything below carries the
 bound objects.
 """
 
@@ -44,16 +44,15 @@ from flyball.foundation.device import (
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.typing import OrderedSet
-from flyball.runtime.triggers import Triggers
 from flyball.runtime.writer import Writer
 
 from .controllers import Controllers
 from .polling import Polling, poll_period
+from .triggers import Triggers
 
 if TYPE_CHECKING:
-    from flyball.db import Store
-
-    from .recorder import Recorder
+    from flyball.record import Store
+    from flyball.runtime.recorder import Recorder
 
 log = logging.getLogger("flyball.rig")
 
@@ -273,7 +272,7 @@ class Rig:
         takes; a `start_ns` in it backdates the session (for what is then
         backfilled), else it starts now.
         """
-        from .recorder import Recorder
+        from flyball.runtime.recorder import Recorder
 
         with self.lock:
             self._stop_recording()
@@ -471,7 +470,7 @@ class Rig:
         one from inside a delivery (a controller's, a command's) is
         committed with everything else at its end, and this returns nothing.
         A blocking device's commit runs on its writer thread, so its states
-        arrive later, through [written][flyball.runtime.rig.Rig.written];
+        arrive later, through [written][flyball.rig.rig.Rig.written];
         this returns nothing.
 
         Raises:
@@ -869,7 +868,7 @@ class Rig:
         An argument that is a value for a demand (`Annotated[..., d]`) is filled from
         that demand's current value when left out, and clamped to the
         signal's effective limits. A synthesised `set_<name>` goes through
-        [demand][flyball.runtime.rig.Rig.demand]. A command that changes
+        [demand][flyball.rig.rig.Rig.demand]. A command that changes
         what drives the device -- one with a `mode`, or a linked argument --
         is refused while a controller drives one of the device's demands,
         unless it `interrupts`: then the controller is put into manual first,
