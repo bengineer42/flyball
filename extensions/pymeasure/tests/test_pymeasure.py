@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from flyball.core.signal import Access, Role
+from flyball.foundation.device import Access, Role
 from pydantic import ValidationError
 
 from flyball_pymeasure import PyMeasure, PyMeasureSignal, properties, unit_from_doc
