@@ -37,8 +37,6 @@ from pydantic.json_schema import GenerateJsonSchema
 # them without the application importing anything.
 import flyball.devices  # ruff: ignore[unused-import]
 import flyball.hardware.links  # ruff: ignore[unused-import]
-import flyball.integrations.pymeasure  # ruff: ignore[unused-import]
-import flyball.integrations.qcodes  # ruff: ignore[unused-import]
 import flyball.sim.devices  # ruff: ignore[unused-import]
 from flyball.control import ControlLaws, Feedforwards
 from flyball.core.clock import Clock

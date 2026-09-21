@@ -167,5 +167,4 @@ nav:
           - flyball.server: 7-reference/python/flyball/server.md
           - flyball.server.routes: 7-reference/python/flyball/server/routes.md
           - flyball.client: 7-reference/python/flyball/client.md
-          - flyball.integrations: 7-reference/python/flyball/integrations.md
   - Glossary: glossary.md

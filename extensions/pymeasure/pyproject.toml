@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyball-pymeasure"
+version = "0.1.0"
+description = "A PyMeasure instrument's measurement/control/setting properties as a flyball device"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+dependencies = ["flyball"]
+classifiers = ["Private :: Do Not Upload"]
+
+[project.optional-dependencies]
+# Nothing here imports pymeasure at module load: PyMeasureConfig.build does,
+# so this extra is only needed where a real instrument is actually built.
+pymeasure = ["pymeasure>=0.13"]
+
+# What `flyball rig check`, the runner and the schema load to make `driver: pymeasure` valid.
+[project.entry-points."flyball.configs"]
+pymeasure = "flyball_pymeasure"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+
+[tool.uv.sources]
+flyball = { path = "../../engine", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyball_pymeasure"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../engine/pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "RUF", "D"]

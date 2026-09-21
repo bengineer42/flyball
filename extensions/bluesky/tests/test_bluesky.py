@@ -11,7 +11,8 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Role, Sample, SignalSpec
 from flyball.core.trigger import Trigger
 from flyball.core.units.si import Celsius
-from flyball.integrations.bluesky import NodeReadable, SignalMovable, Status
+
+from flyball_bluesky import NodeReadable, SignalMovable, Status
 
 TEMP = Quantity("temperature", Celsius)
 

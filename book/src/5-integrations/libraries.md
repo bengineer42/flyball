@@ -10,8 +10,8 @@ that page.
 
 | library | drivers | driver tag | what comes through |
 | --- | --- | --- | --- |
-| **QCoDeS** (`flyball[qcodes]`) | ~200: source-meters, lock-ins, cryogenic and quantum kit | `qcodes` (`flyball.integrations.qcodes`) | any gettable, numeric `Parameter` as a signal, with its unit read off the parameter unless overridden; a settable one is writable too |
-| **PyMeasure** (`flyball[pymeasure]`) | ~150: Keithley, Agilent/Keysight, Lakeshore, Thorlabs, Anritsu, Oxford… | `pymeasure` (`flyball.integrations.pymeasure`) | the `measurement`/`control`/`setting` properties you name as signals, units read from their docstrings (`"in volts"` → V) with per-channel overrides |
+| **QCoDeS** (`flyball-qcodes[qcodes]`) | ~200: source-meters, lock-ins, cryogenic and quantum kit | `qcodes` (`flyball_qcodes`) | any gettable, numeric `Parameter` as a signal, with its unit read off the parameter unless overridden; a settable one is writable too |
+| **PyMeasure** (`flyball-pymeasure[pymeasure]`) | ~150: Keithley, Agilent/Keysight, Lakeshore, Thorlabs, Anritsu, Oxford… | `pymeasure` (`flyball_pymeasure`) | the `measurement`/`control`/`setting` properties you name as signals, units read from their docstrings (`"in volts"` → V) with per-channel overrides |
 
 Both wrappers declare their tree the same way the generic instrument drivers
 do — under `channels:` in the driver's own config, each entry naming the
@@ -48,12 +48,14 @@ nothing is fetched. What to know:
   a tick.
 - A `publish: true` channel needs a getter -- a settable-only property is
   writable but not read back.
-- Neither wrapper imports its library, so `import flyball` needs nothing;
-  the extra is for the drivers themselves.
+- Neither wrapper imports its library at module load, so installing
+  `flyball-qcodes`/`flyball-pymeasure` needs nothing extra; their own
+  `qcodes`/`pymeasure` extra is for the drivers themselves.
 
 When a wrapped driver is slow, blocks the wrong way, or lacks a function you
 need, a bespoke driver is a `Scpi` subclass or a plain `Device` with the
 query table filled in.
 
-**Code.** `flyball.integrations.qcodes`, `flyball.integrations.pymeasure`;
-extras `flyball[qcodes]`, `flyball[pymeasure]`.
+**Code.** `extensions/qcodes` (`flyball_qcodes`), `extensions/pymeasure`
+(`flyball_pymeasure`); `pip install flyball-qcodes[qcodes]`,
+`flyball-pymeasure[pymeasure]`.

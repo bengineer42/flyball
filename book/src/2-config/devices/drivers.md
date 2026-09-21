@@ -15,8 +15,8 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | --- | --- | --- | --- |
 | [`scpi`](#scpi) | any text instrument: a query and/or a write template per signal | `visa`, `serial`, `fake_text` | `flyball` |
 | [`modbus`](#modbus) | PID controllers, MFCs, chillers, PLCs: a register per signal | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball` |
-| [`qcodes`](#qcodes) | ~200 QCoDeS drivers, parameters as signals | its own | `flyball[qcodes]` |
-| [`pymeasure`](#pymeasure) | ~150 PyMeasure drivers, properties as signals | its own | `flyball[pymeasure]` |
+| [`qcodes`](#qcodes) | ~200 QCoDeS drivers, parameters as signals | its own | `flyball-qcodes[qcodes]` |
+| [`pymeasure`](#pymeasure) | ~150 PyMeasure drivers, properties as signals | its own | `flyball-pymeasure[pymeasure]` |
 | [`sim_daq`](#sim_daq) | read a simulated plant | `sim_plant`, `sim_furnace` | `flyball` |
 | [`sim_drive`](#sim_drive) | drive a simulated plant | `sim_plant`, `sim_furnace` | `flyball` |
 | [`i2c_table`](#i2c_table) | any register-mapped I²C chip | `i2c` | `flyball-linux` |

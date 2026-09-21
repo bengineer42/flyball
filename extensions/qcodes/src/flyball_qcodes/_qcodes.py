@@ -21,8 +21,6 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from flyball.core.config import import_object
 from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
@@ -30,6 +28,7 @@ from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
 from flyball.core.units.dimension import Unit
 from flyball.core.units.errors import UnitNotFoundError
 from flyball.core.units.si import One
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def unit_for(symbol: str | None, overrides: Mapping[str, str] = {}) -> Unit:
@@ -81,7 +80,7 @@ class QCoDeSSignal(BaseModel):
     set, whether or not it can be read back from the instrument); a
     gettable-only one is an output, readable on demand. `publish` streams a
     gettable-only one too, and needs a getter -- see
-    [QCoDeS][flyball.integrations.qcodes.QCoDeS].
+    [QCoDeS][flyball_qcodes.QCoDeS].
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -3,7 +3,7 @@
 A SCPI meter, a Modbus controller: a device whose signal tree is a table of
 queries or registers declared in its own config, so it can be named in a rig
 file without a bespoke driver. Vendor packages subclass these, or wrap an
-instrument library directly (`integrations.pymeasure`, `integrations.qcodes`).
+instrument library directly (`extensions/pymeasure`, `extensions/qcodes`).
 """
 
 from .modbus import Modbus, ModbusConfig, ModbusRegister

@@ -3,9 +3,9 @@
 **What.** Two directions. In-process, any flyball node or writable signal
 can stand in a Bluesky plan: `NodeReadable` (a device or namespace as a
 readable) and `SignalMovable` (a writable signal as a movable), in
-`flyball.integrations.bluesky`. Out of the store, a recorded session exports
-as **event-model documents** -- what databroker, tiled and the facility
-analysis tools read.
+`flyball_bluesky` (`pip install flyball-bluesky`). Out of the store, a
+recorded session exports as **event-model documents** -- what databroker,
+tiled and the facility analysis tools read.
 
 **What comes through.**
  A session becomes a `start`, a
@@ -25,4 +25,4 @@ In Python, `flyball.db.documents.documents(store, session_id)` yields the
 export is a route ([History](../4-server/api.md#history)) and a CLI command
 ([Sessions and export](../1-running/cli/sessions.md)).
 
-**Code.** `flyball.integrations.bluesky`, `flyball.db.documents`.
+**Code.** `flyball_bluesky` (`extensions/bluesky`), `flyball.db.documents`.

@@ -24,8 +24,6 @@ import re
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from flyball.core.config import import_object
 from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
@@ -33,6 +31,7 @@ from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
 from flyball.core.units.dimension import Unit
 from flyball.core.units.errors import UnitNotFoundError
 from flyball.core.units.si import One
+from pydantic import BaseModel, ConfigDict, Field
 
 WORDS: dict[str, str] = {
     "volts": "V",
@@ -109,7 +108,7 @@ class PyMeasureSignal(BaseModel):
     last set, whether or not the property also has a getter); a
     getter-only one is an output, readable on demand. `publish` streams a
     getter-only one too, and needs a getter -- see
-    [PyMeasure][flyball.integrations.pymeasure.PyMeasure].
+    [PyMeasure][flyball_pymeasure.PyMeasure].
     """
 
     model_config = ConfigDict(extra="forbid")

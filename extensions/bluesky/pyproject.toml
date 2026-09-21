@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyball-bluesky"
+version = "0.1.0"
+description = "Run flyball devices inside a Bluesky plan: Readable/Movable adapters and event-model export"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+dependencies = ["flyball"]
+classifiers = ["Private :: Do Not Upload"]
+
+[project.optional-dependencies]
+# The adapter is duck-typed against bluesky.protocols -- it imports nothing
+# from bluesky itself. This extra is for actually running a plan.
+bluesky = ["bluesky>=1.13", "ophyd>=1.9"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+
+[tool.uv.sources]
+flyball = { path = "../../engine", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyball_bluesky"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../engine/pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "RUF", "D"]

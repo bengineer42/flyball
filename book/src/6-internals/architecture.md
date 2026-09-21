@@ -41,12 +41,10 @@ writing a device driver rather than editing the rig.
 | `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
 | `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2cLink`, `Bank`; `links`: `TextLink` and `RegisterLink` with VISA, serial, Modbus and fake implementations |
 | `flyball.db` | `hardware\|adaptive\|autotune\|db` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
-| `flyball.sim` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | a stepped clock, simulated plants (`Lag`, `Fopdt`, `Integrator`, `Furnace`), the generic `sim_daq`/`sim_drive` devices; `runtime` never imports it |
-| `flyball.devices` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | `Scpi`, `Modbus`: table-driven devices whose tree is declared in their own tagged config |
-| `flyball.integrations.qcodes`, `.pymeasure` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | instrument libraries wrapped as devices |
+| `flyball.sim` | `sim\|devices` | a stepped clock, simulated plants (`Lag`, `Fopdt`, `Integrator`, `Furnace`), the generic `sim_daq`/`sim_drive` devices; `runtime` never imports it |
+| `flyball.devices` | `sim\|devices` | `Scpi`, `Modbus`: table-driven devices whose tree is declared in their own tagged config |
 | `flyball.runtime` | runtime | `Rig`, `Controllers`, `Polling`, `Recorder`, `Triggers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
-| `flyball.programmer` | `programmer\|integrations.bluesky` | `Command`, `Activity`, `Program`, `Programmer` |
-| `flyball.integrations.bluesky` | `programmer\|integrations.bluesky` | Bluesky documents built from a recorded session |
+| `flyball.programmer` | `programmer` | `Command`, `Activity`, `Program`, `Programmer` |
 | `flyball.server` | server | the FastAPI app, routes, wire models, the program dialect |
 | `flyball.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
 
@@ -87,9 +85,9 @@ above:
 ```
 flyball.runner
 flyball.server
-flyball.programmer | flyball.integrations.bluesky
+flyball.programmer
 flyball.runtime
-flyball.sim | flyball.devices | flyball.integrations.qcodes | flyball.integrations.pymeasure
+flyball.sim | flyball.devices
 flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db
 flyball.control
 flyball.core

@@ -12,7 +12,7 @@ extra is only needed to run a plan:
 Each publishing (`P`) signal under the node is one data key, named by its
 address and described with the unit, shape and precision its spec carries. A
 writable (`W`) signal is a *Movable* through
-[SignalMovable][flyball.integrations.bluesky.SignalMovable].
+[SignalMovable][flyball_bluesky.SignalMovable].
 """
 
 from __future__ import annotations
