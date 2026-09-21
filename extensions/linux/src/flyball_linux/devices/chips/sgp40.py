@@ -28,10 +28,11 @@ from flyball.core.device import DriverConfig, Output, Readable
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample
 from flyball.core.units.si import Unitless
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
 from flyball_linux.devices.chips._sensirion import command, crc8, crc_words, word_with_crc
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 VOC_RAW = Quantity("VOC raw signal", Unitless)
 SGP40_ADDRESS = 0x59

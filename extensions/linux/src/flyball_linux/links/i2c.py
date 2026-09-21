@@ -4,23 +4,11 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Sequence
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from flyball.core.config import Config
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
-
-
-@runtime_checkable
-class I2cLink(Protocol):
-    """A bus: register reads and writes at an address, and raw transfers for register-less chips."""
-
-    def read_register(self, address: int, register: int, length: int) -> bytes: ...
-
-    def write_register(self, address: int, register: int, data: Sequence[int]) -> None: ...
-
-    def write(self, address: int, data: Sequence[int]) -> None: ...
-
-    def read(self, address: int, length: int) -> bytes: ...
 
 
 class FakeI2c:

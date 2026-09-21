@@ -18,10 +18,11 @@ from flyball.core.config import resolve
 from flyball.core.device import Committable, DriverConfig, Readable
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
+from flyball.hardware.i2c import I2cLink
 from pydantic import BaseModel, ConfigDict, Field
 
 from flyball_linux.devices.scan import Scan
-from flyball_linux.links.i2c import FakeI2c, I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import FakeI2c, I2cLinkConfig
 
 
 class Register(BaseModel):

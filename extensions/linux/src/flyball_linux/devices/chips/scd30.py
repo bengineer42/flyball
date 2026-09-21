@@ -22,11 +22,12 @@ from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Node, Sample
 from flyball.core.units.si import Celsius, PartsPerMillion
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
 from flyball_linux.devices.chips._sensirion import crc8, crc_words
 from flyball_linux.devices.chips.sht4x import PercentRH
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 CMD_START_CONTINUOUS_MEASUREMENT = 0x0010
 CMD_STOP_CONTINUOUS_MEASUREMENT = 0x0104

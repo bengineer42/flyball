@@ -39,7 +39,7 @@ writing a device driver rather than editing the rig.
 | `flyball.control` | control | `Controller`, `ControlLaw` and the laws (`P`, `PI`, `PID`, `OpenLoop`), `SetPointGenerator`, `Feedforward`, `Tuning`, `Transfer` |
 | `flyball.autotune` | `hardware\|adaptive\|autotune\|db` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
 | `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
-| `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2CBus`, `I2CMux`, `Bank`; `links`: `TextLink` and `RegisterLink` with VISA, serial, Modbus and fake implementations |
+| `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2cLink`, `Bank`; `links`: `TextLink` and `RegisterLink` with VISA, serial, Modbus and fake implementations |
 | `flyball.db` | `hardware\|adaptive\|autotune\|db` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
 | `flyball.sim` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | a stepped clock, simulated plants (`Lag`, `Fopdt`, `Integrator`, `Furnace`), the generic `sim_daq`/`sim_drive` devices; `runtime` never imports it |
 | `flyball.devices` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | `Scpi`, `Modbus`: table-driven devices whose tree is declared in their own tagged config |

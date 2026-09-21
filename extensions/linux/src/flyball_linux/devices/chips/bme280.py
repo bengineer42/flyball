@@ -33,9 +33,10 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample, SignalSpec
 from flyball.core.units.dimensions import Fraction
 from flyball.core.units.si import Celsius, Pascal
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 BME280_ADDRESS = 0x76
 """SDO low; SDO high answers at 0x77."""

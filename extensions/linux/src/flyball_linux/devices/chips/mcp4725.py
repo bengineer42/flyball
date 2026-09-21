@@ -32,6 +32,7 @@ from flyball.core.device import Committable, DriverConfig
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Band, Signal
 from flyball.core.units import DIMENSIONLESS
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field, model_validator
 
 from flyball_linux.devices.spanned_demand import (
@@ -40,7 +41,7 @@ from flyball_linux.devices.spanned_demand import (
     to_fraction,
     validate_span,
 )
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 MCP4725_ADDRESS = 0x60
 """Device code `1100` with A2=A1=A0=0 (A0 tied to VSS); the -A0T variant answers at 0x61."""

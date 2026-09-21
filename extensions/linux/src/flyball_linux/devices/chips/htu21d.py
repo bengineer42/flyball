@@ -29,10 +29,11 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Node, Sample
 from flyball.core.units.dimensions import Fraction
 from flyball.core.units.si import Celsius
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
 from flyball_linux.devices.chips import _sensirion
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 HTU21D_CRC_INIT = 0x00
 """Same generator polynomial as the Sensirion family (0x31), different initial value."""

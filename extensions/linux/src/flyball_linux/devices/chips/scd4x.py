@@ -24,10 +24,11 @@ from flyball.core.config import resolve
 from flyball.core.device import DriverConfig, Output, Readable
 from flyball.core.errors import HardwareError
 from flyball.core.signal import Node, Sample
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
 from flyball_linux.devices.chips.scd30 import CO2, HUMIDITY, TEMPERATURE, crc8, crc_words
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 CMD_START_PERIODIC_MEASUREMENT = 0x21B1
 CMD_START_LOW_POWER_PERIODIC_MEASUREMENT = 0x21AC

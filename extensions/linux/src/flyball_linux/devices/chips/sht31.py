@@ -22,10 +22,11 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Node, Sample
 from flyball.core.units.dimensions import Fraction
 from flyball.core.units.si import Celsius
+from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
 from flyball_linux.devices.chips._sensirion import crc8, crc_words
-from flyball_linux.links.i2c import I2cLink, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 Precision = Literal["high", "medium", "low"]
 COMMANDS: dict[str, tuple[int, float]] = {
