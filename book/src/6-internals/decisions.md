@@ -49,3 +49,7 @@ reload of a newly-installed package remains open, unlike a `drivers/`
 directory's `POST /api/drivers/reload`), but a missing or silently-empty
 `register()` is no longer untested: `engine/tests/test_catalog_discovery.py`
 fails the suite if any installed entry point doesn't register something.
+This covers devices and links (`Config.registry`, now removed). Laws,
+feedforwards and generators still have their own separate, still-implicit
+`__init_subclass__` dicts (`ControlLaws`/`Feedforwards`/`SetPointGenerators`)
+-- same fragility, not yet migrated, a real follow-up not covered here.
