@@ -10,8 +10,6 @@ from enum import StrEnum
 import pytest
 
 from flyball.control import PI
-from flyball.db import Downsample, NotDeclaredError, SqliteStore, Window
-from flyball.db.migrate import available
 from flyball.foundation.device import (
     Access,
     Committable,
@@ -25,6 +23,8 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.record import Downsample, NotDeclaredError, SqliteStore, Window
+from flyball.record.migrate import available
 from flyball.runtime.recorder import Recorder
 
 TEMP = Quantity("temperature", Celsius)

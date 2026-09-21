@@ -98,7 +98,7 @@ is for.
 
 ## Bluesky documents
 
-`flyball.db.documents` walks a session and yields it as Bluesky event-model
+`flyball.record.documents` walks a session and yields it as Bluesky event-model
 documents — a `start`, one `descriptor` per device and per controller, an
 `event` per sample or tick, a `stop` — the shape `bluesky.callbacks` and
 databroker consume. `write_jsonl` saves them as JSON lines.
@@ -110,7 +110,7 @@ reader normally each open their own on the same file, and WAL lets them
 overlap. Declarations are interned in the writer so the hot path — a
 delivery — is one `executemany` per table with integer keys already known.
 
-Migrations are numbered SQL files in `flyball/db/migrations`, each one
+Migrations are numbered SQL files in `flyball/record/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
 database brings it forward. `":memory:"` for tests.
 

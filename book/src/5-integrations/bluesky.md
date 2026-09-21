@@ -18,11 +18,11 @@ flyball export 12 --out run12.jsonl        # {"name": ..., "doc": ...} per line
 GET /api/history/sessions/12/documents     # the same, as [[name, doc], ...]
 ```
 
-In Python, `flyball.db.documents.documents(store, session_id)` yields the
+In Python, `flyball.record.documents.documents(store, session_id)` yields the
 `(name, doc)` pairs a Bluesky callback or `databroker.v2` consumes directly.
 
 **Configure.** Nothing: the readables wrap a running rig's objects; the
 export is a route ([History](../4-server/api.md#history)) and a CLI command
 ([Sessions and export](../1-running/cli/sessions.md)).
 
-**Code.** `flyball_bluesky` (`extensions/bluesky`), `flyball.db.documents`.
+**Code.** `flyball_bluesky` (`extensions/bluesky`), `flyball.record.documents`.

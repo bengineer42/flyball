@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from flyball.db.sqlite import SqliteStore
+from flyball.record.sqlite import SqliteStore
 from flyball.runtime.config import load_rig_config
 from flyball.sim import SteppedClock
 
