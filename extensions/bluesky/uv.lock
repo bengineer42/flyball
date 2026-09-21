@@ -168,6 +168,7 @@ bluesky = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "flyball-sim" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -179,6 +180,24 @@ requires-dist = [
     { name = "ophyd", marker = "extra == 'bluesky'", specifier = ">=1.9" },
 ]
 provides-extras = ["bluesky"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "flyball-sim", editable = "../../sim" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "flyball-sim"
+version = "0.1.0"
+source = { editable = "../../sim" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flyball", editable = "../../engine" }]
 
 [package.metadata.requires-dev]
 dev = [

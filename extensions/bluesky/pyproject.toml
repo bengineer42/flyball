@@ -17,10 +17,11 @@ classifiers = ["Private :: Do Not Upload"]
 bluesky = ["bluesky>=1.13", "ophyd>=1.9"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.8"]
+dev = ["pytest>=8.0", "ruff>=0.8", "flyball-sim"]
 
 [tool.uv.sources]
 flyball = { path = "../../engine", editable = true }
+flyball-sim = { path = "../../sim", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flyball_bluesky"]
