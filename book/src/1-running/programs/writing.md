@@ -148,7 +148,7 @@ reserves `command` for the step's own tag.
 
 ## A worked example
 
-`examples/simulated/furnace.yaml`'s `programs/firing.yaml` -- a firing on
+`examples/furnace/rig.yaml`'s `programs/firing.yaml` -- a firing on
 all three of the furnace's zones, quoted as the file actually is:
 
 ```yaml

@@ -162,7 +162,7 @@ source-unit-per-second, adding `rate_gain * rate` on top of the static
 curve. It models a plant with *capacity*: a `table` of a furnace zone's
 static losses gets the steady-state hold power right but, on a ramp, only
 adds to a correction the law's integral is already winding up to cover the
-same shortfall — see `examples/simulated/furnace.yaml`'s comment: this
+same shortfall — see `examples/furnace/rig.yaml`'s comment: this
 measured *worse* than plain PI. `rate_gain` covers the extra power a ramp
 spends charging the zone's thermal mass — `capacity_j_per_k` itself,
 because it is J/K, i.e. W per °C/s, the same unit `rate_gain` wants. On
@@ -172,7 +172,7 @@ measured 4.0 °C overshoot plain PI, 7.6 °C with the static table alone, and
 controller ships with it:
 
 ```yaml
-# examples/simulated/furnace.yaml
+# examples/furnace/rig.yaml
 heaters.heater2:
   signal: furnace.zone2
   law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }

@@ -24,7 +24,7 @@ The [`scpi`](devices/drivers.md#scpi) driver and anything line-oriented sit on o
 
 ### `visa`
 
-Any VISA resource through pyvisa (`pip install flyball[visa]`).
+Any VISA resource through pyvisa (`pip install flyball-visa[visa]`).
 
 | field | default | |
 | --- | --- | --- |
@@ -101,7 +101,10 @@ its output measures, so the `sim_daq` on it spells out `quantity` and
 
 ### `sim_furnace`
 
-A tube furnace: heated zones in a row, coupled to their neighbours, losing
+Ships in `examples/furnace`, not `flyball-sim` itself -- a worked
+`MultiPlant` example, registered through the same `flyball.configs` entry
+point a package of your own would use (see "From a package", below). A
+tube furnace: heated zones in a row, coupled to their neighbours, losing
 heat by conduction and radiation, with a sample coupled to one zone and
 thermocouples that lag. Ports: inputs `heater1…N` (0–1), outputs
 `zone1…N` and `sample` in °C, so a `sim_daq` on it needs no units.
@@ -134,5 +137,6 @@ a terminator, for chips with their own binary or ASCII framing (`mhz19`,
 
 A package registers link tags of its own through the `flyball.configs`
 entry point ([the humidity rig](https://bengineer42.github.io/flyball/humidity/) adds `sim_humidity_chamber`, a mixing-model
-chamber that is also a fake PWM chip); they are valid in a file the moment
-it is installed. Writing one: [Config and build](../3-extending/device/config.md).
+chamber that is also a fake PWM chip; `examples/furnace` adds `sim_furnace`
+the same way); they are valid in a file the moment it is installed. Writing
+one: [Config and build](../3-extending/device/config.md).

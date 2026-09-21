@@ -62,10 +62,13 @@ the one registry, so `GET /api/drivers` lists links beside drivers and
 
 | driver | class |
 | --- | --- |
-| `scpi`, `modbus` | `flyball.devices.scpi.ScpiConfig`, `flyball.devices.modbus.ModbusConfig` |
+| `scpi` | `flyball_visa` |
+| `modbus` | `flyball_modbus` |
 | `qcodes`, `pymeasure` | `flyball_qcodes`, `flyball_pymeasure` |
-| `sim_daq`, `sim_drive`, `sim_plant`, `sim_furnace` | `flyball.sim.devices` |
-| `visa`, `serial`, `modbus_*`, `fake_*` | `flyball.hardware.links` |
+| `sim_daq`, `sim_drive`, `sim_plant` | `flyball_sim.devices` |
+| `sim_furnace` | `furnace.sim` (`examples/furnace`) |
+| `visa`, `serial`, `fake_text` | `flyball_visa` |
+| `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball_modbus` |
 | the board chips and links | `flyball_linux.devices.chips.*`, `flyball_linux.links.*` |
 | a `drivers/` file, a package's | wherever it is: `GET /api/drivers` names the module per tag |
 

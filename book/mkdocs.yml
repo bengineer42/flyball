@@ -160,9 +160,7 @@ nav:
           - flyball.autotune: 7-reference/python/flyball/autotune.md
           - flyball.runtime: 7-reference/python/flyball/runtime.md
           - flyball.programmer: 7-reference/python/flyball/programmer.md
-          - flyball.devices: 7-reference/python/flyball/devices.md
           - flyball.hardware: 7-reference/python/flyball/hardware.md
-          - flyball.sim: 7-reference/python/flyball/sim.md
           - flyball.db: 7-reference/python/flyball/db.md
           - flyball.server: 7-reference/python/flyball/server.md
           - flyball.server.routes: 7-reference/python/flyball/server/routes.md

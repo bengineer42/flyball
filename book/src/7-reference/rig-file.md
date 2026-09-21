@@ -64,7 +64,7 @@ files are merged with each other.
 The point of an overlay is that it swaps the **drivers** behind the same
 device and signal names, so every address, controller, dashboard, program
 and recorded session is identical whether the rig is real or simulated.
-`examples/simulated/furnace.yaml` demonstrates the pattern in one file (a
+`examples/furnace/rig.yaml` demonstrates the pattern in one file (a
 `sim_daq`/`sim_drive` pair standing in for a thermocouple DAQ and an SSR
 bank that don't exist yet); `examples/humidity/rig.yaml` + `sim.yaml` is
 the real two-file form — read both, and [the humidity book](https://bengineer42.github.io/flyball/humidity/2-config/) on them. `examples/site/*.yaml` is the third
@@ -162,7 +162,7 @@ controllers:
     default: true
 ```
 
-(`examples/simulated/furnace.yaml`, abridged). `rate_gain` (`affine`,
+(`examples/furnace/rig.yaml`, abridged). `rate_gain` (`affine`,
 `table`) adds `rate_gain * rate` to the demand, `rate` being the
 setpoint's own rate of change in the source's unit *per second* (zero off
 a ramp): target unit per source-unit-per-second — a zone's

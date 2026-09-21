@@ -90,8 +90,8 @@ Every example in this book runs against a simulated plant; no hardware is
 needed. The quickest whole rig is a file:
 
 ```
-cd engine
-uv run flyball-runner ../examples/simulated/furnace.yaml      # a three-zone furnace at 60×
+cd examples/furnace
+uv run flyball-runner rig.yaml      # a three-zone furnace at 60×
 ```
 
 then open the UI (see [The UI](1-running/ui/index.md)) or, with the CLI

@@ -8,7 +8,7 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Sample
 from flyball.core.units.si import Celsius
 from flyball.runtime import Rig
-from flyball.sim import Lag, SteppedClock
+from flyball_sim import Lag, SteppedClock
 
 # What is measured, independent of any device: a name and a unit.
 TEMPERATURE = Quantity("temperature", Celsius)

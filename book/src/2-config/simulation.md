@@ -1,8 +1,11 @@
 # Simulation
 
-`flyball.sim` holds the pieces of a rig with no hardware. Nothing in it knows
-what is simulated; an application composes them into its own simulator, and
-the library's tests use them directly.
+`flyball-sim` (`flyball_sim`) holds the pieces of a rig with no hardware.
+Nothing in it knows what is simulated; an application composes them into
+its own simulator, and the library's tests use them directly. It is its
+own top-level package (a sibling of `engine/`, not nested under it), with
+zero third-party dependencies of its own -- `flyball[web]` pulls it in by
+default, so `pip install flyball[web]` alone can already run a simulated rig.
 
 | | |
 | --- | --- |
@@ -12,15 +15,16 @@ the library's tests use them directly.
 | `Fopdt(tau_s, dead_s, gain)` | a `Lag` whose input arrives `dead_s` late |
 | `Integrator(gain, leak)` | `dy/dt = gain·u − leak·y`: a tank against a drain |
 | `Noisy(plant, sigma)` | any plant, read through Gaussian noise; the plant itself stays clean |
-| `Furnace(zones=3, ...)` | a `MultiPlant`: `zoneN`/`sample` out, `heaterN` in, zones coupled and radiating |
+| `MultiPlant` | the protocol several named ports implement, so a `sim_daq`/`sim_drive` can share one plant across devices |
 | `SimDaq` / `SimDrive` | generic devices: read a plant's outputs as `[RP]` signals, drive its inputs from `[W]` ones |
 
-`SimDaq` and `SimDrive` (`flyball.sim.devices`) are what a rig file declares
+`SimDaq` and `SimDrive` (`flyball_sim.devices`) are what a rig file declares
 under `driver: sim_daq` / `driver: sim_drive`; they replace the old
 `sim_reader`/`sim_actuator`, one device per plant side rather than one per
 port. A `Lag`/`Fopdt`/`Integrator` is a bare `Plant` (one `input`, one
-`output`); `Furnace`, and any `MultiPlant` an application writes itself
-(§ Applications' own plants, below), has several of each, named.
+`output`); a `MultiPlant` an application writes itself, or `examples/furnace`'s
+worked `Furnace` (§ Applications' own plants, below), has several of each,
+named.
 
 ## A controller with no hardware
 
@@ -49,7 +53,7 @@ from flyball.control import PI, Controller
 from flyball.core import Access, Quantity, Reading, Role, SignalSpec
 from flyball.core.device import Device
 from flyball.core.units.si import Celsius
-from flyball.sim import Lag, SteppedClock
+from flyball_sim import Lag, SteppedClock
 
 TEMPERATURE = Quantity("temperature", Celsius)
 
@@ -172,8 +176,8 @@ plant: `initial 20 (now 60.4)`, `noise 0.05 (observed 0.051)`, and, for
 every signal a `sim_daq` reads off it, the last value delivered, its device
 and how old it is. The pairing is declared on the config field --
 `Field(json_schema_extra={"live": "output"})` on `sim_plant`'s `ambient`,
-`initial` and `noise`, `"outputs.*"` on `sim_furnace`'s `ambient_c` and
-`initial_c` -- and the path points into the plant as `/api/sim` reports it:
+`initial` and `noise`, `"outputs.*"` on `examples/furnace`'s `sim_furnace`
+`ambient_c` and `initial_c` -- and the path points into the plant as `/api/sim` reports it:
 `output`/`outputs.*` for where the quantity is now, `stats.noise` for the
 observed noise per port. A field with no `live` is a parameter (`tau_s`,
 `coupling_w_per_k`), and the schema says so by its absence. `GET /api/sim`
@@ -195,14 +199,16 @@ identically every time — which is how it is tested.
 
 `sim_plant` has one input and one output, named `input`/`output`; a bare
 `sim_daq`/`sim_drive` port spells out `quantity`/`unit` since the plant
-cannot say what they are. `sim_furnace` (`Furnace`) has several of each --
-`heater1..N` in, `zone1..N` and `sample` out -- and knows they are
-temperatures and watts, so a `sim_daq` reading it needs no `quantity`/`unit`.
-The plant steps once per instant however many devices ask, so the zones stay
-consistent whatever order they are read in:
+cannot say what they are. `examples/furnace`'s `sim_furnace` (`Furnace`) has
+several of each -- `heater1..N` in, `zone1..N` and `sample` out -- and knows
+they are temperatures and watts (its own `output_quantity`/`input_quantity`
+hooks, duck-typed rather than part of the `MultiPlant` protocol so an
+ordinary `MultiPlant` need not implement them), so a `sim_daq` reading it
+needs no `quantity`/`unit`. The plant steps once per instant however many
+devices ask, so the zones stay consistent whatever order they are read in:
 
 ```yaml
-# examples/simulated/furnace.yaml
+# examples/furnace/rig.yaml
 links:
   tube:
     tag: sim_furnace
@@ -224,12 +230,14 @@ devices:
     config: { link: tube, ports: { heater1: heater1, heater2: heater2, heater3: heater3 } }
 ```
 
-`sim_furnace` is the example to read for a plant of your own with more than
-one port: implement the `MultiPlant` protocol (`inputs`, `output_names`,
-`output(port)`, `advance(time_ns)`, `feedforward(port, demand)`,
-`inverse_feedforward(port, drive)`) and a `Config` with `retune`, and
-`sim_daq`, `sim_drive`, `/api/sim` and `flyball sim` all work on it
-unchanged.
+`examples/furnace`'s `sim_furnace` is the example to read for a plant of
+your own with more than one port: implement the `MultiPlant` protocol
+(`inputs`, `output_names`, `output(port)`, `advance(time_ns)`,
+`feedforward(port, demand)`, `inverse_feedforward(port, drive)`) and a
+`Config` with `retune`, in a package of your own -- registering its tag
+through the `flyball.configs` entry point, the way `examples/furnace`'s
+`pyproject.toml` registers `sim_furnace` -- and `sim_daq`, `sim_drive`,
+`/api/sim` and `flyball sim` all work on it unchanged.
 
 `SimDaq` carries `fail`/`restore` commands, and `SimDrive` a `disturb` one,
 for exercising fault handling:

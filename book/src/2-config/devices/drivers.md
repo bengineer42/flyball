@@ -13,12 +13,12 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 
 | driver | for | on a link | ships in |
 | --- | --- | --- | --- |
-| [`scpi`](#scpi) | any text instrument: a query and/or a write template per signal | `visa`, `serial`, `fake_text` | `flyball` |
-| [`modbus`](#modbus) | PID controllers, MFCs, chillers, PLCs: a register per signal | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball` |
+| [`scpi`](#scpi) | any text instrument: a query and/or a write template per signal | `visa`, `serial`, `fake_text` | `flyball-visa` |
+| [`modbus`](#modbus) | PID controllers, MFCs, chillers, PLCs: a register per signal | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball-modbus` |
 | [`qcodes`](#qcodes) | ~200 QCoDeS drivers, parameters as signals | its own | `flyball-qcodes[qcodes]` |
 | [`pymeasure`](#pymeasure) | ~150 PyMeasure drivers, properties as signals | its own | `flyball-pymeasure[pymeasure]` |
-| [`sim_daq`](#sim_daq) | read a simulated plant | `sim_plant`, `sim_furnace` | `flyball` |
-| [`sim_drive`](#sim_drive) | drive a simulated plant | `sim_plant`, `sim_furnace` | `flyball` |
+| [`sim_daq`](#sim_daq) | read a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` |
+| [`sim_drive`](#sim_drive) | drive a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` |
 | [`i2c_table`](#i2c_table) | any register-mapped I²C chip | `i2c` | `flyball-linux` |
 | [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-linux` |
 | [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-linux` |
@@ -161,7 +161,7 @@ go bad and come back -- simulation only.
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `sim_plant` or `sim_furnace` |
+| `link` | required | a `sim_plant`, or another package's own `MultiPlant` link such as `examples/furnace`'s `sim_furnace` |
 | `ports` | required | `{signal-path: port}` or `{signal-path: {port, quantity, unit, limits?}}`; the long form when the plant does not say what a port measures (a bare `sim_plant`). A dotted path (`dry.humidity`) puts the signal in a namespace, so a simulated device can mirror a real one's addresses |
 
 ```yaml

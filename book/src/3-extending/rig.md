@@ -96,7 +96,7 @@ complete file; [Rig file schema](../7-reference/rig-file.md) every field.
 ## Clocks
 
 A rig has one clock; every controller, polled device and signal reads it.
-`Clock()` is wall time. `flyball.sim.SteppedClock` only moves when told to,
+`Clock()` is wall time. `flyball_sim.SteppedClock` only moves when told to,
 so a test ticks a rig at exact instants with no sleeping — but anything
 scheduled on real time (a polled device) still runs on real time, so drive
 such a rig with `rig.read(node, fresh=True)` by hand instead, as `oven.py`
