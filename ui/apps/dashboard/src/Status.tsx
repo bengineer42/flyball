@@ -1,9 +1,11 @@
 import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
 import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
-import { useHealth, type StreamStatus, type SocketStream } from "@flyball/react";
+import PauseIcon from "@mui/icons-material/Pause";
+import { useHealth, type PlaybackHook, type StreamStatus, type SocketStream } from "@flyball/react";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
 import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
+import { hms } from "./PlaybackBar.js";
 
 type Colour = NonNullable<ChipProps["color"]>;
 /** The visible chip label for a long message: the tooltip (`Line[]`) carries the rest. */
@@ -89,6 +91,30 @@ export const SimChip = ({ speed }: { speed: number | undefined }) => {
   return (
     <Tooltip title={`simulated clock runs at ${label.slice(4)} real time`}>
       <Chip variant="outlined" color="default" icon={<PAGE_ICONS.simulation fontSize="small" />} label={label} component="a" href={hashFor("simulation")} clickable />
+    </Tooltip>
+  );
+};
+
+/**
+ * Playback is paused and the transport is out of sight (it lives on the
+ * Simulation page, the pause reaches every page): the moment being shown, in
+ * the bar's amber, and a click to go live. Nothing while live -- conditional
+ * like the program and devices chips beside it, in the same reserved row.
+ */
+export const PausedChip = ({ playback }: { playback: PlaybackHook }) => {
+  if (!playback.paused) return null;
+  return (
+    <Tooltip title="playback paused — click to go live">
+      <Chip
+        variant="outlined"
+        color="warning"
+        icon={<PauseIcon fontSize="small" />}
+        label={hms(playback.atS)}
+        onClick={() => playback.resume()}
+        clickable
+        data-testid="paused-chip"
+        sx={{ "& .MuiChip-label": { fontVariantNumeric: "tabular-nums" } }}
+      />
     </Tooltip>
   );
 };
