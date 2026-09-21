@@ -21,10 +21,13 @@ pymeasure = ["pymeasure>=0.13"]
 pymeasure = "flyball_pymeasure"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.8"]
+dev = ["pytest>=8.0", "ruff>=0.8", "flyball-modbus", "flyball-visa", "flyball-sim"]
 
 [tool.uv.sources]
 flyball = { path = "../../engine", editable = true }
+flyball-modbus = { path = "../modbus", editable = true }
+flyball-visa = { path = "../visa", editable = true }
+flyball-sim = { path = "../../sim", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flyball_pymeasure"]

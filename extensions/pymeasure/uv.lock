@@ -108,6 +108,28 @@ docs = [
 ]
 
 [[package]]
+name = "flyball-modbus"
+version = "0.1.0"
+source = { editable = "../modbus" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flyball", editable = "../../engine" },
+    { name = "pymodbus", marker = "extra == 'modbus'", specifier = ">=3.6" },
+]
+provides-extras = ["modbus"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "flyball-sim", editable = "../../sim" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
 name = "flyball-pymeasure"
 version = "0.1.0"
 source = { editable = "." }
@@ -122,6 +144,9 @@ pymeasure = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "flyball-modbus" },
+    { name = "flyball-sim" },
+    { name = "flyball-visa" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -135,6 +160,51 @@ provides-extras = ["pymeasure"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "flyball-modbus", editable = "../modbus" },
+    { name = "flyball-sim", editable = "../../sim" },
+    { name = "flyball-visa", editable = "../visa" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "flyball-sim"
+version = "0.1.0"
+source = { editable = "../../sim" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flyball", editable = "../../engine" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "flyball-visa"
+version = "0.1.0"
+source = { editable = "../visa" }
+dependencies = [
+    { name = "flyball" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flyball", editable = "../../engine" },
+    { name = "flyball-visa", extras = ["serial", "visa"], marker = "extra == 'all'" },
+    { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
+    { name = "pyvisa", marker = "extra == 'visa'", specifier = ">=1.14" },
+    { name = "pyvisa-py", marker = "extra == 'visa'", specifier = ">=0.7" },
+]
+provides-extras = ["visa", "serial", "all"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "flyball-sim", editable = "../../sim" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.8" },
 ]
