@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { Form as MuiForm } from "@rjsf/mui";
 import { DevicePanel, Ref, useCommands, useDeviceRun, useDeviceSchema, useRig, type PanelSeverity } from "@flyball/react";
 import { describeDevice, type DeviceOut } from "@flyball/client";
+import { useAuth } from "../auth.js";
 import { useBindings } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
@@ -17,6 +18,7 @@ function severityOf(conditions: ReadonlyArray<{ level: number }>): PanelSeverity
 /** The panel with its hooks: the schema fetched once, commands run through `useCommands`, the run and conditions live from the store. */
 function Wired({ device, commands }: { device: DeviceOut; commands: string[] | undefined }) {
   const rig = useRig();
+  const { canOperate } = useAuth();
   const schema = useDeviceSchema(device.name);
   const run = useDeviceRun(device.name); // from the store: this widget alone re-renders on its device
   const runner = useCommands(device.name);
@@ -24,7 +26,7 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
   useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.type), severity: severityOf(run?.conditions ?? device.conditions) });
   if (schema.error) return <Missing what="device schema" name={schema.error.message} failed />;
   if (!schema.data) return null;
-  return (
+  const panel = (
     <DevicePanel
       device={device}
       schema={schema.data}
@@ -39,6 +41,15 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
       busy={runner.busy}
       results={runner.results}
     />
+  );
+  // `@command` buttons and Restart live inside `DevicePanel`, which does not itself know about
+  // auth -- so a sub-operate browser gets the whole panel dimmed and click-blocked, rather than a
+  // per-button `disabled` reaching into content this widget doesn't own.
+  if (canOperate) return panel;
+  return (
+    <div aria-disabled="true" style={{ opacity: 0.5, pointerEvents: "none" }}>
+      {panel}
+    </div>
   );
 }
 

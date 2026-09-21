@@ -169,6 +169,8 @@ export interface ControllerPanelProps {
   bare?: boolean;
   /** Extra content in the card, below the law/feedforward details -- the Controllers page's collapsible write state / device commands. Ignored when `bare`. */
   extra?: ReactNode;
+  /** This browser may drive the rig (the server's `AuthState.canOperate`); default true. False dims `controls`/`headerControls` and blocks clicks into them, greyed out but still visible -- a proactive echo of the 401 the server would otherwise give. */
+  canOperate?: boolean;
 }
 
 const EMPTY: ControllerTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
@@ -329,6 +331,7 @@ export function ControllerPanel({
   detail = false,
   bare = false,
   extra,
+  canOperate = true,
 }: ControllerPanelProps) {
   const point = useSignal(controller.source);
   const nowS = useNowS();
@@ -445,6 +448,16 @@ export function ControllerPanel({
           ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
           : null;
 
+  // Neither `controls` nor `headerControls` are this panel's own -- the caller builds them (a
+  // setpoint entry, Stop) -- so a sub-operate browser gets them dimmed and click-blocked rather
+  // than a per-button `disabled`, which would need reaching into content this panel doesn't own.
+  const gated = (node: ReactNode): ReactNode =>
+    canOperate ? node : (
+      <span aria-disabled="true" style={{ opacity: 0.5, pointerEvents: "none" }}>
+        {node}
+      </span>
+    );
+
   const frame = (
     <div className={`fb-loop-frame${trends ? "" : " fb-loop-no-trends"}`}>
       {!bare && (
@@ -484,7 +497,7 @@ export function ControllerPanel({
         <div className="fb-loop-row">
           <dt title="setpoint — SP">Target</dt>
           <dd>{fmt(setpoint, unit)}</dd>
-          {controls && <span className="fb-loop-sp-controls">{controls}</span>}
+          {controls && <span className="fb-loop-sp-controls">{gated(controls)}</span>}
           <span className="fb-loop-caption" data-testid="following">{following ? `→ ${following}` : " "}</span>
         </div>
         <div className="fb-loop-row">
@@ -501,7 +514,7 @@ export function ControllerPanel({
           <span className="fb-loop-caption">{clamped ? `requested ${fmt(requested, dUnit)}` : " "}</span>
         </div>
       </dl>
-      {headerControls && <div className="fb-loop-stop">{headerControls}</div>}
+      {headerControls && <div className="fb-loop-stop">{gated(headerControls)}</div>}
       {trends && (
         <div className="fb-loop-trends">
           <div>

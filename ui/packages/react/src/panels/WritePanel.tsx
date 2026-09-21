@@ -25,6 +25,8 @@ export interface WritePanelProps {
   precision?: number;
   /** The frame's heading; default the signal's label. */
   title?: ReactNode;
+  /** This browser may drive the rig (the server's `AuthState.canOperate`); default true. False disables the entry and Set button, greyed out but still visible -- a proactive echo of the 401 the server would otherwise give. */
+  canOperate?: boolean;
 }
 
 /** A value's fraction of `limits`, clamped to [0, 1]; null with no value or no limits. */
@@ -111,7 +113,7 @@ export function DemandEntry({ signal, text, onText, disabled = false, precision:
  * `useWriteState` and `useController`; the frame carries the label and
  * the device.
  */
-export function WritePanel({ signal, write: given, onDemand, compact: compactProp = false, entryOnly = false, bare = false, precision: precisionProp, title }: WritePanelProps) {
+export function WritePanel({ signal, write: given, onDemand, compact: compactProp = false, entryOnly = false, bare = false, precision: precisionProp, title, canOperate = true }: WritePanelProps) {
   const compact = compactProp || entryOnly;
   const rig = useRig();
   const live = useWriteState(signal.address);
@@ -170,8 +172,8 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
     drivenNote
   ) : (
     <form className="fb-write-entry fb-unit-input" onSubmit={(e) => void submit(e)} title={withUnit(`Set ${describeSignal(signal)}, in`, signal.unit)}>
-      <DemandEntry signal={signal} text={text} onText={setText} disabled={busy} precision={precision} />
-      <button type="submit" className="fb-signal-go" disabled={busy || !text.trim()}>
+      <DemandEntry signal={signal} text={text} onText={setText} disabled={busy || !canOperate} precision={precision} />
+      <button type="submit" className="fb-signal-go" disabled={busy || !canOperate || !text.trim()}>
         Set
       </button>
     </form>
