@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from fastapi import Depends, HTTPException
 
+from flyball.model.catalog import Catalogs, current_catalog
+from flyball.model.catalog import set_catalog as set_catalog
 from flyball.record import Store
 from flyball.rig import Rig
 
@@ -247,9 +249,25 @@ def get_store() -> Store:
     return _store
 
 
+def get_catalog() -> Catalogs:
+    """`current_catalog()`, or a 503: what `/api/drivers` and rig validation build from.
+
+    `set_catalog`/`current_catalog` are `flyball.model.catalog`'s, re-exported
+    here (not a second global) so a route can depend on them the same way it
+    depends on `RigDep`/`current_drivers_dir` -- `runner.py` calls
+    `set_catalog(Catalogs().discover())` once at startup, same lifetime as
+    `set_rig`.
+    """
+    catalog = current_catalog()
+    if catalog is None:
+        raise HTTPException(status_code=503, detail="No catalog attached to this server")
+    return catalog
+
+
 RigDep = Annotated[Rig, Depends(get_rig)]
 StoreDep = Annotated[Store, Depends(get_store)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
 DialectDep = Annotated[Dialect, Depends(get_dialect)]
 SimulationDep = Annotated[Simulation, Depends(get_simulation)]
 SimulationDeviceDep = Annotated["Device", Depends(get_simulation_device)]
+CatalogDep = Annotated[Catalogs, Depends(get_catalog)]

@@ -227,9 +227,12 @@ class TestRoutes:
 
 
 class TestHardwareGate:
-    def test_a_hardware_rig_composes_only_with_the_flag(self, client: TestClient, rig: Rig) -> None:
+    def test_a_hardware_rig_composes_only_with_the_flag(
+        self, client: TestClient, rig: Rig, _catalog
+    ) -> None:
         from flyball.interfaces.server.deps import set_compose
 
+        _catalog.links.register(_RealLinkConfig)
         # A bare rig may always be built up, even with a real link: that is what it is for.
         rig.link_entries["dmm"] = _RealLinkConfig()
         rig.links["dmm"] = object()

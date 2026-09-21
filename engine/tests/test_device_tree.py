@@ -298,22 +298,24 @@ class SensorsConfig(DriverConfig[HumSensors]):
 
 
 @pytest.fixture
-def furnace_tag(fresh) -> str:
+def furnace_tag(fresh, _catalog) -> str:
     tag = fresh("sim_furnace")
 
     class Tagged(FurnaceConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def sensors_tag(fresh) -> str:
+def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
     class Tagged(SensorsConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
@@ -510,7 +512,7 @@ class TestDeviceEntry:
                 "signals": {"zone1": {"access": "pw"}},
             })
 
-    def test_build_refuses_an_unknown_driver_or_a_link(self, fresh):
+    def test_build_refuses_an_unknown_driver_or_a_link(self, fresh, _catalog):
         with pytest.raises(ValueError, match="driver 'no_such' is not registered"):
             DeviceEntry(driver="no_such").build("x")
 
@@ -520,8 +522,25 @@ class TestDeviceEntry:
             def build(self) -> object:
                 return object()
 
-        assert Config.registry[tag] is Bus
+        # A link's tag names a device: `catalogs.devices` and `.links` are
+        # separate namespaces now, so this is ordinarily just "not
+        # registered" as a device (test below) -- register `Bus` into
+        # `devices` directly (not through `register_device`, which types
+        # against `DriverConfig`) to exercise the defensive type check.
+        _catalog.devices.register(Bus)
+        assert _catalog.devices[tag] is Bus
         with pytest.raises(ValueError, match=f"driver '{tag}' is a Bus, not a device driver"):
+            DeviceEntry(driver=tag).build("x")
+
+    def test_a_link_s_tag_is_not_a_driver(self, fresh, _catalog):
+        tag = fresh("bus")
+
+        class Bus(Config[object], tag=tag):
+            def build(self) -> object:
+                return object()
+
+        _catalog.register_link(Bus)
+        with pytest.raises(ValueError, match=f"driver '{tag}' is not registered"):
             DeviceEntry(driver=tag).build("x")
 
     def test_the_driver_config_is_validated(self, furnace_tag):

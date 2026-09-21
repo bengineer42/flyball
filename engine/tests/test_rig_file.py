@@ -125,53 +125,58 @@ class BlenderConfig(DriverConfig[Blender]):
 
 
 @pytest.fixture
-def daq_tag(fresh) -> str:
+def daq_tag(fresh, _catalog) -> str:
     tag = fresh("eurotherm_daq")
 
     class Tagged(DaqConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def sim_daq_tag(fresh) -> str:
+def sim_daq_tag(fresh, _catalog) -> str:
     """A second driver with the same shape as `daq_tag`'s: an overlay swapping the driver."""
     tag = fresh("sim_daq")
 
     class Tagged(DaqConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def heaters_tag(fresh) -> str:
+def heaters_tag(fresh, _catalog) -> str:
     tag = fresh("ssr_bank")
 
     class Tagged(HeatersConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def sensors_tag(fresh) -> str:
+def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
     class Tagged(HumSensorsConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def blender_tag(fresh) -> str:
+def blender_tag(fresh, _catalog) -> str:
     tag = fresh("dual_pump_blender")
 
     class Tagged(BlenderConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
@@ -261,7 +266,9 @@ class TestChecks:
     def test_an_unknown_driver_or_a_link_as_driver_is_refused_before_build(self):
         with pytest.raises(ValueError, match="device 'x': driver 'nope' is not registered"):
             RigConfig.model_validate({"devices": {"x": {"driver": "nope"}}})
-        with pytest.raises(ValueError, match="'sim_plant' is a .*, not a device driver"):
+        # `sim_plant` is a link, not a device: devices and links are separate
+        # `Catalog`s now, so its tag is simply not a registered device tag.
+        with pytest.raises(ValueError, match="device 'x': driver 'sim_plant' is not registered"):
             RigConfig.model_validate({"devices": {"x": {"driver": "sim_plant"}}})
 
     def test_a_reserved_device_name_is_refused(self, daq_tag):

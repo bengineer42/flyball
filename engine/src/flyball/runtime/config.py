@@ -4,8 +4,11 @@ A tree of tagged configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
 config (plan §1.5), keyed by name; a controller is keyed by the address of
 the signal it drives and names its source. Formats are
-[flyball.foundation.files][]'s business; which driver and link kinds exist is the
-tag registry's.
+[flyball.foundation.files][]'s business; which driver and link kinds exist is
+[flyball.model.catalog.Catalogs][]'s, read here via
+[get_catalog][flyball.model.catalog.get_catalog] where a function has no way
+to take one as a parameter (a pydantic classmethod, a validator), and as an
+explicit `catalogs` argument (default: the same) where it does.
 
 Every tag resolves to a real constructor, so the file validates against the
 models the code is built from, including configs another package registered
@@ -36,12 +39,13 @@ from pydantic.json_schema import GenerateJsonSchema
 # Nothing built into flyball core registers a tag any more -- `scpi`/`modbus`
 # (extensions/visa, extensions/modbus), the Linux buses and chips, and
 # flyball-sim's sim_plant/sim_daq/sim_drive all register through the
-# `flyball.configs` entry point instead, read by `discover()`.
-from flyball.foundation.config import Config, discover, discover_paths, discriminated_union
+# `flyball.configs` entry point instead, read by `Catalogs.discover()`.
+from flyball.foundation.config import Config, discover_paths, discriminated_union
 from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
+from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
 from flyball.model.feedforward import Feedforwards
 from flyball.model.law import ControlLaws
 from flyball.rig import Rig
@@ -66,11 +70,16 @@ def role_of(config: type[Config[Any]]) -> Role:
     return "driver" if issubclass(config, DriverConfig) else "link"
 
 
-def registered(role: Role) -> tuple[type[Config[Any]], ...]:
-    """Every tagged config playing `role`, in tag order."""
-    return tuple(
-        config for tag, config in sorted(Config.registry.items()) if role_of(config) == role
-    )
+def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Config[Any]], ...]:
+    """Every tagged config playing `role`, in tag order.
+
+    Args:
+        role: `"driver"` or `"link"`.
+        catalogs: Default: [get_catalog][flyball.model.catalog.get_catalog].
+    """
+    catalogs = catalogs or get_catalog()
+    catalog = catalogs.devices if role == "driver" else catalogs.links
+    return tuple(catalog[tag] for tag in sorted(catalog.tags()))
 
 
 # endregion
@@ -359,9 +368,10 @@ def _resolve_live(segments: list[str], node: Any) -> Any:
 class RigConfig(BaseModel):
     """The whole file.
 
-    `model_validate` and `model_json_schema` on this class use the tags
-    registered at the time of the call, so a config registered after import
-    is as valid in a file as a built-in one.
+    `model_validate` and `model_json_schema` on this class use
+    [get_catalog][flyball.model.catalog.get_catalog] -- the tags registered
+    there at the time of the call -- so a config registered after import is
+    as valid in a file as a built-in one.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -392,14 +402,15 @@ class RigConfig(BaseModel):
     @classmethod
     def model_validate(cls, obj: Any, **kwargs: Any) -> RigConfig:  # type: ignore[override]
         if cls is RigConfig:
-            return rig_model().model_validate(obj, **kwargs)
+            return rig_model(get_catalog()).model_validate(obj, **kwargs)
         return super().model_validate(obj, **kwargs)
 
     @classmethod
     def model_json_schema(cls, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
         if cls is RigConfig:
-            schema = rig_model().model_json_schema(**kwargs)
-            devices_schema, devices_defs = _devices_schema()
+            catalogs = get_catalog()
+            schema = rig_model(catalogs).model_json_schema(**kwargs)
+            devices_schema, devices_defs = _devices_schema(catalogs)
             schema.setdefault("$defs", {}).update(devices_defs)
             schema["properties"]["devices"] = {
                 **schema["properties"]["devices"],
@@ -426,10 +437,11 @@ class RigConfig(BaseModel):
         Before anything is built, so the file fails with one clear message
         instead of a build-time error part-way through.
         """
+        catalogs = get_catalog()
         for name, entry in self.devices.items():
             if name in RESERVED_NAMES:
                 raise ConflictError(f"Name {name!r} is reserved as a route segment")
-            driver = Config.registry.get(entry.driver)
+            driver = catalogs.devices.get(entry.driver)
             if driver is None:
                 raise ValueError(f"device {name!r}: driver {entry.driver!r} is not registered")
             if not issubclass(driver, DriverConfig):
@@ -457,7 +469,9 @@ class RigConfig(BaseModel):
     def simulated(self) -> bool:
         return is_simulated(self.links)
 
-    def build(self, clock: Clock | None = None, start: bool = True) -> Rig:
+    def build(
+        self, clock: Clock | None = None, start: bool = True, catalogs: Catalogs | None = None
+    ) -> Rig:
         """Links, then devices, then their bound inputs, then controllers.
 
         Args:
@@ -466,7 +480,10 @@ class RigConfig(BaseModel):
                 speed can be changed while it runs.
             start: Poll the devices on their periods. False adds them
                 without polling, for a caller that will drive reads itself.
+            catalogs: Where each device's driver is looked up. Default:
+                [get_catalog][flyball.model.catalog.get_catalog].
         """
+        catalogs = catalogs or get_catalog()
         links = {name: config.build() for name, config in self.links.items()}
         if clock is None and self.simulated:
             from flyball_sim.clock import ScaledClock, SteppedClock
@@ -490,7 +507,7 @@ class RigConfig(BaseModel):
         built_devices: list[Device] = []
         try:
             for name, entry in self.devices.items():
-                device = entry.build(name, links)
+                device = entry.build(name, links, catalogs)
                 rig.add_device(device)
                 rig.entries[name] = entry
                 built_devices.append(device)
@@ -526,18 +543,22 @@ class RigConfig(BaseModel):
         return rig
 
 
-_models: dict[tuple[str, ...], type[RigConfig]] = {}
+_models: dict[tuple[tuple[str, ...], tuple[str, ...]], type[RigConfig]] = {}
 
 
-def rig_model() -> type[RigConfig]:
+def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
     """[RigConfig][flyball.runtime.config.RigConfig] typed with every tag registered now.
 
     Built once per set of registered tags and cached, so validating many
     files costs one model.
+
+    Args:
+        catalogs: Default: [get_catalog][flyball.model.catalog.get_catalog].
     """
-    key = tuple(sorted(Config.registry))
+    catalogs = catalogs or get_catalog()
+    key = (tuple(sorted(catalogs.devices.tags())), tuple(sorted(catalogs.links.tags())))
     if key not in _models:
-        links = Config.union(*registered("link"))
+        links = Config.union(*registered("link", catalogs))
         _models[key] = create_model(
             "RigConfig",
             __base__=RigConfig,
@@ -546,26 +567,28 @@ def rig_model() -> type[RigConfig]:
     return _models[key]
 
 
-def _driver_configs() -> tuple[type[DriverConfig[Any]], ...]:
+def _driver_configs(catalogs: Catalogs) -> tuple[type[DriverConfig[Any]], ...]:
     """Every registered device driver, in tag order."""
-    return tuple(config for config in registered("driver") if issubclass(config, DriverConfig))
+    return tuple(
+        config for config in registered("driver", catalogs) if issubclass(config, DriverConfig)
+    )
 
 
-def _devices_schema() -> tuple[dict[str, Any], dict[str, Any]]:
+def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]:
     """The `devices` property's schema, and the `$defs` it needs.
 
-    Built by hand from `Config.registry` rather than inferred: a device
-    entry's driver settings sit flat beside the envelope or under `config`
-    (`DeviceEntry`'s own before-validator normalises this, not a pydantic
-    discriminated union), so pydantic alone cannot describe the two shapes as
-    one type. `oneOf` per registered driver, each with a flat and a layered
-    variant (plan §1.5); before any driver registers, `devices` is just a
-    plain `DeviceEntry` map.
+    Built by hand from the installed `Catalogs` rather than inferred: a
+    device entry's driver settings sit flat beside the envelope or under
+    `config` (`DeviceEntry`'s own before-validator normalises this, not a
+    pydantic discriminated union), so pydantic alone cannot describe the two
+    shapes as one type. `oneOf` per registered driver, each with a flat and a
+    layered variant (plan §1.5); before any driver registers, `devices` is
+    just a plain `DeviceEntry` map.
     """
     base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
     defs: dict[str, Any] = dict(base.get("$defs", {}))
     envelope = {k: v for k, v in base["properties"].items() if k not in ("driver", "config")}
-    drivers = _driver_configs()
+    drivers = _driver_configs(catalogs)
     if not drivers:
         defs["DeviceEntry"] = base
         return {"additionalProperties": {"$ref": "#/$defs/DeviceEntry"}}, defs
@@ -779,7 +802,7 @@ def load_rig_config(
     Installed packages' configs are discovered first, so their tags are valid
     in the file; a `board` is applied before validation.
     """
-    discover()
+    ensure_discovered()
     document, files = resolve_documents(path_or_paths, sets)
     config = RigConfig.model_validate(document)
     config.files = files
@@ -792,7 +815,7 @@ def load_rig(path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[st
 
 def rig_schema() -> dict[str, Any]:
     """The rig file's JSON schema, for an editor, with every tag installed here."""
-    discover()
+    ensure_discovered()
     schema = RigConfig.model_json_schema()
     schema["$schema"] = GenerateJsonSchema.schema_dialect
     return schema

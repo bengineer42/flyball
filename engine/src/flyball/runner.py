@@ -23,7 +23,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.config import discover
+from flyball.model.catalog import Catalogs, set_catalog
 from flyball.record.store import Store
 from flyball.rig import Rig
 from flyball.runtime.config import AuthConfig, RigConfig, RunnerConfig, resolve_documents
@@ -106,11 +106,13 @@ def serve(
     )
     from flyball.interfaces.server.routes import dashboards
     from flyball.interfaces.server.routes.library import import_directory, load_tunings
+    from flyball.model.catalog import ensure_discovered
     from flyball.programmer import Programmer
 
     settings = settings or RunnerConfig()
     programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers
     programmer = Programmer(rig)
+    ensure_discovered()  # a caller that built `rig` without going through `main()` first
     set_rig(rig)
     set_programmer(programmer)
     set_simulation(simulation)
@@ -473,7 +475,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=(args.log_level or "info").upper())
     first = args.rig[0] if args.rig else Path("rig")
     try:
-        discover()
+        catalog = Catalogs()
+        catalog.discover()
+        set_catalog(catalog)
         document: dict[str, Any] = {"name": first.stem}  # bare: built through the API
         files: list[Path] = []
         if args.rig and not args.resume:

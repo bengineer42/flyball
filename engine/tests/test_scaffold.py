@@ -22,7 +22,12 @@ def load(path):
 def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
     name = fresh("scaffold_probe")
     module = load(write(name, tmp_path))
-    config = Config.registry[name]()
+    (cls,) = (
+        v
+        for v in vars(module).values()
+        if isinstance(v, type) and issubclass(v, Config) and v.config_tag == name
+    )
+    config = cls()
     device = config.build(name)
     (sample,) = device.read(5)
     assert sample.time_ns == 5 and sample.node is device.root

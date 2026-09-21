@@ -21,8 +21,8 @@ past its own import (true for every consumer except `foundation/device
 /device.py` itself).
 """
 
-from .catalog import Catalog, Catalogs
-from .config import Config, ConfigOr, discover, discover_paths, import_object, resolve
+from .catalog import Catalog, Catalogs, current_catalog, get_catalog, set_catalog
+from .config import Config, ConfigOr, discover_paths, import_object, resolve
 from .model import ModelOf, creation_model, discriminated_union
 
 __all__ = [
@@ -32,9 +32,11 @@ __all__ = [
     "ConfigOr",
     "ModelOf",
     "creation_model",
-    "discover",
+    "current_catalog",
     "discover_paths",
     "discriminated_union",
+    "get_catalog",
     "import_object",
     "resolve",
+    "set_catalog",
 ]

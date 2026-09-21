@@ -776,16 +776,25 @@ from pathlib import Path
 path = Path(sys.argv[1])
 out = {"path": str(path), "ok": False, "drivers": [], "errors": []}
 try:
-    from flyball.foundation.config import Config, discover
     from flyball.foundation.device import DriverConfig
-    discover()
-    before = set(Config.registry)
+    from flyball.model.config import Config
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[path.stem] = module
     spec.loader.exec_module(module)
-    for tag in sorted(set(Config.registry) - before):
-        config = Config.registry[tag]
+    tags = sorted(
+        value.config_tag
+        for value in vars(module).values()
+        if isinstance(value, type)
+        and issubclass(value, Config)
+        and value.__module__ == path.stem
+        and value.config_tag is not None
+    )
+    for tag in tags:
+        config = next(
+            v for v in vars(module).values()
+            if isinstance(v, type) and issubclass(v, Config) and v.config_tag == tag
+        )
         if not issubclass(config, DriverConfig):
             continue
         entry = {"tag": tag, "config": config.__name__}

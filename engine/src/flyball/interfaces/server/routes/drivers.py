@@ -15,35 +15,34 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from flyball.foundation.config import Config
-from flyball.foundation.device import DriverConfig
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.interfaces.server.deps import RigDep, current_drivers_dir
+from flyball.interfaces.server.deps import CatalogDep, RigDep, current_drivers_dir
 from flyball.runtime.drivers import load_drivers
 
 router = APIRouter(prefix="/api", tags=["drivers"])
 
 
 @router.get("/drivers")
-def read_drivers() -> dict[str, Any]:
+def read_drivers(catalog: CatalogDep) -> dict[str, Any]:
     """Every registered config, by tag: its role, module, description and config schema."""
     out: dict[str, Any] = {}
-    for tag, config in sorted(Config.registry.items()):
-        entry: dict[str, Any] = {
-            "role": "driver" if issubclass(config, DriverConfig) else "link",
-            "module": config.__module__,
-            "description": inspect.getdoc(config),
-        }
-        try:
-            entry["schema"] = config.model_json_schema()
-        except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
-            entry["schema_error"] = f"{type(e).__name__}: {e}"
-        out[tag] = entry
+    for role, sub in (("driver", catalog.devices), ("link", catalog.links)):
+        for tag, config in sorted(sub.items()):
+            entry: dict[str, Any] = {
+                "role": role,
+                "module": config.__module__,
+                "description": inspect.getdoc(config),
+            }
+            try:
+                entry["schema"] = config.model_json_schema()
+            except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
+                entry["schema_error"] = f"{type(e).__name__}: {e}"
+            out[tag] = entry
     return out
 
 
 @router.post("/drivers/reload")
-def reload_drivers() -> dict[str, Any]:
+def reload_drivers(catalog: CatalogDep) -> dict[str, Any]:
     """Import every `.py` in the runner's drivers directory again; what each registered, or why not.
 
     404 when the runner has no drivers directory (`--drivers`, or `drivers/`
@@ -52,7 +51,7 @@ def reload_drivers() -> dict[str, Any]:
     directory = current_drivers_dir()
     if directory is None:
         raise HTTPException(status_code=404, detail="This runner has no drivers directory")
-    report = load_drivers(directory)
+    report = load_drivers(directory, catalog)
     return {
         "directory": report.directory,
         "registered": report.registered,

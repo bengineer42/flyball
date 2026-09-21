@@ -23,7 +23,13 @@ from flyball.foundation.config import Config
 from flyball.foundation.device import DeviceEntry
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.files import SUFFIXES, dumps_without_none
-from flyball.interfaces.server.deps import RigDep, compose_allowed, get_store, save_allowed
+from flyball.interfaces.server.deps import (
+    RigDep,
+    compose_allowed,
+    get_catalog,
+    get_store,
+    save_allowed,
+)
 from flyball.interfaces.server.routes.devices import device_out
 from flyball.interfaces.server.schemas import DeviceOut
 from flyball.record import RigVersionRow
@@ -48,7 +54,7 @@ def _composable(rig: Rig) -> None:
 
 
 def _link_adapter() -> TypeAdapter[Any]:
-    return TypeAdapter(Config.union(*registered("link")))
+    return TypeAdapter(Config.union(*registered("link", get_catalog())))
 
 
 def _validated[T](adapter: TypeAdapter[T], body: Any) -> T:

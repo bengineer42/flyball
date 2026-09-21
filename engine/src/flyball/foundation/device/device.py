@@ -42,6 +42,7 @@ from pydantic.errors import (
 )
 from pydantic.json_schema import JsonSchemaMode
 
+from flyball.model.catalog import Catalogs, get_catalog
 from flyball.model.config import Config
 
 from ..errors import NotFoundError, NotReadyError
@@ -1145,7 +1146,12 @@ class DeviceEntry(BaseModel):
         envelope = {key: value for key, value in data.items() if key in ENVELOPE_KEYS}
         return {**envelope, "config": leftover}
 
-    def build(self, name: str, links: Mapping[str, Any] | None = None) -> Device:
+    def build(
+        self,
+        name: str,
+        links: Mapping[str, Any] | None = None,
+        catalogs: Catalogs | None = None,
+    ) -> Device:
         """Build the device `driver` describes and apply this envelope to it.
 
         The driver binds its tree; the overrides are then applied onto the
@@ -1154,8 +1160,16 @@ class DeviceEntry(BaseModel):
         driver config's `link` names a key in `links`, it is substituted with
         the built object first; an undeclared name is a `NotFoundError`
         naming the device and the link.
+
+        Args:
+            name: The device's name in the rig.
+            links: Name -> built link, for a config whose `link` names one.
+            catalogs: Where `driver` is looked up. Default:
+                [get_catalog][flyball.model.catalog.get_catalog] -- the
+                process's installed `Catalogs`, set once by `runner.py`.
         """
-        driver = Config.registry.get(self.driver)
+        catalogs = catalogs or get_catalog()
+        driver = catalogs.devices.get(self.driver)
         if driver is None:
             raise ValueError(f"driver {self.driver!r} is not registered")
         if not issubclass(driver, DriverConfig):

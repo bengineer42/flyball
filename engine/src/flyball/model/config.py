@@ -4,6 +4,11 @@
 several implementations, each config declares a `tag` and
 [Config.union][flyball.model.config.Config.union] gives the discriminated
 union to validate against.
+
+Declaring `tag=` only sets `config_tag` -- it no longer writes into a shared
+registry (there is no `Config.registry` any more). What's installed, by tag,
+is [Catalogs][flyball.model.catalog.Catalogs], explicitly registered; see
+that module.
 """
 
 from __future__ import annotations
@@ -20,10 +25,6 @@ class Config[T](BaseModel, ABC):
 
     config_tag: ClassVar[str | None] = None
     """The tag this config is selectable by. The generated tagged model carries it as a field."""
-    registry: ClassVar[
-        dict[str, type]
-    ] = {}  # `type[Config]` here would make pydantic rebuild a half-built class
-    """Every tagged config, by tag. One namespace: a tag names one kind of thing."""
 
     def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
         # Python hands class keywords here first; pydantic hands them again to
@@ -36,10 +37,7 @@ class Config[T](BaseModel, ABC):
         super().__pydantic_init_subclass__(**kwargs)
         if tag is None:
             return
-        if (clash := Config.registry.get(tag)) is not None and clash is not cls:
-            raise ValueError(f"config tag {tag!r} is already {clash.__name__}")
         cls.config_tag = tag
-        Config.registry[tag] = cls
 
     @abstractmethod
     def build(self) -> T: ...
@@ -69,31 +67,10 @@ class Config[T](BaseModel, ABC):
         ]
 
 
-def discover(group: str = "flyball.configs") -> list[str]:
-    """Import every installed package's registered configs, so their tags are usable.
-
-    A package declares them in its `pyproject.toml`::
-
-        [project.entry-points."flyball.configs"]
-        keithley = "flyball_keithley.configs"
-
-    Importing the module is what registers its tagged configs. Returns the
-    names loaded. Safe to call more than once.
-    """
-    from importlib.metadata import entry_points
-
-    loaded = []
-    for entry in entry_points(group=group):
-        entry.load()
-        loaded.append(entry.name)
-    return loaded
-
-
 def discover_paths(group: str) -> list[Path]:
     """Every installed package's registered path in `group`.
 
-    Like [discover][flyball.model.config.discover], entries come from a
-    package's own `pyproject.toml`::
+    Entries come from a package's own `pyproject.toml`::
 
         [project.entry-points."flyball.board_dirs"]
         linux = "flyball_linux.boards:board_dir"

@@ -27,6 +27,17 @@ installed package's entry point and calls its `register`, so `Catalogs()`
 followed by `discover()` is enough to load everything installed -- engine's
 own built-in laws included, through the same mechanism, no special-cased
 "what's compiled in" path.
+
+This replaces `Config`'s old `__init_subclass__`-based auto-registration
+(`Config.registry`, removed): registering used to be a side effect of a
+module happening to get imported, which is exactly how the
+bluesky/qcodes/pymeasure regression happened -- installing a package is not
+the same as importing it, and importing is not the same as registering.
+`runner.py` builds one `Catalogs`, calls `discover()`, and calls
+[set_catalog][flyball.model.catalog.set_catalog]; everything that builds or
+validates a rig reads [current_catalog][flyball.model.catalog.current_catalog]
+/ [get_catalog][flyball.model.catalog.get_catalog] from here rather than a
+bare `ClassVar` dict.
 """
 
 from __future__ import annotations
@@ -71,6 +82,9 @@ class Catalog[T]:
         except KeyError:
             raise KeyError(f"{self.kind} tag {tag!r} is not registered") from None
 
+    def get(self, tag: str, default: type[T] | None = None) -> type[T] | None:
+        return self._by_tag.get(tag, default)
+
     def __contains__(self, tag: str) -> bool:
         return tag in self._by_tag
 
@@ -85,6 +99,10 @@ class Catalog[T]:
 
     def items(self):
         return self._by_tag.items()
+
+    def unregister(self, tag: str) -> None:
+        """Drop `tag`, if present. For a reloadable source (a `drivers/` directory) only."""
+        self._by_tag.pop(tag, None)
 
 
 @dataclass
@@ -137,3 +155,53 @@ class Catalogs:
             module.register(self)
             loaded.append(entry.name)
         return loaded
+
+
+_catalog: Catalogs | None = None
+"""The process's installed `Catalogs`, set once at startup. Module-level, not on `Catalogs`
+itself, matching `flyball.interfaces.server.deps`'s existing `current_drivers_dir()` shape for
+process-scoped state -- but living here, not in `interfaces/server/deps.py`, because code below
+`interfaces` (`runtime.config`, `foundation.device.device`, `runner.py`'s CLI path) needs it too,
+and `flyball.model` is the one layer reachable from everywhere without a layering-contract
+violation (see `engine/pyproject.toml`'s `Layers` contract comment on why `flyball.model` is left
+unordered). `interfaces/server/deps.py` re-exports `current_catalog`/`set_catalog` from here and
+adds its own `get_catalog()`/`CatalogDep` for FastAPI, so there is one source of truth, not two.
+"""
+
+
+def set_catalog(catalog: Catalogs | None) -> None:
+    """The process-wide `Catalogs`. `runner.py` sets this once, right after `discover()`."""
+    global _catalog
+    _catalog = catalog
+
+
+def current_catalog() -> Catalogs | None:
+    return _catalog
+
+
+def get_catalog() -> Catalogs:
+    """`current_catalog()`, or raise. For code that cannot build or validate a rig without one."""
+    if _catalog is None:
+        raise RuntimeError(
+            "no Catalogs is set; call flyball.model.catalog.set_catalog(Catalogs().discover())"
+            " first (runner.py does this at startup)"
+        )
+    return _catalog
+
+
+def ensure_discovered(group: str = "flyball.configs") -> Catalogs:
+    """`current_catalog()`, or a freshly built and discovered one, set as the current one now.
+
+    Idempotent and non-destructive: never overwrites a `Catalogs` already
+    set -- discovering again there would drop anything added since (a
+    `drivers/` directory's loose files, `/api/drivers/reload`). For a
+    one-shot CLI use (`rig_schema()`, `load_rig_config()` called outside a
+    running server) and `runner.serve()`, called by an application that built
+    its own rig without going through `runner.main()` first.
+    """
+    catalog = current_catalog()
+    if catalog is None:
+        catalog = Catalogs()
+        catalog.discover(group)
+        set_catalog(catalog)
+    return catalog

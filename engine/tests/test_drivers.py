@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.foundation.config import Config
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_drivers_dir
 from flyball.rig import Rig
@@ -33,25 +32,25 @@ class ProbeConfig(DriverConfig[Probe], tag="test_probe_{n}"):
 
 
 @pytest.fixture
-def drivers(tmp_path) -> Path:
+def drivers(tmp_path, _catalog) -> Path:
     directory = tmp_path / "drivers"
     directory.mkdir()
     (directory / "probe.py").write_text(DRIVER.format(value=20.0, n=1))
     (directory / "broken.py").write_text("import nothing_of_the_sort\n")
     yield directory
-    Config.registry.pop("test_probe_1", None)
-    Config.registry.pop("test_probe_2", None)
+    _catalog.devices.unregister("test_probe_1")
+    _catalog.devices.unregister("test_probe_2")
 
 
-def test_a_directory_of_drivers_loads_and_reloads(drivers: Path) -> None:
+def test_a_directory_of_drivers_loads_and_reloads(drivers: Path, _catalog) -> None:
     report = load_drivers(drivers)
     assert report.registered == {"probe": ["test_probe_1"]}
     assert "broken" in report.errors and "ModuleNotFoundError" in report.errors["broken"]
-    first = Config.registry["test_probe_1"]
+    first = _catalog.devices["test_probe_1"]
     (drivers / "probe.py").write_text(DRIVER.format(value=21.0, n=1))  # edited: same tag
     report = load_drivers(drivers)
     assert report.registered["probe"] == ["test_probe_1"], "re-registered without a clash"
-    assert Config.registry["test_probe_1"] is not first
+    assert _catalog.devices["test_probe_1"] is not first
     assert load_drivers(drivers / "missing").registered == {}
 
 

@@ -16,7 +16,7 @@ module is for existing call sites until a follow-up sweep repoints them and
 removes this shim.
 """
 
-from flyball.model.config import Config, ConfigOr, discover, discover_paths, import_object, resolve
+from flyball.model.config import Config, ConfigOr, discover_paths, import_object, resolve
 from flyball.model.model import ModelOf, creation_model, discriminated_union
 
 __all__ = [
@@ -24,7 +24,6 @@ __all__ = [
     "ConfigOr",
     "ModelOf",
     "creation_model",
-    "discover",
     "discover_paths",
     "discriminated_union",
     "import_object",
