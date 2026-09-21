@@ -17,7 +17,7 @@ modbus = ["pymodbus>=3.6"]
 
 # What `flyball rig check`, the runner and the schema load to make `driver: modbus` valid.
 [project.entry-points."flyball.configs"]
-modbus = "flyball_modbus"
+modbus = "flyball_modbus.configs"
 
 [dependency-groups]
 # flyball-sim: RigConfig.build() reaches for a stepped/scaled clock whenever
