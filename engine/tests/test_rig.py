@@ -10,9 +10,9 @@ from collections.abc import Iterator, Mapping
 
 import pytest
 
-from flyball.control import Transfer
 from flyball.control.laws import P
 from flyball.foundation.device import Access, Level, Node, Sample, Signal, SignalSpec, WriteState
+from flyball.model.law import Transfer
 from test_rig_devices import TEMP, Furnace
 
 

@@ -30,7 +30,7 @@ from flyball.record import SessionWriter, Tick
 from flyball.record.types import Event as StoredEvent
 
 if TYPE_CHECKING:
-    from flyball.control import Controller
+    from flyball.model.controller import Controller
 
 
 def _tick(controller: Controller, reading: Reading, start_ns: int) -> Tick:

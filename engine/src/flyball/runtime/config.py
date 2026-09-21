@@ -37,12 +37,13 @@ from pydantic.json_schema import GenerateJsonSchema
 # (extensions/visa, extensions/modbus), the Linux buses and chips, and
 # flyball-sim's sim_plant/sim_daq/sim_drive all register through the
 # `flyball.configs` entry point instead, read by `discover()`.
-from flyball.control import ControlLaws, Feedforwards
 from flyball.foundation.config import Config, discover, discover_paths, discriminated_union
 from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
+from flyball.model.feedforward import Feedforwards
+from flyball.model.law import ControlLaws
 from flyball.rig import Rig
 
 LawConfig = discriminated_union(ControlLaws, "tag", lambda law: law.config)

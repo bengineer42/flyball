@@ -327,6 +327,7 @@ def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
 
 def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
     from flyball.control import P
+    from flyball.library.tunings import Tuning
     from flyball.programmer.loops import Regulate
 
     heater = Heater(fresh("heater"))
@@ -334,7 +335,7 @@ def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
     rig.attach_controller(
         heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), default=True
     )
-    rig.tunings.add(P(kp=4.0).config.to_tuning("brisk"))
+    rig.tunings.add(Tuning(tag="brisk", config=P(kp=4.0).config))
 
     assert Regulate(setpoint=1.0, tuning="brisk").missing(rig) == []
     assert Regulate(setpoint=1.0, tuning="ghost").missing(rig) == ["tuning 'ghost' is not stored"]

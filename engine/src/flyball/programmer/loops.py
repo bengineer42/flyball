@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from flyball.control import Controller
 from flyball.control.setpoint import LinearRampSetpoint
 from flyball.foundation import Operator
 from flyball.foundation.time import Duration, Speed
+from flyball.model.controller import Controller
 from flyball.rig import Rig
 
 from .activities import Arrived, Timed

@@ -4,9 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Thread
 
-from flyball.control import Controller
 from flyball.foundation import Operator, Positive, Reading
 from flyball.foundation.time import Clock, Duration
+from flyball.model.controller import Controller
 from flyball.rig import Rig
 
 from .command import Activity, Command
