@@ -10,8 +10,8 @@ import pytest
 from flyball.control.laws import PI
 from flyball.foundation.device import Access, DeviceEntry, Sample, Signal
 from flyball.foundation.errors import ConflictError, HardwareError, NotFoundError
+from flyball.rig import Rig
 from flyball.runtime.config import RigConfig
-from flyball.runtime.rig import Rig
 from flyball_sim import DaqPort, SimDaqConfig, SimDriveConfig, SteppedClock
 
 from furnace.plant import Furnace
