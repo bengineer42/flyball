@@ -37,6 +37,7 @@ import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
 import { signalTitle, signalsOf, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
+import { useAuth } from "../auth.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
@@ -683,6 +684,7 @@ const Faceplate = memo(function Faceplate({
   controls?: ReactNode;
   headerControls?: ReactNode;
 }) {
+  const auth = useAuth();
   return (
     <ControllerPanel
       controller={controller}
@@ -697,6 +699,7 @@ const Faceplate = memo(function Faceplate({
       detail
       controls={controls}
       headerControls={headerControls}
+      canOperate={auth.canOperate}
     />
   );
 });
@@ -718,6 +721,7 @@ export interface ControllersProps extends ChartSettings {
  */
 export function Controllers({ devices, name = null, ...charts }: ControllersProps) {
   const { windowS, yScale, every } = charts;
+  const auth = useAuth();
   const rig = useRig();
   const stored = useRecordingExports();
   const { controllers, history, status } = useControllers(3600, every);
@@ -837,7 +841,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
       <div className="grid">
         {undriven.map((target) => (
           <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
-            <WritePanel signal={target} title={signalTitle(target, devices)} />
+            <WritePanel signal={target} title={signalTitle(target, devices)} canOperate={auth.canOperate} />
             <Button
               variant="outlined"
               size="small"

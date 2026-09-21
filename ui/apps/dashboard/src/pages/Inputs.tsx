@@ -14,6 +14,7 @@ import { PageBar } from "../PageBar.js";
 import { GroupingSelect, readGrouping, writeGrouping, type Grouping } from "../grouping.js";
 import { isNumeric, useValueReadout } from "../valueReadout.js";
 import { AddDeviceDialog, LinksSection } from "./Devices.js";
+import { useAuth } from "../auth.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
@@ -251,6 +252,7 @@ export function signalAt(devices: DeviceOut[], address: string): SignalOut | und
  * regulate it (as their source) or drive it (as their target).
  */
 export function SignalDetail({ devices, address, ...charts }: { devices: DeviceOut[]; address: string } & ChartSettings) {
+  const auth = useAuth();
   const { windowS, yScale, every } = charts;
   const stored = useRecordingExports();
   const signal = signalAt(devices, address);
@@ -289,7 +291,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
               <div className="fb-readout-value">{value.body}</div>
             </Paper>
           )}
-          {writable(signal) && <WritePanel signal={signal} />}
+          {writable(signal) && <WritePanel signal={signal} canOperate={auth.canOperate} />}
           <Paper sx={{ p: 3, flexGrow: 1 }}>
             <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
               Controllers
