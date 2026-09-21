@@ -7,11 +7,9 @@ from enum import Enum
 
 import pytest
 
-from flyball.core.device import Device
-from flyball.core.errors import NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import (
+from flyball.foundation.device import (
     Access,
+    Device,
     NodeSpec,
     Path,
     Reading,
@@ -19,7 +17,9 @@ from flyball.core.signal import (
     SignalSpec,
     WriteState,
 )
-from flyball.core.units.si import Celsius, Watt
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

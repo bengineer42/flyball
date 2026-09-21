@@ -15,10 +15,9 @@ from flyball.control import (
 from flyball.control.errors import FeedforwardNotInvertibleError
 from flyball.control.laws import P
 from flyball.control.types import ValueSource
-from flyball.core.device import Device
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Reading, SignalSpec
-from flyball.core.units.si import Celsius, Watt
+from flyball.foundation.device import Access, Device, Reading, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
 
 
 class Oven(Device):

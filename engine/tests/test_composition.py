@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from flyball_sim import SteppedClock
 
 from conftest import FakeRunner
-from flyball.core.config import Config
-from flyball.core.files import load_document
 from flyball.db.sqlite import SqliteStore
+from flyball.foundation.config import Config
+from flyball.foundation.files import load_document
 from flyball.runtime.config import RunnerConfig
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
@@ -53,7 +53,7 @@ def link_config(posted: dict):
 
 
 def device_entry(posted: dict, **more):
-    from flyball.core.device import DeviceEntry
+    from flyball.foundation.device import DeviceEntry
 
     return DeviceEntry.model_validate({**entry(posted), **more})
 

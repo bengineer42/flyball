@@ -10,8 +10,8 @@ from typing import Any, cast
 import pytest
 import yaml
 
-from flyball.core.clock import Duration, Rate, TimeUnit
-from flyball.core.typing import Percent
+from flyball.foundation.time import Duration, Rate, TimeUnit
+from flyball.foundation.typing import Percent
 from flyball.programmer.command import Command
 from flyball.server.dialect import (
     Dialect,

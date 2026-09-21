@@ -6,10 +6,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from flyball.core.device import Committable, Demand, Level, Output, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Sample
-from flyball.core.units.si import Celsius, Watt
+from flyball.foundation.device import Committable, Demand, Level, Output, Sample, command
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.programmer import Command, Program, Programmer, Wait
 from flyball.programmer.errors import ProgramAlreadyRunningError
 
@@ -154,7 +153,7 @@ def test_interrupt_stops_at_the_wait_and_start_can_replace_a_running_program(rig
 
 
 def test_a_timed_out_wait_ends_the_program(rig, note):
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
 
     Note, seen = note
     programmer = Programmer(rig)
@@ -170,7 +169,7 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
     import time
 
     from flyball.control import P
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
     from flyball.programmer import Program, Programmer
     from flyball.programmer.loops import Arrive, Ramp, Regulate
     from flyball.runtime.rig import Rig
@@ -210,7 +209,7 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
 
 
 def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
     from flyball.programmer.loops import Hold
 
     Note, seen = note
@@ -222,7 +221,7 @@ def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
 
 
 def test_a_hold_can_time_out_like_a_wait(rig, note):
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
     from flyball.programmer.loops import Hold
 
     Note, seen = note
@@ -258,7 +257,7 @@ def test_a_set_step_lands_as_a_demand(rig, fresh):
 
 def test_a_set_step_refuses_a_signal_a_controller_drives(rig, fresh):
     from flyball.control import P
-    from flyball.core.errors import ConflictError
+    from flyball.foundation.errors import ConflictError
     from flyball.programmer.devices import Set
 
     heater = Heater(fresh("heater"))
@@ -273,7 +272,7 @@ def test_a_set_step_refuses_a_signal_a_controller_drives(rig, fresh):
 
 
 def test_a_set_step_refuses_a_bare_signal_address(rig, fresh):
-    from flyball.core.errors import NotFoundError
+    from flyball.foundation.errors import NotFoundError
     from flyball.programmer.devices import Set
 
     heater = Heater(fresh("heater"))
@@ -283,7 +282,7 @@ def test_a_set_step_refuses_a_bare_signal_address(rig, fresh):
 
 
 def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
-    from flyball.core.errors import NotFoundError
+    from flyball.foundation.errors import NotFoundError
     from flyball.programmer import RunCommand
 
     heater = Heater(fresh("heater"))
@@ -300,7 +299,7 @@ def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
 
 def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
     from flyball.control import P
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
     from flyball.programmer.loops import Arrive, Manual, Ramp, Regulate
 
     heater = Heater(fresh("heater"))

@@ -23,12 +23,11 @@ from flyball.control import (
     Transfer,
 )
 from flyball.control.laws import P
-from flyball.core.clock import Duration, Speed, TimeUnit
-from flyball.core.device import Device
-from flyball.core.errors import ConflictError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Reading, Sample, SignalSpec, WriteState
-from flyball.core.units.si import Celsius, Watt
+from flyball.foundation.device import Access, Device, Reading, Sample, SignalSpec, WriteState
+from flyball.foundation.errors import ConflictError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.foundation.time import Duration, Speed, TimeUnit
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

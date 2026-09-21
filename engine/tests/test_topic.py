@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from flyball.core.topic import Latest, Topic
+from flyball.foundation.router import Latest, Topic
 
 
 def test_latest_reports_only_what_changed_since_a_version():

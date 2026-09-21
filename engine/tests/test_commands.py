@@ -8,12 +8,22 @@ import pytest
 from flyball_sim import SteppedClock
 
 from flyball.control.laws import P
-from flyball.core.device import Committable, Demand, Namespace, Output, Readable, command
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, Sample, Section
-from flyball.core.units.si import Celsius, Percent
-from flyball.core.utils import Labelled
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    Demand,
+    Namespace,
+    Output,
+    Readable,
+    Role,
+    Sample,
+    Section,
+    command,
+)
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.primitives import Labelled
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent
 from flyball.runtime.rig import Rig
 
 TEMP = Quantity("temperature", Celsius)
@@ -240,7 +250,7 @@ def test_a_reading_on_an_input_commits_the_device_that_follows_it(rig: Rig) -> N
 
 
 def test_a_computed_tree_s_demands_get_setters_on_the_instance(rig: Rig) -> None:
-    from flyball.core.signal import Access, SignalSpec
+    from flyball.foundation.device import Access, SignalSpec
 
     class Generic(Committable):
         def __init__(self, name: str, ports: list[str]) -> None:

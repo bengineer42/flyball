@@ -7,18 +7,22 @@ from collections.abc import Iterator
 import pytest
 from pydantic import ValidationError
 
-from flyball.core.config import Config
-from flyball.core.device import Committable, Device, DeviceEntry, DriverConfig, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import (
+from flyball.foundation.config import Config
+from flyball.foundation.device import (
     Access,
+    Committable,
+    Device,
+    DeviceEntry,
+    DriverConfig,
     NodeSpec,
     Path,
+    Readable,
     Sample,
     Signal,
     SignalSpec,
 )
-from flyball.core.units.si import Celsius, Percent, Watt
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent, Watt
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

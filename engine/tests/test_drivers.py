@@ -7,16 +7,16 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig
 from flyball.server.deps import set_drivers_dir
 
 DRIVER = """
-from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.units.si import Celsius
+from flyball.foundation.device import DriverConfig, Output, Readable
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
 
 
 class Probe(Readable):

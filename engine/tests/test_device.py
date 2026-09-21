@@ -4,7 +4,7 @@ from threading import RLock
 
 import pytest
 
-from flyball.core.device import Device, DriverConfig, command
+from flyball.foundation.device import Device, DriverConfig, command
 from helpers import DutyHeater
 
 

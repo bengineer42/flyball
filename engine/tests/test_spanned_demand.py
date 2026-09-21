@@ -2,8 +2,7 @@
 
 import pytest
 
-from flyball.core.quantity import Quantity
-from flyball.core.units import DIMENSIONLESS
+from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.hardware.spanned_demand import (
     from_fraction,
     spanned_signal_spec,

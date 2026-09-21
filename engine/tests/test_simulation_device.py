@@ -10,10 +10,10 @@ from fastapi.testclient import TestClient
 from flyball_sim import DaqPort, PlantConfig, ScaledClock, SimDaq, SimDaqConfig
 from flyball_sim.simulation import Simulation
 
-from flyball.core.device import Device, Setting, command
-from flyball.core.quantity import Quantity
-from flyball.core.typing import Positive
-from flyball.core.units.si import Second
+from flyball.foundation.device import Device, Setting, command
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Second
+from flyball.foundation.typing import Positive
 from flyball.runtime.config import RigConfig
 from flyball.runtime.rig import Rig
 from flyball.server import create_app, set_rig, set_simulation

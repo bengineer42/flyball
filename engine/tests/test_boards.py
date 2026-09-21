@@ -6,12 +6,19 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball.core.config import Config
-from flyball.core.device import Device, DriverConfig, Readable
-from flyball.core.errors import NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, Sample, SignalSpec
-from flyball.core.units.si import Watt
+from flyball.foundation.config import Config
+from flyball.foundation.device import (
+    Access,
+    Device,
+    DriverConfig,
+    Readable,
+    Role,
+    Sample,
+    SignalSpec,
+)
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Watt
 from flyball.runtime.config import (
     BOARDS_ENV,
     Board,

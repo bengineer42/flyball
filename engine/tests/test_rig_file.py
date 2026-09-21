@@ -6,12 +6,21 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball.core.device import Committable, DriverConfig, Readable
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.files import loads
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, NodeSpec, Role, Sample, Signal, SignalSpec
-from flyball.core.units.si import Celsius, Percent, Watt
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    NodeSpec,
+    Readable,
+    Role,
+    Sample,
+    Signal,
+    SignalSpec,
+)
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.files import loads
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.runtime.config import RigConfig, canonical, resolve_documents, rig_schema
 
 TEMP = Quantity("temperature", Celsius)

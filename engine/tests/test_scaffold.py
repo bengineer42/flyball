@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.scaffold import render, write
 
 

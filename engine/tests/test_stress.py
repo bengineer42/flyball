@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from flyball.core.signal import Access, Role
+from flyball.foundation.device import Access, Role
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
 
 STRESS = Path(__file__).resolve().parents[2] / "examples" / "stress"

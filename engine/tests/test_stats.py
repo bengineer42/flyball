@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from flyball.core.signal import Reading, Sample
+from flyball.foundation.device import Reading, Sample
 from flyball.runtime.rig import RECENT_READINGS
 from flyball.runtime.stats import noise, rate
 from test_rig_devices import Furnace

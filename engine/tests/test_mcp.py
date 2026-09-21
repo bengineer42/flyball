@@ -366,7 +366,7 @@ class TestDriverTools:
 
     def test_check_driver_reports_a_broken_module(self, client, tmp_path):
         path = tmp_path / "broken.py"
-        path.write_text("import flyball.core.device\nraise RuntimeError('no such bus')\n")
+        path.write_text("import flyball.foundation.device\nraise RuntimeError('no such bus')\n")
         report = self.tool(client, "check_driver").run(client, {"path": str(path)})
         assert not report["ok"] and "no such bus" in report["errors"][0]
         path.write_text("x = 1\n")

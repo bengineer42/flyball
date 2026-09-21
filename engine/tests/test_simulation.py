@@ -10,7 +10,7 @@ import pytest
 from flyball_sim import ScaledClock, SteppedClock
 from flyball_sim.simulation import Simulation
 
-from flyball.core.errors import ConflictError, NotFoundError
+from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
@@ -54,7 +54,7 @@ class TestSteppedClock:
         assert clock.wait(set_event, timeout=10) is True and clock.now_ns() == 40_000_000_000
 
     def test_a_program_s_timed_wait_passes_at_once(self, rig, clock):
-        from flyball.core.clock import Duration
+        from flyball.foundation.time import Duration
         from flyball.programmer import Program, Programmer, Wait
 
         programmer = Programmer(rig)
@@ -256,7 +256,7 @@ def test_a_stall_resynchronises_the_poll_instead_of_bursting():
 
     from flyball_sim import ScaledClock
 
-    from flyball.core.utils import PeriodicLoop
+    from flyball.foundation.time import PeriodicLoop
 
     calls = []
     clock = ScaledClock(1)

@@ -9,11 +9,21 @@ from enum import Enum
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.core.device import Committable, Demand, Level, Namespace, Output, Readable, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Node, Sample, Signal
-from flyball.core.trigger import Trigger
-from flyball.core.units.si import Celsius, Percent, Watt
+from flyball.foundation.device import (
+    Committable,
+    Demand,
+    Level,
+    Namespace,
+    Node,
+    Output,
+    Readable,
+    Sample,
+    Signal,
+    command,
+)
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent, Watt
+from flyball.foundation.router import Trigger
 from flyball.server import create_app, set_rig
 
 TEMP = Quantity("temperature", Celsius)
@@ -560,7 +570,7 @@ def test_events_are_kept_and_streamed(client, rig):
 
 def test_samples_stream_carries_only_what_publishes(rig, fresh):
     """A config is `[R]`, not `[P]`: mixed into a sample with a zone, only the zone streams."""
-    from flyball.core.device import ConfigSignal
+    from flyball.foundation.device import ConfigSignal
 
     class Mixed(Readable):
         zone = Output("zone", "", TEMP)

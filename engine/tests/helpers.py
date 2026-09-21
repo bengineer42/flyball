@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from flyball.core.device import Committable, Demand, Output, command
-from flyball.core.quantity import Quantity
-from flyball.core.units.si import Watt
+from flyball.foundation.device import Committable, Demand, Output, command
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Watt
 
 
 class DutyHeater(Committable):

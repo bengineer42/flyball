@@ -9,12 +9,11 @@ from fastapi.testclient import TestClient
 
 from conftest import FakeRunner
 from flyball.control import PI
-from flyball.core.device import Committable, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
-from flyball.core.units.si import Celsius, Watt
 from flyball.db import SpanKind, SqliteStore, Window
 from flyball.db.types import Event
+from flyball.foundation.device import Access, Committable, Node, Readable, Role, Sample, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.runtime.config import RunnerConfig, parse_duration_ns, parse_size_bytes
 from flyball.runtime.retention import Retention
 from flyball.server import create_app, set_rig

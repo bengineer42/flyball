@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from flyball.core.config import Config, resolve
+from flyball.foundation.config import Config, resolve
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -78,7 +78,7 @@ def test_discover_loads_every_entry_point_in_the_group(monkeypatch):
     """A package that declares `flyball.configs` has its module imported, which registers tags."""
     from importlib.metadata import EntryPoint
 
-    from flyball.core import config as module
+    from flyball.foundation import config as module
 
     imported = []
 

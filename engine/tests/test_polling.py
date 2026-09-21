@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from flyball.core.device import Committable, Device, Level
-from flyball.core.errors import NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Reading, SignalSpec
-from flyball.core.units.si import Watt
+from flyball.foundation.device import Access, Committable, Device, Level, Reading, SignalSpec
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Watt
 from flyball.runtime.polling import poll_period
 from test_rig_devices import Furnace
 

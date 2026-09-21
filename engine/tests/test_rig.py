@@ -12,8 +12,7 @@ import pytest
 
 from flyball.control import Transfer
 from flyball.control.laws import P
-from flyball.core.device import Level
-from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec, WriteState
+from flyball.foundation.device import Access, Level, Node, Sample, Signal, SignalSpec, WriteState
 from test_rig_devices import TEMP, Furnace
 
 
