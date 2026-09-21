@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import pytest
+from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig import Rig
 from flyball_sim import SteppedClock
 
 _counter = itertools.count()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _catalog() -> Iterator[Catalogs]:
+    catalog = Catalogs()
+    catalog.discover()
+    set_catalog(catalog)
+    yield catalog
+    set_catalog(None)
 
 
 @pytest.fixture
