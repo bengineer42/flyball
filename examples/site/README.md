@@ -3,18 +3,18 @@
 One runner file per deployment. Each holds only `extends` (the rig it
 serves) and a `runner:` section (how): port, path prefix, what the API may
 do, where the store goes. The rigs themselves are `examples/humidity` and
-`examples/simulated`, unchanged.
+`examples/furnace`, unchanged.
 
 | file | serves | at |
 | --- | --- | --- |
 | `humidity.yaml` | `../humidity/rig.yaml` + `sim.yaml` | `:8001`, under `/humidity` |
-| `furnace.yaml` | `../simulated/furnace.yaml` | `:8002`, under `/furnace` |
+| `furnace.yaml` | `../furnace/rig.yaml` | `:8002`, under `/furnace` |
 
 Run each from the venv that has its drivers, then put a front on one port:
 
 ```
 cd examples/humidity && uv run flyball-runner ../site/humidity.yaml
-cd engine            && uv run flyball-runner ../examples/site/furnace.yaml
+cd examples/furnace  && uv run flyball-runner ../site/furnace.yaml
 cd engine            && uv run python ../examples/site/front.py 8080 /humidity=8001 /furnace=8002
 ```
 

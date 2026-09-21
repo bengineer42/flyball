@@ -24,7 +24,8 @@ Every file is `links:` (the `sim_*`/`fake_*` plants and transports),
 `devices:` (`sim_daq` reading plant ports as `[RP]` signals, `sim_drive`
 driving them from demands, `scpi`/`modbus` over the fakes) and
 `controllers:` keyed by the target signal's address -- the shape
-`../simulated/README.md` describes. A furnace is one `furnace` daq and one
+`../simulated/README.md` describes (the furnace shape, `../furnace/README.md`).
+A furnace is one `furnace` daq and one
 `heaters` drive on the `tube` link, so its addresses are `furnace.zoneN`
 and `heaters.heaterN`; a bare plant's drive is `<name>.drive`, a fraction
 of full, and its controller carries the plant's static inverse as an

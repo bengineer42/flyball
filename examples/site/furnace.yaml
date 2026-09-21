@@ -1,13 +1,13 @@
 # The furnace simulation as one runner: `uv run flyball-runner ../examples/site/furnace.yaml`
-# from controller. The rig is examples/simulated's; this file only says how to serve it.
-extends: [../simulated/furnace.yaml]
+# from controller. The rig is examples/furnace's; this file only says how to serve it.
+extends: [../furnace/rig.yaml]
 runner:
   port: 8002
   root_path: /furnace
   allow_shutdown: true
   store_dir: stores
-  programs: ../simulated/programs      # the daemon looks beside THIS file otherwise
-  tunings: ../simulated/tunings
+  programs: ../furnace/programs        # the daemon looks beside THIS file otherwise
+  tunings: ../furnace/tunings
   auth:
     anonymous: read  # anyone may watch; the password below to drive
     password: change-me  # `flyball password` for a hashed line, or FLYBALL_PASSWORD
