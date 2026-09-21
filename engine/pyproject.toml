@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# FastAPI won: flyball.server needs its WebSocket support for live telemetry
+# FastAPI won: flyball.interfaces.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
 # The runner also serves MCP at /mcp/<mode>, over the client pointed back at itself.
 # flyball-sim rides along too, so `flyball-runner` can serve examples/simulated
@@ -36,7 +36,7 @@ classifiers = [
 # point every other optional package uses, and runtime/config.py's clock
 # builder imports it lazily, only for a rig whose links are all sim_*/fake_*.
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pyyaml>=6", "flyball[mcp]", "flyball-sim"]
-# flyball.client talks to a runner over HTTP and websockets and imports
+# flyball.interfaces.client talks to a runner over HTTP and websockets and imports
 # nothing from the rig: it runs anywhere.
 cli = ["httpx>=0.27", "websockets>=13", "pyyaml>=6"]  # program files are YAML
 # Links to instruments (flyball.hardware.links's RegisterLink/TextLink
@@ -44,13 +44,13 @@ cli = ["httpx>=0.27", "websockets>=13", "pyyaml>=6"]  # program files are YAML
 # extras of the same name live in extensions/modbus, extensions/visa now --
 # each its own installable package, same as Bluesky, QCoDeS and PyMeasure
 # (extensions/{bluesky,qcodes,pymeasure}).
-# flyball.mcp on its own: the stdio server, for a machine that reaches the rig but is not it.
+# flyball.interfaces.mcp on its own: the stdio server, for a machine that reaches the rig but is not it.
 mcp = ["flyball[cli]", "mcp>=1.12"]
 all = ["flyball[cli,web]"]
 
 [project.scripts]
 flyball-runner = "flyball.runner:main"
-flyball-mcp = "flyball.mcp.server:main"
+flyball-mcp = "flyball.interfaces.mcp.server:main"
 
 
 [dependency-groups]
@@ -158,6 +158,25 @@ warn_unreachable = true
 # all depend only on flyball.foundation (and, for Bluesky and flyball-sim's
 # Simulation, flyball.runtime.rig/config), so none of them is a layer here
 # any more. Run with `uv run lint-imports`.
+#
+# flyball.rig (engine-structure.md layer 3) is deliberately left OUT of this
+# ordered list, not merged into flyball.runtime's line either: the two are
+# genuinely bidirectionally coupled today, not just incidentally. flyball.rig
+# is authorized to keep this shape by engine-structure.md's own rig-move step.
+# flyball.runtime.config/writer/recorder import Rig at real (non-deferred)
+# module level to build/type one; flyball.rig.rig in turn imports
+# flyball.runtime.writer at module level (the Writer it hands blocking
+# devices to) and flyball.runtime.config/recorder inside two methods
+# (deferred, to break the import cycle at load time, but still a real edge --
+# import-linter's layers contract statically flags deferred imports the same
+# as top-level ones, checked directly: both "runtime | rig" as siblings and
+# "rig" below "runtime" broke the contract for this reason). A strict order
+# would require finishing core-split.md's parked runtime/config.py split
+# (its schema/runner/rig/boards/documents concerns) so the pieces rig
+# actually needs move out of runtime -- out of scope here. Until then,
+# `flyball.rig` stays unlisted (unconstrained by this contract, same as
+# `flyball.scaffold` already is) rather than encoding a layering that isn't
+# true yet.
 [tool.importlinter]
 root_packages = ["flyball"]
 
@@ -166,11 +185,10 @@ name = "Layers"
 type = "layers"
 layers = [
     "flyball.runner",
-    "flyball.mcp",
-    "flyball.server",
+    "flyball.interfaces.mcp | flyball.interfaces.server",
     "flyball.programmer",
     "flyball.runtime",
-    "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db",
+    "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record",
     "flyball.control",
     "flyball.foundation",
 ]
@@ -178,7 +196,7 @@ layers = [
 [[tool.importlinter.contracts]]
 name = "The client, the scaffold and the MCP server stand alone"
 type = "forbidden"
-source_modules = ["flyball.client", "flyball.scaffold", "flyball.mcp"]
+source_modules = ["flyball.interfaces.client", "flyball.scaffold", "flyball.interfaces.mcp"]
 forbidden_modules = [
-    "flyball.foundation", "flyball.control", "flyball.runtime", "flyball.server", "flyball.programmer",
+    "flyball.foundation", "flyball.control", "flyball.runtime", "flyball.rig", "flyball.interfaces.server", "flyball.programmer",
 ]
