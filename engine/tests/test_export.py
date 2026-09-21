@@ -11,12 +11,14 @@ import pytest
 from fastapi.testclient import TestClient
 from flyball_sim.clock import SteppedClock
 
-from flyball.control import PI, Controller, NoFeedforward
+from flyball.control import PI
 from flyball.foundation.device import Access, Device, Role, Sample, SignalSpec, WriteState
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_store
+from flyball.model.controller import Controller
+from flyball.model.feedforward import NoFeedforward
 from flyball.record.sqlite import SqliteStore
 from flyball.record.types import Event, Tick
 from flyball.rig import Rig

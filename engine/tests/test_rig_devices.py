@@ -6,7 +6,6 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball.control import NoFeedforward, Transfer
 from flyball.control.laws import P
 from flyball.foundation.device import (
     Access,
@@ -26,6 +25,8 @@ from flyball.foundation.errors import ConflictError, NotReadyError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.time import Rate, TimeUnit
+from flyball.model.feedforward import NoFeedforward
+from flyball.model.law import Transfer
 from flyball.rig import SourceClaimedError
 
 TEMP = Quantity("temperature", Celsius)

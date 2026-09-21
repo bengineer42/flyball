@@ -19,8 +19,6 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, overload
 
-from flyball.control import ControlLawLike, Controller, ControllerState, Tunings
-from flyball.control.feedforward import FeedforwardLike, Feedforwards
 from flyball.foundation import Clock, Rate
 from flyball.foundation.device import (
     RESERVED_NAMES,
@@ -44,6 +42,9 @@ from flyball.foundation.device import (
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.typing import OrderedSet
+from flyball.library.tunings import Tunings
+from flyball.model import ControlLawLike, Controller, ControllerState
+from flyball.model.feedforward import FeedforwardLike, Feedforwards
 from flyball.runtime.writer import Writer
 
 from .controllers import Controllers

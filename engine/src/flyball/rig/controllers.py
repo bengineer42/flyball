@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from collections.abc import ItemsView, Iterator
 
-from flyball.control import Controller, ControllerSettings, ControllerState, ControllerView
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.model import Controller, ControllerSettings, ControllerState, ControllerView
 
 
 class ControllerNotFoundError(NotFoundError):
