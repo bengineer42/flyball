@@ -6,10 +6,11 @@ answer to "what is running".
 
 ## Commands
 
-A command is a frozen dataclass with a `run(rig)` method. It self-registers
-under a tag, and its wire model — the request a client sends, the step a
-program file holds — is derived from its constructor. The vocabulary shipped
-with the library:
+A command is a frozen dataclass with a `run(rig)` method, `tag`-named on the
+class and registered explicitly with `catalog.register_command` (see
+[Packaging](../../3-extending/packaging.md)) so a program file can use it; its
+wire model — the request a client sends, the step a program file holds — is
+derived from its constructor. The vocabulary shipped with the library:
 
 | tag | does |
 | --- | --- |

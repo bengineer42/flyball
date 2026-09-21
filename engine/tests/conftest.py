@@ -1,8 +1,7 @@
 """Fixtures shared by the suite.
 
-Config tags, commands and base dimensions register process-wide by name, so
-every test that declares one uses a name unique to that test (``fresh``)
-and the command registry is restored after each test.
+Config tags and base dimensions register process-wide by name, so every test
+that declares one uses a name unique to that test (``fresh``).
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from flyball_sim.clock import SteppedClock
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
-from flyball.sequencing.command import Commands
 
 _counter = itertools.count()
 
@@ -43,14 +41,6 @@ def _catalog() -> Iterator[Catalogs]:
 def fresh() -> Callable[[str], str]:
     """A name no other test has used: ``fresh("probe")`` -> ``probe_17``."""
     return lambda stem: f"{stem}_{next(_counter)}"
-
-
-@pytest.fixture(autouse=True)
-def _restore_commands() -> Iterator[None]:
-    before = dict(Commands)
-    yield
-    Commands.clear()
-    Commands.update(before)
 
 
 @pytest.fixture

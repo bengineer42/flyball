@@ -77,10 +77,11 @@ server at it:
 ## Running one
 
 ```python
+from flyball.model.catalog import get_catalog
 from flyball.sequencing import Programmer
 from flyball.interfaces.server.dialect import Dialect, program_from_file
 
-program = program_from_file("bake.yaml", Dialect(commands=Commands))
+program = program_from_file("bake.yaml", Dialect(commands=dict(get_catalog().commands.items())))
 Programmer(rig).run(program)          # blocks until done or interrupted
 ```
 

@@ -64,7 +64,7 @@ class Simulation(Protocol):
 _rig: Rig | None = None
 _store: Store | None = None
 _programmer: Programmer | None = None
-_dialect: Dialect = Dialect()
+_dialect: Dialect | None = None
 _simulation: Simulation | None = None
 _simulation_device: Device | None = None
 _rig_config: RigConfig | None = None
@@ -127,7 +127,16 @@ def set_dialect(dialect: Dialect) -> None:
 
 
 def get_dialect() -> Dialect:
-    return _dialect
+    """The dialect an app set with [set_dialect][flyball.interfaces.server.deps.set_dialect].
+
+    Falls back to a plain `Dialect` of every registered command and no
+    modifiers, built from the attached catalog -- so a rig that never calls
+    `set_dialect` still gets one, without building it eagerly at import time
+    (the catalog is not set yet then).
+    """
+    if _dialect is not None:
+        return _dialect
+    return Dialect(commands=dict(get_catalog().commands.items()))
 
 
 def set_simulation(simulation: Simulation | None) -> None:

@@ -25,6 +25,7 @@ def _registered(catalogs: Catalogs) -> int:
         + len(catalogs.laws)
         + len(catalogs.feedforwards)
         + len(catalogs.generators)
+        + len(catalogs.commands)
     )
 
 
@@ -74,3 +75,13 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     assert set(catalogs.generators.tags()) >= {"hold", "linear_ramp_setpoint", "profile"}, (
         "engine's own built-in generators (control/configs.py) did not all load"
     )
+    assert set(catalogs.commands.tags()) >= {
+        "wait",
+        "set",
+        "command",
+        "regulate",
+        "ramp",
+        "hold",
+        "arrive",
+        "manual",
+    }, "engine's own built-in commands (sequencing/configs.py) did not all load"

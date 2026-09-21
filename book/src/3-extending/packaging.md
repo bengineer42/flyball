@@ -36,7 +36,7 @@ def register(catalog: Catalogs) -> None:
 ```
 
 Registering is explicit, not a side effect of the module being imported:
-`runner.py` builds one [`Catalogs`](../6-internals/decisions.md), calls
+`flyball-runner` builds one [`Catalogs`](../6-internals/decisions.md), calls
 `discover()` -- which walks every installed package's entry point and calls
 its `register(catalog)` -- once at startup. After `pip install`, its tags
 are valid in any rig file, `flyball rig check` and `flyball rig schema`
@@ -47,7 +47,8 @@ drivers, rig files, programs, dashboards, a book). What to put in one:
 [Where a device's options come from](../2-config/devices/generated.md) for
 what the class produces. A link is `catalog.register_link(...)` instead of
 `register_device`; a law, a feedforward or a setpoint generator has its own
-`register_law`/`register_feedforward`/`register_generator`.
+`register_law`/`register_feedforward`/`register_generator`; a program step
+(a `Command` subclass) has `register_command`.
 
 ## Inside the application
 

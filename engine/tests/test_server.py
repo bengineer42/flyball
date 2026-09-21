@@ -771,15 +771,17 @@ def test_program_runs_step_by_step_as_waits_are_answered(client, programmer, rig
     assert rig.triggers.states() == {}
 
 
-def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig):
+def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig, fresh):
     from dataclasses import dataclass
 
+    from flyball.model.catalog import get_catalog
     from flyball.sequencing import Command
 
     seen = []
+    tag = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Command, tag="note", primary="text"):
+    class Note(Command, tag=tag, primary="text"):
         """Append to a list."""
 
         text: str
@@ -788,7 +790,9 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig)
             seen.append(self.text)
             return None
 
-    state = client.post("/api/programs/run", json={"steps": [{"note": "a"}, {"note": "b"}]}).json()
+    get_catalog().register_command(Note)
+
+    state = client.post("/api/programs/run", json={"steps": [{tag: "a"}, {tag: "b"}]}).json()
     assert state["running"] is False and seen == ["a", "b"]
 
 

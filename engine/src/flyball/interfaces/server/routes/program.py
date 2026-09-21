@@ -44,9 +44,9 @@ async def read_program_schema(dialect: DialectDep) -> dict[str, Any]:
 
 
 @router.get("/commands")
-async def read_command_schema() -> dict[str, Any]:
+async def read_command_schema(dialect: DialectDep) -> dict[str, Any]:
     """The internally tagged request union as JSON schema, for building a form."""
-    return commands_schema()
+    return commands_schema(dialect.commands)
 
 
 @router.post("/check")
@@ -95,6 +95,7 @@ def run_program(
 @router.post("/command")
 def run_command(
     body: dict[str, Any],
+    dialect: DialectDep,
     programmer: ProgrammerDep,
     interrupt: bool = False,
 ) -> ProgrammerState:
@@ -102,7 +103,7 @@ def run_command(
     # Validated here rather than in the signature: the command union exists
     # only once commands have registered, which is after this module loads.
     try:
-        request = TypeAdapter(command_request()).validate_python(body)
+        request = TypeAdapter(command_request(dialect.commands)).validate_python(body)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     programmer.start(request.parse(), interrupt=interrupt)

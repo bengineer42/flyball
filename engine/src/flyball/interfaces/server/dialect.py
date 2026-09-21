@@ -30,7 +30,7 @@ from pydantic import TypeAdapter
 from flyball.foundation.files import load_document
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.interfaces.server.commands import command_request, request_for
-from flyball.sequencing.command import Command, Commands
+from flyball.sequencing.command import Command
 from flyball.sequencing.program import Program
 
 
@@ -53,7 +53,7 @@ class Dialect:
     """What a step may contain beyond its command."""
 
     modifiers: tuple[Modifier, ...] = ()
-    commands: Mapping[str, type[Command]] = field(default_factory=lambda: Commands)
+    commands: Mapping[str, type[Command]] = field(default_factory=dict)
 
     @property
     def modifier_keys(self) -> dict[str, Modifier]:
@@ -166,7 +166,7 @@ def program_from_file(path: str | Path, dialect: Dialect) -> Program:
 def program_from_document(document: Any, dialect: Dialect) -> Program:
     """A loaded program document -> a [Program][flyball.sequencing.program.Program] of commands."""
     normalised = normalise_program(document, dialect)
-    adapter = TypeAdapter(command_request())
+    adapter = TypeAdapter(command_request(dialect.commands))
     commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
     return Program(commands, name=normalised.get("name"), description=normalised.get("description"))
 

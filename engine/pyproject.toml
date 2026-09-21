@@ -52,11 +52,12 @@ all = ["flyball[cli,web]"]
 flyball-runner = "flyball.runner:main"
 flyball-mcp = "flyball.interfaces.mcp.server:main"
 
-# Engine's own built-in laws, registered through the same `flyball.configs`
+# Engine's own built-ins, registered through the same `flyball.configs`
 # mechanism as every extension -- no special-cased "what's compiled in" path
 # (brain/tasks/registry-redesign.md).
 [project.entry-points."flyball.configs"]
 flyball = "flyball.control.configs"
+flyball-sequencing = "flyball.sequencing.configs"
 
 
 [dependency-groups]
