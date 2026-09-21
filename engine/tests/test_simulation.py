@@ -93,7 +93,7 @@ class TestSimulation:
             })
 
     def test_hardware_is_not_a_simulation(self):
-        from flyball.runtime.rig import Rig
+        from flyball.rig import Rig
 
         config = RigConfig.model_validate({"links": {"v": {"tag": "visa", "resource": "x"}}})
         assert config.simulated is False

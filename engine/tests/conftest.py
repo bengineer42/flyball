@@ -15,8 +15,8 @@ import pytest
 from flyball_sim.clock import SteppedClock
 
 from flyball.programmer.command import Commands
+from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
-from flyball.runtime.rig import Rig
 
 _counter = itertools.count()
 

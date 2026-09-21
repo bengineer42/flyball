@@ -7,7 +7,7 @@ from flyball_sim.clock import SteppedClock
 
 from flyball.control import Controller
 from flyball.control.laws import P
-from flyball.runtime.controllers import (
+from flyball.rig import (
     ControllerNotFoundError,
     Controllers,
     NoDefaultControllerError,

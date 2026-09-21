@@ -9,7 +9,7 @@ import pytest
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.router import Outcome, Trigger
 from flyball.foundation.time import Clock
-from flyball.runtime.triggers import Triggers
+from flyball.rig import Triggers
 
 
 def test_signal_settles_once_and_reports_how():

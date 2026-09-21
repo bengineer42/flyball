@@ -8,7 +8,7 @@ from flyball.foundation.device import Access, Committable, Device, Level, Readin
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Watt
-from flyball.runtime.polling import poll_period
+from flyball.rig import poll_period
 from test_rig_devices import Furnace
 
 

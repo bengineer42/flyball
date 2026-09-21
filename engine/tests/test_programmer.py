@@ -110,7 +110,7 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
     """The bug: `regulate` on a real controller, then a typo'd one, used to finish clean."""
     from flyball.control import P
     from flyball.programmer.loops import Regulate
-    from flyball.runtime.controllers import ControllerNotFoundError
+    from flyball.rig import ControllerNotFoundError
 
     Note, seen = note
     heater = Heater(fresh("heater"))
@@ -172,7 +172,7 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
     from flyball.foundation.time import Duration
     from flyball.programmer import Program, Programmer
     from flyball.programmer.loops import Arrive, Ramp, Regulate
-    from flyball.runtime.rig import Rig
+    from flyball.rig import Rig
 
     rig = Rig()
     a, b = Heater("ha"), Heater("hb")

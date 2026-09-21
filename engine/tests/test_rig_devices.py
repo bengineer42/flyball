@@ -10,6 +10,7 @@ from flyball.control import NoFeedforward, Transfer
 from flyball.control.laws import P
 from flyball.foundation.device import (
     Access,
+    AddressNotFoundError,
     Committable,
     Node,
     NodeSpec,
@@ -25,8 +26,7 @@ from flyball.foundation.errors import ConflictError, NotReadyError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.time import Rate, TimeUnit
-from flyball.runtime.controllers import SourceClaimedError
-from flyball.runtime.rig import AddressNotFoundError
+from flyball.rig import SourceClaimedError
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

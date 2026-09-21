@@ -24,7 +24,7 @@ from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.primitives import Labelled
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 TEMP = Quantity("temperature", Celsius)
 DUTY = Quantity("duty", Percent)
@@ -218,7 +218,7 @@ def test_a_batch_delivers_every_push_inside_it_as_one_sample(rig: Rig, heater: H
 def test_recording_declares_a_limit_that_follows_a_signal_as_its_number(
     rig: Rig, heater: Heater, tmp_path
 ) -> None:
-    from flyball.db import SqliteStore
+    from flyball.record import SqliteStore
 
     store = SqliteStore(tmp_path / "rig.sqlite")
     rig.start_recording(store)  # `banks.a` has limits (0, max_duty): declared as (0, 80)
