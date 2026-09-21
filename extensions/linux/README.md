@@ -70,7 +70,7 @@ devices:
 ```
 
 A chip with a command sequence rather than registers (SHT4x: write a byte,
-wait, read six) gets its own driver under `flyball_linux.devices.chips`.
+wait, read six) gets its own driver under `flyball_chips` (../chips).
 Each is a short module against the link protocol, tested to the byte on the
 fake.
 

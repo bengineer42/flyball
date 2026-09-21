@@ -2,10 +2,10 @@
 
 import pytest
 from flyball.core.errors import HardwareError
+from flyball_chips import ads1115
+from flyball_sim.links import FakeI2c, FakeI2cConfig
 
 from flyball_linux.devices import current_loop
-from flyball_linux.devices.chips import ads1115
-from flyball_linux.links.i2c import FakeI2c, FakeI2cConfig
 
 
 def _raw_for(volts: float, gain: float = 1) -> list[int]:

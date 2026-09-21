@@ -10,28 +10,6 @@ from flyball_linux.devices import (  # ruff: ignore[unused-import]
     pwm,
     stepper,
 )
-from flyball_linux.devices.chips import (  # ruff: ignore[unused-import]
-    ads1115,
-    bme280,
-    bme680,
-    ccs811,
-    ezo_do,
-    ezo_ec,
-    ezo_orp,
-    ezo_ph,
-    htu21d,
-    hx711,
-    mcp3008,
-    mcp4725,
-    mhz19,
-    ms5611,
-    scd4x,
-    scd30,
-    sgp30,
-    sgp40,
-    sht4x,
-    sht31,
-)
 from flyball_linux.links import gpio as gpio_link  # ruff: ignore[unused-import]
 from flyball_linux.links import (  # ruff: ignore[unused-import]
     i2c,

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from flyball.core.signal import Reading, Signal
 from flyball.runtime.config import load_board, load_rig_config, resolve_documents
-from flyball.sim import SteppedClock
+from flyball_sim import SteppedClock
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 BOARDS = Path(__file__).resolve().parents[1] / "src" / "flyball_linux" / "boards"

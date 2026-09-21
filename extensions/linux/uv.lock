@@ -76,11 +76,33 @@ docs = [
 ]
 
 [[package]]
+name = "flyball-chips"
+version = "0.1.0"
+source = { editable = "../chips" }
+dependencies = [
+    { name = "flyball" },
+    { name = "flyball-sim" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flyball", editable = "../../engine" },
+    { name = "flyball-sim", editable = "../../sim" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
 name = "flyball-linux"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "flyball" },
+    { name = "flyball-chips" },
     { name = "flyball-sim" },
 ]
 
@@ -114,6 +136,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flyball", editable = "../../engine" },
+    { name = "flyball-chips", editable = "../chips" },
     { name = "flyball-linux", extras = ["i2c", "spi", "gpio", "serial"], marker = "extra == 'all'" },
     { name = "flyball-sim", editable = "../../sim" },
     { name = "gpiod", marker = "extra == 'gpio'", specifier = ">=2.1" },

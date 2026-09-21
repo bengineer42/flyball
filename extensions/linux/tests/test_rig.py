@@ -5,9 +5,8 @@ from flyball.core.config import Config, discover
 from flyball.core.errors import ConflictError
 from flyball.core.signal import Reading, Signal
 from flyball.runtime.config import RigConfig, rig_schema
-from flyball.sim import SteppedClock
-
-from flyball_linux.devices.chips.sht4x import encode
+from flyball_chips.sht4x import encode
+from flyball_sim import SteppedClock
 
 NS = 1_000_000_000
 W1_TEXT = "5e 01 4b 46 7f ff 0c 10 4e : crc=4e YES\n5e 01 4b 46 7f ff 0c 10 4e t=21875"

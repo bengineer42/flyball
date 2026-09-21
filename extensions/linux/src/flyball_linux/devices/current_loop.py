@@ -10,8 +10,8 @@ The instrument sinks a current proportional to its reading; that current is
 turned into a voltage by dropping it across a precision sense resistor
 (commonly 250 ohm, giving 1-5 V over the 4-20 mA span), and an ordinary ADC
 reads that voltage. So this driver does not talk to hardware itself -- it
-wraps an [Ads1115][flyball_linux.devices.chips.ads1115.Ads1115] or
-[Mcp3008][flyball_linux.devices.chips.mcp3008.Mcp3008] device, configuring
+wraps an [Ads1115][flyball_chips.ads1115.Ads1115] or
+[Mcp3008][flyball_chips.mcp3008.Mcp3008] device, configuring
 its channel(s) to report milliamps (`volts / resistor_ohms * 1000`), then
 maps milliamps onto the instrument's engineering-unit span and checks the
 loop is alive.
@@ -42,9 +42,8 @@ from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
 from flyball.hardware.scan import Scan
+from flyball_chips import ads1115, mcp3008
 from pydantic import BaseModel, ConfigDict, Field
-
-from flyball_linux.devices.chips import ads1115, mcp3008
 
 LOW_FAULT_MA = 3.6
 """At or below this, NE43-style, the loop reads as broken (open circuit, dead sensor)."""

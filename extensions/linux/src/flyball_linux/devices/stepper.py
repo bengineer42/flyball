@@ -10,7 +10,7 @@ without needing a per-chip driver: `step` is a pulse train, one rising edge per 
 and `direction` is a level the driver IC latches before each step. That is deliberately the
 level this module works at. The alternative -- bit-banging the coil phase sequence directly
 from Python -- is exactly the kind of fragile, unbounded-latency timing this project already
-flagged as a real risk in `flyball_linux.devices.chips.hx711` (a CPython GPIO call crosses
+flagged as a real risk in `flyball_chips.hx711` (a CPython GPIO call crosses
 into the kernel with no bound on how long it takes; the HX711 driver's docstring is explicit
 about trusting two syscalls back to back rather than hitting a microsecond deadline). A
 stepper's phase sequencing has *tighter* timing requirements than HX711's clock line, not
