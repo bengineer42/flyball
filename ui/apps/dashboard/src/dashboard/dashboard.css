@@ -111,6 +111,15 @@ a.dash-health-stat:hover { background: var(--fb-bg-hover, var(--fb-bg-2)); }
 .dash-editing .fb-tile-editing-float > .fb-tile-head .fb-tile-title { font-size: var(--fb-text-sm, 12px); font-weight: 600; color: var(--fb-fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
 .dash-editing .fb-tile-editing-float > .fb-tile-head .fb-tile-subtitle { display: none; }
 
+/* Dragging (Grid.tsx's `dragConfig.enabled`) is only wired up at the "lg" breakpoint (a
+   container >= 900px -- react-grid-layout halves the columns below that and stacking gets
+   fiddly); below it a tile header used to give no sign that grabbing it does nothing. A
+   grab cursor at "lg", a plain one (not a "no drop" glyph -- the header still does things,
+   just not dragging) everywhere narrower, so it stops looking broken. */
+.dash-editing[data-breakpoint="lg"] .fb-tile-drag { cursor: grab; }
+.dash-editing[data-breakpoint="lg"] .fb-tile-drag:active { cursor: grabbing; }
+.dash-editing:not([data-breakpoint="lg"]) .fb-tile-drag { cursor: default; }
+
 /* Frameless layout kinds in view mode; edit mode gives them a border so they can be found and dragged. */
 .dash-widget-heading, .dash-widget-spacer, .dash-widget-link { background: transparent; border-color: transparent; }
 .dash-editing .dash-widget-heading, .dash-editing .dash-widget-spacer, .dash-editing .dash-widget-link { border-color: var(--fb-border-1); }
