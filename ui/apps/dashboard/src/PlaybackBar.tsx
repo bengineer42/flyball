@@ -6,7 +6,8 @@ import FastRewindIcon from "@mui/icons-material/FastRewind";
 import FastForwardIcon from "@mui/icons-material/FastForward";
 import { PLAYBACK_STEP_S, type PlaybackHook } from "@flyball/react";
 
-function hms(s: number): string {
+/** Rig seconds as a local `HH:MM:SS`: the stamp the bar and the app bar's paused chip both show. */
+export function hms(s: number): string {
   const d = new Date(s * 1000);
   return d.toLocaleTimeString([], { hour12: false });
 }
@@ -14,19 +15,23 @@ function hms(s: number): string {
 /**
  * A video-style transport for a simulated rig's own recorded history:
  * play/pause, rewind, fast-forward, and a scrub slider from the session's
- * start to now. Paused (or scrubbed back), this only changes what the bar
- * itself reports (`playback.atS`/`playback.paused`) -- nothing here writes
- * a demand or a setpoint, so it is read-only by construction; resuming
- * (the play button, or fast-forwarding past `nowS`) goes straight back to
- * live. Shown only for simulated rigs (`Shell`'s `simulated` prop already
- * gates the page it sits on the same way).
+ * start to now. Paused (or scrubbed back), the bar reports `atS`/`paused`
+ * and `usePlayback` puts the telemetry store into playback, so every panel
+ * that reads samples shows the rig as it was then; an amber stamp here (and
+ * the app bar's paused chip on any other page) is the only sign -- no
+ * per-panel badge (the spec's quiet-by-default rule; nothing moves).
+ * Nothing here writes a demand or a setpoint, so it is read-only by
+ * construction; resuming (the play button, or fast-forwarding past `nowS`)
+ * goes straight back to live. Sits in the Simulation page's Playback
+ * section, which frames it (padding, the paused tint); the row itself has
+ * no chrome of its own.
  */
 export const PlaybackBar = memo(function PlaybackBar({ playback }: { playback: PlaybackHook }) {
   const { paused, atS, startS, nowS, rewind, fastForward, pause, resume, seek } = playback;
   if (startS === undefined) return null;
   const range = Math.max(1, nowS - startS);
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 0.25, borderBottom: 1, borderColor: "divider" }}>
+    <Box data-playback={paused ? "paused" : "live"} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <Tooltip title={`Rewind ${PLAYBACK_STEP_S}s`}>
         <span>
           <IconButton size="small" aria-label="rewind" onClick={() => rewind()} disabled={atS <= startS}>

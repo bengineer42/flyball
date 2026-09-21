@@ -30,7 +30,7 @@ export { LinksProvider, Ref, useHref, type HrefFor, type RefKind } from "./links
 export { UnitCharts, groupByUnit, type UnitChartsProps } from "./panels/UnitCharts.js";
 export { DevicePanel, type DevicePanelProps } from "./panels/DevicePanel.js";
 export { useSimulation, type SimulationHook } from "./hooks/useSimulation.js";
-export { usePlayback, PLAYBACK_STEP_S, type PlaybackHook } from "./hooks/usePlayback.js";
+export { usePlayback, PLAYBACK_STEP_S, type PlaybackHook, type PlaybackOptions } from "./hooks/usePlayback.js";
 export { yRange, type YScale } from "./panels/yscale.js";
 export { thin } from "./panels/thin.js";
 export { navigation, type Navigation } from "./panels/navigation.js";
@@ -43,7 +43,7 @@ export { useVisible } from "./hooks/useVisible.js";
 export { useDashboards, invalidateDashboards } from "./hooks/useDashboards.js";
 export { debugCounters, countRender, countRedraw, type DebugCounters } from "./store/debug.js";
 export { useTelemetry } from "./provider.js";
-export { TelemetryStore, emptyTrace, emptyControllerView, historyPoints, type TelemetryStoreOptions, type TraceView, type ControllerView, type ReadOptions, type StoreStream, type SocketStream } from "./store/telemetry.js";
+export { TelemetryStore, emptyTrace, emptyControllerView, historyPoints, PLAYBACK_DEBOUNCE_MS, PLAYBACK_MARGIN_S, type PlaybackSession, type TelemetryStoreOptions, type TraceView, type ControllerView, type ReadOptions, type StoreStream, type SocketStream } from "./store/telemetry.js";
 export { Ring, emptyView, type RingOptions, type RingView } from "./store/ring.js";
 export { useSignal, useLatestValue, useSample, useTraceRef, useWriteState, useWriteStates, useController, useDeviceRun, useDeviceRuns, useWaitStates, useEventsFeed, useStreamStatus, useStoreStatus, useFreshness, useAlarmSummary, useNowS, READOUT_MS, type TraceRef, type AlarmSummary } from "./store/hooks.js";
 export { useChartLifecycle, type ChartLifecycleOptions } from "./panels/useChartLifecycle.js";

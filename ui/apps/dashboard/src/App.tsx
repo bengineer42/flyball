@@ -1,13 +1,12 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, usePlayback, type YScale } from "@flyball/react";
+import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
-import { PlaybackBar } from "./PlaybackBar.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
-import { Status, SimChip } from "./Status.js";
+import { Status, SimChip, PausedChip } from "./Status.js";
 import { Overview } from "./pages/Overview.js";
 import { Dashboards } from "./pages/Dashboards.js";
 import { DashboardSwitcher } from "./dashboard/DashboardSwitcher.js";
@@ -71,8 +70,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** The app bar's chips: the polled state plus the store's stream health. */
-function AppStatus({ onSignIn }: { onSignIn(): void }) {
+/**
+ * The app bar's chips: the polled state plus the store's stream health. The
+ * paused chip shows only away from the Simulation page, where the transport
+ * itself is: pausing there freezes every page's samples, and a page with no
+ * transport in sight still needs a way back to live.
+ */
+function AppStatus({ onSignIn, playback, page }: { onSignIn(): void; playback: PlaybackHook; page: Page }) {
   const { recording, programmer, simulationSpeed } = useLive();
   const simulated = useContext(SimulatedContext);
   const { streams, byStream } = useStreamStatus();
@@ -80,6 +84,7 @@ function AppStatus({ onSignIn }: { onSignIn(): void }) {
     <>
       <Status recording={recording} programmer={programmer} streams={streams} byStream={byStream} />
       {simulated && <SimChip speed={simulationSpeed} />}
+      {simulated && page !== "simulation" && <PausedChip playback={playback} />}
       <AuthChip onSignIn={onSignIn} />
     </>
   );
@@ -152,7 +157,9 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // stack and the Events page itself, so they never disagree about what's unread.
   const { events: liveEvents } = useEvents(500);
   const unreadEvents = useUnreadEvents(liveEvents);
-  const playback = usePlayback();
+  // Paused, the store serves the page the past instead of the live rings: as much of it as the widest chart shows.
+  // The transport lives on the Simulation page; the app bar's paused chip is the way back from any other.
+  const playback = usePlayback({ windowS });
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first
@@ -196,13 +203,12 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               page={page}
               onNavigate={navigate}
               title={title}
-              status={<AppStatus onSignIn={onSignIn} />}
+              status={<AppStatus onSignIn={onSignIn} playback={playback} page={page} />}
               simulated={simulated}
               devices={all.filter((d) => d.kind !== "simulation")}
               current={name}
               eventsUnread={unreadEvents.unreadCount}
               startSlot={page === "dashboards" ? <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} /> : undefined}
-              playbackSlot={simulated && playback.startS !== undefined ? <PlaybackBar playback={playback} /> : undefined}
             >
               <Waits />
               {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
@@ -224,7 +230,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                 />
               )}
               {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
-              {page === "simulation" && <SimulationPage devices={all} />}
+              {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
             </Shell>
           )}
         </SimulatedContext.Consumer>

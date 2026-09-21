@@ -71,7 +71,8 @@ function ValueTile({ signal, place, showDevice }: { signal: SignalOut; place?: P
         </Ref>
       }
       subtitle={!showDevice ? undefined : place && captionUnder(title, signal, place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionUnder(title, signal, place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
-      footer={footer}
+      // Always a footer line, blank while fresh, as `Readout` reserves: a stale line that comes and goes resizes the tile.
+      footer={footer ?? "\u00a0"}
     >
       <div className="fb-readout-value">{body}</div>
     </PanelFrame>

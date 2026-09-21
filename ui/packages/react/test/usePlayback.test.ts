@@ -3,15 +3,16 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { Request, Response, StreamHandlers, Subscription, Transport } from "@flyball/client";
-import { RigProvider } from "../src/provider.js";
+import { RigProvider, useTelemetry } from "../src/provider.js";
 import { usePlayback, PLAYBACK_STEP_S } from "../src/hooks/usePlayback.js";
 
 /** A transport whose only route this hook needs (`GET /api/recording`) returns a fixed session;
  * `stream` never delivers anything, so `nowS` always falls back to the (fake) wall clock. */
-function fakeTransport(sessionStartS: number): Transport {
+function fakeTransport(sessionStartS: number, state: { ended?: boolean } = {}): Transport {
   return {
     async request({ path }: Request): Promise<Response> {
       if (path === "/api/recording") {
+        if (state.ended) return { status: 200, json: null };
         return { status: 200, json: { id: 7, start_ns: Math.round(sessionStartS * 1e9), end_ns: null, kind: "scratch", pinned: false } };
       }
       return { status: 404, json: undefined };
@@ -98,5 +99,43 @@ describe("usePlayback", () => {
     const { result } = await renderPlayback(1_000_000 - 3600);
     act(() => result.current.seek(0));
     expect(result.current.atS).toBeCloseTo(1_000_000 - 3600, 0);
+  });
+
+  it("drives the store: a seek puts it in playback at `atS` for the session; resume and unmount take it back to live", async () => {
+    const transport = fakeTransport(1_000_000 - 3600);
+    const rendered = renderHook(() => ({ playback: usePlayback({ windowS: 120 }), store: useTelemetry() }), {
+      wrapper: ({ children }) => createElement(RigProvider, { transport }, children),
+    });
+    await flush();
+    const { result, unmount } = rendered;
+    expect(result.current.store.playbackAtS()).toBeNull();
+    act(() => result.current.playback.rewind());
+    expect(result.current.store.playbackAtS()).toBeCloseTo(1_000_000 - PLAYBACK_STEP_S, 0);
+    act(() => result.current.playback.resume());
+    expect(result.current.store.playbackAtS()).toBeNull();
+    act(() => result.current.playback.seek(1_000_000 - 1800));
+    expect(result.current.store.playbackAtS()).toBeCloseTo(1_000_000 - 1800, 0);
+    unmount();
+    expect(result.current.store.playbackAtS()).toBeNull();
+  });
+
+  it("resumes when the session it scrubs ends: the bar never reads paused over a page the store put back to live", async () => {
+    const state = { ended: false };
+    const transport = fakeTransport(1_000_000 - 3600, state);
+    const rendered = renderHook(() => ({ playback: usePlayback(), store: useTelemetry() }), {
+      wrapper: ({ children }) => createElement(RigProvider, { transport }, children),
+    });
+    await flush();
+    act(() => rendered.result.current.playback.rewind());
+    expect(rendered.result.current.playback.paused).toBe(true);
+    expect(rendered.result.current.store.playbackAtS()).not.toBeNull();
+    state.ended = true;
+    await act(async () => {
+      vi.advanceTimersByTime(5000); // the 5 s poll of /api/recording
+    });
+    await flush();
+    expect(rendered.result.current.playback.startS).toBeUndefined();
+    expect(rendered.result.current.playback.paused).toBe(false);
+    expect(rendered.result.current.store.playbackAtS()).toBeNull();
   });
 });
