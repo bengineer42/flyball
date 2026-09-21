@@ -16,7 +16,7 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-010** | Authentication: a password for people, traded at the UI's login page for a signed `HttpOnly` cookie (no session table; the key beside the store; a changed password signs everyone out), the bearer token kept for machines, `scrypt` in the file, `anonymous: none | read` for a rig the public may watch; one principal with a level per request and one comparison, so several sign-ins or a locked part of the rig later change who gets a level, not the routes | decided |
 | **D-012** | The daemon's own auth: one bearer token (`auth.token` in `flyballd.yaml`, `FLYBALLD_TOKEN` on the CLI) on every registration route, and **closed until it is set** -- no token means 503, not open; manifests validated (`name`, `root_path`) once before either becomes a path or a line of HTML | decided |
 | **D-013** | Extensions restructure: `engine/` stays pure core plus hardware protocols only, `sim/` is new (zero third-party deps, pulled in by `flyball[web]`), `extensions/` holds every dependency-gated package (`linux`, `chips`, `modbus`, `visa`, `bluesky`, `qcodes`, `pymeasure`), `examples/furnace/` is the one worked `MultiPlant` scenario moved out | decided |
-| **D-014** | Engine restructure: `core/` split into `foundation/{device,time,router,config,quantities}/`; four implicit global registries replaced by an explicit `Catalog`/`Config`/`Instance` system in `model/` (not yet wired into the real build path -- see the entry's Consequences); `rig/`, `library/`, `record/` (renamed from `db/`), `interfaces/` (`server`+`mcp`+`client` grouped) complete the six-layer reorg -- `sequencing/` (`programmer/`) not yet moved | decided, one piece unfinished |
+| **D-014** | Engine restructure: `core/` split into `foundation/{device,time,router,config,quantities}/`; four implicit global registries replaced by an explicit `Catalog`/`Config`/`Instance` system in `model/`, now wired into the real build path (`runner.py` builds one `Catalogs`, `discover()`s it, and every consumer -- `DeviceEntry.build`, `RigConfig.model_validate`/`model_json_schema`, `/api/drivers`, `/api/drivers/reload` -- reads from it, not a bare `ClassVar` dict; `Config.registry` is gone); `rig/`, `library/`, `record/` (renamed from `db/`), `interfaces/` (`server`+`mcp`+`client` grouped) complete the six-layer reorg -- `sequencing/` (`programmer/`) not yet moved | decided |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.
@@ -29,27 +29,6 @@ chapter describes intent rather than fact, it says which.
   no failsafe on a stale sensor.
 - **Adaptation in control.** Estimator and retune policy exist; wiring them
   into a controller is not done.
-- **Per-driver registries.** Driver tags (`flyball.model.config.Config.registry`)
-  are one process-wide namespace, so two plugins declaring the same tag
-  would collide. No longer hypothetical: D-013's restructure created ten
-  separate `flyball.configs`-registering packages (`extensions/{linux,chips,
-  modbus,visa,bluesky,qcodes,pymeasure}`, `sim`, `examples/furnace`,
-  `examples/humidity`) — "a second plugin" exists several times over, and no
-  collision has been hit yet, but nothing prevents one. Device *names* don't
-  have this problem: they are claimed per rig (`Rig.claim`), not
-  process-wide, which is part of what D-006 fixed relative to D-004's
-  interned sources and measurands. The registry redesign (`brain/tasks/
-  registry-redesign.md`) replaces this with an explicit, collision-checked
-  `Catalog[T]` (`flyball.model.catalog`) -- built and used for engine's own
-  laws so far, `Config.registry` still the live path for devices/links,
-  migrating them is that plan's next rollout step. Two further gaps D-013 flagged: `discover()`
-  (the `flyball.configs` entry-point reader) only runs at runner startup, so
-  installing a new extension package into a running deployment doesn't make
-  its tags available without a restart — unlike a driver dropped into a rig's
-  local `drivers/` directory, which has a live `POST /api/drivers/reload`
-  path; and nothing currently tests that a package's declared entry point
-  actually lands its tags in the registry, so a typo'd or missing entry point
-  silently drops a whole package's tags with no error at the point of failure.
 - **Model-based control.** MPC is the natural home for limits and would take
   the identified model directly. Not started.
 
@@ -59,3 +38,14 @@ now hosts as many as have targets (`Controllers`, keyed by the target's
 address, with a `default`). **Events** — `core.device.Event`, `rig.events`
 and `rig.recent` exist; the programmer records step outcomes through
 `rig.event(...)`; a session records them (`SessionWriter.write_event`).
+**Per-driver registries** — every `flyball.configs`-registering package
+(`extensions/{linux,chips,modbus,visa,bluesky,qcodes,pymeasure}`, `sim`,
+`examples/{furnace,humidity}`, and engine's own built-in laws) now has an
+explicit `register(catalog)`, called by `Catalogs.discover()`; `Config
+.registry`'s implicit, process-wide `__init_subclass__` write is gone, so a
+collision is caught by the `Catalog` that actually holds a tag (`register()`
+raises), not silently. `discover()` still only runs at runner startup (live
+reload of a newly-installed package remains open, unlike a `drivers/`
+directory's `POST /api/drivers/reload`), but a missing or silently-empty
+`register()` is no longer untested: `engine/tests/test_catalog_discovery.py`
+fails the suite if any installed entry point doesn't register something.
