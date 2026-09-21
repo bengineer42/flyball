@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import { describeUnit, fixed, humanise, tickDigits, withUnit } from "@flyball/client";
-import { axisSize, yRange, type YScale } from "./yscale.js";
+import { axisSize, edgeTicks, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { showLatestInLegend } from "./legend.js";
 import { navigation } from "./navigation.js";
@@ -204,9 +204,9 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
       })(),
     };
     const axes: uPlot.Axis[] = [
-      // 80px between ticks: the first label carries the date on a second line and is wider than the times after it.
-      { label: "time", stroke: fg, space: 80 },
-      { label: axisTitle(unit, series.filter((s) => scaleOf(s, unit) === "y")), size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
+      // 260px between ticks: a sparse two-or-three-label time axis rather than a dense running scale.
+      { label: "time", stroke: fg, space: 260 },
+      { label: axisTitle(unit, series.filter((s) => scaleOf(s, unit) === "y")), size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision), filter: edgeTicks },
     ];
     const plotted: uPlot.Series[] = [{}];
     // Extra axes alternate right/left (side 1, 3, 1, 3, …), three a side, six on screen with the primary.
@@ -222,7 +222,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         if (scale !== "y" && extraAxesShown < MAX_EXTRA_AXES) {
           const side = extraAxesShown % 2 === 0 ? 1 : 3;
           extraAxesShown++;
-          axes.push({ label: axisTitle(s.unit, series.filter((o) => scaleOf(o, unit) === scale)), size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
+          axes.push({ label: axisTitle(s.unit, series.filter((o) => scaleOf(o, unit) === scale)), size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision), filter: edgeTicks });
         }
       }
       const line: uPlot.Series = {

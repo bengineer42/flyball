@@ -29,6 +29,25 @@ export const axisSize: uPlot.Axis.Size = (self, values, axisIdx, cycleNum) => {
   return Math.ceil(Math.max(24, textWidth) + ticksSize + gap + 4);
 };
 
+/**
+ * Keeps only the ticks closest to the scale's current min and max, dropping
+ * the rest: a sparse "top and bottom value" y axis instead of uPlot's dense
+ * default. uPlot doesn't offer a "give me exactly N ticks" option, so this
+ * filters its own computed splits down to the two nearest the live bounds.
+ */
+export const edgeTicks: uPlot.Axis.Filter = (u, splits, axisIdx) => {
+  const scaleKey = u.axes[axisIdx]!.scale ?? "y";
+  const { min, max } = u.scales[scaleKey] ?? {};
+  if (min == null || max == null || splits.length === 0) return splits;
+  let lo = 0,
+    hi = 0;
+  for (let i = 1; i < splits.length; i++) {
+    if (Math.abs(splits[i]! - min) < Math.abs(splits[lo]! - min)) lo = i;
+    if (Math.abs(splits[i]! - max) < Math.abs(splits[hi]! - max)) hi = i;
+  }
+  return splits.map((s, i) => (i === lo || i === hi ? s : null));
+};
+
 /** uPlot `range` for a y scale, or undefined to let uPlot autoscale. */
 export function yRange(
   scale: YScale | undefined,
