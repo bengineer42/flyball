@@ -15,6 +15,7 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-008** | The scratch record and retention: a rig nobody is recording still keeps its last hour, in the store (not memory), as a scratch session written *instead of* a recording rather than beside one; trimming moves the session's start against a hidden origin instead of rewriting offsets; a per-session size estimate plus the real file size for the cap; `keep` / `keep_size` / `retain` / `rotate` / `max_store` in the `runner:` section, pinned sessions exempt, the oldest data first under the cap whatever its kind | decided |
 | **D-010** | Authentication: a password for people, traded at the UI's login page for a signed `HttpOnly` cookie (no session table; the key beside the store; a changed password signs everyone out), the bearer token kept for machines, `scrypt` in the file, `anonymous: none | read` for a rig the public may watch; one principal with a level per request and one comparison, so several sign-ins or a locked part of the rig later change who gets a level, not the routes | decided |
 | **D-012** | The daemon's own auth: one bearer token (`auth.token` in `flyballd.yaml`, `FLYBALLD_TOKEN` on the CLI) on every registration route, and **closed until it is set** -- no token means 503, not open; manifests validated (`name`, `root_path`) once before either becomes a path or a line of HTML | decided |
+| **D-013** | Extensions restructure: `engine/` stays pure core plus hardware protocols only, `sim/` is new (zero third-party deps, pulled in by `flyball[web]`), `extensions/` holds every dependency-gated package (`linux`, `chips`, `modbus`, `visa`, `bluesky`, `qcodes`, `pymeasure`), `examples/furnace/` is the one worked `MultiPlant` scenario moved out | decided |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.
@@ -29,10 +30,21 @@ chapter describes intent rather than fact, it says which.
   into a controller is not done.
 - **Per-driver registries.** Driver tags (`flyball.core.config.Config.registry`)
   are one process-wide namespace, so two plugins declaring the same tag
-  still collide — not needed until a second plugin exists. Device *names* no longer have this
-  problem: they are claimed per rig (`Rig.claim`), not process-wide, which
-  is part of what D-006 fixed relative to D-004's interned sources and
-  measurands.
+  would collide. No longer hypothetical: D-013's restructure created ten
+  separate `flyball.configs`-registering packages (`extensions/{linux,chips,
+  modbus,visa,bluesky,qcodes,pymeasure}`, `sim`, `examples/furnace`,
+  `examples/humidity`) — "a second plugin" exists several times over, and no
+  collision has been hit yet, but nothing prevents one. Device *names* don't
+  have this problem: they are claimed per rig (`Rig.claim`), not
+  process-wide, which is part of what D-006 fixed relative to D-004's
+  interned sources and measurands. Two further gaps D-013 flagged: `discover()`
+  (the `flyball.configs` entry-point reader) only runs at runner startup, so
+  installing a new extension package into a running deployment doesn't make
+  its tags available without a restart — unlike a driver dropped into a rig's
+  local `drivers/` directory, which has a live `POST /api/drivers/reload`
+  path; and nothing currently tests that a package's declared entry point
+  actually lands its tags in the registry, so a typo'd or missing entry point
+  silently drops a whole package's tags with no error at the point of failure.
 - **Model-based control.** MPC is the natural home for limits and would take
   the identified model directly. Not started.
 
