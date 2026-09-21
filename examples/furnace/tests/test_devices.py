@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import pytest
 from flyball.control.laws import PI
-from flyball.core.device import DeviceEntry
-from flyball.core.errors import ConflictError, HardwareError, NotFoundError
-from flyball.core.signal import Access, Sample, Signal
+from flyball.foundation.device import Access, DeviceEntry, Sample, Signal
+from flyball.foundation.errors import ConflictError, HardwareError, NotFoundError
 from flyball.runtime.config import RigConfig
 from flyball.runtime.rig import Rig
 from flyball_sim import DaqPort, SimDaqConfig, SimDriveConfig, SteppedClock

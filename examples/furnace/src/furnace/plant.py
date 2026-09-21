@@ -20,8 +20,8 @@ import random
 from collections.abc import Sequence
 from threading import Lock
 
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Band
+from flyball.foundation.device import Band
+from flyball.foundation.quantities import Quantity
 from flyball_sim.devices import POWER_W, TEMPERATURE_C
 
 STEFAN_BOLTZMANN = 5.670374419e-8

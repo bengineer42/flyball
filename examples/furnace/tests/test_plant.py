@@ -214,12 +214,12 @@ def test_rate_feedforward_beats_plain_pi_which_beats_a_static_table(furnace_rig)
 
 
 def Rate_per_minute(value: float):  # noqa: N802  a test helper reading like the file
-    from flyball.core.clock import Speed, TimeUnit
+    from flyball.foundation.time import Speed, TimeUnit
 
     return Speed(value, TimeUnit.MINUTE)
 
 
 def Duration_minutes(value: float):  # noqa: N802
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
 
     return Duration.from_seconds(value * 60)
