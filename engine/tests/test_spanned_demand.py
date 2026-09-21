@@ -1,10 +1,10 @@
 """The unit/span shape shared by `pwm_channel` and `mcp4725`, tested once here."""
 
 import pytest
+
 from flyball.core.quantity import Quantity
 from flyball.core.units import DIMENSIONLESS
-
-from flyball_linux.devices.spanned_demand import (
+from flyball.hardware.spanned_demand import (
     from_fraction,
     spanned_signal_spec,
     to_fraction,

@@ -1,14 +1,10 @@
 """A `[RPW]` signal that is a bare 0-1 fraction unless `unit`+`span` map it onto engineering units.
 
-The shape `pwm_channel` and `mcp4725` both need verbatim: validate the pair, build the signal
-spec, and convert between a signal's value and the fraction a device actually writes. Two call
-sites today (`pwm.py`, `mcp4725.py`) with identical code, not just similar shape -- worth sharing
-now rather than waiting for a third.
-
-Stays in `flyball_linux`, not engine core: `flyball.sim.devices`'s `DrivePort`/`_fraction`
-(`sim_drive`) builds the same idea independently, but nothing here has ever migrated it to use
-this module, so that's a hypothetical third consumer, not a real one. Promote this to engine only
-once something in `engine/` genuinely imports it -- see brain/IDEAS.md.
+Shared by any demand-signal driver that writes a bare 0-1 fraction to its bus unless `unit`+`span`
+map it onto engineering units first: validate the pair, build the signal spec, and convert between
+a signal's value and the fraction actually written. Originally `pwm.py` and `mcp4725.py`
+(`extensions/linux`), promoted here once `extensions/chips` needed it too -- `mcp4725` moved out of
+`flyball_linux`, `pwm.py` stayed, and neither package should depend on the other for this.
 """
 
 from __future__ import annotations
@@ -74,3 +70,6 @@ def from_fraction(achieved: float, span: Band | None) -> float:
         return achieved
     d0, d1 = span
     return d0 + achieved * (d1 - d0)
+
+
+__all__ = ["from_fraction", "spanned_signal_spec", "to_fraction", "validate_span"]

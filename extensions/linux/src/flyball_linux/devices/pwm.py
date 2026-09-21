@@ -17,14 +17,14 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Band, Signal
 from flyball.core.units import DIMENSIONLESS
 from flyball.core.units.si import Hertz
-from pydantic import Field, model_validator
-
-from flyball_linux.devices.spanned_demand import (
+from flyball.hardware.spanned_demand import (
     from_fraction,
     spanned_signal_spec,
     to_fraction,
     validate_span,
 )
+from pydantic import Field, model_validator
+
 from flyball_linux.links.pwm import PwmLink, PwmLinkConfig
 
 # The same unit `flyball.sim.devices` gives a plant's drive, defined alike so the two agree.

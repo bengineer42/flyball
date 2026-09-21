@@ -15,9 +15,9 @@ from flyball.core.device import DriverConfig, Readable
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Access, Node, Sample, Signal, SignalSpec
 from flyball.hardware.i2c import I2cLink
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field
 
-from flyball_linux.devices.scan import Scan
 from flyball_linux.links.i2c import I2cLinkConfig
 
 CONVERSION = 0x00

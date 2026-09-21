@@ -2,9 +2,9 @@
 
 A device is polled on the smallest `poll_s` in its tree; a signal with a
 longer one of its own is due only every so often. Every multi-signal
-driver here asks a [Scan][flyball_linux.devices.scan.Scan] which of its own
-signals (registers, channels -- never `conditions` or `last.*`) are due at
-an instant, so the rule lives once.
+driver asks a [Scan][flyball.hardware.scan.Scan] which of its own signals
+(registers, channels -- never `conditions` or `last.*`) are due at an
+instant, so the rule lives once.
 """
 
 from __future__ import annotations

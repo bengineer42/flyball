@@ -33,14 +33,14 @@ from flyball.core.quantity import Quantity
 from flyball.core.signal import Band, Signal
 from flyball.core.units import DIMENSIONLESS
 from flyball.hardware.i2c import I2cLink
-from pydantic import Field, model_validator
-
-from flyball_linux.devices.spanned_demand import (
+from flyball.hardware.spanned_demand import (
     from_fraction,
     spanned_signal_spec,
     to_fraction,
     validate_span,
 )
+from pydantic import Field, model_validator
+
 from flyball_linux.links.i2c import I2cLinkConfig
 
 MCP4725_ADDRESS = 0x60
