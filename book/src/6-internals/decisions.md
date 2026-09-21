@@ -40,16 +40,26 @@ and `rig.recent` exist; the programmer records step outcomes through
 `rig.event(...)`; a session records them (`SessionWriter.write_event`).
 **Per-driver registries** — every `flyball.configs`-registering package
 (`extensions/{linux,chips,modbus,visa,bluesky,qcodes,pymeasure}`, `sim`,
-`examples/{furnace,humidity}`, and engine's own built-in laws) now has an
-explicit `register(catalog)`, called by `Catalogs.discover()`; `Config
-.registry`'s implicit, process-wide `__init_subclass__` write is gone, so a
-collision is caught by the `Catalog` that actually holds a tag (`register()`
-raises), not silently. `discover()` still only runs at runner startup (live
-reload of a newly-installed package remains open, unlike a `drivers/`
-directory's `POST /api/drivers/reload`), but a missing or silently-empty
-`register()` is no longer untested: `engine/tests/test_catalog_discovery.py`
-fails the suite if any installed entry point doesn't register something.
-This covers devices and links (`Config.registry`, now removed). Laws,
-feedforwards and generators still have their own separate, still-implicit
-`__init_subclass__` dicts (`ControlLaws`/`Feedforwards`/`SetPointGenerators`)
--- same fragility, not yet migrated, a real follow-up not covered here.
+`examples/{furnace,humidity}`, and engine's own built-in laws, feedforwards
+and generators) now has an explicit `register(catalog)`, called by
+`Catalogs.discover()`; the four old implicit, process-wide
+`__init_subclass__` writes (`Config.registry`, `ControlLaws`,
+`Feedforwards`, `SetPointGenerators`) are all gone, so a collision is caught
+by the `Catalog` that actually holds a tag (`register()` raises), not
+silently, for devices and links *and* laws/feedforwards/generators alike.
+`discover()` still only runs at runner startup (live reload of a
+newly-installed package remains open, unlike a `drivers/` directory's `POST
+/api/drivers/reload`), but a missing or silently-empty `register()` is no
+longer untested: `engine/tests/test_catalog_discovery.py` fails the suite if
+any installed entry point doesn't register something, across all five
+kinds. One asymmetry remains, not a registry gap: a rig *file*'s `law`/
+`feedforward`/`generator` fields are still typed from engine's built-ins
+directly (`interfaces/server/schemas.py`, `runtime/config.py`), not
+`get_catalog()` -- unlike a device driver or link, nothing outside engine
+defines one of these today, and building that union from `Catalogs
+.discover()` at those modules' own import time risks `discover()`
+re-entering a module still mid-import through an extension's own import
+chain (`flyball_sim` imports `RigConfig` from `runtime/config.py`, for
+instance). A third-party law would need that static typing revisited, the
+same way `rig_model()` already rebuilds the `links` field dynamically per
+request for devices/links.

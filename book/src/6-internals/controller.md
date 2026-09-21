@@ -133,8 +133,9 @@ unit, that ought to hold the setpoint, which is in the **source's**. The law
 corrects the rest, so its gains are in target units per source unit (watts
 per °C on a bare heater; °C per °C on a packaged controller that itself
 takes a temperature). Feedforwards are tagged and self-describing like laws
-(`Feedforward` in `flyball.control.feedforward`; subclassing generates the
-config and registers the tag), and a rig file names one per controller:
+(`Feedforward` in `flyball.model.feedforward`; subclassing generates the
+config, and `control/configs.py` registers the built-in tags on a
+`Catalogs`), and a rig file names one per controller:
 
 | tag | `demand =` | for |
 | --- | --- | --- |
