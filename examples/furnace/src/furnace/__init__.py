@@ -1,7 +1,8 @@
-"""Registers this package's tagged config: the multi-zone furnace plant.
+"""The multi-zone furnace plant.
 
-Importing `furnace` -- directly, or through the `flyball.configs` entry
-point `discover()` reads -- makes `sim_furnace` valid in a rig file.
+`furnace.configs.register` is the `flyball.configs` entry point that makes
+`sim_furnace` a valid tag in a rig file -- explicit, not a side effect of
+importing this package.
 """
 
 from __future__ import annotations

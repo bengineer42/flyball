@@ -14,7 +14,7 @@ classifiers = ["Private :: Do Not Upload"]
 # What `flyball rig check`, the runner and the schema load to make
 # `sim_furnace` a valid tag in a rig file.
 [project.entry-points."flyball.configs"]
-furnace = "furnace"
+furnace = "furnace.configs"
 
 [tool.uv.sources]
 flyball = { path = "../../engine", editable = true }
