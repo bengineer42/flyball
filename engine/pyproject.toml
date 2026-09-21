@@ -169,17 +169,21 @@ warn_unreachable = true
 # ordered list, not merged into flyball.runtime's line either: the two are
 # genuinely bidirectionally coupled today, not just incidentally. flyball.rig
 # is authorized to keep this shape by engine-structure.md's own rig-move step.
-# flyball.runtime.config/writer/recorder import Rig at real (non-deferred)
-# module level to build/type one; flyball.rig.rig in turn imports
+# flyball.runtime.config/writer/retention import Rig at real (non-deferred)
+# module level to build/type one (NOT recorder.py -- it never references Rig
+# at all, checked directly); flyball.rig.rig in turn imports
 # flyball.runtime.writer at module level (the Writer it hands blocking
-# devices to) and flyball.runtime.config/recorder inside two methods
-# (deferred, to break the import cycle at load time, but still a real edge --
-# import-linter's layers contract statically flags deferred imports the same
-# as top-level ones, checked directly: both "runtime | rig" as siblings and
-# "rig" below "runtime" broke the contract for this reason). A strict order
-# would require finishing core-split.md's parked runtime/config.py split
-# (its schema/runner/rig/boards/documents concerns) so the pieces rig
-# actually needs move out of runtime -- out of scope here. Until then,
+# devices to) and flyball.runtime.config inside a method (deferred, to break
+# the import cycle at load time, but still a real edge -- import-linter's
+# layers contract statically flags deferred imports the same as top-level
+# ones, checked directly: both "runtime | rig" as siblings and "rig" below
+# "runtime" broke the contract for this reason). The actual minimal fix is
+# narrower than it looks: move writer.py and retention.py into rig/ (both
+# are small, self-contained, and conceptually rig's already -- every method
+# holds `self.rig: Rig`), and extract just RigConfig/canonical()/build()/
+# rig_model()/load_rig() out of runtime/config.py (not the file's other
+# concerns -- RunnerConfig/AuthConfig/board resolution don't need Rig and
+# don't need to move). Out of scope here either way. Until then,
 # `flyball.rig` stays unlisted (unconstrained by this contract, same as
 # `flyball.scaffold` already is) rather than encoding a layering that isn't
 # true yet.

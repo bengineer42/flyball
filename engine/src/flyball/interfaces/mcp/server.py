@@ -48,7 +48,7 @@ def _wire(tool: Tool) -> types.Tool:
     )
 
 
-class Registry:
+class ToolCache:
     """The tools for one rig and mode, built from the schema on first use.
 
     Lazy so a server mounted in the runner can be made before the runner
@@ -76,7 +76,7 @@ class Registry:
 
 def build(rig: Rig, mode: str) -> Server[Any]:
     """The MCP server for `rig` in `mode`."""
-    registry = Registry(rig, mode)
+    registry = ToolCache(rig, mode)
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
         return types.ListToolsResult(tools=[_wire(t) for t in (await registry.get()).values()])
