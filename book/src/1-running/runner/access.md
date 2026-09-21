@@ -17,7 +17,7 @@ Three ways a runner can stand:
   hashed line `flyball password` prints (`$scrypt$…`), which is what belongs
   in a file that is committed anywhere.
 - **A token** (`--token T`, `FLYBALL_TOKEN`, `auth.token`): for machines. The
-  Python client (`flyball.client.Rig`), `flyball-mcp` and any script send it
+  Python client (`flyball.interfaces.client.Rig`), `flyball-mcp` and any script send it
   as `Authorization: Bearer T`; a websocket, or a plain `GET` the browser
   navigates to (an export link), may pass `?token=T` instead, since a browser
   cannot set headers on either -- a URL is logged where a header is not, so

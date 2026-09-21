@@ -40,13 +40,13 @@ error the rig, the daemon or a local check reported.
 
 ## The client underneath
 
-`flyball.client.Rig` is the Python library the runner and the MCP server
+`flyball.interfaces.client.Rig` is the Python library the runner and the MCP server
 build on internally; it's also usable standalone, imports nothing from the
 rig, and is not what the Go CLI is built on (the CLI is a separate Go
 implementation of the same HTTP calls):
 
 ```python
-from flyball.client import Rig
+from flyball.interfaces.client import Rig
 
 rig = Rig("http://pi:8000")
 rig.devices.heater.set_limit(limit=0.5)

@@ -1,22 +1,22 @@
-# `flyball.server`
+# `flyball.interfaces.server`
 
-::: flyball.server
+::: flyball.interfaces.server
     options:
       members: false
       show_root_heading: false
 
-::: flyball.server.app
+::: flyball.interfaces.server.app
 
-::: flyball.server.commands
+::: flyball.interfaces.server.commands
 
-::: flyball.server.deps
+::: flyball.interfaces.server.deps
 
-::: flyball.server.dialect
+::: flyball.interfaces.server.dialect
 
-::: flyball.server.formats
+::: flyball.interfaces.server.formats
 
-::: flyball.server.schemas
+::: flyball.interfaces.server.schemas
 
-::: flyball.server.wire
+::: flyball.interfaces.server.wire
 
-::: flyball.server.auth
+::: flyball.interfaces.server.auth

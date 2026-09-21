@@ -87,8 +87,8 @@ The body is `{"detail": "<the exception's message>"}`.
 The runner that wants history attaches a store as well:
 
 ```python
-from flyball.db import SqliteStore
-from flyball.server import set_store
+from flyball.record import SqliteStore
+from flyball.interfaces.server import set_store
 
 store = SqliteStore("rig.db")
 set_store(store)

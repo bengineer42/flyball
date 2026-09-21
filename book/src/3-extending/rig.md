@@ -57,7 +57,7 @@ in the order the device delivered them. See
 ## Recording
 
 ```python
-from flyball.db import SqliteStore
+from flyball.record import SqliteStore
 store = SqliteStore("run.db")
 rig.start_recording(store, **session_fields)
 ...
@@ -77,7 +77,7 @@ one list append per tick. See [Storage](../6-internals/db.md).
 ```
 
 `set_rig` attaches the rig to the FastAPI app and the observer that feeds
-the websockets. Then any ASGI server runs `flyball.server:app`.
+the websockets. Then any ASGI server runs `flyball.interfaces.server:app`.
 [The runner](../1-running/runner/index.md) covers running it for real.
 
 ## From a file

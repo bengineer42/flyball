@@ -1,36 +1,36 @@
-# `flyball.server.routes`
+# `flyball.interfaces.server.routes`
 
-::: flyball.server.routes
+::: flyball.interfaces.server.routes
     options:
       members: false
       show_root_heading: false
 
-::: flyball.server.routes.devices
+::: flyball.interfaces.server.routes.devices
 
-::: flyball.server.routes.read
+::: flyball.interfaces.server.routes.read
 
-::: flyball.server.routes.controllers
+::: flyball.interfaces.server.routes.controllers
 
-::: flyball.server.routes.waits
+::: flyball.interfaces.server.routes.waits
 
-::: flyball.server.routes.history
+::: flyball.interfaces.server.routes.history
 
-::: flyball.server.routes.program
+::: flyball.interfaces.server.routes.program
 
-::: flyball.server.routes.recording
+::: flyball.interfaces.server.routes.recording
 
-::: flyball.server.routes.dashboards
+::: flyball.interfaces.server.routes.dashboards
 
-::: flyball.server.routes.sim
+::: flyball.interfaces.server.routes.sim
 
-::: flyball.server.routes.events
+::: flyball.interfaces.server.routes.events
 
-::: flyball.server.routes.export
+::: flyball.interfaces.server.routes.export
 
-::: flyball.server.routes.library
+::: flyball.interfaces.server.routes.library
 
-::: flyball.server.routes.rig
+::: flyball.interfaces.server.routes.rig
 
-::: flyball.server.routes.schema
+::: flyball.interfaces.server.routes.schema
 
-::: flyball.server.routes.telemetry
+::: flyball.interfaces.server.routes.telemetry

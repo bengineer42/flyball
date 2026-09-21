@@ -16,7 +16,7 @@ the routes are `POST /api/controllers/{address}/regulate {"at": …}`,
 CLI's client:
 
 ```python
-from flyball.client import Rig
+from flyball.interfaces.client import Rig
 rig = Rig("http://pi:8000")
 rig.post("/api/controllers/heaters.heater1/regulate", {"at": 400})
 ```

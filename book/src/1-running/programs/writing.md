@@ -78,7 +78,7 @@ server at it:
 
 ```python
 from flyball.programmer import Programmer
-from flyball.server.dialect import Dialect, program_from_file
+from flyball.interfaces.server.dialect import Dialect, program_from_file
 
 program = program_from_file("bake.yaml", Dialect(commands=Commands))
 Programmer(rig).run(program)          # blocks until done or interrupted

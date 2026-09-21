@@ -40,11 +40,12 @@ writing a device driver rather than editing the rig.
 | `flyball.autotune` | `hardware\|adaptive\|autotune\|db` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
 | `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
 | `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2cLink`, `Bank`; `links`: the `TextLink`/`RegisterLink` protocols only -- their fakes, real implementations (VISA, serial, Modbus) and the table-driven `scpi`/`modbus` devices built over them live in `extensions/visa`, `extensions/modbus` |
-| `flyball.db` | `hardware\|adaptive\|autotune\|db` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
+| `flyball.record` | `hardware\|adaptive\|autotune\|record` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
 | `flyball.runtime` | runtime | `Rig`, `Controllers`, `Polling`, `Recorder`, `Triggers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
 | `flyball.programmer` | `programmer` | `Command`, `Activity`, `Program`, `Programmer` |
-| `flyball.server` | server | the FastAPI app, routes, wire models, the program dialect |
-| `flyball.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
+| `flyball.interfaces.server` | `mcp\|server` | the FastAPI app, routes, wire models, the program dialect |
+| `flyball.interfaces.mcp` | `mcp\|server` | the MCP server (stdio and mounted), tools, guides; built entirely on `flyball.interfaces.client` |
+| `flyball.interfaces.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
 
 ## The pattern
 
@@ -88,17 +89,17 @@ above:
 
 ```
 flyball.runner
-flyball.server
+flyball.interfaces.mcp | flyball.interfaces.server
 flyball.programmer
 flyball.runtime
-flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db
+flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record
 flyball.control
 flyball.foundation
 ```
 
-A second contract keeps `flyball.client` and `flyball.scaffold` standing
+A second contract keeps `flyball.interfaces.client` and `flyball.scaffold` standing
 apart from all of it: neither may import `flyball.foundation`, `flyball.control`,
-`flyball.runtime`, `flyball.server` or `flyball.programmer`, so a client
+`flyball.runtime`, `flyball.interfaces.server` or `flyball.programmer`, so a client
 built from the wire alone cannot quietly start depending on the rig's
 internals.
 

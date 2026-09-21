@@ -1,10 +1,10 @@
-# `flyball.client`
+# `flyball.interfaces.client`
 
-::: flyball.client
+::: flyball.interfaces.client
     options:
       members: false
       show_root_heading: false
 
-::: flyball.client.rig
+::: flyball.interfaces.client.rig
 
-::: flyball.client.validate
+::: flyball.interfaces.client.validate

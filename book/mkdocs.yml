@@ -161,8 +161,8 @@ nav:
           - flyball.runtime: 7-reference/python/flyball/runtime.md
           - flyball.programmer: 7-reference/python/flyball/programmer.md
           - flyball.hardware: 7-reference/python/flyball/hardware.md
-          - flyball.db: 7-reference/python/flyball/db.md
-          - flyball.server: 7-reference/python/flyball/server.md
-          - flyball.server.routes: 7-reference/python/flyball/server/routes.md
-          - flyball.client: 7-reference/python/flyball/client.md
+          - flyball.record: 7-reference/python/flyball/record.md
+          - flyball.interfaces.server: 7-reference/python/flyball/interfaces/server.md
+          - flyball.interfaces.server.routes: 7-reference/python/flyball/interfaces/server/routes.md
+          - flyball.interfaces.client: 7-reference/python/flyball/interfaces/client.md
   - Glossary: glossary.md

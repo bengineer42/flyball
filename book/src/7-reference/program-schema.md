@@ -27,7 +27,7 @@ declares. Any other key is an error.
 | number, string, bool | as in YAML |
 | `Duration` | `{seconds: 90}`, `{minutes: 1, seconds: 30}`, `{hours: 2}`, or a bare number of seconds. Keys are the plural of `nanosecond`, `microsecond`, `millisecond`, `second`, `minute`, `hour`, `day`; they add |
 | `Rate` | one key: `{per_second: 0.01}`, `{per_minute: 2}`, … |
-| `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field (`foldable()` in `flyball.server.dialect`) |
+| `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field (`foldable()` in `flyball.interfaces.server.dialect`) |
 | `ValueSource \| float` | a number, or `process`, `setpoint`, `demand` |
 | a controller name | the address of the writable signal it drives, e.g. `heaters.heater1` — a controller is named by its target |
 | a law (`tuning`) | the name of a registered tuning, or `{tag: PI, kp: …, ki: …, tt: …}` |
@@ -78,7 +78,7 @@ worked example.
 
 ## The generated schema
 
-`program_schema(dialect)` (`flyball.server.dialect`) emits the JSON Schema
+`program_schema(dialect)` (`flyball.interfaces.server.dialect`) emits the JSON Schema
 for the whole file from the command registry: one `oneOf` branch per
 command, each requiring its key; the value is the command's request schema
 without `command`, or the bare `primary` field's schema as an alternative;
