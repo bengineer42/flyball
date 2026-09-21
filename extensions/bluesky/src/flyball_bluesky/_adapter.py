@@ -23,7 +23,7 @@ from typing import Any, get_origin
 
 from flyball.foundation.device import Access, Node, Signal
 from flyball.foundation.router import Trigger
-from flyball.runtime.rig import Rig
+from flyball.rig import Rig
 
 DataKey = dict[str, Any]
 Value = dict[str, dict[str, Any]]
