@@ -7,7 +7,7 @@ The raw ADC registers (`press`, `temp`, `hum`) are a plain register map, but
 turning them into physical units needs Bosch's own polynomial compensation
 against a block of factory-trimmed calibration words read once at startup --
 not [I2cTable][flyball_linux.devices.i2c_table]'s `scale`/`offset`, so this
-module reads both blocks directly through [I2cLink][flyball_linux.links.i2c.I2cLink]
+module reads both blocks directly through [I2cLink][flyball.hardware.i2c.I2cLink]
 and applies the datasheet's floating-point compensation formulas verbatim
 (section 4.2.3 of the datasheet; `[Unverified]`: Bosch does not publish a
 numeric worked example for these formulas the way TE does for the MS5611, so
@@ -36,7 +36,7 @@ from flyball.core.units.si import Celsius, Pascal
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
 
 BME280_ADDRESS = 0x76
 """SDO low; SDO high answers at 0x77."""

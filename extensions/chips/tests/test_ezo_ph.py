@@ -2,9 +2,9 @@
 
 import pytest
 from flyball.core.errors import HardwareError
+from flyball_sim.links import FakeUart
 
-from flyball_linux.devices.chips import ezo_ph
-from flyball_linux.links.uart import FakeUart
+from flyball_chips import ezo_ph
 
 
 class TestParsePh:

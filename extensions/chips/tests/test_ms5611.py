@@ -2,9 +2,9 @@
 
 import pytest
 from flyball.core.errors import HardwareError
+from flyball_sim.links import FakeI2c
 
-from flyball_linux.devices.chips import ms5611
-from flyball_linux.links.i2c import FakeI2c
+from flyball_chips import ms5611
 
 # The MS5611-01BA03 datasheet's own worked example.
 COEFFICIENTS = (40127, 36924, 23317, 23282, 33464, 28312)

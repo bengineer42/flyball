@@ -32,7 +32,7 @@ from flyball.core.units.si import Celsius, Pascal
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
 
 MS5611_ADDRESS = 0x77
 """CSB pin low; CSB high answers at 0x76."""

@@ -61,9 +61,10 @@ from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Node, Sample
 from flyball.core.units.si import Gram
+from flyball.hardware.gpio import GpioLink
 from pydantic import Field
 
-from flyball_linux.links.gpio import GpioLink, GpioLinkConfig
+from flyball_chips._links import GpioLinkConfig
 
 Gain = Literal["a128", "b32", "a64"]
 GAIN_PULSES: dict[Gain, int] = {"a128": 25, "b32": 26, "a64": 27}

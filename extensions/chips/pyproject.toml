@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyball-chips"
+version = "0.1.0"
+description = "Chip drivers for flyball rigs: I2C/SPI/GPIO/UART sensors and actuators, one module each"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+# Protocol-level, OS-agnostic: flyball for the link protocols, flyball-sim for the
+# fakes its own tests (and a hardware-free rig) run against. Never flyball-linux --
+# a real bus is the rig's business, resolved by name through `links:`, not this
+# package's.
+dependencies = ["flyball", "flyball-sim"]
+classifiers = ["Private :: Do Not Upload"]
+
+# What `flyball rig check`, the runner and the schema load to make these tags valid.
+[project.entry-points."flyball.configs"]
+chips = "flyball_chips.configs"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+
+[tool.uv.sources]
+flyball = { path = "../../engine", editable = true }
+flyball-sim = { path = "../../sim", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyball_chips"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../engine/pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "RUF", "D"]

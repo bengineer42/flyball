@@ -1,9 +1,9 @@
 """MCP4725 Fast Mode write encoding, and a full write through `FakeI2c`."""
 
 import pytest
+from flyball_sim.links import FakeI2c
 
-from flyball_linux.devices.chips import mcp4725
-from flyball_linux.links.i2c import FakeI2c
+from flyball_chips import mcp4725
 
 
 class TestEncode:

@@ -32,8 +32,8 @@ from flyball.core.units.si import PartsPerBillion, PartsPerMillion
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.devices.chips._sensirion import command, crc8, crc_words, word_with_crc
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
+from flyball_chips._sensirion import command, crc8, crc_words, word_with_crc
 
 CO2EQ = Quantity("CO2 equivalent", PartsPerMillion)
 TVOC = Quantity("total VOC", PartsPerBillion)

@@ -1,9 +1,9 @@
 """BME280/BMP280: calibration parsing and Bosch compensation, against a scripted bus."""
 
 import pytest
+from flyball_sim.links import FakeI2c
 
-from flyball_linux.devices.chips import bme280
-from flyball_linux.links.i2c import FakeI2c
+from flyball_chips import bme280
 
 ADDRESS = bme280.BME280_ADDRESS
 

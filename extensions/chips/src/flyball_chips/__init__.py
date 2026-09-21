@@ -1,1 +1,10 @@
-"""Chips whose protocol is a sequence, not a register read: one module each."""
+"""Chip drivers for flyball rigs: one module each, protocol-level and OS-agnostic.
+
+Every driver here talks to its chip through a `flyball.hardware.{i2c,spi,gpio,uart}`
+link protocol only -- never a real bus directly -- so it runs unmodified against
+`extensions/linux`'s real buses or `flyball-sim`'s scripted fakes (`fake_i2c`/
+`fake_spi`/`fake_gpio`/`fake_uart`), whichever a rig's `links:` section builds.
+
+Importing [flyball_chips.configs][] registers every tag; the `flyball.configs`
+entry point does that for `flyball rig check` and the runner.
+"""

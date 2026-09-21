@@ -18,7 +18,7 @@ from flyball.hardware.i2c import I2cLink
 from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field
 
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
 
 CONVERSION = 0x00
 CONFIG = 0x01

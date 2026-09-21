@@ -3,10 +3,9 @@
 import pytest
 from flyball.core.errors import HardwareError
 from flyball.core.signal import Access
+from flyball_sim.links import FakeI2c, FakeSpi
 
-from flyball_linux.devices.chips import ads1115, mcp3008, sht4x
-from flyball_linux.links.i2c import FakeI2c
-from flyball_linux.links.spi import FakeSpi
+from flyball_chips import ads1115, mcp3008, sht4x
 
 NS = 1_000_000_000
 

@@ -25,8 +25,8 @@ from flyball.core.units.si import Celsius
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.devices.chips._sensirion import crc8, crc_words
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
+from flyball_chips._sensirion import crc8, crc_words
 
 Precision = Literal["high", "medium", "low"]
 COMMANDS: dict[str, tuple[int, float]] = {

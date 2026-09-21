@@ -41,7 +41,7 @@ from flyball.hardware.spanned_demand import (
 )
 from pydantic import Field, model_validator
 
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
 
 MCP4725_ADDRESS = 0x60
 """Device code `1100` with A2=A1=A0=0 (A0 tied to VSS); the -A0T variant answers at 0x61."""

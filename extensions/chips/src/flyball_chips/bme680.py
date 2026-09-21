@@ -7,7 +7,7 @@ BME680 is the same Bosch T/H/P calibration *family* as BME280 -- register
 words with the same names (`par_t1`, `par_p1`.. etc) turned into physical
 units by a floating-point polynomial against `t_fine` -- but the polynomials
 are genuinely different chip to chip, not just a relabelling:
-[bme280.py][flyball_linux.devices.chips.bme280] is not reused here. Checked
+[bme280.py][flyball_chips.bme280] is not reused here. Checked
 against Bosch's own `calc_temperature`/`calc_pressure`/`calc_humidity` (FPU
 variants): the temperature `var2` term carries an extra `* 16.0f` on
 `par_t3` that BME280's does not, and the pressure `var1` term groups
@@ -55,7 +55,7 @@ from flyball.core.units.si import Celsius, Ohm, Pascal
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
 
 BME680_ADDRESS = 0x76
 """SDO low; SDO high answers at 0x77."""

@@ -25,9 +25,9 @@ from flyball.core.units.si import Celsius, PartsPerMillion
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
-from flyball_linux.devices.chips._sensirion import crc8, crc_words
-from flyball_linux.devices.chips.sht4x import PercentRH
-from flyball_linux.links.i2c import I2cLinkConfig
+from flyball_chips._links import I2cLinkConfig
+from flyball_chips._sensirion import crc8, crc_words
+from flyball_chips.sht4x import PercentRH
 
 CMD_START_CONTINUOUS_MEASUREMENT = 0x0010
 CMD_STOP_CONTINUOUS_MEASUREMENT = 0x0104

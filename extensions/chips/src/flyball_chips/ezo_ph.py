@@ -29,8 +29,9 @@ from flyball.core.errors import HardwareError
 from flyball.core.quantity import Quantity
 from flyball.core.signal import Node, Sample
 from flyball.core.units.dimensions import Fraction
+from flyball.hardware.uart import UartLink
 
-from flyball_linux.links.uart import UartLink, UartLinkConfig
+from flyball_chips._links import UartLinkConfig
 
 READ_COMMAND = b"R\r"
 """'Returns a single reading' (datasheet p.16)."""

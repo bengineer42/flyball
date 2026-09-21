@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from flyball.core.errors import HardwareError
 
-from flyball_linux.devices.chips.hx711 import GAIN_PULSES, Hx711Sensor, decode
+from flyball_chips.hx711 import GAIN_PULSES, Hx711Sensor, decode
 
 
 class _ScriptedGpio:

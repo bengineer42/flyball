@@ -2,10 +2,10 @@
 
 import pytest
 from flyball.core.errors import HardwareError
+from flyball_sim.links import FakeI2c
 
-from flyball_linux.devices.chips import scd4x
-from flyball_linux.devices.chips.scd30 import crc8
-from flyball_linux.links.i2c import FakeI2c
+from flyball_chips import scd4x
+from flyball_chips.scd30 import crc8
 
 
 class TestDecode:

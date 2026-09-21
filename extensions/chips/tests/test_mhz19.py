@@ -2,9 +2,9 @@
 
 import pytest
 from flyball.core.errors import HardwareError
+from flyball_sim.links import FakeUart
 
-from flyball_linux.devices.chips import mhz19
-from flyball_linux.links.uart import FakeUart
+from flyball_chips import mhz19
 
 NS = 1_000_000_000
 

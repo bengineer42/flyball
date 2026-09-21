@@ -18,8 +18,7 @@ from __future__ import annotations
 import time
 
 from flyball.core.errors import HardwareError
-
-from flyball_linux.links.uart import UartLink
+from flyball.hardware.uart import UartLink
 
 READ_COMMAND = b"R\r"
 """'Returns a single reading' -- identical across the EZO family's datasheets."""
