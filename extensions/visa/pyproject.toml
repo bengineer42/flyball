@@ -20,7 +20,7 @@ all = ["flyball-visa[serial,visa]"]
 
 # What `flyball rig check`, the runner and the schema load to make `driver: scpi` valid.
 [project.entry-points."flyball.configs"]
-visa = "flyball_visa"
+visa = "flyball_visa.configs"
 
 [dependency-groups]
 # flyball-sim: RigConfig.build() reaches for a stepped/scaled clock whenever
