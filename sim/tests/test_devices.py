@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from flyball.control.feedforward import Affine
 from flyball.control.laws import PI, P
-from flyball.core.errors import NotFoundError
-from flyball.core.signal import Access, Signal
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.device import Access, Signal
 from flyball.runtime.rig import Rig
 from pydantic import ValidationError
 

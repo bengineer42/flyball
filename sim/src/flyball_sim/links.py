@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.hardware.gpio import GpioLink
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.spi import SpiLink

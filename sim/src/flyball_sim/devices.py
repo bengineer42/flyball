@@ -17,8 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Literal
 
-from flyball.core.config import Config, resolve
-from flyball.core.device import (
+from flyball.foundation.config import Config, resolve
+from flyball.foundation.device import (
     Committable,
     Condition,
     DriverConfig,
@@ -26,9 +26,9 @@ from flyball.core.device import (
     Readable,
     command,
 )
-from flyball.core.errors import HardwareError, NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import (
+from flyball.foundation.errors import HardwareError, NotFoundError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.device import (
     Access,
     Band,
     Node,
@@ -38,8 +38,8 @@ from flyball.core.signal import (
     Signal,
     SignalSpec,
 )
-from flyball.core.units import DIMENSIONLESS
-from flyball.core.units.si import Celsius, Watt
+from flyball.foundation.quantities import DIMENSIONLESS
+from flyball.foundation.quantities.si import Celsius, Watt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant

@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from threading import Event, Lock, RLock
 
-from flyball.core.clock import Clock
+from flyball.foundation.time import Clock
 
 
 class SteppedClock(Clock):
