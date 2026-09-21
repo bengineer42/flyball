@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from flyball.core.config import Config
+from flyball.foundation.config import Config
 from flyball.hardware.links import TextLink
 from pydantic import Field
 

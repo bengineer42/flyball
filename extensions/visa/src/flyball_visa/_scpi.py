@@ -11,10 +11,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 
-from flyball.core.config import resolve
-from flyball.core.device import Committable, DriverConfig, Readable, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, Signal, SignalSpec
+from flyball.foundation.config import resolve
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    Node,
+    Readable,
+    Role,
+    Sample,
+    Signal,
+    SignalSpec,
+    command,
+)
+from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import TextLink
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -116,7 +126,7 @@ class Scpi(Readable, Committable):
         """One query per due, publishing signal under `node`: each its own instant.
 
         A slow bus never claims two queries were simultaneous, so each
-        yields its own [Sample][flyball.core.signal.Sample] rather than one
+        yields its own [Sample][flyball.foundation.device.Sample] rather than one
         shared dict of values. Walks `channels`, not the tree: `conditions`
         and any `last.*` are in every device's tree now, and neither has a
         query behind it.

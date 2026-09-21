@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from flyball.core.signal import Access, Reading, Signal
+from flyball.foundation.device import Access, Reading, Signal
 from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
