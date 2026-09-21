@@ -311,7 +311,7 @@ export function RigPage() {
 
   return (
     <>
-      <SectionHead icon={PAGE_ICONS.rig} title="Rig" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
+      <SectionHead icon={PAGE_ICONS.rig} title="Config" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
       <div className="grid">
         <Paper className="c12 xl6" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
