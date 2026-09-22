@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 
+	"flyballd/internal/exposure"
 	"flyballd/internal/rigfile"
 )
 
@@ -25,7 +29,12 @@ import (
 // --serve-ui ADDR additionally serves the embedded dashboard UI on ADDR,
 // reverse-proxying /api, /ws and /mcp to the runner -- so the runner is
 // reachable through the CLI's own binary with no separate reverse proxy
-// in front of it (see serve_ui.go).
+// in front of it (see serve_ui.go). On an address beyond loopback it
+// serves nothing until the runner answers GET /api/auth: an open runner
+// (no password, no token) is stopped and the command fails, unless
+// --insecure-open or runner.auth.insecure_open says to serve it anyway;
+// a runner with credentials is served with a warning that plain HTTP
+// carries them in the clear.
 //
 // --uv runs `flyball-runner` via `uv run --project <dir>` instead of
 // execing it bare, where <dir> is the rig file's own directory -- the
@@ -34,6 +43,10 @@ import (
 // (examples/humidity's, examples/furnace's, ...). `uv run` finds that
 // venv from --project the same way it would from cwd if you'd `cd`ed
 // there yourself.
+// runnerCommand is what runDirect execs when not going through uv; a
+// variable so a test can stand a fake runner in for it.
+var runnerCommand = "flyball-runner"
+
 func runDirect(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
@@ -47,6 +60,7 @@ func runDirect(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
 	}
+	insecureOpen := insecureOpenRequested(args, args[0])
 
 	var cmd *exec.Cmd
 	if useUV {
@@ -54,7 +68,7 @@ func runDirect(args []string) error {
 		uvArgs := append([]string{"run", "--project", projectDir, "flyball-runner"}, args...)
 		cmd = exec.Command("uv", uvArgs...)
 	} else {
-		cmd = exec.Command("flyball-runner", args...)
+		cmd = exec.Command(runnerCommand, args...)
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -82,16 +96,96 @@ func runDirect(args []string) error {
 
 	uiCtx, cancelUI := context.WithCancel(context.Background())
 	defer cancelUI()
-	if wantUI {
-		fmt.Fprintf(os.Stderr, "flyball: serving UI on %s, proxying to runner on 127.0.0.1:%s\n", serveAddr, port)
+	refused := make(chan error, 1)
+	uiDone := make(chan struct{})
+	if !wantUI {
+		close(uiDone)
+	} else {
 		go func() {
+			defer close(uiDone)
+			if !exposure.IsLoopback(serveAddr) {
+				// Beyond loopback the front serves nothing until the runner
+				// has said it has a door: an open one is refused and stopped.
+				if err := guardExposure(uiCtx, serveAddr, port, insecureOpen); err != nil {
+					if uiCtx.Err() != nil {
+						return // the runner exited first
+					}
+					refused <- err
+					stopRunner(cmd)
+					return
+				}
+			}
+			fmt.Fprintf(os.Stderr, "flyball: serving UI on %s, proxying to runner on 127.0.0.1:%s\n", serveAddr, port)
 			if err := serveUI(uiCtx, serveAddr, port); err != nil {
 				fmt.Fprintln(os.Stderr, "flyball: UI server:", err)
 			}
 		}()
 	}
 
-	return cmd.Wait()
+	err := cmd.Wait()
+	cancelUI() // the runner is gone: stop the front, and wait for it
+	<-uiDone
+	select {
+	case r := <-refused:
+		return r
+	default:
+		return err
+	}
+}
+
+// guardExposure waits for the runner on 127.0.0.1:port to answer
+// GET /api/auth, then applies exposure.Decide for a front on addr: an
+// error for an open runner not opted in (or one whose door cannot be
+// read), else nil after logging any warning. Returns ctx's error if the
+// runner exits first.
+func guardExposure(ctx context.Context, addr, port string, insecureOpen bool) error {
+	fmt.Fprintf(os.Stderr, "flyball: waiting for the runner on 127.0.0.1:%s before serving the UI on %s\n", port, addr)
+	url := "http://127.0.0.1:" + port + "/api/auth"
+	client := &http.Client{Timeout: 2 * time.Second}
+	for {
+		door, err := exposure.Probe(ctx, client, url)
+		if err == nil {
+			warning, refuse := exposure.Decide(addr, door, insecureOpen)
+			if refuse != nil {
+				return refuse
+			}
+			if warning != "" {
+				fmt.Fprintln(os.Stderr, "flyball: WARNING:", warning)
+			}
+			return nil
+		}
+		if errors.Is(err, exposure.ErrNotADoor) {
+			// It answered, but not as a runner's door: cannot tell, so refuse.
+			return fmt.Errorf("cannot tell whether the runner has a password or a token (%v); not serving it on %s", err, addr)
+		}
+		// No answer yet: the runner is still starting.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+// stopRunner asks the runner to stop as Ctrl-C would, and kills it if it
+// has not within 15 s.
+func stopRunner(cmd *exec.Cmd) {
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	time.AfterFunc(15*time.Second, func() { _ = cmd.Process.Kill() })
+}
+
+// insecureOpenRequested is the explicit opt-in to serve an open runner
+// beyond loopback: --insecure-open among the runner's flags (left there,
+// so the runner sees it too), or runner.auth.insecure_open in the file.
+func insecureOpenRequested(args []string, rigPath string) bool {
+	for _, a := range args {
+		if a == "--insecure-open" {
+			return true
+		}
+	}
+	auth, _ := runnerSection(rigPath)["auth"].(map[string]any)
+	on, _ := auth["insecure_open"].(bool)
+	return on
 }
 
 // runYAMLDefaults reads rigPath's own document -- `extends` resolved the
@@ -105,13 +199,19 @@ func runDirect(args []string) error {
 // loads the rig file for real -- this best-effort read must never be
 // the thing that turns a bad rig file into a confusing error.
 func runYAMLDefaults(rigPath string) map[string]any {
+	run, _ := runnerSection(rigPath)["run"].(map[string]any)
+	return run
+}
+
+// runnerSection is rigPath's `runner` map, `extends` resolved; nil if the
+// file cannot be loaded or has none.
+func runnerSection(rigPath string) map[string]any {
 	document, _, err := rigfile.ResolveLayers([]string{rigPath}, nil)
 	if err != nil {
 		return nil
 	}
 	runner, _ := document["runner"].(map[string]any)
-	run, _ := runner["run"].(map[string]any)
-	return run
+	return runner
 }
 
 // resolveRunFlags pops --serve-ui/--port/--uv out of args (which may

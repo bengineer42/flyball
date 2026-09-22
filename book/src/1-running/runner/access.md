@@ -67,6 +67,40 @@ token of its own, never shown); a model connecting from outside needs the
 runner to have `--token` as well. `GET /api/runner` reports none of these
 values; `GET /api/auth` says which the runner has.
 
+## Behind `flyball run --serve-ui`
+
+`flyball run rig.yaml --serve-ui ADDR` (or `runner.run.serve_ui`) serves the
+UI on `ADDR` and proxies `/api`, `/ws` and `/mcp` to the runner on loopback,
+with no door of its own -- so the runner's door is the only one, and the
+runner, being on loopback, would not refuse to be open. The front makes the
+same decision for `ADDR` instead: on an address beyond loopback (`:8000` is
+every interface) it serves nothing until the runner answers
+`GET /api/auth`, and
+
+- a runner with no password and no token -- in the file, on the command
+  line or in its environment -- is stopped, and `flyball run` exits 1 with
+  a message naming the fixes;
+- unless `--insecure-open` is given (it is passed on to the runner too) or
+  the file says `runner.auth.insecure_open: true`: then it is served, with
+  a warning;
+- a runner with either is served, with the plain-HTTP warning.
+
+A runner that answers `/api/auth` with anything but its door (a 404, a
+page that is not JSON) counts as open. `flyballd` does the same for every
+runner it proxies to when its `listen` is beyond loopback: an open runner's
+routes answer 503 unless `auth.insecure_open` is set in `flyballd.yaml`
+([the daemon](../../7-reference/cli.md#the-daemon)).
+
+For the usual Pi setup, that means a password in the file:
+
+```yaml
+runner:
+  auth:
+    password: $scrypt$…      # flyball password
+  run:
+    serve_ui: ":8000"
+```
+
 ## The password, from the Go CLI
 
 The Go CLI signs in the same way as the UI's login page: `flyball login`

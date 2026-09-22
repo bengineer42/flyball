@@ -30,8 +30,14 @@ type DaemonConfig struct {
 	// Auth.Token is the bearer token every mutating route (start, stop,
 	// restart, logs) requires, the same shape as a runner's own --token.
 	// Empty: those routes answer 503 until one is set.
+	//
+	// Auth.InsecureOpen lets flyballd, listening beyond loopback, proxy to
+	// a runner that has no password and no token. Off: such a runner's
+	// routes answer 503 (api.go's guard) -- anyone who reached them could
+	// operate its rig.
 	Auth struct {
-		Token string `yaml:"token"`
+		Token        string `yaml:"token"`
+		InsecureOpen bool   `yaml:"insecure_open"`
 	} `yaml:"auth"`
 }
 

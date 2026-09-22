@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,11 +13,18 @@ import (
 	"flyballd/internal/registry"
 )
 
-// fakeBackend records what it was asked to start and never spawns anything.
-type fakeBackend struct{ started []string }
+// fakeBackend records what it was asked to start and never spawns
+// anything; what it reports as the runner's endpoint is `endpoint`.
+type fakeBackend struct {
+	started  []string
+	endpoint string
+}
 
 func (f *fakeBackend) Start(name, serverConfig, host string, port int, rootPath, uvProject string) (string, error) {
 	f.started = append(f.started, name)
+	if f.endpoint != "" {
+		return f.endpoint, nil
+	}
 	return "127.0.0.1:1", nil
 }
 func (f *fakeBackend) Stop(name string) error                     { return nil }
@@ -156,5 +164,103 @@ func TestRegistryRefusesWhatValidateRefuses(t *testing.T) {
 	}
 	if err := reg.Start(good); err == nil {
 		t.Error("registry started the same name twice")
+	}
+}
+
+// fakeRunner is a runner at /oven with the given door; it counts the
+// requests that reach it other than GET /oven/api/auth.
+func fakeRunner(t *testing.T, password, token bool) (*httptest.Server, *int) {
+	t.Helper()
+	proxied := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oven/api/auth" {
+			json.NewEncoder(w).Encode(map[string]any{"password": password, "token": token, "level": "operate"})
+			return
+		}
+		proxied++
+		io.WriteString(w, "from the runner")
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &proxied
+}
+
+func proxyingServer(t *testing.T, listen string, insecureOpen bool, runner *httptest.Server) *Server {
+	t.Helper()
+	cfg := config.DefaultDaemonConfig()
+	cfg.Listen = listen
+	cfg.Auth.InsecureOpen = insecureOpen
+	be := &fakeBackend{endpoint: strings.TrimPrefix(runner.URL, "http://")}
+	reg := registry.New(be)
+	if err := reg.Start(config.Manifest{Name: "oven", ServerConfig: "a.yaml", Port: 8101, RootPath: "/oven"}); err != nil {
+		t.Fatal(err)
+	}
+	return New(reg, cfg)
+}
+
+// flyballd beyond loopback does not proxy to an open runner: 503, and
+// the request never reaches it.
+func TestProxyRefusesAnOpenRunnerBeyondLoopback(t *testing.T) {
+	runner, proxied := fakeRunner(t, false, false)
+	for _, listen := range []string{"0.0.0.0:9000", ":9000", "192.168.1.3:9000"} {
+		s := proxyingServer(t, listen, false, runner)
+		rec := do(t, s, "POST", "/oven/api/devices/heater/commands/set", "", "{}")
+		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "open") {
+			t.Errorf("listen %s: got %d %q, want 503 naming the open runner", listen, rec.Code, rec.Body.String())
+		}
+	}
+	if *proxied != 0 {
+		t.Errorf("%d requests reached the open runner", *proxied)
+	}
+}
+
+func TestProxyServesARunnerWithAPasswordOrToken(t *testing.T) {
+	for _, door := range [][2]bool{{true, false}, {false, true}} {
+		runner, proxied := fakeRunner(t, door[0], door[1])
+		s := proxyingServer(t, "0.0.0.0:9000", false, runner)
+		rec := do(t, s, "GET", "/oven/api/devices", "", "")
+		if rec.Code != http.StatusOK || rec.Body.String() != "from the runner" || *proxied != 1 {
+			t.Errorf("door %v: got %d %q (%d proxied), want the runner's answer", door, rec.Code, rec.Body.String(), *proxied)
+		}
+	}
+}
+
+func TestProxyToAnOpenRunnerOnLoopbackOrOptedIn(t *testing.T) {
+	runner, proxied := fakeRunner(t, false, false)
+	for _, c := range []struct {
+		listen string
+		optIn  bool
+	}{{"127.0.0.1:9000", false}, {"localhost:9000", false}, {"0.0.0.0:9000", true}} {
+		s := proxyingServer(t, c.listen, c.optIn, runner)
+		if rec := do(t, s, "GET", "/oven/api/devices", "", ""); rec.Code != http.StatusOK {
+			t.Errorf("%+v: got %d %q, want 200", c, rec.Code, rec.Body.String())
+		}
+	}
+	if *proxied != 3 {
+		t.Errorf("proxied %d, want 3", *proxied)
+	}
+}
+
+// A runner whose door cannot be read is treated as open.
+func TestProxyRefusesARunnerWhoseDoorCannotBeRead(t *testing.T) {
+	broken := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(broken.Close)
+	s := proxyingServer(t, "0.0.0.0:9000", false, broken)
+	if rec := do(t, s, "GET", "/oven/api/devices", "", ""); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("got %d %q, want 503", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStartupWarnings(t *testing.T) {
+	cfg := config.DefaultDaemonConfig()
+	if w := StartupWarnings(cfg); len(w) != 0 {
+		t.Errorf("loopback: %v, want none", w)
+	}
+	cfg.Listen = "0.0.0.0:9000"
+	if w := StartupWarnings(cfg); len(w) != 1 || !strings.Contains(w[0], "unencrypted") {
+		t.Errorf("beyond loopback: %v, want the cleartext warning", w)
+	}
+	cfg.Auth.InsecureOpen = true
+	if w := StartupWarnings(cfg); len(w) != 2 || !strings.Contains(w[1], "open") {
+		t.Errorf("opted in: %v, want the cleartext and the open warning", w)
 	}
 }

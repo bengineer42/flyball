@@ -11,15 +11,19 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"flyballd/internal/backend"
 	"flyballd/internal/config"
+	"flyballd/internal/exposure"
 	"flyballd/internal/registry"
 )
 
@@ -27,10 +31,17 @@ type Server struct {
 	reg    *registry.Registry
 	daemon config.DaemonConfig
 	mux    *http.ServeMux
+
+	probe   *http.Client
+	doorsMu sync.Mutex
+	doors   map[string]time.Time // /api/auth URL -> when it last said it had a door
 }
 
 func New(reg *registry.Registry, daemon config.DaemonConfig) *Server {
-	s := &Server{reg: reg, daemon: daemon, mux: http.NewServeMux()}
+	s := &Server{
+		reg: reg, daemon: daemon, mux: http.NewServeMux(),
+		probe: &http.Client{Timeout: 2 * time.Second}, doors: map[string]time.Time{},
+	}
 	s.routes()
 	return s
 }
@@ -182,6 +193,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 // convenience pass-through routing to that runner, forwarding the FULL
 // prefixed path unchanged -- the bug dev-serve/proxy.py hit and fixed
 // this session (a runner expects its root_path kept, not stripped).
+// Beyond loopback an open runner is not proxied to (guard).
 func (s *Server) handleLandingOrProxy(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		s.handleLanding(w, r)
@@ -190,6 +202,10 @@ func (s *Server) handleLandingOrProxy(w http.ResponseWriter, r *http.Request) {
 	for _, e := range s.reg.List() {
 		prefix := e.Manifest.RootPath
 		if r.URL.Path == prefix || strings.HasPrefix(r.URL.Path, prefix+"/") {
+			if err := s.guard(r, e); err != nil {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
 			target, err := url.Parse("http://" + e.Endpoint)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -230,3 +246,49 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
 }
+
+// StartupWarnings is what flyballd logs at start about how it is exposed:
+// plain HTTP beyond loopback carries its token and every proxied runner's
+// password, token and cookies in the clear; insecure_open proxies open
+// runners to the network.
+func StartupWarnings(cfg config.DaemonConfig) []string {
+	if exposure.IsLoopback(cfg.Listen) {
+		return nil
+	}
+	warnings := []string{exposure.CleartextWarning(cfg.Listen)}
+	if cfg.Auth.InsecureOpen {
+		warnings = append(warnings, fmt.Sprintf("auth.insecure_open: runners with no password and no token are proxied on %s, open to anyone who can reach it", cfg.Listen))
+	}
+	return warnings
+}
+
+// guard decides whether a request may be proxied to e: always when
+// flyballd listens on loopback or auth.insecure_open is set; otherwise
+// only when the runner's GET /api/auth says it has a password or a
+// token. A runner that says it has one is believed for doorTTL.
+func (s *Server) guard(r *http.Request, e *registry.Entry) error {
+	if exposure.IsLoopback(s.daemon.Listen) || s.daemon.Auth.InsecureOpen {
+		return nil
+	}
+	url := "http://" + e.Endpoint + e.Manifest.RootPath + "/api/auth"
+	s.doorsMu.Lock()
+	checked, ok := s.doors[url]
+	s.doorsMu.Unlock()
+	if ok && time.Since(checked) < doorTTL {
+		return nil
+	}
+	door, err := exposure.Probe(r.Context(), s.probe, url)
+	if err != nil {
+		return fmt.Errorf("flyballd listens on %s beyond loopback and cannot tell whether runner %q has a password or a token (%v): not proxying to it", s.daemon.Listen, e.Manifest.Name, err)
+	}
+	if door.Open() {
+		return fmt.Errorf("runner %q is open (no password, no token) and flyballd listens on %s beyond loopback: not proxying to it. Give the runner a password or a token (runner.auth, FLYBALL_PASSWORD, FLYBALL_TOKEN), listen on 127.0.0.1, or set auth.insecure_open in flyballd's config", e.Manifest.Name, s.daemon.Listen)
+	}
+	s.doorsMu.Lock()
+	s.doors[url] = time.Now()
+	s.doorsMu.Unlock()
+	return nil
+}
+
+// doorTTL is how long a runner's door, once seen shut, is not asked again.
+const doorTTL = 2 * time.Second
