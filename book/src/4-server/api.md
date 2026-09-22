@@ -78,7 +78,7 @@ saving are never gated.
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
-| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes) |
+| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); `runner.auth` shows only `anonymous` and `session`, never a password, token or secret |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
 | `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
 | `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
@@ -335,7 +335,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |
 | `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
-| `GET` | `/api/sim/config` | the rig file as it now stands |
+| `GET` | `/api/sim/config` | the rig file as it now stands; never `runner.auth`'s credentials |
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the runner runs with `--allow-save` |
 | `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |
