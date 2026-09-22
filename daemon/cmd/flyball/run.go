@@ -44,6 +44,9 @@ func runDirect(args []string) error {
 	}
 
 	useUV, args := popBool(args, "--uv")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
+	}
 
 	var cmd *exec.Cmd
 	if useUV {
