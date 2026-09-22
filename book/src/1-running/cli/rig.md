@@ -25,3 +25,10 @@ restarting the runner have no subcommand yet; the routes are
 [The runner](../../4-server/api.md#the-runner), and the last two answer 409
 unless the runner was started with `--allow-shutdown`
 ([Access](../runner/access.md#stopping-and-restarting-from-the-api)).
+
+## Starting one: `flyball run`
+
+The one command here that needs no runner already up -- it starts one.
+`flyball run RIG-FILE --serve-ui ADDR` runs `flyball-runner` directly and
+serves the built dashboard on `ADDR`, reverse-proxying `/api`, `/ws` and
+`/mcp` to it: [Starting a rig](../runner/index.md#with-the-dashboard-flyball-run).
