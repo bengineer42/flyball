@@ -187,6 +187,15 @@ class TestSettle:
         s = runner.settle(section, self.parse("--store", "here.sqlite"), tmp_path / "r.yaml")
         assert s.store == Path("here.sqlite"), "--store wins"
 
+    def test_run_is_a_freeform_escape_hatch_never_inspected(self, tmp_path):
+        # `runner.run` is Go-CLI-only (`flyball run`'s --serve-ui/--uv); Python must accept
+        # any dict here without validating or acting on its contents.
+        section = RunnerConfig(run={"anything": "goes", "here": 123})
+        assert section.run == {"anything": "goes", "here": 123}
+        s = runner.settle(section, self.parse(), tmp_path / "r.yaml")
+        assert s.run == {"anything": "goes", "here": 123}
+        assert RunnerConfig().run == {}
+
 
 def test_main_reads_the_runner_section_from_the_rig_file(tmp_path, monkeypatch):
     rig_file = tmp_path / "lab.yaml"

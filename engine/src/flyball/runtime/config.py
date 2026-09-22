@@ -307,6 +307,12 @@ class RunnerConfig(BaseModel):
         description="Keep the store under this size by deleting the oldest data, of any kind,"
         " never pinned (`20GB`); `0` sets no cap.",
     )
+    run: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Freeform defaults for `flyball run`'s own CLI flags (e.g. `serve_ui`,"
+        ' `uv`) -- Go-CLI-only, never read or validated here; present only so `extra="forbid"`'
+        " doesn't reject keys that belong to the Go binary, not the runner.",
+    )
 
     @model_validator(mode="before")
     @classmethod

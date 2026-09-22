@@ -45,6 +45,33 @@ retention keys both as written and resolved (`keep_ns`, `keep_bytes`,
 `retain_ns`, `rotate_ns`, `max_bytes`; 0 = off). Command-line only:
 `--record`, `--resume`, `--set KEY=VALUE`.
 
+## `run:` -- `flyball run`'s own flags, in the file
+
+`runner.run` is a freeform table, never validated or read by `flyball-runner`
+itself (`RunnerConfig.run` accepts any keys so `extra: forbid` doesn't reject
+them; they mean nothing to Python). It exists only for `flyball run`, the Go
+CLI's no-daemon "start one runner directly" command -- so its own flags
+(`--serve-ui`, `--port`, `--uv`, none of which the Python side has any
+concept of) can have a default in the rig file instead of being retyped on
+every invocation, e.g. on a Pi where the same command runs at every boot:
+
+```yaml
+runner:
+  run:
+    serve_ui: ":8000"  # same as `flyball run rig.yaml --serve-ui :8000`
+    uv: true            # same as `--uv`
+```
+
+| key | type | same as | |
+| --- | --- | --- | --- |
+| `serve_ui` | string | `--serve-ui ADDR` | a non-empty value serves the embedded dashboard UI on `ADDR` |
+| `uv` | bool | `--uv` | run `flyball-runner` via `uv run --project <dir>` instead of a bare exec |
+| `port` | string or int | `--port PORT` | where `--serve-ui`'s proxy expects the runner to be listening |
+
+A flag given on the command line always wins over the matching `run:` key;
+`run:` only supplies the default when the flag is absent. `flyball run` with
+no rig-file `run:` section behaves exactly as before -- a bare exec, no UI.
+
 ## A runner file
 
 The section need not sit in the rig file. A file per deployment that
