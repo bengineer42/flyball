@@ -29,7 +29,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
 import StopIcon from "@mui/icons-material/Stop";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -668,7 +667,6 @@ const Faceplate = memo(function Faceplate({
   history,
   windowS,
   yScale,
-  every,
   exportHref,
   controls,
   headerControls,
@@ -679,7 +677,6 @@ const Faceplate = memo(function Faceplate({
   history: ControllerTrace | undefined;
   windowS?: number;
   yScale?: ChartSettings["yScale"];
-  every?: number;
   exportHref?: string;
   controls?: ReactNode;
   headerControls?: ReactNode;
@@ -693,7 +690,6 @@ const Faceplate = memo(function Faceplate({
       history={history}
       windowS={windowS}
       yScale={yScale}
-      every={every}
       exportHref={exportHref}
       trends
       detail
@@ -720,22 +716,19 @@ export interface ControllersProps extends ChartSettings {
  * any writable signal.
  */
 export function Controllers({ devices, name = null, ...charts }: ControllersProps) {
-  const { windowS, yScale, every } = charts;
+  const { windowS, yScale } = charts;
   const auth = useAuth();
   const rig = useRig();
   const stored = useRecordingExports();
-  const { controllers, history, status } = useControllers(3600, every);
+  const { controllers, history, status } = useControllers(3600);
   const signals = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals)).map((s) => [s.address, s])), [devices]);
   // A controller's target is a demand: settable, with a readback that updates.
   const targets = useMemo(() => [...signals.values()].filter((s) => s.role === "demand"), [signals]);
   const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);
-  const [adding, setAdding] = useState(false);
-  const [addingFor, setAddingFor] = useState<SignalChoice | null>(null);
   // The stream never says a controller is gone: hide one we detached until the stream sends a new object for that name (re-created).
   const [removed, setRemoved] = useState<Record<string, ControllerOut>>({});
-  const [created, setCreated] = useState<Record<string, ControllerOut>>({});
 
-  const all = { ...created, ...controllers };
+  const all = controllers;
   // A controller is named by the signal it drives, so one filter picks out the single card for a detail route.
   const shown = name === null ? targets : targets.filter((t) => t.address === name);
   const controllerOf = (address: string): ControllerOut | undefined => {
@@ -750,21 +743,11 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
       if (kind === "removed") {
         const gone = latest.current[controllerName];
         if (gone) setRemoved((r) => ({ ...r, [controllerName]: gone }));
-        setCreated((c) => {
-          const { [controllerName]: _gone, ...rest } = c;
-          void _gone;
-          return rest;
-        });
       }
       controllerSchema.refresh();
     },
     [controllerSchema.refresh],
   );
-
-  const openAdd = useCallback((target?: SignalChoice) => {
-    setAddingFor(target ?? null);
-    setAdding(true);
-  }, []);
 
   const only = shown.length === 1 ? controllerOf(shown[0]!.address) : undefined;
   const driven = shown.flatMap((target) => {
@@ -775,32 +758,10 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const undriven = shown.filter((target) => !driven.some((d) => d.target === target));
   const toolbar = (
     <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.source)?.unit : undefined} />}>
-      {name === null ? (
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => openAdd()} data-testid="add-controller">
-          Add controller
-        </Button>
-      ) : (
-        <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />
-      )}
+      {name !== null && <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />}
       {controllerSchema.error && <Typography color="error">{controllerSchema.error.message}</Typography>}
     </PageBar>
   );
-  const closeDialog = useCallback(() => setAdding(false), []);
-  const onCreated = useCallback(
-    (controller: ControllerOut) => {
-      setAdding(false);
-      setCreated((c) => ({ ...c, [controller.name]: controller }));
-      setRemoved((r) => {
-        const { [controller.name]: _gone, ...rest } = r;
-        void _gone;
-        return rest;
-      });
-      controllerSchema.refresh();
-    },
-    [controllerSchema.refresh],
-  );
-  const dialog = <AddControllerDialog open={adding} schema={controllerSchema.data} devices={devices} initialTarget={addingFor} onClose={closeDialog} onCreated={onCreated} />;
-
   if (name !== null && shown.length === 0)
     return status === "connecting" ? <Typography color="text.secondary">loading…</Typography> : <Alert severity="warning">No writable signal at {name}.</Alert>;
   return (
@@ -814,7 +775,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
         ))}
       {/* Controllers first, then the demands nothing drives yet: a person looking for a loop should not read past pumps. */}
       {name === null && shown.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={driven.length} />}
-      {name === null && driven.length === 0 && shown.length > 0 && <StateBlock state="empty" message="No controller yet. Add one to a demand below, or with the button above." />}
+      {name === null && driven.length === 0 && shown.length > 0 && <StateBlock state="empty" message="No controller yet. Add one in Config." />}
       {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
       <div className="grid">
         {driven.map(({ target, c, source }) => {
@@ -828,7 +789,6 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
                 history={history[c.name]}
                 windowS={windowS}
                 yScale={yScale}
-                every={every}
                 exportHref={stored.ticks(c.name)}
                 controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
                 headerControls={<StopControl name={c.name} mode={c.mode} onEvent={onEvent} />}
@@ -842,20 +802,9 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
         {undriven.map((target) => (
           <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
             <WritePanel signal={target} title={signalTitle(target, devices)} canOperate={auth.canOperate} />
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddIcon />}
-              sx={{ mt: 1 }}
-              onClick={() => openAdd(controllerSchema.data?.targets.find((t) => t.address === target.address))}
-              data-testid={`add-controller-${target.address}`}
-            >
-              Add controller
-            </Button>
           </div>
         ))}
       </div>
-      {dialog}
     </>
   );
 }
