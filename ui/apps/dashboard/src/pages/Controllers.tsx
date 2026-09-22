@@ -755,6 +755,9 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
     [controllerSchema.refresh],
   );
 
+  // Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6) only once there are
+  // enough of them to fill a row; fewer than that would just leave dead space beside them.
+  const cardClass = (count: number) => (count >= 3 ? "c12 xl4" : count === 2 ? "c12 xl6" : "c12");
   const only = shown.length === 1 ? controllerOf(shown[0]!.address) : undefined;
   const driven = shown.flatMap((target) => {
     const c = controllerOf(target.address);
@@ -782,12 +785,13 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
       {/* Controllers first, then the demands nothing drives yet: a person looking for a loop should not read past pumps. */}
       {name === null && shown.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={driven.length} />}
       {name === null && driven.length === 0 && shown.length > 0 && <StateBlock state="empty" message="No controller yet. Add one in Config." />}
-      {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
+      {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), fewer if there
+          aren't three to show, one per row otherwise. */}
       <div className="grid">
         {driven.map(({ target, c, source }) => {
           const tag = typeof c.law?.tag === "string" ? c.law.tag : null;
           return (
-            <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+            <div key={target.address} className={(name === null ? cardClass(driven.length) : "c12") + " controller-cell"}>
               <Faceplate
                 controller={c}
                 source={source}
@@ -806,7 +810,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
       {name === null && undriven.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Demands without a controller" count={undriven.length} />}
       <div className="grid">
         {undriven.map((target) => (
-          <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+          <div key={target.address} className={(name === null ? cardClass(undriven.length) : "c12") + " controller-cell"}>
             <WritePanel signal={target} title={signalTitle(target, devices)} canOperate={auth.canOperate} />
           </div>
         ))}
