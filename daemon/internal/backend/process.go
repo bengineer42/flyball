@@ -39,7 +39,7 @@ func NewProcessBackend(logDir string) (*ProcessBackend, error) {
 	return &ProcessBackend{logDir: logDir, runners: map[string]*runnerProc{}}, nil
 }
 
-func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPath string) (string, error) {
+func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPath, uvProject string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -61,7 +61,16 @@ func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPa
 		// the proxy forwards -- plan.md's Local UI routing section.
 		args = append(args, "--root-path", rootPath)
 	}
-	cmd := exec.Command("flyball-runner", args...)
+	var cmd *exec.Cmd
+	if uvProject != "" {
+		// Same fix as `flyball run`'s --uv flag: flyball-runner only
+		// exists inside an app's own uv-managed venv, never bare on
+		// flyballd's own $PATH.
+		uvArgs := append([]string{"run", "--project", uvProject, "flyball-runner"}, args...)
+		cmd = exec.Command("uv", uvArgs...)
+	} else {
+		cmd = exec.Command("flyball-runner", args...)
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	// Deliberately NOT setting a process-group death-of-parent signal --

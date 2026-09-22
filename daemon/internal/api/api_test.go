@@ -15,7 +15,7 @@ import (
 // fakeBackend records what it was asked to start and never spawns anything.
 type fakeBackend struct{ started []string }
 
-func (f *fakeBackend) Start(name, serverConfig, host string, port int, rootPath string) (string, error) {
+func (f *fakeBackend) Start(name, serverConfig, host string, port int, rootPath, uvProject string) (string, error) {
 	f.started = append(f.started, name)
 	return "127.0.0.1:1", nil
 }

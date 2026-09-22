@@ -59,7 +59,7 @@ number 4, `"on"` stays a string, matching the old CLI's literal parsing.
 | `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print` |
 | `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
 | `program schema` | the program file's JSON Schema |
-| `run RIG-FILE [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig" |
+| `run RIG-FILE [--uv] [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig". `--uv` runs it via `uv run --project <rig file's directory> flyball-runner` instead of a bare exec, so it works outside an app's own uv-managed venv (e.g. `examples/humidity`, `examples/furnace`) without first `cd`-ing there |
 | `password [PASSWORD]` | hash a password for `runner.auth.password` (prompts if omitted) |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
 
@@ -82,7 +82,7 @@ its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
 | key | default | |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:9000` | the address it serves on |
-| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled` |
+| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
 | `data_dir` | `data` | captured runner logs, under `logs/` |
 | `log_max_size` | 10 MiB | per-runner captured-log cap |
 | `auth.token` | none | the bearer token the registration routes below need. **With no token they answer 503**: the runners in `manifests_dir` still start, but nothing can start, stop, restart or read one over the API |

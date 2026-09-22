@@ -212,7 +212,7 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
 
 local (no runner or daemon involved):
   rig schema                          the rig file's JSON Schema, for an editor
-  run RIG-FILE [--serve-ui ADDR] [flyball-runner flags...]   start a runner directly, foreground
+  run RIG-FILE [--serve-ui ADDR] [--uv] [flyball-runner flags...]   start a runner directly, foreground
   password [PASSWORD]                 hash a password for runner.auth.password
   new NAME [--dir PATH]                write a starting point for a device driver
 
