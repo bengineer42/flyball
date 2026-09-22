@@ -431,3 +431,34 @@ def test_without_the_passkeys_extra_the_routes_say_so(loggedin, monkeypatch):
     assert loggedin.post("/api/auth/passkey/login/challenge").status_code == 501
     assert loggedin.get("/api/auth/passkey").status_code == 501
     assert loggedin.get("/api/health").status_code == 200, "password login is untouched"
+
+
+def test_a_store_that_cannot_be_asked_refuses_the_session_instead_of_failing(loggedin, monkeypatch):
+    """The per-request credential check runs inside the door: a store error is a 401, not a 500."""
+    from flyball.interfaces.server import passkeys
+
+    authenticator = _FakeAuthenticator()
+    assert _register(loggedin, authenticator).status_code == 200
+    loggedin.post("/api/auth/logout")
+    challenge = loggedin.post("/api/auth/passkey/login/challenge").json()
+    signed_in = loggedin.post(
+        "/api/auth/passkey/login",
+        json={
+            "credential": authenticator.assertion(
+                "testserver", challenge["challenge"], "http://testserver"
+            )
+        },
+    )
+    assert signed_in.status_code == 200
+    assert loggedin.get("/api/health").status_code == 200
+
+    def boom(store):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(passkeys, "repo_for", boom)
+    assert loggedin.get("/api/health").status_code == 401, "refused, not a 500"
+    assert loggedin.get("/api/auth").json()["scheme"] == "anonymous"
+
+    # and a password session never reaches that check, so it is unaffected
+    assert loggedin.post("/api/auth/login", json={"secret": "hunter2"}).status_code == 200
+    assert loggedin.get("/api/health").status_code == 200

@@ -274,6 +274,13 @@ class Auth:
         One point lookup per request: it is what makes revoking a passkey end its
         sessions, since the cookie itself is stateless. A cookie with no id (an
         older format) is refused: better one sign-in than a session nothing can end.
+
+        Anything the store raises is a No. This runs inside the ASGI door, where an
+        exception would be a 500 on every request the session makes -- a locked or
+        closed database would take the whole runner out for its operator rather than
+        asking them to sign in again. `Store` is a protocol, so what it can raise is
+        not ours to enumerate; failing closed is the only safe reading of "cannot
+        tell whether this credential still exists".
         """
         # routes-level modules; imported here to avoid a cycle
         from flyball.interfaces.server import deps, passkeys
@@ -285,7 +292,11 @@ class Auth:
             credential_id = _unb64(credential)
         except (ValueError, binascii.Error):
             return False
-        return passkeys.repo_for(deps.current_store()).passkey(credential_id) is not None
+        try:
+            return passkeys.repo_for(deps.current_store()).passkey(credential_id) is not None
+        except Exception:
+            log.warning("passkey session refused: the store could not be asked", exc_info=True)
+            return False
 
     def _bearer(self, scope: Any, headers: dict[bytes, bytes]) -> str | None:
         auth = headers.get(b"authorization", b"").decode(errors="replace")

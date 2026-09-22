@@ -111,7 +111,11 @@ credential itself present: a passkey session's cookie names the credential
 it came from, and the runner checks that credential still exists on every
 request, so revoking it ends every session it opened -- including your own,
 if you revoke the one you signed in with. (A password session is not tied
-to any passkey; it is unaffected.)
+to any passkey; it is unaffected.) That check runs inside the door, so if
+the store cannot be asked at all -- locked, closed, gone -- the passkey
+session is refused rather than the request failing: you are asked to sign
+in again, by password if need be, instead of every request answering 500.
+The refusal is logged with the underlying error.
 
 The login challenge is under the same guard as the password login: an
 address that has failed ten times in a minute is refused a new challenge
