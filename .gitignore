@@ -47,3 +47,7 @@ temp/
 
 # local dev/remote-serving setup (tailscale, systemd units) — machine-specific, not code
 dev-serve/
+
+# examples/humidity is its own nested git repo now ("humctrl", 22 Sep) — history split out with
+# `git subtree split --prefix=examples/humidity`, still lives at this path, not a submodule.
+/examples/humidity/
