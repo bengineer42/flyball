@@ -45,6 +45,18 @@ export interface ControllerView {
 export const emptyTrace = (): TraceView => ({ t: [], v: [] });
 export const emptyControllerView = (): ControllerView => ({ t: [], reference: [], reading: [], demand: [], expected: [], correction: [] });
 
+/**
+ * A controller's setpoint, as a synthetic key `read`/`subscribeTrace` accept
+ * alongside real signal addresses (Graph's series picker and the telemetry
+ * store's `read`/`subscribeTrace` are the only callers): distinct from any
+ * address, since an address never contains `:` (`addressOf` joins node and
+ * name with `.`). `controllerNameFromSetpointKey` recovers the controller's
+ * name (its target address) from one, or null for a plain signal address.
+ */
+const CONTROLLER_SETPOINT_PREFIX = "controller-setpoint:";
+export const controllerSetpointKey = (name: Address): string => `${CONTROLLER_SETPOINT_PREFIX}${name}`;
+export const controllerNameFromSetpointKey = (key: string): Address | null => (key.startsWith(CONTROLLER_SETPOINT_PREFIX) ? key.slice(CONTROLLER_SETPOINT_PREFIX.length) : null);
+
 export interface ReadOptions {
   /** Rows from this time (seconds since the epoch) on; everything held when omitted. */
   fromS?: number;
@@ -148,6 +160,8 @@ export class TelemetryStore {
   private writeVersions = new Map<Address, number>();
   private writesVersion = 0;
   private controllerRings = new Map<Address, Ring>();
+  /** Scratch `readController` output per controller, reused so reading a setpoint trace allocates nothing new. */
+  private controllerSetpointScratch = new Map<Address, ControllerView>();
   private controllerLatest: Record<Address, ControllerOut> = {};
   private controllerVersions = new Map<Address, number>();
   private controllersVersion = 0;
@@ -271,8 +285,17 @@ export class TelemetryStore {
     return this.signalVersions.get(address) ?? 0;
   }
 
-  /** Copy a signal's rows into `out` (arrays reused), thinned as asked; the playback window instead while paused. */
+  /**
+   * Copy a signal's rows into `out` (arrays reused), thinned as asked; the
+   * playback window instead while paused. `address` may instead be a
+   * `controllerSetpointKey`, read from the controller's ring (its
+   * `setpointOf` column) rather than a signal's -- so a chart fed by
+   * `source` (`MultiSeries`/`useTraceRef`) can plot a controller's setpoint
+   * exactly as it plots a signal, with no `TraceView` of its own.
+   */
   read(address: Address, out: TraceView, options: ReadOptions = {}): TraceView {
+    const controllerName = controllerNameFromSetpointKey(address);
+    if (controllerName !== null) return this.readControllerSetpointTrace(controllerName, out, options);
     const ring = this.atS === null ? this.signals.get(address) : this.playbackRings.get(address);
     if (!ring) {
       out.t.length = 0;
@@ -281,6 +304,24 @@ export class TelemetryStore {
     }
     const view: RingView = { t: out.t, cols: [out.v] };
     ring.read(view, options);
+    return out;
+  }
+
+  /** `read`'s controller-setpoint branch: the reference column of `readController`, as a plain `TraceView` (a gap is `NaN`, the same sentinel a real gap-break already uses -- `MultiSeries` draws either as a break). */
+  private readControllerSetpointTrace(name: Address, out: TraceView, options: ReadOptions): TraceView {
+    let scratch = this.controllerSetpointScratch.get(name);
+    if (!scratch) {
+      scratch = emptyControllerView();
+      this.controllerSetpointScratch.set(name, scratch);
+    }
+    this.readController(name, scratch, options);
+    out.t.length = scratch.t.length;
+    out.v.length = scratch.reference.length;
+    for (let i = 0; i < scratch.t.length; i++) {
+      out.t[i] = scratch.t[i]!;
+      const v = scratch.reference[i]!;
+      out.v[i] = v === null ? Number.NaN : v;
+    }
     return out;
   }
 
@@ -382,9 +423,24 @@ export class TelemetryStore {
     }
   }
 
-  /** Called once per animation frame for any of `addresses` that gained points (`everyMs` apart at least). */
+  /**
+   * Called once per animation frame for any of `addresses` that gained
+   * points (`everyMs` apart at least). An address may be a
+   * `controllerSetpointKey`: it wakes on that controller's tick (the
+   * `controllers` stream), not on a sample.
+   */
   subscribeTrace(addresses: Address[], cb: () => void, everyMs = 100): () => void {
-    return this.subscribe("samples", new Set(addresses), cb, everyMs);
+    const signals: Address[] = [];
+    const controllers: Address[] = [];
+    for (const a of addresses) {
+      const name = controllerNameFromSetpointKey(a);
+      if (name !== null) controllers.push(name);
+      else signals.push(a);
+    }
+    const unsubs: Array<() => void> = [];
+    if (signals.length || !controllers.length) unsubs.push(this.subscribe("samples", new Set(signals), cb, everyMs));
+    if (controllers.length) unsubs.push(this.subscribe("controllers", new Set(controllers), cb, everyMs));
+    return () => unsubs.forEach((u) => u());
   }
 
   /** As `subscribeTrace` for one signal, at a readout's cadence. */
@@ -404,6 +460,9 @@ export class TelemetryStore {
    * before the history landed keep their place after it.
    */
   seed(addresses: Address[]): Promise<void> {
+    // A controller's setpoint seeds itself (`seedControllers`, keyed on the controller, not a signal);
+    // skip its synthetic key here rather than fetch `/series` for an address that does not exist.
+    addresses = addresses.filter((a) => controllerNameFromSetpointKey(a) === null);
     if (this.atS !== null) this.ensurePlayback(addresses);
     const wanted = addresses.filter((a) => !this.seededSignals.has(a));
     if (!wanted.length) return this.seeding ?? Promise.resolve();

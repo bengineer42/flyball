@@ -22,12 +22,26 @@ chips and a click. Ticked signals draw on one chart that fills the rest of
 the page (a narrow screen gets the picker as a drawer instead of a side
 panel, opened from the page bar).
 
+Below the device branches, a controller with a regulated signal on this rig
+gets a **Setpoints** group of its own (a controller is not a device, so the
+unit/device/tag chips above don't filter it, only the search box does):
+ticking one plots that controller's setpoint alongside the signals, on the
+axis of the signal it regulates (same unit — a controller is named by the
+signal it drives), dashed, and labelled `‹signal title› (setpoint)` so it
+reads apart from the measured line at a glance. Only the setpoint is
+offered here, not the controller's reading/demand/expected/correction —
+that fuller trace is the Controllers page's `ControllerPanel`, not this
+picker.
+
 The selection is carried in the URL (`#/graph?ch=furnace.zone1,level.volume`,
 so a graph is shareable) and mirrored to `localStorage` (so a plain visit to
-`#/graph` comes back to the last one). Each signal keeps the colour slot it
-was first ticked into for as long as the page stays open — unticking one
-signal never repaints the others, and re-ticking it returns its own colour
-(the series palette is fixed per slot, not per signal).
+`#/graph` comes back to the last one). A controller's setpoint is carried
+the same way, keyed as `controller-setpoint:‹name›` — a shape no signal
+address can collide with (an address never contains `:`). Each key keeps
+the colour slot it was first ticked into for as long as the page stays
+open — unticking one series never repaints the others, and re-ticking it
+returns its own colour (the series palette is fixed per slot, not per
+signal).
 
 Signals of different units share one chart with a y axis per unit rather
 than the "second unit is a second chart" rule the rest of the app follows
@@ -52,12 +66,16 @@ Decimation for a dense trace is automatic, per signal, from how many rows it
 actually holds against the chart's width and window — there is no manual
 "sample every Nth point" control.
 
-Known gap: the telemetry store keeps a controller's reference/reading/
-demand/expected/correction ticks (`TelemetryStore.readController`, its
-`ControllerView` shape), but exposes no `TraceRef`-shaped handle for them
-the way `useTraceRef` does for signals, so `MultiSeries` cannot draw a
-controller overlay by reference; the Graph picker offers signals only;
-wiring a controller trace ref through the store is future work.
+The store makes a controller's setpoint readable through the same
+`TraceRef` a signal uses: `TelemetryStore.read`/`subscribeTrace` accept a
+`controllerSetpointKey(name)` alongside a plain address and read it off the
+controller's own ring (the same one `readController`/`ControllerView` use)
+rather than a signal's — so `MultiSeries`, fed by `useTraceRef`, draws it
+exactly as it draws a signal, live or in playback, with no controller-aware
+code of its own. The dashboard's `chart` widget (config-driven, no picker)
+does not offer this yet — plotting a controller's setpoint from a rig file
+would need a config shape for it (a widget currently only takes signal
+addresses) and a small form change, not just the store-level plumbing.
 
 ## The window control
 
