@@ -132,22 +132,20 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "read",
-        "The latest reading of a signal, the sample of a namespace, or every sample of a device.",
-        _object({"address": ADDRESS, "fresh": FRESH}, "address"),
+        "The latest reading of a signal, the sample of a namespace, or every sample of a "
+        "device. Answers from the last poll; `operate` also has a `fresh` flag for a live "
+        "device read.",
+        _object({"address": ADDRESS}, "address"),
         Tier.READ,
-        lambda rig, a: rig.read(a["address"], bool(a.get("fresh", False))),
+        lambda rig, a: rig.read(a["address"], False),
     ),
     Tool(
         "read_many",
-        "Several addresses in one call, in the order given.",
-        _object(
-            {"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}, "fresh": FRESH},
-            "addresses",
-        ),
+        "Several addresses in one call, in the order given, each from the last poll; "
+        "`operate` also has a `fresh` flag for live device reads.",
+        _object({"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}}, "addresses"),
         Tier.READ,
-        lambda rig, a: rig.get(
-            "/api/read" + _query(at=",".join(a["addresses"]), fresh=a.get("fresh") or None)
-        ),
+        lambda rig, a: rig.get("/api/read" + _query(at=",".join(a["addresses"]))),
     ),
     Tool(
         "events",
@@ -687,6 +685,27 @@ DRIVE: tuple[Tool, ...] = (
         Tier.DRIVE,
         lambda rig, a: rig.post(f"/api/devices/{a['name']}/restart"),
     ),
+    Tool(
+        "read",
+        "The latest reading of a signal, the sample of a namespace, or every sample of a "
+        "device; with `fresh`, a live device read instead of the last poll.",
+        _object({"address": ADDRESS, "fresh": FRESH}, "address"),
+        Tier.DRIVE,
+        lambda rig, a: rig.read(a["address"], bool(a.get("fresh", False))),
+    ),
+    Tool(
+        "read_many",
+        "Several addresses in one call, in the order given; with `fresh`, live device reads "
+        "instead of the last poll.",
+        _object(
+            {"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}, "fresh": FRESH},
+            "addresses",
+        ),
+        Tier.DRIVE,
+        lambda rig, a: rig.get(
+            "/api/read" + _query(at=",".join(a["addresses"]), fresh=a.get("fresh") or None)
+        ),
+    ),
 )
 
 SIM: tuple[Tool, ...] = (
@@ -960,11 +979,21 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "probe_hardware",
+        "What the runner's host has: board model, I2C/SPI/serial buses, GPIO chips. `operate` "
+        "also has a `scan` flag for the addresses answering on each I2C bus (a bus "
+        "transaction: some devices mind), which this tier cannot do.",
+        _object(),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/probe" + _query(scan="false")),
+        route=("get", "/api/probe"),
+    ),
+    Tool(
+        "probe_hardware",
         "What the runner's host has: board model, I2C/SPI/serial buses, GPIO chips; with "
         "`scan`, the addresses answering on each I2C bus (a bus transaction: some devices "
         "mind).",
         _object({"scan": _bool("Scan the I2C buses.")}),
-        Tier.READ,
+        Tier.DRIVE,
         lambda rig, a: rig.get("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
         route=("get", "/api/probe"),
     ),
@@ -1123,14 +1152,20 @@ def _served(rig: Rig) -> set[tuple[str, str]]:
 
 
 def tools_for(rig: Rig, mode: str) -> list[Tool]:
-    """Every tool the mode allows, fixed ones first, then the rig's own commands."""
+    """Every tool the mode allows, fixed ones first, then the rig's own commands.
+
+    A name defined at more than one tier -- `read`, `read_many` and `probe_hardware`
+    each have a plain form at `read` and a full-power form, with `fresh`/`scan`, at
+    `operate` -- keeps only its highest tier the mode allows: later entries win, so
+    the concatenation order below (read tier to drive tier) doubles as precedence.
+    """
     tier = MODES[mode]
     served = _served(rig)
-    tools = [
-        t
-        for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS)
-        if t.tier <= tier and (t.route is None or t.route in served)
-    ]
+    by_name: dict[str, Tool] = {}
+    for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS):
+        if t.tier <= tier and (t.route is None or t.route in served):
+            by_name[t.name] = t
+    tools = list(by_name.values())
     if tier >= Tier.DRIVE:
         simulated = bool(rig.sim().get("simulated"))
         tools.extend(_device_tools(rig, simulated))

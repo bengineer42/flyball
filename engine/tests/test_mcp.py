@@ -86,6 +86,23 @@ class TestModes:
             "widget_schema",
         } <= names(tools)
 
+    def test_read_tier_does_not_expose_the_side_effecting_flags(self, client):
+        """Neither `read`'s `fresh` nor `probe_hardware`'s `scan` belongs where nothing changes."""
+        read = tools_for(client, "read")
+        by_name = {t.name: t for t in read}
+        assert "fresh" not in by_name["read"].schema["properties"]
+        assert "fresh" not in by_name["read_many"].schema["properties"]
+        assert "scan" not in by_name["probe_hardware"].schema["properties"]
+
+    def test_operate_has_the_full_power_forms(self, client):
+        operate = tools_for(client, "operate")
+        by_name = {t.name: t for t in operate}
+        assert "fresh" in by_name["read"].schema["properties"]
+        assert by_name["read"].tier == Tier.DRIVE
+        assert "fresh" in by_name["read_many"].schema["properties"]
+        assert "scan" in by_name["probe_hardware"].schema["properties"]
+        assert by_name["probe_hardware"].tier == Tier.DRIVE
+
     def test_author_adds_the_store_and_nothing_that_moves(self, client):
         author = names(tools_for(client, "author"))
         assert {"save_program", "update_dashboard", "save_tuning"} <= author
