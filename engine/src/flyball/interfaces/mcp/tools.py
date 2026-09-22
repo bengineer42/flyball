@@ -49,6 +49,9 @@ class Tool:
     """(method, path) the runner must serve for this tool to be listed; see `MCP.md`."""
     changes_tools: bool = False
     """Attaches or detaches devices: the tool list is rebuilt and clients told."""
+    output_schema: dict[str, Any] | None = None
+    """Declared shape of a non-text result; set on a tool whose `run` returns a named
+    envelope (`_list_of`) rather than the client's bare JSON, so the two stay in sync."""
 
 
 # region Schema shorthands
@@ -83,6 +86,22 @@ def _any(description: str) -> dict[str, Any]:
     return {"description": description}
 
 
+def _list_of(key: str, description: str, nullable: bool = False) -> dict[str, Any]:
+    """A named-envelope output schema `{key: [...]}`, not a bare array or a generic key."""
+    item: dict[str, Any] = {"type": "object"}
+    return {
+        "type": "object",
+        "properties": {
+            key: {
+                "type": "array",
+                "items": {"anyOf": [item, {"type": "null"}]} if nullable else item,
+                "description": description,
+            }
+        },
+        "required": [key],
+    }
+
+
 NAME = _str("The name.")
 ADDRESS = _str("A signal address, e.g. `blender.flows.dry`.")
 DOCUMENT = {"type": "object", "description": "The document, as JSON."}
@@ -98,6 +117,31 @@ def _query(**params: Any) -> str:
     return "?" + "&".join(f"{k}={v}" for k, v in given.items()) if given else ""
 
 
+def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
+    """Project `GET /api/devices` down to what the tool's description promises.
+
+    The route is the tree with live values, commands and conditions -- tens of kB even on a
+    one-device rig, and the obvious second call after `status`. `detail` asks for the rest.
+    The description comes from `/api/schema`, which the client caches after its first fetch,
+    so no extra request reaches the model for it.
+    """
+    devices = rig.get("/api/devices")
+    if a.get("detail"):
+        return {"devices": devices}
+    described = rig.schema["devices"]
+    return {
+        "devices": [
+            {
+                "name": d["name"],
+                "type": d["type"],
+                "label": d["label"],
+                "description": described.get(d["name"], {}).get("description"),
+            }
+            for d in devices
+        ]
+    }
+
+
 READ: tuple[Tool, ...] = (
     Tool(
         "status",
@@ -109,10 +153,14 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "list_devices",
-        "Every device: name, type, label and a one-line description. `describe_device` for one.",
-        _object(),
+        "Every device: name, type, label and a one-line description. `describe_device` for "
+        "one; `detail` here for every device's full tree (signals, commands, inputs).",
+        _object({
+            "detail": _bool("The full tree per device, not just name/type/label/description.")
+        }),
         Tier.READ,
-        lambda rig, a: rig.get("/api/devices"),
+        _list_devices,
+        output_schema=_list_of("devices", "The rig's devices."),
     ),
     Tool(
         "describe_device",

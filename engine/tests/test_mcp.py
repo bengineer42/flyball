@@ -133,8 +133,13 @@ class TestTools:
 
     def test_reads(self, client):
         assert self.tool(client, "status").run(client, {})["rig"] == "t"
-        devices = self.tool(client, "list_devices").run(client, {})
+        devices = self.tool(client, "list_devices").run(client, {})["devices"]
         assert [d["name"] for d in devices] == ["furnace", "heaters"]
+        assert set(devices[0]) == {"name", "type", "label", "description"}, (
+            "projected: not the full tree"
+        )
+        detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
+        assert "signals" in detailed[0], "`detail` asked for the rest"
         schema = self.tool(client, "describe_device").run(client, {"name": "heaters"})
         assert "set_duty" in schema["commands"]
         kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]

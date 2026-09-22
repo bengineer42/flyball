@@ -53,6 +53,7 @@ def _wire(tool: Tool) -> types.Tool:
         name=tool.name,
         description=tool.description,
         input_schema=tool.schema,
+        output_schema=tool.output_schema,
         annotations=types.ToolAnnotations(
             read_only_hint=tool.tier == Tier.READ,
             destructive_hint=tool.destructive,
