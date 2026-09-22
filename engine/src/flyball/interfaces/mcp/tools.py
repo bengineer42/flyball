@@ -274,6 +274,28 @@ READ: tuple[Tool, ...] = (
         ),
     ),
     Tool(
+        "session_ticks",
+        "A controller's recorded steps over a session: mode, correction and, when logged, "
+        "setpoint, demand and reading -- the data behind a ramp's setpoint curve. "
+        "`session_series` for a plain signal instead.",
+        _object(
+            {
+                "session_id": SESSION,
+                "controller": _str("The controller: the address of the signal it drives."),
+                "start_ns": _int("Window start, rig time in ns; default the session start."),
+                "end_ns": _int("Window end; default the session end."),
+                "every": _int("Keep one tick in every n.", minimum=1),
+            },
+            "session_id",
+            "controller",
+        ),
+        Tier.READ,
+        lambda rig, a: rig.get(
+            f"/api/history/sessions/{a['session_id']}/ticks/{a['controller']}"
+            + _query(start_ns=a.get("start_ns"), end_ns=a.get("end_ns"), every=a.get("every"))
+        ),
+    ),
+    Tool(
         "list_dashboards",
         "Saved dashboards for this rig.",
         _object(),

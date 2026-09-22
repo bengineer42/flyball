@@ -215,6 +215,27 @@ class TestTools:
                 client, {"name": "d", "changes": [{"op": "remove_widget", "id": "zz"}]}
             )
 
+    def test_session_ticks_is_read_tier_and_hits_the_route(self, client):
+        """A recorded controller's steps, served at `.../sessions/{id}/ticks/{controller}`."""
+        tool = next(t for t in tools_for(client, "read") if t.name == "session_ticks")
+        assert tool.tier == Tier.READ
+        assert tool.schema["required"] == ["session_id", "controller"]
+
+        class FakeRig:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def get(self, path: str) -> list[str]:
+                self.calls.append(path)
+                return ["a tick"]
+
+        fake = FakeRig()
+        result = tool.run(
+            fake, {"session_id": 3, "controller": "heaters.heater1", "every": 5, "start_ns": 10}
+        )
+        assert result == ["a tick"]
+        assert fake.calls == ["/api/history/sessions/3/ticks/heaters.heater1?start_ns=10&every=5"]
+
 
 class TestRigRoutes:
     def test_check_validates_and_canonicalises(self, client):
