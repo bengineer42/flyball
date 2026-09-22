@@ -407,14 +407,16 @@ Same three-value CRC family as `scd30`, a different command set.
 
 Sensirion SGP30: `co2eq` (ppm) and `tvoc` (ppb), both `[RP]`. Needs a
 periodic baseline (get/set) for long-term accuracy. The driver class has
-`get_baseline`/`set_baseline`, but nothing exposes them yet: there is no
-rig-file field or device command for a saved baseline, so the chip starts
-from scratch every power cycle and takes its usual time to settle.
+`get_baseline`/`set_baseline`; a baseline read back earlier can be restored
+at startup with the `baseline` field, so the chip need not settle from
+scratch on every power cycle. There is still no device command for saving
+one back out -- that stays application-side for now.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x58` | fixed |
+| `baseline` | none | `[co2eq, tvoc]` IAQ baseline words to restore at startup, as read back earlier from `get_baseline`; omitted lets the chip's own algorithm re-settle from cold |
 
 ### `sgp40`
 
