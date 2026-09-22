@@ -240,6 +240,30 @@ def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, ove
         rig.stop_recording()
 
 
+def test_start_with_store_finishes_a_delete_an_earlier_run_cut_off(tmp_path, oven):
+    from flyball.record.sqlite import SqliteStore
+
+    path = tmp_path / "s.sqlite"
+    store = SqliteStore(path)
+    half = store.open_session(start_ns=1_000, details={"name": "old"})
+    half.end(2_000)
+    kept = store.open_session(start_ns=3_000).session
+    store.end_session(kept.id, 4_000)
+    with store._transaction() as connection:  # as delete_session leaves it, cut off
+        connection.execute(
+            "UPDATE session SET details = ? WHERE id = ?",
+            ('{"name":"old","deleting":true}', half.session.id),
+        )
+    store.close()
+    rig, store = runner.start_with_store(oven, store_path=path)
+    try:
+        assert store.deleting_sessions() == []
+        assert half.session.id not in [s.id for s in store.sessions()]
+        assert kept.id in [s.id for s in store.sessions()]
+    finally:
+        rig.polling.stop_all()
+
+
 def test_a_restart_asked_over_the_api_execs_the_same_command_line(monkeypatch):
     from flyball.interfaces.server import deps
     from flyball.rig import Rig

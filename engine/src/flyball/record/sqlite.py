@@ -1,9 +1,12 @@
 """The SQLite store.
 
-One locked connection per [SqliteStore][flyball.record.sqlite.SqliteStore]; the
-rig's writer and the server's reader normally each open their own on the same
-file, and WAL lets them overlap. Declarations are interned in the writer so a
-delivery is one `executemany` per table.
+One locked connection per [SqliteStore][flyball.record.sqlite.SqliteStore]. The
+runner shares one store between the recorder's thread, the retention sweep and
+the server, so every call waits for whoever holds the lock: nothing may call it
+from an event loop, and nothing holds it for long (`delete_session` goes in
+batches). Another process can open the same file beside it; WAL lets them
+overlap. Declarations are interned in the writer so a delivery is one
+`executemany` per table.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -645,10 +649,83 @@ class SqliteStore:
             connection.execute("UPDATE session SET end_ns = ? WHERE id = ?", (end_ns, session_id))
         return self.session(session_id)
 
+    _DELETE_ROWS: ClassVar[int] = 1000
+    """Readings (or ticks, states, events) one transaction of a batched delete removes.
+
+    About 15 ms on a desktop SSD: how long anyone else may wait for the lock.
+    """
+
+    # The data tables, each by the key its rows are picked out by within a session.
+    # A sample's readings go with it (the cascade), so `reading` is not listed.
+    _DATA_KEYS: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("tick", "controller, offset_ns"),
+        ("write_state", "signal_id, offset_ns"),
+        ("event", "id"),
+        ("sample", "device_id, seq"),
+    )
+
+    def _delete_data(self, session_id: int, before: int | None = None) -> None:
+        """Delete the session's data -- all of it, or what lies before offset `before`.
+
+        A batch at a time, each its own transaction, with the lock released
+        between them: a week at 1 Hz is 8 s of deleting, and no one else
+        should wait all of it.
+        """
+        signals = self._query(
+            "SELECT COUNT(*) AS n FROM signal WHERE session_id = ?", (session_id,)
+        )
+        # A sample carries up to one reading per signal: size its batch in readings.
+        per_sample = max(1, int(signals[0]["n"]))
+        where = "session_id = ?" + ("" if before is None else " AND offset_ns < ?")
+        params = (session_id,) if before is None else (session_id, before)
+        for table, key in self._DATA_KEYS:
+            batch = max(1, self._DELETE_ROWS // (per_sample if table == "sample" else 1))
+            while True:
+                with self._transaction() as connection:
+                    deleted = connection.execute(
+                        f"DELETE FROM {table} WHERE session_id = ? AND ({key}) IN"
+                        f" (SELECT {key} FROM {table} WHERE {where} LIMIT ?)",
+                        (session_id, *params, batch),
+                    ).rowcount
+                if deleted < batch:
+                    break
+                time.sleep(0)  # a switch point: a thread waiting for the lock may take it now
+
     def delete_session(self, session_id: int) -> None:
+        """Delete the session in many short transactions, not one long one.
+
+        The row is marked `details.deleting` first, the data goes a batch at a
+        time (`_delete_data`), and the row and its declarations go last. What
+        is traded is atomicity: a reader between batches sees the session
+        partly gone, and a crash leaves it marked and part-deleted --
+        `deleting_sessions()` finds it, and deleting it again (the runner
+        does, on start) finishes the job.
+        """
+        with self._transaction() as connection:
+            rows = connection.execute(
+                "SELECT details FROM session WHERE id = ?", (session_id,)
+            ).fetchall()
+            if not rows:
+                raise SessionNotFoundError(session_id)
+            details = _loads(rows[0]["details"])
+            details = dict(details) if isinstance(details, dict) else {}
+            details["deleting"] = True
+            connection.execute(
+                "UPDATE session SET details = ? WHERE id = ?", (_dumps(details), session_id)
+            )
+        self._delete_data(session_id)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM session WHERE id = ?", (session_id,)).rowcount == 0:
                 raise SessionNotFoundError(session_id)
+
+    def deleting_sessions(self) -> list[SessionRow]:
+        """Sessions a `delete_session` started and did not finish: a crash, a lost power."""
+        return [
+            _session_row(r)
+            for r in self._query(
+                "SELECT * FROM session WHERE json_extract(details, '$.deleting') IS NOT NULL"
+            )
+        ]
 
     def set_pinned(self, session_id: int, pinned: bool) -> SessionRow:
         with self._transaction() as connection:
@@ -686,16 +763,9 @@ class SqliteStore:
             return session
         # Offsets count from the origin; the row's start_ns is what the reader sees.
         cut = before_ns - (session.start_ns - self._shift(session_id))
+        # In batches, as a delete is; cut off part-way, the next trim finishes it.
+        self._delete_data(session_id, cut)
         with self._transaction() as connection:
-            # Readings go with their samples (the cascade; the range is on sample_by_time).
-            connection.execute(
-                "DELETE FROM sample WHERE session_id = ? AND offset_ns < ?", (session_id, cut)
-            )
-            for table in ("tick", "write_state", "event"):
-                connection.execute(
-                    f"DELETE FROM {table} WHERE session_id = ? AND offset_ns < ?",
-                    (session_id, cut),
-                )
             connection.execute(
                 "DELETE FROM span WHERE session_id = ? AND end_ns IS NOT NULL AND end_ns < ?",
                 (session_id, cut),

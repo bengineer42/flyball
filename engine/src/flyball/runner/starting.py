@@ -32,6 +32,10 @@ def start_with_store(
 
     rig = config.build()
     store = SqliteStore(store_path)
+    # A delete cut off part-way (it goes in batches) is finished before anything reads.
+    for half in store.deleting_sessions():
+        store.delete_session(half.id)
+        log.warning("finished deleting session %d, begun by an earlier run", half.id)
     # A session still open in the store was left by a runner that died: close
     # it at its last sample, or it would look live and overlap the next one.
     for orphan in store.sessions():
