@@ -51,7 +51,12 @@ from what its command line says -- unless you keep it:
   `"overwrite": true`, and it is refused altogether (409) unless the runner
   runs with `--allow-save`, as is `POST /api/sim/save`: a runner anyone can
   reach should not be able to write where it is told. The overlay save
-  needs no flag.
+  needs no flag. Saving over a file that exists keeps that file's
+  `runner:` section (its `extends` resolved, so a base's section comes
+  along into the flattened file): the rig's document has no runner
+  section, and dropping it would drop `runner.auth` with it. The section
+  is written to the file but not returned. A file whose section cannot be
+  read is not overwritten (409).
 - `flyball-runner --resume` starts from the last change made through the
   API instead of the files, for the morning after.
 - A simulated rig, or one started with no file, can always be built up. A

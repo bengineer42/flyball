@@ -102,7 +102,7 @@ saving are never gated.
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
 | `GET` | `/api/probe` | `{report}`: the board's buses, GPIO chips and, with `?scan=true`, I²C addresses (flyball-linux); 404 where it is not installed |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
-| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
+| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`; an existing file keeps its own `runner:` section, which is not returned; 409 if that section cannot be read); returns `{path, document}` |
 
 ## Devices
 
