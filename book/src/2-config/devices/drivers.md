@@ -407,27 +407,31 @@ Same three-value CRC family as `scd30`, a different command set.
 
 Sensirion SGP30: `co2eq` (ppm) and `tvoc` (ppb), both `[RP]`. Needs a
 periodic baseline (get/set) for long-term accuracy. The driver class has
-`get_baseline`/`set_baseline`, but nothing exposes them yet: there is no
-rig-file field or device command for a saved baseline, so the chip starts
-from scratch every power cycle and takes its usual time to settle.
+`get_baseline`/`set_baseline`; a baseline read back earlier can be restored
+at startup with the `baseline` field, so the chip need not settle from
+scratch on every power cycle. There is still no device command for saving
+one back out -- that stays application-side for now.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x58` | fixed |
+| `baseline` | none | `[co2eq, tvoc]` IAQ baseline words to restore at startup, as read back earlier from `get_baseline`; omitted lets the chip's own algorithm re-settle from cold |
 
 ### `sgp40`
 
 Sensirion SGP40: `voc_raw` (dimensionless), `[RP]`. Raw signal only -- no
 VOC-index algorithm. The chip takes a humidity/temperature compensation
-input per read; the driver class can be given the addresses of another
-sensor's readings for that, but the rig file cannot set them yet, so every
-read uses the datasheet defaults (50 %RH, 25 °C).
+input per read; `humidity_source`/`temperature_source` name the signal
+address to read that compensation input from on each read. Omitting either
+falls back to the datasheet's fixed default (50 %RH, 25 °C) for that input.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x59` | fixed |
+| `humidity_source` | none | signal address to read humidity compensation from each read; omit for the fixed 50 %RH default |
+| `temperature_source` | none | signal address to read temperature compensation from each read; omit for the fixed 25 °C default |
 
 ### `ccs811`
 

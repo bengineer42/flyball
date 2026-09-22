@@ -108,3 +108,7 @@ class TestSgp30Device:
         assert sample.node is gas.root and sample.time_ns == 9
         assert sample.by_name() == {"co2eq": 400, "tvoc": 10}
         assert gas.config.address == sgp30.SGP30_ADDRESS
+
+    def test_config_accepts_a_baseline_pair(self):
+        config = sgp30.Sgp30Config(link="", baseline=(0x8973, 0x8AAE))
+        assert config.baseline == (0x8973, 0x8AAE)

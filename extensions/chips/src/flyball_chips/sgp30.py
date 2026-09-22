@@ -156,11 +156,18 @@ class Sgp30Config(DriverConfig[Sgp30], tag="sgp30"):
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
     address: int = Field(default=SGP30_ADDRESS, ge=0x03, le=0x77)
+    baseline: tuple[int, int] | None = Field(
+        default=None,
+        description="[co2eq, tvoc] IAQ baseline words to restore at startup, as read back "
+        "earlier from Sgp30Sensor.get_baseline; omit to let the chip's own algorithm "
+        "re-settle from cold.",
+    )
 
     def build(self, name: str, label: str | None = None) -> Sgp30:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Sgp30(name, resolve(self.link), self.address, label=label)
+        baseline = None if self.baseline is None else Baseline(*self.baseline)
+        return Sgp30(name, resolve(self.link), self.address, baseline=baseline, label=label)
 
 
 Sgp30.config_type = Sgp30Config

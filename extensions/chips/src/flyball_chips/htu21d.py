@@ -50,6 +50,12 @@ MAX_WAIT_S: dict[Precision, float] = {"temperature": 0.050, "humidity": 0.016}
 POLL_INTERVAL_S = 0.001
 """How often to retry the no-hold-master read while the sensor NACKs."""
 
+MAX_POLL_ATTEMPTS = 20
+"""Cap on no-hold-master retries after the initial conversion wait, so a chip
+stuck NAKing (e.g. off the bus) raises instead of hanging the poll loop
+forever; matching scd30's bounded wait-then-raise precedent for a chip that
+never becomes ready."""
+
 PercentRH = Fraction.unit("percent relative humidity", "%RH", 0.01, scale=(0.0, 100.0))
 HUMIDITY = Quantity("humidity", PercentRH)
 TEMPERATURE = Quantity("temperature", Celsius)
@@ -123,13 +129,14 @@ class Htu21dSensor:
         self.link.write(self.address, [command])
         if self.sleep:
             time.sleep(MAX_WAIT_S[precision])
-        while True:
+        for attempt in range(MAX_POLL_ATTEMPTS):
             try:
                 return self.link.read(self.address, 3)
             except OSError:
-                if not self.sleep:
+                if not self.sleep or attempt == MAX_POLL_ATTEMPTS - 1:
                     raise
                 time.sleep(POLL_INTERVAL_S)
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def read(self) -> tuple[float, float]:
         """(°C, %RH): two I2C transactions, no-hold-master."""
@@ -183,6 +190,7 @@ Htu21d.config_type = Htu21dConfig  # the config is declared after the device it 
 __all__ = [
     "HTU21D_ADDRESS",
     "HUMIDITY",
+    "MAX_POLL_ATTEMPTS",
     "MAX_WAIT_S",
     "SOFT_RESET",
     "TEMPERATURE",

@@ -127,7 +127,12 @@ class Sgp40(Readable):
 
     @property
     def config(self) -> Sgp40Config:
-        return Sgp40Config(link="", address=self.sensor.address)
+        return Sgp40Config(
+            link="",
+            address=self.sensor.address,
+            humidity_source=self.humidity_source,
+            temperature_source=self.temperature_source,
+        )
 
     def read(
         self,
@@ -145,11 +150,28 @@ class Sgp40Config(DriverConfig[Sgp40], tag="sgp40"):
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
     address: int = Field(default=SGP40_ADDRESS, ge=0x03, le=0x77)
+    humidity_source: str | None = Field(
+        default=None,
+        description="Signal address to read humidity compensation from on each read; "
+        "omit to use the datasheet's fixed 50 %RH default.",
+    )
+    temperature_source: str | None = Field(
+        default=None,
+        description="Signal address to read temperature compensation from on each read; "
+        "omit to use the datasheet's fixed 25 degC default.",
+    )
 
     def build(self, name: str, label: str | None = None) -> Sgp40:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Sgp40(name, resolve(self.link), self.address, label=label)
+        return Sgp40(
+            name,
+            resolve(self.link),
+            self.address,
+            humidity_source=self.humidity_source,
+            temperature_source=self.temperature_source,
+            label=label,
+        )
 
 
 Sgp40.config_type = Sgp40Config

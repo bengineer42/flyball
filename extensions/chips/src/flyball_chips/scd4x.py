@@ -27,7 +27,8 @@ from flyball.hardware.i2c import I2cLink
 from pydantic import Field
 
 from flyball_chips._links import I2cLinkConfig
-from flyball_chips.scd30 import CO2, HUMIDITY, TEMPERATURE, crc8, crc_words
+from flyball_chips._sensirion import crc8, crc_words
+from flyball_chips.scd30 import CO2, HUMIDITY, TEMPERATURE
 
 CMD_START_PERIODIC_MEASUREMENT = 0x21B1
 CMD_START_LOW_POWER_PERIODIC_MEASUREMENT = 0x21AC
