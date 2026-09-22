@@ -151,7 +151,7 @@ flyball-runner furnace.yaml            # hardware
 flyball-runner furnace.yaml sim.yaml   # same addresses, no hardware
 ```
 
-`examples/humidity/rig.yaml` + `sim.yaml` ([the humidity rig](https://bengineer42.github.io/humctrl/), its own
+`examples/humidity/rig-multi-sensor.yaml` + `sim.yaml` ([the humidity rig](https://bengineer42.github.io/humctrl/), its own
 book) is a real worked example: the
 same `hum_sensors`/`blender` device names and signal addresses, one file
 built on `sht4x_set`/`dual_pump_blender` against real I²C and PWM links,

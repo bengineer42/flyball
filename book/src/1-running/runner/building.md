@@ -98,7 +98,7 @@ API may do, where its files are -- can be written in the rig file under
 
 ```yaml
 # humidity.yaml
-extends: [../humidity/rig.yaml, ../humidity/sim.yaml]
+extends: [../humidity/rig-multi-sensor.yaml, ../humidity/sim.yaml]
 runner:
   port: 8001
   root_path: /humidity

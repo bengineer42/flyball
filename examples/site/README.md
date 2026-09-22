@@ -7,7 +7,7 @@ do, where the store goes. The rigs themselves are `examples/humidity` and
 
 | file | serves | at |
 | --- | --- | --- |
-| `humidity.yaml` | `../humidity/rig.yaml` + `sim.yaml` | `:8001`, under `/humidity` |
+| `humidity.yaml` | `../humidity/rig-multi-sensor.yaml` + `sim.yaml` | `:8001`, under `/humidity` |
 | `furnace.yaml` | `../furnace/rig.yaml` | `:8002`, under `/furnace` |
 
 Run each from the venv that has its drivers, then put a front on one port:

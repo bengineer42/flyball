@@ -66,7 +66,7 @@ device and signal names, so every address, controller, dashboard, program
 and recorded session is identical whether the rig is real or simulated.
 `examples/furnace/rig.yaml` demonstrates the pattern in one file (a
 `sim_daq`/`sim_drive` pair standing in for a thermocouple DAQ and an SSR
-bank that don't exist yet); `examples/humidity/rig.yaml` + `sim.yaml` is
+bank that don't exist yet); `examples/humidity/rig-multi-sensor.yaml` + `sim.yaml` is
 the real two-file form — read both, and [the humidity book](https://bengineer42.github.io/humctrl/2-config/) on them. `examples/site/*.yaml` is the third
 layer: a file per deployment holding only `extends` and `runner:`.
 
@@ -101,7 +101,7 @@ devices:
       dry:     { poll_s: 5 }
 ```
 
-(from the plan's worked example — `examples/humidity/rig.yaml` is the real
+(from the plan's worked example — `examples/humidity/rig-multi-sensor.yaml` is the real
 file this became).
 
 A `SignalOverride` is `{label, range, precision, warn, alarm, poll_s,

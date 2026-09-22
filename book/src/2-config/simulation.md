@@ -271,7 +271,7 @@ recorded session carries over unchanged (`temp-docs/DEVICE-MODEL-PLAN.md`
 `examples/humidity` already has both halves:
 
 ```yaml
-# examples/humidity/rig.yaml (real hardware)
+# examples/humidity/rig-multi-sensor.yaml (real hardware)
 devices:
   hum_sensors: { driver: sht4x_set, config: { link: i2c1, sensors: { chamber: {...}, dry: {...}, wet: {...} } } }
   blender: { driver: dual_pump_blender, config: { link: pwm0, ... } }

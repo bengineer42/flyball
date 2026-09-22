@@ -52,7 +52,7 @@ The section need not sit in the rig file. A file per deployment that
 `examples/site/humidity.yaml`:
 
 ```yaml
-extends: [../humidity/rig.yaml, ../humidity/sim.yaml]
+extends: [../humidity/rig-multi-sensor.yaml, ../humidity/sim.yaml]
 runner:
   port: 8001
   root_path: /humidity
