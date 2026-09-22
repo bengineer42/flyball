@@ -26,6 +26,7 @@ from typing import NamedTuple
 
 from flyball.foundation.config import resolve
 from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import command as device_command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import PartsPerBillion, PartsPerMillion
 from flyball.hardware.i2c import I2cLink
@@ -149,6 +150,11 @@ class Sgp30(Readable):
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         co2eq, tvoc = self.sensor.measure()
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
+
+    @device_command
+    def baseline(self) -> Baseline:
+        """The current IAQ baseline, to save and pass back in as the `baseline` config field."""
+        return self.sensor.get_baseline()
 
 
 class Sgp30Config(DriverConfig[Sgp30], tag="sgp30"):

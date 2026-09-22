@@ -84,6 +84,7 @@ class TestSgp30Device:
             "conditions": "rp",
             "co2eq": "rp",
             "tvoc": "rp",
+            "last.baseline": "rp",
         }
         assert gas.signals["co2eq"].unit.symbol == "ppm"
         assert gas.signals["tvoc"].unit.symbol == "ppb"
@@ -112,3 +113,9 @@ class TestSgp30Device:
     def test_config_accepts_a_baseline_pair(self):
         config = sgp30.Sgp30Config(link="", baseline=(0x8973, 0x8AAE))
         assert config.baseline == (0x8973, 0x8AAE)
+
+    def test_baseline_command_reads_the_current_baseline(self):
+        frame = sgp30.word_with_crc(0x8973) + sgp30.word_with_crc(0x8AAE)
+        bus = FakeI2c(replies={sgp30.SGP30_ADDRESS: [frame]})
+        gas = sgp30.Sgp30("gas", bus, sleep=False)
+        assert gas.baseline() == sgp30.Baseline(co2eq=0x8973, tvoc=0x8AAE)

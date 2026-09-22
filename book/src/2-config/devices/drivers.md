@@ -409,8 +409,8 @@ Sensirion SGP30: `co2eq` (ppm) and `tvoc` (ppb), both `[RP]`. Needs a
 periodic baseline (get/set) for long-term accuracy. The driver class has
 `get_baseline`/`set_baseline`; a baseline read back earlier can be restored
 at startup with the `baseline` field, so the chip need not settle from
-scratch on every power cycle. There is still no device command for saving
-one back out -- that stays application-side for now.
+scratch on every power cycle. The `baseline` command reads the current
+baseline back out, to save for that field.
 
 | field | default | |
 | --- | --- | --- |
