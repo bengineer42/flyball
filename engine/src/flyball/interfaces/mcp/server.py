@@ -14,6 +14,8 @@ from anyio import to_thread
 from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS
 
 from flyball.interfaces.client import Rig, RigError, SchemaError
 
@@ -85,8 +87,12 @@ def build(rig: Rig, mode: str) -> Server[Any]:
         tool = (await registry.get()).get(params.name)
         if tool is None:
             return _error(f"no tool {params.name!r}")
+        arguments = params.arguments or {}
+        missing = [k for k in tool.schema.get("required", ()) if k not in arguments]
+        if missing:
+            raise MCPError(INVALID_PARAMS, f"{tool.name}: missing required argument {missing[0]!r}")
         try:
-            result = await to_thread.run_sync(tool.run, rig, params.arguments or {})
+            result = await to_thread.run_sync(tool.run, rig, arguments)
         except (RigError, SchemaError) as e:
             return _error(str(e))
         if tool.changes_tools:

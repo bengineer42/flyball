@@ -312,6 +312,40 @@ class TestMounted:
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
 
+    def initialize(self, http, mode):
+        init = self.rpc(
+            http,
+            mode,
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "t", "version": "0"},
+            },
+        )
+        session = init.headers["mcp-session-id"]
+        http.post(
+            f"/mcp/{mode}",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers={"mcp-session-id": session, "Accept": "application/json, text/event-stream"},
+        )
+        return init, session
+
+    def test_a_missing_required_argument_is_invalid_params_not_a_keyerror(self, http):
+        _, session = self.initialize(http, "read")
+        body = self.rpc(
+            http,
+            "read",
+            "tools/call",
+            {"name": "describe_device", "arguments": {}},
+            session=session,
+            id=2,
+        ).json()
+        assert "result" not in body, body
+        assert body["error"]["code"] == -32602
+        assert "name" in body["error"]["message"]
+        assert "KeyError" not in body["error"]["message"]
+
 
 class TestDriverTools:
     def tool(self, client, name, mode="operate"):
