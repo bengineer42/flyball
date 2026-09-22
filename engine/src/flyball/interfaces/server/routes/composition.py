@@ -281,6 +281,16 @@ def restore_version(rig: RigDep, version_id: int) -> dict[str, Any]:
         finally:
             rig.on_change = hook
         get_store().set_rig_head(version_id)
+    from flyball.foundation.device import Level
+
+    rig.event(
+        Level.INFO,
+        "rig",
+        "versions",
+        "restored",
+        f"restored to version {version_id}",
+        {"version_id": version_id},
+    )
     return rig.document()
 
 
