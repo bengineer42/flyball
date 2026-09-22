@@ -1,14 +1,14 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import uPlot from "uplot";
 import type { ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
-import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed, tickDigits } from "@flyball/client";
+import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed } from "@flyball/client";
 import type { ControllerTrace } from "../hooks/useControllers.js";
 import { useQuery } from "../hooks/useQuery.js";
 import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
 import { useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
 import { thin } from "./thin.js";
-import { yRange, type YScale } from "./yscale.js";
+import { axisValues, yRange, type YScale } from "./yscale.js";
 
 /** Same fallback order `MultiSeries` cycles through for a trace with no explicit colour. */
 const SERIES_FALLBACK = ["#2a78d6", "#c2410c", "#15803d", "#7e22ce", "#b45309", "#0e7490"];
@@ -100,7 +100,7 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
       // the series' own precision -- a totally axis-free trend read as broken, not "at a glance".
       axes: [
         { show: true, stroke: axisColour, font: "11px system-ui", size: 18, gap: 2, space: 70, grid: { show: false }, ticks: { show: false } },
-        { show: true, stroke: axisColour, font: "11px system-ui", size: 40, gap: 4, space: 34, grid: { stroke: gridColour, width: 1 }, ticks: { show: false }, values: (_u, vals) => vals.map((v) => fixed(v, tickDigits(vals, precision))) },
+        { show: true, stroke: axisColour, font: "11px system-ui", size: 40, gap: 4, space: 34, grid: { stroke: gridColour, width: 1 }, ticks: { show: false }, values: axisValues(precision) },
       ],
       legend: { show: false },
       cursor: { show: false },
