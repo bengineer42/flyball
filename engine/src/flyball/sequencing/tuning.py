@@ -20,6 +20,7 @@ holds no `Store`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from flyball.autotune import FOPDT, Gains, StepTest, amigo, imc
 from flyball.autotune.errors import AutotuneError
@@ -37,7 +38,9 @@ from .command import Activity, Command
 RULES = ("imc", "amigo")
 """The rules a `tune:` step may name. Both take a fitted FOPDT from a step test."""
 
-LAWS = ("pi", "pid", "smith")
+type Law = Literal["pi", "pid", "smith"]
+
+LAWS: tuple[Law, ...] = ("pi", "pid", "smith")
 """The laws a `tune:` step may fit. `pi`/`pid` apply `rule` to the whole plant; `smith`
 wraps a [SmithPredictor][flyball.control.laws.SmithPredictor] around a PI fit to the
 delay-free plant, ignoring `rule` -- see `_smith_tuning`."""
@@ -155,7 +158,7 @@ class Tuned(Activity):
         save_as: str,
         rule: str = "imc",
         lam: float | None = None,
-        law: str = "pi",
+        law: Law = "pi",
         message: str | None = None,
         clock: Clock | None = None,
     ) -> None:
@@ -282,7 +285,7 @@ class Tune(Command, tag="tune", primary="loop"):
     band: float | None = None
     rule: str = "imc"
     lam: float | None = None
-    law: str = "pi"
+    law: Law = "pi"
     timeout: float | None = None
     message: str | None = None
 
