@@ -7,6 +7,8 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any
 
 import anyio
@@ -17,11 +19,20 @@ from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS
 
+import flyball
 from flyball.interfaces.client import Rig, RigError, SchemaError
 
 from .tools import GUIDES, MODES, Tier, Tool, tools_for
 
 DEFAULT_URL = "http://127.0.0.1:8000"
+
+
+def _version() -> str:
+    try:
+        return _pkg_version("flyball")
+    except PackageNotFoundError:
+        return flyball.__version__
+
 
 INSTRUCTIONS = {
     "read": "Read-only: nothing here changes the rig or its store.",
@@ -132,6 +143,7 @@ def build(rig: Rig, mode: str) -> Server[Any]:
 
     return _Server(
         "flyball",
+        version=_version(),
         instructions=f"The rig at {rig.url}, mode `{mode}`. {INSTRUCTIONS[mode]}",
         on_list_tools=list_tools,
         on_call_tool=call_tool,

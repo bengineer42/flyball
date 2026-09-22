@@ -331,6 +331,10 @@ class TestMounted:
         )
         return init, session
 
+    def test_initialize_reports_a_nonempty_version(self, http):
+        init, _ = self.initialize(http, "read")
+        assert init.json()["result"]["serverInfo"]["version"]
+
     def test_a_missing_required_argument_is_invalid_params_not_a_keyerror(self, http):
         _, session = self.initialize(http, "read")
         body = self.rpc(
