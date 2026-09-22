@@ -67,7 +67,7 @@ one exception: it takes a single address, never a list). Source:
 | | `band` | number | a twentieth of `size` |
 | | `rule` | `imc` or `amigo` | `imc` |
 | | `lam` | number of seconds | about the plant's own speed |
-| | `derivative` | bool | `false` |
+| | `law` | `pi`, `pid`, or `smith` | `"pi"` |
 | | `timeout` | number of seconds, per plateau | none |
 | | `message` | string | none |
 | `set` | `device` | name | — |

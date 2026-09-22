@@ -115,7 +115,7 @@ same as it always has for a step that cannot even be applied.
 | `hold` | `duration` (primary, `minutes: 10` flat), `message?`, `timeout?` | keep everything as it is; controllers go on regulating |
 | `arrive` | `loop?` (primary), `within=1.0`, `readings=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `readings` consecutive readings |
 | `manual` | `loop?` (primary) | stop a controller regulating; its target keeps its last demand |
-| `tune` | `loop?` (primary), `save_as="fitted"`, `size?`, `base?`, `window=60s`, `band?`, `rule="imc"`, `lam?`, `derivative=false`, `timeout?` | step the loop open-loop, fit a plant to the response, and store the gains under `save_as` for a later `regulate` to name -- see [Autotune](../autotune.md) |
+| `tune` | `loop?` (primary), `save_as="fitted"`, `size?`, `base?`, `window=60s`, `band?`, `rule="imc"`, `lam?`, `law="pi"`, `timeout?` | step the loop open-loop, fit a plant to the response, and store the gains under `save_as` for a later `regulate` to name -- see [Autotune](../autotune.md) |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
 | `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would |
 | `wait` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/waits/{name}/fire`; a timeout ends the program |

@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from flyball_sim.plant import Fopdt
 
-from flyball.control.laws import PI
+from flyball.control.laws import PI, SmithPredictor
 from flyball.foundation.device import Access, Device, Reading, SignalSpec
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius
@@ -104,6 +104,38 @@ def test_a_tune_step_fits_the_plant_and_stores_the_gains(rig, loop, plant, clock
     # tau 60 / dead 5 plant asks for roughly kp = ti / (gain * (lam + theta/2)).
     assert 0.5 < law.kp < 2.0
     assert law.ki > 0.0
+
+
+def test_law_smith_fits_a_smith_predictor_to_the_delay_free_plant(rig, loop, plant, clock):
+    prime(rig, loop, plant)
+    activity = Tune(
+        loop="oven.target",
+        save_as="fitted",
+        size=10.0,
+        window=Duration(seconds=40),
+        band=0.05,
+        law="smith",
+    ).run(rig)
+    assert isinstance(activity, Tuned)
+    activity.attach(rig)
+    for _ in range(20_000):
+        if activity.fired:
+            break
+        rig.clock.advance(DT)
+        loop.on_reading(Reading(loop.source, rig.clock.now_ns(), plant.output))
+        plant.step(DT)
+    activity.detach(rig)
+
+    assert activity.gains is None, "smith doesn't go through Gains/PI-PID emission"
+    law = rig.tunings.get("fitted").build()
+    assert isinstance(law, SmithPredictor)
+    assert law.kp > 0.0 and law.ki > 0.0
+    # The model, carried straight through -- not the delay-free one the PI inside was fit to.
+    assert law.gain == pytest.approx(activity.model.gain)
+    assert law.tau == pytest.approx(activity.model.tau)
+    assert law.dead_time == pytest.approx(activity.model.dead_time)
+    # `oven`'s controller has no feedforward given: same-unit source/target default to `setpoint`.
+    assert law.feedforward == pytest.approx(1.0)
 
 
 def test_the_fitted_model_matches_the_plant(rig, loop, plant, clock):
@@ -244,6 +276,13 @@ def test_an_unknown_rule_is_refused_before_the_rig_moves(rig, loop, plant, clock
     loop.on_reading(Reading(loop.source, rig.clock.now_ns(), 50.0))
     with pytest.raises(ValueError, match="unknown tuning rule"):
         Tune(loop="oven.target", rule="cohen-coon").run(rig)
+    assert loop.mode is ControllerMode.MANUAL
+
+
+def test_an_unknown_law_is_refused_before_the_rig_moves(rig, loop, plant, clock):
+    loop.on_reading(Reading(loop.source, rig.clock.now_ns(), 50.0))
+    with pytest.raises(ValueError, match="unknown tuning law"):
+        Tune(loop="oven.target", law="pd").run(rig)
     assert loop.mode is ControllerMode.MANUAL
 
 

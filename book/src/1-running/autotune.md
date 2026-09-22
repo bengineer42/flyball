@@ -43,8 +43,8 @@ is the usual reason.
 | `size` | well above the noise, within the range the controller will work over |
 | `window` | longer than the dead time, or the flat stretch before the response reads as a plateau |
 | `band` | above the sensor noise, well below `size` |
-| `rule` | `imc` (one dial, `lam`) or `amigo` (bounded sensitivity, PID only) |
-| `derivative` | off by default; PI gives up little on a noisy reading |
+| `rule` | `imc` (one dial, `lam`) or `amigo` (bounded sensitivity, PID only); ignored when `law` is `smith` |
+| `law` | `pi` (default; PI gives up little on a noisy reading), `pid`, or `smith` -- a `SmithPredictor` fit to the plant's lag alone, worth it when the dead time is comparable to the time constant |
 | `timeout` | seconds per plateau; omitted waits for ever |
 
 One loop per step, never a list: two experiments at once on a shared plant

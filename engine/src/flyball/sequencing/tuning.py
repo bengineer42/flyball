@@ -23,10 +23,12 @@ from dataclasses import dataclass
 
 from flyball.autotune import FOPDT, Gains, StepTest, amigo, imc
 from flyball.autotune.errors import AutotuneError
-from flyball.control.laws import OpenLoop
+from flyball.control.laws import OpenLoop, SmithPredictor
 from flyball.foundation import Operator, Reading
 from flyball.foundation.time import Clock, Duration
+from flyball.library.tunings import Tuning
 from flyball.model.controller import Controller, ControllerMode
+from flyball.model.feedforward import Setpoint
 from flyball.model.law import ControlLaw
 from flyball.rig import Rig
 
@@ -34,6 +36,11 @@ from .command import Activity, Command
 
 RULES = ("imc", "amigo")
 """The rules a `tune:` step may name. Both take a fitted FOPDT from a step test."""
+
+LAWS = ("pi", "pid", "smith")
+"""The laws a `tune:` step may fit. `pi`/`pid` apply `rule` to the whole plant; `smith`
+wraps a [SmithPredictor][flyball.control.laws.SmithPredictor] around a PI fit to the
+delay-free plant, ignoring `rule` -- see `_smith_tuning`."""
 
 _STEP_FRACTION = 0.1
 """Of the source signal's range, when `size` is not given: a tenth is large enough
@@ -84,6 +91,31 @@ def _gains(model: FOPDT, rule: str, lam: float | None, derivative: bool) -> Gain
     raise ValueError(f"unknown tuning rule {rule!r}; it is one of {list(RULES)}")
 
 
+def _smith_tuning(model: FOPDT, controller: Controller, lam: float | None, tag: str) -> Tuning:
+    """A [SmithPredictor][flyball.control.laws.SmithPredictor] sized to `model`.
+
+    `kp`/`ki`/`tt` are IMC's PI for the *delay-free* plant (`dead_time=0`): the predictor
+    compensates the real dead time itself, so tuning against it again would double-count
+    it, per `SmithPredictor`'s own docstring. `gain`/`tau`/`dead_time` carry straight
+    through as measured. `feedforward` reads off the controller this tuning is for -- 1.0
+    under the `setpoint` feedforward (a drive in the reading's units), 0.0 under any other
+    (`none`, `affine`, ...), matching what `SmithPredictor` says it needs: a raw drive, so
+    its own model sees the whole demand as its input.
+    """
+    pi = imc(FOPDT(model.gain, model.tau, 0.0), lam=lam, derivative=False)
+    feedforward = 1.0 if isinstance(controller.feedforward, Setpoint) else 0.0
+    law = SmithPredictor.config(
+        kp=pi.kp,
+        ki=pi.ki,
+        gain=model.gain,
+        tau=model.tau,
+        dead_time=model.dead_time,
+        tt=pi.tt,
+        feedforward=feedforward,
+    )
+    return Tuning(tag=tag, config=law)
+
+
 class Tuned(Activity):
     """Drives a step test on one controller; fires once a tuning has been stored.
 
@@ -105,9 +137,9 @@ class Tuned(Activity):
         "_reference",
         "_rig",
         "controller",
-        "derivative",
         "gains",
         "lam",
+        "law",
         "model",
         "rule",
         "save_as",
@@ -123,7 +155,7 @@ class Tuned(Activity):
         save_as: str,
         rule: str = "imc",
         lam: float | None = None,
-        derivative: bool = False,
+        law: str = "pi",
         message: str | None = None,
         clock: Clock | None = None,
     ) -> None:
@@ -139,7 +171,7 @@ class Tuned(Activity):
         self.save_as = save_as
         self.rule = rule
         self.lam = lam
-        self.derivative = derivative
+        self.law = law
         self.model: FOPDT | None = None
         self.gains: Gains | None = None
         self._rig: Rig | None = None
@@ -164,12 +196,16 @@ class Tuned(Activity):
         """Fit, tune, add the tuning to the rig, and release the waiter."""
         try:
             self.model = self.test.result
-            self.gains = _gains(self.model, self.rule, self.lam, self.derivative)
+            if self.law == "smith":
+                tuning = _smith_tuning(self.model, self.controller, self.lam, self.save_as)
+            else:
+                self.gains = _gains(self.model, self.rule, self.lam, self.law == "pid")
+                tuning = self.gains.to_tuning(self.save_as)
         except (AutotuneError, ValueError) as error:
             self.fail(error)
             return
         if self._rig is not None:
-            self._rig.tunings.add(self.gains.to_tuning(self.save_as))
+            self._rig.tunings.add(tuning)
         self.fire()
 
     def attach(self, rig: Rig) -> None:
@@ -224,11 +260,17 @@ class Tune(Command, tag="tune", primary="loop"):
             reads as a plateau.
         band: How much the reading may move within `window`. Defaults to a
             twentieth of the step. Above the sensor noise, well below `size`.
-        rule: `imc` or `amigo`.
+        rule: `imc` or `amigo`; ignored when `law` is `smith`, which always
+            fits IMC to the delay-free plant (the predictor supplies its own
+            dead-time compensation, so `amigo` -- which divides by the
+            measured dead time -- does not apply).
         lam: IMC's closed-loop time constant, in seconds. Defaults to about as
             fast as the plant already is.
-        derivative: Include derivative action. Off by default: PI gives up
-            little on a noisy reading.
+        law: `pi`, `pid`, or `smith`. `pi`/`pid` apply `rule` to the whole
+            fitted plant; `smith` wraps a `SmithPredictor` around a PI fit to
+            the plant's lag alone -- worth it when the dead time is
+            comparable to the time constant, below that `pi`/`pid` does as
+            well.
         timeout: Seconds allowed per plateau; None waits for ever.
     """
 
@@ -240,13 +282,15 @@ class Tune(Command, tag="tune", primary="loop"):
     band: float | None = None
     rule: str = "imc"
     lam: float | None = None
-    derivative: bool = False
+    law: str = "pi"
     timeout: float | None = None
     message: str | None = None
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
         if self.rule not in RULES:
             raise ValueError(f"unknown tuning rule {self.rule!r}; it is one of {list(RULES)}")
+        if self.law not in LAWS:
+            raise ValueError(f"unknown tuning law {self.law!r}; it is one of {list(LAWS)}")
         controller = rig.controllers.resolve(self.loop)
         base = self.base if self.base is not None else controller.last_value
         if base is None:
@@ -270,7 +314,7 @@ class Tune(Command, tag="tune", primary="loop"):
             save_as=self.save_as,
             rule=self.rule,
             lam=self.lam,
-            derivative=self.derivative,
+            law=self.law,
             message=self.message,
             clock=rig.clock,
         )
