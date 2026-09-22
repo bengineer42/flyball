@@ -241,6 +241,18 @@ class TestRigRoutes:
         assert "devices" in client.get("/api/rig/schema")["properties"]
 
 
+class TestInstructions:
+    def test_names_the_rig_it_was_given_not_its_own_url(self, client):
+        server = build(client, "operate", "chamber")
+        assert "chamber" in (server.instructions or "")
+        assert client.url not in (server.instructions or "")
+
+    def test_falls_back_when_no_name_is_given(self, client):
+        server = build(client, "operate")
+        assert "This rig" in (server.instructions or "")
+        assert client.url not in (server.instructions or "")
+
+
 class TestOverTheWire:
     async def test_list_and_call_through_a_session(self, client):
         server = build(client, "author")

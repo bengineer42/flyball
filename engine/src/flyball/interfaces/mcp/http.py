@@ -27,11 +27,15 @@ from .tools import MODES
 __all__ = ["mount"]
 
 
-def mount(app: FastAPI, rig: Rig) -> None:
-    """Add `/mcp/read`, `/mcp/author` and `/mcp/operate` to `app`, and their lifecycle to its."""
+def mount(app: FastAPI, rig: Rig, name: str | None = None) -> None:
+    """Add `/mcp/read`, `/mcp/author` and `/mcp/operate` to `app`, and their lifecycle to its.
+
+    `name` is the rig's own name, passed straight through to `build` -- the runner
+    already knows it and is not listening yet, so `build` cannot ask itself over `rig`.
+    """
     managers = {
         mode: StreamableHTTPSessionManager(
-            build(rig, mode),
+            build(rig, mode, name),
             json_response=True,
             # The runner is reached by whatever name the rig has on the network.
             security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),

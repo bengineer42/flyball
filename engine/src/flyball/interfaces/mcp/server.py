@@ -87,8 +87,14 @@ class ToolCache:
         return self._tools
 
 
-def build(rig: Rig, mode: str) -> Server[Any]:
-    """The MCP server for `rig` in `mode`."""
+def build(rig: Rig, mode: str, name: str | None = None) -> Server[Any]:
+    """The MCP server for `rig` in `mode`.
+
+    `name` is the rig's own name, for `instructions`; give it when the caller already
+    knows it (the runner mounting this in-process) rather than have `build` fetch it --
+    the runner is not listening yet when it mounts this, and the rig's own URL, which
+    only makes sense from the runner's loopback, is worse than no address at all.
+    """
     registry = ToolCache(rig, mode)
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
@@ -141,10 +147,11 @@ def build(rig: Rig, mode: str) -> Server[Any]:
             ]
         )
 
+    rig_desc = f"The rig `{name}`" if name else "This rig"
     return _Server(
         "flyball",
         version=_version(),
-        instructions=f"The rig at {rig.url}, mode `{mode}`. {INSTRUCTIONS[mode]}",
+        instructions=f"{rig_desc}, mode `{mode}`. {INSTRUCTIONS[mode]}",
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_resources=list_resources,
@@ -205,7 +212,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RigError as e:
         print(f"flyball-mcp: {e}", file=sys.stderr)
         return 2
-    anyio.run(_serve, build(rig, args.mode))
+    try:
+        name = rig.get("/api/health").get("rig")
+    except RigError:  # cosmetic only: `instructions` falls back to "This rig"
+        name = None
+    anyio.run(_serve, build(rig, args.mode, name))
     return 0
 
 
