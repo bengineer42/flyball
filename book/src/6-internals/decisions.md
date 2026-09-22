@@ -24,7 +24,7 @@ chapter describes intent rather than fact, it says which.
 
 ## Open questions
 
-- **Limits and interlocks.** A writable signal now carries `limits`,
+- **Limits and clamps.** A writable signal now carries `limits`,
   clamped on every demand (D-006) — that closes the "no setpoint bounds"
   half of this. Still open: no rate-of-change clamp, no runaway detection,
   no failsafe on a stale sensor.
