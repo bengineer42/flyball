@@ -69,7 +69,8 @@ def _find_dashboard_dist() -> Path:
     installed = resources.files("flyball") / "server" / "static"
     if isinstance(installed, Path) and installed.is_dir():
         return installed
-    return Path(__file__).resolve().parents[4] / "ui" / "apps" / "dashboard" / "dist"
+    # this file -> server -> interfaces -> flyball -> src -> engine -> repo root
+    return Path(__file__).resolve().parents[5] / "ui" / "apps" / "dashboard" / "dist"
 
 
 DASHBOARD_DIST = _find_dashboard_dist()
