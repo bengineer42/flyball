@@ -20,6 +20,12 @@ flyball-mcp --url http://pi:8000 --mode author     # or export FLYBALL_URL
 The repository's `.mcp.json` points Claude Code at a local runner's
 `/mcp/author`, so a checkout gets the simulated rig offered on first open.
 
+`POST /mcp` (no mode) is not a fourth, default tier -- there is no default
+tier. Reached through the daemon, it 307-redirects to `/mcp/` (Go's
+`net/http.ServeMux` adding the trailing slash its `/mcp/` registration
+expects), which is still not a mode and so still answers nothing; a client
+has to name `read`, `author` or `operate`.
+
 ## Modes
 
 The mode chooses a tier; every tool at or below it is listed, so a client in
@@ -86,7 +92,9 @@ Put a token on any runner a model can drive; the read tier is what
   reconfigure a widget) rather than by rewriting the document. Programs are
   text and are saved whole.
 - Streams have no equivalent: `read`, `read_many` and `events` are what a
-  model polls.
+  model polls. On `read` and `author` they answer from the latest poll only;
+  `operate` has the same two tools with a `fresh` argument for a live device
+  read, so the read tier's "nothing here changes the rig" stays true.
 - The rig can be built up: `attach_link`, `attach_device`, or a whole
   document with `attach_document`; `rig_document` shows the result,
   `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
@@ -103,9 +111,12 @@ Put a token on any runner a model can drive; the read tier is what
   search script, so it is drive-tier like `check_driver`);
   `probe_hardware` says what buses the board has and `link_query` sends
   one raw command down a link, to find out what an instrument is before
-  writing its entry. Most instruments need no code: the `scpi` and
-  `modbus` drivers take their signals from the rig-file entry, and the
-  guide says so first.
+  writing its entry. `probe_hardware` is read-tier for the board and bus
+  list; `operate` has the same tool with a `scan` argument for the
+  addresses answering on each I2C bus, a bus transaction some devices
+  mind, so it is not offered below that tier. Most instruments need no
+  code: the `scpi` and `modbus` drivers take their signals from the
+  rig-file entry, and the guide says so first.
 - A tool that needs a runner route is listed only while the runner serves
   it (from `/openapi.json`), so an older runner shows fewer tools rather
   than broken ones.
