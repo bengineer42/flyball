@@ -83,6 +83,13 @@ Put a token on any runner a model can drive; the read tier is what
   titles, units, and this instance's limits, so an out-of-range argument is
   refused before it is sent. A command that interrupts a controller is
   marked destructive, so a client can ask first.
+- `list_devices` is name, type, label and a one-line description -- not the
+  full tree `GET /api/devices` answers (signals, commands, conditions),
+  which is tens of kB even on a one-device rig; its `detail` argument asks
+  for that instead. `describe_device` for one device's full schema either
+  way. A tool that answers a list wraps it in a named key (`{"devices":
+  [...]}`, `{"controllers": [...]}`, and so on), not a bare array, and
+  declares that shape as its output schema.
 - `describe_device` is the schema; `widget_schema` every dashboard widget
   kind with its `config`; `program_schema` the program dialect. Together
   they are what a model needs to write a program or a dashboard that names
@@ -95,6 +102,10 @@ Put a token on any runner a model can drive; the read tier is what
   model polls. On `read` and `author` they answer from the latest poll only;
   `operate` has the same two tools with a `fresh` argument for a live device
   read, so the read tier's "nothing here changes the rig" stays true.
+  `session_series` is one recorded signal over a session; `session_ticks`
+  is a recorded controller's steps over one -- mode, correction and, when
+  logged, setpoint, demand and reading, the data behind a ramp's setpoint
+  curve, which no signal series carries.
 - The rig can be built up: `attach_link`, `attach_device`, or a whole
   document with `attach_document`; `rig_document` shows the result,
   `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
