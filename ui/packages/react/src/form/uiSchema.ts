@@ -91,6 +91,22 @@ export function isBounded(schema: JsonSchema): boolean {
   return (schema.minimum ?? schema.exclusiveMinimum) !== undefined && (schema.maximum ?? schema.exclusiveMaximum) !== undefined;
 }
 
+/**
+ * `Duration`'s wire shape (`engine/src/flyball/foundation/time.py`): unit keys that add
+ * (`{minutes: 5}`), or a bare number of seconds. Every foldable `Duration` field (one per
+ * command, `dialect.py`'s `foldable()`) also hoists these same unit keys onto the command
+ * itself, for the flat YAML shorthand -- `{hold: {value: 1, seconds: 30}}` instead of
+ * `{hold: {value: 1, duration: {seconds: 30}}}`. In a generic form those hoisted siblings
+ * would render as seven more blank fields duplicating what `DurationWidget` already asks
+ * for; `impliedUiSchema` hides them below.
+ */
+export const DURATION_UNIT_KEYS = ["nanoseconds", "microseconds", "milliseconds", "seconds", "minutes", "hours", "days"] as const;
+
+export function isDuration(schema: JsonSchema, root: JsonSchema): boolean {
+  const resolved = deref(schema, root);
+  return resolved.title === "Duration" && Array.isArray(resolved.anyOf) && resolved.anyOf.length === 2;
+}
+
 /** The `[low, high]` tuple `simplifyNullables` rewrites a `Band` (`tuple[float, float]`) into. */
 function isBand(schema: JsonSchema): boolean {
   return Array.isArray(schema.items) && schema.items.length === 2 && schema.items.every((i) => i.type === "number" || i.type === "integer");
@@ -126,6 +142,9 @@ function widgetFor(schema: JsonSchema): string | undefined {
  */
 function fieldUiSchema(field: JsonSchema, root: JsonSchema): UiSchema {
   const fieldSchema = deref(field, root);
+  if (isDuration(fieldSchema, root)) {
+    return { "ui:field": "duration", "ui:fieldReplacesAnyOrOneOf": true, "ui:options": { label: false } };
+  }
   const widget = widgetFor(fieldSchema);
   const union = fieldSchema.anyOf ? "anyOf" : fieldSchema.oneOf ? "oneOf" : undefined;
   if (widget) return { "ui:widget": widget, "ui:options": { label: false } };
@@ -144,7 +163,17 @@ function fieldUiSchema(field: JsonSchema, root: JsonSchema): UiSchema {
 export function impliedUiSchema(schema: JsonSchema, root: JsonSchema): UiSchema {
   const ui: UiSchema = {};
   const resolved = deref(schema, root);
-  for (const [name, field] of Object.entries(resolved.properties ?? {})) {
+  const props = resolved.properties ?? {};
+  // A `Duration` sibling means these are `foldable()`'s hoisted duplicates of its own
+  // unit keys (the flat shorthand), not fields of their own -- the `DurationWidget` on
+  // the real field already covers them.
+  const foldedDuration = Object.values(props).some((f) => isDuration(f as JsonSchema, root));
+  const hoisted = new Set<string>(DURATION_UNIT_KEYS);
+  for (const [name, field] of Object.entries(props)) {
+    if (foldedDuration && hoisted.has(name) && !isDuration(field as JsonSchema, root)) {
+      ui[name] = { "ui:widget": "hidden" };
+      continue;
+    }
     const fieldUi = fieldUiSchema(field, root);
     if (Object.keys(fieldUi).length) ui[name] = fieldUi;
   }

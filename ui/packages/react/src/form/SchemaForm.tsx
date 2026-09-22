@@ -11,11 +11,12 @@ import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
 import type { JsonSchema } from "@flyball/client";
 import { type ComponentType, useMemo, useState } from "react";
+import { DurationField } from "./duration.js";
 import { TaggedUnionField } from "./tagged.js";
 import { impliedUiSchema, simplifyNullables } from "./uiSchema.js";
 import { widgets } from "./widgets.js";
 
-const fields = { taggedUnion: TaggedUnionField };
+const fields = { taggedUnion: TaggedUnionField, duration: DurationField };
 
 export interface SchemaFormProps {
   schema: JsonSchema;

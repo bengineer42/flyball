@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { JsonSchema } from "@flyball/client";
 import { SchemaForm } from "../src/form/SchemaForm.js";
 import { formatTagged } from "../src/form/tagged.js";
-import { impliedUiSchema, isTaggedUnion, simplifyNullables } from "../src/form/uiSchema.js";
+import { impliedUiSchema, isDuration, isTaggedUnion, simplifyNullables } from "../src/form/uiSchema.js";
 
 // The shape `sim_drive`'s config takes (DEVICE-MODEL-2, `GET /api/rig/schema`): a dict
 // (`additionalProperties`) of ports, each an `anyOf` of a bare string or a `DrivePort` object
@@ -115,6 +115,60 @@ const blendFlowArg: JsonSchema = { $ref: "#/$defs/BlendFlow", default: null, "x-
 // `set_humidity`'s: the same, but `BlendFlow | None` too (an `anyOf` with a null branch, wrapping the ref).
 const blendFlowArgOptional: JsonSchema = { anyOf: [{ $ref: "#/$defs/BlendFlow" }, { type: "null" }], default: null, "x-signal": "blender.blend.flow", unit: "", title: "Blend flow" };
 const schemaRoot: JsonSchema = { $defs, type: "object", properties: { blend_flow: blendFlowArg } };
+
+// `Tune`'s own shape (`sequencing/tuning.py`): a foldable `Duration` field (`window`) plus
+// its hoisted unit-key duplicates (`seconds`, `minutes`, ... -- normally all seven, trimmed
+// here to two for a smaller fixture) alongside an ordinary field (`save_as`).
+const duration: JsonSchema = {
+  anyOf: [
+    { type: "object", additionalProperties: false, minProperties: 1, properties: { seconds: { type: "number", minimum: 0 }, minutes: { type: "number", minimum: 0 } } },
+    { type: "number", minimum: 0 },
+  ],
+  default: { seconds: 60, nanoseconds: 0 },
+  title: "Duration",
+  description: "A span of time: unit keys that add, or a bare number of seconds.",
+};
+const tuneShaped: JsonSchema = {
+  type: "object",
+  properties: { save_as: { type: "string", default: "fitted", title: "Save As" }, window: duration, seconds: { type: "number", minimum: 0 }, minutes: { type: "number", minimum: 0 } },
+};
+
+describe("isDuration", () => {
+  it("is true for Duration's anyOf-of-object-or-number, titled 'Duration'", () => {
+    expect(isDuration(duration, duration)).toBe(true);
+  });
+
+  it("is false for an untitled anyOf and for a tagged union", () => {
+    expect(isDuration({ anyOf: [{ type: "object" }, { type: "number" }] }, {})).toBe(false);
+    expect(isDuration({ type: "string" }, {})).toBe(false);
+  });
+});
+
+describe("impliedUiSchema and a foldable Duration field", () => {
+  it("points the Duration field at the `duration` widget and hides its hoisted unit-key duplicates, leaving ordinary fields alone", () => {
+    const ui = impliedUiSchema(tuneShaped, tuneShaped) as any;
+    expect(ui.window["ui:field"]).toBe("duration");
+    expect(ui.seconds["ui:widget"]).toBe("hidden");
+    expect(ui.minutes["ui:widget"]).toBe("hidden");
+    expect(ui.save_as["ui:widget"]).toBe("text");
+  });
+});
+
+describe("SchemaForm with a Duration field", () => {
+  it("renders one number input and a unit select, not a type-picker and duplicate blank fields", () => {
+    const html = renderToStaticMarkup(<SchemaForm schema={tuneShaped} value={{ window: { seconds: 20 } }} onSubmit={() => undefined} />);
+    expect(html).toContain("fb-duration");
+    expect(html).toContain('value="20"');
+    expect(html).toContain("<select");
+    // The hoisted duplicates render nothing visible: RJSF's HiddenWidget emits an <input type="hidden">.
+    expect((html.match(/type="number"/g) ?? []).length).toBe(1);
+  });
+
+  it("is registered as the `duration` field", async () => {
+    const { DurationField } = await import("../src/form/duration.js");
+    expect(DurationField).toBeTypeOf("function");
+  });
+});
 
 describe("isTaggedUnion", () => {
   it("is true for a `BlendFlow`-shaped union, whether given directly or as a bare `$ref`", () => {
