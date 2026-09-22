@@ -1,12 +1,71 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal, Union
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import Field
+from pydantic_core import core_schema
 
 from flyball.foundation import Duration, Rate, Speed
-from flyball.model.generator import SetPointGenerator, SetPointGeneratorConfig
-from flyball.model.model import ModelOf
+from flyball.model.generator import (
+    SetPointGenerator,
+    SetPointGeneratorConfig,
+    registered_generator_configs,
+)
+from flyball.model.model import ModelOf, discriminated_union
+
+
+class _GeneratorConfigType:
+    """`GeneratorConfig`'s own type: every registered generator's config, by `tag`.
+
+    Resolved when a value is validated, not when this module is imported, so a
+    generator registered afterwards (an extension's, loaded by `Catalogs.discover()`,
+    or simply another module's own subclass) is recognised wherever this type is
+    used: a profile's segments as much as a controller's reference -- both are
+    `GeneratorConfig`, so both see the same registrations.
+    """
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+        # The union as registered right now, built into the schema the normal way (so a
+        # profile nested in its own segments gets pydantic's usual `$ref`-based recursion,
+        # and the JSON schema lists every tag known at this point). Wrapped so a tag
+        # registered *after* this schema was built (an extension loaded later) still
+        # resolves: `_validate_late` only runs when the frozen schema below would refuse it.
+        known = registered_generator_configs()
+        frozen = handler.generate_schema(discriminated_union(known, "tag"))
+
+        def validate(value: Any, next_: core_schema.ValidatorFunctionWrapHandler) -> Any:
+            tag = value.get("tag") if isinstance(value, dict) else getattr(value, "tag", None)
+            return next_(value) if tag in known else cls._validate_late(value)
+
+        return core_schema.no_info_wrap_validator_function(
+            validate,
+            frozen,
+            # Dumped by its own tag/fields, not by re-matching the (possibly stale) union
+            # above -- the value is already some `SetPointGeneratorConfig`, whichever one.
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda v: v.model_dump(mode="json"), when_used="always"
+            ),
+        )
+
+    @staticmethod
+    def _validate_late(value: Any) -> SetPointGeneratorConfig:
+        """A generator registered after this schema was built: looked up live."""
+        if isinstance(value, SetPointGeneratorConfig):
+            return value
+        if not isinstance(value, dict):
+            raise ValueError(f"a generator config is an object with a 'tag', not {value!r}")
+        configs = registered_generator_configs()
+        tag = value.get("tag")
+        config_cls = configs.get(tag) if isinstance(tag, str) else None
+        if config_cls is None:
+            raise ValueError(f"generator tag {tag!r} is not registered (known: {sorted(configs)})")
+        return config_cls.model_validate(value)
+
+
+GeneratorConfig = Annotated[Any, _GeneratorConfigType]
+"""Every registered generator's config, discriminated by `tag`; a profile's segments are these,
+looked up live rather than fixed to what `control/setpoint.py` itself defines."""
 
 
 class LinearRampSetpoint(SetPointGenerator):
@@ -81,11 +140,11 @@ class Hold(SetPointGenerator):
 
 
 class ProfileConfig(SetPointGeneratorConfig):
-    """A profile's segments are generator configs, so the union below refers to itself.
+    """A profile's segments are generator configs -- `GeneratorConfig` itself, resolved live.
 
-    Written out rather than derived from `__init__`, since `GeneratorConfig`
-    does not exist until every generator is registered; `model_rebuild` at
-    the end of the module closes the loop.
+    Written out rather than derived from `__init__`, since `Profile`'s own
+    constructor does not exist yet (`ProfileConfig.generator = Profile` below
+    closes that loop, once `Profile` is defined).
     """
 
     tag: Literal["profile"] = "profile"  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -158,13 +217,3 @@ class Profile(SetPointGenerator):
 
 
 ProfileConfig.generator = Profile
-
-GeneratorConfig = Annotated[  # type: ignore[valid-type]
-    Union[LinearRampSetpoint.config, Hold.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
-    Field(discriminator="tag"),
-]
-"""Every built-in generator's config, discriminated by `tag`; a profile's segments are these."""
-
-# A profile holds generators, so its config refers back to the union above:
-# the forward reference can only be resolved now the union exists.
-ProfileConfig.model_rebuild(_types_namespace={"GeneratorConfig": GeneratorConfig})

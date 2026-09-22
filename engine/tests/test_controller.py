@@ -450,3 +450,35 @@ def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():
         Profile([])
     with pytest.raises(Exception, match="at least 1"):
         Profile.config.model_validate({"tag": "profile", "segments": []})
+
+
+def test_a_generator_registered_outside_setpoint_py_works_as_a_profile_segment():
+    """A profile's segments are `GeneratorConfig`, built lazily from whatever has registered.
+
+    Not fixed to `control/setpoint.py`'s built-ins at import time -- a generator defined
+    here, well outside that module, must be just as good a segment.
+    """
+
+    class Elsewhere(SetPointGenerator, tag="elsewhere_test_generator"):
+        def __init__(self, value: float) -> None:
+            self.value = value
+
+        def generate(self, time: float) -> float:
+            return self.value
+
+    at_the_top = TypeAdapter(GeneratorConfig).validate_python({
+        "tag": "elsewhere_test_generator",
+        "value": 5.0,
+    })
+    assert isinstance(at_the_top, Elsewhere.config) and at_the_top.build().generate(0.0) == 5.0
+
+    profile = Profile.config.model_validate({
+        "tag": "profile",
+        "segments": [
+            {"tag": "elsewhere_test_generator", "value": 1.0},
+            {"tag": "hold", "value": 2.0},
+        ],
+    }).build()
+    assert isinstance(profile.generators[0], Elsewhere)
+    profile.start(0.0, 0.0)
+    assert profile.generate(0.0) == 1.0

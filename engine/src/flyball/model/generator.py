@@ -1,9 +1,11 @@
 """`SetPointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
 
 `control/setpoint.py` holds the concrete generators that ship (`Hold`,
-`LinearRampSetpoint`, `Profile`, ...) and the closed discriminated union over
-them (`GeneratorConfig`); this is just the machinery every one subclasses,
-the same shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
+`LinearRampSetpoint`, `Profile`, ...) and `GeneratorConfig`, the discriminated
+union over every one registered here -- built lazily, from
+`registered_generator_configs()` below, not fixed to what `control/setpoint.py`
+itself defines; this is just the machinery every one subclasses, the same
+shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
 """
 
 from __future__ import annotations
@@ -16,6 +18,21 @@ from pydantic.alias_generators import to_snake
 from pydantic_core import core_schema
 
 from flyball.model.model import ModelOf, creation_model
+
+_configs: dict[str, type[SetPointGeneratorConfig]] = {}
+"""Every generator's config, by tag, as subclasses of `SetPointGenerator` are defined --
+wherever they live: engine's own (`control/setpoint.py`) or an extension's. Read by
+`registered_generator_configs()`, not written to directly."""
+
+
+def registered_generator_configs() -> dict[str, type[SetPointGeneratorConfig]]:
+    """Every generator's config registered so far, by tag.
+
+    Grows as more subclass `SetPointGenerator`, at whatever point that happens
+    to be imported -- an extension's module included, once `Catalogs.discover()`
+    (or a plain import) has run it. A snapshot, safe to keep or iterate.
+    """
+    return dict(_configs)
 
 
 class SetPointGeneratorConfig(BaseModel):
@@ -70,6 +87,10 @@ class SetPointGenerator:
             config_model.generator = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(config_model, tuple(config_model.model_fields))
+
+        # Registered under its tag whichever way `config` came to be -- derived just above,
+        # or written out by hand (`Profile`'s, which refers back to this same registry).
+        _configs[cls.tag] = cls.config
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
