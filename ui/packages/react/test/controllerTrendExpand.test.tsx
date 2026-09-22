@@ -118,6 +118,29 @@ describe("ControllerPanel's trends open the same full-screen overlay as any othe
     expect(document.querySelectorAll(".fb-loop-mini").length).toBe(2);
   });
 
+  it("stays open through a double-click: the second click must not dismiss it", () => {
+    // Ben double-clicked a controller's trend on the real rig and saw nothing happen: the first
+    // click opened the overlay, the second landed on its backdrop and closed it again.
+    render(withRig(createElement(ControllerPanel, { controller: CONTROLLER, source: SOURCE, trends: true })));
+
+    fireEvent.click(document.querySelectorAll(".fb-loop-mini")[0]!);
+    fireEvent.click(document.querySelector(".fb-chart-expanded")!); // the tail of the double-click
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+  });
+
+  it("still dismisses on a backdrop click once the gesture has settled", () => {
+    vi.useFakeTimers();
+    try {
+      render(withRig(createElement(ControllerPanel, { controller: CONTROLLER, source: SOURCE, trends: true })));
+      fireEvent.click(document.querySelectorAll(".fb-loop-mini")[0]!);
+      vi.setSystemTime(Date.now() + 1000);
+      fireEvent.click(document.querySelector(".fb-chart-expanded")!);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("opens the Drive trend separately from the Process trend", () => {
     render(withRig(createElement(ControllerPanel, { controller: CONTROLLER, source: SOURCE, trends: true })));
     const trends = document.querySelectorAll(".fb-loop-mini");
