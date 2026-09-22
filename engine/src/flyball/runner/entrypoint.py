@@ -9,6 +9,7 @@ resolve to the function, not this module, and silently patch nothing. Patch
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 from collections.abc import Sequence
@@ -80,5 +81,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         simulation = Simulation(rig, config, layered, first)
         log.info("a simulation: %s plants, clock at %gx", len(simulation.plants), simulation.speed)
     log.info("serving %s on %s:%d", config.name or first.name, settings.host, settings.port)
-    serve(rig, settings, simulation=simulation, store=store, config=config)
+    # uvicorn's own graceful shutdown (its "Shutting down" / "Application shutdown
+    # complete" logging) already runs by the time this is caught -- the interrupt
+    # still escapes uvicorn's internals and would otherwise print a raw traceback
+    # here on top of that, for no reason: the process is exiting cleanly either way.
+    with contextlib.suppress(KeyboardInterrupt):
+        serve(rig, settings, simulation=simulation, store=store, config=config)
     return 0
