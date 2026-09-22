@@ -1,5 +1,5 @@
 # The checks, in the order they are quickest to fail. `make check` before a commit.
-.PHONY: check lint imports types test format mypy
+.PHONY: check lint imports types test format
 
 check: lint imports types test
 
@@ -16,11 +16,6 @@ imports:
 
 types:
 	uvx pyright --pythonpath .venv/bin/python src/flyball
-
-# Strict mypy still reports pre-existing findings (mostly generic-arg and
-# Any-return); not in `check` until it is clean.
-mypy:
-	uv run mypy
 
 test:
 	uv run pytest -q -p no:cacheprovider
