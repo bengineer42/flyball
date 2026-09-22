@@ -450,3 +450,27 @@ def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():
         Profile([])
     with pytest.raises(Exception, match="at least 1"):
         Profile.config.model_validate({"tag": "profile", "segments": []})
+
+
+def test_a_callback_may_detach_while_the_tick_is_running(furnace):
+    """An activity detaches from the programmer's thread mid-tick; the poller must survive.
+
+    Single-threaded here because self-detachment reproduces the same mutation
+    of `_on_tick` that the cross-thread case does, deterministically.
+    """
+    controller = Controller(SteppedClock(), furnace.signals["heater1"], furnace.signals["zone1"])
+    seen = []
+
+    def leaves(ctrl, reading):
+        seen.append(reading)
+        ctrl.detach_on_tick(leaves)
+
+    def stays(ctrl, reading):
+        seen.append(reading)
+
+    controller.attach_on_tick(leaves)
+    controller.attach_on_tick(stays)
+    controller.tick(Reading(furnace.signals["zone1"], 0, 20.0))
+    controller.tick(Reading(furnace.signals["zone1"], 1, 21.0))
+
+    assert len(seen) == 3  # both on the first tick, only `stays` on the second

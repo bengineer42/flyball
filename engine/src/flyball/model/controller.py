@@ -412,7 +412,14 @@ class Controller:
                 self._on_tick.pop(callback)
 
     def _run_on_tick(self, reading: Reading | None) -> None:
-        for callback in self._on_tick:
+        # Snapshot under the lock, then call outside it. An activity detaches
+        # from the programmer's thread while the poller is in here, and
+        # iterating the dict itself raises "changed size during iteration";
+        # holding the lock across the callbacks instead would invert the
+        # rig-then-controller order `Programmer` documents.
+        with self.lock:
+            callbacks = tuple(self._on_tick)
+        for callback in callbacks:
             callback(self, reading)
 
     def on_reading(self, reading: Reading) -> None:
