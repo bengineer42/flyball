@@ -105,10 +105,25 @@ databroker consume. `write_jsonl` saves them as JSON lines.
 
 ## SQLite
 
-One locked connection per `SqliteStore`. The rig's writer and the server's
-reader normally each open their own on the same file, and WAL lets them
-overlap. Declarations are interned in the writer so the hot path — a
-delivery — is one `executemany` per table with integer keys already known.
+One connection per `SqliteStore`, and one `RLock` around it: every query
+and every transaction holds the lock for its whole length. `flyball-runner`
+opens one store and shares it — the recorder's thread writes through it, the
+server reads through it, the retention sweep deletes through it — so they
+take turns at that lock. Another process (a copy being read, `sqlite3` at a
+shell) can open the same file beside it, and WAL lets them overlap.
+Declarations are interned in the writer so the hot path — a delivery — is one
+`executemany` per table with integer keys already known.
+
+Whoever waits for the lock waits as long as the holder takes, so nothing on
+the server's event loop calls the store. A route that takes `StoreDep` is a
+plain `def`, which FastAPI runs on its threadpool; one that must stay `async`
+(reading a request body) hands the store call to `anyio.to_thread`. An
+`async` route that called the store would, while another thread held the
+lock, freeze every request and websocket the runner serves. `StoreDep` also
+takes one of four `STORE_SLOTS` for the request, so a pile of history reads
+queued at the lock waits on the loop rather than filling the 40 worker
+threads that every other sync route (demands, commands) shares. The test
+suite fails any test in which the app's loop took the store's lock.
 
 Migrations are numbered SQL files in `flyball/record/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
