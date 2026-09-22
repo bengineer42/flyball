@@ -99,7 +99,8 @@ const axisTitle = (unit: string | undefined, traces: readonly MultiSeriesTrace[]
 const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.unit === undefined || trace.unit === unit ? "y" : `y:${trace.unit}`);
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
-const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(fixed(raw, s.precision ?? 2), s.unit));
+const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string =>
+  typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, s.precision ?? 2), s.unit) : "—";
 
 /** Align traces with different time bases onto one x array, nulls where a trace has no point. */
 function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {

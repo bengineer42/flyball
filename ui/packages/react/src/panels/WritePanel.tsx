@@ -124,7 +124,8 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const liveReading = useSignal(publishes(signal) ? signal.address : undefined);
   const reading = liveReading ?? (signal.latest && typeof signal.latest.value === "number" ? { t: signal.latest.time_ns / 1e9, v: signal.latest.value } : undefined);
   const precision = precisionProp ?? signal.precision ?? 2;
-  const fmt = (value: number | null | undefined) => (value == null ? "—" : withUnit(fixed(value, precision), signal.unit));
+  const fmt = (value: number | null | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? withUnit(fixed(value, precision), signal.unit) : "—";
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

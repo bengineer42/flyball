@@ -164,7 +164,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
           stroke: palette.accent,
           points: { show: false },
           width: 1.5,
-          value: (_u, raw) => (raw == null ? "—" : withUnit(fixed(raw, signal.precision ?? 2), signal.unit)),
+          value: (_u, raw) => (typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, signal.precision ?? 2), signal.unit) : "—"),
         },
       ],
       axes: compact

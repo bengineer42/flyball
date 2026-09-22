@@ -90,7 +90,7 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
     <>
       <div className="fb-readout-value">
         <span className="fb-readout-number" style={{ minWidth: `${width}ch` }}>
-          {last === undefined ? "—" : fixed(last, precision)}
+          {fixed(last, precision)}
         </span>
         <span className="fb-readout-unit">{describeUnit(signal.unit)}</span>
       </div>

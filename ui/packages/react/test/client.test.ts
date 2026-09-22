@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
+import { RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
 
 /** A transport answering from a table of `METHOD path` → body, recording what was asked. */
 function fakeTransport(routes: Record<string, unknown>, status = 200) {
@@ -194,5 +194,27 @@ describe("titles from labels", () => {
     expect(verbLabel("Set", describeSignal({ name: "voltage", label: null }))).toBe("Set Voltage");
     // Case-insensitive: an explicit driver label already phrased as a sentence is left alone too.
     expect(verbLabel("Set", "set point")).toBe("set point");
+  });
+});
+
+describe("fixed() is total", () => {
+  // A generator-based controller write records an object, not a number; it reaches
+  // formatting through uPlot's legend and axis callbacks, where a throw takes the page
+  // down. Ben hit exactly that twice on 22 Sep, from two different call sites.
+  it.each([
+    ["an object, as a ramp's recorded value is", { kind: "ramp", to: 80 }],
+    ["a string", "80"],
+    ["null", null],
+    ["undefined", undefined],
+    ["NaN", NaN],
+    ["Infinity", Infinity],
+  ])("formats %s as an em-dash instead of throwing", (_what, value) => {
+    expect(() => fixed(value as never, 2)).not.toThrow();
+    expect(fixed(value as never, 2)).toBe("—");
+  });
+
+  it("still formats a real number, and never prints -0", () => {
+    expect(fixed(1.234, 2)).toBe("1.23");
+    expect(fixed(-0.001, 2)).toBe("0.00");
   });
 });
