@@ -203,42 +203,6 @@
               }
             ]
           },
-          "every": {
-            "type": "number",
-            "title": "Sample",
-            "description": "Draw one point in n. Left to the page, a dense trace thins itself to twice the chart's width.",
-            "default": 0,
-            "oneOf": [
-              {
-                "const": 0,
-                "title": "page setting"
-              },
-              {
-                "const": 1,
-                "title": "every point"
-              },
-              {
-                "const": 2,
-                "title": "1 in 2"
-              },
-              {
-                "const": 5,
-                "title": "1 in 5"
-              },
-              {
-                "const": 10,
-                "title": "1 in 10"
-              },
-              {
-                "const": 20,
-                "title": "1 in 20"
-              },
-              {
-                "const": 50,
-                "title": "1 in 50"
-              }
-            ]
-          },
           "y": {
             "type": "string",
             "title": "Y axis",
@@ -265,9 +229,6 @@
       },
       "ui": {
         "window_s": {
-          "ui:widget": "select"
-        },
-        "every": {
           "ui:widget": "select"
         },
         "y": {
@@ -701,10 +662,6 @@
                 "title": "Devices"
               },
               {
-                "const": "rig",
-                "title": "Rig"
-              },
-              {
                 "const": "graph",
                 "title": "Graph"
               },
@@ -727,6 +684,10 @@
               {
                 "const": "simulation",
                 "title": "Simulation"
+              },
+              {
+                "const": "rig",
+                "title": "Config"
               },
               {
                 "const": "url",
