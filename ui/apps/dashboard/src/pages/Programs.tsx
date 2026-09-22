@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   Alert,
   Box,
@@ -54,7 +54,9 @@ import { PAGE_ICONS } from "../icons.js";
 import { normalisedOf, stepsSummary } from "../steps.js";
 import { asProgram, briefError, stepOfError, type DevicePicks, type ProgramTree } from "../programDoc.js";
 import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
-import { ProgramBuilder } from "./ProgramBuilder.js";
+// Lazy: the builder's own tree of step editors pulls in every step kind's form, ~31 kB gzip
+// the overview/loops/etc. routes never need.
+const ProgramBuilder = lazy(() => import("./ProgramBuilder.js").then((m) => ({ default: m.ProgramBuilder })));
 import { when } from "../time.js";
 import { Crumbs } from "./Inputs.js";
 
@@ -779,7 +781,9 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
           showing the last text that parsed; fix the text to update
         </Typography>
       )}
-      <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} controllers={controllers.data} devices={devices} stepErrors={check?.stepErrors ?? {}} stepWarnings={check?.stepWarnings ?? {}} revision={revision} nameEditable={creating} />
+      <Suspense fallback={<LinearProgress />}>
+        <ProgramBuilder tree={tree} onChange={onTree} programSchema={programSchema.data} controllers={controllers.data} devices={devices} stepErrors={check?.stepErrors ?? {}} stepWarnings={check?.stepWarnings ?? {}} revision={revision} nameEditable={creating} />
+      </Suspense>
     </Box>
   );
   const textPane = (
