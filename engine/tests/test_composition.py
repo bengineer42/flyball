@@ -184,6 +184,9 @@ class TestRoutes:
         assert r.status_code == 200, r.text
         assert rig.devices == {} and list(rig.controllers) == [] and rig.links == {}
         assert client.get("/api/rig/changes").json() == {}
+        restored = [e for e in rig.recent if e.kind == "restored"]
+        assert len(restored) == 1, "a restore is recorded on the rig's event stream"
+        assert restored[0].scope == "rig" and restored[0].details == {"version_id": first}
         after = client.get("/api/rig/versions").json()
         assert len(after) == len(versions), "a restore writes no version"
         assert [v["id"] for v in after if v["head"]] == [first], "the head moved to it"
