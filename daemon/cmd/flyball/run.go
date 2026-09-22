@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,9 +17,21 @@ import (
 // supervision (no restart-on-crash), no registry, no routing -- those
 // are what you lose by not going through flyballd; this is the "you
 // shouldn't need the daemon to run one runner" escape hatch.
+//
+// --serve-ui ADDR additionally serves the embedded dashboard UI on ADDR,
+// reverse-proxying /api, /ws and /mcp to the runner -- so the runner is
+// reachable through the CLI's own binary with no separate reverse proxy
+// in front of it (see serve_ui.go).
 func runDirect(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: flyball run <rig-file> [flyball-runner flags...]")
+		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [flyball-runner flags...]")
+	}
+
+	serveAddr, args, wantUI := popValue(args, "--serve-ui")
+
+	port, _, ok := popValue(args, "--port")
+	if !ok {
+		port = "8000"
 	}
 
 	cmd := exec.Command("flyball-runner", args...)
@@ -38,6 +51,17 @@ func runDirect(args []string) error {
 		sig := <-sigs
 		_ = cmd.Process.Signal(sig)
 	}()
+
+	uiCtx, cancelUI := context.WithCancel(context.Background())
+	defer cancelUI()
+	if wantUI {
+		fmt.Fprintf(os.Stderr, "flyball: serving UI on %s, proxying to runner on 127.0.0.1:%s\n", serveAddr, port)
+		go func() {
+			if err := serveUI(uiCtx, serveAddr, port); err != nil {
+				fmt.Fprintln(os.Stderr, "flyball: UI server:", err)
+			}
+		}()
+	}
 
 	return cmd.Wait()
 }
