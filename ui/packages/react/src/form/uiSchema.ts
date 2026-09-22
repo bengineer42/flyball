@@ -147,7 +147,15 @@ function fieldUiSchema(field: JsonSchema, root: JsonSchema): UiSchema {
   }
   const widget = widgetFor(fieldSchema);
   const union = fieldSchema.anyOf ? "anyOf" : fieldSchema.oneOf ? "oneOf" : undefined;
-  if (widget) return { "ui:widget": widget, "ui:options": { label: false } };
+  if (widget) {
+    // A blank text/number box reads as "required, not yet filled in" -- for a field whose
+    // schema default is null (pydantic's `X | None = None`), blank is a real, valid choice
+    // (the caller/engine decides what happens then), so it earns a placeholder saying so.
+    // "optional" rather than "auto": blank does not always mean a computed value (`timeout`
+    // blank is "no timeout", not a default to compute), but it is always at least optional.
+    const placeholder = (widget === "text" || widget === "unitNumber") && fieldSchema.default === null;
+    return { "ui:widget": widget, "ui:options": { label: false }, ...(placeholder ? { "ui:placeholder": "optional" } : {}) };
+  }
   if (isTaggedUnion(fieldSchema, root)) {
     return { "ui:field": "taggedUnion", "ui:fieldReplacesAnyOrOneOf": true, "ui:options": { label: false } };
   }

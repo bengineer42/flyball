@@ -170,6 +170,34 @@ describe("SchemaForm with a Duration field", () => {
   });
 });
 
+// `Tune`'s own `size`/`loop` (both `X | None = None`): a blank box for either is a real,
+// valid choice -- the engine computes `size`, and a blank `loop` means the rig's default --
+// not a required field left unfilled. Mirrors what the schema actually carries: `default: null`
+// once `simplifyNullables` has inlined the `X | None` pattern.
+const nullableShaped: JsonSchema = {
+  type: "object",
+  properties: {
+    size: { anyOf: [{ type: "number" }, { type: "null" }], default: null, title: "Size" },
+    loop: { anyOf: [{ type: "string" }, { type: "null" }], default: null, title: "Loop" },
+    save_as: { type: "string", default: "fitted", title: "Save As" },
+  },
+};
+
+describe("impliedUiSchema and a nullable-scalar field", () => {
+  it("gives a null-default number/string field a placeholder, but not a field with a real default", () => {
+    const simplified = simplifyNullables(nullableShaped);
+    const ui = impliedUiSchema(simplified, simplified) as any;
+    expect(ui.size["ui:placeholder"]).toBe("optional");
+    expect(ui.loop["ui:placeholder"]).toBe("optional");
+    expect(ui.save_as["ui:placeholder"]).toBeUndefined();
+  });
+
+  it("renders the placeholder on the actual input", () => {
+    const html = renderToStaticMarkup(<SchemaForm schema={nullableShaped} value={{}} onSubmit={() => undefined} />);
+    expect(html).toContain('placeholder="optional"');
+  });
+});
+
 describe("isTaggedUnion", () => {
   it("is true for a `BlendFlow`-shaped union, whether given directly or as a bare `$ref`", () => {
     expect(isTaggedUnion($defs.BlendFlow!, schemaRoot)).toBe(true);

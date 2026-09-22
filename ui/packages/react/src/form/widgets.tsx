@@ -97,7 +97,7 @@ function invalid(props: WidgetProps): boolean {
 
 /** A number input with the schema's `unit` as a suffix and ± buttons stepping by `multipleOf`, else 1. */
 export function UnitNumberWidget(props: WidgetProps) {
-  const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, required, autofocus } = props;
+  const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, required, autofocus, placeholder } = props;
   const s = schema as JsonSchema;
   const { min, max } = bounds(s);
   const step = s.multipleOf ?? 1;
@@ -113,6 +113,7 @@ export function UnitNumberWidget(props: WidgetProps) {
           id={id}
           type="number"
           value={value ?? ""}
+          placeholder={placeholder}
           step={s.multipleOf ?? "any"}
           min={min}
           max={max}
