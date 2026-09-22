@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { describeSignal, describeUnit, deviceOf, publishes, withUnit, type SignalOut, type WriteOut, fixed } from "@flyball/client";
+import { describeSignal, describeUnit, deviceOf, publishes, verbLabel, withUnit, type SignalOut, type WriteOut, fixed } from "@flyball/client";
 import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
 import { useController, useSignal, useWriteState } from "../store/hooks.js";
@@ -171,7 +171,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const entry = driven ? (
     drivenNote
   ) : (
-    <form className="fb-write-entry fb-unit-input" onSubmit={(e) => void submit(e)} title={withUnit(`Set ${describeSignal(signal)}, in`, signal.unit)}>
+    <form className="fb-write-entry fb-unit-input" onSubmit={(e) => void submit(e)} title={withUnit(`${verbLabel("Set", describeSignal(signal))}, in`, signal.unit)}>
       <DemandEntry signal={signal} text={text} onText={setText} disabled={busy || !canOperate} precision={precision} />
       <button type="submit" className="fb-signal-go" disabled={busy || !canOperate || !text.trim()}>
         Set

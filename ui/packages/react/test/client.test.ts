@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RigClient, RigError, addressOf, captionFor, describeUnit, deviceOf, deviceTitle, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
+import { RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
 
 /** A transport answering from a table of `METHOD path` → body, recording what was asked. */
 function fakeTransport(routes: Record<string, unknown>, status = 200) {
@@ -186,5 +186,13 @@ describe("titles from labels", () => {
     expect(unitTitle("%RH", [])).toBe("%RH");
     expect(unitTitle("1", [signal("b.dry_effort", "1", "effort"), signal("b.wet_effort", "1", "effort")] as Array<{ quantity: string }>)).toBe("Effort");
     expect(unitTitle("1", [])).toBe("dimensionless");
+  });
+
+  it("does not double a verb a label already opens with -- a signal named set_voltage humanises to 'Set voltage' on its own", () => {
+    expect(humanise("set_voltage")).toBe("Set voltage");
+    expect(verbLabel("Set", describeSignal({ name: "set_voltage", label: null }))).toBe("Set voltage");
+    expect(verbLabel("Set", describeSignal({ name: "voltage", label: null }))).toBe("Set Voltage");
+    // Case-insensitive: an explicit driver label already phrased as a sentence is left alone too.
+    expect(verbLabel("Set", "set point")).toBe("set point");
   });
 });
