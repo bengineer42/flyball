@@ -4,6 +4,11 @@
 # `fit_fopdt` wants: a known step and the reading after it. Done at 300 and
 # again at 700, because the gain is not the same — that difference is the
 # case for a gain schedule. About 5 h of furnace time.
+#
+# Kept as the worked example of identification by hand, because the gain
+# schedule needs two operating points and a human comparing them. For one
+# loop at one operating point the `tune:` step does the same measurement and
+# fits it for you -- see book/src/1-running/autotune.md.
 name: step-test
 steps:
   - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }

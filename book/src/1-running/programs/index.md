@@ -19,11 +19,12 @@ derived from its constructor. The vocabulary shipped with the library:
 | `hold` | keep everything as it is for a duration; controllers go on regulating |
 | `arrive` | wait until named controllers have settled within a band of their setpoints |
 | `manual` | stop a controller regulating; its target keeps its last demand |
+| `tune` | step one controller open-loop, fit a plant to the response, store the gains |
 | `set` | put values on one device's writable signals, as one demand |
 | `command` | call one of a device's own commands |
 | `wait` | pause until someone fires a named signal |
 
-`regulate`/`ramp`/`hold`/`arrive`/`manual` name a **controller** by the
+`regulate`/`ramp`/`hold`/`arrive`/`manual`/`tune` name a **controller** by the
 address of the signal it drives (or a list, or none for the rig's default) --
 not the device itself, since a writable signal has at most one controller.
 Device commands (`@command` methods on a device) are reachable as `command`

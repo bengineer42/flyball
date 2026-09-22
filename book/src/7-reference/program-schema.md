@@ -37,8 +37,9 @@ declares. Any other key is an error.
 
 Every rig has these; `loop` (kept as the field name — a controller is what
 today's `Loop` is called, but the argument is unchanged) is one address, a
-list of addresses, or omitted for the rig's default controller. Source:
-`flyball.sequencing.{loops,devices,activities}`.
+list of addresses, or omitted for the rig's default controller (`tune` is the
+one exception: it takes a single address, never a list). Source:
+`flyball.sequencing.{loops,devices,activities,tuning}`.
 
 | tag | field | type | default |
 | --- | --- | --- | --- |
@@ -58,6 +59,17 @@ list of addresses, or omitted for the rig's default controller. Source:
 | | `timeout` | `Duration` | none |
 | | `message` | string | none |
 | `manual` | `loop` (primary) | address, list, or omitted | rig default |
+| `tune` | `loop` (primary) | address, or omitted | rig default |
+| | `save_as` | tuning name | `"fitted"` |
+| | `size` | number, signed | a tenth of the source's range |
+| | `base` | number | the current reading |
+| | `window` | `Duration`, foldable | 60 s |
+| | `band` | number | a twentieth of `size` |
+| | `rule` | `imc` or `amigo` | `imc` |
+| | `lam` | number of seconds | about the plant's own speed |
+| | `derivative` | bool | `false` |
+| | `timeout` | number of seconds, per plateau | none |
+| | `message` | string | none |
 | `set` | `device` | name | — |
 | | `values` | `{name: value}` | — |
 | `command` | `device_command` | tag | — |
@@ -67,12 +79,14 @@ list of addresses, or omitted for the rig's default controller. Source:
 | | `name` | string | `"wait"` |
 | | `timeout` | `Duration` | none |
 
-`regulate`/`ramp`/`hold`/`arrive`/`manual` are steps on a **controller**
+`regulate`/`ramp`/`hold`/`arrive`/`manual`/`tune` are steps on a **controller**
 (named by its target's address); `set` and `command` reach a **device**
 directly — `set` is one demand (`rig.demand`) on its writable signals,
 `command` calls one of its `@command` methods, `device_command` naming the
 tag rather than `command` because a step's own wire form reserves
-`command` for its own tag. See [Programs](../1-running/programs/index.md) for
+`command` for its own tag. `tune` measures the loop and stores gains rather
+than commanding a value; see [Autotune](../1-running/autotune.md). See
+[Programs](../1-running/programs/index.md) for
 the concepts and [Writing programs](../1-running/programs/writing.md) for the full
 worked example.
 

@@ -3,8 +3,9 @@
 Working out the gains instead of guessing them. Three steps, each usable on
 its own:
 
-!!! tip "At the terminal"
-    No subcommand yet; the routes are under [Controllers](../4-server/api.md#controllers), reachable from the client -- [Controllers and tuning](cli/controllers.md).
+!!! tip "On a running rig"
+    You do not have to drive any of this yourself: the `tune` step below does
+    the three in one, as a program step or as a single command.
 
 1. **Measure.** A `StepTest` or a `RelayTest`, driven from whatever
    controller already reads the sensor.
@@ -17,7 +18,52 @@ its own:
 Nothing here writes to the rig. The caller drives the experiment, so a run is
 as interruptible as the controller driving it.
 
+## The `tune` step
+
+`tune` is an ordinary program command, so the same thing is a step in a
+program and a one-shot you can fire at a running rig. It settles the loop,
+steps it open-loop, fits the response and stores the gains under `save_as`,
+where a following `regulate` names them:
+
+```yaml
+- tune: {loop: heaters.heater2, save_as: zone2}
+- regulate: {loop: heaters.heater2, setpoint: 300, tuning: zone2}
+```
+
+Everything but the loop has a default worked out from the rig: the step is a
+tenth of the source signal's range directed away from whichever end is
+nearer, the base is the current reading, and the band is a twentieth of the
+step. Give `size` and `band` yourself when the defaults do not suit the
+signal -- a reading whose declared range is far wider than its working span
+is the usual reason.
+
+| argument | choose it |
+| --- | --- |
+| `save_as` | the tuning name a later `regulate` will use; default `fitted` |
+| `size` | well above the noise, within the range the controller will work over |
+| `window` | longer than the dead time, or the flat stretch before the response reads as a plateau |
+| `band` | above the sensor noise, well below `size` |
+| `rule` | `imc` (one dial, `lam`) or `amigo` (bounded sensitivity, PID only) |
+| `derivative` | off by default; PI gives up little on a noisy reading |
+| `timeout` | seconds per plateau; omitted waits for ever |
+
+One loop per step, never a list: two experiments at once on a shared plant
+contaminate each other's responses. Three furnace zones are three `tune:`
+steps.
+
+As a one-shot it is the same command through `POST /api/programs/command`, so
+it runs on the programmer's thread and `POST /api/programs/interrupt` stops
+it. **An interrupted tune puts the loop back the way it found it** -- the
+previous law, mode and setpoint -- rather than leaving it open-loop at a
+stepped target.
+
+The fitted tuning lands on the running rig, not in the store. Promote one you
+want to keep with `PUT /api/history/tunings/{name}`, which versions it.
+
 ## Set up
+
+The rest of this page is the same three steps by hand, for a rig you are
+driving from Python rather than from a program.
 
 Run an experiment with the law set to `OpenLoop` and the target moved
 directly. The step then passes through the device's own arithmetic, so the
