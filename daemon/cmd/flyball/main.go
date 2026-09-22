@@ -29,6 +29,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"flyballd/internal/client"
@@ -39,8 +40,23 @@ func main() {
 	token := client.Token(flagToken())
 	args := restArgs()
 
+	// --help/-h anywhere in the command line is a deliberate, successful
+	// request for usage (exit 0, stdout) -- distinct from no args at all,
+	// which is a usage error (exit 2, stderr, below). People expect the
+	// flag to work regardless of position, same as -s/--token.
+	if help, rest := popBool(args, "--help"); help {
+		args = rest
+		usage(os.Stdout)
+		os.Exit(0)
+	}
+	if help, rest := popBool(args, "-h"); help {
+		args = rest
+		usage(os.Stdout)
+		os.Exit(0)
+	}
+
 	if len(args) == 0 {
-		usage()
+		usage(os.Stderr)
 		os.Exit(2)
 	}
 
@@ -170,8 +186,8 @@ func resolveTarget(server string) (client.Target, error) {
 	return client.Resolve("")
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `usage: flyball [-s NAME] [--token TOKEN] <command> ...
+func usage(w io.Writer) {
+	fmt.Fprint(w, `usage: flyball [-s NAME] [--token TOKEN] <command> ...
 
 runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   login [SECRET]                      sign in to a password-protected runner
