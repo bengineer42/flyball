@@ -21,11 +21,9 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
-import DensitySmallIcon from "@mui/icons-material/DensitySmall";
-import DensityMediumIcon from "@mui/icons-material/DensityMedium";
 import { PAGES, hashFor, type Page } from "./router.js";
 import { PAGE_ICONS } from "./icons.js";
-import { useColorMode, useDensity } from "./theme.js";
+import { useColorMode } from "./theme.js";
 
 export interface ShellProps {
   page: Page;
@@ -160,7 +158,6 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
   const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
   const [open, setOpen] = useState(false);
   const { mode, toggle } = useColorMode();
-  const { density, toggle: toggleDensity } = useDensity();
   const width = phone ? 0 : mini ? MINI_W : DRAWER_W;
 
   const brand = (
@@ -194,11 +191,6 @@ export function Shell({ page, onNavigate, title, status, simulated = false, star
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" }, "& > *": { flexShrink: 0 } }}>
             {status}
           </Box>
-          <Tooltip title={density === "comfortable" ? "Compact density" : "Comfortable density"}>
-            <IconButton aria-label="toggle density" onClick={toggleDensity}>
-              {density === "comfortable" ? <DensityMediumIcon fontSize="small" /> : <DensitySmallIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
           <Tooltip title={mode === "light" ? "Dark mode" : "Light mode"}>
             <IconButton edge="end" aria-label="toggle theme" onClick={toggle}>
               {mode === "light" ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}

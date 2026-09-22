@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from flyball.core.device import (
+from flyball.foundation.device.device import (
     Committable,
     Demand,
     DriverConfig,
@@ -17,8 +17,8 @@ from flyball.core.device import (
     Setting,
     command,
 )
-from flyball.core.quantity import Quantity
-from flyball.core.units.si import Celsius, Watt
+from flyball.foundation.quantities.quantity import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
 
 TEMPERATURE = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

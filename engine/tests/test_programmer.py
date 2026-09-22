@@ -6,12 +6,11 @@ from dataclasses import dataclass
 
 import pytest
 
-from flyball.core.device import Committable, Demand, Level, Output, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Sample
-from flyball.core.units.si import Celsius, Watt
-from flyball.programmer import Command, Program, Programmer, Wait
-from flyball.programmer.errors import ProgramAlreadyRunningError
+from flyball.foundation.device import Committable, Demand, Level, Output, Sample, command
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.sequencing import Command, Program, Programmer, Wait
+from flyball.sequencing.errors import ProgramAlreadyRunningError
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -110,8 +109,8 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
 ):
     """The bug: `regulate` on a real controller, then a typo'd one, used to finish clean."""
     from flyball.control import P
-    from flyball.programmer.loops import Regulate
-    from flyball.runtime.controllers import ControllerNotFoundError
+    from flyball.rig import ControllerNotFoundError
+    from flyball.sequencing.loops import Regulate
 
     Note, seen = note
     heater = Heater(fresh("heater"))
@@ -154,7 +153,7 @@ def test_interrupt_stops_at_the_wait_and_start_can_replace_a_running_program(rig
 
 
 def test_a_timed_out_wait_ends_the_program(rig, note):
-    from flyball.core.clock import Duration
+    from flyball.foundation.time import Duration
 
     Note, seen = note
     programmer = Programmer(rig)
@@ -170,10 +169,10 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
     import time
 
     from flyball.control import P
-    from flyball.core.clock import Duration
-    from flyball.programmer import Program, Programmer
-    from flyball.programmer.loops import Arrive, Ramp, Regulate
-    from flyball.runtime.rig import Rig
+    from flyball.foundation.time import Duration
+    from flyball.rig import Rig
+    from flyball.sequencing import Program, Programmer
+    from flyball.sequencing.loops import Arrive, Ramp, Regulate
 
     rig = Rig()
     a, b = Heater("ha"), Heater("hb")
@@ -210,8 +209,8 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
 
 
 def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
-    from flyball.core.clock import Duration
-    from flyball.programmer.loops import Hold
+    from flyball.foundation.time import Duration
+    from flyball.sequencing.loops import Hold
 
     Note, seen = note
     programmer = Programmer(rig)
@@ -222,8 +221,8 @@ def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
 
 
 def test_a_hold_can_time_out_like_a_wait(rig, note):
-    from flyball.core.clock import Duration
-    from flyball.programmer.loops import Hold
+    from flyball.foundation.time import Duration
+    from flyball.sequencing.loops import Hold
 
     Note, seen = note
     programmer = Programmer(rig)
@@ -236,7 +235,7 @@ def test_a_hold_can_time_out_like_a_wait(rig, note):
 
 def test_regulate_names_a_controller_by_its_target_address(rig, fresh):
     from flyball.control import P
-    from flyball.programmer.loops import Regulate
+    from flyball.sequencing.loops import Regulate
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -248,7 +247,7 @@ def test_regulate_names_a_controller_by_its_target_address(rig, fresh):
 
 
 def test_a_set_step_lands_as_a_demand(rig, fresh):
-    from flyball.programmer.devices import Set
+    from flyball.sequencing.devices import Set
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -258,8 +257,8 @@ def test_a_set_step_lands_as_a_demand(rig, fresh):
 
 def test_a_set_step_refuses_a_signal_a_controller_drives(rig, fresh):
     from flyball.control import P
-    from flyball.core.errors import ConflictError
-    from flyball.programmer.devices import Set
+    from flyball.foundation.errors import ConflictError
+    from flyball.sequencing.devices import Set
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -273,8 +272,8 @@ def test_a_set_step_refuses_a_signal_a_controller_drives(rig, fresh):
 
 
 def test_a_set_step_refuses_a_bare_signal_address(rig, fresh):
-    from flyball.core.errors import NotFoundError
-    from flyball.programmer.devices import Set
+    from flyball.foundation.errors import NotFoundError
+    from flyball.sequencing.devices import Set
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -283,8 +282,8 @@ def test_a_set_step_refuses_a_bare_signal_address(rig, fresh):
 
 
 def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
-    from flyball.core.errors import NotFoundError
-    from flyball.programmer import RunCommand
+    from flyball.foundation.errors import NotFoundError
+    from flyball.sequencing import RunCommand
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -300,8 +299,8 @@ def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
 
 def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
     from flyball.control import P
-    from flyball.core.clock import Duration
-    from flyball.programmer.loops import Arrive, Manual, Ramp, Regulate
+    from flyball.foundation.time import Duration
+    from flyball.sequencing.loops import Arrive, Manual, Ramp, Regulate
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -328,14 +327,15 @@ def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
 
 def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
     from flyball.control import P
-    from flyball.programmer.loops import Regulate
+    from flyball.library.tunings import Tuning
+    from flyball.sequencing.loops import Regulate
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
     rig.attach_controller(
         heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), default=True
     )
-    rig.tunings.add(P(kp=4.0).config.to_tuning("brisk"))
+    rig.tunings.add(Tuning(tag="brisk", config=P(kp=4.0).config))
 
     assert Regulate(setpoint=1.0, tuning="brisk").missing(rig) == []
     assert Regulate(setpoint=1.0, tuning="ghost").missing(rig) == ["tuning 'ghost' is not stored"]
@@ -346,7 +346,7 @@ def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
 
 
 def test_run_command_missing_names_an_unknown_device_or_command(rig, fresh):
-    from flyball.programmer import RunCommand
+    from flyball.sequencing import RunCommand
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -360,7 +360,7 @@ def test_run_command_missing_names_an_unknown_device_or_command(rig, fresh):
 
 
 def test_set_missing_names_the_address_that_fails(rig, fresh):
-    from flyball.programmer.devices import Set
+    from flyball.sequencing.devices import Set
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
@@ -377,8 +377,8 @@ def test_set_missing_names_the_address_that_fails(rig, fresh):
 
 
 def test_program_missing_collects_gaps_by_step_index(rig, fresh):
-    from flyball.programmer import Program, RunCommand
-    from flyball.programmer.loops import Regulate
+    from flyball.sequencing import Program, RunCommand
+    from flyball.sequencing.loops import Regulate
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)

@@ -57,7 +57,7 @@ in the order the device delivered them. See
 ## Recording
 
 ```python
-from flyball.db import SqliteStore
+from flyball.record import SqliteStore
 store = SqliteStore("run.db")
 rig.start_recording(store, **session_fields)
 ...
@@ -77,7 +77,7 @@ one list append per tick. See [Storage](../6-internals/db.md).
 ```
 
 `set_rig` attaches the rig to the FastAPI app and the observer that feeds
-the websockets. Then any ASGI server runs `flyball.server:app`.
+the websockets. Then any ASGI server runs `flyball.interfaces.server:app`.
 [The runner](../1-running/runner/index.md) covers running it for real.
 
 ## From a file
@@ -96,7 +96,7 @@ complete file; [Rig file schema](../7-reference/rig-file.md) every field.
 ## Clocks
 
 A rig has one clock; every controller, polled device and signal reads it.
-`Clock()` is wall time. `flyball.sim.SteppedClock` only moves when told to,
+`Clock()` is wall time. `flyball_sim.SteppedClock` only moves when told to,
 so a test ticks a rig at exact instants with no sleeping — but anything
 scheduled on real time (a polled device) still runs on real time, so drive
 such a rig with `rig.read(node, fresh=True)` by hand instead, as `oven.py`

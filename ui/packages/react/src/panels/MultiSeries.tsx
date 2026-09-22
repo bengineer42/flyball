@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeUnit, fixed, humanise, tickDigits, withUnit } from "@flyball/client";
-import { axisSize, yRange, type YScale } from "./yscale.js";
+import { describeUnit, fixed, humanise, withUnit } from "@flyball/client";
+import { axisSize, axisValues, edgeTicks, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { showLatestInLegend } from "./legend.js";
 import { navigation } from "./navigation.js";
@@ -68,6 +68,8 @@ export interface MultiSeriesProps {
   every?: number;
   /** Pan/zoom toolbar and wheel/drag navigation; on by default. */
   navigable?: boolean;
+  /** Show the toolbar's "live" button. Default true; false for a closed/historical session. */
+  live?: boolean;
   /** Heading of the full-size view; default the trace labels and unit. */
   title?: string;
   /** Shown full-size in an overlay. Uncontrolled unless given: the toolbar button or a double-click opens it; Escape or the close button closes it. */
@@ -97,20 +99,8 @@ const axisTitle = (unit: string | undefined, traces: readonly MultiSeriesTrace[]
 const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.unit === undefined || trace.unit === unit ? "y" : `y:${trace.unit}`);
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
-const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(fixed(raw, s.precision ?? 2), s.unit));
-
-/**
- * An axis' tick labels at the signal's precision instead of uPlot's own
- * significant-figure guess (which over-shows digits on a near-flat trace) --
- * but never fewer decimals than tell one tick from the next, or a flat
- * trace reads `0.36, 0.36, 0.36` all the way up.
- */
-const axisValues =
-  (precision: number): uPlot.Axis.Values =>
-  (_u, splits) => {
-    const decimals = tickDigits(splits, precision);
-    return splits.map((v) => (Number.isFinite(v) ? fixed(v, decimals) : ""));
-  };
+const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string =>
+  typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, s.precision ?? 2), s.unit) : "—";
 
 /** Align traces with different time bases onto one x array, nulls where a trace has no point. */
 function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
@@ -133,7 +123,7 @@ export const pageSyncKey = (): string | undefined => (typeof window === "undefin
  * second y axis on the right, so a demand in watts can sit over a reading in
  * degrees. Legend and cursor on.
  */
-export function MultiSeries({ series, source, paused, syncKey, id, unit, height = 200, windowS , yScale, range , every , navigable = true, title, expanded, onExpandChange, exportHref }: MultiSeriesProps) {
+export function MultiSeries({ series, source, paused, syncKey, id, unit, height = 200, windowS , yScale, range , every , navigable = true, live = true, title, expanded, onExpandChange, exportHref }: MultiSeriesProps) {
   const nav = useRef(navigation()).current;
   const [following, setFollowing] = useState(true);
   nav.onChange = setFollowing;
@@ -159,7 +149,25 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
   const [yFit, setYFit] = useState<YScale | null>(null);
   const wantedY: YScale = yScale ?? "auto";
   const effectiveY: YScale = yFit !== null && yFit === wantedY ? "auto" : wantedY;
-  const yKey = typeof effectiveY === "object" ? `${effectiveY.min}:${effectiveY.max}` : `${effectiveY}:${range?.join(",") ?? ""}`;
+  // Alt+wheel pans the primary ("y") scale only -- see `TimeSeries.tsx` for why a ref, not state.
+  // A chart with several axes (extra units) only pans the primary one; targeting whichever axis
+  // is under the cursor is a real, separate feature, not attempted here.
+  const heldYRef = useRef<[number, number] | null>(null);
+  const [yPanned, setYPanned] = useState(false);
+  useEffect(() => {
+    heldYRef.current = null;
+    setYPanned(false);
+  }, [wantedY]);
+  nav.onWheelY = (u, deltaY) => {
+    const scale = u.scales["y"];
+    const [min, max] = heldYRef.current ?? [scale?.min ?? 0, scale?.max ?? 1];
+    const shift = (deltaY < 0 ? -0.1 : 0.1) * (max - min);
+    const next: [number, number] = [min + shift, max + shift];
+    heldYRef.current = next;
+    u.setScale("y", { min: next[0], max: next[1] });
+    if (!yPanned) setYPanned(true);
+  };
+  const yKey = `${typeof effectiveY === "object" ? `${effectiveY.min}:${effectiveY.max}` : `${effectiveY}:${range?.join(",") ?? ""}`}:${yPanned}`;
 
   const isFill = height === "fill";
   const fillMode = open || isFill;
@@ -178,12 +186,15 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         time: true,
         range: (u, min, max) => nav.xRange(u, min, max, windowS),
       },
-      y: yRange(effectiveY, range) ? { range: yRange(effectiveY, range)! } : {},
+      y: (() => {
+        const baseY = yRange(effectiveY, range);
+        return yPanned || baseY ? { range: () => heldYRef.current ?? baseY?.() ?? [0, 1] } : {};
+      })(),
     };
     const axes: uPlot.Axis[] = [
-      // 80px between ticks: the first label carries the date on a second line and is wider than the times after it.
-      { label: "time", stroke: fg, space: 80 },
-      { label: axisTitle(unit, series.filter((s) => scaleOf(s, unit) === "y")), size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision) },
+      // 260px between ticks: a sparse two-or-three-label time axis rather than a dense running scale.
+      { label: "time", stroke: fg, space: 260 },
+      { label: axisTitle(unit, series.filter((s) => scaleOf(s, unit) === "y")), size: axisSize, scale: "y", stroke: fg, space: 48, values: axisValues(primaryPrecision), filter: edgeTicks },
     ];
     const plotted: uPlot.Series[] = [{}];
     // Extra axes alternate right/left (side 1, 3, 1, 3, …), three a side, six on screen with the primary.
@@ -199,7 +210,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         if (scale !== "y" && extraAxesShown < MAX_EXTRA_AXES) {
           const side = extraAxesShown % 2 === 0 ? 1 : 3;
           extraAxesShown++;
-          axes.push({ label: axisTitle(s.unit, series.filter((o) => scaleOf(o, unit) === scale)), size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision) });
+          axes.push({ label: axisTitle(s.unit, series.filter((o) => scaleOf(o, unit) === scale)), size: axisSize, scale, side, grid: { show: false }, stroke: strokeColor, space: 48, values: axisValues(precision), filter: edgeTicks });
         }
       }
       const line: uPlot.Series = {
@@ -331,6 +342,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
           saveTable(title ?? series.map((s) => s.label).join("-") ?? "chart", table(), format)
         }
         exportHref={exportHref}
+        live={live}
       />
       {plot}
     </div>

@@ -5,7 +5,7 @@ import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { isNumeric } from "../valueReadout.js";
 import { Missing } from "./Missing.js";
-import { signalsSchema, EVERY_OPTIONS, pageOr, WINDOW_OPTIONS, Y_OPTIONS } from "./schema.js";
+import { signalsSchema, pageOr, WINDOW_OPTIONS, Y_OPTIONS } from "./schema.js";
 import { useChartHeight } from "./size.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
@@ -55,8 +55,6 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
     [bindings, source],
   );
   const windowS = Number(config.window_s) || charts.windowS;
-  // Density is the chart's own business now (it thins to its width); `every` is only ever what someone asked for.
-  const every = Number(config.every) || (charts.every > 1 ? charts.every : 1);
   const y: YScale = config.y === "auto" || config.y === "range" ? config.y : charts.yScale;
   const unit = signals[0]?.unit;
   // Title row: the unit is the title (`titleFor`); the signals' devices are the subtitle, as the spec's "°C  zone1 · zone2 · zone3" (§3.3).
@@ -79,7 +77,7 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
           {nonNumeric.length > 0 && `${nonNumericTitles.join(", ")} not a number`}
         </div>
       )}
-      <MultiSeries series={series} source={source} id={widget.id} unit={unit} title={widget.title ?? unit} height={height} windowS={windowS} yScale={y} range={widest(signals)} every={every} exportHref={exports.signals(signals)} />
+      <MultiSeries series={series} source={source} id={widget.id} unit={unit} title={widget.title ?? unit} height={height} windowS={windowS} yScale={y} range={widest(signals)} exportHref={exports.signals(signals)} />
     </div>
   );
 });
@@ -98,16 +96,15 @@ export const chart: WidgetKind = {
     properties: {
       addresses: signalsSchema(bindings, "Signals", true),
       window_s: pageOr("Window", WINDOW_OPTIONS, "Seconds of history shown; the trace scrolls once it is full."),
-      every: pageOr("Sample", EVERY_OPTIONS, "Draw one point in n. Left to the page, a dense trace thins itself to twice the chart's width."),
       y: pageOr("Y axis", Y_OPTIONS),
     },
     required: ["addresses"],
   }),
-  uiSchema: { window_s: { "ui:widget": "select" }, every: { "ui:widget": "select" }, y: { "ui:widget": "select" } },
+  uiSchema: { window_s: { "ui:widget": "select" }, y: { "ui:widget": "select" } },
   defaultConfig: (bindings) => {
     const first = bindings.signals.find(isNumeric);
     const same = first ? bindings.signals.filter((s) => isNumeric(s) && s.unit === first.unit) : [];
-    return { addresses: same.map((s) => s.address), window_s: 0, every: 0, y: "page" };
+    return { addresses: same.map((s) => s.address), window_s: 0, y: "page" };
   },
   titleFor: (config, bindings) => {
     const addresses = Array.isArray(config.addresses) ? (config.addresses as unknown[]).map(String) : [];

@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from math import exp, sqrt
 from typing import NamedTuple, cast
 
-from flyball.control import PI, PID, ControlLawConfig, Tuning
-from flyball.core.typing import NonNegative, Positive
+from flyball.control import PI, PID
+from flyball.foundation.typing import NonNegative, Positive
+from flyball.library.tunings import Tuning
+from flyball.model.law import ControlLawConfig
 
 
 class Sample(NamedTuple):
@@ -111,4 +113,4 @@ class Gains:
 
     def to_tuning(self, tag: str) -> Tuning:
         """A tuning named `tag` wrapping [config][flyball.autotune.types.Gains.config]."""
-        return self.config.to_tuning(tag)
+        return Tuning(tag=tag, config=self.config)

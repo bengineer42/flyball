@@ -5,14 +5,18 @@ import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
-import { useQuery, useRig, useRigChanges, useRigDocument, useRigVersions } from "@flyball/react";
-import { RigError, pageBase, type RunnerInfo, type RigVersion } from "@flyball/client";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { useDevices, useQuery, useRig, useRigChanges, useRigDocument, useRigFileSchema, useRigVersions, type QueryState } from "@flyball/react";
+import { RigError, pageBase, type ControllerSchema, type DeviceOut, type JsonSchema, type RigDocument, type RunnerInfo, type RigVersion } from "@flyball/client";
 import { dumpYaml } from "../programText.js";
 import { Confirm } from "../Confirm.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { when } from "../time.js";
 import { useAuth } from "../auth.js";
+import { AddDeviceDialog, LinksSection } from "./Devices.js";
+import { AddControllerDialog } from "./Controllers.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
@@ -261,6 +265,157 @@ function RunnerControls({ runner, busy, onAsk }: { runner: RunnerInfo; busy: boo
   );
 }
 
+/** The rig's devices, name and driver, each with a remove button; "Add device" opens the same dialog `#/devices` used before this moved here. */
+function DevicesSection({ document, schema, devices, onChanged }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; devices: DeviceOut[]; onChanged(): void }) {
+  const rig = useRig();
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const names = Object.entries(document.data?.devices ?? {});
+  const linkNames = Object.keys(document.data?.links ?? {});
+
+  const remove = async () => {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      await rig.removeDevice(removing);
+      setError(null);
+      setRemoving(null);
+      onChanged();
+    } catch (e) {
+      setError(detail(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper className="c12 xl6" sx={{ p: 3 }}>
+      <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
+        <Typography variant="h2" component="h2" color="text.secondary">
+          Devices
+        </Typography>
+        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-device">
+          Add device
+        </Button>
+      </Stack>
+      {document.error && <Alert severity="error">{document.error.message}</Alert>}
+      {!document.error && names.length === 0 && (
+        <Typography variant="body2" color="text.secondary">
+          No device declared yet.
+        </Typography>
+      )}
+      {names.length > 0 && (
+        <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+          {names.map(([name, entry]) => (
+            <Chip key={name} label={`${name} · ${String(entry.driver ?? "")}`} variant="outlined" onDelete={() => setRemoving(name)} data-testid={`device-${name}`} />
+          ))}
+        </Stack>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      <AddDeviceDialog
+        open={adding}
+        schema={schema.data}
+        linkNames={linkNames}
+        onClose={() => setAdding(false)}
+        onCreated={() => {
+          setAdding(false);
+          onChanged();
+        }}
+      />
+      <Confirm
+        open={removing !== null}
+        title={`Remove device ${removing}?`}
+        text="Takes it off the rig with everything that hung off it."
+        action="Remove"
+        busy={busy}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => void remove()}
+      />
+    </Paper>
+  );
+}
+
+/** The rig's controllers, target and source, each with a remove button; "Add controller" opens the same stepper `#/controllers` used before this moved here. */
+function ControllersSection({ document, schema, devices, onChanged }: { document: QueryState<RigDocument>; schema: QueryState<ControllerSchema>; devices: DeviceOut[]; onChanged(): void }) {
+  const rig = useRig();
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const entries = Object.entries(document.data?.controllers ?? {});
+
+  const remove = async () => {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      await rig.detachController(removing);
+      setError(null);
+      setRemoving(null);
+      onChanged();
+    } catch (e) {
+      setError(detail(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper className="c12 xl6" sx={{ p: 3 }}>
+      <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
+        <Typography variant="h2" component="h2" color="text.secondary">
+          Controllers
+        </Typography>
+        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-controller">
+          Add controller
+        </Button>
+      </Stack>
+      {document.error && <Alert severity="error">{document.error.message}</Alert>}
+      {!document.error && entries.length === 0 && (
+        <Typography variant="body2" color="text.secondary">
+          No controller declared yet.
+        </Typography>
+      )}
+      {entries.length > 0 && (
+        <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+          {entries.map(([target, entry]) => (
+            <Chip key={target} label={`${target} ← ${String(entry.signal ?? "")}`} variant="outlined" onDelete={() => setRemoving(target)} data-testid={`controller-${target}`} />
+          ))}
+        </Stack>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      <AddControllerDialog
+        open={adding}
+        schema={schema.data}
+        devices={devices}
+        onClose={() => setAdding(false)}
+        onCreated={() => {
+          setAdding(false);
+          onChanged();
+        }}
+      />
+      <Confirm
+        open={removing !== null}
+        title={`Remove controller ${removing}?`}
+        text="Its source is then free for another controller; the target keeps its last demand."
+        action="Remove"
+        busy={busy}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => void remove()}
+      />
+    </Paper>
+  );
+}
+
 /**
  * `#/rig`: the running rig as a file would show it, what has changed since
  * the runner started, its version history with a restore per row, and a box
@@ -272,6 +427,15 @@ export function RigPage() {
   const changes = useRigChanges(5000);
   const versions = useRigVersions(50);
   const runner = useQuery(() => rig.runner().catch(() => undefined), [rig]);
+  const rigSchema = useRigFileSchema();
+  const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);
+  const devices = useDevices(10000);
+  const composed = () => {
+    document.refresh();
+    changes.refresh();
+    versions.refresh();
+    controllerSchema.refresh();
+  };
   const [restoring, setRestoring] = useState<RigVersion | null>(null);
   const [power, setPower] = useState<"shutdown" | "restart" | null>(null);
   const powerAct = async () => {
@@ -311,8 +475,13 @@ export function RigPage() {
 
   return (
     <>
-      <SectionHead icon={PAGE_ICONS.rig} title="Rig" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
+      <SectionHead icon={PAGE_ICONS.rig} title="Config" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
       <div className="grid">
+        <DevicesSection document={document} schema={rigSchema} devices={devices.data ?? []} onChanged={composed} />
+        <div className="c12 xl6">
+          <LinksSection document={document} schema={rigSchema} />
+        </div>
+        <ControllersSection document={document} schema={controllerSchema} devices={devices.data ?? []} onChanged={composed} />
         <Paper className="c12 xl6" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
             Running document

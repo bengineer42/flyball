@@ -10,109 +10,30 @@ that models a plant with capacity (thermal, hydraulic, ...) can spend an
 extra `rate_gain * rate` to charge or discharge it, rather than let the law
 find that shortfall through its integral while the ramp is under way.
 Subclassing generates `config` from `__init__` and registers the tag,
-exactly as [ControlLaw][flyball.control.types.ControlLaw] does.
+exactly as [ControlLaw][flyball.model.law.ControlLaw] does.
+
+`Feedforward`/`FeedforwardConfig` (the base) and `Setpoint`/`NoFeedforward`
+(the two defaults `Controller` falls back to when none is given) live in
+`flyball.model.feedforward` -- `Controller` needs them and `model` can't
+import upward from `control`. What's left here are the feedforwards that
+model an actual plant.
 """
 
 from __future__ import annotations
 
 from bisect import bisect_left
-from inspect import signature
 from itertools import pairwise
-from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict
+from flyball.model.errors import FeedforwardNotInvertibleError
 
-from flyball.core.model import ModelOf, creation_model
-
-from .errors import FeedforwardNotInvertibleError
-
-
-class FeedforwardConfig(BaseModel):
-    """How a feedforward was specified: its constructor arguments and its tag."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    feedforward: ClassVar[type]
-    init_names: ClassVar[tuple[str, ...]] = ()
-
-    tag: str
-
-    def build(self) -> Any:
-        return self.feedforward(**{name: getattr(self, name) for name in self.init_names})
-
-
-Feedforwards: dict[str, type[Feedforward]] = {}
-
-
-class Feedforward:
-    """Base for feedforwards. `Sub.config` is the model; `sub.config` its values."""
-
-    tag: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
-    config: ClassVar[Any] = None
-
-    def __init_subclass__(
-        cls, tag: str | None = None, register: bool = True, **kwargs: Any
-    ) -> None:
-        super().__init_subclass__(**kwargs)
-        cls.tag = tag or cls.__dict__.get("tag") or cls.__name__
-        if "config" not in cls.__dict__:
-            model = creation_model(
-                cls,
-                suffix="Config",
-                base=FeedforwardConfig,
-                extra={"tag": (Literal[cls.tag], cls.tag)},
-            )
-            model.feedforward = cls  # pyright: ignore[reportAttributeAccessIssue]
-            model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
-            cls.config = ModelOf(model, tuple(model.model_fields))
-        if register:
-            if cls.tag in Feedforwards:
-                raise ValueError(f"Feedforward with tag '{cls.tag}' is already registered.")
-            Feedforwards[cls.tag] = cls
-
-    def __call__(self, setpoint: float, rate: float = 0.0) -> float:
-        """The demand, in the actuator's unit, that ought to hold `setpoint`.
-
-        `rate` is the setpoint's own rate of change, per second in the
-        channel's unit; 0 outside a ramp. A feedforward that ignores it is
-        free to.
-        """
-        raise NotImplementedError
-
-    def invert(self, demand: float, rate: float = 0.0) -> float:
-        """The setpoint (channel unit) whose demand is `demand` at this `rate`.
-
-        Raises:
-            FeedforwardNotInvertibleError: This feedforward has no inverse
-                (several setpoints share a demand, or it ignores the
-                setpoint entirely).
-        """
-        raise FeedforwardNotInvertibleError(self.tag)
-
-
-class Setpoint(Feedforward, tag="setpoint"):
-    """Demand equals setpoint: the actuator takes the channel's unit.
-
-    No `rate_gain`: the actuator already takes the channel's own unit, so a
-    rate term here would be a lead compensator, not the plant-capacity model
-    `affine`/`table` add one for. Out of scope until something needs it.
-    """
-
-    def __call__(self, setpoint: float, rate: float = 0.0) -> float:
-        return setpoint
-
-    def invert(self, demand: float, rate: float = 0.0) -> float:
-        return demand
-
-
-class NoFeedforward(Feedforward, tag="none"):
-    """The law does all the work: a bare power actuator under PID."""
-
-    def __call__(self, setpoint: float, rate: float = 0.0) -> float:
-        return 0.0
-
-    # No inverse: every setpoint gives the same demand (0), so a demand does
-    # not identify one. Falls through to the base's error.
+# Re-exported for anyone importing the base/defaults from their old home.
+from flyball.model.feedforward import (  # ruff: ignore[unused-import]
+    Feedforward,
+    FeedforwardConfig,
+    FeedforwardLike,
+    NoFeedforward,
+    Setpoint,
+)
 
 
 class Affine(Feedforward, tag="affine"):
@@ -191,6 +112,3 @@ class Table(Feedforward, tag="table"):
             return by_demand[-1][0]
         (x0, y0), (x1, y1) = by_demand[i - 1], by_demand[i]
         return x0 if y1 == y0 else x0 + (x1 - x0) * (demand - y0) / (y1 - y0)
-
-
-type FeedforwardLike = Feedforward | FeedforwardConfig

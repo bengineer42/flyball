@@ -49,6 +49,21 @@ delete are buttons, not bare icons, next to the pin toggle. What the runner
 does with buffers and when:
 [The scratch record](../runner/index.md#the-scratch-record).
 
+## Opening a session
+
+Clicking into a session shows its shell straight away — name, devices,
+signals, writes, controllers, spans and events — without waiting on a single
+chart. Each unit's chart (or each signal's, in "each signal" view) fetches
+its own series only once it is actually scrolled into view, showing
+**loading…** until it lands; a group never scrolled to costs nothing. Once
+loaded, its data is held for the rest of the visit: switching between "by
+unit" and "each signal", or scrolling a chart away and back, never re-fetches
+what is already there. A signal a chart could never draw a line for —
+`enum`/`json`/`str`/`bool`, or a device's own housekeeping trace
+(`<device>.conditions`, `<device>.last.*`) — is never asked for as a series
+at all; it is still recorded, so it is listed plainly under the charts
+("Recorded, not charted") rather than dropped from the page.
+
 ## Renaming a session
 
 Opening a session shows its name as a text box, not a heading: type a new

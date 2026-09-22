@@ -11,7 +11,7 @@ from collections import deque
 from math import exp
 from statistics import fmean
 
-from flyball.core.typing import Positive
+from flyball.foundation.typing import Positive
 
 from .errors import ResponseTooSmallError
 from .types import FOPDT, Sample

@@ -61,8 +61,8 @@ def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
 
 
 def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):
-    from flyball.runtime.rig import Rig
-    from flyball.server import deps
+    from flyball.interfaces.server import deps
+    from flyball.rig import Rig
 
     seen = {}
 
@@ -80,7 +80,7 @@ def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):
 
 
 def _routes_served(monkeypatch, **settings):
-    from flyball.runtime.rig import Rig
+    from flyball.rig import Rig
 
     seen = {}
     monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.setdefault("app", self.config.app))
@@ -187,12 +187,23 @@ class TestSettle:
         s = runner.settle(section, self.parse("--store", "here.sqlite"), tmp_path / "r.yaml")
         assert s.store == Path("here.sqlite"), "--store wins"
 
+    def test_run_is_a_freeform_escape_hatch_never_inspected(self, tmp_path):
+        # `runner.run` is Go-CLI-only (`flyball run`'s --serve-ui/--uv); Python must accept
+        # any dict here without validating or acting on its contents.
+        section = RunnerConfig(run={"anything": "goes", "here": 123})
+        assert section.run == {"anything": "goes", "here": 123}
+        s = runner.settle(section, self.parse(), tmp_path / "r.yaml")
+        assert s.run == {"anything": "goes", "here": 123}
+        assert RunnerConfig().run == {}
+
 
 def test_main_reads_the_runner_section_from_the_rig_file(tmp_path, monkeypatch):
     rig_file = tmp_path / "lab.yaml"
     rig_file.write_text("name: lab\nrunner: {port: 9123, allow_shutdown: true}\n")
     seen = {}
-    monkeypatch.setattr("flyball.runner.serve", lambda rig, settings, **kw: seen.update(s=settings))
+    monkeypatch.setattr(
+        "flyball.runner.entrypoint.serve", lambda rig, settings, **kw: seen.update(s=settings)
+    )
     assert runner.main([str(rig_file)]) == 0
     assert seen["s"].port == 9123 and seen["s"].allow_shutdown is True
     assert runner.main([str(rig_file), "--port", "9124"]) == 0
@@ -205,14 +216,15 @@ def test_a_runner_only_file_extends_the_rig(tmp_path, monkeypatch):
     site.write_text("extends: [lab.yaml]\nrunner: {port: 9125}\n")
     seen = {}
     monkeypatch.setattr(
-        "flyball.runner.serve", lambda rig, settings, **kw: seen.update(s=settings, rig=rig)
+        "flyball.runner.entrypoint.serve",
+        lambda rig, settings, **kw: seen.update(s=settings, rig=rig),
     )
     assert runner.main([str(site)]) == 0
     assert seen["s"].port == 9125 and seen["rig"].name == "lab"
 
 
 def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, oven):
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     path = tmp_path / "s.sqlite"
     store = SqliteStore(path)
@@ -229,8 +241,8 @@ def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, ove
 
 
 def test_a_restart_asked_over_the_api_execs_the_same_command_line(monkeypatch):
-    from flyball.runtime.rig import Rig
-    from flyball.server import deps
+    from flyball.interfaces.server import deps
+    from flyball.rig import Rig
 
     execs = []
 
@@ -254,7 +266,7 @@ SIM_LINK = {"tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
 
 
 def test_resume_follows_the_head_back_to_the_last_change(tmp_path):
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     path = tmp_path / "s.sqlite"
     store = SqliteStore(path)
@@ -286,7 +298,7 @@ def test_a_start_at_the_head_records_nothing(tmp_path, oven):
 def test_the_migration_chains_versions_already_stored(tmp_path):
     import sqlite3
 
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     path = tmp_path / "old.sqlite"
     store = SqliteStore(path)  # every migration, including 0009, on an empty store

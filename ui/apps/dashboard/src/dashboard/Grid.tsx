@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ResponsiveGridLayout, useContainerWidth, verticalCompactor, type Layout, type LayoutItem } from "react-grid-layout";
 import type { DashboardGrid as GridSpec, DashboardWidget } from "@flyball/client";
 import { widgetKind } from "../widgets/registry.js";
@@ -97,10 +97,44 @@ export const DashboardEditGrid = memo(function DashboardEditGrid({ widgets, grid
       )),
     [widgets, renderWidget],
   );
-  const dragConfig = useMemo(() => ({ enabled: full, handle: ".fb-tile-drag", cancel: ".fb-tile-menu, button, input, select, textarea, a" }), [full]);
+  /**
+   * `cancel` used to read `.fb-tile-menu, button, input, select, textarea, a`, which broke
+   * dragging in two ways: the widget title is often a `<Ref>` link (`.fb-tile-title a`), so
+   * a mousedown anywhere on the visible title text -- the first place anyone reaches for a
+   * header -- matched the bare `a` and cancelled before react-draggable ever started; and the
+   * drag grip icon itself (`.fb-tile-grip`, "Drag to move") is nested inside `.fb-tile-menu`
+   * next to the `⋯` button, so it matched `.fb-tile-menu` and cancelled too. `button` already
+   * covers the `⋯` button (a real `<button>`), so `.fb-tile-menu` was redundant as well as the
+   * thing silently defeating the grip; `a:not(.fb-tile-title a)` keeps other links (should any
+   * land inside the header later) cancelling, without the title doing it to itself.
+   */
+  const dragConfig = useMemo(() => ({ enabled: full, handle: ".fb-tile-drag", cancel: "button, input, select, textarea, a:not(.fb-tile-title a)" }), [full]);
   const resizeConfig = useMemo(() => ({ enabled: full, handles: ["se", "e", "s"] as const }), [full]);
+  // A drag that starts on the title link ends with the pointer still over it (the tile,
+  // and the link inside it, tracks the cursor for the whole drag) -- so mousedown and
+  // mouseup land on the same element and the browser fires a genuine `click` right after,
+  // which would navigate to the link's href. `onDrag` only ever fires once the pointer has
+  // actually moved, so it doubles as "a drag, not a click, just happened"; the next click
+  // is swallowed once, then the flag resets for the tap that follows.
+  const draggedRef = useRef(false);
   return (
-    <div ref={containerRef as RefObject<HTMLDivElement>} className="dash-grid dash-editing" data-breakpoint={breakpoint}>
+    <div
+      ref={containerRef as RefObject<HTMLDivElement>}
+      className="dash-grid dash-editing"
+      data-breakpoint={breakpoint}
+      // A link is natively draggable in every browser; now that a title link no longer
+      // cancels react-draggable (`dragConfig.cancel` above), a real pointer drag starting on
+      // one still raced the browser's own HTML5 drag-out (dragging a link and releasing it
+      // over the page can navigate to its href). Block that here rather than relying on
+      // `-webkit-user-drag: none` in CSS, which isn't honoured consistently across browsers.
+      onDragStartCapture={(e) => e.preventDefault()}
+      onClickCapture={(e) => {
+        if (!draggedRef.current) return;
+        draggedRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
       {mounted && (
         <ResponsiveGridLayout
           width={width}
@@ -113,6 +147,12 @@ export const DashboardEditGrid = memo(function DashboardEditGrid({ widgets, grid
           compactor={verticalCompactor}
           dragConfig={dragConfig}
           resizeConfig={resizeConfig}
+          onDragStart={() => {
+            draggedRef.current = false;
+          }}
+          onDrag={() => {
+            draggedRef.current = true;
+          }}
           onBreakpointChange={(b) => setBreakpoint(b)}
           onLayoutChange={(current) => {
             if (!full || samePlacement(widgets, current)) return;

@@ -38,14 +38,14 @@ process was started and what it allows.
 | --- | --- | --- |
 | the UI ([Running a rig](../1-running/ui/index.md)) | a React app rendered from `/api/schema`, live on the websockets | everything |
 | `flyball` ([The CLI](../1-running/cli/index.md)) | a standalone Go binary (`daemon/cmd/flyball`), fixed subcommands rather than one per device | `/api`, `/ws` |
-| `flyball.client.Rig` | a pure HTTP client that synthesises a method per device command from the schema | `/api`, `/ws` |
+| `flyball.interfaces.client.Rig` | a pure HTTP client that synthesises a method per device command from the schema | `/api`, `/ws` |
 | `@flyball/client` (`ui/packages/client`) | the same in TypeScript, typed from the wire format | `/api`, `/ws` |
 | a model ([The MCP server](mcp.md)) | tools generated from the same routes | `/mcp/<tier>` |
 
 The Python client is three lines:
 
 ```python
-from flyball.client import Rig
+from flyball.interfaces.client import Rig
 
 rig = Rig("http://127.0.0.1:8000")          # or "http://host/furnace" behind a prefix
 print(rig.read("furnace.zone1"))             # a signal by address

@@ -9,12 +9,22 @@ from enum import Enum
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.core.device import Committable, Demand, Level, Namespace, Output, Readable, command
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Node, Sample, Signal
-from flyball.core.trigger import Trigger
-from flyball.core.units.si import Celsius, Percent, Watt
-from flyball.server import create_app, set_rig
+from flyball.foundation.device import (
+    Committable,
+    Demand,
+    Level,
+    Namespace,
+    Node,
+    Output,
+    Readable,
+    Sample,
+    Signal,
+    command,
+)
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent, Watt
+from flyball.foundation.router import Trigger
+from flyball.interfaces.server import create_app, set_rig
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -560,7 +570,7 @@ def test_events_are_kept_and_streamed(client, rig):
 
 def test_samples_stream_carries_only_what_publishes(rig, fresh):
     """A config is `[R]`, not `[P]`: mixed into a sample with a zone, only the zone streams."""
-    from flyball.core.device import ConfigSignal
+    from flyball.foundation.device import ConfigSignal
 
     class Mixed(Readable):
         zone = Output("zone", "", TEMP)
@@ -673,8 +683,8 @@ def test_waits_stream(client, rig):
 
 @pytest.fixture
 def programmer(client, rig):
-    from flyball.programmer import Programmer
-    from flyball.server import set_programmer
+    from flyball.interfaces.server import set_programmer
+    from flyball.sequencing import Programmer
 
     programmer = Programmer(rig)
     set_programmer(programmer)
@@ -684,7 +694,7 @@ def programmer(client, rig):
 
 
 def test_load_tunings_stores_law_configs_under_the_directory_from_their_file_stem(tmp_path, rig):
-    from flyball.server.routes.library import load_tunings
+    from flyball.interfaces.server.routes.library import load_tunings
 
     (tmp_path / "gentle.yaml").write_text("tag: P\nkp: 0.5\n")
     (tmp_path / "brisk.toml").write_text('tag = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
@@ -761,15 +771,17 @@ def test_program_runs_step_by_step_as_waits_are_answered(client, programmer, rig
     assert rig.triggers.states() == {}
 
 
-def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig):
+def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig, fresh):
     from dataclasses import dataclass
 
-    from flyball.programmer import Command
+    from flyball.model.catalog import get_catalog
+    from flyball.sequencing import Command
 
     seen = []
+    tag = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Command, tag="note", primary="text"):
+    class Note(Command, tag=tag, primary="text"):
         """Append to a list."""
 
         text: str
@@ -778,7 +790,9 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig)
             seen.append(self.text)
             return None
 
-    state = client.post("/api/programs/run", json={"steps": [{"note": "a"}, {"note": "b"}]}).json()
+    get_catalog().register_command(Note)
+
+    state = client.post("/api/programs/run", json={"steps": [{tag: "a"}, {tag: "b"}]}).json()
     assert state["running"] is False and seen == ["a", "b"]
 
 
@@ -815,9 +829,10 @@ def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_i
 class TestSimRoutes:
     @pytest.fixture
     def sim(self, client, tmp_path):
+        from flyball_sim.simulation import Simulation
+
+        from flyball.interfaces.server import set_simulation
         from flyball.runtime.config import RigConfig
-        from flyball.runtime.simulation import Simulation
-        from flyball.server import set_simulation
 
         document = {
             "name": "tank",
@@ -860,8 +875,8 @@ class TestSimRoutes:
         r = client.post("/api/sim/save")
         assert r.status_code == 409 and "--allow-save" in r.json()["detail"]
         from conftest import FakeRunner
+        from flyball.interfaces.server.deps import set_runner
         from flyball.runtime.config import RunnerConfig
-        from flyball.server.deps import set_runner
 
         set_runner(FakeRunner(RunnerConfig(allow_save=True)))
         try:

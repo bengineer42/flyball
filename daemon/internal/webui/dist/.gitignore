@@ -1,0 +1,5 @@
+# build-with-ui.sh replaces everything here with the built dashboard --
+# never commit that, only the placeholder stays tracked.
+*
+!.gitignore
+!.placeholder

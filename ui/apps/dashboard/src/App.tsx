@@ -1,12 +1,12 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, type YScale } from "@flyball/react";
+import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
-import { Status, SimChip } from "./Status.js";
+import { Status, SimChip, PausedChip } from "./Status.js";
 import { Overview } from "./pages/Overview.js";
 import { Dashboards } from "./pages/Dashboards.js";
 import { DashboardSwitcher } from "./dashboard/DashboardSwitcher.js";
@@ -19,11 +19,17 @@ import { Events } from "./pages/Events.js";
 import { Sessions } from "./pages/Sessions.js";
 import { Programs, ProgramDetail } from "./pages/Programs.js";
 import { Simulation } from "./pages/Simulation.js";
-import { readYScale, writeYScale, readEvery, writeEvery, type ChartSettings } from "./YScaleSelect.js";
+import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
 import { readHome } from "./dashboard/home.js";
 import type { Programmer, Recording } from "./model.js";
 
 const SimulationPage = memo(Simulation);
+
+// The chart window default (see `windowS` in `App`): a placeholder until the store has enough
+// to fit to, then the floor and ceiling of that fit.
+const DEFAULT_WINDOW_S = 300;
+const MIN_WINDOW_S = 60;
+const MAX_WINDOW_S = 3600;
 
 const PAGE_LABEL: Record<Page, string> = { ...(Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>), devices: "Devices", inputs: "Inputs" };
 
@@ -70,8 +76,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** The app bar's chips: the polled state plus the store's stream health. */
-function AppStatus({ onSignIn }: { onSignIn(): void }) {
+/**
+ * The app bar's chips: the polled state plus the store's stream health. The
+ * paused chip shows only away from the Simulation page, where the transport
+ * itself is: pausing there freezes every page's samples, and a page with no
+ * transport in sight still needs a way back to live.
+ */
+function AppStatus({ onSignIn, playback, page }: { onSignIn(): void; playback: PlaybackHook; page: Page }) {
   const { recording, programmer, simulationSpeed } = useLive();
   const simulated = useContext(SimulatedContext);
   const { streams, byStream } = useStreamStatus();
@@ -79,6 +90,7 @@ function AppStatus({ onSignIn }: { onSignIn(): void }) {
     <>
       <Status recording={recording} programmer={programmer} streams={streams} byStream={byStream} />
       {simulated && <SimChip speed={simulationSpeed} />}
+      {simulated && page !== "simulation" && <PausedChip playback={playback} />}
       <AuthChip onSignIn={onSignIn} />
     </>
   );
@@ -133,16 +145,29 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   useEffect(() => {
     if (/^#?\/?$/.test(window.location.hash) && readHome()) window.location.replace(hashFor("dashboards"));
   }, []);
-  const [windowS, setWindowS] = useState(300);
+  // A fixed 5 min undershoots a rig with hours of history (`longrun`); a fixed 1 h is just as
+  // wrong the other way for one that started a minute ago. So the default fits whatever has
+  // actually loaded, capped at an hour -- settled once, the first time both ends of that are
+  // known, rather than tracking the growing extent forever (which would keep widening the
+  // window under a running chart the operator hasn't touched). An explicit choice (`onWindow`)
+  // always overrides this; a widget's own saved `window_s` never reaches this default at all.
+  const [windowS, setWindowS] = useState(DEFAULT_WINDOW_S);
+  const settledWindow = useRef(false);
+  const telemetry = useTelemetry();
+  const tickS = useNowS();
+  useEffect(() => {
+    if (settledWindow.current) return;
+    const now = telemetry.nowS();
+    const earliest = telemetry.earliestS();
+    if (now === null || earliest === null) return;
+    settledWindow.current = true;
+    setWindowS(Math.min(Math.max(now - earliest, MIN_WINDOW_S), MAX_WINDOW_S));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickS]);
   const [yScale, setYScaleState] = useState<YScale>(readYScale);
   const setYScale = useCallback((s: YScale) => {
     setYScaleState(s);
     writeYScale(s);
-  }, []);
-  const [every, setEveryState] = useState<number>(readEvery);
-  const setEvery = useCallback((n: number) => {
-    setEveryState(n);
-    writeEvery(n);
   }, []);
   const devices = useDevices();
   const ready = Boolean(devices.data);
@@ -151,6 +176,9 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // stack and the Events page itself, so they never disagree about what's unread.
   const { events: liveEvents } = useEvents(500);
   const unreadEvents = useUnreadEvents(liveEvents);
+  // Paused, the store serves the page the past instead of the live rings: as much of it as the widest chart shows.
+  // The transport lives on the Simulation page; the app bar's paused chip is the way back from any other.
+  const playback = usePlayback({ windowS });
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first
@@ -182,7 +210,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
     return name;
   };
   const title = titled();
-  const charts = { windowS, onWindow: setWindowS, yScale, onYScale: setYScale, every, onEvery: setEvery };
+  const charts = { windowS, onWindow: setWindowS, yScale, onYScale: setYScale };
   const openDashboard = (n: string | null, generated?: boolean) => (window.location.hash = hashFor("dashboards", n, generated ? { generated: "" } : {}));
 
   return (
@@ -194,7 +222,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               page={page}
               onNavigate={navigate}
               title={title}
-              status={<AppStatus onSignIn={onSignIn} />}
+              status={<AppStatus onSignIn={onSignIn} playback={playback} page={page} />}
               simulated={simulated}
               devices={all.filter((d) => d.kind !== "simulation")}
               current={name}
@@ -221,7 +249,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                 />
               )}
               {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
-              {page === "simulation" && <SimulationPage devices={all} />}
+              {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
             </Shell>
           )}
         </SimulatedContext.Consumer>

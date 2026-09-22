@@ -1,6 +1,6 @@
 # Building a rig while it runs
 
-A rig file is one way to populate a rig; the API is the other. This page is the composition API from the operator's side; the routes are [Composition](../../4-server/api.md#composition), the UI for it [The Rig page](../ui/rig.md).
+A rig file is one way to populate a rig; the API is the other. This page is the composition API from the operator's side; the routes are [Composition](../../4-server/api.md#composition), the UI for it [The Config page](../ui/rig.md).
 
 A runner needs no file at all:
 
@@ -68,7 +68,7 @@ from what its command line says -- unless you keep it:
   built with.
 
 An application with hardware the file cannot describe writes its own entry
-point around [serve][flyball.runner.serve], which is all the command does
+point around [serve][flyball.runner.serving.serve], which is all the command does
 after building the rig. For the simulated oven it is ten lines:
 
 ```python
@@ -98,7 +98,7 @@ API may do, where its files are -- can be written in the rig file under
 
 ```yaml
 # humidity.yaml
-extends: [../humidity/rig.yaml, ../humidity/sim.yaml]
+extends: [../humidity/rig-multi-sensor.yaml, ../humidity/sim.yaml]
 runner:
   port: 8001
   root_path: /humidity

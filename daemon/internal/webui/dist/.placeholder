@@ -1,0 +1,3 @@
+This flyball binary was built with a plain `go build`, not
+./build-with-ui.sh -- the dashboard UI was never embedded. Build with
+./build-with-ui.sh instead to get a binary that can serve it.

@@ -10,9 +10,13 @@ requires-python = ">=3.12"
 authors = [{ name = "Ben Laurence" }]
 dynamic = ["version"]
 
-# The controller, the simulated plant and the SQLite store are stdlib-only;
-# pydantic is the one requirement, for configs and the schemas built from
-# them. Everything that talks to hardware or the network is an extra.
+# The controller and the SQLite store are stdlib-only; pydantic is the one
+# hard requirement, for configs and the schemas built from them. flyball-sim
+# (`../sim`) depends on bare flyball, so it cannot be a hard dependency here
+# too without a cycle; it is pulled in by the `web` extra instead (below),
+# which is what `flyball-runner` needs anyway -- `pip install flyball[web]`
+# still runs a simulated rig with nothing plugged in. Everything that talks
+# to real hardware or the network is an extra.
 dependencies = ["pydantic>=2.9", "tomli-w>=1.0"]  # tomli-w: saving a rig file
 
 classifiers = [
@@ -23,42 +27,57 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-serial = ["pyserial>=3.5"]
-# FastAPI won: flyball.server needs its WebSocket support for live telemetry
+# FastAPI won: flyball.interfaces.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
 # The runner also serves MCP at /mcp/<mode>, over the client pointed back at itself.
-web = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pyyaml>=6", "webauthn>=2.5", "flyball[mcp]"]
-# flyball.client talks to a runner over HTTP and websockets and imports
+# flyball-sim rides along too, so `flyball-runner` can serve examples/simulated
+# out of the box (Decision, extensions-restructure Phase 8): its sim_plant/
+# sim_daq/sim_drive tags register through the same flyball.configs entry
+# point every other optional package uses, and runtime/config.py's clock
+# builder imports it lazily, only for a rig whose links are all sim_*/fake_*.
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pyyaml>=6", "flyball[mcp]", "flyball-sim"]
+# Passkey (WebAuthn) sign-in is opt-in: `webauthn` pulls a crypto stack every
+# runner would otherwise carry for a door most rigs never open. Without it the
+# server still starts and still serves password/token login -- /api/auth just
+# reports `passkeys: false` and every passkey route answers 501.
+passkeys = ["webauthn>=2.5"]
+# flyball.interfaces.client talks to a runner over HTTP and websockets and imports
 # nothing from the rig: it runs anywhere.
 cli = ["httpx>=0.27", "websockets>=13", "pyyaml>=6"]  # program files are YAML
-# Links to instruments (flyball.hardware.links). Each driver is imported only
-# when a real link is built; the fakes need nothing.
-visa = ["pyvisa>=1.14", "pyvisa-py>=0.7"]
-modbus = ["pymodbus>=3.6"]
-# Adapters in flyball.integrations. Each imports its framework only when used;
-# the extra is what lets you actually run against it.
-bluesky = ["bluesky>=1.13", "ophyd>=1.9"]
-# Wrapped instrument libraries: their drivers as flyball readers and actuators.
-qcodes = ["qcodes>=0.45"]
-pymeasure = ["pymeasure>=0.13"]
-# flyball.mcp on its own: the stdio server, for a machine that reaches the rig but is not it.
+# Links to instruments (flyball.hardware.links's RegisterLink/TextLink
+# protocols). The fakes, real implementations and `modbus`/`visa`/`serial`
+# extras of the same name live in extensions/modbus, extensions/visa now --
+# each its own installable package, same as Bluesky, QCoDeS and PyMeasure
+# (extensions/{bluesky,qcodes,pymeasure}).
+# flyball.interfaces.mcp on its own: the stdio server, for a machine that reaches the rig but is not it.
 mcp = ["flyball[cli]", "mcp>=1.12"]
-all = ["flyball[cli,serial,web]"]
+all = ["flyball[cli,web,passkeys]"]
 
 [project.scripts]
 flyball-runner = "flyball.runner:main"
-flyball-mcp = "flyball.mcp.server:main"
+flyball-mcp = "flyball.interfaces.mcp.server:main"
+
+# Engine's own built-ins, registered through the same `flyball.configs`
+# mechanism as every extension -- no special-cased "what's compiled in" path
+# (brain/tasks/registry-redesign.md).
+[project.entry-points."flyball.configs"]
+flyball = "flyball.control.configs"
+flyball-sequencing = "flyball.sequencing.configs"
 
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "mypy>=1.13",
     "ruff>=0.8",
     "import-linter>=2.1",
-    "types-pyserial",
     "ipykernel>=7.3.0",
+    "flyball-sim", # engine's own tests use SteppedClock/ScaledClock as scaffolding
+    "furnace", # examples/stress's chaos.yaml/plant.yaml use its sim_furnace tag
+    "flyball-visa", # example/stress rigs and the hardware-gate tests use visa/fake_text
+    "flyball-modbus", # example/stress rigs use modbus/fake_registers
+    "jsonschema>=4.18",
+    "webauthn>=2.5", # the `passkeys` extra is optional to install, not optional to test
 ]
 # The books under book/ and examples/*/book/ are MkDocs sites; mkdocstrings
 # renders the Python reference from docstrings, griffe-pydantic the model fields.
@@ -67,6 +86,12 @@ docs = [
     "mkdocstrings[python]>=0.26",
     "griffe-pydantic>=1.0",
 ]
+
+[tool.uv.sources]
+flyball-sim = { path = "../sim", editable = true }
+furnace = { path = "../examples/furnace", editable = true }
+flyball-visa = { path = "../extensions/visa", editable = true }
+flyball-modbus = { path = "../extensions/modbus", editable = true }
 
 [tool.hatch.version]
 path = "src/flyball/__init__.py"
@@ -130,18 +155,68 @@ convention = "google"
 # Tests compare against exact literals on purpose; ``pytest.approx`` is used where a value is computed.
 "tests/*" = ["magic-value-comparison", "RUF"]
 
-[tool.mypy]
-python_version = "3.12"
-mypy_path = "src"
-packages = ["flyball"]
-strict = true
-warn_unreachable = true
-
 # Enforces the layering by hand rather than by splitting into separate
 # distributions: packages on one line are mutually independent, and nothing
-# below may import anything above. The Bluesky adapter wraps a rig for another
-# framework, so it sits above the runtime; the QCoDeS and PyMeasure wrappers
-# wrap drivers, so they sit below it. Run with `uv run lint-imports`.
+# below may import anything above. The Bluesky, QCoDeS and PyMeasure adapters
+# moved out to extensions/{bluesky,qcodes,pymeasure}; flyball.sim moved out to
+# flyball-sim (its own top-level package, ../sim); flyball.devices (the
+# generic `scpi`/`modbus` drivers) moved out to extensions/{visa,modbus} --
+# all depend only on flyball.foundation (and, for Bluesky and flyball-sim's
+# Simulation, flyball.runtime.rig/config), so none of them is a layer here
+# any more. Run with `uv run lint-imports`.
+#
+# flyball.rig (engine-structure.md layer 3) is deliberately left OUT of this
+# ordered list, not merged into flyball.runtime's line either: the two are
+# genuinely bidirectionally coupled today, not just incidentally. flyball.rig
+# is authorized to keep this shape by engine-structure.md's own rig-move step.
+# flyball.runtime.config/writer/retention import Rig at real (non-deferred)
+# module level to build/type one (NOT recorder.py -- it never references Rig
+# at all, checked directly); flyball.rig.rig in turn imports
+# flyball.runtime.writer at module level (the Writer it hands blocking
+# devices to) and flyball.runtime.config inside a method (deferred, to break
+# the import cycle at load time, but still a real edge -- import-linter's
+# layers contract statically flags deferred imports the same as top-level
+# ones, checked directly: both "runtime | rig" as siblings and "rig" below
+# "runtime" broke the contract for this reason). The actual minimal fix is
+# narrower than it looks: move writer.py and retention.py into rig/ (both
+# are small, self-contained, and conceptually rig's already -- every method
+# holds `self.rig: Rig`), and extract just RigConfig/canonical()/build()/
+# rig_model()/load_rig() out of runtime/config.py (not the file's other
+# concerns -- RunnerConfig/AuthConfig/board resolution don't need Rig and
+# don't need to move). Out of scope here either way. Until then,
+# `flyball.rig` stays unlisted (unconstrained by this contract, same as
+# `flyball.scaffold` already is) rather than encoding a layering that isn't
+# true yet.
+#
+# `flyball.model` (engine-structure.md layer 2) is deliberately left OUT of
+# this list too, for the same reason as flyball.rig above: a real,
+# unavoidable cycle, not an oversight. `flyball.control` (laws/feedforwards/
+# generators that ship) imports `ControlLaw`/`Feedforward`/`SetPointGenerator`
+# from `flyball.model`, so model has to sit below control -- but
+# `flyball.foundation.device.device.DriverConfig` subclasses `flyball.model
+# .config.Config` (`Config[T]`'s home moved out of `foundation/config/` to
+# `model/` with the registry redesign), so model also has to sit below
+# foundation, model's own supposed base layer. Checked directly
+# (`uv run lint-imports`): listing model anywhere between control and
+# foundation breaks on `foundation.device.device -> model.config`, not on
+# anything model-internal. Fixing this for real means moving `DriverConfig`
+# itself into `model/` (it's conceptually the Config tier of the device
+# Catalog per engine-structure.md's own description) -- out of scope for the
+# agent that split control/controller.py|types.py into model/, since it
+# wasn't chartered to touch `foundation/device/device.py`'s device-tree code.
+# Until then, `flyball.model` stays unlisted rather than asserting an order
+# that isn't true; `flyball.control`, `flyball.foundation` and everything
+# above both are still fully ordered and enforced against each other.
+#
+# `flyball.library` (layer 4, saved/named Configs -- `Tuning`/`Tunings` so
+# far) sits below the hardware|adaptive|autotune|record line, not above:
+# `flyball.autotune.types.Gains.to_tuning` builds a `library.tunings.Tuning`
+# directly (checked: `uv run lint-imports` broke on
+# `autotune.types -> library.tunings` when library was placed higher).
+# `flyball.library.tunings` itself imports `flyball.control.laws.OpenLoop`
+# (deferred, inside a function, to build `OpenLoopTuning` -- still a real
+# edge import-linter's layers contract catches) so library sits above
+# control too, per the ordering below.
 [tool.importlinter]
 root_packages = ["flyball"]
 
@@ -150,20 +225,19 @@ name = "Layers"
 type = "layers"
 layers = [
     "flyball.runner",
-    "flyball.mcp",
-    "flyball.server",
-    "flyball.programmer | flyball.integrations.bluesky",
+    "flyball.interfaces.mcp | flyball.interfaces.server",
+    "flyball.sequencing",
     "flyball.runtime",
-    "flyball.sim | flyball.devices | flyball.integrations.qcodes | flyball.integrations.pymeasure",
-    "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db",
+    "flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record",
+    "flyball.library",
     "flyball.control",
-    "flyball.core",
+    "flyball.foundation",
 ]
 
 [[tool.importlinter.contracts]]
 name = "The client, the scaffold and the MCP server stand alone"
 type = "forbidden"
-source_modules = ["flyball.client", "flyball.scaffold", "flyball.mcp"]
+source_modules = ["flyball.interfaces.client", "flyball.scaffold", "flyball.interfaces.mcp"]
 forbidden_modules = [
-    "flyball.core", "flyball.control", "flyball.runtime", "flyball.server", "flyball.programmer",
+    "flyball.foundation", "flyball.control", "flyball.model", "flyball.library", "flyball.runtime", "flyball.rig", "flyball.interfaces.server", "flyball.sequencing",
 ]

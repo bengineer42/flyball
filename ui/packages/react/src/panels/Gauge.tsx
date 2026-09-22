@@ -36,16 +36,24 @@ export function gaugeKindFor(unit: string): GaugeKind {
   return "dial";
 }
 
-/** What a gauge needs of a signal: its plausible range and its bands. */
-export type Bands = Pick<SignalOut, "range" | "warn" | "alarm">;
+/** What a gauge needs of a signal: its plausible range, its bands, and what a demand is clamped to. */
+export type Bands = Pick<SignalOut, "range" | "warn" | "alarm" | "limits">;
 
-/** The signal's range, else the widest band padded a tenth, else 0–100. */
+/**
+ * The signal's own range, else the widest band padded a tenth, else what a
+ * demand is clamped to (`limits` -- a blend's 0–2 L/min flow has no `range`
+ * or bands of its own, but does have limits, and those beat a meaningless
+ * 0–100 default), else 0–100 for a signal with none of the three.
+ */
 export function gaugeRange(signal: Bands): [number, number] {
   if (signal.range) return signal.range;
   const band = signal.alarm ?? signal.warn;
-  if (!band) return [0, 100];
-  const pad = (band[1] - band[0]) / 10 || 1;
-  return [band[0] - pad, band[1] + pad];
+  if (band) {
+    const pad = (band[1] - band[0]) / 10 || 1;
+    return [band[0] - pad, band[1] + pad];
+  }
+  if (signal.limits) return signal.limits;
+  return [0, 100];
 }
 
 export interface GaugeZone {
@@ -101,7 +109,7 @@ export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height,
       {kind === "bar" && <Bar {...drawing} />}
       <div className="fb-gauge-value" style={{ color: hasBands && level !== "ok" && level !== "stale" ? COLOUR[level] : undefined }}>
         <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }}>
-          {value === undefined ? "—" : fixed(value, precision)}
+          {fixed(value, precision)}
         </span>
         <span className="fb-gauge-unit">{describeUnit(signal.unit)}</span>
       </div>

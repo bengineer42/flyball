@@ -484,7 +484,7 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-download { display: inline-flex; gap: 2px; margin-left: 0.4rem; }
 .fb-download > a { text-decoration: none; }
 .fb-chart-wrap { position: relative; min-width: 0; }
-.fb-chart-compact { cursor: zoom-in; }
+.fb-chart-compact, .fb-loop-mini { cursor: zoom-in; }
 /* Full-size: the chart fills whatever height its host is given. */
 .fb-chart-expanded { position: fixed; inset: 0; z-index: 1300; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; padding: var(--fb-space-5); box-sizing: border-box; }
 /* The overlay is the top surface: bg-3 + shadow-3 (DESIGN-SPEC.md §1.5). */

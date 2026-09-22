@@ -1,0 +1,215 @@
+"""Catalog: what's installed, by tag. Explicit registration, no import-side-effect magic.
+
+A [Catalog][flyball.model.catalog.Catalog] holds one kind of thing (devices,
+links, laws, ...), tag to class, collision-checked. [Catalogs][flyball.model.catalog.Catalogs]
+holds one `Catalog` per kind -- the whole install-scoped surface a rig can be
+built from.
+
+Registering used to be a side effect of a module happening to get imported
+(`__init_subclass__` writing into a bare `ClassVar` dict). That's fragile:
+installing a package is not the same as importing it, and importing is not
+the same as registering. Here, a package's own `flyball.configs` entry point
+names a module with a `register(catalog)` function that calls `catalog
+.register_*(...)` explicitly for everything it provides::
+
+    # my_package/configs.py
+    def register(catalog: Catalogs) -> None:
+        catalog.register_link(I2cConfig)
+        catalog.register_device(Sht4xConfig)
+
+and declares it in `pyproject.toml`::
+
+    [project.entry-points."flyball.configs"]
+    my_package = "my_package.configs"
+
+[Catalogs.discover][flyball.model.catalog.Catalogs.discover] walks every
+installed package's entry point and calls its `register`, so `Catalogs()`
+followed by `discover()` is enough to load everything installed -- engine's
+own built-in laws included, through the same mechanism, no special-cased
+"what's compiled in" path.
+
+This replaces `Config`'s old `__init_subclass__`-based auto-registration
+(`Config.registry`, removed): registering used to be a side effect of a
+module happening to get imported, which is exactly how the
+bluesky/qcodes/pymeasure regression happened -- installing a package is not
+the same as importing it, and importing is not the same as registering.
+`runner.py` builds one `Catalogs`, calls `discover()`, and calls
+[set_catalog][flyball.model.catalog.set_catalog]; everything that builds or
+validates a rig reads [current_catalog][flyball.model.catalog.current_catalog]
+/ [get_catalog][flyball.model.catalog.get_catalog] from here rather than a
+bare `ClassVar` dict.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from flyball.foundation.device import DriverConfig
+    from flyball.model.config import Config
+    from flyball.model.feedforward import Feedforward
+    from flyball.model.generator import SetPointGenerator
+    from flyball.model.law import ControlLaw
+
+
+class Catalog[T]:
+    """Tag -> class, for one kind of thing. Collision-checked, nothing implicit."""
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+        self._by_tag: dict[str, type[T]] = {}
+
+    def register(self, cls: type[T], *, tag: str | None = None) -> None:
+        """Register `cls` under `tag` (`cls.config_tag`/`cls.tag` if omitted).
+
+        Raises:
+            ValueError: `tag` is already registered to a different class. Not
+                raised on re-registering the same class under the same tag
+                (safe to call `discover()` more than once).
+        """
+        resolved = tag or getattr(cls, "config_tag", None) or getattr(cls, "tag", None)
+        if not resolved:
+            raise ValueError(f"{cls.__name__} has no tag; pass one or declare it on the class")
+        clash = self._by_tag.get(resolved)
+        if clash is not None and clash is not cls:
+            raise ValueError(f"{self.kind} tag {resolved!r} is already {clash.__name__}")
+        self._by_tag[resolved] = cls
+
+    def __getitem__(self, tag: str) -> type[T]:
+        try:
+            return self._by_tag[tag]
+        except KeyError:
+            raise KeyError(f"{self.kind} tag {tag!r} is not registered") from None
+
+    def get(self, tag: str, default: type[T] | None = None) -> type[T] | None:
+        return self._by_tag.get(tag, default)
+
+    def __contains__(self, tag: str) -> bool:
+        return tag in self._by_tag
+
+    def __iter__(self):
+        return iter(self._by_tag)
+
+    def __len__(self) -> int:
+        return len(self._by_tag)
+
+    def tags(self) -> list[str]:
+        return list(self._by_tag)
+
+    def items(self):
+        return self._by_tag.items()
+
+    def unregister(self, tag: str) -> None:
+        """Drop `tag`, if present. For a reloadable source (a `drivers/` directory) only."""
+        self._by_tag.pop(tag, None)
+
+
+@dataclass
+class Catalogs:
+    """Every registered kind, install-scoped: one `Catalog` per kind of component.
+
+    Built once per process (same lifetime as the `Rig` it builds), populated
+    by [discover][flyball.model.catalog.Catalogs.discover] or by calling the
+    `register_*` methods directly (e.g. in a test, against a fresh instance).
+    """
+
+    devices: Catalog[DriverConfig[Any]] = field(default_factory=lambda: Catalog("device"))
+    links: Catalog[Config[Any]] = field(default_factory=lambda: Catalog("link"))
+    laws: Catalog[ControlLaw] = field(default_factory=lambda: Catalog("law"))
+    feedforwards: Catalog[Feedforward] = field(default_factory=lambda: Catalog("feedforward"))
+    generators: Catalog[SetPointGenerator] = field(default_factory=lambda: Catalog("generator"))
+    # `Any`, not `type[Command]`: `Command` lives in `flyball.sequencing`, above
+    # `model` in the Layers contract -- even a `TYPE_CHECKING`-only import back
+    # down would be a real edge (import-linter reads the AST, guard or not).
+    commands: Catalog[Any] = field(default_factory=lambda: Catalog("command"))
+
+    def register_device(self, cls: type[DriverConfig[Any]], *, tag: str | None = None) -> None:
+        self.devices.register(cls, tag=tag)
+
+    def register_link(self, cls: type[Config[Any]], *, tag: str | None = None) -> None:
+        self.links.register(cls, tag=tag)
+
+    def register_law(self, cls: type[ControlLaw], *, tag: str | None = None) -> None:
+        self.laws.register(cls, tag=tag)
+
+    def register_feedforward(self, cls: type[Feedforward], *, tag: str | None = None) -> None:
+        self.feedforwards.register(cls, tag=tag)
+
+    def register_generator(self, cls: type[SetPointGenerator], *, tag: str | None = None) -> None:
+        self.generators.register(cls, tag=tag)
+
+    def register_command(self, cls: type[Any], *, tag: str | None = None) -> None:
+        """`cls` is a `sequencing.command.Command` subclass -- untyped here, see `commands`."""
+        self.commands.register(cls, tag=tag)
+
+    def discover(self, group: str = "flyball.configs") -> list[str]:
+        """Call every installed package's `register(self)`, by its `flyball.configs` entry point.
+
+        A package declares one in its `pyproject.toml`::
+
+            [project.entry-points."flyball.configs"]
+            my_package = "my_package.configs"
+
+        pointing at a module with a `def register(catalog) -> None`. Returns
+        the entry names loaded. Safe to call more than once -- registering
+        the same class under the same tag twice is not a collision.
+        """
+        from importlib.metadata import entry_points
+
+        loaded = []
+        for entry in entry_points(group=group):
+            module = entry.load()
+            module.register(self)
+            loaded.append(entry.name)
+        return loaded
+
+
+_catalog: Catalogs | None = None
+"""The process's installed `Catalogs`, set once at startup. Module-level, not on `Catalogs`
+itself, matching `flyball.interfaces.server.deps`'s existing `current_drivers_dir()` shape for
+process-scoped state -- but living here, not in `interfaces/server/deps.py`, because code below
+`interfaces` (`runtime.config`, `foundation.device.device`, `runner.py`'s CLI path) needs it too,
+and `flyball.model` is the one layer reachable from everywhere without a layering-contract
+violation (see `engine/pyproject.toml`'s `Layers` contract comment on why `flyball.model` is left
+unordered). `interfaces/server/deps.py` re-exports `current_catalog`/`set_catalog` from here and
+adds its own `get_catalog()`/`CatalogDep` for FastAPI, so there is one source of truth, not two.
+"""
+
+
+def set_catalog(catalog: Catalogs | None) -> None:
+    """The process-wide `Catalogs`. `runner.py` sets this once, right after `discover()`."""
+    global _catalog
+    _catalog = catalog
+
+
+def current_catalog() -> Catalogs | None:
+    return _catalog
+
+
+def get_catalog() -> Catalogs:
+    """`current_catalog()`, or raise. For code that cannot build or validate a rig without one."""
+    if _catalog is None:
+        raise RuntimeError(
+            "no Catalogs is set; call flyball.model.catalog.set_catalog(Catalogs().discover())"
+            " first (runner.py does this at startup)"
+        )
+    return _catalog
+
+
+def ensure_discovered(group: str = "flyball.configs") -> Catalogs:
+    """`current_catalog()`, or a freshly built and discovered one, set as the current one now.
+
+    Idempotent and non-destructive: never overwrites a `Catalogs` already
+    set -- discovering again there would drop anything added since (a
+    `drivers/` directory's loose files, `/api/drivers/reload`). For a
+    one-shot CLI use (`rig_schema()`, `load_rig_config()` called outside a
+    running server) and `runner.serve()`, called by an application that built
+    its own rig without going through `runner.main()` first.
+    """
+    catalog = current_catalog()
+    if catalog is None:
+        catalog = Catalogs()
+        catalog.discover(group)
+        set_catalog(catalog)
+    return catalog

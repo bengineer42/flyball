@@ -250,7 +250,7 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
 }
 
 /** The rig's links, name and tag, each with a remove button (409 while a device is built on it). */
-export function LinksSection({ document, schema }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema> }) {
+export function LinksSection({ document, schema, showAdd = true }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; showAdd?: boolean }) {
   const rig = useRig();
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -279,9 +279,11 @@ export function LinksSection({ document, schema }: { document: QueryState<RigDoc
         <Typography variant="h2" component="h2" color="text.secondary">
           Links
         </Typography>
-        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-link">
-          Add link
-        </Button>
+        {showAdd && (
+          <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-link">
+            Add link
+          </Button>
+        )}
       </Stack>
       {document.error && <Alert severity="error">{document.error.message}</Alert>}
       {!document.error && links.length === 0 && (
@@ -335,17 +337,14 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
   const rig = useRig();
   const schema = useRigFileSchema();
   const document = useRigDocument();
-  const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Local overlay: `devices` is fetched once by the app, so a device this page just added or
-  // removed is reflected here immediately rather than waiting for the app to refetch it.
-  const [added, setAdded] = useState<Record<string, DeviceOut>>({});
+  // `devices` is fetched once by the app, so a device this page just removed is
+  // reflected here immediately rather than waiting for the app to refetch it.
   const [removed, setRemoved] = useState<Set<string>>(new Set());
 
-  const shown = [...devices.filter((d) => d.kind !== "simulation" && !removed.has(d.name) && !(d.name in added)), ...Object.values(added)];
-  const linkNames = Object.keys(document.data?.links ?? {});
+  const shown = devices.filter((d) => d.kind !== "simulation" && !removed.has(d.name));
 
   const remove = async () => {
     if (!removing) return;
@@ -354,11 +353,6 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
       await rig.removeDevice(removing);
       setError(null);
       setRemoved((r) => new Set(r).add(removing));
-      setAdded((a) => {
-        const { [removing]: _gone, ...rest } = a;
-        void _gone;
-        return rest;
-      });
       setRemoving(null);
     } catch (e) {
       setError(detail(e));
@@ -369,12 +363,7 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
 
   return (
     <>
-      <LinksSection document={document} schema={schema} />
-      <PageBar>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAdding(true)} data-testid="add-device">
-          Add device
-        </Button>
-      </PageBar>
+      <LinksSection document={document} schema={schema} showAdd={false} />
       <SectionHead icon={PAGE_ICONS.devices} title="Devices" count={shown.length} />
       {error && (
         <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
@@ -382,7 +371,7 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
         </Alert>
       )}
       {shown.length === 0 ? (
-        <StateBlock state="empty" message="No device declared. Add one below, or to the rig file, to see it here." />
+        <StateBlock state="empty" message="No device declared. Add one in Config to see it here." />
       ) : (
         <div className="grid">
           {shown.map((d) => (
@@ -402,21 +391,6 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
           ))}
         </div>
       )}
-      <AddDeviceDialog
-        open={adding}
-        schema={schema.data}
-        linkNames={linkNames}
-        onClose={() => setAdding(false)}
-        onCreated={(device) => {
-          setAdding(false);
-          setAdded((a) => ({ ...a, [device.name]: device }));
-          setRemoved((r) => {
-            const next = new Set(r);
-            next.delete(device.name);
-            return next;
-          });
-        }}
-      />
       <Confirm
         open={removing !== null}
         title={`Remove device ${removing}?`}
@@ -459,7 +433,7 @@ function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
  * then the signal tree with live values and write states, then the
  * controllers that drive or regulate its signals.
  */
-export function DevicePage({ devices, name, windowS, every }: { devices: DeviceOut[]; name: string } & ChartSettings) {
+export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; name: string } & ChartSettings) {
   const rig = useRig();
   const device = devices.find((d) => d.name === name);
   const schema = useDeviceSchema(name);
@@ -496,7 +470,7 @@ export function DevicePage({ devices, name, windowS, every }: { devices: DeviceO
           )}
         </div>
         <div className="c12 xl6">
-          <DeviceSignals device={device} windowS={windowS} every={every} exportHref={(s) => stored.series(s.address)} />
+          <DeviceSignals device={device} windowS={windowS} exportHref={(s) => stored.series(s.address)} />
         </div>
         <Paper className="c12" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>

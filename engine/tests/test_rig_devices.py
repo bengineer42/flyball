@@ -6,16 +6,14 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball.control import NoFeedforward, Transfer
 from flyball.control.laws import P
-from flyball.core.clock import Rate, TimeUnit
-from flyball.core.device import Committable, Readable
-from flyball.core.errors import ConflictError, NotReadyError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import (
+from flyball.foundation.device import (
     Access,
+    AddressNotFoundError,
+    Committable,
     Node,
     NodeSpec,
+    Readable,
     Reading,
     Role,
     Sample,
@@ -23,9 +21,13 @@ from flyball.core.signal import (
     SignalSpec,
     WriteState,
 )
-from flyball.core.units.si import Celsius, Percent, Watt
-from flyball.runtime.controllers import SourceClaimedError
-from flyball.runtime.rig import AddressNotFoundError
+from flyball.foundation.errors import ConflictError, NotReadyError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent, Watt
+from flyball.foundation.time import Rate, TimeUnit
+from flyball.model.feedforward import NoFeedforward
+from flyball.model.law import Transfer
+from flyball.rig import SourceClaimedError
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)

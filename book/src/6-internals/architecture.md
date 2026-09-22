@@ -17,7 +17,7 @@ control         a controller, a control law, a reference trajectory, and the
                 arithmetic of handing control over. Beside it, identification
                 and the tuning rules
 
-core            values and infrastructure with no opinions: time, units,
+foundation      values and infrastructure with no opinions: time, units,
                 quantities, signals, devices, errors, resources,
                 publish/subscribe, config
 ```
@@ -35,20 +35,17 @@ writing a device driver rather than editing the rig.
 
 | package | layer | holds |
 | --- | --- | --- |
-| `flyball.core` | core | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; `Config`; errors; `Topic`, `Latest`, `Trigger` |
+| `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; `Config`; errors; `Topic`, `Latest`, `Trigger` |
 | `flyball.control` | control | `Controller`, `ControlLaw` and the laws (`P`, `PI`, `PID`, `OpenLoop`), `SetPointGenerator`, `Feedforward`, `Tuning`, `Transfer` |
 | `flyball.autotune` | `hardware\|adaptive\|autotune\|db` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
 | `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
-| `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2CBus`, `I2CMux`, `Bank`; `links`: `TextLink` and `RegisterLink` with VISA, serial, Modbus and fake implementations |
-| `flyball.db` | `hardware\|adaptive\|autotune\|db` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
-| `flyball.sim` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | a stepped clock, simulated plants (`Lag`, `Fopdt`, `Integrator`, `Furnace`), the generic `sim_daq`/`sim_drive` devices; `runtime` never imports it |
-| `flyball.devices` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | `Scpi`, `Modbus`: table-driven devices whose tree is declared in their own tagged config |
-| `flyball.integrations.qcodes`, `.pymeasure` | `sim\|devices\|integrations.qcodes\|integrations.pymeasure` | instrument libraries wrapped as devices |
+| `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2cLink`, `Bank`; `links`: the `TextLink`/`RegisterLink` protocols only -- their fakes, real implementations (VISA, serial, Modbus) and the table-driven `scpi`/`modbus` devices built over them live in `extensions/visa`, `extensions/modbus` |
+| `flyball.record` | `hardware\|adaptive\|autotune\|record` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
 | `flyball.runtime` | runtime | `Rig`, `Controllers`, `Polling`, `Recorder`, `Triggers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
-| `flyball.programmer` | `programmer\|integrations.bluesky` | `Command`, `Activity`, `Program`, `Programmer` |
-| `flyball.integrations.bluesky` | `programmer\|integrations.bluesky` | Bluesky documents built from a recorded session |
-| `flyball.server` | server | the FastAPI app, routes, wire models, the program dialect |
-| `flyball.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
+| `flyball.sequencing` | `sequencing` | `Command`, `Activity`, `Program`, `Programmer` |
+| `flyball.interfaces.server` | `mcp\|server` | the FastAPI app, routes, wire models, the program dialect |
+| `flyball.interfaces.mcp` | `mcp\|server` | the MCP server (stdio and mounted), tools, guides; built entirely on `flyball.interfaces.client` |
+| `flyball.interfaces.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
 
 ## The pattern
 
@@ -70,12 +67,18 @@ steps — is derived from those, so nothing is described twice.
 
 ## Dependencies
 
-`flyball.core` has none: the pure controller, the device protocol, the
-simulated plant and the SQLite store are stdlib-only, so a downstream package
-can depend on the algorithm without pulling in a serial stack. Extras:
-`web` (FastAPI, uvicorn, PyYAML), `cli` (httpx, websockets, PyYAML), `serial`,
-`visa`, `modbus`, `bluesky`, `qcodes`, `pymeasure`. Each driver is imported
-only when a real link or wrapper is built.
+`flyball.foundation` has none: the pure controller, the device protocol and the
+SQLite store are stdlib-only, so a downstream package can depend on the
+algorithm without pulling in a serial stack. The simulated plant moved out
+to `flyball-sim` (`flyball_sim`, `../sim`), its own top-level package with
+zero third-party dependencies of its own; `flyball.runtime` never imports
+it directly, only through the `flyball.configs` entry point every other
+optional package uses. Extras: `web` (FastAPI, uvicorn, PyYAML, and
+`flyball-sim`), `cli` (httpx, websockets, PyYAML). Everything that talks to
+real hardware, an instrument protocol or another library -- serial, VISA,
+Modbus, Bluesky, QCoDeS, PyMeasure -- is its own package under
+`extensions/`, each with its own extra of the same name; a driver's real
+implementation is imported only when a real link or wrapper is built.
 
 ## Layering
 
@@ -86,18 +89,17 @@ above:
 
 ```
 flyball.runner
-flyball.server
-flyball.programmer | flyball.integrations.bluesky
+flyball.interfaces.mcp | flyball.interfaces.server
+flyball.sequencing
 flyball.runtime
-flyball.sim | flyball.devices | flyball.integrations.qcodes | flyball.integrations.pymeasure
-flyball.hardware | flyball.adaptive | flyball.autotune | flyball.db
+flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record
 flyball.control
-flyball.core
+flyball.foundation
 ```
 
-A second contract keeps `flyball.client` and `flyball.scaffold` standing
-apart from all of it: neither may import `flyball.core`, `flyball.control`,
-`flyball.runtime`, `flyball.server` or `flyball.programmer`, so a client
+A second contract keeps `flyball.interfaces.client` and `flyball.scaffold` standing
+apart from all of it: neither may import `flyball.foundation`, `flyball.control`,
+`flyball.runtime`, `flyball.interfaces.server` or `flyball.sequencing`, so a client
 built from the wire alone cannot quietly start depending on the rig's
 internals.
 

@@ -1,5 +1,10 @@
 # The device model
 
+*Not to be confused with the `flyball.model` Python package* (`Catalog` →
+`Config` → `Instance`, the type-registration machinery for devices, links,
+laws, feedforwards and generators — see [6-internals](../6-internals/index.md)). This
+page is about the concepts below: `Device`, `Signal`, `Quantity`.
+
 Flyball's vocabulary is small. A handful of nouns cover everything the rig
 is made of, and the rest of the library is arithmetic over them.
 
@@ -16,8 +21,8 @@ no separate reader or actuator class: a device is `Readable` (implements
 falls out of that is which access flags its signals carry.
 
 ```python
-from flyball.core import Quantity
-from flyball.core.units.si import Celsius
+from flyball.foundation import Quantity
+from flyball.foundation.quantities.si import Celsius
 
 TEMPERATURE = Quantity("temperature", Celsius)
 ```
@@ -55,7 +60,7 @@ in `__init__` with the same factories and bound with `Device.bind`.
 `Section("dry", "Dry line")` in place of a name tags a second grouping axis
 across the tree, orthogonal to the namespace. On the class a descriptor is
 its spec; on an instance it is the bound
-[`Signal`][flyball.core.signal.Signal] (`self.dry_flow.value`,
+[`Signal`][flyball.foundation.device.signal.Signal] (`self.dry_flow.value`,
 `.push(v)`, `.pending`, `.limits`).
 
 ## Signals: R, P, W
@@ -146,7 +151,7 @@ flyball-runner furnace.yaml            # hardware
 flyball-runner furnace.yaml sim.yaml   # same addresses, no hardware
 ```
 
-`examples/humidity/rig.yaml` + `sim.yaml` ([the humidity rig](https://bengineer42.github.io/flyball/humidity/), its own
+`examples/humidity/rig-multi-sensor.yaml` + `sim.yaml` ([the humidity rig](https://bengineer42.github.io/humctrl/), its own
 book) is a real worked example: the
 same `hum_sensors`/`blender` device names and signal addresses, one file
 built on `sht4x_set`/`dual_pump_blender` against real I²C and PWM links,

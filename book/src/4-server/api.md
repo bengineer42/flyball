@@ -37,8 +37,12 @@ With any door open at all (a password or a token configured), a person may
 also register **passkeys**: each one grants the same `operate` level as a
 bearer token, additively -- registering one needs an already-authenticated
 caller, there is no separate bootstrap. `/api/auth/passkey/login*` is how
-one signs in with a passkey instead of the password. On an open runner (no
-password, no token) every one of them is 409: there is no door for a passkey
+one signs in with a passkey instead of the password. All of them need the
+optional `passkeys` extra (`pip install "flyball[web,passkeys]"`); without
+it each answers **501** and `GET /api/auth` reports `passkey: false`. Both
+ceremonies require user verification, so an authenticator that only reports
+user *presence* is refused: 400 registering, 401 signing in. On an open
+runner (no password, no token) every one of them is 409: there is no door for a passkey
 to open.
 
 | | | |
@@ -53,7 +57,7 @@ to open.
 The RP ID is the request's own hostname; a runner reached under more than
 one name needs a credential registered under each. Credentials persist in
 the store when one is attached; a store-less runner keeps them only for
-the life of the process (see `flyball.server.passkeys`).
+the life of the process (see `flyball.interfaces.server.passkeys`).
 
 ## The runner
 

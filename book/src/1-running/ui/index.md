@@ -12,7 +12,7 @@ with no front-end change. This section is what the app does, a page per area:
 | [Controllers](controllers.md) | the faceplate: reading, target, output, trends, the law |
 | [Charts and the Graph page](charts.md) | Inputs, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
 | [Sessions](sessions.md) | recording, the rolling record, keep, pin, export, delete |
-| [The Rig page](rig.md) | the running document, versions and restore, save, restart, connect a model |
+| [The Config page](rig.md) | the running document, versions and restore, save, restart, connect a model |
 | [Dashboards](../dashboards.md) | saved and generated layouts of widgets |
 
 The visual language is *Design rationale* below and `ui/README.md`.
@@ -29,8 +29,40 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | **Programs** | the program library (check, run, delete, upload, new) and, for a running or past program, its steps and events |
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
-| **Rig** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
+| **Config** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. Last in the navigation; the route is still `#/rig` |
+
+### The playback bar
+
+On a simulated rig, the Simulation page opens with a **Playback** section
+once the open session has some history: a video-style transport (rewind,
+play/pause, fast-forward, a scrub slider from the session's start to now)
+over that session's recorded samples. Absent on a real rig, and on a
+simulated one until there is a session with some history to scrub. The
+pause reaches every page, not only this one, so on any other page the app
+bar's paused chip is the way back to live.
+
+Paused, or scrubbed back, every page shows the rig **as it was at that
+moment**: charts end there and show the page's window before it, readouts,
+gauges and the Overview tiles hold the last sample at or before it, a
+controller faceplate's reading and trends are from then. The samples come
+from the telemetry store, which cuts the window from what it already holds
+(up to an hour) or reads it from the session's `/api/history` once a seek
+settles — a panel never knows the difference, and nothing moves or changes
+size when the page flips between live and history. A signal with no sample
+in that window shows a blank value, not a stale or alarm state; a bool, enum
+or JSON signal (a mode, a device's blend) shows what was recorded at that
+moment, read from the session.
+
+What is **not** a sample stays live: a controller's mode, target and demand,
+a demand's write state, device runs and conditions, program state, waits and
+events. The only signs of the paused state are the bar's amber `HH:MM:SS ·
+read-only` stamp and its section's faint tint on the Simulation page, and
+the app bar's paused chip everywhere else; there is no badge on the panels.
+Scrubbing never writes a demand or a setpoint, so it is read-only by
+construction;
+resuming (the play button, or fast-forwarding past now) goes straight back to
+live with no gap, since the live samples kept arriving underneath.
 
 ## The app bar
 
@@ -53,7 +85,10 @@ back to a client-side count from the samples stream on an older runner):
   symbol): the open session's name, or "not recording";
 - a **program** chip, only while one is running: its name and step;
 - a **devices** chip, only while some polled devices are not running: `n/total`;
-- a **sim** chip, only when the simulated clock is not at ×1: its speed.
+- a **sim** chip, only when the simulated clock is not at ×1: its speed;
+- a **paused** chip, only while playback is paused and the page is not
+  Simulation (where the transport itself is): the moment being shown, in
+  the playback bar's amber; clicking it goes back to live.
 
 Every chip's tooltip lists the names behind the count (conditions, devices)
 and links to the page that explains it (Events, Sessions, Programs, Devices,
@@ -61,15 +96,15 @@ Simulation).
 
 ## Density and theme
 
-Two toggles in the app bar, both persisted to `localStorage` and applied as
-attributes on `<html>` so the whole app (MUI and the plain-CSS `packages/react`
-components alike) reads them from the same CSS custom properties:
+One toggle in the app bar, **theme** (`flyball.theme` in `localStorage`):
+light/dark, defaulting to the OS preference (`prefers-color-scheme`) until
+chosen explicitly. It is applied as `data-theme` on `<html>` so the whole app
+(MUI and the plain-CSS `packages/react` components alike) reads it from the
+same CSS custom properties.
 
-- **Theme** (`flyball.theme`): light/dark, defaulting to the OS preference
-  (`prefers-color-scheme`) until chosen explicitly (`data-theme`).
-- **Density** (`flyball.density`): comfortable/compact (`data-density`),
-  changing tile gaps, a tile's title-row height and a readout's minimum
-  height.
+Density is fixed at comfortable (`data-density="comfortable"` on `<html>`,
+which sets tile gaps, a tile's title-row height and a readout's minimum
+height); there is no compact setting and no toggle.
 
 ## Signing in
 

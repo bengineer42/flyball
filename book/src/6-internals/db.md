@@ -68,7 +68,7 @@ is not an observer: it wants the whole delivery, after the controllers have
 ticked and the touched devices have committed, so it records what each tick
 produced and what each commit set. The rig holds at most one and calls
 `recorder.record(samples, ticks, states, time_ns=...)` at the end of every
-delivery ([on_samples][flyball.runtime.rig.Rig.on_samples]), and again with
+delivery ([on_samples][flyball.rig.rig.Rig.on_samples]), and again with
 empty samples and ticks after a manual demand made outside one; a blocking
 device's deferred write states reach it the same way, through
 `Rig.written`, once its writer thread finishes the commit.
@@ -98,7 +98,7 @@ is for.
 
 ## Bluesky documents
 
-`flyball.db.documents` walks a session and yields it as Bluesky event-model
+`flyball.record.documents` walks a session and yields it as Bluesky event-model
 documents — a `start`, one `descriptor` per device and per controller, an
 `event` per sample or tick, a `stop` — the shape `bluesky.callbacks` and
 databroker consume. `write_jsonl` saves them as JSON lines.
@@ -110,7 +110,7 @@ reader normally each open their own on the same file, and WAL lets them
 overlap. Declarations are interned in the writer so the hot path — a
 delivery — is one `executemany` per table with integer keys already known.
 
-Migrations are numbered SQL files in `flyball/migrations`, each one
+Migrations are numbered SQL files in `flyball/record/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
 database brings it forward. `":memory:"` for tests.
 

@@ -1,9 +1,22 @@
 # Controllers
 
-The **Controllers** page (`#/controllers`) is one card per writable signal: with a controller, the faceplate below; without, the signal's card and an **Add controller** button. What a controller is: [How a controller works](../../2-config/controllers.md#how-a-controller-works); how it is declared: [Controllers](../../2-config/controllers.md).
+The **Controllers** page (`#/controllers`) is one card per writable signal: with a controller, the faceplate below; without, the signal's card alone -- adding a controller is done from [Config](rig.md), not here. What a controller is: [How a controller works](../../2-config/controllers.md#how-a-controller-works); how it is declared: [Controllers](../../2-config/controllers.md).
 
 !!! tip "At the terminal"
     `flyball controllers` lists every faceplate's numbers; regulate / manual are routes for now -- [Controllers and tuning](../cli/controllers.md).
+
+## Adding a controller
+
+In [Config](rig.md), **Add controller** opens a four-step dialog: the
+**Actuator** (the writable signal being commanded — the controller's
+`target`), the **Sensor** (the published signal used to correct it — its
+`source`), the law (a stored tuning, one configured here, or none) and the
+feedforward, defaulted from the two units as the rig would. Signals already
+driven or regulated by another controller are listed but disabled. Once an
+actuator is chosen the sensor list leads with **Suggested** — the signals in
+the actuator's own unit that nothing regulates yet — and puts everything
+else under **All signals**; with no actuator chosen, or nothing that
+matches, it is one list.
 
 ## The controller faceplate
 

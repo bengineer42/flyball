@@ -68,7 +68,8 @@ export function useValueReadout(signal: SignalOut | undefined): ValueReadout {
   const value = point?.value;
   const body =
     value === undefined || value === null ? (
-      <span className="fb-muted">—</span>
+      // The same chip a value takes, so a tile keeps its height with nothing to show (before the first sample, or at a paused moment with none).
+      <Chip size="small" label="—" variant="outlined" className="fb-muted" />
     ) : signal?.dtype === "bool" ? (
       <Chip size="small" label={value ? "on" : "off"} color={value ? "success" : "default"} variant="outlined" />
     ) : signal?.dtype === "json" ? (

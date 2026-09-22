@@ -24,6 +24,8 @@ fi
 
 (cd "$engine_dir" && uv run python -c '
 import json
-from flyball.server.dialect import Dialect, program_schema
-print(json.dumps(program_schema(Dialect()), indent=2))
+from flyball.interfaces.server.dialect import Dialect, program_schema
+from flyball.model.catalog import ensure_discovered
+commands = dict(ensure_discovered().commands.items())
+print(json.dumps(program_schema(Dialect(commands=commands)), indent=2))
 ') > "$out"

@@ -16,11 +16,10 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.core.device import Committable, Condition, Level
-from flyball.core.signal import Signal
+from flyball.foundation.device import Committable, Condition, Level, Signal
 
 if TYPE_CHECKING:
-    from flyball.runtime.rig import Rig
+    from flyball.rig import Rig
 
 log = logging.getLogger("flyball.writer")
 

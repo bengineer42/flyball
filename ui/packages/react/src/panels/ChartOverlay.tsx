@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export interface ChartOverlayProps {
@@ -30,8 +30,19 @@ const expandButtonIn = (root: ParentNode | null) => (root ? [...root.querySelect
  * dependency on any UI kit, so it works wherever the panels do; the app's
  * `--fb-*` variables style it.
  */
+/** How long after opening a backdrop click reads as the tail of the gesture that opened us, not a dismissal. */
+const SETTLE_MS = 400;
+
 export function ChartOverlay({ title, onClose, children }: ChartOverlayProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // What opened us was a click, and the *second* click of a double-click lands here, on the
+  // backdrop, the instant we mount -- opening and closing again so fast it reads as "nothing
+  // happened" (Ben, 22 Sep, double-clicking a controller's trend). A backdrop dismissal counts
+  // only once the pointer has had time to be lifted and put down again.
+  const openedAt = useRef(Date.now());
+  const dismiss = useCallback(() => {
+    if (Date.now() - openedAt.current > SETTLE_MS) onClose();
+  }, [onClose]);
   // Where to send focus back, fixed at first render (before our own Close button takes focus): the element
   // focused when we opened, and the container the chart toolbar stood in, where its replacement will be.
   const origin = useRef<{ opener: HTMLElement | null; home: HTMLElement | null } | null>(null);
@@ -56,7 +67,7 @@ export function ChartOverlay({ title, onClose, children }: ChartOverlayProps) {
     };
   }, [onClose]);
   return createPortal(
-    <div className="fb-chart-expanded" onClick={onClose}>
+    <div className="fb-chart-expanded" onClick={dismiss}>
       <div className="fb-chart-expanded-panel" role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} onClick={(e) => e.stopPropagation()}>
         <header className="fb-chart-expanded-head">
           <h3>{title}</h3>

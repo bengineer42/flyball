@@ -20,8 +20,8 @@ import {
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
 import CloseIcon from "@mui/icons-material/Close";
-import { describeUnit, deviceOf, humanise, signalTitle, tagAxes, unitTitle, type DeviceOut, type SignalOut } from "@flyball/client";
-import { MultiSeries, useTraceRef, type MultiSeriesTrace } from "@flyball/react";
+import { describeUnit, deviceOf, humanise, signalTitle, tagAxes, unitTitle, type ControllerOut, type DeviceOut, type SignalOut } from "@flyball/client";
+import { MultiSeries, useControllers, useTraceRef, controllerSetpointKey, controllerNameFromSetpointKey, type MultiSeriesTrace } from "@flyball/react";
 import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { StateBlock } from "../cards.js";
@@ -86,14 +86,26 @@ function seriesColorFor(slot: number): string {
  * dual axes" rule is deliberately overridden on this page, at the user's
  * request; `MultiSeries` itself caps it at four visible axes and folds the rest.
  *
- * Selection lives in the URL hash (`?ch=a,b,c`, addresses, so a graph is
- * shareable) and in `localStorage` (so the last graph comes back on a plain
- * visit). Each signal keeps the colour slot it was first ticked into (spec
- * §1.2): hiding one never repaints the others, and re-ticking it returns
- * its own colour.
+ * A controller's setpoint can be ticked too, from its own "Setpoints" group
+ * below the device branches (a controller is not a device, so the unit/tag
+ * filters above don't apply to it, only the search box): it plots on the
+ * axis of the signal it regulates (same unit, since a controller is named by
+ * the signal it drives), dashed, labelled "‹signal title› (setpoint)" so it
+ * reads apart from the measured line. Only the setpoint is offered, not the
+ * controller's reading/demand/expected/correction -- this page plots
+ * readings, not a controller-trace explorer (that is `ControllerPanel`'s
+ * job, on the Controllers page). Keyed in the selection as
+ * `controllerSetpointKey(name)`, distinct from any signal address (an
+ * address never contains `:`).
+ *
+ * Selection lives in the URL hash (`?ch=a,b,c`, addresses or setpoint keys,
+ * so a graph is shareable) and in `localStorage` (so the last graph comes
+ * back on a plain visit). Each key keeps the colour slot it was first ticked
+ * into (spec §1.2): hiding one never repaints the others, and re-ticking it
+ * returns its own colour.
  */
 export function Graph({ devices, ...charts }: GraphProps) {
-  const { windowS, yScale, every } = charts;
+  const { windowS, yScale } = charts;
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -111,9 +123,20 @@ export function Graph({ devices, ...charts }: GraphProps) {
   );
   const byAddress = useMemo(() => new Map<string, SignalOut>(publishing.flatMap((d) => d.signals).map((s) => [s.address, s])), [publishing]);
 
+  // Every controller whose regulated signal (`source`) is a numeric publishing signal on this rig --
+  // that is the signal `byAddress` already knows, so the setpoint's unit/title/device come from it.
+  const { controllers: controllersLive } = useControllers();
+  const controllerList = useMemo(() => Object.values(controllersLive).filter((c) => byAddress.has(c.source)), [controllersLive, byAddress]);
+  const controllerByKey = useMemo(() => new Map(controllerList.map((c) => [controllerSetpointKey(c.name), c])), [controllerList]);
+  // A controller-setpoint key is recognised by its shape alone (no need for `controllerList`, which
+  // seeds asynchronously): dropping a not-yet-loaded one here would lose it from the hash/localStorage
+  // before `useControllers` ever gets a chance to resolve it. `controllerByKey` below is what actually
+  // decides whether it renders, once it can.
+  const isPlottable = (k: string) => byAddress.has(k) || controllerNameFromSetpointKey(k) !== null;
+
   const [order, setOrder] = useState<string[]>(() => {
     const fromHash = readHashSelection();
-    return (fromHash.length ? fromHash : readStoredSelection()).filter((k) => byAddress.has(k));
+    return (fromHash.length ? fromHash : readStoredSelection()).filter(isPlottable);
   });
   useEffect(() => {
     writeHashSelection(order);
@@ -174,21 +197,52 @@ export function Graph({ devices, ...charts }: GraphProps) {
   const selectShown = () => setOrder((prev) => [...prev, ...shown.filter((k) => !prev.includes(k))]);
   const deselectShown = () => setOrder((prev) => prev.filter((k) => !shown.includes(k)));
 
-  const selected = order.map((k) => byAddress.get(k)).filter((s): s is SignalOut => !!s);
-  const live = useTraceRef(useMemo(() => selected.map((s) => s.address), [selected]));
-  const primaryUnit = selected[0]?.unit;
-  // A legend entry is the signal's title; the device joins it only when two plotted signals would otherwise read the same.
+  // Controllers are not devices, so the unit/device/tag filter chips above don't apply to them --
+  // only the search box does. "select all"/"none" stays signal-only (above): a setpoint is a much
+  // rarer thing to bulk-select than a device's own signals, so it isn't worth the extra affordance.
+  const controllerMatches = (c: ControllerOut, source: SignalOut) =>
+    !needle || `${title(source)} setpoint ${c.name} ${c.source} ${source.unit} ${deviceLabel(deviceOf(source.address))}`.toLowerCase().includes(needle);
+  const visibleControllers = controllerList
+    .map((c) => ({ c, source: byAddress.get(c.source)! }))
+    .filter(({ c, source }) => controllerMatches(c, source));
+
+  // Each ticked key is either a signal or a controller's setpoint (its regulated signal's own trace,
+  // read from `byAddress`, gives the setpoint its unit/title/device -- the two plot identically once
+  // resolved, only the label, dash and store key differ).
+  type PlotItem = { key: string; signal: SignalOut; setpoint?: ControllerOut };
+  const items: PlotItem[] = order.flatMap((k) => {
+    const signal = byAddress.get(k);
+    if (signal) return [{ key: k, signal }];
+    const setpoint = controllerByKey.get(k);
+    const source = setpoint ? byAddress.get(setpoint.source) : undefined;
+    return source ? [{ key: k, signal: source, setpoint }] : [];
+  });
+  const live = useTraceRef(useMemo(() => items.map((i) => i.key), [items]));
+  const primaryUnit = items[0]?.signal.unit;
+  // A legend entry is the signal's title, "(setpoint)" appended for a controller's; the device joins it
+  // only when two plotted signal traces (or two plotted setpoint traces) would otherwise read the same --
+  // a signal and its own setpoint never collide, the suffix already tells them apart.
   const titleCount = new Map<string, number>();
-  for (const s of selected) titleCount.set(title(s), (titleCount.get(title(s)) ?? 0) + 1);
-  const series: MultiSeriesTrace[] = selected.map((s) => ({
-    label: (titleCount.get(title(s)) ?? 0) > 1 ? `${title(s)} · ${deviceLabel(deviceOf(s.address))}` : title(s),
-    unit: s.unit,
-    quantity: s.quantity,
-    key: s.address,
-    color: seriesColorFor(slotFor(s.address)),
-    precision: s.precision ?? undefined,
-    hint: `${deviceLabel(deviceOf(s.address))} · ${s.address}${describeUnit(s.unit) ? ` (${describeUnit(s.unit)})` : ""}`,
-  }));
+  for (const it of items) {
+    const k = `${it.setpoint ? "sp:" : "s:"}${title(it.signal)}`;
+    titleCount.set(k, (titleCount.get(k) ?? 0) + 1);
+  }
+  const series: MultiSeriesTrace[] = items.map((it) => {
+    const base = title(it.signal);
+    const disambiguated = (titleCount.get(`${it.setpoint ? "sp:" : "s:"}${base}`) ?? 0) > 1 ? `${base} · ${deviceLabel(deviceOf(it.signal.address))}` : base;
+    return {
+      label: it.setpoint ? `${disambiguated} (setpoint)` : disambiguated,
+      unit: it.signal.unit,
+      quantity: it.signal.quantity,
+      key: it.key,
+      color: seriesColorFor(slotFor(it.key)),
+      precision: it.signal.precision ?? undefined,
+      dash: it.setpoint ? true : undefined,
+      hint: it.setpoint
+        ? `setpoint of ${deviceLabel(deviceOf(it.signal.address))} · ${it.signal.address} (controller ${it.setpoint.name})`
+        : `${deviceLabel(deviceOf(it.signal.address))} · ${it.signal.address}${describeUnit(it.signal.unit) ? ` (${describeUnit(it.signal.unit)})` : ""}`,
+    };
+  });
 
   const picker = (
     <Stack sx={{ height: "100%", minHeight: 0 }}>
@@ -256,7 +310,34 @@ export function Graph({ devices, ...charts }: GraphProps) {
             </ul>
           </li>
         ))}
-        {visibleBranches.length === 0 && (
+        {visibleControllers.length > 0 && (
+          <li key="__setpoints">
+            <ul style={{ padding: 0 }}>
+              <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
+                Setpoints
+              </ListSubheader>
+              {visibleControllers.map(({ c, source }) => {
+                const key = controllerSetpointKey(c.name);
+                const checked = order.includes(key);
+                return (
+                  <ListItemButton key={key} dense onClick={() => toggle(key)} sx={{ py: 0.25 }}>
+                    <ListItemIcon sx={{ minWidth: 32 }}>
+                      <Checkbox edge="start" size="small" checked={checked} tabIndex={-1} disableRipple />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <span title={`setpoint of ${c.name}`}>
+                          {title(source)} <span className="fb-muted">setpoint · {describeUnit(source.unit)}</span>
+                        </span>
+                      }
+                    />
+                  </ListItemButton>
+                );
+              })}
+            </ul>
+          </li>
+        )}
+        {visibleBranches.length === 0 && visibleControllers.length === 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
             {needle ? `nothing matches “${search}”` : "no signal passes the ticked filters"}
           </Typography>
@@ -273,7 +354,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
         </IconButton>
       )}
       <Typography variant="body2" color="text.secondary">
-        {selected.length === 0 ? "no signals selected" : `${selected.length} signal${selected.length === 1 ? "" : "s"} plotted`}
+        {items.length === 0 ? "no series selected" : `${items.length} series${items.length === 1 ? "" : "s"} plotted`}
       </Typography>
     </PageBar>
   );
@@ -305,10 +386,10 @@ export function Graph({ devices, ...charts }: GraphProps) {
           </Drawer>
         )}
         <div className="fb-fill fb-chart-host fb-graph-chart">
-          {selected.length === 0 ? (
+          {items.length === 0 ? (
             <StateBlock state="empty" message="Tick a signal on the left to plot it." />
           ) : (
-            <MultiSeries series={series} source={live} id="graph" unit={primaryUnit} title="graph" height="fill" windowS={windowS} yScale={yScale} every={every} />
+            <MultiSeries series={series} source={live} id="graph" unit={primaryUnit} title="graph" height="fill" windowS={windowS} yScale={yScale} />
           )}
         </div>
       </div>

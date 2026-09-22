@@ -85,7 +85,7 @@ nav:
           - Controllers: 1-running/ui/controllers.md
           - Charts and the Graph page: 1-running/ui/charts.md
           - Sessions: 1-running/ui/sessions.md
-          - The Rig page: 1-running/ui/rig.md
+          - The Config page: 1-running/ui/rig.md
           - Dashboards: 1-running/dashboards.md
       - The CLI:
           - 1-running/cli/index.md
@@ -153,19 +153,19 @@ nav:
       - CLI: 7-reference/cli.md
       - Python API:
           - flyball: 7-reference/python/flyball.md
-          - flyball.core: 7-reference/python/flyball/core.md
-          - flyball.core.units: 7-reference/python/flyball/core/units.md
+          - flyball.foundation: 7-reference/python/flyball/foundation.md
+          - flyball.foundation.quantities: 7-reference/python/flyball/foundation/quantities.md
+          - flyball.model: 7-reference/python/flyball/model.md
           - flyball.control: 7-reference/python/flyball/control.md
+          - flyball.library: 7-reference/python/flyball/library.md
           - flyball.adaptive: 7-reference/python/flyball/adaptive.md
           - flyball.autotune: 7-reference/python/flyball/autotune.md
           - flyball.runtime: 7-reference/python/flyball/runtime.md
-          - flyball.programmer: 7-reference/python/flyball/programmer.md
-          - flyball.devices: 7-reference/python/flyball/devices.md
+          - flyball.rig: 7-reference/python/flyball/rig.md
+          - flyball.sequencing: 7-reference/python/flyball/sequencing.md
           - flyball.hardware: 7-reference/python/flyball/hardware.md
-          - flyball.sim: 7-reference/python/flyball/sim.md
-          - flyball.db: 7-reference/python/flyball/db.md
-          - flyball.server: 7-reference/python/flyball/server.md
-          - flyball.server.routes: 7-reference/python/flyball/server/routes.md
-          - flyball.client: 7-reference/python/flyball/client.md
-          - flyball.integrations: 7-reference/python/flyball/integrations.md
+          - flyball.record: 7-reference/python/flyball/record.md
+          - flyball.interfaces.server: 7-reference/python/flyball/interfaces/server.md
+          - flyball.interfaces.server.routes: 7-reference/python/flyball/interfaces/server/routes.md
+          - flyball.interfaces.client: 7-reference/python/flyball/interfaces/client.md
   - Glossary: glossary.md

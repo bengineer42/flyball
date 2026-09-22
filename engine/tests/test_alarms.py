@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from flyball_sim.simulation import Simulation
 
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, SignalSpec
-from flyball.core.units.si import Celsius
+from flyball.foundation.device import Access, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
+from flyball.interfaces.server import create_app, set_rig
 from flyball.runtime.config import load_rig_config
-from flyball.runtime.simulation import Simulation
-from flyball.server import create_app, set_rig
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 TEMP = Quantity("temperature", Celsius)

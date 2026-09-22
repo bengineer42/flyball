@@ -17,7 +17,7 @@ Three ways a runner can stand:
   hashed line `flyball password` prints (`$scrypt$…`), which is what belongs
   in a file that is committed anywhere.
 - **A token** (`--token T`, `FLYBALL_TOKEN`, `auth.token`): for machines. The
-  Python client (`flyball.client.Rig`), `flyball-mcp` and any script send it
+  Python client (`flyball.interfaces.client.Rig`), `flyball-mcp` and any script send it
   as `Authorization: Bearer T`; a websocket, or a plain `GET` the browser
   navigates to (an export link), may pass `?token=T` instead, since a browser
   cannot set headers on either -- a URL is logged where a header is not, so
@@ -57,6 +57,18 @@ door exists, so a stranger cannot learn that from an unauthenticated call.
 
 ## Passkeys
 
+Passkey support is an optional install. `webauthn` -- and the crypto stack
+it brings -- is the `passkeys` extra, not part of `web`, so a runner that
+only ever sees a password does not carry it:
+
+```bash
+pip install "flyball[web,passkeys]"   # or flyball[all]
+```
+
+Without it the runner starts and serves exactly as before, `GET /api/auth`
+reports `passkey: false`, the UI shows no passkey button, and every passkey
+route answers 501 rather than failing at some later, stranger point.
+
 A signed-in person (with a password, a token, or `auth.anonymous: read`
 already inside the door) may add a passkey from the UI's account menu
 ("Manage passkeys") and sign in with it afterwards -- 1Password, a phone,
@@ -69,6 +81,15 @@ on one runner are equal, not tiered by whose they are. An **open** runner
 answers 409 and the UI shows no passkey button -- because there is no door
 for one to open, and a credential registered while the runner was open
 would still open the door once a password was set.
+
+**The authenticator must verify the person, not just their presence.** A
+passkey grants `operate` -- it can drive the rig -- so both ceremonies ask
+for user verification and the runner checks the flag the authenticator set
+rather than taking its word for it: a PIN, a fingerprint or a face every
+time, not a bare touch. A security key with no PIN set, or one configured
+to skip verification, is refused at registration (400) and at sign-in
+(401); set a PIN on it and it works. Platform authenticators (Touch ID,
+Windows Hello, a phone) do this already and nothing changes for them.
 
 The runner is the WebAuthn relying party, keyed off whatever hostname the
 browser reached it under -- a runner served under more than one hostname

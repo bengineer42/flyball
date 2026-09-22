@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from flyball.core.files import load_document
+from flyball.foundation.files import load_document
 
 __all__ = ["apply_set", "merge", "parse_set", "resolve_layers"]
 

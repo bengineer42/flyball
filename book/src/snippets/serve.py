@@ -2,8 +2,8 @@
 
 import uvicorn
 
-from flyball.core import Clock
-from flyball.server import app, set_rig
+from flyball.foundation import Clock
+from flyball.interfaces.server import app, set_rig
 
 from oven import build
 

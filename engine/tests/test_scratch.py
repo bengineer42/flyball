@@ -9,16 +9,15 @@ from fastapi.testclient import TestClient
 
 from conftest import FakeRunner
 from flyball.control import PI
-from flyball.core.device import Committable, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Node, Role, Sample, SignalSpec
-from flyball.core.units.si import Celsius, Watt
-from flyball.db import SpanKind, SqliteStore, Window
-from flyball.db.types import Event
+from flyball.foundation.device import Access, Committable, Node, Readable, Role, Sample, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_retention, set_runner, set_store
+from flyball.record import SpanKind, SqliteStore, Window
+from flyball.record.types import Event
 from flyball.runtime.config import RunnerConfig, parse_duration_ns, parse_size_bytes
 from flyball.runtime.retention import Retention
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_retention, set_runner, set_store
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -150,7 +149,7 @@ def test_trimming_moves_the_start_up_and_offsets_stay_true(rig, oven, clock, sto
     # A window is from the new start too: [1 s, 3 s) after it is t = 5, 6.
     assert values(store, session_id, address, start_ns=S, end_ns=3 * S) == [5.0, 6.0]
     # Buckets are laid from the new start: none is labelled before it.
-    from flyball.db import Downsample
+    from flyball.record import Downsample
 
     bucketed = store.series(session_id, address, downsample=Downsample(bucket_ns=4 * S))
     assert [(p.offset_ns, p.value) for p in bucketed.points] == [(0, 5.5), (4 * S, 9.0)]

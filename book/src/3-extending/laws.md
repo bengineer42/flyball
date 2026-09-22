@@ -79,9 +79,12 @@ Three pydantic models, from the class itself, so a law is described once:
 - `view` — both flattened, round-tripping through `build()`.
 
 `MyLaw.config` is the model class; `law.config` is that law's values. A new
-law therefore self-registers, gains a wire schema, is selectable by tag in a
-file or a request, and appears in the generated command form, with no further
-code.
+law gains a wire schema this way, but nothing selects it by tag until it is
+registered: add `catalog.register_law(MyLaw)` to your package's
+`register(catalog)` -- the same `flyball.configs` entry point a device or
+link registers through, see [Packaging](packaging.md). Once registered, it
+is selectable by tag in a file or a request, and appears in the generated
+command form.
 
 ## Tunings
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-from flyball.core import NonNegative, NormalisedPositive, Positive, PositiveInt
+from flyball.foundation import NonNegative, NormalisedPositive, Positive, PositiveInt
 
 from .errors import NotIdentifiedError
 from .rls import RecursiveLeastSquares

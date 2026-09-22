@@ -1,4 +1,4 @@
-import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
+import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Series, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
 import { addressOf, deviceOf, setpointOf, signalsOf, isScratch } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
@@ -45,6 +45,18 @@ export interface ControllerView {
 export const emptyTrace = (): TraceView => ({ t: [], v: [] });
 export const emptyControllerView = (): ControllerView => ({ t: [], reference: [], reading: [], demand: [], expected: [], correction: [] });
 
+/**
+ * A controller's setpoint, as a synthetic key `read`/`subscribeTrace` accept
+ * alongside real signal addresses (Graph's series picker and the telemetry
+ * store's `read`/`subscribeTrace` are the only callers): distinct from any
+ * address, since an address never contains `:` (`addressOf` joins node and
+ * name with `.`). `controllerNameFromSetpointKey` recovers the controller's
+ * name (its target address) from one, or null for a plain signal address.
+ */
+const CONTROLLER_SETPOINT_PREFIX = "controller-setpoint:";
+export const controllerSetpointKey = (name: Address): string => `${CONTROLLER_SETPOINT_PREFIX}${name}`;
+export const controllerNameFromSetpointKey = (key: string): Address | null => (key.startsWith(CONTROLLER_SETPOINT_PREFIX) ? key.slice(CONTROLLER_SETPOINT_PREFIX.length) : null);
+
 export interface ReadOptions {
   /** Rows from this time (seconds since the epoch) on; everything held when omitted. */
   fromS?: number;
@@ -52,6 +64,8 @@ export interface ReadOptions {
   every?: number;
   /** At most this many rows: `every` rises to fit. */
   maxPoints?: number;
+  /** Break the line across raw gaps wider than this (seconds); no breaking when omitted. */
+  maxGapS?: number;
 }
 
 export interface TelemetryStoreOptions {
@@ -79,8 +93,36 @@ const pairOf = (c: { name: string; source: string }) => `${c.name}|${c.source}`;
 
 const nan = (x: number | null | undefined) => (x == null ? Number.NaN : x);
 
+/** A new ring holding `ring`'s rows with `fromS <= t <= toS`: a playback window cut from the live ring. */
+function sliceRing(ring: Ring, fromS: number, toS: number, cap: number): Ring {
+  const start = ring.indexAtOrAfter(fromS);
+  let end = ring.indexAtOrAfter(toS);
+  while (end < ring.length && ring.timeAt(end) <= toS) end++;
+  const out = new Ring({ width: ring.width, initial: Math.max(16, end - start), cap });
+  const row = new Array<number>(ring.width);
+  for (let i = start; i < end; i++) {
+    for (let c = 0; c < ring.width; c++) row[c] = ring.valueAt(i, c);
+    out.push(ring.timeAt(i), row);
+  }
+  return out;
+}
+
 /** Points a history request asks for: twice the plot width, at most 4 000. */
 export const historyPoints = (): number => Math.min(4000, 2 * Math.max(300, typeof window === "undefined" ? 1440 : window.innerWidth));
+
+/** How long a seek waits for the next one before asking the recording store: a slider drag is many seeks a second. */
+export const PLAYBACK_DEBOUNCE_MS = 150;
+/** Seconds fetched before the window a paused chart shows, so its left edge is not the first point held. */
+export const PLAYBACK_MARGIN_S = 60;
+
+export interface PlaybackSession {
+  /** The session the history is read from (the open one, `GET /api/recording`). */
+  id: number;
+  /** Its start, in seconds since the epoch on the rig's clock: history routes take offsets from it. */
+  startS: number;
+  /** Seconds of history a panel shows ending at `atS`: the widest chart window on the page. */
+  windowS: number;
+}
 
 /**
  * Every live value the rig publishes, held once and fanned out, keyed by
@@ -95,6 +137,13 @@ export const historyPoints = (): number => Math.min(4000, 2 * Math.max(300, type
  * arrays are built per message). A socket opens on the first subscriber to
  * whatever it carries and closes a few seconds after the last one leaves,
  * so a Strict Mode double mount opens each once.
+ *
+ * `playback(atS, session)` shows the rig as it was at `atS`: every reader
+ * of samples (`read`, `latest`, `latestValue`, `count`, `readController`,
+ * a controller's `reading`) answers from a window of history ending there
+ * instead of the live rings, and live samples stop waking subscribers until
+ * `playback(null)`. The live rings keep filling underneath, so resuming is
+ * one wake-up with no gap and no request.
  */
 export class TelemetryStore {
   readonly windowS: number;
@@ -111,6 +160,8 @@ export class TelemetryStore {
   private writeVersions = new Map<Address, number>();
   private writesVersion = 0;
   private controllerRings = new Map<Address, Ring>();
+  /** Scratch `readController` output per controller, reused so reading a setpoint trace allocates nothing new. */
+  private controllerSetpointScratch = new Map<Address, ControllerView>();
   private controllerLatest: Record<Address, ControllerOut> = {};
   private controllerVersions = new Map<Address, number>();
   private controllersVersion = 0;
@@ -147,6 +198,25 @@ export class TelemetryStore {
   private newestS = Number.NEGATIVE_INFINITY;
   private seededControllers = new Set<string>();
 
+  /** Where playback is reading from, in rig seconds; null while live. */
+  private atS: number | null = null;
+  private playbackSession: PlaybackSession | null = null;
+  /** Bumped by every seek and by resume: a fetch that comes back for an older one is dropped. */
+  private playbackGen = 0;
+  /** The window of history per signal and per controller, ending at `atS`. */
+  private playbackRings = new Map<Address, Ring>();
+  /** The last bool/str/json value at or before `atS` per signal (a number goes on its playback ring). */
+  private playbackValues = new Map<Address, { t: number; value: Value }>();
+  private playbackTicks = new Map<Address, Ring>();
+  /** Signals and controllers whose window must come from the recording store, waiting for the debounce. */
+  private playbackPending = new Set<Address>();
+  private playbackPendingTicks = new Set<Address>();
+  private playbackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** What the playback session declared, asked once per session: anything else is a 409 the console would log. */
+  private playbackDeclared: { id: number; signals: Promise<Set<Address>>; controllers: Promise<Set<Address>> } | null = null;
+  /** A controller's live state with its `reading` swapped for the source's point at `atS`; rebuilt only when either changes. */
+  private playbackControllers = new Map<Address, { live: ControllerOut; t: number | undefined; v: number | undefined; out: ControllerOut }>();
+
   constructor(
     private readonly rig: RigClient,
     { windowS = 3600, capacity = 65536, graceMs = 5000 }: TelemetryStoreOptions = {},
@@ -172,26 +242,61 @@ export class TelemetryStore {
     return [...this.signals.keys()];
   }
 
-  /** The newest point of a signal, numeric dtypes only (fed the ring); undefined for a signal never sampled or never numeric. */
+  /**
+   * The newest point of a signal, numeric dtypes only (fed the ring); undefined
+   * for a signal never sampled or never numeric. In playback: its last point at
+   * or before `atS`, or undefined when the window holds none.
+   */
   latest(address: Address): { t: number; v: number } | undefined {
-    const ring = this.signals.get(address);
+    const ring = this.atS === null ? this.signals.get(address) : this.playbackRings.get(address);
     if (!ring || !ring.length) return undefined;
     return { t: ring.lastT()!, v: ring.last()! };
   }
 
-  /** The newest value of a signal whatever its dtype: a number, a bool, a string (an enum) or JSON. */
+  /**
+   * The newest value of a signal whatever its dtype: a number, a bool, a
+   * string (an enum) or JSON. In playback: the last value at or before
+   * `atS` -- a number from its window, anything else from the session's
+   * series (the recording store keeps every dtype).
+   */
   latestValue(address: Address): { t: number; value: Value } | undefined {
-    return this.latestValues[address];
+    if (this.atS === null) return this.latestValues[address];
+    const held = this.playbackValues.get(address);
+    if (held) return held;
+    const point = this.latest(address);
+    return point && { t: point.t, value: point.v };
   }
 
-  /** Bumps whenever the signal gains a point (or its history lands). */
+  /**
+   * When the signal last delivered, whatever its dtype (a number's ring, or a
+   * bool/str/json's latest value): what freshness ages. In playback, a
+   * number's last point at or before `atS`; a bool/str/json has no age there
+   * -- the session keeps some of those only when they change (a device's
+   * mode: one row, then nothing), so the row's time says when it changed,
+   * not when it was last read, and ageing it would call a live mode stale.
+   */
+  lastSampleS(address: Address): number | undefined {
+    if (this.atS === null) return this.latestValues[address]?.t ?? this.latest(address)?.t;
+    return this.latest(address)?.t;
+  }
+
+  /** Bumps whenever the signal gains a point (or its history lands), and on every seek and resume. */
   version(address: Address): number {
     return this.signalVersions.get(address) ?? 0;
   }
 
-  /** Copy a signal's rows into `out` (arrays reused), thinned as asked. */
+  /**
+   * Copy a signal's rows into `out` (arrays reused), thinned as asked; the
+   * playback window instead while paused. `address` may instead be a
+   * `controllerSetpointKey`, read from the controller's ring (its
+   * `setpointOf` column) rather than a signal's -- so a chart fed by
+   * `source` (`MultiSeries`/`useTraceRef`) can plot a controller's setpoint
+   * exactly as it plots a signal, with no `TraceView` of its own.
+   */
   read(address: Address, out: TraceView, options: ReadOptions = {}): TraceView {
-    const ring = this.signals.get(address);
+    const controllerName = controllerNameFromSetpointKey(address);
+    if (controllerName !== null) return this.readControllerSetpointTrace(controllerName, out, options);
+    const ring = this.atS === null ? this.signals.get(address) : this.playbackRings.get(address);
     if (!ring) {
       out.t.length = 0;
       out.v.length = 0;
@@ -202,14 +307,54 @@ export class TelemetryStore {
     return out;
   }
 
-  /** The rig's clock as far as the samples say: the newest sample time across every signal, or null before any. */
+  /** `read`'s controller-setpoint branch: the reference column of `readController`, as a plain `TraceView` (a gap is `NaN`, the same sentinel a real gap-break already uses -- `MultiSeries` draws either as a break). */
+  private readControllerSetpointTrace(name: Address, out: TraceView, options: ReadOptions): TraceView {
+    let scratch = this.controllerSetpointScratch.get(name);
+    if (!scratch) {
+      scratch = emptyControllerView();
+      this.controllerSetpointScratch.set(name, scratch);
+    }
+    this.readController(name, scratch, options);
+    out.t.length = scratch.t.length;
+    out.v.length = scratch.reference.length;
+    for (let i = 0; i < scratch.t.length; i++) {
+      out.t[i] = scratch.t[i]!;
+      const v = scratch.reference[i]!;
+      out.v[i] = v === null ? Number.NaN : v;
+    }
+    return out;
+  }
+
+  /** The rig's clock as far as the samples say: the newest sample time across every signal, or null before any. Live even in playback. */
   nowS(): number | null {
     return Number.isFinite(this.newestS) ? this.newestS : null;
   }
 
-  /** Points held for a signal. */
+  /** The clock a sample is aged against: `atS` in playback (a point just before it is fresh), `nowS()` otherwise. */
+  clockS(): number | null {
+    return this.atS ?? this.nowS();
+  }
+
+  /**
+   * The oldest sample time across every signal a page has loaded so far, or
+   * null before any has -- what a chart's default window fits itself to
+   * (`App`'s `windowS`): a signal seeded from a session with hours of
+   * history reaches back further than one just opened, and this is the
+   * earliest of whatever has actually landed, live rings only (playback
+   * has its own fixed window already).
+   */
+  earliestS(): number | null {
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const ring of this.signals.values()) {
+      const first = ring.firstT();
+      if (first !== undefined) earliest = Math.min(earliest, first);
+    }
+    return Number.isFinite(earliest) ? earliest : null;
+  }
+
+  /** Points held for a signal (in the playback window while paused). */
   count(address: Address): number {
-    return this.signals.get(address)?.length ?? 0;
+    return (this.atS === null ? this.signals.get(address) : this.playbackRings.get(address))?.length ?? 0;
   }
 
   /** The newest sample of a node (`values` keyed relative to it); the same object until the node delivers again. */
@@ -231,9 +376,10 @@ export class TelemetryStore {
     return this.deviceRunList[deviceOf(address)]?.period_s;
   }
 
+  /** A live point landed: the version moves always, the subscribers only while live (a paused panel shows the past). */
   private bumpSignal(address: Address): void {
     this.signalVersions.set(address, (this.signalVersions.get(address) ?? 0) + 1);
-    this.mark("samples", address);
+    if (this.atS === null) this.mark("samples", address);
   }
 
   private onSamples(samples: SampleOut[]): void {
@@ -277,9 +423,24 @@ export class TelemetryStore {
     }
   }
 
-  /** Called once per animation frame for any of `addresses` that gained points (`everyMs` apart at least). */
+  /**
+   * Called once per animation frame for any of `addresses` that gained
+   * points (`everyMs` apart at least). An address may be a
+   * `controllerSetpointKey`: it wakes on that controller's tick (the
+   * `controllers` stream), not on a sample.
+   */
   subscribeTrace(addresses: Address[], cb: () => void, everyMs = 100): () => void {
-    return this.subscribe("samples", new Set(addresses), cb, everyMs);
+    const signals: Address[] = [];
+    const controllers: Address[] = [];
+    for (const a of addresses) {
+      const name = controllerNameFromSetpointKey(a);
+      if (name !== null) controllers.push(name);
+      else signals.push(a);
+    }
+    const unsubs: Array<() => void> = [];
+    if (signals.length || !controllers.length) unsubs.push(this.subscribe("samples", new Set(signals), cb, everyMs));
+    if (controllers.length) unsubs.push(this.subscribe("controllers", new Set(controllers), cb, everyMs));
+    return () => unsubs.forEach((u) => u());
   }
 
   /** As `subscribeTrace` for one signal, at a readout's cadence. */
@@ -299,6 +460,10 @@ export class TelemetryStore {
    * before the history landed keep their place after it.
    */
   seed(addresses: Address[]): Promise<void> {
+    // A controller's setpoint seeds itself (`seedControllers`, keyed on the controller, not a signal);
+    // skip its synthetic key here rather than fetch `/series` for an address that does not exist.
+    addresses = addresses.filter((a) => controllerNameFromSetpointKey(a) === null);
+    if (this.atS !== null) this.ensurePlayback(addresses);
     const wanted = addresses.filter((a) => !this.seededSignals.has(a));
     if (!wanted.length) return this.seeding ?? Promise.resolve();
     for (const a of wanted) this.seededSignals.add(a);
@@ -366,10 +531,12 @@ export class TelemetryStore {
       await Promise.all(
         addresses.filter((address) => declared.has(address)).map(async (address) => {
           const series = await rig.series(session.id, address, { start_ns: startOffset, max_points: maxPoints }).catch(() => null);
-          if (!series || !series.points.length) return;
+          // Only a number belongs on a ring: the store records a bool/str/json signal too, and those used to land as NaN rows.
+          const points = series?.points.filter((p) => typeof p.value === "number") ?? [];
+          if (!points.length) return;
           (parts.get(address) ?? parts.set(address, []).get(address)!).push({
-            t: series.points.map((p) => startS + p.offset_ns / 1e9),
-            v: series.points.map((p) => p.value),
+            t: points.map((p) => startS + p.offset_ns / 1e9),
+            v: points.map((p) => p.value),
           });
         }),
       );
@@ -425,8 +592,20 @@ export class TelemetryStore {
     return this.controllerLatest;
   }
 
+  /**
+   * One controller's latest state. In playback its mode, reference, demand
+   * and law stay live (commanded values are not samples) but `reading` is
+   * the source's point at `atS`, so a faceplate's PV and its trend agree.
+   */
   controller(name: Address): ControllerOut | undefined {
-    return this.controllerLatest[name];
+    const live = this.controllerLatest[name];
+    if (this.atS === null || !live) return live;
+    const point = this.latest(live.source);
+    const held = this.playbackControllers.get(name);
+    if (held && held.live === live && held.t === point?.t && held.v === point?.v) return held.out;
+    const out: ControllerOut = { ...live, reading: point ? { signal: live.source, time_ns: Math.round(point.t * 1e9), value: point.v } : null };
+    this.playbackControllers.set(name, { live, t: point?.t, v: point?.v, out });
+    return out;
   }
 
   /** Bumps when the named controller ticks, or any controller when `name` is omitted. */
@@ -434,9 +613,9 @@ export class TelemetryStore {
     return name === undefined ? this.controllersVersion : (this.controllerVersions.get(name) ?? 0);
   }
 
-  /** Copy a controller's ticks into `out` (arrays reused), thinned as asked. */
+  /** Copy a controller's ticks into `out` (arrays reused), thinned as asked; the playback window instead while paused. */
   readController(name: Address, out: ControllerView, options: ReadOptions = {}): ControllerView {
-    const ring = this.controllerRings.get(name);
+    const ring = this.atS === null ? this.controllerRings.get(name) : this.playbackTicks.get(name);
     const cols = [out.reference, out.reading, out.demand, out.expected, out.correction] as number[][];
     if (!ring) {
       out.t.length = 0;
@@ -709,6 +888,208 @@ export class TelemetryStore {
 
   // endregion
 
+  // region Playback
+
+  /** Where playback is reading from, in rig seconds; null while live. */
+  playbackAtS(): number | null {
+    return this.atS;
+  }
+
+  /**
+   * Show the rig as it was at `atS` (rig seconds), or go back to live with
+   * `null`. Every reader of samples then answers from a window of
+   * `session.windowS + PLAYBACK_MARGIN_S` seconds ending at `atS`. A signal
+   * whose live ring already reaches back that far is served from a copy of
+   * it -- no request; the store holds up to an hour -- and the rest come
+   * from the session's `/series` (and `/ticks`) after a short debounce, so
+   * a slider drag asks once when it settles. Until a fetched window lands
+   * the panel keeps the previous one, or shows nothing on the first seek.
+   * Resuming drops the windows and wakes every subscriber: the live rings
+   * filled all along, so there is no gap and nothing to fetch.
+   */
+  playback(atS: number | null, session?: PlaybackSession): void {
+    if (atS === null) {
+      if (this.atS === null) return;
+      this.atS = null;
+      this.playbackGen++;
+      this.clearPlayback();
+      this.wakeAll();
+      return;
+    }
+    if (session) this.playbackSession = session;
+    if (!this.playbackSession) return; // nothing to read history from yet
+    this.atS = atS;
+    this.playbackGen++;
+    this.playbackControllers.clear();
+    // Every window is for the old `atS`: rebuild those the live ring covers now, queue the rest.
+    const keys = new Set<Address>([...this.playbackRings.keys(), ...this.playbackPending, ...this.seededSignals]);
+    for (const [index, subs] of this.byKey) if (index.startsWith("samples:") && subs.size) keys.add(index.slice("samples:".length));
+    this.playbackPending.clear();
+    this.playbackPendingTicks.clear();
+    this.ensurePlayback([...keys], true);
+    for (const name of Object.keys(this.controllerLatest)) this.ensurePlaybackTicks(name, true);
+    this.wakeAll();
+  }
+
+  private clearPlayback(): void {
+    this.playbackRings.clear();
+    this.playbackValues.clear();
+    this.playbackTicks.clear();
+    this.playbackPending.clear();
+    this.playbackPendingTicks.clear();
+    this.playbackControllers.clear();
+    if (this.playbackTimer !== null) clearTimeout(this.playbackTimer);
+    this.playbackTimer = null;
+  }
+
+  /** Every sample and controller subscriber re-reads: the clock they read against just moved. */
+  private wakeAll(): void {
+    for (const address of new Set([...this.signals.keys(), ...Object.keys(this.latestValues)])) this.signalVersions.set(address, (this.signalVersions.get(address) ?? 0) + 1);
+    this.mark("samples", null);
+    for (const name of Object.keys(this.controllerLatest)) this.controllerVersions.set(name, (this.controllerVersions.get(name) ?? 0) + 1);
+    this.controllersVersion++;
+    this.mark("controllers", null);
+    this.flushSoon();
+  }
+
+  /** The playback window's bounds, in rig seconds. */
+  private playbackWindow(): { fromS: number; toS: number } {
+    const toS = this.atS!;
+    return { fromS: toS - this.playbackSession!.windowS - PLAYBACK_MARGIN_S, toS };
+  }
+
+  /**
+   * Give each address a window: a copy of the live ring where it reaches back
+   * to the window's start (or to the session's start), else a fetch. With
+   * `rebuild` an existing window is replaced; without, only a missing one is made.
+   */
+  private ensurePlayback(addresses: Address[], rebuild = false): void {
+    const { fromS, toS } = this.playbackWindow();
+    let queued = false;
+    for (const address of addresses) {
+      if (!rebuild && (this.playbackRings.has(address) || this.playbackPending.has(address))) continue;
+      const live = this.signals.get(address);
+      const first = live?.firstT();
+      if (live && first !== undefined && (first <= fromS || first <= this.playbackSession!.startS + 1)) {
+        this.playbackRings.set(address, sliceRing(live, fromS, toS, this.capacity));
+        this.playbackValues.delete(address);
+      } else {
+        this.playbackPending.add(address);
+        queued = true;
+      }
+    }
+    if (queued) this.scheduleFetch();
+  }
+
+  private ensurePlaybackTicks(name: Address, rebuild = false): void {
+    if (!rebuild && (this.playbackTicks.has(name) || this.playbackPendingTicks.has(name))) return;
+    const { fromS, toS } = this.playbackWindow();
+    const live = this.controllerRings.get(name);
+    const first = live?.firstT();
+    if (live && first !== undefined && (first <= fromS || first <= this.playbackSession!.startS + 1)) {
+      this.playbackTicks.set(name, sliceRing(live, fromS, toS, this.capacity));
+    } else {
+      this.playbackPendingTicks.add(name);
+      this.scheduleFetch();
+    }
+  }
+
+  private scheduleFetch(): void {
+    if (this.playbackTimer !== null) clearTimeout(this.playbackTimer);
+    this.playbackTimer = setTimeout(() => {
+      this.playbackTimer = null;
+      void this.fetchPlayback();
+    }, PLAYBACK_DEBOUNCE_MS);
+  }
+
+  private declared(session: PlaybackSession): { signals: Promise<Set<Address>>; controllers: Promise<Set<Address>> } {
+    if (this.playbackDeclared?.id !== session.id) {
+      this.playbackDeclared = {
+        id: session.id,
+        signals: this.rig
+          .sessionSignals(session.id)
+          .then((rows) => new Set(rows.map((r) => r.address)))
+          .catch(() => new Set<Address>()),
+        controllers: this.rig
+          .sessionControllers(session.id)
+          .then((rows) => new Set(rows.map((r) => r.name)))
+          .catch(() => new Set<Address>()),
+      };
+    }
+    return this.playbackDeclared;
+  }
+
+  /** One `/series` per pending signal and one `/ticks` per pending controller, for the window; dropped if playback moved on meanwhile. */
+  private async fetchPlayback(): Promise<void> {
+    const session = this.playbackSession;
+    if (this.atS === null || !session) return;
+    const gen = this.playbackGen;
+    const { fromS, toS } = this.playbackWindow();
+    const addresses = [...this.playbackPending];
+    const names = [...this.playbackPendingTicks];
+    this.playbackPending.clear();
+    this.playbackPendingTicks.clear();
+    const declared = this.declared(session);
+    // Half-open `[start, end)` offsets from the session's start: one nanosecond past `atS` keeps a point exactly on it.
+    const start_ns = Math.max(0, Math.floor((fromS - session.startS) * 1e9));
+    const end_ns = Math.floor((toS - session.startS) * 1e9) + 1;
+    if (end_ns <= start_ns) return;
+    const maxPoints = historyPoints();
+    const [signals, controllers] = await Promise.all([declared.signals, declared.controllers]);
+    await Promise.all([
+      ...addresses.map(async (address) => {
+        const ring = new Ring({ width: 1, initial: 64, cap: this.capacity });
+        let last: { t: number; value: Value } | undefined;
+        if (signals.has(address)) {
+          const take = (series: Series | null) => {
+            for (const p of series?.points ?? []) {
+              const t = session.startS + p.offset_ns / 1e9;
+              // The wire says `number`, but the store keeps a bool/str/json signal's values too: those are a latest value, never a ring row.
+              const value = p.value as Value;
+              if (typeof value === "number") ring.push(t, [value]);
+              else if (value !== null) last = { t, value };
+            }
+            return series;
+          };
+          const series = take(await this.rig.series(session.id, address, { start_ns, end_ns, max_points: maxPoints }).catch(() => null));
+          if (gen !== this.playbackGen) return;
+          // A bool/str/json with nothing in the window (a mode the session keeps only when it changes): its last
+          // row before the window is still what the signal read at `atS`. Sparse by construction, so unbounded.
+          if (series && series.signal.dtype !== "float" && !series.points.length && start_ns > 0) {
+            take(await this.rig.series(session.id, address, { start_ns: 0, end_ns: start_ns }).catch(() => null));
+            if (gen !== this.playbackGen) return;
+          }
+        }
+        if (gen !== this.playbackGen) return;
+        // An undeclared signal gets an empty window: nothing, not the live value.
+        this.playbackRings.set(address, ring);
+        if (last) this.playbackValues.set(address, last);
+        else this.playbackValues.delete(address);
+        this.signalVersions.set(address, (this.signalVersions.get(address) ?? 0) + 1);
+        this.mark("samples", address);
+      }),
+      ...names.map(async (name) => {
+        const ring = new Ring({ width: CONTROLLER_COLS, initial: 64, cap: this.capacity });
+        if (controllers.has(name)) {
+          const ticks = await this.rig.ticks(session.id, name, { start_ns, end_ns }).catch(() => []);
+          if (gen !== this.playbackGen) return;
+          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.reading), nan(k.demand), nan(k.expected), nan(k.correction)]);
+        }
+        if (gen !== this.playbackGen) return;
+        this.playbackTicks.set(name, ring);
+        this.controllerVersions.set(name, (this.controllerVersions.get(name) ?? 0) + 1);
+        this.mark("controllers", name);
+      }),
+    ]);
+    if (gen === this.playbackGen) {
+      this.playbackControllers.clear();
+      this.controllersVersion++;
+      this.flushSoon();
+    }
+  }
+
+  // endregion
+
   // region Fan-out
 
   private subscribe(stream: StoreStream, keys: Set<string> | null, cb: () => void, everyMs: number): () => void {
@@ -720,6 +1101,8 @@ export class TelemetryStore {
     for (const k of keys ?? []) (this.byKey.get(index(k)) ?? this.byKey.set(index(k), new Set()).get(index(k))!).add(sub);
     if (keys === null) this.anyKey[stream].add(sub);
     this.acquire(socketOf(stream));
+    // A panel that arrives while paused (a page change) gets the past too, not the live ring.
+    if (stream === "samples" && keys && this.atS !== null) this.ensurePlayback([...keys]);
     return () => {
       this.subs[stream].delete(sub);
       this.anyKey[stream].delete(sub);
@@ -823,7 +1206,9 @@ export class TelemetryStore {
       }
       this.flushSoon();
     };
-    const subscription = this.rig.stream(stream, {
+    // eslint-disable-next-line prefer-const
+    let subscription: Subscription;
+    subscription = this.rig.stream(stream, {
       onMessage,
       onOpen: () => {
         const s = this.sockets.get(stream);
@@ -834,19 +1219,21 @@ export class TelemetryStore {
         this.setStatus(stream, "open");
       },
       onClose: () => {
+        // A socket this store let go (`release` after the grace) closes asynchronously, after its
+        // status went back to idle: that close is not a drop, and must not leave the stream
+        // "connecting" for good (the app bar's chip read red on every page without the stream).
+        const s = this.sockets.get(stream);
+        if (!s || s.subscription !== subscription) return;
         // Shown as "connecting" (reconnecting, amber) immediately -- the transport already has
         // a retry scheduled -- and only escalated to "closed" (offline, red) if it is still down
         // after OFFLINE_GRACE_MS, so a routine drop-and-reopen never reads as an outage.
         this.setStatus(stream, "connecting");
-        const s = this.sockets.get(stream);
-        if (s) {
-          if (s.offlineTimer !== null) clearTimeout(s.offlineTimer);
-          s.offlineTimer = setTimeout(() => {
-            const still = this.sockets.get(stream);
-            if (still) still.offlineTimer = null;
-            if (this.statuses[stream] !== "open") this.setStatus(stream, "closed");
-          }, OFFLINE_GRACE_MS);
-        }
+        if (s.offlineTimer !== null) clearTimeout(s.offlineTimer);
+        s.offlineTimer = setTimeout(() => {
+          const still = this.sockets.get(stream);
+          if (still) still.offlineTimer = null;
+          if (this.statuses[stream] !== "open") this.setStatus(stream, "closed");
+        }, OFFLINE_GRACE_MS);
       },
     });
     this.sockets.set(stream, { subscription, count: 1, closer: null, offlineTimer: null });
@@ -882,6 +1269,7 @@ export class TelemetryStore {
       this.setStatus(stream, "idle");
     }
     this.sockets.clear();
+    this.clearPlayback();
     if (this.frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.frame);
     if (this.timer !== null) clearTimeout(this.timer);
     this.frame = null;

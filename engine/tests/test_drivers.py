@@ -7,17 +7,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.core.config import Config
-from flyball.hardware.links import FakeTextLink
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_drivers_dir
+from flyball.rig import Rig
 from flyball.runtime.drivers import load_drivers
-from flyball.runtime.rig import Rig
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_drivers_dir
 
 DRIVER = """
-from flyball.core.device import DriverConfig, Output, Readable
-from flyball.core.quantity import Quantity
-from flyball.core.units.si import Celsius
+from flyball.foundation.device import DriverConfig, Output, Readable
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
 
 
 class Probe(Readable):
@@ -34,31 +32,45 @@ class ProbeConfig(DriverConfig[Probe], tag="test_probe_{n}"):
 
 
 @pytest.fixture
-def drivers(tmp_path) -> Path:
+def drivers(tmp_path, _catalog) -> Path:
     directory = tmp_path / "drivers"
     directory.mkdir()
     (directory / "probe.py").write_text(DRIVER.format(value=20.0, n=1))
     (directory / "broken.py").write_text("import nothing_of_the_sort\n")
     yield directory
-    Config.registry.pop("test_probe_1", None)
-    Config.registry.pop("test_probe_2", None)
+    _catalog.devices.unregister("test_probe_1")
+    _catalog.devices.unregister("test_probe_2")
 
 
-def test_a_directory_of_drivers_loads_and_reloads(drivers: Path) -> None:
+def test_a_directory_of_drivers_loads_and_reloads(drivers: Path, _catalog) -> None:
     report = load_drivers(drivers)
     assert report.registered == {"probe": ["test_probe_1"]}
     assert "broken" in report.errors and "ModuleNotFoundError" in report.errors["broken"]
-    first = Config.registry["test_probe_1"]
+    first = _catalog.devices["test_probe_1"]
     (drivers / "probe.py").write_text(DRIVER.format(value=21.0, n=1))  # edited: same tag
     report = load_drivers(drivers)
     assert report.registered["probe"] == ["test_probe_1"], "re-registered without a clash"
-    assert Config.registry["test_probe_1"] is not first
+    assert _catalog.devices["test_probe_1"] is not first
     assert load_drivers(drivers / "missing").registered == {}
+
+
+class _FakeTextLink:
+    """A minimal stand-in for a text link: `/api/links/{name}/query` only needs `query()`.
+
+    `flyball.hardware.links` has no `FakeTextLink` of its own any more -- the
+    scripted fake (and every real text-link kind) lives in extensions/visa.
+    """
+
+    def __init__(self, replies: dict[str, str]) -> None:
+        self.replies = replies
+
+    def query(self, command: str) -> str:
+        return self.replies[command]
 
 
 def test_the_routes_list_reload_and_query(drivers: Path) -> None:
     rig = Rig("r")
-    rig.links["dmm"] = FakeTextLink({"*IDN?": "ACME,DMM,1"})
+    rig.links["dmm"] = _FakeTextLink({"*IDN?": "ACME,DMM,1"})
     rig.links["plain"] = object()
     set_rig(rig)
     set_drivers_dir(drivers)

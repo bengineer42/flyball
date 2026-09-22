@@ -36,7 +36,7 @@ conversion from a device's native unit happens in the driver.
 
 ## Quantity, signal, address
 
-A [Quantity][flyball.core.quantity.Quantity] is what is measured or set,
+A [Quantity][flyball.foundation.quantities.quantity.Quantity] is what is measured or set,
 independent of any device: a name and a unit, nothing else. It is **not
 interned** — two devices that both report `temperature` in °C hold equal
 quantities (`Quantity("temperature", "°C") == Quantity("temperature", "°C")`)
@@ -50,9 +50,9 @@ the device model fixes over the model it replaced — see
 [Decisions](decisions.md).
 
 A driver declares its tree once, as frozen
-[SignalSpec][flyball.core.signal.SignalSpec] leaves grouped by
-[NodeSpec][flyball.core.signal.NodeSpec] namespaces. Each leaf carries an
-[Access][flyball.core.signal.Access] set — **R**eadable (a `GET` returns a
+[SignalSpec][flyball.foundation.device.signal.SignalSpec] leaves grouped by
+[NodeSpec][flyball.foundation.device.signal.NodeSpec] namespaces. Each leaf carries an
+[Access][flyball.foundation.device.signal.Access] set — **R**eadable (a `GET` returns a
 value on demand), **P**ublishing (emitted on the device's own schedule;
 implies R), **W**ritable (accepts a demand) — and `Access.check` refuses `P`
 without `R` the moment a set is built, an `Access.parse`d, or a
@@ -60,14 +60,14 @@ without `R` the moment a set is built, an `Access.parse`d, or a
 *narrow* a signal's access (`SignalOverride.readable`/`publishing`/`writable`
 take only `false`) — never add what the driver did not declare.
 
-`Device.bind` turns a spec tree into bound [Node][flyball.core.signal.Node]
-and [Signal][flyball.core.signal.Signal] objects once, at construction:
+`Device.bind` turns a spec tree into bound [Node][flyball.foundation.device.signal.Node]
+and [Signal][flyball.foundation.device.signal.Signal] objects once, at construction:
 identity-hashed, made once, so a `Reading`, `Sample`, `Demand` or
 `WriteState` holds a reference and nothing on the hot path looks a name up.
-[Path][flyball.core.signal.Path] is the address's value type — a tuple of
+[Path][flyball.foundation.device.signal.Path] is the address's value type — a tuple of
 segments, hashable, `str()` giving the dotted form (`"dry.humidity"`) —
 owned by the bound object it belongs to. Strings exist only at the wire and
-in the rig file; [Rig.resolve][flyball.runtime.rig.Rig.resolve] is the one
+in the rig file; [Rig.resolve][flyball.rig.rig.Rig.resolve] is the one
 place an address is parsed, below which everything carries the bound
 objects.
 
@@ -117,11 +117,11 @@ first request.
 A device with only `R`/`P` signals is a plain sensor; one with a `Demand`
 drives something; one with both is both at once. There is no separate
 reader/actuator class any more:
-[Readable][flyball.core.device.Readable] implements
-[read][flyball.core.device.Readable.read] for the polled side and
-[Committable][flyball.core.device.Committable] implements
-[apply][flyball.core.device.Committable.apply] /
-[commit][flyball.core.device.Committable.commit] for the demand side;
+[Readable][flyball.foundation.device.device.Readable] implements
+[read][flyball.foundation.device.device.Readable.read] for the polled side and
+[Committable][flyball.foundation.device.device.Committable] implements
+[apply][flyball.foundation.device.device.Committable.apply] /
+[commit][flyball.foundation.device.device.Committable.commit] for the demand side;
 `cls.readable`/`cls.writable` are derived from whether `read`/`commit` is
 defined. A device may be either, both, or neither, and separately declare
 `Input` signals — another device's signal the rig binds to a role; when one
@@ -168,12 +168,12 @@ a `Topic`. Both are filled only while someone is watching.
 
 ## Trigger
 
-The wait primitive (`flyball.core.trigger.Trigger`, not to be confused with
-`flyball.core.signal.Signal`, which is a different thing entirely): fires
+The wait primitive (`flyball.foundation.router.trigger.Trigger`, not to be confused with
+`flyball.foundation.device.signal.Signal`, which is a different thing entirely): fires
 once, says how it ended (fired, timed out, interrupted), and calls
 `on_settle` so a registry can publish the outcome from whichever thread
 settled it. Not an extension point — user logic belongs in an `Activity`.
-The rig's `Triggers` registry (`flyball.runtime.triggers`) gives a trigger a
+The rig's `Triggers` registry (`flyball.rig.triggers`) gives a trigger a
 name and a message so the server can list, fire or interrupt it; on the
 wire these are "waits" (`/api/waits`).
 

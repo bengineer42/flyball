@@ -71,7 +71,8 @@ function ValueTile({ signal, place, showDevice }: { signal: SignalOut; place?: P
         </Ref>
       }
       subtitle={!showDevice ? undefined : place && captionUnder(title, signal, place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionUnder(title, signal, place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
-      footer={footer}
+      // Always a footer line, blank while fresh, as `Readout` reserves: a stale line that comes and goes resizes the tile.
+      footer={footer ?? "\u00a0"}
     >
       <div className="fb-readout-value">{body}</div>
     </PanelFrame>
@@ -84,13 +85,13 @@ function ValueTile({ signal, place, showDevice }: { signal: SignalOut; place?: P
  * memoised on primitives, so the page re-rendering does not touch forty tiles. A non-number
  * never reaches the gauge/series `Readout`: it gets `ValueTile`'s chip or block instead.
  */
-const Tile = memo(function Tile({ signal, live, windowS, every, showDevice, place, exportHref, className }: { signal: SignalOut; live: TraceRef; windowS: number; every: number; showDevice: boolean; place?: Place; exportHref?: string; className?: string }) {
+const Tile = memo(function Tile({ signal, live, windowS, showDevice, place, exportHref, className }: { signal: SignalOut; live: TraceRef; windowS: number; showDevice: boolean; place?: Place; exportHref?: string; className?: string }) {
   const Icon = signalIcon(signal);
   return (
     <div className={className ?? "tile-with-icon c3"}>
       <Icon fontSize="small" className="tile-icon" />
       {isNumeric(signal) ? (
-        <Readout signal={signal} source={live} showDevice={showDevice} place={place} windowS={windowS} every={every} exportHref={exportHref} />
+        <Readout signal={signal} source={live} showDevice={showDevice} place={place} windowS={windowS} exportHref={exportHref} />
       ) : (
         <ValueTile signal={signal} place={place} showDevice={showDevice} />
       )}
@@ -184,7 +185,7 @@ const ControllerCard = memo(function ControllerCard({ name, title, sourceUnit, s
 /** Everything the rig knows about itself on one page: health strip, inputs, controllers, devices. */
 export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   countRender("Overview");
-  const { windowS, yScale, every } = charts;
+  const { windowS, yScale } = charts;
   const publishing = useMemo(() => publishingOf(devices), [devices]);
   const signals = useMemo(() => publishing.flatMap((d) => d.signals), [publishing]);
   // The trend charts at the foot of the section: a non-number never reaches a chart axis.
@@ -257,7 +258,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
         {signals.length === 0 && <StateBlock state="empty" message="No signal publishes. Add a device with a publishing signal to the rig file to see readings here." action={{ label: "View inputs page", onClick: () => onOpen("inputs") }} />}
         {signals.length > 0 && (
           <div className="grid">
-            {grouping === "signal" && signals.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice place={placeOf(s.address, devices)} exportHref={stored.series(s.address)} />)}
+            {grouping === "signal" && signals.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} showDevice place={placeOf(s.address, devices)} exportHref={stored.series(s.address)} />)}
             {grouping === "unit" &&
               groupByUnit(signals).map(({ unit, signals: ss }) => (
                 <div key={unit} className="c12 unit-group">
@@ -268,7 +269,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
                     </Typography>
                   </Stack>
                   <div className="grid">
-                    {ss.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice place={placeOf(s.address, devices)} exportHref={stored.series(s.address)} />)}
+                    {ss.map((s) => <Tile key={s.address} signal={s} live={live} windowS={windowS} showDevice place={placeOf(s.address, devices)} exportHref={stored.series(s.address)} />)}
                   </div>
                 </div>
               ))}
@@ -309,7 +310,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
                             )}
                             <div className="sample-box-tiles">
                               {box.signals.map((s) => (
-                                <Tile key={s.address} signal={s} live={live} windowS={windowS} every={every} showDevice={false} exportHref={stored.series(s.address)} className="tile-with-icon" />
+                                <Tile key={s.address} signal={s} live={live} windowS={windowS} showDevice={false} exportHref={stored.series(s.address)} className="tile-with-icon" />
                               ))}
                             </div>
                           </div>
@@ -321,7 +322,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
               </div>
             )}
             <div className="c12 fb-charts">
-              <UnitCharts signals={numericSignals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
+              <UnitCharts signals={numericSignals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} exportHref={stored.signals} />
             </div>
           </div>
         )}

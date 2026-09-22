@@ -6,12 +6,21 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball.core.device import Committable, DriverConfig, Readable
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.files import loads
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, NodeSpec, Role, Sample, Signal, SignalSpec
-from flyball.core.units.si import Celsius, Percent, Watt
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    DriverConfig,
+    NodeSpec,
+    Readable,
+    Role,
+    Sample,
+    Signal,
+    SignalSpec,
+)
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.files import loads
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.runtime.config import RigConfig, canonical, resolve_documents, rig_schema
 
 TEMP = Quantity("temperature", Celsius)
@@ -116,53 +125,58 @@ class BlenderConfig(DriverConfig[Blender]):
 
 
 @pytest.fixture
-def daq_tag(fresh) -> str:
+def daq_tag(fresh, _catalog) -> str:
     tag = fresh("eurotherm_daq")
 
     class Tagged(DaqConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def sim_daq_tag(fresh) -> str:
+def sim_daq_tag(fresh, _catalog) -> str:
     """A second driver with the same shape as `daq_tag`'s: an overlay swapping the driver."""
     tag = fresh("sim_daq")
 
     class Tagged(DaqConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def heaters_tag(fresh) -> str:
+def heaters_tag(fresh, _catalog) -> str:
     tag = fresh("ssr_bank")
 
     class Tagged(HeatersConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def sensors_tag(fresh) -> str:
+def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
     class Tagged(HumSensorsConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
 @pytest.fixture
-def blender_tag(fresh) -> str:
+def blender_tag(fresh, _catalog) -> str:
     tag = fresh("dual_pump_blender")
 
     class Tagged(BlenderConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
@@ -252,7 +266,9 @@ class TestChecks:
     def test_an_unknown_driver_or_a_link_as_driver_is_refused_before_build(self):
         with pytest.raises(ValueError, match="device 'x': driver 'nope' is not registered"):
             RigConfig.model_validate({"devices": {"x": {"driver": "nope"}}})
-        with pytest.raises(ValueError, match="'sim_plant' is a .*, not a device driver"):
+        # `sim_plant` is a link, not a device: devices and links are separate
+        # `Catalog`s now, so its tag is simply not a registered device tag.
+        with pytest.raises(ValueError, match="device 'x': driver 'sim_plant' is not registered"):
             RigConfig.model_validate({"devices": {"x": {"driver": "sim_plant"}}})
 
     def test_a_reserved_device_name_is_refused(self, daq_tag):
@@ -321,9 +337,45 @@ class TestChecks:
         tags = {
             shape["properties"]["driver"]["const"]
             for variant in by_driver["oneOf"]
-            for shape in variant["oneOf"]
+            for shape in variant.get("oneOf", [])  # the last variant is `null`: removed by a layer
         }
         assert {daq_tag, heaters_tag} <= tags
+
+    def test_schema_flat_and_layered_are_exclusive(self, daq_tag):
+        """A flat entry matches only the flat shape, a layered one only the layered."""
+        import jsonschema
+
+        schema = rig_schema()
+        shapes = {
+            shape["title"]: {"$defs": schema["$defs"], **shape}
+            for variant in schema["properties"]["devices"]["additionalProperties"]["oneOf"]
+            for shape in variant.get("oneOf", [])
+            if shape["properties"]["driver"]["const"] == daq_tag
+        }
+        flat_entry = {"driver": daq_tag, "zones": 2}
+        layered_entry = {"driver": daq_tag, "config": {"zones": 2}}
+
+        def matches(entry: dict[str, object]) -> set[str]:
+            valid = jsonschema.Draft202012Validator
+            return {title for title, shape in shapes.items() if valid(shape).is_valid(entry)}
+
+        assert matches(flat_entry) == {f"{daq_tag} (flat)"}
+        assert matches(layered_entry) == {f"{daq_tag} (layered)"}
+
+    def test_schema_accepts_a_layer_file(self, daq_tag):
+        """An overlay file names its bases and deletes with `null`: both validate in an editor."""
+        import jsonschema
+
+        layer = {
+            "extends": ["base.yaml"],
+            "links": {"real": None},
+            "devices": {
+                "f": None,
+                "g": {"driver": daq_tag, "zones": 1},
+                "h": {"bound": {"dry": "g.zone1"}, "config": {"zones": 3}},
+            },
+        }
+        jsonschema.Draft202012Validator(rig_schema()).validate(layer)
 
 
 class TestBuild:

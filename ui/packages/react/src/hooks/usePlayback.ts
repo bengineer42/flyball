@@ -1,0 +1,112 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRig, useTelemetry } from "../provider.js";
+import { useQuery } from "./useQuery.js";
+import { useNowS } from "../store/hooks.js";
+
+/** How far one rewind/fast-forward step moves, in rig seconds. */
+export const PLAYBACK_STEP_S = 30;
+
+export interface PlaybackHook {
+  /** True while showing history rather than the live stream. */
+  paused: boolean;
+  /** The open (scratch) session this scrubs through, or undefined before it loads. */
+  sessionId: number | undefined;
+  /** The session's start, in rig seconds since the epoch. */
+  startS: number | undefined;
+  /** The rig's current time, in rig seconds since the epoch (`useNowS`). */
+  nowS: number;
+  /**
+   * Where playback is reading from, in rig seconds. `nowS` while live; the
+   * paused position otherwise. Always within `[startS, nowS]`.
+   */
+  atS: number;
+  /** Jump back `PLAYBACK_STEP_S` (or `byS`) and pause. */
+  rewind(byS?: number): void;
+  /** Jump forward `PLAYBACK_STEP_S` (or `byS`); resumes live on reaching `nowS`. */
+  fastForward(byS?: number): void;
+  /** Pause exactly where playback is now. */
+  pause(): void;
+  /** Go straight to live and stop reading history. */
+  resume(): void;
+  /** Scrub to an absolute rig-seconds position; clamps into range, pauses unless it lands on `nowS`. */
+  seek(atS: number): void;
+  loading: boolean;
+  error: Error | undefined;
+}
+
+export interface PlaybackOptions {
+  /** Seconds of history the widest chart on the page shows: what a paused panel needs behind `atS`. Default 300. */
+  windowS?: number;
+}
+
+/**
+ * A video-style transport over the rig's own recorded history: play (live),
+ * pause, rewind, fast-forward and scrub. Bounds (`sessionId`/`startS`) come
+ * from `/api/recording`; the samples come from the telemetry store's
+ * `playback(atS, session)`, which serves every reader of samples (charts,
+ * readouts, gauges, faceplates' PV and trends) a window of history ending
+ * at `atS` -- from what it already holds, or from `/api/history` -- so no
+ * panel knows the difference. No new recorder or storage work: the runner
+ * already keeps a rolling record of everything, this only reads it back.
+ * Read-only by construction: nothing here writes a demand or a setpoint,
+ * so scrubbing back never risks touching the running rig. Commanded
+ * values, program state and events are not samples and stay live.
+ */
+export function usePlayback({ windowS = 300 }: PlaybackOptions = {}): PlaybackHook {
+  const rig = useRig();
+  const store = useTelemetry();
+  const nowS = useNowS();
+  const recording = useQuery(() => rig.recording(), [rig], { refreshMs: 5000 });
+  const sessionId = recording.data?.id;
+  const startS = recording.data ? recording.data.start_ns / 1e9 : undefined;
+
+  const [atS, setAtS] = useState<number | null>(null); // null: live
+
+  // The store follows this hook: paused, it serves the window ending at `atS`; live, the rings. Unmounting resumes.
+  // A session that ends under a paused bar takes the history with it: the bar resumes too, rather than
+  // reading "paused" over a page the store has already put back to live.
+  useEffect(() => {
+    if (sessionId === undefined || startS === undefined) {
+      store.playback(null);
+      if (atS !== null) setAtS(null);
+    } else if (atS === null) store.playback(null);
+    else store.playback(atS, { id: sessionId, startS, windowS });
+  }, [store, atS, sessionId, startS, windowS]);
+  useEffect(() => () => store.playback(null), [store]);
+
+  const clamp = useCallback(
+    (t: number) => Math.min(nowS, Math.max(startS ?? t, t)),
+    [nowS, startS],
+  );
+
+  const seek = useCallback(
+    (t: number) => {
+      const clamped = clamp(t);
+      setAtS(clamped >= nowS ? null : clamped);
+    },
+    [clamp, nowS],
+  );
+
+  const pause = useCallback(() => setAtS((prev) => clamp(prev ?? nowS)), [clamp, nowS]);
+  const resume = useCallback(() => setAtS(null), []);
+  const rewind = useCallback((byS: number = PLAYBACK_STEP_S) => seek((atS ?? nowS) - byS), [atS, nowS, seek]);
+  const fastForward = useCallback((byS: number = PLAYBACK_STEP_S) => seek((atS ?? nowS) + byS), [atS, nowS, seek]);
+
+  return useMemo(
+    () => ({
+      paused: atS !== null,
+      sessionId,
+      startS,
+      nowS,
+      atS: atS ?? nowS,
+      rewind,
+      fastForward,
+      pause,
+      resume,
+      seek,
+      loading: recording.loading,
+      error: recording.error,
+    }),
+    [atS, sessionId, startS, nowS, rewind, fastForward, pause, resume, seek, recording.loading, recording.error],
+  );
+}

@@ -1,4 +1,5 @@
 import uPlot from "uplot";
+import { fixed, tickDigits } from "@flyball/client";
 
 /**
  * How a chart's y axis is scaled: fit the data (`"auto"`), the signal's
@@ -28,6 +29,43 @@ export const axisSize: uPlot.Axis.Size = (self, values, axisIdx, cycleNum) => {
   }
   return Math.ceil(Math.max(24, textWidth) + ticksSize + gap + 4);
 };
+
+/**
+ * Keeps only the ticks closest to the scale's current min and max, dropping
+ * the rest: a sparse "top and bottom value" y axis instead of uPlot's dense
+ * default. uPlot doesn't offer a "give me exactly N ticks" option, so this
+ * filters its own computed splits down to the two nearest the live bounds.
+ */
+export const edgeTicks: uPlot.Axis.Filter = (u, splits, axisIdx) => {
+  const scaleKey = u.axes[axisIdx]!.scale ?? "y";
+  const { min, max } = u.scales[scaleKey] ?? {};
+  if (min == null || max == null || splits.length === 0) return splits;
+  let lo = 0,
+    hi = 0;
+  for (let i = 1; i < splits.length; i++) {
+    if (Math.abs(splits[i]! - min) < Math.abs(splits[lo]! - min)) lo = i;
+    if (Math.abs(splits[i]! - max) < Math.abs(splits[hi]! - max)) hi = i;
+  }
+  return splits.map((s, i) => (i === lo || i === hi ? s : null));
+};
+
+/**
+ * An axis' tick labels at a signal's own precision, instead of uPlot's own
+ * significant-figure guess (which over-shows digits on a near-flat trace) --
+ * but never fewer decimals than tell one tick from the next. Defensive
+ * against `null`: uPlot's own size-convergence pass (`axesCalc`) and a
+ * `filter` like `edgeTicks` (which nulls out every split but the two it
+ * keeps) both hand this callback splits arrays that carry `null` entries, so
+ * a plain `.toFixed()` throws mid-layout and leaves the canvas unsized --
+ * the chart opens to an empty box. `Number.isFinite` catches `null` and
+ * `NaN` alike.
+ */
+export const axisValues =
+  (precision: number): uPlot.Axis.Values =>
+  (_u, splits) => {
+    const decimals = tickDigits(splits, precision);
+    return splits.map((v) => (Number.isFinite(v) ? fixed(v, decimals) : ""));
+  };
 
 /** uPlot `range` for a y scale, or undefined to let uPlot autoscale. */
 export function yRange(

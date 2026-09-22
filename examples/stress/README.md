@@ -24,7 +24,8 @@ Every file is `links:` (the `sim_*`/`fake_*` plants and transports),
 `devices:` (`sim_daq` reading plant ports as `[RP]` signals, `sim_drive`
 driving them from demands, `scpi`/`modbus` over the fakes) and
 `controllers:` keyed by the target signal's address -- the shape
-`../simulated/README.md` describes. A furnace is one `furnace` daq and one
+`../simulated/README.md` describes (the furnace shape, `../furnace/README.md`).
+A furnace is one `furnace` daq and one
 `heaters` drive on the `tube` link, so its addresses are `furnace.zoneN`
 and `heaters.heaterN`; a bare plant's drive is `<name>.drive`, a fraction
 of full, and its controller carries the plant's static inverse as an
@@ -215,7 +216,7 @@ measured against.
   itself never elapses, the same as `wait`'s. `chaos-run.yaml`'s "a hold that
   times out" step is a `hold` with a `timeout` shorter than its `duration`,
   not a relabelled `wait`.
-- **No unit named `bar` or `rpm`** in `flyball.core.units` — the brief's
+- **No unit named `bar` or `rpm`** in `flyball.foundation.quantities` — the brief's
   illustrative list included them, but only what `Unit.get` actually
   resolves went into `zoo.toml` (checked by importing every module and
   dumping the registry; see the base units enumerated in this agent's

@@ -77,10 +77,11 @@ server at it:
 ## Running one
 
 ```python
-from flyball.programmer import Programmer
-from flyball.server.dialect import Dialect, program_from_file
+from flyball.model.catalog import get_catalog
+from flyball.sequencing import Programmer
+from flyball.interfaces.server.dialect import Dialect, program_from_file
 
-program = program_from_file("bake.yaml", Dialect(commands=Commands))
+program = program_from_file("bake.yaml", Dialect(commands=dict(get_catalog().commands.items())))
 Programmer(rig).run(program)          # blocks until done or interrupted
 ```
 
@@ -148,7 +149,7 @@ reserves `command` for the step's own tag.
 
 ## A worked example
 
-`examples/simulated/furnace.yaml`'s `programs/firing.yaml` -- a firing on
+`examples/furnace/rig.yaml`'s `programs/firing.yaml` -- a firing on
 all three of the furnace's zones, quoted as the file actually is:
 
 ```yaml

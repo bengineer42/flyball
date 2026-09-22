@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import stat
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from flyball.client import Rig as Client
-from flyball.mcp.http import mount
+from flyball.interfaces.client import Rig as Client
+from flyball.interfaces.mcp.http import mount
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.auth import (
+    COOKIE,
+    Sessions,
+    hash_password,
+    signing_secret,
+    verify_password,
+)
 from flyball.runtime.config import AuthConfig
-from flyball.server import create_app, set_rig
-from flyball.server.auth import COOKIE, Sessions, hash_password, signing_secret, verify_password
 
 
 class _InProcess(Client):
@@ -21,7 +29,7 @@ class _InProcess(Client):
     def _request(self, method, path, body=None):
         response = self.http.request(method, path, json=body, headers=self.headers)
         if response.status_code >= 400:
-            from flyball.client.rig import RigError
+            from flyball.interfaces.client.rig import RigError
 
             raise RigError(response.status_code, response.json()["detail"])
         return response.json() if response.content else None
@@ -99,7 +107,7 @@ def test_mcp_is_behind_it_but_the_docs_and_the_door_are_not(secured):
 
 def test_the_dashboard_bundle_is_served_to_anyone_but_the_api_is_not(password):
     """A locked runner still hands out its own login page: bundle open, API shut."""
-    from flyball.server.app import DASHBOARD_DIST
+    from flyball.interfaces.server.app import DASHBOARD_DIST
 
     if not (DASHBOARD_DIST / "index.html").is_file():
         pytest.skip("no built dashboard in this checkout")
@@ -248,7 +256,9 @@ def test_the_signing_secret_is_configured_or_kept_beside_the_store(tmp_path):
     assert signing_secret(AuthConfig(secret="abc"), None) == b"abc"
     store = tmp_path / "rig.sqlite"
     first = signing_secret(AuthConfig(), store)
-    assert (tmp_path / "rig.key").exists() and len(first) >= 32
+    key_path = tmp_path / "rig.key"
+    assert key_path.exists() and len(first) >= 32
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600, "never world- or group-readable"
     assert signing_secret(AuthConfig(), store) == first, "the same key next start"
     assert signing_secret(AuthConfig(), None) != signing_secret(AuthConfig(), None)
 

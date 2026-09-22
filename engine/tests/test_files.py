@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from flyball.core.files import dumps, loads
+from flyball.foundation.files import dumps, loads
 
 
 def test_duplicate_yaml_key_names_the_key_and_the_line():

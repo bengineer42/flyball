@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from flyball.core import Labelled, NonNegative, NormalisedPositive, Positive, PositiveInt
+from flyball.foundation import Labelled, NonNegative, NormalisedPositive, Positive, PositiveInt
 
 from .errors import AdaptiveError
 from .identifier import Identifier

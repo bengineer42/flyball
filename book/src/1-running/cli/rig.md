@@ -1,7 +1,7 @@
 # The rig and the runner
 
 !!! tip "In the browser"
-    [The Rig page](../ui/rig.md): the running document, changes, versions and restore, save, restart / shut down, connect a model; [Simulation](../ui/index.md#pages) for a simulated rig's knobs.
+    [The Config page](../ui/rig.md): the running document, changes, versions and restore, save, restart / shut down, connect a model; [Simulation](../ui/index.md#pages) for a simulated rig's knobs.
 
 | command | |
 | --- | --- |

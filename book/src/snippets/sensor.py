@@ -3,9 +3,9 @@
 import random
 from collections.abc import Iterator
 
-from flyball.core import Quantity, Sample
-from flyball.core.device import Output, Readable
-from flyball.core.units.si import Celsius, Pascal
+from flyball.foundation import Quantity, Sample
+from flyball.foundation.device.device import Output, Readable
+from flyball.foundation.quantities.si import Celsius, Pascal
 
 # What is measured, independent of any device: a name and a unit, nothing else.
 TEMPERATURE = Quantity("temperature", Celsius)

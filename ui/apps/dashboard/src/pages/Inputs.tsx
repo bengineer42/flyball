@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, Box, Button, IconButton, Link, Paper, Stack, Tooltip, Typography } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import { DeviceSignals, Gauge, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useRigDocument, useRigFileSchema, useSignal, useTraceRef } from "@flyball/react";
+import { DeviceSignals, Gauge, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useSignal, useTraceRef } from "@flyball/react";
 import { describeController, deviceOf, formatValue, isHousekeeping, publishes, RigError, signalTitle, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
 import { useRecordingExports } from "../model.js";
 import { StateBlock } from "../cards.js";
@@ -13,7 +12,7 @@ import { signalIcon } from "../icons.js";
 import { PageBar } from "../PageBar.js";
 import { GroupingSelect, readGrouping, writeGrouping, type Grouping } from "../grouping.js";
 import { isNumeric, useValueReadout } from "../valueReadout.js";
-import { AddDeviceDialog, LinksSection } from "./Devices.js";
+import { useAuth } from "../auth.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
@@ -43,23 +42,15 @@ function LatestValue({ signal }: { signal: SignalOut }) {
  * Every chart draws from the store: the page never re-renders on a sample.
  */
 export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
-  const { windowS, yScale, every } = charts;
+  const { windowS, yScale } = charts;
   const rig = useRig();
-  const rigSchema = useRigFileSchema();
-  const rigDocument = useRigDocument();
-  const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Local overlay: `devices` is fetched once by the app, so a device this page just added or
-  // removed is reflected here immediately rather than waiting for the app to refetch it.
-  const [added, setAdded] = useState<Record<string, DeviceOut>>({});
+  // `fromRig` is fetched once by the app, so a device this page just removed is
+  // reflected here immediately rather than waiting for the app to refetch it.
   const [removed, setRemoved] = useState<Set<string>>(new Set());
-  const devices = useMemo(
-    () => [...fromRig.filter((d) => !removed.has(d.name) && !(d.name in added)), ...Object.values(added)],
-    [fromRig, added, removed],
-  );
-  const linkNames = Object.keys(rigDocument.data?.links ?? {});
+  const devices = useMemo(() => fromRig.filter((d) => !removed.has(d.name)), [fromRig, removed]);
 
   const removeDevice = async () => {
     if (!removing) return;
@@ -68,11 +59,6 @@ export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
       await rig.removeDevice(removing);
       setError(null);
       setRemoved((r) => new Set(r).add(removing));
-      setAdded((a) => {
-        const { [removing]: _gone, ...rest } = a;
-        void _gone;
-        return rest;
-      });
       setRemoving(null);
     } catch (e) {
       setError(detail(e));
@@ -95,57 +81,35 @@ export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
   const bar = (
     <PageBar end={<ChartControls {...charts} unit={numericSignals[0]?.unit} />}>
       <GroupingSelect value={grouping} onChange={group} />
-      <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setAdding(true)} data-testid="add-device">
-        Add device
-      </Button>
     </PageBar>
   );
   const dialogs = (
-    <>
-      <AddDeviceDialog
-        open={adding}
-        schema={rigSchema.data}
-        linkNames={linkNames}
-        onClose={() => setAdding(false)}
-        onCreated={(device) => {
-          setAdding(false);
-          setAdded((a) => ({ ...a, [device.name]: device }));
-          setRemoved((r) => {
-            const next = new Set(r);
-            next.delete(device.name);
-            return next;
-          });
-        }}
-      />
-      <Confirm
-        open={removing !== null}
-        title={`Remove device ${removing}?`}
-        text="Takes it off the rig with everything that hung off it."
-        action="Remove"
-        busy={busy}
-        onClose={() => setRemoving(null)}
-        onConfirm={() => void removeDevice()}
-      />
-    </>
+    <Confirm
+      open={removing !== null}
+      title={`Remove device ${removing}?`}
+      text="Takes it off the rig with everything that hung off it."
+      action="Remove"
+      busy={busy}
+      onClose={() => setRemoving(null)}
+      onConfirm={() => void removeDevice()}
+    />
   );
   const shown = devices.filter((d) => d.kind !== "simulation");
   if (shown.length === 0)
     return (
       <>
-        <LinksSection document={rigDocument} schema={rigSchema} />
         {bar}
         {error && (
           <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
-        <StateBlock state="empty" message="No devices declared. Add one below, or to the rig file, to see its readings here." />
+        <StateBlock state="empty" message="No devices declared. Add one in Config to see its readings here." />
         {dialogs}
       </>
     );
   return (
     <>
-      <LinksSection document={rigDocument} schema={rigSchema} />
       {bar}
       {error && (
         <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
@@ -154,7 +118,7 @@ export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
       )}
       {grouping === "unit" && (
         <div className="fb-charts">
-          <UnitCharts signals={numericSignals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.signals} />
+          <UnitCharts signals={numericSignals} source={live} devices={devices} height="auto" windowS={windowS} yScale={yScale} exportHref={stored.signals} />
         </div>
       )}
       {grouping === "signal" && (
@@ -181,7 +145,7 @@ export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
                   </Typography>
                 </Stack>
                 {/* A non-number never reaches this chart: it has its value in the header alone. */}
-                {isNumeric(s) && <TimeSeries signal={s} source={live} height="auto" windowS={windowS} yScale={yScale} every={every} exportHref={stored.series(s.address)} />}
+                {isNumeric(s) && <TimeSeries signal={s} source={live} height="auto" windowS={windowS} yScale={yScale} exportHref={stored.series(s.address)} />}
               </Paper>
             );
           })}
@@ -194,7 +158,6 @@ export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
               <DeviceSignals
                 device={device}
                 windowS={windowS}
-                every={every}
                 exportHref={(s) => stored.series(s.address)}
                 controls={
                   <Tooltip title="Remove this device from the rig">
@@ -251,7 +214,8 @@ export function signalAt(devices: DeviceOut[], address: string): SignalOut | und
  * regulate it (as their source) or drive it (as their target).
  */
 export function SignalDetail({ devices, address, ...charts }: { devices: DeviceOut[]; address: string } & ChartSettings) {
-  const { windowS, yScale, every } = charts;
+  const auth = useAuth();
+  const { windowS, yScale } = charts;
   const stored = useRecordingExports();
   const signal = signalAt(devices, address);
   const streams = signal !== undefined && publishes(signal);
@@ -289,7 +253,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
               <div className="fb-readout-value">{value.body}</div>
             </Paper>
           )}
-          {writable(signal) && <WritePanel signal={signal} />}
+          {writable(signal) && <WritePanel signal={signal} canOperate={auth.canOperate} />}
           <Paper sx={{ p: 3, flexGrow: 1 }}>
             <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
               Controllers
@@ -324,7 +288,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
               {signal.range && ` · range ${signal.range[0]} – ${signal.range[1]}`}
             </Typography>
           </Stack>
-          <TimeSeries signal={signal} source={live} height={320} windowS={windowS} yScale={yScale} every={every} exportHref={stored.series(address)} />
+          <TimeSeries signal={signal} source={live} height={320} windowS={windowS} yScale={yScale} exportHref={stored.series(address)} />
         </Paper>
       )}
     </>

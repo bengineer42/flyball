@@ -1,4 +1,4 @@
-from flyball.core import ConflictError, FlyballError, NotReadyError, UnachievableError
+from flyball.foundation import ConflictError, FlyballError, NotReadyError, UnachievableError
 
 
 class AdaptiveError(FlyballError):

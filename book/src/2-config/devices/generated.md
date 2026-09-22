@@ -21,7 +21,7 @@ class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
 | the rig file | `flyball.runtime.config` validating `devices:` against the tag registry | `driver: sht4x` and its fields, flat or under `config:`; a wrong field fails `flyball rig check` with its name |
 | the editor schema | `flyball rig schema` (`RigConfig.model_json_schema()`, every registered tag folded in) | completion and red squiggles in `rig.yaml`, from the `# yaml-language-server: $schema=` line |
 | the UI | `GET /api/drivers` (`schema` per tag) → the tagged-union form | the **Add device** dialog's fields, with defaults, bounds and choices |
-| the CLI and the client | `GET /api/schema` and `/api/devices/{name}/schema` | `flyball device-schema <device>` and `flyball invoke <device> <command> …`, or a method per command on `flyball.client.Rig` |
+| the CLI and the client | `GET /api/schema` and `/api/devices/{name}/schema` | `flyball device-schema <device>` and `flyball invoke <device> <command> …`, or a method per command on `flyball.interfaces.client.Rig` |
 | a model | the MCP `author` tier's `attach_device` tool, whose argument schema is the same JSON | a tool call with the same fields |
 
 The field's type sets the widget and the check (`int` with `ge`/`le` is a
@@ -62,11 +62,15 @@ the one registry, so `GET /api/drivers` lists links beside drivers and
 
 | driver | class |
 | --- | --- |
-| `scpi`, `modbus` | `flyball.devices.scpi.ScpiConfig`, `flyball.devices.modbus.ModbusConfig` |
-| `qcodes`, `pymeasure` | `flyball.integrations.{qcodes,pymeasure}` |
-| `sim_daq`, `sim_drive`, `sim_plant`, `sim_furnace` | `flyball.sim.devices` |
-| `visa`, `serial`, `modbus_*`, `fake_*` | `flyball.hardware.links` |
-| the board chips and links | `flyball_linux.devices.chips.*`, `flyball_linux.links.*` |
+| `scpi` | `flyball_visa` |
+| `modbus` | `flyball_modbus` |
+| `qcodes`, `pymeasure` | `flyball_qcodes`, `flyball_pymeasure` |
+| `sim_daq`, `sim_drive`, `sim_plant` | `flyball_sim.devices` |
+| `sim_furnace` | `furnace.sim` (`examples/furnace`) |
+| `visa`, `serial`, `fake_text` | `flyball_visa` |
+| `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball_modbus` |
+| the board chips | `flyball_chips.*` |
+| board-level Linux drivers and links | `flyball_linux.devices.*`, `flyball_linux.links.*` |
 | a `drivers/` file, a package's | wherever it is: `GET /api/drivers` names the module per tag |
 
 A tag registers when its module is imported: the built-ins on `import

@@ -16,13 +16,15 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  alpha,
 } from "@mui/material";
 import { Form as MuiForm } from "@rjsf/mui";
-import { CommandForm, DevicePanel, useCommands, useRigSchema, useSimulation, type SimulationHook } from "@flyball/react";
+import { CommandForm, DevicePanel, useCommands, useRigSchema, useSimulation, type PlaybackHook, type SimulationHook } from "@flyball/react";
 import type { DeviceOut, DeviceSchema, SimulationPlant } from "@flyball/client";
 import { describeDevice, describeSimParam, fixed } from "@flyball/client";
 import { useNow } from "../time.js";
 import { StateBlock } from "../cards.js";
+import { PlaybackBar } from "../PlaybackBar.js";
 
 /** The speeds on the buttons; anything else goes in the box beside them. */
 const SPEEDS = [0.5, 1, 2, 5, 10, 50];
@@ -39,6 +41,27 @@ function SimClock({ nowNs, speed, fetchedAt }: { nowNs: number; speed: number; f
     <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>
       {new Date(simMs).toLocaleTimeString()}
     </Typography>
+  );
+}
+
+/**
+ * The playback transport as a section of this page, once the open session has
+ * some history to scrub. Pausing here freezes every page's samples (the store
+ * serves history to all of them); away from this page the app bar's paused
+ * chip is the way back to live.
+ */
+function Playback({ playback }: { playback: PlaybackHook }) {
+  if (playback.startS === undefined) return null;
+  return (
+    <Paper sx={{ p: 3, pb: 2, mb: "16px", bgcolor: playback.paused ? (t) => alpha(t.palette.warning.main, 0.08) : undefined }} data-testid="playback">
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
+        Playback
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
+        Scrub through the open session's recorded samples. Paused, every page shows the rig as it was then; nothing here writes to the rig.
+      </Typography>
+      <PlaybackBar playback={playback} />
+    </Paper>
   );
 }
 
@@ -298,13 +321,15 @@ function Faults() {
 }
 
 /**
- * The simulation page: speed control from `/api/sim`, the rig file's plants,
- * every device's simulation-only commands, and the application's own device
+ * The simulation page: the playback transport over the open session's
+ * history (`usePlayback`, held by the app so a pause outlives the page),
+ * speed control from `/api/sim`, the rig file's plants, every device's
+ * simulation-only commands, and the application's own device
  * (`/api/sim/device`, which `GET /api/devices` lists with `kind:
  * "simulation"`) when it has one. The app wires the route and the tab (hide
  * the tab when `useSimulation().attached` is false).
  */
-export function Simulation({ devices }: { devices: DeviceOut[] }) {
+export function Simulation({ devices, playback }: { devices: DeviceOut[]; playback: PlaybackHook }) {
   const sim = useSimulation();
   const own = devices.find((d) => d.kind === "simulation");
   if (sim.loading && !sim.simulation) return <LinearProgress />;
@@ -331,6 +356,7 @@ export function Simulation({ devices }: { devices: DeviceOut[] }) {
           </Typography>
         )}
       </Stack>
+      <Playback playback={playback} />
       <SpeedControl sim={sim} />
       <Plants plants={simulation.plants} />
       <Faults />

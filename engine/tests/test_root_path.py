@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flyball import runner
-from flyball.mcp.http import mount
-from flyball.server import create_app, set_rig
+from flyball.interfaces.mcp.http import mount
+from flyball.interfaces.server import create_app, set_rig
 from test_auth import _InProcess
 
 

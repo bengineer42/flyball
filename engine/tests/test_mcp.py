@@ -13,14 +13,15 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
-from flyball.client import Rig as Client
-from flyball.client import RigError
-from flyball.db.sqlite import SqliteStore
-from flyball.mcp import Tier, tools_for
-from flyball.mcp.server import build
-from flyball.programmer.command import Command
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_rig_config, set_store
+from flyball.interfaces.client import Rig as Client
+from flyball.interfaces.client import RigError
+from flyball.interfaces.mcp import Tier, tools_for
+from flyball.interfaces.mcp.server import build
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_rig_config, set_store
+from flyball.model.catalog import get_catalog
+from flyball.record.sqlite import SqliteStore
+from flyball.sequencing.command import Command
 from test_server import Daq, Drive
 
 
@@ -34,7 +35,7 @@ class InProcess(Client):
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         response = self.http.request(method, path, json=body)
         if response.status_code >= 400:
-            from flyball.client.rig import RigError
+            from flyball.interfaces.client.rig import RigError
 
             raise RigError(response.status_code, response.json().get("detail", response.text))
         return response.json() if response.content else None
@@ -65,6 +66,7 @@ def setpoint(fresh) -> str:
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
+    get_catalog().register_command(Setpoint)
     return tag
 
 
@@ -83,6 +85,23 @@ class TestModes:
             "check_rig",
             "widget_schema",
         } <= names(tools)
+
+    def test_read_tier_does_not_expose_the_side_effecting_flags(self, client):
+        """Neither `read`'s `fresh` nor `probe_hardware`'s `scan` belongs where nothing changes."""
+        read = tools_for(client, "read")
+        by_name = {t.name: t for t in read}
+        assert "fresh" not in by_name["read"].schema["properties"]
+        assert "fresh" not in by_name["read_many"].schema["properties"]
+        assert "scan" not in by_name["probe_hardware"].schema["properties"]
+
+    def test_operate_has_the_full_power_forms(self, client):
+        operate = tools_for(client, "operate")
+        by_name = {t.name: t for t in operate}
+        assert "fresh" in by_name["read"].schema["properties"]
+        assert by_name["read"].tier == Tier.DRIVE
+        assert "fresh" in by_name["read_many"].schema["properties"]
+        assert "scan" in by_name["probe_hardware"].schema["properties"]
+        assert by_name["probe_hardware"].tier == Tier.DRIVE
 
     def test_author_adds_the_store_and_nothing_that_moves(self, client):
         author = names(tools_for(client, "author"))
@@ -114,15 +133,20 @@ class TestTools:
 
     def test_reads(self, client):
         assert self.tool(client, "status").run(client, {})["rig"] == "t"
-        devices = self.tool(client, "list_devices").run(client, {})
+        devices = self.tool(client, "list_devices").run(client, {})["devices"]
         assert [d["name"] for d in devices] == ["furnace", "heaters"]
+        assert set(devices[0]) == {"name", "type", "label", "description"}, (
+            "projected: not the full tree"
+        )
+        detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
+        assert "signals" in detailed[0], "`detail` asked for the rest"
         schema = self.tool(client, "describe_device").run(client, {"name": "heaters"})
         assert "set_duty" in schema["commands"]
         kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
         assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
 
     def test_a_device_command_runs_and_is_validated(self, client):
-        from flyball.client import SchemaError
+        from flyball.interfaces.client import SchemaError
 
         tool = self.tool(client, "heaters-set_duty")
         assert tool.run(client, {"duty": 0.4}) == 0.4
@@ -136,7 +160,8 @@ class TestTools:
             client, {"name": "warm", "document": program, "label": "v1"}
         )
         assert saved["format"] == "json" and json.loads(saved["body"]) == program
-        assert [p["name"] for p in self.tool(client, "list_programs").run(client, {})] == ["warm"]
+        programs = self.tool(client, "list_programs").run(client, {})["programs"]
+        assert [p["name"] for p in programs] == ["warm"]
 
     def test_update_dashboard_changes_parts_and_versions(self, client):
         document = {
@@ -186,7 +211,7 @@ class TestTools:
         assert len(client.get("/api/dashboards/d/history")) == 2
 
     def test_update_dashboard_refuses_an_unknown_widget(self, client):
-        from flyball.client import SchemaError
+        from flyball.interfaces.client import SchemaError
 
         self.tool(client, "save_dashboard").run(
             client, {"name": "d", "document": {"name": "d", "rig": "t"}}
@@ -196,18 +221,40 @@ class TestTools:
                 client, {"name": "d", "changes": [{"op": "remove_widget", "id": "zz"}]}
             )
 
+    def test_session_ticks_is_read_tier_and_hits_the_route(self, client):
+        """A recorded controller's steps, served at `.../sessions/{id}/ticks/{controller}`."""
+        tool = next(t for t in tools_for(client, "read") if t.name == "session_ticks")
+        assert tool.tier == Tier.READ
+        assert tool.schema["required"] == ["session_id", "controller"]
+
+        class FakeRig:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def get(self, path: str) -> list[str]:
+                self.calls.append(path)
+                return ["a tick"]
+
+        fake = FakeRig()
+        result = tool.run(
+            fake, {"session_id": 3, "controller": "heaters.heater1", "every": 5, "start_ns": 10}
+        )
+        assert result == {"ticks": ["a tick"]}
+        assert tool.output_schema["required"] == ["ticks"]
+        assert fake.calls == ["/api/history/sessions/3/ticks/heaters.heater1?start_ns=10&every=5"]
+
 
 class TestRigRoutes:
     def test_check_validates_and_canonicalises(self, client):
         out = client.post("/api/rig/check", {"name": "x", "devices": {}})
         assert out["name"] == "x"
-        from flyball.client.rig import RigError
+        from flyball.interfaces.client.rig import RigError
 
         with pytest.raises(RigError, match="devices"):
             client.post("/api/rig/check", {"devices": "no"})
 
     def test_config_is_what_the_runner_was_given(self, client):
-        from flyball.client.rig import RigError
+        from flyball.interfaces.client.rig import RigError
         from flyball.runtime.config import RigConfig
 
         with pytest.raises(RigError, match="not started from a rig file"):
@@ -220,6 +267,18 @@ class TestRigRoutes:
 
     def test_schema_is_the_rig_file_s(self, client):
         assert "devices" in client.get("/api/rig/schema")["properties"]
+
+
+class TestInstructions:
+    def test_names_the_rig_it_was_given_not_its_own_url(self, client):
+        server = build(client, "operate", "chamber")
+        assert "chamber" in (server.instructions or "")
+        assert client.url not in (server.instructions or "")
+
+    def test_falls_back_when_no_name_is_given(self, client):
+        server = build(client, "operate")
+        assert "This rig" in (server.instructions or "")
+        assert client.url not in (server.instructions or "")
 
 
 class TestOverTheWire:
@@ -245,6 +304,9 @@ class TestOverTheWire:
                     assert isinstance(result.content[0], types.TextContent)
                     failed = await session.call_tool("get_program", {"name": "nope"})
                     assert failed.is_error
+                    assert by_name["controllers"].output_schema["required"] == ["controllers"]
+                    listed_controllers = await session.call_tool("controllers", {})
+                    assert listed_controllers.structured_content == {"controllers": []}
                 tg.cancel_scope.cancel()
 
 
@@ -253,7 +315,7 @@ class TestMounted:
 
     @pytest.fixture
     def http(self, tmp_path, rig):
-        from flyball.mcp.http import mount
+        from flyball.interfaces.mcp.http import mount
 
         rig.name = "t"
         rig.add_device(Drive("heaters"))
@@ -310,13 +372,51 @@ class TestMounted:
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
 
+    def initialize(self, http, mode):
+        init = self.rpc(
+            http,
+            mode,
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "t", "version": "0"},
+            },
+        )
+        session = init.headers["mcp-session-id"]
+        http.post(
+            f"/mcp/{mode}",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers={"mcp-session-id": session, "Accept": "application/json, text/event-stream"},
+        )
+        return init, session
+
+    def test_initialize_reports_a_nonempty_version(self, http):
+        init, _ = self.initialize(http, "read")
+        assert init.json()["result"]["serverInfo"]["version"]
+
+    def test_a_missing_required_argument_is_invalid_params_not_a_keyerror(self, http):
+        _, session = self.initialize(http, "read")
+        body = self.rpc(
+            http,
+            "read",
+            "tools/call",
+            {"name": "describe_device", "arguments": {}},
+            session=session,
+            id=2,
+        ).json()
+        assert "result" not in body, body
+        assert body["error"]["code"] == -32602
+        assert "name" in body["error"]["message"]
+        assert "KeyError" not in body["error"]["message"]
+
 
 class TestDriverTools:
     def tool(self, client, name, mode="operate"):
         return next(t for t in tools_for(client, mode) if t.name == name)
 
     def test_tools_whose_routes_the_runner_lacks_are_not_listed(self, client, monkeypatch):
-        from flyball.mcp import tools
+        from flyball.interfaces.mcp import tools
 
         gated = {t.name for t in tools.DRIVERS if t.route is not None}
         monkeypatch.setattr(tools, "_served", lambda rig: set())
@@ -329,7 +429,7 @@ class TestDriverTools:
         assert "search_drivers" not in names(tools_for(client, "author")), "runs a script: drive"
 
     def test_served_is_read_from_the_runner_s_openapi(self, client):
-        from flyball.mcp.tools import _served
+        from flyball.interfaces.mcp.tools import _served
 
         assert ("get", "/api/devices/{name}/schema") in _served(client)
 
@@ -346,7 +446,7 @@ class TestDriverTools:
         assert guide.startswith("# Writing a device driver")
         out = self.tool(client, "driver_scaffold", "read").run(client, {"name": "foo-200"})
         assert 'tag="foo_200"' in out["source"]
-        from flyball.client import SchemaError
+        from flyball.interfaces.client import SchemaError
 
         with pytest.raises(SchemaError, match="identifier"):
             self.tool(client, "driver_scaffold", "read").run(client, {"name": "1"})
@@ -366,7 +466,7 @@ class TestDriverTools:
 
     def test_check_driver_reports_a_broken_module(self, client, tmp_path):
         path = tmp_path / "broken.py"
-        path.write_text("import flyball.core.device\nraise RuntimeError('no such bus')\n")
+        path.write_text("import flyball.foundation.device\nraise RuntimeError('no such bus')\n")
         report = self.tool(client, "check_driver").run(client, {"path": str(path)})
         assert not report["ok"] and "no such bus" in report["errors"][0]
         path.write_text("x = 1\n")

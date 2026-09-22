@@ -1,6 +1,6 @@
 # Server
 
-`flyball.server` is a FastAPI app over a rig and a store. It owns no
+`flyball.interfaces.server` is a FastAPI app over a rig and a store. It owns no
 hardware and no database: whatever builds them calls `set_rig` and
 `set_store` before serving, so the same app runs against a real rig, a
 simulation, or a database copied from another machine.
@@ -15,7 +15,7 @@ bearer, or anonymous -- with a level `none < read < operate` that one
 `RootPath` (sets
 `scope["root_path"]` under the prefix so Starlette routes and links as at
 the root; 404 / 4404 elsewhere; lifespan passes through). `app` is a
-module-level instance for `uvicorn flyball.server:app`. Routes take the rig and store through
+module-level instance for `uvicorn flyball.interfaces.server:app`. Routes take the rig and store through
 dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError` (503) when
 nothing is attached.
 
@@ -51,7 +51,7 @@ the CLI reads anyway.
 
 ## Wire models
 
-`flyball.server.schemas` holds the shapes that cross the wire, separate from
+`flyball.interfaces.server.schemas` holds the shapes that cross the wire, separate from
 the domain types so the HTTP surface and the control code can change shape
 independently.
 
@@ -76,7 +76,7 @@ is about where the code that builds them lives.
 ## Command requests
 
 Each device command's request model is derived from the method's signature
-(`flyball.server.wire`): one field per parameter after `self`, with domain
+(`flyball.interfaces.server.wire`): one field per parameter after `self`, with domain
 types that cannot cross the wire swapped for wire ones through `WIRE_TYPES`
 (a running control law becomes a `LawConfig | str | None` — a config or the
 name of a stored tuning). `POST /api/devices/{name}/commands/{tag}` validates
@@ -114,7 +114,7 @@ task runs beside the push loop for that.
 
 ## The program dialect
 
-`flyball.server.dialect` is the bridge between the file form a person writes
+`flyball.interfaces.server.dialect` is the bridge between the file form a person writes
 (externally tagged, shorthand, flat time keys, modifiers) and the internally
 tagged form pydantic validates. `normalise_step` rewrites one; `step_schema`
 and `program_schema` emit the file's JSON schema from the same command

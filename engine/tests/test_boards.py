@@ -6,12 +6,19 @@ from collections.abc import Iterator
 
 import pytest
 
-from flyball.core.config import Config
-from flyball.core.device import Device, DriverConfig, Readable
-from flyball.core.errors import NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, Sample, SignalSpec
-from flyball.core.units.si import Watt
+from flyball.foundation.config import Config
+from flyball.foundation.device import (
+    Access,
+    Device,
+    DriverConfig,
+    Readable,
+    Role,
+    Sample,
+    SignalSpec,
+)
+from flyball.foundation.errors import NotFoundError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Watt
 from flyball.runtime.config import (
     BOARDS_ENV,
     Board,
@@ -58,12 +65,13 @@ class RelayConfig(DriverConfig[Relay]):
 
 
 @pytest.fixture
-def relay_tag(fresh) -> str:
+def relay_tag(fresh, _catalog) -> str:
     tag = fresh("relay")
 
     class Tagged(RelayConfig, tag=tag):
         pass
 
+    _catalog.register_device(Tagged)
     return tag
 
 
@@ -141,17 +149,17 @@ def test_a_rig_file_with_a_board_validates_builds_and_reports_it(tmp_path, monke
     assert isinstance(valve, Relay) and valve.unit_id == 7
 
 
-def test_roles_tell_drivers_from_links():
-    assert role_of(Config.registry["sim_daq"]) == "driver"
-    assert role_of(Config.registry["visa"]) == "link"
-    assert Config.registry["sim_drive"] in registered("driver")
-    assert Config.registry["sim_plant"] in registered("link")
-    assert not set(registered("driver")) & set(registered("link"))
+def test_roles_tell_drivers_from_links(_catalog):
+    assert role_of(_catalog.devices["sim_daq"]) == "driver"
+    assert role_of(_catalog.links["visa"]) == "link"
+    assert _catalog.devices["sim_drive"] in registered("driver", _catalog)
+    assert _catalog.links["sim_plant"] in registered("link", _catalog)
+    assert not set(registered("driver", _catalog)) & set(registered("link", _catalog))
 
 
-def test_a_link_registered_later_is_valid_in_a_file(fresh):
+def test_a_link_registered_later_is_valid_in_a_file(fresh, _catalog):
     tag = fresh("late_bus")
-    before = rig_model()
+    before = rig_model(_catalog)
 
     class LateBus(Config[object], tag=tag):
         """Registered after the module was imported."""
@@ -161,11 +169,12 @@ def test_a_link_registered_later_is_valid_in_a_file(fresh):
         def build(self) -> object:
             return object()
 
+    _catalog.register_link(LateBus)
     config = RigConfig.model_validate({"links": {"b": {"tag": tag, "baud": 115200}}})
     assert isinstance(config, RigConfig) and isinstance(config.links["b"], LateBus)
     assert config.links["b"].baud == 115200
-    assert rig_model() is not before, "a new tag means a new model"
-    assert rig_model() is rig_model(), "... cached until the next one"
+    assert rig_model(_catalog) is not before, "a new tag means a new model"
+    assert rig_model(_catalog) is rig_model(_catalog), "... cached until the next one"
     assert tag in str(RigConfig.model_json_schema())
 
 
@@ -181,7 +190,7 @@ class DaqConfig(DriverConfig[Daq]):
         return Daq(name, label)
 
 
-def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh):
+def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh, _catalog):
     daq_tag, relay_tag = fresh("daq"), fresh("relay")
 
     class TaggedDaq(DaqConfig, tag=daq_tag):
@@ -190,6 +199,8 @@ def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh)
     class TaggedRelay(RelayConfig, tag=relay_tag):
         pass
 
+    _catalog.register_device(TaggedDaq)
+    _catalog.register_device(TaggedRelay)
     name = fresh("probe")
     document = {
         "devices": {

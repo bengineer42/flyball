@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flyball.core import NormalisedPositive, Positive
+from flyball.foundation import NormalisedPositive, Positive
 
 from .errors import RegressorMismatchError
 

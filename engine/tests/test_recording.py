@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from flyball.db.sqlite import SqliteStore
-from flyball.runtime.rig import Rig
-from flyball.server import create_app, set_rig
-from flyball.server.deps import set_store
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.deps import set_store
+from flyball.record.sqlite import SqliteStore
+from flyball.rig import Rig
 
 
 @pytest.fixture

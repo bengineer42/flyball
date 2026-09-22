@@ -1,20 +1,20 @@
-"""Build the two published versions of both books into one site tree.
+"""Build the two published versions of the book into one site tree.
 
     python book/versions.py OUT
 
 `latest` is the `main` branch, `dev` is the `dev` branch: each is checked out
 into a temporary worktree from `origin/<branch>` (the working tree itself
-when that is what is checked out) and both books are built strictly from it
--- the main book into `OUT/<version>/`, the humidity book into
-`OUT/humidity/<version>/`. A `versions.json` beside each tree is what
-Material's version selector reads; the root and `humidity/` redirect to
-`latest`. `robots.txt` and `.nojekyll` are copied to the root. Nothing built
-is ever committed: the whole site is regenerated from the two branches on
-every run, whichever of them triggered it.
+when that is what is checked out) and built strictly from it into
+`OUT/<version>/`. A `versions.json` beside the tree is what Material's
+version selector reads; the root redirects to `latest`. `robots.txt` and
+`.nojekyll` are copied to the root. Nothing built is ever committed: the
+whole site is regenerated from the two branches on every run, whichever of
+them triggered it.
 
-Runs with the controller's docs environment; the humidity book is built by
-the same MkDocs, since mkdocstrings reads sources from the paths each
-config names rather than importing them.
+The humidity rig ("humctrl") used to be built here too, from
+examples/humidity/book/ -- it's its own repo now (github.com/bengineer42/humctrl,
+split out 22 Sep), with its own publish workflow, since a worktree of this
+repo no longer has that path at all.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BOOKS = {"": "book/mkdocs.yml", "humidity": "examples/humidity/book/mkdocs.yml"}
+BOOK = "book/mkdocs.yml"
 VERSIONS = {"latest": "main", "dev": "dev"}  # version name -> branch
 REDIRECT = '<!doctype html><meta http-equiv="refresh" content="0; url={to}/"><a href="{to}/">{to}</a>\n'
 
@@ -46,12 +46,10 @@ def ref_for(branch: str) -> str | None:
 
 
 def build(source: Path, out: Path, version: str) -> None:
-    for prefix, config in BOOKS.items():
-        target = out / prefix / version if prefix else out / version
-        subprocess.run(
-            [sys.executable, "-m", "mkdocs", "build", "-f", str(source / config), "--strict", "--site-dir", str(target)],
-            check=True,
-        )
+    subprocess.run(
+        [sys.executable, "-m", "mkdocs", "build", "-f", str(source / BOOK), "--strict", "--site-dir", str(out / version)],
+        check=True,
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -81,10 +79,8 @@ def main(argv: list[str]) -> int:
         return 2
     default = "latest" if "latest" in built else built[0]
     entries = [{"version": v, "title": v, "aliases": []} for v in built]
-    for prefix in BOOKS:
-        tree = out / prefix if prefix else out
-        (tree / "versions.json").write_text(json.dumps(entries, indent=2) + "\n")
-        (tree / "index.html").write_text(REDIRECT.format(to=default))
+    (out / "versions.json").write_text(json.dumps(entries, indent=2) + "\n")
+    (out / "index.html").write_text(REDIRECT.format(to=default))
     shutil.copy(ROOT / "book" / "robots.txt", out / "robots.txt")
     (out / ".nojekyll").write_text("")
     print(f"site at {out}: {', '.join(built)}; root -> {default}")

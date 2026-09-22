@@ -52,13 +52,14 @@ board_temp:
 ```
 
 A chip with a command sequence rather than registers (SHT4x: write a byte,
-wait, read six) gets its own tag under `flyball_linux.devices.chips`. Each
+wait, read six) gets its own tag under `flyball_chips` (extensions/chips). Each
 is a short module against the link protocol, tested to the byte on the fake.
 
 ## Board profiles
 
-A profile declares a machine's links and names its pins. `boards/rpi5.toml`,
-quoted in part as the file actually is:
+A profile declares a machine's links and names its pins.
+`extensions/linux/src/flyball_linux/boards/rpi5.toml`, quoted in part as the
+file actually is:
 
 ```toml
 name = "Raspberry Pi 5"
@@ -80,7 +81,7 @@ GPIO18 = { link = "header", line = 18 }
 PWM0   = { link = "pwm", channel = 0 }
 ```
 
-A rig file names it and then refers to pins by label. `linux/examples/greenhouse.yaml`,
+A rig file names it and then refers to pins by label. `extensions/linux/examples/greenhouse.yaml`,
 quoted in part:
 
 ```yaml
@@ -113,21 +114,23 @@ clash), and `pin: "LABEL"` becomes the fields the profile gives that label,
 again with the entry's own fields winning. `flyball rig check` says which
 profile file it used.
 
-Profiles are looked up in `$FLYBALL_BOARDS`, then a `boards/` directory
-beside the rig file or in any directory above it, then
-`~/.config/flyball/boards` and `/etc/flyball/boards`. `board: ./mine.toml`
-is a path relative to the rig file. The repository's [boards/](https://github.com/bengineer42/flyball/tree/main/boards)
-directory has `rpi4`, `rpi5`, `beaglebone_black`, `generic` and `sim`; none
-is loaded until a rig file asks for it, and adding a board is adding a file.
+Profiles are looked up in `$FLYBALL_BOARDS`, then each installed package's
+own profiles (registered under the `flyball.board_dirs` entry point), then a
+`boards/` directory beside the rig file or in any directory above it for
+profiles of your own, then `~/.config/flyball/boards` and
+`/etc/flyball/boards`. `board: ./mine.toml` is a path relative to the rig
+file. `flyball-linux` registers [`extensions/linux/src/flyball_linux/boards/`](https://github.com/bengineer42/flyball/tree/main/extensions/linux/src/flyball_linux/boards)
+this way: `rpi4`, `rpi5`, `beaglebone_black`, `generic` and `sim`; none is
+loaded until a rig file asks for it, and adding a board is adding a file.
 
 `sim` is every link as a fake. A rig file written for a real board runs on
 any machine with an overlay that sets `board: sim`, its pin labels resolving
-to fake chips — `linux/examples/sim.yaml` does exactly this over
+to fake chips — `extensions/linux/examples/sim.yaml` does exactly this over
 `greenhouse.yaml`, scripting the I²C and 1-Wire fakes to answer fixed
 readings, which is how the example is tested:
 
 ```
-cd linux/examples
+cd extensions/linux/examples
 flyball rig check greenhouse.yaml sim.yaml
 flyball-runner greenhouse.yaml sim.yaml
 ```

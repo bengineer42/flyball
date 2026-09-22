@@ -29,7 +29,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
 import StopIcon from "@mui/icons-material/Stop";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -37,6 +36,7 @@ import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
 import { signalTitle, signalsOf, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
+import { useAuth } from "../auth.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
@@ -105,14 +105,16 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
 
 /**
  * Make a controller in four steps: the writable signal to drive (the
- * target), a publishing signal to regulate (the source), the law, and the
- * feedforward that maps the setpoint into the target's unit (defaulted from
- * the units, as the rig would). Sources another controller already
- * regulates and targets already driven are disabled. Opened either from the
+ * target, labelled "Actuator"), a publishing signal to regulate (the
+ * source, labelled "Sensor"), the law, and the feedforward that maps the
+ * setpoint into the target's unit (defaulted from the units, as the rig
+ * would). Sources another controller already regulates and targets already
+ * driven are disabled; sources in the target's own unit that nothing
+ * regulates yet are listed first as "Suggested". Opened either from the
  * page bar (any target) or from an undriven signal's own card, which
  * preselects it (`initialTarget`) and jumps straight to the source step.
  */
-const AddControllerDialog = memo(function AddControllerDialog({
+export const AddControllerDialog = memo(function AddControllerDialog({
   open,
   schema,
   devices,
@@ -151,16 +153,30 @@ const AddControllerDialog = memo(function AddControllerDialog({
     }
   }, [open, initialTarget]);
 
-  // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
-  const byDevice = useMemo(() => {
-    const groups: Record<string, SignalChoice[]> = {};
-    for (const c of schema?.sources ?? []) (groups[c.device] ??= []).push(c);
-    return groups;
-  }, [schema]);
-
   const source = useMemo(() => schema?.sources.find((c) => c.address === draft.source) ?? null, [schema, draft.source]);
   const demandUnit = draft.target?.unit ?? null;
   const unitsAgree = source !== null && demandUnit === source.unit;
+
+  // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
+  // Ranked once a target is chosen: a "Suggested" group (the target's own unit, not yet regulated)
+  // above "All signals"; one flat list when there is no target or nothing matches -- never an empty
+  // Suggested group.
+  const sourceGroups = useMemo(() => {
+    const group = (choices: SignalChoice[]) => {
+      const groups: Record<string, SignalChoice[]> = {};
+      for (const c of choices) (groups[c.device] ??= []).push(c);
+      return groups;
+    };
+    const all = schema?.sources ?? [];
+    const suggested = demandUnit === null ? [] : all.filter((c) => c.unit === demandUnit && !schema?.regulated[c.address]);
+    if (suggested.length === 0) return [{ title: null, byDevice: group(all) }];
+    const rest = all.filter((c) => !suggested.includes(c));
+    return [
+      { title: "Suggested", byDevice: group(suggested) },
+      { title: "All signals", byDevice: group(rest) },
+    ];
+  }, [schema, demandUnit]);
+  const hasSources = (schema?.sources.length ?? 0) > 0;
   // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
   const feedforward = draft.feedforward ?? defaultFeedforward(draft.target, source);
   const feedforwardSchema = useMemo(
@@ -198,10 +214,13 @@ const AddControllerDialog = memo(function AddControllerDialog({
           <Stepper activeStep={active} orientation="vertical" nonLinear>
             <Step completed={draft.target !== null}>
               <StepLabel onClick={() => setActive(0)} sx={{ cursor: "pointer" }}>
-                Target{draft.target && active !== 0 ? `: ${draft.target.address}` : ""}
+                Actuator{draft.target && active !== 0 ? `: ${draft.target.address}` : ""}
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  the writable signal being commanded
+                </Typography>
               </StepLabel>
               <StepContent>
-                {schema.targets.length === 0 && <Typography color="text.secondary">This rig has no writable signal to drive.</Typography>}
+                {schema.targets.length === 0 && <Typography color="text.secondary">This rig has no writable signal to command.</Typography>}
                 <List dense disablePadding>
                   {schema.targets.map((t) => {
                     const taken = schema.driven[t.address];
@@ -228,43 +247,60 @@ const AddControllerDialog = memo(function AddControllerDialog({
             </Step>
             <Step completed={draft.source !== null}>
               <StepLabel onClick={() => draft.target && setActive(1)} sx={{ cursor: draft.target ? "pointer" : "default" }}>
-                Source{draft.source && active !== 1 ? `: ${draft.source}` : ""}
+                Sensor{draft.source && active !== 1 ? `: ${draft.source}` : ""}
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  the published signal used to correct it
+                </Typography>
               </StepLabel>
               <StepContent>
-                {Object.keys(byDevice).length === 0 && <Typography color="text.secondary">{draft.target ? "No signal on this rig publishes." : "Pick a target first."}</Typography>}
-                <List dense disablePadding>
-                  {Object.entries(byDevice).map(([device, choices]) => (
-                    <li key={device}>
-                      <ul style={{ padding: 0 }}>
-                        <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
-                          {deviceLabel(device)}
-                          {deviceLabel(device) !== device && (
-                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
-                              {device}
-                            </Typography>
-                          )}
-                        </ListSubheader>
-                        {choices.map((c) => {
-                          const by = schema.regulated[c.address];
-                          return (
-                            <ListItemButton
-                              key={c.address}
-                              selected={draft.source === c.address}
-                              disabled={Boolean(by)}
-                              onClick={() => {
-                                patch({ source: c.address, feedforward: null });
-                                setActive(2);
-                              }}
-                              data-source={c.address}
-                            >
-                              <ListItemText primary={`${choiceLabel(c)} · ${c.unit}`} secondary={`${c.address}${c.dimension ? ` · ${c.dimension}` : ""}${by ? ` · regulated by ${by}` : ""}`} />
-                            </ListItemButton>
-                          );
-                        })}
-                      </ul>
-                    </li>
-                  ))}
-                </List>
+                {!hasSources && <Typography color="text.secondary">{draft.target ? "No signal on this rig publishes." : "Pick an actuator first."}</Typography>}
+                {sourceGroups.map(({ title, byDevice }) => (
+                  <Box key={title ?? "all"} data-testid={title === null ? "sources" : `sources-${title.split(" ")[0]!.toLowerCase()}`}>
+                    {title !== null && (
+                      <Typography variant="overline" component="div" color={title === "Suggested" ? "primary" : "text.secondary"} sx={{ mt: title === "Suggested" ? 0 : 1.5 }}>
+                        {title}
+                        {title === "Suggested" && (
+                          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1, textTransform: "none", letterSpacing: 0 }}>
+                            in {demandUnit}, the actuator's unit, and not yet regulated
+                          </Typography>
+                        )}
+                      </Typography>
+                    )}
+                    <List dense disablePadding>
+                      {Object.entries(byDevice).map(([device, choices]) => (
+                        <li key={device}>
+                          <ul style={{ padding: 0 }}>
+                            <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
+                              {deviceLabel(device)}
+                              {deviceLabel(device) !== device && (
+                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
+                                  {device}
+                                </Typography>
+                              )}
+                            </ListSubheader>
+                            {choices.map((c) => {
+                              const by = schema.regulated[c.address];
+                              return (
+                                <ListItemButton
+                                  key={c.address}
+                                  selected={draft.source === c.address}
+                                  disabled={Boolean(by)}
+                                  onClick={() => {
+                                    patch({ source: c.address, feedforward: null });
+                                    setActive(2);
+                                  }}
+                                  data-source={c.address}
+                                >
+                                  <ListItemText primary={`${choiceLabel(c)} · ${c.unit}`} secondary={`${c.address}${c.dimension ? ` · ${c.dimension}` : ""}${by ? ` · regulated by ${by}` : ""}`} />
+                                </ListItemButton>
+                              );
+                            })}
+                          </ul>
+                        </li>
+                      ))}
+                    </List>
+                  </Box>
+                ))}
               </StepContent>
             </Step>
             <Step completed={lawReady && draft.lawChoice !== "none"}>
@@ -324,7 +360,7 @@ const AddControllerDialog = memo(function AddControllerDialog({
               </StepLabel>
               <StepContent>
                 <Stack spacing={1.5}>
-                  {!(draft.target && source) && <Typography color="text.secondary">Pick a target and a source first.</Typography>}
+                  {!(draft.target && source) && <Typography color="text.secondary">Pick an actuator and a sensor first.</Typography>}
                   {draft.target && source && (
                     <Typography variant="body2" color="text.secondary" data-testid="feedforward-help">
                       {unitsAgree
@@ -395,7 +431,7 @@ type From = "setpoint" | "process" | "value";
  * control below so Tab reaches this field and its button before Stop, which
  * the faceplate places in the header regardless of where it sits in the DOM.
  */
-const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, generators, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; tag: string | null; generators: JsonSchema | undefined; onEvent(name: string, kind: "changed" | "removed"): void }) {
+const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, hasSetpoint, generators, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; tag: string | null; hasSetpoint: boolean; generators: JsonSchema | undefined; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
   const [kind, setKind] = useState("value");
@@ -494,7 +530,13 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, g
         <>
           <FormControl size="small" sx={{ flexShrink: 0 }}>
             <Select value={fromNow} onChange={(e) => setFrom(e.target.value as From)} inputProps={{ "aria-label": `where the ${chosen.label.toLowerCase()} on ${name} starts` }} data-testid={`from-${name}`} sx={select}>
-              <MenuItem value="setpoint">from setpoint</MenuItem>
+              <Tooltip title={hasSetpoint ? "" : "This loop has never run: there is no setpoint yet to start from."} placement="right">
+                <span>
+                  <MenuItem value="setpoint" disabled={!hasSetpoint} data-testid={`from-setpoint-${name}`}>
+                    from setpoint
+                  </MenuItem>
+                </span>
+              </Tooltip>
               <MenuItem value="process">from reading</MenuItem>
               <MenuItem value="value">from a value</MenuItem>
             </Select>
@@ -631,7 +673,6 @@ const Faceplate = memo(function Faceplate({
   history,
   windowS,
   yScale,
-  every,
   exportHref,
   controls,
   headerControls,
@@ -642,11 +683,11 @@ const Faceplate = memo(function Faceplate({
   history: ControllerTrace | undefined;
   windowS?: number;
   yScale?: ChartSettings["yScale"];
-  every?: number;
   exportHref?: string;
   controls?: ReactNode;
   headerControls?: ReactNode;
 }) {
+  const auth = useAuth();
   return (
     <ControllerPanel
       controller={controller}
@@ -655,12 +696,12 @@ const Faceplate = memo(function Faceplate({
       history={history}
       windowS={windowS}
       yScale={yScale}
-      every={every}
       exportHref={exportHref}
       trends
       detail
       controls={controls}
       headerControls={headerControls}
+      canOperate={auth.canOperate}
     />
   );
 });
@@ -681,21 +722,19 @@ export interface ControllersProps extends ChartSettings {
  * any writable signal.
  */
 export function Controllers({ devices, name = null, ...charts }: ControllersProps) {
-  const { windowS, yScale, every } = charts;
+  const { windowS, yScale } = charts;
+  const auth = useAuth();
   const rig = useRig();
   const stored = useRecordingExports();
-  const { controllers, history, status } = useControllers(3600, every);
+  const { controllers, history, status } = useControllers(3600);
   const signals = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals)).map((s) => [s.address, s])), [devices]);
   // A controller's target is a demand: settable, with a readback that updates.
   const targets = useMemo(() => [...signals.values()].filter((s) => s.role === "demand"), [signals]);
   const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);
-  const [adding, setAdding] = useState(false);
-  const [addingFor, setAddingFor] = useState<SignalChoice | null>(null);
   // The stream never says a controller is gone: hide one we detached until the stream sends a new object for that name (re-created).
   const [removed, setRemoved] = useState<Record<string, ControllerOut>>({});
-  const [created, setCreated] = useState<Record<string, ControllerOut>>({});
 
-  const all = { ...created, ...controllers };
+  const all = controllers;
   // A controller is named by the signal it drives, so one filter picks out the single card for a detail route.
   const shown = name === null ? targets : targets.filter((t) => t.address === name);
   const controllerOf = (address: string): ControllerOut | undefined => {
@@ -710,22 +749,15 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
       if (kind === "removed") {
         const gone = latest.current[controllerName];
         if (gone) setRemoved((r) => ({ ...r, [controllerName]: gone }));
-        setCreated((c) => {
-          const { [controllerName]: _gone, ...rest } = c;
-          void _gone;
-          return rest;
-        });
       }
       controllerSchema.refresh();
     },
     [controllerSchema.refresh],
   );
 
-  const openAdd = useCallback((target?: SignalChoice) => {
-    setAddingFor(target ?? null);
-    setAdding(true);
-  }, []);
-
+  // Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6) only once there are
+  // enough of them to fill a row; fewer than that would just leave dead space beside them.
+  const cardClass = (count: number) => (count >= 3 ? "c12 xl4" : count === 2 ? "c12 xl6" : "c12");
   const only = shown.length === 1 ? controllerOf(shown[0]!.address) : undefined;
   const driven = shown.flatMap((target) => {
     const c = controllerOf(target.address);
@@ -735,32 +767,10 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const undriven = shown.filter((target) => !driven.some((d) => d.target === target));
   const toolbar = (
     <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.source)?.unit : undefined} />}>
-      {name === null ? (
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => openAdd()} data-testid="add-controller">
-          Add controller
-        </Button>
-      ) : (
-        <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />
-      )}
+      {name !== null && <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />}
       {controllerSchema.error && <Typography color="error">{controllerSchema.error.message}</Typography>}
     </PageBar>
   );
-  const closeDialog = useCallback(() => setAdding(false), []);
-  const onCreated = useCallback(
-    (controller: ControllerOut) => {
-      setAdding(false);
-      setCreated((c) => ({ ...c, [controller.name]: controller }));
-      setRemoved((r) => {
-        const { [controller.name]: _gone, ...rest } = r;
-        void _gone;
-        return rest;
-      });
-      controllerSchema.refresh();
-    },
-    [controllerSchema.refresh],
-  );
-  const dialog = <AddControllerDialog open={adding} schema={controllerSchema.data} devices={devices} initialTarget={addingFor} onClose={closeDialog} onCreated={onCreated} />;
-
   if (name !== null && shown.length === 0)
     return status === "connecting" ? <Typography color="text.secondary">loading…</Typography> : <Alert severity="warning">No writable signal at {name}.</Alert>;
   return (
@@ -774,13 +784,14 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
         ))}
       {/* Controllers first, then the demands nothing drives yet: a person looking for a loop should not read past pumps. */}
       {name === null && shown.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Controllers" count={driven.length} />}
-      {name === null && driven.length === 0 && shown.length > 0 && <StateBlock state="empty" message="No controller yet. Add one to a demand below, or with the button above." />}
-      {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), one per row otherwise. */}
+      {name === null && driven.length === 0 && shown.length > 0 && <StateBlock state="empty" message="No controller yet. Add one in Config." />}
+      {/* Three cards abreast on a very wide screen (DESIGN-SPEC §3.4/§7 B-6), fewer if there
+          aren't three to show, one per row otherwise. */}
       <div className="grid">
         {driven.map(({ target, c, source }) => {
           const tag = typeof c.law?.tag === "string" ? c.law.tag : null;
           return (
-            <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
+            <div key={target.address} className={(name === null ? cardClass(driven.length) : "c12") + " controller-cell"}>
               <Faceplate
                 controller={c}
                 source={source}
@@ -788,9 +799,8 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
                 history={history[c.name]}
                 windowS={windowS}
                 yScale={yScale}
-                every={every}
                 exportHref={stored.ticks(c.name)}
-                controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
+                controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} hasSetpoint={c.reference !== null} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
                 headerControls={<StopControl name={c.name} mode={c.mode} onEvent={onEvent} />}
               />
             </div>
@@ -800,22 +810,11 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
       {name === null && undriven.length > 0 && <SectionHead icon={PAGE_ICONS.controllers} title="Demands without a controller" count={undriven.length} />}
       <div className="grid">
         {undriven.map((target) => (
-          <div key={target.address} className={(name === null ? "c12 xl4" : "c12") + " controller-cell"}>
-            <WritePanel signal={target} title={signalTitle(target, devices)} />
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddIcon />}
-              sx={{ mt: 1 }}
-              onClick={() => openAdd(controllerSchema.data?.targets.find((t) => t.address === target.address))}
-              data-testid={`add-controller-${target.address}`}
-            >
-              Add controller
-            </Button>
+          <div key={target.address} className={(name === null ? cardClass(undriven.length) : "c12") + " controller-cell"}>
+            <WritePanel signal={target} title={signalTitle(target, devices)} canOperate={auth.canOperate} />
           </div>
         ))}
       </div>
-      {dialog}
     </>
   );
 }

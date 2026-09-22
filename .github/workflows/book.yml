@@ -1,9 +1,11 @@
-# Publishes both books to GitHub Pages as two versions, regenerated from the
+# Publishes the book to GitHub Pages as two versions, regenerated from the
 # two branches on every run — nothing built is kept in git:
-#   /latest/     the main branch        /humidity/latest/   the same for the humidity book
-#   /dev/        the dev branch         /humidity/dev/
+#   /latest/     the main branch
+#   /dev/        the dev branch
 # A push to either branch republishes both. The root redirects to latest.
 # One-off setup: repository Settings → Pages → Source: "GitHub Actions".
+# The humidity rig's own book (github.com/bengineer42/humctrl) publishes itself, since it split
+# out of examples/humidity into its own repo 22 Sep — see book/versions.py's docstring.
 name: book
 
 on:

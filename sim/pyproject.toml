@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyball-sim"
+version = "0.1.0"
+description = "Rigs with nothing plugged in: plant models, clocks and the simulated sim_plant/sim_daq/sim_drive devices"
+requires-python = ">=3.12"
+authors = [{ name = "Ben Laurence" }]
+# Zero third-party dependencies: the controller, the plant models and the
+# clocks are stdlib-only, same as engine's own core.
+dependencies = ["flyball"]
+classifiers = ["Private :: Do Not Upload"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+
+# What `flyball rig check`, the runner and the schema load to make
+# `sim_plant`/`sim_daq`/`sim_drive` valid tags in a rig file.
+[project.entry-points."flyball.configs"]
+sim = "flyball_sim.configs"
+
+[tool.uv.sources]
+flyball = { path = "../engine", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyball_sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../engine/pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "RUF", "D"]

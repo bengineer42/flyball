@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from flyball.core.config import Config, resolve
+from flyball.foundation.config import Config, resolve
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -56,13 +56,20 @@ def test_code_never_passes_the_tag(kinds):
     assert resolve(A(x=3)) == "A3" and resolve("already built") == "already built"
 
 
-def test_duplicate_tag_is_refused(kinds):
-    a, *_ = kinds
-    with pytest.raises(ValueError, match="already"):
+def test_duplicate_tag_is_refused_by_a_catalog(kinds):
+    """Defining two `Config`s with the same tag is fine; a `Catalog` refuses to hold both."""
+    from flyball.model.catalog import Catalog
 
-        class Again(Config[str], tag=a):
-            def build(self) -> str:
-                return ""
+    a, _b, A, _B = kinds
+
+    class Again(Config[str], tag=a):
+        def build(self) -> str:
+            return ""
+
+    catalog = Catalog("link")
+    catalog.register(A)
+    with pytest.raises(ValueError, match="already"):
+        catalog.register(Again)
 
 
 def test_untagged_config_cannot_join_a_union():
@@ -72,28 +79,6 @@ def test_untagged_config_cannot_join_a_union():
 
     with pytest.raises(TypeError, match="has no tag"):
         Plain.tagged()
-
-
-def test_discover_loads_every_entry_point_in_the_group(monkeypatch):
-    """A package that declares `flyball.configs` has its module imported, which registers tags."""
-    from importlib.metadata import EntryPoint
-
-    from flyball.core import config as module
-
-    imported = []
-
-    class Entry(EntryPoint):
-        def load(self):
-            imported.append(self.value)
-            return object()
-
-    entries = [Entry("acme", "acme.configs", "flyball.configs")]
-    monkeypatch.setattr(
-        "importlib.metadata.entry_points",
-        lambda group: entries if group == "flyball.configs" else [],
-    )
-    assert module.discover() == ["acme"] and imported == ["acme.configs"]
-    assert module.discover("other") == []
 
 
 class TestResolveDocumentsAndLoadRigConfig:

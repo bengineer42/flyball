@@ -1,4 +1,21 @@
 from .bank import Bank, TwoPhase
-from .i2c import TCA9548_ADDRESS, I2CBus, I2CMux, MuxedLane
+from .gpio import GpioLink
+from .i2c import I2cLink
+from .scan import Scan
+from .spanned_demand import from_fraction, spanned_signal_spec, to_fraction, validate_span
+from .spi import SpiLink
+from .uart import UartLink
 
-__all__ = ["TCA9548_ADDRESS", "Bank", "I2CBus", "I2CMux", "MuxedLane", "TwoPhase"]
+__all__ = [
+    "Bank",
+    "GpioLink",
+    "I2cLink",
+    "Scan",
+    "SpiLink",
+    "TwoPhase",
+    "UartLink",
+    "from_fraction",
+    "spanned_signal_spec",
+    "to_fraction",
+    "validate_span",
+]

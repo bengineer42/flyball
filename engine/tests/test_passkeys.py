@@ -4,7 +4,7 @@ No browser: a real WebAuthn ceremony needs a private key and an attestation/asse
 signed with it, so `_FakeAuthenticator` plays the authenticator's part -- generates an
 EC P-256 keypair, encodes it as a COSE key the same way a real one would, and builds
 the CBOR `attestationObject` / `authenticatorData` by hand. `verify_registration` and
-`verify_login` (flyball.server.passkeys) run the *real* `webauthn` verification code
+`verify_login` (flyball.interfaces.server.passkeys) run the *real* `webauthn` verification code
 against it, so this exercises the same signature checks a browser's response would hit.
 """
 
@@ -20,11 +20,11 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from fastapi.testclient import TestClient
 from webauthn.helpers import bytes_to_base64url, encode_cbor
 
+from flyball.interfaces.server import create_app, set_rig
+from flyball.interfaces.server.auth import hash_password
+from flyball.interfaces.server.deps import set_store
+from flyball.interfaces.server.passkeys import reset_memory_repo
 from flyball.runtime.config import AuthConfig
-from flyball.server import create_app, set_rig
-from flyball.server.auth import hash_password
-from flyball.server.deps import set_store
-from flyball.server.passkeys import reset_memory_repo
 
 
 class _FakeAuthenticator:
@@ -51,10 +51,12 @@ class _FakeAuthenticator:
             separators=(",", ":"),
         ).encode()
 
-    def register(self, rp_id: str, challenge: str, origin: str) -> dict:
+    def register(
+        self, rp_id: str, challenge: str, origin: str, *, user_verified: bool = True
+    ) -> dict:
         client_data = self._client_data("webauthn.create", challenge, origin)
         rp_id_hash = hashlib.sha256(rp_id.encode()).digest()
-        flags = 0x45  # UP | UV | AT
+        flags = 0x45 if user_verified else 0x41  # UP | UV | AT, or a key with no PIN: UP | AT
         auth_data = (
             rp_id_hash
             + bytes([flags])
@@ -77,11 +79,17 @@ class _FakeAuthenticator:
         }
 
     def assertion(
-        self, rp_id: str, challenge: str, origin: str, *, sign_count: int | None = None
+        self,
+        rp_id: str,
+        challenge: str,
+        origin: str,
+        *,
+        sign_count: int | None = None,
+        user_verified: bool = True,
     ) -> dict:
         client_data = self._client_data("webauthn.get", challenge, origin)
         rp_id_hash = hashlib.sha256(rp_id.encode()).digest()
-        flags = 0x05  # UP | UV, no attested credential data
+        flags = 0x05 if user_verified else 0x01  # UP | UV, or user presence alone
         count = self.sign_count + 1 if sign_count is None else sign_count
         auth_data = rp_id_hash + bytes([flags]) + count.to_bytes(4, "big")
         signature = self.private_key.sign(
@@ -121,13 +129,22 @@ def loggedin(rig):
     set_store(None)
 
 
-def _register(http: TestClient, authenticator: _FakeAuthenticator, label: str = "a passkey"):
+def _register(
+    http: TestClient,
+    authenticator: _FakeAuthenticator,
+    label: str = "a passkey",
+    *,
+    user_verified: bool = True,
+):
     challenge_options = http.post("/api/auth/passkey/challenge").json()
     result = http.post(
         "/api/auth/passkey/register",
         json={
             "credential": authenticator.register(
-                "testserver", challenge_options["challenge"], "http://testserver"
+                "testserver",
+                challenge_options["challenge"],
+                "http://testserver",
+                user_verified=user_verified,
             ),
             "label": label,
         },
@@ -282,7 +299,7 @@ def test_any_registered_passkey_grants_the_same_level(loggedin):
 
 
 def test_passkeys_persist_in_a_store_but_not_without_one(rig, tmp_path):
-    from flyball.db.sqlite import SqliteStore
+    from flyball.record.sqlite import SqliteStore
 
     store = SqliteStore(tmp_path / "s.sqlite3")
     http = _serve(rig, store=store)
@@ -355,7 +372,7 @@ def test_the_login_challenge_is_rate_limited_with_the_password_login(loggedin):
 
 
 def test_the_challenge_cache_is_capped():
-    from flyball.server.passkeys import ChallengeCache
+    from flyball.interfaces.server.passkeys import ChallengeCache
 
     cache = ChallengeCache(ttl=300, cap=3)
     first = cache.issue()
@@ -367,3 +384,50 @@ def test_the_challenge_cache_is_capped():
     cache.issue()
     cache.issue()  # one over: the oldest goes
     assert not cache.consume(first)
+
+
+def test_a_key_that_does_not_verify_the_user_cannot_register(loggedin):
+    """A PIN-less authenticator is refused: a passkey grants `operate`."""
+    authenticator = _FakeAuthenticator()
+    result = _register(loggedin, authenticator, user_verified=False)
+    assert result.status_code == 400
+    assert "did not verify" in result.json()["detail"]
+    assert loggedin.get("/api/auth/passkey").json()["passkeys"] == []
+
+
+def test_an_assertion_without_user_verification_is_refused(loggedin):
+    """Registered with a PIN, asserted without one: still no."""
+    authenticator = _FakeAuthenticator()
+    assert _register(loggedin, authenticator).status_code == 200
+    loggedin.post("/api/auth/logout")
+    challenge = loggedin.post("/api/auth/passkey/login/challenge").json()
+    response = loggedin.post(
+        "/api/auth/passkey/login",
+        json={
+            "credential": authenticator.assertion(
+                "testserver", challenge["challenge"], "http://testserver", user_verified=False
+            )
+        },
+    )
+    assert response.status_code == 401
+    assert loggedin.get("/api/health").status_code == 401
+
+
+def test_both_ceremonies_ask_the_authenticator_for_user_verification(loggedin):
+    """Not just checked after the fact -- the browser is told to require it."""
+    registration = loggedin.post("/api/auth/passkey/challenge").json()
+    assert registration["authenticatorSelection"]["userVerification"] == "required"
+    login = loggedin.post("/api/auth/passkey/login/challenge").json()
+    assert login["userVerification"] == "required"
+
+
+def test_without_the_passkeys_extra_the_routes_say_so(loggedin, monkeypatch):
+    """`webauthn` is the optional `passkeys` extra: no crash, no silent no-op, a 501."""
+    from flyball.interfaces.server import passkeys
+
+    monkeypatch.setattr(passkeys, "AVAILABLE", False)
+    assert loggedin.get("/api/auth").json()["passkey"] is False, "the UI hides the button"
+    assert loggedin.post("/api/auth/passkey/challenge").status_code == 501
+    assert loggedin.post("/api/auth/passkey/login/challenge").status_code == 501
+    assert loggedin.get("/api/auth/passkey").status_code == 501
+    assert loggedin.get("/api/health").status_code == 200, "password login is untouched"

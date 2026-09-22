@@ -1,8 +1,7 @@
 """Fixtures shared by the suite.
 
-Config tags, commands and base dimensions register process-wide by name, so
-every test that declares one uses a name unique to that test (``fresh``)
-and the command registry is restored after each test.
+Config tags and base dimensions register process-wide by name, so every test
+that declares one uses a name unique to that test (``fresh``).
 """
 
 from __future__ import annotations
@@ -12,27 +11,36 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from flyball_sim.clock import SteppedClock
 
-from flyball.programmer.command import Commands
+from flyball.model.catalog import Catalogs, set_catalog
+from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
-from flyball.runtime.rig import Rig
-from flyball.sim.clock import SteppedClock
 
 _counter = itertools.count()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _catalog() -> Iterator[Catalogs]:
+    """`Catalogs().discover()`, set as the current one for the whole session.
+
+    What `runner.py` does once at startup, in production; here it stands in
+    for that so the suite's own sim/link/driver tags (``sim_daq``, ...) are
+    registered the same way an installed package's are, not by import side
+    effect. A test that needs an isolated catalog builds its own and passes
+    it explicitly rather than mutating this one.
+    """
+    catalog = Catalogs()
+    catalog.discover()
+    set_catalog(catalog)
+    yield catalog
+    set_catalog(None)
 
 
 @pytest.fixture
 def fresh() -> Callable[[str], str]:
     """A name no other test has used: ``fresh("probe")`` -> ``probe_17``."""
     return lambda stem: f"{stem}_{next(_counter)}"
-
-
-@pytest.fixture(autouse=True)
-def _restore_commands() -> Iterator[None]:
-    before = dict(Commands)
-    yield
-    Commands.clear()
-    Commands.update(before)
 
 
 @pytest.fixture

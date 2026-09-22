@@ -118,7 +118,7 @@ Five things to note:
    returns `{}` — nothing committed yet — and `write` passes `None` back.
    `self.expected` is then `None` and `delivered_correction` is `None` too,
    until the delivery's single `device.commit()` runs at its end and
-   [`delivered(state)`][flyball.control.controller.Controller.delivered]
+   [`delivered(state)`][flyball.model.controller.Controller.delivered]
    fills them in, closing the tick with what the target actually took.
 5. **A target that never reports (`write` always returns `None`) gets no
    anti-windup.** `step`'s `last_applied` argument is `self.delivered_correction`
@@ -133,8 +133,9 @@ unit, that ought to hold the setpoint, which is in the **source's**. The law
 corrects the rest, so its gains are in target units per source unit (watts
 per °C on a bare heater; °C per °C on a packaged controller that itself
 takes a temperature). Feedforwards are tagged and self-describing like laws
-(`Feedforward` in `flyball.control.feedforward`; subclassing generates the
-config and registers the tag), and a rig file names one per controller:
+(`Feedforward` in `flyball.model.feedforward`; subclassing generates the
+config, and `control/configs.py` registers the built-in tags on a
+`Catalogs`), and a rig file names one per controller:
 
 | tag | `demand =` | for |
 | --- | --- | --- |
@@ -162,7 +163,7 @@ source-unit-per-second, adding `rate_gain * rate` on top of the static
 curve. It models a plant with *capacity*: a `table` of a furnace zone's
 static losses gets the steady-state hold power right but, on a ramp, only
 adds to a correction the law's integral is already winding up to cover the
-same shortfall — see `examples/simulated/furnace.yaml`'s comment: this
+same shortfall — see `examples/furnace/rig.yaml`'s comment: this
 measured *worse* than plain PI. `rate_gain` covers the extra power a ramp
 spends charging the zone's thermal mass — `capacity_j_per_k` itself,
 because it is J/K, i.e. W per °C/s, the same unit `rate_gain` wants. On
@@ -172,7 +173,7 @@ measured 4.0 °C overshoot plain PI, 7.6 °C with the static table alone, and
 controller ships with it:
 
 ```yaml
-# examples/simulated/furnace.yaml
+# examples/furnace/rig.yaml
 heaters.heater2:
   signal: furnace.zone2
   law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
@@ -291,4 +292,4 @@ tick gets no anti-windup term rather than a wrong one.
 
 `mode` says what the controller is doing. Whether a caller is *allowed* to
 change it is a separate question the controller does not answer;
-`flyball.core.resource` holds a claim graph for that.
+`flyball.foundation.resource` holds a claim graph for that.

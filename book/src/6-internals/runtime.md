@@ -8,7 +8,7 @@ What the equipment *is* and what it is *doing*, kept apart.
 signals, the polling, the recorder and the tuning registry. It has no
 opinion about what any controller regulates.
 
-A delivery ([on_samples][flyball.runtime.rig.Rig.on_samples]) runs under the
+A delivery ([on_samples][flyball.rig.rig.Rig.on_samples]) runs under the
 rig's lock, in this order, for every sample in the batch — a poll, a push, or
 a fresh read may deliver several at once:
 
@@ -55,7 +55,7 @@ before any of the delivery runs.
 
 ## Rig.demand: validating a write before anything is recorded
 
-[Rig.demand][flyball.runtime.rig.Rig.demand] puts one or more values on `W`
+[Rig.demand][flyball.rig.rig.Rig.demand] puts one or more values on `W`
 signals under one node, as a single demand, and validates the whole thing
 before touching anything:
 
@@ -85,7 +85,7 @@ the state arrives through the delivery's normal path instead.
 
 ## Rig.resolve: addresses parsed once
 
-[Rig.resolve][flyball.runtime.rig.Rig.resolve] is the *only* place an
+[Rig.resolve][flyball.rig.rig.Rig.resolve] is the *only* place an
 address string is parsed: it splits the device name off the front, looks
 the device up, and walks the rest with `Node.find`. Everything below —
 readings, samples, demands, controllers — carries the bound `Node`/`Signal`
@@ -99,15 +99,15 @@ what was just delivered.
 
 ## Polling
 
-`flyball.runtime.polling.Polling` runs each device's `read` on its own
-period: [poll_period][flyball.runtime.polling.poll_period] is the smallest
+`flyball.rig.polling.Polling` runs each device's `read` on its own
+period: [poll_period][flyball.rig.polling.poll_period] is the smallest
 `poll_s` over the device's *publishing* signals (each signal's `poll_s` is
 already the nearest one up the tree — its own, else its namespace's, else
 the device's), so a device with nothing on a period is never polled at all.
 `Rig.start_polling` calls it after a device is added. One `PeriodicLoop`
 thread per polled device calls `Polling._read`, which calls `device.read`
 and hands whatever comes back to
-[delivered][flyball.runtime.polling.Polling.delivered] — the same path a
+[delivered][flyball.rig.polling.Polling.delivered] — the same path a
 push or a fresh read uses — which runs `rig.on_samples` under the rig's
 lock and notes the run (`last_read_ns`, cleared conditions) in `Polling.runs`.
 
@@ -148,8 +148,8 @@ demand may drive the target again.
 ## Triggers
 
 Anything a program waits on — a prompt, a settle test, a hold — is a
-[Trigger][flyball.core.trigger.Trigger] registered by name in
-`rig.triggers` (`flyball.runtime.triggers.Triggers`) for as long as the wait
+[Trigger][flyball.foundation.router.trigger.Trigger] registered by name in
+`rig.triggers` (`flyball.rig.triggers.Triggers`) for as long as the wait
 lasts. `fire` settles it as met; `interrupt` cancels it. Outcomes are pushed
 through `Latest` as they settle, from whichever thread settles them; on the
 wire these are "waits" (`/api/waits`, `/ws/waits`).

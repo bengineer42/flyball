@@ -7,9 +7,9 @@ from typing import Annotated
 import pytest
 from pydantic import TypeAdapter
 
-from flyball.core.quantity import Quantity
-from flyball.core.units.errors import UnitNotFoundError
-from flyball.core.units.si import Celsius, Kelvin, Litre, Metre, Minute, Watt
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.errors import UnitNotFoundError
+from flyball.foundation.quantities.si import Celsius, Kelvin, Litre, Metre, Minute, Watt
 
 
 def test_equal_by_value_not_identity():

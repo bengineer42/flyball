@@ -8,14 +8,18 @@ from typing import Annotated
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from flyball.core.clock import Duration, Rate, TimeUnit
-from flyball.core.quantity import Quantity
-from flyball.core.units import Measured, UnitRef, unit_of
-from flyball.core.units import dimensions as d
-from flyball.core.units.dimension import DIMENSIONLESS, BaseDimension, Dimension, Kilo, Milli
-from flyball.core.units.errors import DimensionMismatchError
-from flyball.core.units.other import Fahrenheit
-from flyball.core.units.si import (
+from flyball.foundation.quantities import Measured, Quantity, UnitRef, unit_of
+from flyball.foundation.quantities import dimensions as d
+from flyball.foundation.quantities.dimension import (
+    DIMENSIONLESS,
+    BaseDimension,
+    Dimension,
+    Kilo,
+    Milli,
+)
+from flyball.foundation.quantities.errors import DimensionMismatchError
+from flyball.foundation.quantities.other import Fahrenheit
+from flyball.foundation.quantities.si import (
     Celsius,
     Gram,
     Joule,
@@ -27,6 +31,7 @@ from flyball.core.units.si import (
     Newton,
     Second,
 )
+from flyball.foundation.time import Duration, Rate, TimeUnit
 
 
 class TestDimension:
@@ -148,28 +153,28 @@ class TestUnitLookup:
     def test_get_resolves_symbols_prefixes_quotients_products_and_powers(
         self, symbol, label, factor
     ):
-        from flyball.core.units.dimension import Unit
+        from flyball.foundation.quantities.dimension import Unit
 
         unit = Unit.get(symbol)
         assert unit.dimension.label == label and unit.factor == pytest.approx(factor)
 
     def test_get_returns_the_registered_object_for_an_exact_symbol(self):
-        from flyball.core.units.dimension import Unit
+        from flyball.foundation.quantities.dimension import Unit
 
         assert Unit.get("°C") is Celsius and Unit.get("K") is Kelvin
 
     def test_unknown_symbol_is_a_typed_not_found(self):
-        from flyball.core.errors import NotFoundError
-        from flyball.core.units.dimension import Unit
-        from flyball.core.units.errors import UnitNotFoundError
+        from flyball.foundation.errors import NotFoundError
+        from flyball.foundation.quantities.dimension import Unit
+        from flyball.foundation.quantities.errors import UnitNotFoundError
 
         with pytest.raises(UnitNotFoundError) as e:
             Unit.get("furlong")
         assert isinstance(e.value, NotFoundError)
 
     def test_a_clashing_definition_of_a_symbol_is_refused(self):
-        from flyball.core.units.dimension import Unit
-        from flyball.core.units.dimensions import Length, Time
+        from flyball.foundation.quantities.dimension import Unit
+        from flyball.foundation.quantities.dimensions import Length, Time
 
         with pytest.raises(ValueError, match="already"):
             Unit("bogus metre", "m", Time)

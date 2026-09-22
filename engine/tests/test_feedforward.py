@@ -1,24 +1,18 @@
 """A controller's demand is feedforward(setpoint) + correction, in the target's unit."""
 
 import pytest
+from flyball_sim.clock import SteppedClock
 
-from flyball.control import (
-    Affine,
-    Controller,
-    Feedforwards,
-    NoFeedforward,
-    Setpoint,
-    Table,
-    Transfer,
-)
-from flyball.control.errors import FeedforwardNotInvertibleError
+from flyball.control import Affine, Table
 from flyball.control.laws import P
-from flyball.control.types import ValueSource
-from flyball.core.device import Device
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Reading, SignalSpec
-from flyball.core.units.si import Celsius, Watt
-from flyball.sim.clock import SteppedClock
+from flyball.foundation.device import Access, Device, Reading, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Watt
+from flyball.model.catalog import get_catalog
+from flyball.model.controller import Controller, ValueSource
+from flyball.model.errors import FeedforwardNotInvertibleError
+from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.law import Transfer
 
 
 class Oven(Device):
@@ -50,7 +44,7 @@ def controller(clock: SteppedClock, heater: Heater, **kwargs) -> Controller:
 
 class TestFeedforwards:
     def test_builtins_and_their_configs_round_trip(self):
-        assert set(Feedforwards) >= {"setpoint", "none", "affine", "table"}
+        assert set(get_catalog().feedforwards) >= {"setpoint", "none", "affine", "table"}
         assert Setpoint()(50.0) == 50.0
         assert NoFeedforward()(50.0) == 0.0
         affine = Affine.config.model_validate({"tag": "affine", "gain": 2.0, "bias": 1.0}).build()

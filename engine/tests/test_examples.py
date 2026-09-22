@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from flyball_sim import Fopdt, Integrator, Lag, Noisy, SteppedClock
 
 from flyball.runtime.config import load_rig_config
-from flyball.sim import Fopdt, Integrator, Lag, Noisy, SteppedClock
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 STRESS = Path(__file__).resolve().parents[2] / "examples" / "stress"

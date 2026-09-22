@@ -7,11 +7,11 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from flyball_sim import ScaledClock, SteppedClock
+from flyball_sim.simulation import Simulation
 
-from flyball.core.errors import ConflictError, NotFoundError
+from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.runtime.config import RigConfig, load_rig_config, resolve_document
-from flyball.runtime.simulation import Simulation
-from flyball.sim import ScaledClock, SteppedClock
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -54,8 +54,8 @@ class TestSteppedClock:
         assert clock.wait(set_event, timeout=10) is True and clock.now_ns() == 40_000_000_000
 
     def test_a_program_s_timed_wait_passes_at_once(self, rig, clock):
-        from flyball.core.clock import Duration
-        from flyball.programmer import Program, Programmer, Wait
+        from flyball.foundation.time import Duration
+        from flyball.sequencing import Program, Programmer, Wait
 
         programmer = Programmer(rig)
         programmer.start(Program([Wait("hold", timeout=Duration(600))]))
@@ -93,7 +93,7 @@ class TestSimulation:
             })
 
     def test_hardware_is_not_a_simulation(self):
-        from flyball.runtime.rig import Rig
+        from flyball.rig import Rig
 
         config = RigConfig.model_validate({"links": {"v": {"tag": "visa", "resource": "x"}}})
         assert config.simulated is False
@@ -166,7 +166,7 @@ class TestSimulation:
 
 class TestLiveValues:
     def test_readings_and_live_links_pair_config_with_what_is_read(self):
-        path = EXAMPLES / "furnace.yaml"
+        path = EXAMPLES.parent / "furnace" / "rig.yaml"
         document, _ = resolve_document(path)
         document["clock"] = {"stepped": True}
         config = RigConfig.model_validate(document)
@@ -228,7 +228,7 @@ class TestLiveValues:
             oven.readings("ghost")
 
     def test_a_live_path_walks_the_description_and_fans_out_on_a_star(self):
-        from flyball.runtime.simulation import resolve_live
+        from flyball.runtime.config import resolve_live
 
         root = {
             "output": 1.5,
@@ -254,8 +254,9 @@ class TestLiveValues:
 def test_a_stall_resynchronises_the_poll_instead_of_bursting():
     from threading import Event
 
-    from flyball.core.utils import PeriodicLoop
-    from flyball.sim import ScaledClock
+    from flyball_sim import ScaledClock
+
+    from flyball.foundation.time import PeriodicLoop
 
     calls = []
     clock = ScaledClock(1)
@@ -275,7 +276,7 @@ def test_a_stall_resynchronises_the_poll_instead_of_bursting():
 
 
 def test_a_timed_activity_whose_wait_raises_fails_the_step(rig):
-    from flyball.programmer import Timed
+    from flyball.sequencing import Timed
 
     class Broken:
         def wait(self, event, timeout):

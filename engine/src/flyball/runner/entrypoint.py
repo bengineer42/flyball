@@ -1,0 +1,90 @@
+"""`flyball-runner`'s entry point: parse the command line, build the rig, serve it.
+
+Not named `main.py`: `__init__.py` re-exports its `main` function under that
+same name, which would shadow this submodule on `flyball.runner.main` --
+`pytest.monkeypatch.setattr("flyball.runner.main.serve", ...)` would then
+resolve to the function, not this module, and silently patch nothing. Patch
+`flyball.runner.entrypoint.serve` instead.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+from flyball.model.catalog import Catalogs, set_catalog
+from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
+from flyball.runtime.drivers import load_drivers
+from flyball.runtime.overlay import resolve_layers
+
+from .cli import parser, settle
+from .serving import serve
+from .starting import resumed, start_with_store
+
+log = logging.getLogger("flyball.runner")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    logging.basicConfig(level=(args.log_level or "info").upper())
+    first = args.rig[0] if args.rig else Path("rig")
+    try:
+        catalog = Catalogs()
+        catalog.discover()
+        set_catalog(catalog)
+        document: dict[str, Any] = {"name": first.stem}  # bare: built through the API
+        files: list[Path] = []
+        if args.rig and not args.resume:
+            document, files = resolve_documents(args.rig, args.sets)
+        # The runner section first: it may say where the drivers are, and
+        # the rig file may name a driver from there.
+        section = RunnerConfig.model_validate(document.get("runner") or {})
+        name = document.get("name")
+        settings = settle(section, args, first, name if isinstance(name, str) else None, files)
+        logging.getLogger().setLevel(settings.log_level.upper())
+        assert settings.store is not None and settings.drivers is not None
+        report = load_drivers(settings.drivers)
+        for stem, error in report.errors.items():
+            log.warning("drivers/%s.py: %s", stem, error)
+        if args.resume:
+            config = resumed(settings.store)
+        else:
+            config = RigConfig.model_validate(document)
+            config.files = files
+    except Exception as e:  # a bad file is the user's problem, not a traceback
+        names = ", ".join(str(p) for p in args.rig) or "(no rig file)"
+        print(f"flyball-runner: {names}: {e}", file=sys.stderr)
+        return 2
+    settings.store.parent.mkdir(parents=True, exist_ok=True)  # a store_dir that is not there yet
+    rig, store = start_with_store(
+        config, record=True if args.record else None, store_path=settings.store
+    )
+    simulation = None
+    if config.simulated and args.rig:
+        try:
+            from flyball_sim.simulation import Simulation
+        except ImportError:
+            names = ", ".join(str(p) for p in args.rig)
+            print(
+                f"flyball-runner: {names}: every link is simulated, but flyball-sim is not"
+                " installed here",
+                file=sys.stderr,
+            )
+            return 2
+        # What `sim save` writes back: the layers merged, but before the board
+        # was applied, so a board's links are not inlined into the rig file.
+        layered, _ = resolve_layers([Path(p) for p in args.rig], args.sets)
+        simulation = Simulation(rig, config, layered, first)
+        log.info("a simulation: %s plants, clock at %gx", len(simulation.plants), simulation.speed)
+    log.info("serving %s on %s:%d", config.name or first.name, settings.host, settings.port)
+    # uvicorn's own graceful shutdown (its "Shutting down" / "Application shutdown
+    # complete" logging) already runs by the time this is caught -- the interrupt
+    # still escapes uvicorn's internals and would otherwise print a raw traceback
+    # here on top of that, for no reason: the process is exiting cleanly either way.
+    with contextlib.suppress(KeyboardInterrupt):
+        serve(rig, settings, simulation=simulation, store=store, config=config)
+    return 0

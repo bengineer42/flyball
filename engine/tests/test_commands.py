@@ -5,16 +5,26 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
+from flyball_sim import SteppedClock
 
 from flyball.control.laws import P
-from flyball.core.device import Committable, Demand, Namespace, Output, Readable, command
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.quantity import Quantity
-from flyball.core.signal import Access, Role, Sample, Section
-from flyball.core.units.si import Celsius, Percent
-from flyball.core.utils import Labelled
-from flyball.runtime.rig import Rig
-from flyball.sim import SteppedClock
+from flyball.foundation.device import (
+    Access,
+    Committable,
+    Demand,
+    Namespace,
+    Output,
+    Readable,
+    Role,
+    Sample,
+    Section,
+    command,
+)
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.primitives import Labelled
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius, Percent
+from flyball.rig import Rig
 
 TEMP = Quantity("temperature", Celsius)
 DUTY = Quantity("duty", Percent)
@@ -208,7 +218,7 @@ def test_a_batch_delivers_every_push_inside_it_as_one_sample(rig: Rig, heater: H
 def test_recording_declares_a_limit_that_follows_a_signal_as_its_number(
     rig: Rig, heater: Heater, tmp_path
 ) -> None:
-    from flyball.db import SqliteStore
+    from flyball.record import SqliteStore
 
     store = SqliteStore(tmp_path / "rig.sqlite")
     rig.start_recording(store)  # `banks.a` has limits (0, max_duty): declared as (0, 80)
@@ -240,7 +250,7 @@ def test_a_reading_on_an_input_commits_the_device_that_follows_it(rig: Rig) -> N
 
 
 def test_a_computed_tree_s_demands_get_setters_on_the_instance(rig: Rig) -> None:
-    from flyball.core.signal import Access, SignalSpec
+    from flyball.foundation.device import Access, SignalSpec
 
     class Generic(Committable):
         def __init__(self, name: str, ports: list[str]) -> None:

@@ -6,10 +6,10 @@ import threading
 
 import pytest
 
-from flyball.core.clock import Clock
-from flyball.core.errors import ConflictError, NotFoundError
-from flyball.core.trigger import Outcome, Trigger
-from flyball.runtime.triggers import Triggers
+from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.router import Outcome, Trigger
+from flyball.foundation.time import Clock
+from flyball.rig import Triggers
 
 
 def test_signal_settles_once_and_reports_how():

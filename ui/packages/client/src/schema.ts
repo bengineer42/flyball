@@ -75,8 +75,20 @@ export function formatNumber(value: number, schema?: ValueMeta): string {
   return fixed(value, digitsFor(schema));
 }
 
-/** `toFixed` that never prints `-0.0`: a value that rounds to nothing is nothing. */
-export function fixed(value: number, digits: number): string {
+/**
+ * `toFixed` that never prints `-0.0`: a value that rounds to nothing is nothing.
+ *
+ * Takes `unknown` on purpose. A recorded value is whatever was written, and a
+ * generator-based controller write (a ramp's `regulate`) records an *object*,
+ * not a number; the types say otherwise all the way down, so every caller that
+ * only checked `== null` used to reach `.toFixed` on it. Inside uPlot's legend
+ * or axis callbacks that throw takes the whole page down, which it did twice
+ * (22 Sep). Anything not a finite number formats as an em-dash here, so no call
+ * site can crash a page again; the callers still guard where the fallback needs
+ * to read differently (no unit suffix on a dash).
+ */
+export function fixed(value: unknown, digits: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   const text = value.toFixed(digits);
   return /^-0(\.0*)?$/.test(text) ? text.slice(1) : text;
 }
@@ -234,6 +246,16 @@ export function setpointOf(controller: Pick<ControllerOut, "reference" | "demand
 export function humanise(tag: string): string {
   const words = tag.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * `verb` prefixed onto `label`, unless `label` already opens with it: a
+ * signal named `set_voltage` humanises to "Set voltage" on its own, so
+ * prefixing "Set " again for a "Set <label>" heading would double the word
+ * ("Set Set voltage") rather than saying it once.
+ */
+export function verbLabel(verb: string, label: string): string {
+  return new RegExp(`^${verb}\\b`, "i").test(label) ? label : `${verb} ${label}`;
 }
 
 /**

@@ -90,13 +90,14 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
     <>
       <div className="fb-readout-value">
         <span className="fb-readout-number" style={{ minWidth: `${width}ch` }}>
-          {last === undefined ? "—" : fixed(last, precision)}
+          {fixed(last, precision)}
         </span>
         <span className="fb-readout-unit">{describeUnit(signal.unit)}</span>
       </div>
-      {fraction !== null && (
-        <div className="fb-range" title={withUnit(`${range![0]} – ${range![1]}`, signal.unit)}>
-          <div className="fb-range-fill" style={{ width: `${fraction * 100}%` }} />
+      {/* The bar is the range's, not the value's: with no value yet (or none at a paused moment) it stays, empty, so the tile keeps its height. */}
+      {range && (
+        <div className="fb-range" title={withUnit(`${range[0]} – ${range[1]}`, signal.unit)}>
+          <div className="fb-range-fill" style={{ width: `${(fraction ?? 0) * 100}%` }} />
           {ticks.map((t) => (
             <div key={`${t.band}${t.left}`} className={`fb-range-tick fb-range-tick-${t.band}`} style={{ left: `${t.left}%` }} />
           ))}
@@ -113,7 +114,8 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
       severityLabel={label}
       title={<Ref kind="signal" name={signal.address}>{title}</Ref>}
       subtitle={!showDevice ? undefined : place && captionUnder(title, signal, place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionUnder(title, signal, place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
-      footer={footer}
+      // Always a footer line, blank while fresh: one that came and went with staleness resized the tile (as `Gauge` already reserves its own).
+      footer={footer ?? "\u00a0"}
     >
       {body}
     </PanelFrame>

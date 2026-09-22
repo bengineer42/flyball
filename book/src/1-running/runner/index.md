@@ -34,7 +34,7 @@ cd ../daemon && go build ./cmd/flyball         # the flyball CLI, a standalone G
 `uv run flyball-runner …` from `engine/` starts a rig. There's no packaged
 install or release binary for the CLI yet -- `daemon/cmd/flyball`'s build
 above produces a `flyball` binary, put it on `PATH` or run it from
-`daemon/`. A rig on a Raspberry Pi also wants `linux/` (`flyball-linux`); an
+`daemon/`. A rig on a Raspberry Pi also wants `extensions/linux/` (`flyball-linux`); an
 application such as `examples/humidity` has its own `uv sync` and brings
 its drivers with it. Extras per integration: [Integrations](../../5-integrations/index.md).
 
@@ -87,8 +87,8 @@ The body is `{"detail": "<the exception's message>"}`.
 The runner that wants history attaches a store as well:
 
 ```python
-from flyball.db import SqliteStore
-from flyball.server import set_store
+from flyball.record import SqliteStore
+from flyball.interfaces.server import set_store
 
 store = SqliteStore("rig.db")
 set_store(store)

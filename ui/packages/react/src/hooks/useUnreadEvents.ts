@@ -4,6 +4,25 @@ import { eventKey } from "../panels/EventsPanel.js";
 
 const RANK: Record<EventLevel, number> = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3 };
 
+const WATERMARK_KEY = "flyball.events.readWatermark";
+
+/** The rig's clock (nanoseconds) everything at or before has been read; 0 before anything has. */
+const readWatermark = (): number => {
+  try {
+    return Number(window.localStorage.getItem(WATERMARK_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+const writeWatermark = (time_ns: number) => {
+  try {
+    window.localStorage.setItem(WATERMARK_KEY, String(time_ns));
+  } catch {
+    /* not persisted */
+  }
+};
+
 export interface UnreadEvents {
   /** Keys (`eventKey(e)`) of events at or above the threshold that have not been marked read. */
   unread: ReadonlySet<string>;
@@ -17,17 +36,19 @@ export interface UnreadEvents {
 
 /**
  * Read/unread state for the rig's events, plus the toast queue for notable events that
- * arrive while the viewer is elsewhere. View state only, like `EventsPanel`'s own
- * `levels`/`text`/`open` -- a reload resets it, nothing is persisted server-side. One
- * instance is meant to live near the app root (fed by the same `useEvents` the pages
- * already call) so the nav badge, toasts and the Events page all agree on what's unread.
+ * arrive while the viewer is elsewhere. A single "read up to this timestamp" watermark,
+ * persisted client-side (`localStorage`) -- not a per-event set: nothing relies on marking
+ * one older event read out of order, and a watermark needs no pruning. Survives a reload,
+ * unlike `EventsPanel`'s own `levels`/`text`/`open` view state. One instance is meant to
+ * live near the app root (fed by the same `useEvents` the pages already call) so the nav
+ * badge, toasts and the Events page all agree on what's unread.
  *
  * Only events at or above `minLevel` (default `WARNING`) count: INFO/DEBUG flow
  * continuously on a running rig and would otherwise keep the badge and the toast queue
  * permanently full.
  */
 export function useUnreadEvents(events: RigEvent[], minLevel: EventLevel = "WARNING"): UnreadEvents {
-  const [read, setRead] = useState<ReadonlySet<string>>(() => new Set());
+  const [watermark, setWatermark] = useState<number>(readWatermark);
   const [toasts, setToasts] = useState<RigEvent[]>([]);
   const lastKeyRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
@@ -45,18 +66,19 @@ export function useUnreadEvents(events: RigEvent[], minLevel: EventLevel = "WARN
     if (notable.length) setToasts((q) => [...q, ...notable]);
   }, [events, minLevel]);
 
-  const markRead = useCallback((e: RigEvent) => {
-    const k = eventKey(e);
-    setRead((s) => (s.has(k) ? s : new Set(s).add(k)));
+  const raise = useCallback((time_ns: number) => {
+    setWatermark((w) => {
+      if (time_ns <= w) return w;
+      writeWatermark(time_ns);
+      return time_ns;
+    });
   }, []);
 
+  const markRead = useCallback((e: RigEvent) => raise(e.time_ns), [raise]);
+
   const markAllRead = useCallback(() => {
-    setRead((s) => {
-      const next = new Set(s);
-      for (const e of events) next.add(eventKey(e));
-      return next;
-    });
-  }, [events]);
+    if (events.length) raise(events[events.length - 1]!.time_ns);
+  }, [events, raise]);
 
   const dismissToast = useCallback(
     (e: RigEvent) => {
@@ -68,9 +90,9 @@ export function useUnreadEvents(events: RigEvent[], minLevel: EventLevel = "WARN
 
   const unread = useMemo(() => {
     const s = new Set<string>();
-    for (const e of events) if (RANK[e.level] >= RANK[minLevel] && !read.has(eventKey(e))) s.add(eventKey(e));
+    for (const e of events) if (RANK[e.level] >= RANK[minLevel] && e.time_ns > watermark) s.add(eventKey(e));
     return s;
-  }, [events, minLevel, read]);
+  }, [events, minLevel, watermark]);
 
   return { unread, unreadCount: unread.size, markRead, markAllRead, toasts, dismissToast };
 }

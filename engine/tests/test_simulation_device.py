@@ -7,17 +7,17 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from flyball_sim import DaqPort, PlantConfig, ScaledClock, SimDaq, SimDaqConfig
+from flyball_sim.simulation import Simulation
 
-from flyball.core.device import Device, Setting, command
-from flyball.core.quantity import Quantity
-from flyball.core.typing import Positive
-from flyball.core.units.si import Second
+from flyball.foundation.device import Device, Setting, command
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Second
+from flyball.foundation.typing import Positive
+from flyball.interfaces.server import create_app, set_rig, set_simulation
+from flyball.interfaces.server.deps import set_simulation_device
+from flyball.rig import Rig
 from flyball.runtime.config import RigConfig
-from flyball.runtime.rig import Rig
-from flyball.runtime.simulation import Simulation
-from flyball.server import create_app, set_rig, set_simulation
-from flyball.server.deps import set_simulation_device
-from flyball.sim import DaqPort, PlantConfig, ScaledClock, SimDaq, SimDaqConfig
 
 
 class OvenSim(Device):
@@ -106,8 +106,8 @@ def test_schema_view_and_commands_go_through_the_device_routes(client):
     assert client.post("/api/sim/device/set_tau", json={"tau_s": 5}).json() == 5.0
     # `set_simulation_device` does not swap the device onto the rig's router (unlike
     # `Rig.add_device`), so a pushed signal never reaches `rig.router` for `/api/sim/device`
-    # to read back -- a src issue (`flyball.server.deps.set_simulation_device`), out of scope
-    # here; not asserted.
+    # to read back -- a src issue (`flyball.interfaces.server.deps.set_simulation_device`),
+    # out of scope here; not asserted.
     assert client.post("/api/sim/device/set_tau", json={"tau_s": 0}).status_code == 422
     assert client.post("/api/sim/device/set_tau", json={"bogus": 1}).status_code == 422
     assert client.post("/api/sim/device/nope", json={}).status_code == 404

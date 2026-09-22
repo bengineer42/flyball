@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from flyball_sim.plant import Fopdt, Lag, Noisy
 
 from flyball.autotune.rules import imc
 from flyball.autotune.types import FOPDT
 from flyball.control import IMC, PI, PID, OnOff, Scheduled, SlidingMode, SmithPredictor
 from flyball.control.laws import Weighted
-from flyball.control.types import ControlLaw, ControlLaws
-from flyball.sim.plant import Fopdt, Lag, Noisy
+from flyball.model.catalog import get_catalog
+from flyball.model.law import ControlLaw
 
 
 class Loop:
@@ -88,7 +89,7 @@ def settled(trace: list[float], target: float, tail: int = 60, within: float = 0
     ids=lambda law: law.tag,
 )
 def test_each_law_round_trips_through_its_config_and_view(law):
-    assert ControlLaws[law.tag] is type(law)
+    assert get_catalog().laws[law.tag] is type(law)
     rebuilt = law.config.build()
     assert type(rebuilt) is type(law) and rebuilt.config == law.config
     law.step(0.0, 10.0, 12.0)
@@ -100,7 +101,7 @@ def test_each_law_round_trips_through_its_config_and_view(law):
 
 
 def test_the_registry_has_the_new_tags():
-    assert {"IMC", "on_off", "smith", "scheduled", "sliding"} <= set(ControlLaws)
+    assert {"IMC", "on_off", "smith", "scheduled", "sliding"} <= set(get_catalog().laws)
 
 
 # endregion

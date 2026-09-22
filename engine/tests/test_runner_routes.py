@@ -6,9 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import FakeRunner
+from flyball.interfaces.server import create_app
+from flyball.interfaces.server.deps import set_runner
 from flyball.runtime.config import RunnerConfig
-from flyball.server import create_app
-from flyball.server.deps import set_runner
 
 
 @pytest.fixture

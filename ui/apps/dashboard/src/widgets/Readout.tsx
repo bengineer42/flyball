@@ -49,7 +49,7 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
     </div>
   );
   // The 44px sparkline needs the fifth row (body 36h − 66: 114 at h=5, 78 at h=4 -- value row and range bar only).
-  return <Readout bare signal={signal} source={source} sparkline={config.sparkline !== false && widget.h >= 5} showDevice={showDevice} windowS={charts.windowS} every={charts.every} exportHref={exports.series(address)} fresh={fresh} />;
+  return <Readout bare signal={signal} source={source} sparkline={config.sparkline !== false && widget.h >= 5} showDevice={showDevice} windowS={charts.windowS} exportHref={exports.series(address)} fresh={fresh} />;
 });
 
 export const readout: WidgetKind = {

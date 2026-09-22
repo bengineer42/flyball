@@ -12,7 +12,7 @@ which access flags their signals carry.
 --8<-- "sensor.py:10:12"
 ```
 
-A [`Quantity`][flyball.core.quantity.Quantity] is a name and a unit, nothing
+A [`Quantity`][flyball.foundation.quantities.quantity.Quantity] is a name and a unit, nothing
 else — not interned, not process-wide. Two devices may both report
 `temperature` in °C without sharing an object; range, precision and bands
 live on the *signal*, not the quantity, because two thermocouples on one
@@ -24,15 +24,15 @@ rig can differ in all three.
 --8<-- "sensor.py:15:22"
 ```
 
-Each signal is a **descriptor** on the class: [`Output`][flyball.core.device.Output]
+Each signal is a **descriptor** on the class: [`Output`][flyball.foundation.device.descriptors.Output]
 for something produced (`RP`), the only role a pure sensor needs. Its
 arguments are the signal's name, a label, its quantity, then metadata:
 `range` and `precision` for a gauge or an axis, `warn` and `alarm` bands,
 `poll_s` for a signal read at its own rate, `tags` to group it across
-devices. A [`Namespace`][flyball.core.device.Namespace] groups several
+devices. A [`Namespace`][flyball.foundation.device.descriptors.Namespace] groups several
 under one path (`hum_sensors.dry.humidity`), for a device that is really
 several sensors. `Device.__init__` binds the tree once: every descriptor
-becomes a bound [`Signal`][flyball.core.signal.Signal] with its address
+becomes a bound [`Signal`][flyball.foundation.device.signal.Signal] with its address
 (`weather.temperature`) fixed for the device's life, reachable as
 `self.temperature` or `self.signals["temperature"]`. Everything declared
 here lands in the schema, so a UI or a CLI knows how to draw the signal
@@ -45,12 +45,12 @@ register map -- builds descriptors at run time instead;
 
 ## Choose a unit
 
-Units come from `flyball.core.units`: the SI base and derived units, °C,
+Units come from `flyball.foundation.quantities`: the SI base and derived units, °C,
 °F, litres, minutes, and prefixes (`Pascal.prefixed(Kilo)`, both from
-`flyball.core.units.si` and `.dimension`). Anything not there is one line:
+`flyball.foundation.quantities.si` and `.dimension`). Anything not there is one line:
 
 ```python
-from flyball.core.units import DIMENSIONLESS
+from flyball.foundation.quantities import DIMENSIONLESS
 PercentRH = DIMENSIONLESS.unit("percent relative humidity", "%RH", 0.01)
 ```
 
@@ -102,9 +102,9 @@ line-oriented serial, `RegisterLink` (`read_registers`, `write_registers`)
 for Modbus. Each link has a real implementation that imports its driver
 only when built, and a fake for tests and hardware-free rigs. A driver
 config's `link` field names one by key in the rig file's `links:` — see
-[Config and build](config.md). `flyball.hardware` and `flyball.devices`
-have table-driven devices over both; subclass those before writing a
-driver from scratch.
+[Config and build](config.md). `extensions/visa` (`Scpi`) and
+`extensions/modbus` (`Modbus`) have table-driven devices over both;
+subclass those before writing a driver from scratch.
 
 ## Several signals, one instant
 

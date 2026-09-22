@@ -1,13 +1,13 @@
-# The Rig page
+# The Config page
 
-**Rig** (`#/rig`) is the running rig as a file would show it, its history, and how to reach the runner from outside the browser. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
+**Config** (`#/rig`) is the running rig as a file would show it, its history, and how to reach the runner from outside the browser. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
 
 !!! tip "At the terminal"
     `flyball rig check FILE…` validates a file without a runner; `flyball sim …` drives a simulated rig's knobs; save, versions, restart and shut down are routes for now -- [The rig and the runner](../cli/rig.md).
 
-## Rig
+## Config
 
-**Rig** (`#/rig`) is the running rig as a file would show it, alongside its
+**Config** (`#/rig`) is the running rig as a file would show it, alongside its
 history and how to reach it from outside the browser:
 
 - **Running document** (`GET /api/rig/document`) — links, devices and
@@ -30,6 +30,13 @@ history and how to reach it from outside the browser:
   **Shut down** buttons beside it, each behind a confirmation. Restart
   runs the same command again: the rig is rebuilt from its files, the app
   reconnects within a few seconds.
+- **Devices, links and controllers** — Config is the only place in the app to add or remove
+  any of the three (the Devices, Inputs and Controllers pages show them but no longer offer
+  add/remove for anything but a controller's own detach). Each section lists what exists as
+  chips (a device's name and driver, a link's name and tag, a controller's target and
+  source), each with a remove button behind a confirmation; an **Add** button opens the same
+  dialog the Devices/Controllers pages used before this moved here — see [Devices](devices.md)
+  and [Controllers](controllers.md) for what each dialog asks.
 - **Connect a model** — this runner's [MCP](../../4-server/mcp.md) server, one tier per
   mode: each row is that tier's absolute URL, a ready-made
   `claude mcp add --transport http …` line, and (below all three) a client

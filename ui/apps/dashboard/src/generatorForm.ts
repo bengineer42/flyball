@@ -7,11 +7,16 @@
  *
  * What is rewritten, and why:
  * - a `Speed` (a `{value, per}` object or a `{per_minute: n}` shorthand) becomes
- *   one object with a single `per_minute` number in `<unit>/min`, which is a
- *   valid wire form as it stands;
- * - a `Duration` (unit keys that add, or bare seconds) becomes one object with a
- *   single `minutes` number, also a wire form; one that may be null keeps its
- *   field and simply goes unfilled (`prune` then drops the empty object);
+ *   one object with a `value` number in the process unit and a `per` unit
+ *   picker (per second/minute/hour); a `Duration` (unit keys that add, or bare
+ *   seconds) becomes one object with a `value` number and a `unit` picker
+ *   (seconds/minutes/hours/days) -- the engine accepts any one of those unit
+ *   keys (`RATE_KEYS`/`DURATION_KEYS` in the server's `dialect.py`), the old
+ *   hardcoded `per_minute`/`minutes` was only ever this form's own limit, and
+ *   `prune` packs the picked unit and value into that single wire key
+ *   (`{hours: 1.5}`, say) once the form submits; one that may be null keeps
+ *   its field and simply goes unfilled (a blank `value` prunes the object
+ *   away entirely);
  * - a `Speed | Duration` union (a ramp's `pace`) keeps the two-way choice, its
  *   branches titled "at a rate" / "over a time";
  * - a number field a generator takes in the process unit gets `unit`;
@@ -56,19 +61,43 @@ function isDuration(node: JsonSchema, root: JsonSchema): boolean {
   return (node.anyOf ?? []).some((b) => hasProperty(deref(b, root), "minutes"));
 }
 
+/** The `per` a `Speed` may wire as (`RATE_KEYS` in the server's `dialect.py`, the practical subset). */
+const RATE_UNITS: Array<{ const: string; title: string }> = [
+  { const: "per_second", title: "/s" },
+  { const: "per_minute", title: "/min" },
+  { const: "per_hour", title: "/h" },
+];
+
+/** The `unit` a `Duration` may wire as (`DURATION_KEYS` in the server's `dialect.py`, the practical subset). */
+const DURATION_UNITS: Array<{ const: string; title: string }> = [
+  { const: "seconds", title: "s" },
+  { const: "minutes", title: "min" },
+  { const: "hours", title: "h" },
+  { const: "days", title: "d" },
+];
+
+const RATE_UNIT_KEYS = new Set(RATE_UNITS.map((u) => u.const));
+const DURATION_UNIT_KEYS = new Set(DURATION_UNITS.map((u) => u.const));
+
 const speedSchema = (unit: string, title: string): JsonSchema => ({
   type: "object",
   title,
-  properties: { per_minute: { type: "number", exclusiveMinimum: 0, title: "rate", unit: `${unit}/min` } },
-  required: ["per_minute"],
+  properties: {
+    value: { type: "number", exclusiveMinimum: 0, title: "rate", unit },
+    per: { type: "string", title: "per", default: "per_minute", oneOf: RATE_UNITS },
+  },
+  required: ["value", "per"],
   additionalProperties: false,
 });
 
 const durationSchema = (title: string): JsonSchema => ({
   type: "object",
   title,
-  properties: { minutes: { type: "number", minimum: 0, title: "minutes", unit: "min" } },
-  required: ["minutes"],
+  properties: {
+    value: { type: "number", minimum: 0, title: "duration" },
+    unit: { type: "string", title: "unit", default: "minutes", oneOf: DURATION_UNITS },
+  },
+  required: ["value", "unit"],
   additionalProperties: false,
 });
 
@@ -143,15 +172,35 @@ export function generatorUiSchema(formSchema: JsonSchema): UiSchema {
 }
 
 /**
- * The form's data as the wire takes it: blanks (`undefined`) dropped, and an
- * object left wholly blank (an unfilled optional duration) dropped with them,
- * so a `Duration | None` field goes as absent rather than as `{}`.
+ * A `speedSchema`/`durationSchema` object -- exactly `{value, per}` or
+ * `{value, unit}`, its picker among `RATE_UNITS`/`DURATION_UNITS` -- as the
+ * wire single-key form that unit names (`{hours: 1.5}`, say), or `null` with
+ * no value typed, matching a blank field going unfilled rather than as
+ * `{unit: n}`. `undefined` when `data` is not one of these objects at all,
+ * so the caller falls back to pruning it generically.
+ */
+function packQuantity(data: Record<string, unknown>): Record<string, unknown> | null | undefined {
+  const keys = new Set(Object.keys(data));
+  const wireKey = typeof data.unit === "string" && DURATION_UNIT_KEYS.has(data.unit) && keys.size <= 2 && keys.has("unit") ? data.unit : typeof data.per === "string" && RATE_UNIT_KEYS.has(data.per) && keys.size <= 2 && keys.has("per") ? data.per : undefined;
+  if (!wireKey) return undefined;
+  return typeof data.value === "number" && Number.isFinite(data.value) ? { [wireKey]: data.value } : null;
+}
+
+/**
+ * The form's data as the wire takes it: a `speedSchema`/`durationSchema`
+ * object packed down to its single unit key (`packQuantity`), blanks
+ * (`undefined`) dropped, and an object left wholly blank (an unfilled
+ * optional duration) dropped with them, so a `Duration | None` field goes as
+ * absent rather than as `{}`.
  */
 export function prune<T>(data: T): T {
   if (Array.isArray(data)) return data.map(prune).filter((v) => v !== undefined) as T;
   if (data && typeof data === "object") {
+    const record = data as Record<string, unknown>;
+    const packed = packQuantity(record);
+    if (packed !== undefined) return (packed ?? undefined) as T;
     const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(record)) {
       const kept = prune(value);
       if (kept !== undefined) out[key] = kept;
     }

@@ -56,9 +56,10 @@ palette, so an embedder with no MUI at all gets the same look from the styleshee
   `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {…} }` (follows the
   OS) and `:root[data-theme="dark"] {…}` (the explicit toggle wins over the OS in both
   directions). `AppTheme` sets `data-theme` on `<html>` from `flyball.theme` in `localStorage`.
-- **Density** (`comfortable`/`compact`) is `data-density` on `<html>`, from `flyball.density`;
-  it changes only `--fb-gap`, a tile's title-row height and a readout's minimum height
-  (`:root[data-density="compact"]` in `styles.css`).
+- **Density** is one setting: `AppTheme` sets `data-density="comfortable"` on `<html>`, which
+  `styles.css` and `widgets/size.ts` read for `--fb-gap`, a tile's title-row height and a
+  readout's minimum height. There is no toggle and nothing stored; the compact rules
+  (`:root[data-density="compact"]`) remain in `styles.css` but nothing sets them.
 - **Reduced motion** collapses `--fb-dur-*` to `0ms` (`@media (prefers-reduced-motion: reduce)`).
 - `scripts/ui-check/contrast.mjs` recomputes WCAG contrast for every text/surface pair
   straight from `styles.css` — re-run it after changing any colour token.
