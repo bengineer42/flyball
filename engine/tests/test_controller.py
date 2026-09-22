@@ -37,6 +37,7 @@ class Furnace(Device):
         SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),
         SignalSpec(name="heater1", quantity=POWER, access=Access.W, limits=(0.0, 2500.0)),
         SignalSpec(name="bath", quantity=TEMP, access=Access.W),
+        SignalSpec(name="bath_limited", quantity=TEMP, access=Access.W, limits=(0.0, 60.0)),
     )
 
 
@@ -438,6 +439,67 @@ def test_a_bounded_profile_finishes_with_its_last_segment_and_nests():
         "LinearRampSetpointConfig",
         "ProfileConfig",
     }
+
+
+def _windup_after(furnace: Furnace, clock: SteppedClock, *, clamp: bool) -> float:
+    """Demand after 10 stuck ticks regulating at an unreachable 100 (limit: 60)."""
+    writes: list[float] = []
+
+    def write(demand: float) -> float | None:
+        writes.append(demand)
+        return demand
+
+    controller = Controller(
+        clock,
+        furnace.signals["bath_limited"],
+        furnace.signals["zone1"],
+        law=PI(kp=1.0, ki=0.5),
+        write=write,
+    )
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 20.0))
+    controller.regulate(100.0, transfer=Transfer.RESET, clamp=clamp)
+    for i in range(1, 11):
+        controller.on_reading(Reading(zone1, i * 1_000_000_000, 20.0))
+    assert controller.setpoint == 100.0, "the reported setpoint stays the true, unclamped ask"
+    return writes[-1]
+
+
+def test_clamp_bounds_windup_against_an_unreachable_reference(furnace):
+    """On by default: the law chases `target.limits`, not a target it can't reach."""
+    clamped = _windup_after(furnace, SteppedClock(0), clamp=True)
+    unclamped = _windup_after(furnace, SteppedClock(0), clamp=False)
+    assert clamped < unclamped, "clamped, the law's error tops out at 60 - 20, not 100 - 20"
+    # Half the raw error (40 vs 80) should roughly halve the windup above the base setpoint.
+    assert (clamped - 100.0) == pytest.approx((unclamped - 100.0) / 2, rel=0.1)
+
+
+def test_clamp_off_is_the_stress_test_escape_hatch(furnace):
+    """`clamp=False` is the one legitimate case: deliberately exercising rail behaviour."""
+    clamped = _windup_after(furnace, SteppedClock(0), clamp=True)
+    unclamped = _windup_after(furnace, SteppedClock(0), clamp=False)
+    assert unclamped > clamped, "off, the law winds up against the full, unreachable 100 - 20"
+
+
+def test_clamp_skips_when_the_feedforward_cannot_invert_the_limit(furnace):
+    """`heater1` differs in unit from `zone1` (NoFeedforward): nothing comparable to clamp."""
+    clock = SteppedClock(0)
+    writes: list[float] = []
+
+    def write(demand: float) -> float | None:
+        writes.append(demand)
+        return demand
+
+    controller = Controller(
+        clock, furnace.signals["heater1"], furnace.signals["zone1"], law=PI(kp=1.0), write=write
+    )
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 20.0))
+    controller.regulate(999999.0, transfer=Transfer.RESET, clamp=True)
+    controller.on_reading(Reading(zone1, 1_000_000_000, 20.0))
+    assert writes[-1] == pytest.approx(999999.0 - 20.0, abs=1.0), (
+        "clamp=True made no difference: heater1's W-unit limits have nothing to invert against"
+    )
 
 
 def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():

@@ -32,6 +32,7 @@ from flyball.foundation.device import Access
 from flyball.model.errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
+    FeedforwardNotInvertibleError,
     LastReadingNotAvailableError,
 )
 from flyball.model.feedforward import Feedforward, FeedforwardConfig, NoFeedforward, Setpoint
@@ -96,6 +97,8 @@ class ControllerSettings:
     offset_ns: int
     min_period_s: float | None = None
     """Step the law at most this often, however fast readings arrive. None: every reading."""
+    clamp: bool = True
+    """Clamp the setpoint fed to the law against the target's limits. See `Controller.clamp`."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -129,6 +132,7 @@ class ControllerView(ControllerSettings, ControllerState):
             demand_unit=settings.demand_unit,
             offset_ns=settings.offset_ns,
             min_period_s=settings.min_period_s,
+            clamp=settings.clamp,
             correction=state.correction,
             reference=state.reference,
             setpoint=state.setpoint,
@@ -158,6 +162,15 @@ class Controller:
     reading: Reading | None = None
     delivered_correction: float | None = None
     mode: ControllerMode = ControllerMode.MANUAL
+    clamp: bool = True
+    """Clamp the setpoint fed to the law against `target.limits`, read fresh every tick.
+
+    Prevents integral windup from a setpoint that is structurally unreachable (past a
+    bound `Demand`'s limits), not just runaway once stuck there -- that's anti-windup's
+    job (already handled via `delivered_correction`, see `laws.IComponent.step_integral`).
+    Off is for deliberately exercising rail/limit behaviour. Does not affect `reference`
+    or the reported `setpoint`, which keep showing what was actually asked for.
+    """
     _on_tick: dict[ControllerTickCallback, None]
     lock: RLock
     _base: float | None = None
@@ -241,6 +254,7 @@ class Controller:
             demand_unit=self.demand_unit,
             offset_ns=self.offset_ns,
             min_period_s=self.min_period_s,
+            clamp=self.clamp,
         )
 
     @property
@@ -325,6 +339,7 @@ class Controller:
         tuning: ControlLawLike | None = None,
         time_ns: int | None = None,
         transfer: Transfer = Transfer.TRACK,
+        clamp: bool = True,
     ) -> RegulateResult:
         """Aim at `at` and hand control back to the law.
 
@@ -340,6 +355,8 @@ class Controller:
                 Defaults to now.
             transfer: How to seed the correction. Degrades rather than fails
                 when the mode needs something missing; the bump reports it.
+            clamp: Whether every tick clamps the setpoint fed to the law
+                against `target.limits`. See `Controller.clamp`.
 
         Returns:
             What was applied, and the step the handover put through the
@@ -349,6 +366,7 @@ class Controller:
             time_ns = self.get_time_ns(time_ns)
             held = self.expected if self.expected is not None else self.demand
             setpoint = self.resolve_value(at, time_ns)
+            self.clamp = clamp
 
             if tuning is not None:
                 self._set_law(tuning)
@@ -387,10 +405,12 @@ class Controller:
         at: ValueSource | float,
         generator: SetPointGenerator | None = None,
         time_ns: int | None = None,
+        clamp: bool = True,
     ) -> None:
         with self.lock:
             setpoint = self.resolve_value(at)
             self.reference = setpoint
+            self.clamp = clamp
             if generator is not None:
                 generator.start(self.clock.from_start_s(self.get_time_ns(time_ns)), setpoint)
                 self.reference = generator
@@ -446,12 +466,32 @@ class Controller:
 
         if self.mode.active():
             setpoint = self.setpoint_at(time_ns)
+            rate = self.rate_at(time_ns)
             if reading is not None and self.mode is ControllerMode.REGULATING:
                 self._last_step_ns = time_ns
                 self.correction = self.required_law.step(
-                    self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
+                    self.to_law_time(time_ns),
+                    reading.value,
+                    self._clamped(setpoint, rate),
+                    self.delivered_correction,
                 )
-            self._apply_demand(setpoint, self.rate_at(time_ns))
+            self._apply_demand(setpoint, rate)
+
+    def _clamped(self, setpoint: float, rate: float) -> float:
+        """`setpoint`, railed to `target.limits` (in the source's unit) when `clamp` is on.
+
+        Only what the law chases: `reference`/the reported `setpoint` keep showing what
+        was actually asked for, not this. See `Controller.clamp`. Skips the clamp when
+        the limits don't resolve now, or the feedforward can't invert a target-unit bound
+        back to the source's (e.g. `NoFeedforward`) -- nothing comparable to clamp against.
+        """
+        if not self.clamp or (limits := self.target.limits) is None:
+            return setpoint
+        try:
+            low, high = sorted(self.feedforward.invert(bound, rate) for bound in limits)
+        except FeedforwardNotInvertibleError:
+            return setpoint
+        return min(max(setpoint, low), high)
 
     def _apply_demand(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
         self.setpoint = setpoint
