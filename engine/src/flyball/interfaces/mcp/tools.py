@@ -193,7 +193,8 @@ READ: tuple[Tool, ...] = (
         "`operate` also has a `fresh` flag for live device reads.",
         _object({"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}}, "addresses"),
         Tier.READ,
-        lambda rig, a: rig.get("/api/read" + _query(at=",".join(a["addresses"]))),
+        lambda rig, a: {"readings": rig.get("/api/read" + _query(at=",".join(a["addresses"])))},
+        output_schema=_list_of("readings", "One per address, in the order given.", nullable=True),
     ),
     Tool(
         "events",
@@ -203,7 +204,10 @@ READ: tuple[Tool, ...] = (
             "level": _str("This level and above.", enum=["DEBUG", "INFO", "WARNING", "ERROR"]),
         }),
         Tier.READ,
-        lambda rig, a: rig.get("/api/events" + _query(limit=a.get("limit"), level=a.get("level"))),
+        lambda rig, a: {
+            "events": rig.get("/api/events" + _query(limit=a.get("limit"), level=a.get("level")))
+        },
+        output_schema=_list_of("events", "The rig's latest events, newest first."),
     ),
     Tool(
         "clock",
@@ -217,7 +221,8 @@ READ: tuple[Tool, ...] = (
         "Every controller: the signal it drives, the one it reads, its mode, setpoint and tuning.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.controllers(),
+        lambda rig, a: {"controllers": rig.controllers()},
+        output_schema=_list_of("controllers", "Every controller on the rig."),
     ),
     Tool(
         "waits",
@@ -238,7 +243,8 @@ READ: tuple[Tool, ...] = (
         "The program library: the newest version of each, with its format.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/programs/library"),
+        lambda rig, a: {"programs": rig.get("/api/programs/library")},
+        output_schema=_list_of("programs", "The program library, newest version of each."),
     ),
     Tool(
         "get_program",
@@ -281,14 +287,18 @@ READ: tuple[Tool, ...] = (
         "Tunings saved to the store, newest version of each.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/history/tunings"),
+        lambda rig, a: {"tunings": rig.get("/api/history/tunings")},
+        output_schema=_list_of("tunings", "Saved tunings, newest version of each."),
     ),
     Tool(
         "list_sessions",
         "Recorded sessions, newest first.",
         _object({"limit": _int("At most this many.", minimum=1)}),
         Tier.READ,
-        lambda rig, a: rig.get("/api/history/sessions" + _query(limit=a.get("limit"))),
+        lambda rig, a: {
+            "sessions": rig.get("/api/history/sessions" + _query(limit=a.get("limit")))
+        },
+        output_schema=_list_of("sessions", "Recorded sessions, newest first."),
     ),
     Tool(
         "session",
@@ -338,17 +348,21 @@ READ: tuple[Tool, ...] = (
             "controller",
         ),
         Tier.READ,
-        lambda rig, a: rig.get(
-            f"/api/history/sessions/{a['session_id']}/ticks/{a['controller']}"
-            + _query(start_ns=a.get("start_ns"), end_ns=a.get("end_ns"), every=a.get("every"))
-        ),
+        lambda rig, a: {
+            "ticks": rig.get(
+                f"/api/history/sessions/{a['session_id']}/ticks/{a['controller']}"
+                + _query(start_ns=a.get("start_ns"), end_ns=a.get("end_ns"), every=a.get("every"))
+            )
+        },
+        output_schema=_list_of("ticks", "The controller's recorded steps, in order."),
     ),
     Tool(
         "list_dashboards",
         "Saved dashboards for this rig.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/dashboards"),
+        lambda rig, a: {"dashboards": rig.get("/api/dashboards")},
+        output_schema=_list_of("dashboards", "Saved dashboards for this rig."),
     ),
     Tool(
         "get_dashboard",
@@ -772,9 +786,12 @@ DRIVE: tuple[Tool, ...] = (
             "addresses",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.get(
-            "/api/read" + _query(at=",".join(a["addresses"]), fresh=a.get("fresh") or None)
-        ),
+        lambda rig, a: {
+            "readings": rig.get(
+                "/api/read" + _query(at=",".join(a["addresses"]), fresh=a.get("fresh") or None)
+            )
+        },
+        output_schema=_list_of("readings", "One per address, in the order given.", nullable=True),
     ),
 )
 
@@ -962,7 +979,7 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
     )
     if run.returncode != 0:
         raise SchemaError(f"search_drivers: {run.stderr.strip()[-2000:]}")
-    return json.loads(run.stdout)
+    return {"drivers": json.loads(run.stdout)}
 
 
 def _scaffold(rig: Rig, a: dict[str, Any]) -> Any:
@@ -1026,6 +1043,7 @@ DRIVERS: tuple[Tool, ...] = (
         ),
         Tier.DRIVE,
         _search_drivers,
+        output_schema=_list_of("drivers", "Matching catalogue entries."),
     ),
     Tool(
         "list_drivers",
@@ -1171,7 +1189,8 @@ DRIVERS: tuple[Tool, ...] = (
         "`rig_version` for one's document, `restore_rig_version` to go back.",
         _object({"limit": _int("At most this many.", minimum=1)}),
         Tier.READ,
-        lambda rig, a: rig.get("/api/rig/versions" + _query(limit=a.get("limit"))),
+        lambda rig, a: {"versions": rig.get("/api/rig/versions" + _query(limit=a.get("limit")))},
+        output_schema=_list_of("versions", "Every change, newest first."),
         route=("get", "/api/rig/versions"),
     ),
     Tool(

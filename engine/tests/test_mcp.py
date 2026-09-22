@@ -160,7 +160,8 @@ class TestTools:
             client, {"name": "warm", "document": program, "label": "v1"}
         )
         assert saved["format"] == "json" and json.loads(saved["body"]) == program
-        assert [p["name"] for p in self.tool(client, "list_programs").run(client, {})] == ["warm"]
+        programs = self.tool(client, "list_programs").run(client, {})["programs"]
+        assert [p["name"] for p in programs] == ["warm"]
 
     def test_update_dashboard_changes_parts_and_versions(self, client):
         document = {
@@ -238,7 +239,8 @@ class TestTools:
         result = tool.run(
             fake, {"session_id": 3, "controller": "heaters.heater1", "every": 5, "start_ns": 10}
         )
-        assert result == ["a tick"]
+        assert result == {"ticks": ["a tick"]}
+        assert tool.output_schema["required"] == ["ticks"]
         assert fake.calls == ["/api/history/sessions/3/ticks/heaters.heater1?start_ns=10&every=5"]
 
 
@@ -302,6 +304,9 @@ class TestOverTheWire:
                     assert isinstance(result.content[0], types.TextContent)
                     failed = await session.call_tool("get_program", {"name": "nope"})
                     assert failed.is_error
+                    assert by_name["controllers"].output_schema["required"] == ["controllers"]
+                    listed_controllers = await session.call_tool("controllers", {})
+                    assert listed_controllers.structured_content == {"controllers": []}
                 tg.cancel_scope.cancel()
 
 
