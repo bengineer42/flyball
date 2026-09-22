@@ -39,7 +39,7 @@ web = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pyyaml>=6", "flyball[mcp]",
 # Passkey (WebAuthn) sign-in is opt-in: `webauthn` pulls a crypto stack every
 # runner would otherwise carry for a door most rigs never open. Without it the
 # server still starts and still serves password/token login -- /api/auth just
-# reports `passkeys: false` and every passkey route answers 501.
+# reports `passkey: false` and every passkey route answers 501.
 passkeys = ["webauthn>=2.5"]
 # flyball.interfaces.client talks to a runner over HTTP and websockets and imports
 # nothing from the rig: it runs anywhere.

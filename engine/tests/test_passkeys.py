@@ -462,3 +462,28 @@ def test_a_store_that_cannot_be_asked_refuses_the_session_instead_of_failing(log
     # and a password session never reaches that check, so it is unaffected
     assert loggedin.post("/api/auth/login", json={"secret": "hunter2"}).status_code == 200
     assert loggedin.get("/api/health").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "credential",
+    [
+        {"response": {"clientDataJSON": "W10"}},  # []
+        {"response": {"clientDataJSON": "MQ"}},  # 1
+        {"response": {"clientDataJSON": "Im5vIg"}},  # "no"
+        {"response": {"clientDataJSON": "bnVsbA"}},  # null
+        {"response": "x"},
+    ],
+)
+def test_malformed_client_data_is_a_400_not_a_500(loggedin, credential):
+    """Client data that decodes to something other than an object is the caller's fault."""
+    loggedin.post("/api/auth/logout")
+    assert loggedin.post("/api/auth/passkey/login", json={"credential": credential}).status_code == 400
+
+
+def test_malformed_client_data_counts_against_the_limiter(loggedin):
+    """Before the fix these 500'd before `failure` was recorded, so they were unlimited."""
+    loggedin.post("/api/auth/logout")
+    bad = {"credential": {"response": {"clientDataJSON": "W10"}}}
+    for _ in range(10):
+        assert loggedin.post("/api/auth/passkey/login", json=bad).status_code == 400
+    assert loggedin.post("/api/auth/passkey/login", json=bad).status_code == 429

@@ -235,9 +235,19 @@ def registration_options(
 
 
 def client_data_challenge(credential: dict[str, Any]) -> bytes:
-    """The challenge a `PublicKeyCredential` response carries, decoded from its client data."""
-    client_data = json.loads(base64url_to_bytes(credential["response"]["clientDataJSON"]))
-    return base64url_to_bytes(client_data["challenge"])
+    """The challenge a `PublicKeyCredential` response carries, decoded from its client data.
+
+    Raises `KeyError` or `ValueError` for anything malformed. Client data that decodes to
+    an array, a number, a string or null subscripts as a `TypeError`, which is the caller's
+    fault as much as a missing key is -- so it is raised as a `ValueError` here, once,
+    rather than left for every route to remember (it was a 500, unlimited, on the
+    unauthenticated login route).
+    """
+    try:
+        client_data = json.loads(base64url_to_bytes(credential["response"]["clientDataJSON"]))
+        return base64url_to_bytes(client_data["challenge"])
+    except TypeError as e:
+        raise ValueError("malformed client data") from e
 
 
 def verify_registration(
