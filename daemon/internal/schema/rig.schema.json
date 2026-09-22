@@ -323,6 +323,64 @@
       "title": "DeviceEntry",
       "type": "object"
     },
+    "FakeGpioConfigTagged": {
+      "properties": {
+        "levels": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "description": "Input levels by line.",
+          "title": "Levels",
+          "type": "object"
+        },
+        "tag": {
+          "const": "fake_gpio",
+          "default": "fake_gpio",
+          "title": "Tag",
+          "type": "string"
+        }
+      },
+      "title": "FakeGpioConfigTagged",
+      "type": "object"
+    },
+    "FakeI2cConfigTagged": {
+      "properties": {
+        "registers": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "title": "Registers",
+          "type": "object"
+        },
+        "replies": {
+          "additionalProperties": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Replies",
+          "type": "object"
+        },
+        "tag": {
+          "const": "fake_i2c",
+          "default": "fake_i2c",
+          "title": "Tag",
+          "type": "string"
+        }
+      },
+      "title": "FakeI2cConfigTagged",
+      "type": "object"
+    },
     "FakeRegisterLinkConfigTagged": {
       "properties": {
         "registers": {
@@ -342,6 +400,28 @@
       "title": "FakeRegisterLinkConfigTagged",
       "type": "object"
     },
+    "FakeSpiConfigTagged": {
+      "properties": {
+        "replies": {
+          "items": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "title": "Replies",
+          "type": "array"
+        },
+        "tag": {
+          "const": "fake_spi",
+          "default": "fake_spi",
+          "title": "Tag",
+          "type": "string"
+        }
+      },
+      "title": "FakeSpiConfigTagged",
+      "type": "object"
+    },
     "FakeTextLinkConfigTagged": {
       "properties": {
         "replies": {
@@ -359,6 +439,26 @@
         }
       },
       "title": "FakeTextLinkConfigTagged",
+      "type": "object"
+    },
+    "FakeUartConfigTagged": {
+      "properties": {
+        "replies": {
+          "items": {
+            "format": "binary",
+            "type": "string"
+          },
+          "title": "Replies",
+          "type": "array"
+        },
+        "tag": {
+          "const": "fake_uart",
+          "default": "fake_uart",
+          "title": "Tag",
+          "type": "string"
+        }
+      },
+      "title": "FakeUartConfigTagged",
       "type": "object"
     },
     "FurnaceConfigTagged": {
@@ -1595,74 +1695,6 @@
       "title": "ModbusRegister",
       "type": "object"
     },
-    "PyMeasureSignal": {
-      "additionalProperties": false,
-      "description": "One line of a `pymeasure` device's tree: one property, wrapped as a signal.\n\nA property with a setter is a demand (`RPW`: its readback is the value\nlast set, whether or not the property also has a getter); a\ngetter-only one is an output, readable on demand. `publish` streams a\ngetter-only one too, and needs a getter -- see\n[PyMeasure][flyball.integrations.pymeasure.PyMeasure].",
-      "properties": {
-        "property": {
-          "description": "The instrument's attribute name.",
-          "title": "Property",
-          "type": "string"
-        },
-        "unit": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Overrides the docstring's unit.",
-          "title": "Unit"
-        },
-        "publish": {
-          "default": false,
-          "title": "Publish",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "property"
-      ],
-      "title": "PyMeasureSignal",
-      "type": "object"
-    },
-    "QCoDeSSignal": {
-      "additionalProperties": false,
-      "description": "One line of a `qcodes` device's tree: one parameter, wrapped as a signal.\n\nA settable parameter is a demand (`RPW`: its readback is the value last\nset, whether or not it can be read back from the instrument); a\ngettable-only one is an output, readable on demand. `publish` streams a\ngettable-only one too, and needs a getter -- see\n[QCoDeS][flyball.integrations.qcodes.QCoDeS].",
-      "properties": {
-        "property": {
-          "description": "The parameter's name, dotted for a submodule: 'source.voltage'.",
-          "title": "Property",
-          "type": "string"
-        },
-        "unit": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Overrides the parameter's own `unit`.",
-          "title": "Unit"
-        },
-        "publish": {
-          "default": false,
-          "title": "Publish",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "property"
-      ],
-      "title": "QCoDeSSignal",
-      "type": "object"
-    },
     "ScpiSignal": {
       "additionalProperties": false,
       "description": "One line of a `scpi` device's tree: a query, a write template, or both.\n\n`query` alone: an output, `[RP]`. `write`, with or without `query`: a\ndemand, `[RPW]` -- its readback is the value last committed. Metadata\nsuch as range, precision and limits are not here -- they are the\nenvelope's `signals:` overrides (plan \u00a71.5), which apply to any driver's\ntree.",
@@ -1839,137 +1871,6 @@
       "title": "DaqPort",
       "type": "object"
     },
-    "FurnaceConfig": {
-      "additionalProperties": false,
-      "description": "A multi-zone furnace ([Furnace][flyball.sim.furnace.Furnace]).\n\nPorts: inputs `heaterN` (a power in W, full drive being `power_w`),\noutputs `zoneN` and `sample` (temperatures in \u00b0C).",
-      "properties": {
-        "zones": {
-          "default": 3,
-          "minimum": 1,
-          "title": "Zones",
-          "type": "integer"
-        },
-        "power_w": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            }
-          ],
-          "default": 2000.0,
-          "title": "Power W"
-        },
-        "capacity_j_per_k": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            }
-          ],
-          "default": 5000.0,
-          "title": "Capacity J Per K"
-        },
-        "coupling_w_per_k": {
-          "default": 5.0,
-          "minimum": 0,
-          "title": "Coupling W Per K",
-          "type": "number"
-        },
-        "loss_w_per_k": {
-          "default": 2.0,
-          "minimum": 0,
-          "title": "Loss W Per K",
-          "type": "number"
-        },
-        "emissivity": {
-          "default": 0.8,
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Emissivity",
-          "type": "number"
-        },
-        "area_m2": {
-          "default": 0.02,
-          "minimum": 0,
-          "title": "Area M2",
-          "type": "number"
-        },
-        "ambient_c": {
-          "default": 20.0,
-          "live": "outputs.*",
-          "title": "Ambient C",
-          "type": "number"
-        },
-        "sample_capacity_j_per_k": {
-          "default": 800.0,
-          "exclusiveMinimum": 0,
-          "title": "Sample Capacity J Per K",
-          "type": "number"
-        },
-        "sample_coupling_w_per_k": {
-          "default": 4.0,
-          "minimum": 0,
-          "title": "Sample Coupling W Per K",
-          "type": "number"
-        },
-        "sample_zone": {
-          "default": 2,
-          "minimum": 1,
-          "title": "Sample Zone",
-          "type": "integer"
-        },
-        "sensor_lag_s": {
-          "default": 3.0,
-          "minimum": 0,
-          "title": "Sensor Lag S",
-          "type": "number"
-        },
-        "noise": {
-          "default": 0.0,
-          "live": "stats.noise",
-          "minimum": 0,
-          "title": "Noise",
-          "type": "number"
-        },
-        "seed": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Seed"
-        },
-        "initial_c": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "live": "outputs.*",
-          "title": "Initial C"
-        }
-      },
-      "title": "FurnaceConfig",
-      "type": "object"
-    },
     "PlantConfig": {
       "additionalProperties": false,
       "description": "A plant model with one input and one output, shared by the devices that use it.\n\nIts ports are `input` (a drive, 0 to 1 of full) and `output`, whose\nquantity the `sim_daq` reading it says, since a lag may be an oven or a\npressure vessel. An unknown key is refused, so the old `kind` does not\nsilently mean the default model.",
@@ -2051,9 +1952,6 @@
       "anyOf": [
         {
           "$ref": "#/$defs/PlantConfig"
-        },
-        {
-          "$ref": "#/$defs/FurnaceConfig"
         },
         {
           "type": "string"
@@ -2200,8 +2098,12 @@
       "additionalProperties": {
         "discriminator": {
           "mapping": {
+            "fake_gpio": "#/$defs/FakeGpioConfigTagged",
+            "fake_i2c": "#/$defs/FakeI2cConfigTagged",
             "fake_registers": "#/$defs/FakeRegisterLinkConfigTagged",
+            "fake_spi": "#/$defs/FakeSpiConfigTagged",
             "fake_text": "#/$defs/FakeTextLinkConfigTagged",
+            "fake_uart": "#/$defs/FakeUartConfigTagged",
             "modbus_rtu": "#/$defs/ModbusRtuConfigTagged",
             "modbus_tcp": "#/$defs/ModbusTcpConfigTagged",
             "serial": "#/$defs/SerialLinkConfigTagged",
@@ -2213,10 +2115,22 @@
         },
         "oneOf": [
           {
+            "$ref": "#/$defs/FakeGpioConfigTagged"
+          },
+          {
+            "$ref": "#/$defs/FakeI2cConfigTagged"
+          },
+          {
             "$ref": "#/$defs/FakeRegisterLinkConfigTagged"
           },
           {
+            "$ref": "#/$defs/FakeSpiConfigTagged"
+          },
+          {
             "$ref": "#/$defs/FakeTextLinkConfigTagged"
+          },
+          {
+            "$ref": "#/$defs/FakeUartConfigTagged"
           },
           {
             "$ref": "#/$defs/ModbusRtuConfigTagged"
@@ -2235,6 +2149,10 @@
           },
           {
             "$ref": "#/$defs/VisaLinkConfigTagged"
+          },
+          {
+            "type": "null",
+            "title": "Removed by this layer"
           }
         ]
       },
@@ -2352,7 +2270,8 @@
                   }
                 },
                 "required": [
-                  "driver"
+                  "driver",
+                  "config"
                 ]
               },
               {
@@ -2453,437 +2372,12 @@
                   "driver",
                   "link",
                   "registers"
-                ]
-              }
-            ]
-          },
-          {
-            "oneOf": [
-              {
-                "type": "object",
-                "title": "pymeasure (layered)",
-                "properties": {
-                  "label": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Label"
-                  },
-                  "poll_s": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Poll S"
-                  },
-                  "signals": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/SignalOverride"
-                        },
-                        {
-                          "$ref": "#/$defs/NamespaceOverride"
-                        }
-                      ]
-                    },
-                    "title": "Signals",
-                    "type": "object"
-                  },
-                  "bound": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "title": "Bound",
-                    "type": "object"
-                  },
-                  "driver": {
-                    "const": "pymeasure"
-                  },
-                  "config": {
-                    "description": "`driver: pymeasure`. `channels` is the driver's own tree -- see `PyMeasureSignal`.\n\nNamed `channels`, not `signals`: the envelope's `signals:` key is\nreserved for overrides, the same for every driver.",
-                    "properties": {
-                      "link": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "A transport (or a simulated plant), by name.",
-                        "title": "Link"
-                      },
-                      "instrument": {
-                        "description": "Dotted class, e.g. pymeasure.instruments.keithley.Keithley2400",
-                        "title": "Instrument",
-                        "type": "string"
-                      },
-                      "adapter": {
-                        "description": "The resource: 'GPIB::24', 'ASRL/dev/ttyUSB0', a VISA string.",
-                        "title": "Adapter",
-                        "type": "string"
-                      },
-                      "kwargs": {
-                        "additionalProperties": true,
-                        "title": "Kwargs",
-                        "type": "object"
-                      },
-                      "channels": {
-                        "additionalProperties": {
-                          "$ref": "#/$defs/PyMeasureSignal"
-                        },
-                        "title": "Channels",
-                        "type": "object"
-                      }
-                    },
-                    "required": [
-                      "instrument",
-                      "adapter",
-                      "channels"
-                    ],
-                    "title": "PyMeasureConfig",
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "driver"
-                ]
-              },
-              {
-                "type": "object",
-                "title": "pymeasure (flat)",
-                "properties": {
-                  "label": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Label"
-                  },
-                  "poll_s": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Poll S"
-                  },
-                  "signals": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/SignalOverride"
-                        },
-                        {
-                          "$ref": "#/$defs/NamespaceOverride"
-                        }
-                      ]
-                    },
-                    "title": "Signals",
-                    "type": "object"
-                  },
-                  "bound": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "title": "Bound",
-                    "type": "object"
-                  },
-                  "driver": {
-                    "const": "pymeasure"
-                  },
-                  "link": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "description": "A transport (or a simulated plant), by name.",
-                    "title": "Link"
-                  },
-                  "instrument": {
-                    "description": "Dotted class, e.g. pymeasure.instruments.keithley.Keithley2400",
-                    "title": "Instrument",
-                    "type": "string"
-                  },
-                  "adapter": {
-                    "description": "The resource: 'GPIB::24', 'ASRL/dev/ttyUSB0', a VISA string.",
-                    "title": "Adapter",
-                    "type": "string"
-                  },
-                  "kwargs": {
-                    "additionalProperties": true,
-                    "title": "Kwargs",
-                    "type": "object"
-                  },
-                  "channels": {
-                    "additionalProperties": {
-                      "$ref": "#/$defs/PyMeasureSignal"
-                    },
-                    "title": "Channels",
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "driver",
-                  "instrument",
-                  "adapter",
-                  "channels"
-                ]
-              }
-            ]
-          },
-          {
-            "oneOf": [
-              {
-                "type": "object",
-                "title": "qcodes (layered)",
-                "properties": {
-                  "label": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Label"
-                  },
-                  "poll_s": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Poll S"
-                  },
-                  "signals": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/SignalOverride"
-                        },
-                        {
-                          "$ref": "#/$defs/NamespaceOverride"
-                        }
-                      ]
-                    },
-                    "title": "Signals",
-                    "type": "object"
-                  },
-                  "bound": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "title": "Bound",
-                    "type": "object"
-                  },
-                  "driver": {
-                    "const": "qcodes"
-                  },
-                  "config": {
-                    "description": "`driver: qcodes`. `channels` is the driver's own tree -- see `QCoDeSSignal`.\n\nNamed `channels`, not `signals`: the envelope's `signals:` key is\nreserved for overrides, the same for every driver.",
-                    "properties": {
-                      "link": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "A transport (or a simulated plant), by name.",
-                        "title": "Link"
-                      },
-                      "instrument": {
-                        "description": "Dotted class, e.g. qcodes.instrument_drivers.Keithley.Keithley2450",
-                        "title": "Instrument",
-                        "type": "string"
-                      },
-                      "instrument_name": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "The QCoDeS instrument's own `name`; defaults to the device's.",
-                        "title": "Instrument Name"
-                      },
-                      "args": {
-                        "items": {},
-                        "title": "Args",
-                        "type": "array"
-                      },
-                      "kwargs": {
-                        "additionalProperties": true,
-                        "title": "Kwargs",
-                        "type": "object"
-                      },
-                      "channels": {
-                        "additionalProperties": {
-                          "$ref": "#/$defs/QCoDeSSignal"
-                        },
-                        "title": "Channels",
-                        "type": "object"
-                      }
-                    },
-                    "required": [
-                      "instrument",
-                      "channels"
-                    ],
-                    "title": "QCoDeSConfig",
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "driver"
-                ]
-              },
-              {
-                "type": "object",
-                "title": "qcodes (flat)",
-                "properties": {
-                  "label": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Label"
-                  },
-                  "poll_s": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Poll S"
-                  },
-                  "signals": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/$defs/SignalOverride"
-                        },
-                        {
-                          "$ref": "#/$defs/NamespaceOverride"
-                        }
-                      ]
-                    },
-                    "title": "Signals",
-                    "type": "object"
-                  },
-                  "bound": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "title": "Bound",
-                    "type": "object"
-                  },
-                  "driver": {
-                    "const": "qcodes"
-                  },
-                  "link": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "description": "A transport (or a simulated plant), by name.",
-                    "title": "Link"
-                  },
-                  "instrument": {
-                    "description": "Dotted class, e.g. qcodes.instrument_drivers.Keithley.Keithley2450",
-                    "title": "Instrument",
-                    "type": "string"
-                  },
-                  "instrument_name": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "description": "The QCoDeS instrument's own `name`; defaults to the device's.",
-                    "title": "Instrument Name"
-                  },
-                  "args": {
-                    "items": {},
-                    "title": "Args",
-                    "type": "array"
-                  },
-                  "kwargs": {
-                    "additionalProperties": true,
-                    "title": "Kwargs",
-                    "type": "object"
-                  },
-                  "channels": {
-                    "additionalProperties": {
-                      "$ref": "#/$defs/QCoDeSSignal"
-                    },
-                    "title": "Channels",
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "driver",
-                  "instrument",
-                  "channels"
-                ]
+                ],
+                "not": {
+                  "required": [
+                    "config"
+                  ]
+                }
               }
             ]
           },
@@ -2990,7 +2484,8 @@
                   }
                 },
                 "required": [
-                  "driver"
+                  "driver",
+                  "config"
                 ]
               },
               {
@@ -3086,7 +2581,12 @@
                   "driver",
                   "link",
                   "channels"
-                ]
+                ],
+                "not": {
+                  "required": [
+                    "config"
+                  ]
+                }
               }
             ]
           },
@@ -3149,7 +2649,7 @@
                     "properties": {
                       "link": {
                         "$ref": "#/$defs/PlantLink",
-                        "description": "The `sim_plant` or `sim_furnace` link read."
+                        "description": "The plant link read: `sim_plant`, or another package's own `MultiPlant` link, such as `examples/furnace`'s `sim_furnace`."
                       },
                       "ports": {
                         "additionalProperties": {
@@ -3176,7 +2676,8 @@
                   }
                 },
                 "required": [
-                  "driver"
+                  "driver",
+                  "config"
                 ]
               },
               {
@@ -3233,7 +2734,7 @@
                   },
                   "link": {
                     "$ref": "#/$defs/PlantLink",
-                    "description": "The `sim_plant` or `sim_furnace` link read."
+                    "description": "The plant link read: `sim_plant`, or another package's own `MultiPlant` link, such as `examples/furnace`'s `sim_furnace`."
                   },
                   "ports": {
                     "additionalProperties": {
@@ -3255,7 +2756,12 @@
                   "driver",
                   "link",
                   "ports"
-                ]
+                ],
+                "not": {
+                  "required": [
+                    "config"
+                  ]
+                }
               }
             ]
           },
@@ -3318,7 +2824,7 @@
                     "properties": {
                       "link": {
                         "$ref": "#/$defs/PlantLink",
-                        "description": "The `sim_plant` or `sim_furnace` link driven."
+                        "description": "The plant link driven: `sim_plant`, or another package's own `MultiPlant` link, such as `examples/furnace`'s `sim_furnace`."
                       },
                       "ports": {
                         "additionalProperties": {
@@ -3345,7 +2851,8 @@
                   }
                 },
                 "required": [
-                  "driver"
+                  "driver",
+                  "config"
                 ]
               },
               {
@@ -3402,7 +2909,7 @@
                   },
                   "link": {
                     "$ref": "#/$defs/PlantLink",
-                    "description": "The `sim_plant` or `sim_furnace` link driven."
+                    "description": "The plant link driven: `sim_plant`, or another package's own `MultiPlant` link, such as `examples/furnace`'s `sim_furnace`."
                   },
                   "ports": {
                     "additionalProperties": {
@@ -3424,9 +2931,77 @@
                   "driver",
                   "link",
                   "ports"
-                ]
+                ],
+                "not": {
+                  "required": [
+                    "config"
+                  ]
+                }
               }
             ]
+          },
+          {
+            "type": "object",
+            "title": "overlay of a device declared in a base",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalOverride"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceOverride"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "bound": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Bound",
+                "type": "object"
+              },
+              "config": {
+                "type": "object"
+              }
+            },
+            "not": {
+              "required": [
+                "driver"
+              ]
+            }
+          },
+          {
+            "type": "null",
+            "title": "Removed by this layer"
           }
         ]
       },
@@ -3435,7 +3010,15 @@
     },
     "controllers": {
       "additionalProperties": {
-        "$ref": "#/$defs/ControllerEntry"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ControllerEntry"
+          },
+          {
+            "type": "null",
+            "title": "Removed by this layer"
+          }
+        ]
       },
       "description": "Keyed by the target signal's address.",
       "title": "Controllers",
@@ -3464,6 +3047,14 @@
       "default": false,
       "title": "Resumed",
       "type": "boolean"
+    },
+    "extends": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Extends",
+      "description": "This file's own bases, merged in order before its own keys."
     }
   },
   "title": "RigConfig",
