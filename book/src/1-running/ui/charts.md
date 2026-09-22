@@ -41,9 +41,16 @@ unit onto one shared "more…" axis instead of growing without bound. A
 selection of one unit behaves exactly as it did before this page existed —
 one axis, no fold.
 
-The page bar's window, sample and y-scale controls apply to the Graph chart
-the same as everywhere else. There is no "add to dashboard" button; a graph
-lives only at its `#/graph` URL.
+The page bar's window and y-scale controls apply to the Graph chart the same
+as everywhere else. There is no "add to dashboard" button; a graph lives
+only at its `#/graph` URL.
+
+A full-size chart's y axis draws only the tick nearest its top and bottom
+value, not a dense scale; the time axis keeps to two or three sparse,
+scrolling labels rather than one per gridline (`panels/yscale.ts#edgeTicks`).
+Decimation for a dense trace is automatic, per signal, from how many rows it
+actually holds against the chart's width and window — there is no manual
+"sample every Nth point" control.
 
 Known gap: the telemetry store keeps a controller's reference/reading/
 demand/expected/correction ticks (`TelemetryStore.readController`, its
