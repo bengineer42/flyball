@@ -172,20 +172,46 @@ export class Ring {
    * buckets hold at most one row, so every row keeps its own bucket -- no
    * special case needed, it falls out of the bucket width being small
    * relative to the actual sample spacing.
+   *
+   * `maxGapS`, when given, breaks the line across real dead time (a restart,
+   * a reader gone offline): a synthetic `NaN` row is inserted at the midpoint
+   * of any two *raw* consecutive rows more than `maxGapS` apart, and the
+   * bucket immediately after a gap always starts fresh even if it would
+   * otherwise share a bucket with what came before. This has to run on raw
+   * rows, not on the bucketed output: two bucket representatives are roughly
+   * `bucketWidth` apart by construction, which is often much wider than a
+   * signal's own sample period once a window holds more real rows than the
+   * target point count -- comparing *that* gap to a raw-sample threshold
+   * flags every bucket boundary as a break and erases the line entirely.
    */
-  read(out: RingView, { fromS = Number.NEGATIVE_INFINITY, every = 1, maxPoints = Number.POSITIVE_INFINITY }: { fromS?: number; every?: number; maxPoints?: number } = {}): RingView {
+  read(
+    out: RingView,
+    { fromS = Number.NEGATIVE_INFINITY, every = 1, maxPoints = Number.POSITIVE_INFINITY, maxGapS }: { fromS?: number; every?: number; maxPoints?: number; maxGapS?: number } = {},
+  ): RingView {
     const start = fromS === Number.NEGATIVE_INFINITY ? 0 : this.indexAtOrAfter(fromS);
     const n = this.count - start;
     const { t, cols } = out;
     let k = 0;
+    let prevRawT: number | undefined;
+    const breakGap = (ti: number): boolean => {
+      if (maxGapS === undefined || prevRawT === undefined || ti - prevRawT <= maxGapS) return false;
+      t[k] = (prevRawT + ti) / 2;
+      for (let c = 0; c < this.width; c++) cols[c]![k] = Number.NaN;
+      k++;
+      return true;
+    };
     if (n > 0) {
       const lastLogical = this.count - 1;
       const thinning = Number.isFinite(maxPoints) || (every && every > 1);
       if (!thinning) {
-        for (let i = start; i <= lastLogical; i++, k++) {
+        for (let i = start; i <= lastLogical; i++) {
           const j = this.at(i);
-          t[k] = this.t[j]!;
+          const ti = this.t[j]!;
+          breakGap(ti);
+          t[k] = ti;
           for (let c = 0; c < this.width; c++) cols[c]![k] = this.cols[c]![j]!;
+          k++;
+          prevRawT = ti;
         }
       } else {
         const span = Number.isFinite(this.windowS) ? this.windowS : Math.max(this.t[this.at(lastLogical)]! - this.t[this.at(start)]!, 1e-9);
@@ -196,6 +222,7 @@ export class Ring {
         for (let i = start; i <= lastLogical; i++) {
           const j = this.at(i);
           const ti = this.t[j]!;
+          if (breakGap(ti)) bucket = Number.NaN; // the row after a real gap always starts a fresh bucket
           const b = Math.floor(ti / bucketWidth);
           if (b !== bucket) {
             bucket = b;
@@ -204,6 +231,7 @@ export class Ring {
           const row = k - 1;
           t[row] = ti;
           for (let c = 0; c < this.width; c++) cols[c]![row] = this.cols[c]![j]!;
+          prevRawT = ti;
         }
       }
     }

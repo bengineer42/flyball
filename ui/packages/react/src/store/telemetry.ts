@@ -52,6 +52,8 @@ export interface ReadOptions {
   every?: number;
   /** At most this many rows: `every` rises to fit. */
   maxPoints?: number;
+  /** Break the line across raw gaps wider than this (seconds); no breaking when omitted. */
+  maxGapS?: number;
 }
 
 export interface TelemetryStoreOptions {

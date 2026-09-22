@@ -62,6 +62,23 @@ describe("Ring", () => {
     }
   });
 
+  it("breaks the line across a real raw gap without erasing it over decimation-induced spacing", () => {
+    // windowS fixed at 3600 (a realistic store setting) so bucketing spreads out the same way
+    // a live sparkline sees it: many real rows packed into few buckets makes each bucket
+    // representative tens of seconds from the last, far more than a short poll period. A
+    // `maxGapS` sized for that poll period must not treat every bucket boundary as dead time.
+    const ring = new Ring({ initial: 16, cap: 8192, windowS: 3600 });
+    for (let t = 0; t < 200; t++) ring.push(t, [t]); // one row a second, densely packed
+    const dense = ring.read(emptyView(1), { maxPoints: 20, maxGapS: 3 });
+    expect(dense.t.some(Number.isNaN)).toBe(false); // t never NaN
+    expect(dense.cols[0]!.every((v) => !Number.isNaN(v))).toBe(true); // no bucket boundary read as a gap
+    // Now push a real gap: nothing for 50s, then resumes.
+    ring.push(250, [250]);
+    for (let t = 251; t < 260; t++) ring.push(t, [t]);
+    const withGap = ring.read(emptyView(1), { maxPoints: 20, maxGapS: 3 });
+    expect(withGap.cols[0]!.some((v) => Number.isNaN(v))).toBe(true); // the real gap does break
+  });
+
   it("reuses the caller's arrays", () => {
     const ring = new Ring();
     fill(ring, 3);

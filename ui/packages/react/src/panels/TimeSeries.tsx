@@ -235,12 +235,19 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
     draw: () => {
       const u = chart.current;
       if (source) {
+        // Gap-breaking runs inside the ring, on raw rows before decimation: two bucket
+        // representatives are roughly a bucket-width apart by construction, which is
+        // routinely wider than the signal's own sample period once a window holds more
+        // rows than the target point count, so comparing bucketed spacing against
+        // `maxGapS` would flag every bucket boundary as dead time and erase the line.
         const maxPoints = pointCap(u?.width ?? host.current?.clientWidth ?? 400);
-        source.store.read(key, view.current, { every: everyRef.current, maxPoints });
+        source.store.read(key, view.current, { every: everyRef.current, maxPoints, maxGapS });
         latest.current = view.current;
+        u?.setData([latest.current.t, latest.current.v]);
+      } else {
+        const [gt, gv] = breakGaps(latest.current.t, latest.current.v, maxGapS);
+        u?.setData([gt as number[], gv as number[]]);
       }
-      const [gt, gv] = breakGaps(latest.current.t, latest.current.v, maxGapS);
-      u?.setData([gt as number[], gv as number[]]);
       if (u && !compact) showLatestInLegend(u);
     },
   });
