@@ -2,6 +2,30 @@
 
 **Inputs** (`#/inputs`) charts every publishing signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
 
+## Any chart opens almost-fullscreen
+
+Every chart in the app — a dashboard's `chart` and `loop` widgets, a
+`readout` widget's or a Readout panel's sparkline, Inputs' and Graph's
+charts, a controller faceplate's Process/Drive trends, a session's charts —
+opens the same way: a full chart (axes, legend, toolbar already showing) by
+double-clicking the plot or its toolbar's expand button; a sparkline or a
+controller trend (no toolbar of its own at that size) by a single click.
+However it opened, it's the same overlay (`ChartOverlay`,
+`ui/packages/react/src/panels/ChartOverlay.tsx`): Escape, its Close button,
+or a click on the backdrop returns to the page, and focus goes back to
+whatever was clicked to open it. A sparkline stays a sparkline in its tile —
+opening it doesn't resize the tile, it swaps in the full chart inside the
+overlay and swaps back on close. Dragging a dashboard tile in edit mode
+doesn't open its chart: react-grid-layout only starts a drag from the tile's
+own drag handle, never from a click inside the chart.
+
+A controller faceplate's trends (`ControllerPanel`'s `MiniTrend`, on the
+Controllers page and a dashboard's `loop` widget) are a purpose-built,
+axes-only uPlot instance while collapsed — no toolbar or legend fits in
+~140px — so a click swaps in a real `MultiSeries` chart with `expanded`
+forced on, titled for the controller and which trend (`… · process` /
+`… · drive`); closing it swaps the mini trend back.
+
 !!! tip "At the terminal"
     `flyball watch samples` is the live stream as JSON lines; `curl` fetches the same exports the toolbar's menu offers -- [Devices and signals](../cli/devices.md), [Sessions and export](../cli/sessions.md).
 
