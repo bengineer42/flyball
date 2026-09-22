@@ -82,7 +82,7 @@ its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
 | key | default | |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:9000` | the address it serves on |
-| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled` |
+| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
 | `data_dir` | `data` | captured runner logs, under `logs/` |
 | `log_max_size` | 10 MiB | per-runner captured-log cap |
 | `auth.token` | none | the bearer token the registration routes below need. **With no token they answer 503**: the runners in `manifests_dir` still start, but nothing can start, stop, restart or read one over the API |

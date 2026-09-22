@@ -26,8 +26,10 @@ type RunnerInfo struct {
 type Backend interface {
 	// Start spawns a runner and returns its endpoint. Does not block
 	// until the runner answers /api/auth -- that's the registry's job
-	// (plan.md's "knowing it actually started" polling).
-	Start(name, serverConfig, host string, port int, rootPath string) (endpoint string, err error)
+	// (plan.md's "knowing it actually started" polling). uvProject, when
+	// non-empty, launches flyball-runner via `uv run --project uvProject`
+	// instead of execing it bare (Manifest.UvProject).
+	Start(name, serverConfig, host string, port int, rootPath, uvProject string) (endpoint string, err error)
 	Stop(name string) error
 	Restart(name string) error
 	Logs(name string) (io.Reader, error)

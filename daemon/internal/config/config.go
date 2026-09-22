@@ -78,6 +78,12 @@ type Manifest struct {
 	RootPath     string `yaml:"root_path" json:"root_path"`
 	Store        string `yaml:"store" json:"store"`
 	Enabled      *bool  `yaml:"enabled" json:"enabled"`
+	// UvProject, when set, launches flyball-runner via `uv run --project
+	// UvProject flyball-runner ...` instead of execing it bare -- needed
+	// whenever flyball-runner isn't already on flyballd's own $PATH, which
+	// it never is outside an app's own uv-managed venv (same problem, same
+	// fix, as `flyball run`'s --uv flag).
+	UvProject string `yaml:"uv_project" json:"uv_project"`
 }
 
 func (m Manifest) IsEnabled() bool {
