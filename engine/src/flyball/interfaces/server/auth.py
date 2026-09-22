@@ -22,6 +22,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import os
 import secrets
 import time
 from collections import deque
@@ -135,8 +136,11 @@ def signing_secret(config: AuthConfig, store: Path | None) -> bytes:
         try:
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(secrets.token_urlsafe(32))
-                path.chmod(0o600)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                try:
+                    os.write(fd, secrets.token_urlsafe(32).encode())
+                finally:
+                    os.close(fd)
             return path.read_text().strip().encode()
         except OSError as e:
             log.warning("no session key at %s (%s): sessions end with the process", path, e)

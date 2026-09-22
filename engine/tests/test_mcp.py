@@ -86,6 +86,23 @@ class TestModes:
             "widget_schema",
         } <= names(tools)
 
+    def test_read_tier_does_not_expose_the_side_effecting_flags(self, client):
+        """Neither `read`'s `fresh` nor `probe_hardware`'s `scan` belongs where nothing changes."""
+        read = tools_for(client, "read")
+        by_name = {t.name: t for t in read}
+        assert "fresh" not in by_name["read"].schema["properties"]
+        assert "fresh" not in by_name["read_many"].schema["properties"]
+        assert "scan" not in by_name["probe_hardware"].schema["properties"]
+
+    def test_operate_has_the_full_power_forms(self, client):
+        operate = tools_for(client, "operate")
+        by_name = {t.name: t for t in operate}
+        assert "fresh" in by_name["read"].schema["properties"]
+        assert by_name["read"].tier == Tier.DRIVE
+        assert "fresh" in by_name["read_many"].schema["properties"]
+        assert "scan" in by_name["probe_hardware"].schema["properties"]
+        assert by_name["probe_hardware"].tier == Tier.DRIVE
+
     def test_author_adds_the_store_and_nothing_that_moves(self, client):
         author = names(tools_for(client, "author"))
         assert {"save_program", "update_dashboard", "save_tuning"} <= author
@@ -116,8 +133,13 @@ class TestTools:
 
     def test_reads(self, client):
         assert self.tool(client, "status").run(client, {})["rig"] == "t"
-        devices = self.tool(client, "list_devices").run(client, {})
+        devices = self.tool(client, "list_devices").run(client, {})["devices"]
         assert [d["name"] for d in devices] == ["furnace", "heaters"]
+        assert set(devices[0]) == {"name", "type", "label", "description"}, (
+            "projected: not the full tree"
+        )
+        detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
+        assert "signals" in detailed[0], "`detail` asked for the rest"
         schema = self.tool(client, "describe_device").run(client, {"name": "heaters"})
         assert "set_duty" in schema["commands"]
         kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
@@ -138,7 +160,8 @@ class TestTools:
             client, {"name": "warm", "document": program, "label": "v1"}
         )
         assert saved["format"] == "json" and json.loads(saved["body"]) == program
-        assert [p["name"] for p in self.tool(client, "list_programs").run(client, {})] == ["warm"]
+        programs = self.tool(client, "list_programs").run(client, {})["programs"]
+        assert [p["name"] for p in programs] == ["warm"]
 
     def test_update_dashboard_changes_parts_and_versions(self, client):
         document = {
@@ -198,6 +221,28 @@ class TestTools:
                 client, {"name": "d", "changes": [{"op": "remove_widget", "id": "zz"}]}
             )
 
+    def test_session_ticks_is_read_tier_and_hits_the_route(self, client):
+        """A recorded controller's steps, served at `.../sessions/{id}/ticks/{controller}`."""
+        tool = next(t for t in tools_for(client, "read") if t.name == "session_ticks")
+        assert tool.tier == Tier.READ
+        assert tool.schema["required"] == ["session_id", "controller"]
+
+        class FakeRig:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def get(self, path: str) -> list[str]:
+                self.calls.append(path)
+                return ["a tick"]
+
+        fake = FakeRig()
+        result = tool.run(
+            fake, {"session_id": 3, "controller": "heaters.heater1", "every": 5, "start_ns": 10}
+        )
+        assert result == {"ticks": ["a tick"]}
+        assert tool.output_schema["required"] == ["ticks"]
+        assert fake.calls == ["/api/history/sessions/3/ticks/heaters.heater1?start_ns=10&every=5"]
+
 
 class TestRigRoutes:
     def test_check_validates_and_canonicalises(self, client):
@@ -224,6 +269,18 @@ class TestRigRoutes:
         assert "devices" in client.get("/api/rig/schema")["properties"]
 
 
+class TestInstructions:
+    def test_names_the_rig_it_was_given_not_its_own_url(self, client):
+        server = build(client, "operate", "chamber")
+        assert "chamber" in (server.instructions or "")
+        assert client.url not in (server.instructions or "")
+
+    def test_falls_back_when_no_name_is_given(self, client):
+        server = build(client, "operate")
+        assert "This rig" in (server.instructions or "")
+        assert client.url not in (server.instructions or "")
+
+
 class TestOverTheWire:
     async def test_list_and_call_through_a_session(self, client):
         server = build(client, "author")
@@ -247,6 +304,9 @@ class TestOverTheWire:
                     assert isinstance(result.content[0], types.TextContent)
                     failed = await session.call_tool("get_program", {"name": "nope"})
                     assert failed.is_error
+                    assert by_name["controllers"].output_schema["required"] == ["controllers"]
+                    listed_controllers = await session.call_tool("controllers", {})
+                    assert listed_controllers.structured_content == {"controllers": []}
                 tg.cancel_scope.cancel()
 
 
@@ -311,6 +371,44 @@ class TestMounted:
     def test_each_mode_has_a_route(self, http):
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
+
+    def initialize(self, http, mode):
+        init = self.rpc(
+            http,
+            mode,
+            "initialize",
+            {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "t", "version": "0"},
+            },
+        )
+        session = init.headers["mcp-session-id"]
+        http.post(
+            f"/mcp/{mode}",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers={"mcp-session-id": session, "Accept": "application/json, text/event-stream"},
+        )
+        return init, session
+
+    def test_initialize_reports_a_nonempty_version(self, http):
+        init, _ = self.initialize(http, "read")
+        assert init.json()["result"]["serverInfo"]["version"]
+
+    def test_a_missing_required_argument_is_invalid_params_not_a_keyerror(self, http):
+        _, session = self.initialize(http, "read")
+        body = self.rpc(
+            http,
+            "read",
+            "tools/call",
+            {"name": "describe_device", "arguments": {}},
+            session=session,
+            id=2,
+        ).json()
+        assert "result" not in body, body
+        assert body["error"]["code"] == -32602
+        assert "name" in body["error"]["message"]
+        assert "KeyError" not in body["error"]["message"]
 
 
 class TestDriverTools:
