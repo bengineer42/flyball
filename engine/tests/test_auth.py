@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -233,7 +235,9 @@ def test_the_signing_secret_is_configured_or_kept_beside_the_store(tmp_path):
     assert signing_secret(AuthConfig(secret="abc"), None) == b"abc"
     store = tmp_path / "rig.sqlite"
     first = signing_secret(AuthConfig(), store)
-    assert (tmp_path / "rig.key").exists() and len(first) >= 32
+    key_path = tmp_path / "rig.key"
+    assert key_path.exists() and len(first) >= 32
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600, "never world- or group-readable"
     assert signing_secret(AuthConfig(), store) == first, "the same key next start"
     assert signing_secret(AuthConfig(), None) != signing_secret(AuthConfig(), None)
 
