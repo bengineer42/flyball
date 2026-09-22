@@ -59,6 +59,20 @@ the way `useTraceRef` does for signals, so `MultiSeries` cannot draw a
 controller overlay by reference; the Graph picker offers signals only;
 wiring a controller trace ref through the store is future work.
 
+## The window control
+
+The page bar's window control (1 min / 5 min / 15 min / 1 h) sets how much
+history a following chart shows; it scrolls once that much has arrived.
+Its default is not a fixed constant: the first time both ends of it are
+known, it settles to whatever the store has actually loaded, capped at an
+hour — a rig with hours of history (`longrun`, say) does not open on a
+useless 5 min slice, and one that only just started does not open on an
+hour of mostly-empty axis either. It settles once, so it does not keep
+widening under a chart the operator hasn't touched as more history streams
+in; picking the control by hand always overrides it, and a dashboard
+widget's own saved window (`window_s`) never goes through this default at
+all.
+
 ## Chart keyboard shortcuts
 
 `ChartToolbar` (`ui/packages/react/src/panels/ChartToolbar.tsx`) accepts

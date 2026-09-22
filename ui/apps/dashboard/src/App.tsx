@@ -1,6 +1,6 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
+import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
@@ -24,6 +24,12 @@ import { readHome } from "./dashboard/home.js";
 import type { Programmer, Recording } from "./model.js";
 
 const SimulationPage = memo(Simulation);
+
+// The chart window default (see `windowS` in `App`): a placeholder until the store has enough
+// to fit to, then the floor and ceiling of that fit.
+const DEFAULT_WINDOW_S = 300;
+const MIN_WINDOW_S = 60;
+const MAX_WINDOW_S = 3600;
 
 const PAGE_LABEL: Record<Page, string> = { ...(Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>), devices: "Devices", inputs: "Inputs" };
 
@@ -139,7 +145,25 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   useEffect(() => {
     if (/^#?\/?$/.test(window.location.hash) && readHome()) window.location.replace(hashFor("dashboards"));
   }, []);
-  const [windowS, setWindowS] = useState(300);
+  // A fixed 5 min undershoots a rig with hours of history (`longrun`); a fixed 1 h is just as
+  // wrong the other way for one that started a minute ago. So the default fits whatever has
+  // actually loaded, capped at an hour -- settled once, the first time both ends of that are
+  // known, rather than tracking the growing extent forever (which would keep widening the
+  // window under a running chart the operator hasn't touched). An explicit choice (`onWindow`)
+  // always overrides this; a widget's own saved `window_s` never reaches this default at all.
+  const [windowS, setWindowS] = useState(DEFAULT_WINDOW_S);
+  const settledWindow = useRef(false);
+  const telemetry = useTelemetry();
+  const tickS = useNowS();
+  useEffect(() => {
+    if (settledWindow.current) return;
+    const now = telemetry.nowS();
+    const earliest = telemetry.earliestS();
+    if (now === null || earliest === null) return;
+    settledWindow.current = true;
+    setWindowS(Math.min(Math.max(now - earliest, MIN_WINDOW_S), MAX_WINDOW_S));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickS]);
   const [yScale, setYScaleState] = useState<YScale>(readYScale);
   const setYScale = useCallback((s: YScale) => {
     setYScaleState(s);

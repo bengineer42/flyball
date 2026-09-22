@@ -294,6 +294,23 @@ export class TelemetryStore {
     return this.atS ?? this.nowS();
   }
 
+  /**
+   * The oldest sample time across every signal a page has loaded so far, or
+   * null before any has -- what a chart's default window fits itself to
+   * (`App`'s `windowS`): a signal seeded from a session with hours of
+   * history reaches back further than one just opened, and this is the
+   * earliest of whatever has actually landed, live rings only (playback
+   * has its own fixed window already).
+   */
+  earliestS(): number | null {
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const ring of this.signals.values()) {
+      const first = ring.firstT();
+      if (first !== undefined) earliest = Math.min(earliest, first);
+    }
+    return Number.isFinite(earliest) ? earliest : null;
+  }
+
   /** Points held for a signal (in the playback window while paused). */
   count(address: Address): number {
     return (this.atS === null ? this.signals.get(address) : this.playbackRings.get(address))?.length ?? 0;
