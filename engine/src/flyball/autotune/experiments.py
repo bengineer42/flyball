@@ -119,7 +119,12 @@ class StepTest:
         # A plateau that has not moved is the dead time, not the response: the
         # reading sits at `initial` for θ seconds after the step, and with a
         # window shorter than that it would otherwise settle on the spot.
-        if settled and abs(self._steady.mean - self._initial) > self._steady.band:
+        # Two bands, not one: a single band of movement is exactly what
+        # `settled` tolerates, so a plateau differing from `initial` by one
+        # band carries no information. Drift left over from the first plateau
+        # reaches it unaided, and the fit then describes the drift -- a plant
+        # of tau 60 s and dead time 40 s fits as gain 0.005, tau 3.9, dead 0.
+        if settled and abs(self._steady.mean - self._initial) > 2 * self._steady.band:
             self._result = fit_fopdt(
                 self._samples,
                 start=self._stepped,
