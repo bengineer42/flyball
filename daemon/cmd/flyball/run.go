@@ -44,11 +44,18 @@ func runDirect(args []string) error {
 	}
 
 	// Forward Ctrl+C / SIGTERM to the child so it can shut down cleanly,
-	// rather than the CLI exiting and leaving it orphaned mid-signal.
+	// rather than the CLI exiting and leaving it orphaned mid-signal. The
+	// child (uvicorn) already prints its own graceful-shutdown sequence
+	// once the signal reaches it, but that can take a moment (draining
+	// connections, stopping polling) -- print immediately, at the instant
+	// the signal is caught, so Ctrl+C gets visible feedback right away
+	// rather than a silent pause before the child's own logs show up.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-sigs
+		fmt.Fprintln(os.Stderr, "flyball: stopping...")
+		signal.Stop(sigs) // a second Ctrl+C kills the process the normal way, doesn't hang
 		_ = cmd.Process.Signal(sig)
 	}()
 
