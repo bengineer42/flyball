@@ -422,14 +422,16 @@ one back out -- that stays application-side for now.
 
 Sensirion SGP40: `voc_raw` (dimensionless), `[RP]`. Raw signal only -- no
 VOC-index algorithm. The chip takes a humidity/temperature compensation
-input per read; the driver class can be given the addresses of another
-sensor's readings for that, but the rig file cannot set them yet, so every
-read uses the datasheet defaults (50 %RH, 25 °C).
+input per read; `humidity_source`/`temperature_source` name the signal
+address to read that compensation input from on each read. Omitting either
+falls back to the datasheet's fixed default (50 %RH, 25 °C) for that input.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | `0x59` | fixed |
+| `humidity_source` | none | signal address to read humidity compensation from each read; omit for the fixed 50 %RH default |
+| `temperature_source` | none | signal address to read temperature compensation from each read; omit for the fixed 25 °C default |
 
 ### `ccs811`
 
