@@ -105,7 +105,7 @@ after 2 min: 100.9 °C, demand 95.4
 ```
 
 A complete application on real hardware, with its own book, is
-[the humidity rig](https://bengineer42.github.io/flyball/humidity/) -- see [Worked examples](0-overview/examples.md).
+[the humidity rig](https://bengineer42.github.io/humctrl/) -- see [Worked examples](0-overview/examples.md).
 
 ## Status
 

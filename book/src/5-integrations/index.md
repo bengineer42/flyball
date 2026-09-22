@@ -21,7 +21,7 @@
 | Bluesky: readables and movables over any signal; event-model export | `flyball-bluesky` | [Bluesky](bluesky.md) |
 | A model over MCP (Claude Desktop, Claude Code, any MCP client) | shipped, on the runner's port | [Models over MCP](models.md) |
 | Your own code: Python client, TypeScript client, plain HTTP | shipped | [Your own code](code.md) |
-| Applications built on flyball | example: [the humidity rig](https://bengineer42.github.io/flyball/humidity/) | [Applications](applications.md) |
+| Applications built on flyball | example: [the humidity rig](https://bengineer42.github.io/humctrl/) | [Applications](applications.md) |
 | EPICS, OPC UA, NI-DAQmx, LabJack, vendor packages | not yet | [Not yet](not-yet.md) |
 
 Everything here is a `Device` like any other once attached: routes, a schema,

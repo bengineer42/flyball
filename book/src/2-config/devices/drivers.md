@@ -41,7 +41,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` |
 | [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` |
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` |
-| [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/flyball/humidity/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
+| [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
 
 Browsing what's available before wiring a rig: `extensions/linux/drivers-manifest.yaml`
 (part number, manufacturer, verification status, price, which application
@@ -604,7 +604,7 @@ The humidity rig's actuator: two pumps on one PWM chip, blended so that one
 `humidity` demand becomes a dry-line and a wet-line flow. The genuine driver
 runs on hardware (`pwm`) and on the simulated chamber alike. Its fields
 (`dry`, `wet`, `blend_flow`, `supply`, `frequency_hz`) and the physics are in
-[the humidity book](https://bengineer42.github.io/flyball/humidity/3-devices/blender/); the class is `examples/humidity/src/humidity/blender.py`,
+[the humidity book](https://bengineer42.github.io/humctrl/3-devices/blender/); the class is `examples/humidity/src/humidity/blender.py`,
 the worked example of a composite device in
 [Writing an actuator](../../3-extending/device/actuator.md).
 

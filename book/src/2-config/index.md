@@ -97,7 +97,7 @@ flyball-runner site.yaml                    # one file that `extends` the rest
 The conventional split is one file per concern: the hardware rig
 (`links`, `devices`, `controllers`); a simulation overlay that swaps the
 links and drivers under the same names (`examples/humidity/rig.yaml` +
-`sim.yaml`, walked through in [the humidity book](https://bengineer42.github.io/flyball/humidity/2-config/)); and a runner file per deployment that `extends` those and
+`sim.yaml`, walked through in [the humidity book](https://bengineer42.github.io/humctrl/2-config/)); and a runner file per deployment that `extends` those and
 carries only `runner:` (`examples/site/humidity.yaml`). Every address,
 program, dashboard and session is then identical whether the rig is real
 or simulated, and `flyball rig check FILE…` validates any combination

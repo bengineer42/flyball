@@ -67,7 +67,7 @@ and recorded session is identical whether the rig is real or simulated.
 `examples/furnace/rig.yaml` demonstrates the pattern in one file (a
 `sim_daq`/`sim_drive` pair standing in for a thermocouple DAQ and an SSR
 bank that don't exist yet); `examples/humidity/rig.yaml` + `sim.yaml` is
-the real two-file form — read both, and [the humidity book](https://bengineer42.github.io/flyball/humidity/2-config/) on them. `examples/site/*.yaml` is the third
+the real two-file form — read both, and [the humidity book](https://bengineer42.github.io/humctrl/2-config/) on them. `examples/site/*.yaml` is the third
 layer: a file per deployment holding only `extends` and `runner:`.
 
 ## Devices
@@ -174,5 +174,5 @@ lead compensator, a different job from the plant-capacity model this is.
 ## Example
 
 See [Configuration](../2-config/index.md) and [Integrations](../5-integrations/index.md) for more complete
-files, and [the humidity book](https://bengineer42.github.io/flyball/humidity/) for a real two-file (hardware + simulated
+files, and [the humidity book](https://bengineer42.github.io/humctrl/) for a real two-file (hardware + simulated
 overlay) rig.
