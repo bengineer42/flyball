@@ -59,7 +59,7 @@ number 4, `"on"` stays a string, matching the old CLI's literal parsing.
 | `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print` |
 | `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
 | `program schema` | the program file's JSON Schema |
-| `run RIG-FILE [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig" |
+| `run RIG-FILE [--uv] [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig". `--uv` runs it via `uv run --project <rig file's directory> flyball-runner` instead of a bare exec, so it works outside an app's own uv-managed venv (e.g. `examples/humidity`, `examples/furnace`) without first `cd`-ing there |
 | `password [PASSWORD]` | hash a password for `runner.auth.password` (prompts if omitted) |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
 

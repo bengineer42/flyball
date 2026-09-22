@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 )
 
@@ -22,9 +23,17 @@ import (
 // reverse-proxying /api, /ws and /mcp to the runner -- so the runner is
 // reachable through the CLI's own binary with no separate reverse proxy
 // in front of it (see serve_ui.go).
+//
+// --uv runs `flyball-runner` via `uv run --project <dir>` instead of
+// execing it bare, where <dir> is the rig file's own directory -- the
+// bare exec only works when flyball-runner happens to already be on
+// $PATH, which it never is outside an app's own uv-managed venv
+// (examples/humidity's, examples/furnace's, ...). `uv run` finds that
+// venv from --project the same way it would from cwd if you'd `cd`ed
+// there yourself.
 func runDirect(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [flyball-runner flags...]")
+		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
 	}
 
 	serveAddr, args, wantUI := popValue(args, "--serve-ui")
@@ -34,7 +43,16 @@ func runDirect(args []string) error {
 		port = "8000"
 	}
 
-	cmd := exec.Command("flyball-runner", args...)
+	useUV, args := popBool(args, "--uv")
+
+	var cmd *exec.Cmd
+	if useUV {
+		projectDir := filepath.Dir(args[0])
+		uvArgs := append([]string{"run", "--project", projectDir, "flyball-runner"}, args...)
+		cmd = exec.Command("uv", uvArgs...)
+	} else {
+		cmd = exec.Command("flyball-runner", args...)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
