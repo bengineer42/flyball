@@ -12,6 +12,7 @@ from flyball.model.catalog import Catalogs
 from .activities import Wait
 from .devices import RunCommand, Set
 from .loops import Arrive, Hold, Manual, Ramp, Regulate
+from .tuning import Tune
 
 
 def register(catalog: Catalogs) -> None:
@@ -23,3 +24,4 @@ def register(catalog: Catalogs) -> None:
     catalog.register_command(Hold)
     catalog.register_command(Arrive)
     catalog.register_command(Manual)
+    catalog.register_command(Tune)
