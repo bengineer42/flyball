@@ -126,7 +126,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
   const list = useDashboards();
   const healthIn = useHealth(5000);
   const exports = useRecordingExports();
-  const controllersLive = useControllers(3600, charts.every);
+  const controllersLive = useControllers(3600);
   const rigName = healthIn.data?.rig ?? "";
 
   // `useHealth`/`programmer` are `useQuery` results and `recording` wraps one too: each is a
@@ -174,11 +174,11 @@ export function Dashboards({ name, generated, devices, events, recording: record
     .join(",");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const bindings = useMemo(() => makeBindings(devices, beatControllers.controllers), [devices, controllerKey]);
-  const { windowS, onWindow, yScale, onYScale, every, onEvery } = charts;
+  const { windowS, onWindow, yScale, onYScale } = charts;
   const rowHeight = hist.present?.grid.row_height ?? DEFAULT_GRID.row_height;
   const rigData = useMemo<RigData>(
-    () => ({ bindings, rigName, health, recording, programmer, exports, charts: { windowS, onWindow, yScale, onYScale, every, onEvery }, rowHeight }),
-    [bindings, rigName, health, recording, programmer, exports, windowS, onWindow, yScale, onYScale, every, onEvery, rowHeight],
+    () => ({ bindings, rigName, health, recording, programmer, exports, charts: { windowS, onWindow, yScale, onYScale }, rowHeight }),
+    [bindings, rigName, health, recording, programmer, exports, windowS, onWindow, yScale, onYScale, rowHeight],
   );
 
   // Which document the route asks for: a name, or the home dashboard when the route is bare and one is set, else the generated one.

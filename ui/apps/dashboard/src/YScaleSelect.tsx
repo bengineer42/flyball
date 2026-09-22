@@ -87,59 +87,22 @@ export const YScaleSelect = memo(function YScaleSelect({ value, onChange, unit }
   );
 });
 
-/** What every chart page takes: the window, the y scale and the sampling, and how to change them. */
+/** What every chart page takes: the window and the y scale, and how to change them. */
 export interface ChartSettings {
   windowS: number;
   onWindow(s: number): void;
   yScale: YScale;
   onYScale(s: YScale): void;
-  /** Draw one point in `every`; 1 draws them all. */
-  every: number;
-  onEvery(n: number): void;
 }
 
-const EVERY = [1, 2, 5, 10, 20, 50];
-const EVERY_KEY = "flyball.every";
-export const readEvery = (): number => {
-  try {
-    const n = Number(localStorage.getItem(EVERY_KEY));
-    return EVERY.includes(n) ? n : 1;
-  } catch {
-    return 1;
-  }
-};
-export const writeEvery = (n: number) => {
-  try {
-    localStorage.setItem(EVERY_KEY, String(n));
-  } catch {
-    /* not persisted */
-  }
-};
-
-/** Sample every nth point: lighter charts for a long window or a dense series. */
-export const EverySelect = memo(function EverySelect({ value, onChange }: { value: number; onChange(n: number): void }) {
-  return (
-    <Labelled label="sample">
-      <ToggleButtonGroup exclusive size="small" value={value} onChange={(_e, v: number | null) => v !== null && onChange(v)} aria-label="sample every nth point" data-testid="every-select" sx={segmentSx}>
-        {EVERY.map((n) => (
-          <ToggleButton key={n} value={n} title={n === 1 ? "Every point" : `Every ${n}th point`}>
-            {n === 1 ? "all" : `1/${n}`}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
-    </Labelled>
-  );
-});
-
 /** The chart controls side by side, on one baseline; memoised for the same reason as `WindowSelect`. Lives once per page, in the page bar. */
-export const ChartControls = memo(function ChartControls({ windowS, onWindow, yScale, onYScale, every, onEvery, unit }: ChartSettings & { unit?: string }) {
+export const ChartControls = memo(function ChartControls({ windowS, onWindow, yScale, onYScale, unit }: ChartSettings & { unit?: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const controls = (
     <>
       <WindowSelect value={windowS} onChange={onWindow} />
-      <EverySelect value={every} onChange={onEvery} />
       <YScaleSelect value={yScale} onChange={onYScale} unit={unit} />
     </>
   );

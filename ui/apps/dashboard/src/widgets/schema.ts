@@ -50,15 +50,6 @@ export const WINDOW_OPTIONS = [
   { const: 900, title: "15 min" },
   { const: 3600, title: "1 h" },
 ];
-export const EVERY_OPTIONS = [
-  { const: 0, title: "page setting" },
-  { const: 1, title: "every point" },
-  { const: 2, title: "1 in 2" },
-  { const: 5, title: "1 in 5" },
-  { const: 10, title: "1 in 10" },
-  { const: 20, title: "1 in 20" },
-  { const: 50, title: "1 in 50" },
-];
 export const Y_OPTIONS = [
   { const: "page", title: "page setting" },
   { const: "auto", title: "fit the data" },

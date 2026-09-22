@@ -93,7 +93,7 @@ function seriesColorFor(slot: number): string {
  * its own colour.
  */
 export function Graph({ devices, ...charts }: GraphProps) {
-  const { windowS, yScale, every } = charts;
+  const { windowS, yScale } = charts;
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -308,7 +308,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
           {selected.length === 0 ? (
             <StateBlock state="empty" message="Tick a signal on the left to plot it." />
           ) : (
-            <MultiSeries series={series} source={live} id="graph" unit={primaryUnit} title="graph" height="fill" windowS={windowS} yScale={yScale} every={every} />
+            <MultiSeries series={series} source={live} id="graph" unit={primaryUnit} title="graph" height="fill" windowS={windowS} yScale={yScale} />
           )}
         </div>
       </div>

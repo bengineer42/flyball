@@ -92,7 +92,7 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   if (!source) return <Missing what="signal" name={controller.source} hint="The controller's source does not publish on this rig." />;
   return (
     <div ref={host} className="fb-fill fb-loop-host">
-      <ControllerPanel controller={controller} source={source} target={target} history={trace} trends={trends} trendHeight={trendHeight} windowS={charts.windowS} yScale={charts.yScale} every={charts.every} exportHref={exports.ticks(controller.name)} bare />
+      <ControllerPanel controller={controller} source={source} target={target} history={trace} trends={trends} trendHeight={trendHeight} windowS={charts.windowS} yScale={charts.yScale} exportHref={exports.ticks(controller.name)} bare />
     </div>
   );
 });

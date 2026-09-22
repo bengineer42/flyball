@@ -19,7 +19,7 @@ import { Events } from "./pages/Events.js";
 import { Sessions } from "./pages/Sessions.js";
 import { Programs, ProgramDetail } from "./pages/Programs.js";
 import { Simulation } from "./pages/Simulation.js";
-import { readYScale, writeYScale, readEvery, writeEvery, type ChartSettings } from "./YScaleSelect.js";
+import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
 import { readHome } from "./dashboard/home.js";
 import type { Programmer, Recording } from "./model.js";
 
@@ -145,11 +145,6 @@ export function App({ onSignIn }: { onSignIn(): void }) {
     setYScaleState(s);
     writeYScale(s);
   }, []);
-  const [every, setEveryState] = useState<number>(readEvery);
-  const setEvery = useCallback((n: number) => {
-    setEveryState(n);
-    writeEvery(n);
-  }, []);
   const devices = useDevices();
   const ready = Boolean(devices.data);
   useScrollMemory(ready);
@@ -191,7 +186,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
     return name;
   };
   const title = titled();
-  const charts = { windowS, onWindow: setWindowS, yScale, onYScale: setYScale, every, onEvery: setEvery };
+  const charts = { windowS, onWindow: setWindowS, yScale, onYScale: setYScale };
   const openDashboard = (n: string | null, generated?: boolean) => (window.location.hash = hashFor("dashboards", n, generated ? { generated: "" } : {}));
 
   return (
