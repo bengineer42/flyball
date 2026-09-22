@@ -1,7 +1,7 @@
 # Domain scenario rigs
 
-Config-only example rigs for the top-ranked domain leads from
-`brain/plans/roadmap-upgrades.md`'s cross-cutting synthesis. Each is a real
+Config-only example rigs for a handful of top-ranked application domains.
+Each is a real
 `rig.yaml` (real hardware addresses and drivers) plus a `sim.yaml` overlay
 (same addresses, no hardware) plus a `programs/` directory — the same shape
 as `examples/humidity/`. To go from sim to real, drop the `sim.yaml` file
@@ -42,8 +42,7 @@ flyball-runner rig.yaml              # the real skid/room
 
 ## What's not here
 
-Every other domain lead from the roadmap doc's synthesis (craft
-brewing/fermentation, greenhouse, teaching-lab benches) is either
-config-only but not yet scoped into a rig file, or already covered
-structurally by an existing example under a different name — see
-`brain/EXAMPLES.md` for the full per-domain status table.
+Other candidate domains (craft brewing/fermentation, greenhouse,
+teaching-lab benches) are either config-only but not yet scoped into a rig
+file, or already covered structurally by an existing example under a
+different name.
