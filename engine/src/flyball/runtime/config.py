@@ -443,6 +443,27 @@ class RigConfig(BaseModel):
                 **schema["properties"]["devices"],
                 **devices_schema,
             }
+            # The schema is for a file in an editor, and a file may be a layer: `extends`
+            # is stripped before validation (`resolve_layers`), and a `null` entry deletes
+            # what an earlier layer declared (`merge`) -- both are documented rig-file syntax.
+            schema["properties"]["extends"] = {
+                "type": "array",
+                "items": {"type": "string"},
+                "title": "Extends",
+                "description": "This file's own bases, merged in order before its own keys.",
+            }
+            removed = {"type": "null", "title": "Removed by this layer"}
+            for section in ("links", "devices", "controllers"):
+                entry = schema["properties"][section].get("additionalProperties")
+                if not isinstance(entry, dict):
+                    continue
+                # Appended to an existing `oneOf` rather than wrapping it: the dashboard reads
+                # `devices…additionalProperties.oneOf` and `links…discriminator` as they are.
+                if isinstance(entry.get("oneOf"), list):
+                    entry["oneOf"] = [*entry["oneOf"], removed]
+                else:
+                    properties = schema["properties"][section]
+                    properties["additionalProperties"] = {"oneOf": [entry, removed]}
             return schema
         return super().model_json_schema(**kwargs)
 
@@ -625,20 +646,32 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         defs.update(driver_schema.pop("$defs", {}))
         driver_properties = driver_schema.get("properties", {})
         driver_envelope = {**envelope, "driver": {"const": driver.config_tag}}
+        # Exactly one shape may match (`oneOf`): layered needs `config`, flat forbids it,
+        # else a flat entry with no required driver fields satisfies both and an
+        # editor reports "matches multiple schemas".
         layered = {
             "type": "object",
             "title": f"{driver.config_tag} (layered)",
             "properties": {**driver_envelope, "config": driver_schema},
-            "required": ["driver"],
+            "required": ["driver", "config"],
         }
         flat = {
             "type": "object",
             "title": f"{driver.config_tag} (flat)",
             "properties": {**driver_envelope, **driver_properties},
             "required": ["driver", *driver_schema.get("required", [])],
+            "not": {"required": ["config"]},
         }
         variants.append({"oneOf": [layered, flat]})
-    return {"additionalProperties": {"oneOf": variants}}, defs
+    # A layer may add to a device a base declared (`bound`, a label, one `config` key) without
+    # repeating its driver: envelope keys only, `config` unconstrained, and no `driver`.
+    overlay = {
+        "type": "object",
+        "title": "overlay of a device declared in a base",
+        "properties": {**envelope, "config": {"type": "object"}},
+        "not": {"required": ["driver"]},
+    }
+    return {"additionalProperties": {"oneOf": [*variants, overlay]}}, defs
 
 
 def canonical(config: RigConfig) -> dict[str, Any]:

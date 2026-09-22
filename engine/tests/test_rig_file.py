@@ -337,9 +337,45 @@ class TestChecks:
         tags = {
             shape["properties"]["driver"]["const"]
             for variant in by_driver["oneOf"]
-            for shape in variant["oneOf"]
+            for shape in variant.get("oneOf", [])  # the last variant is `null`: removed by a layer
         }
         assert {daq_tag, heaters_tag} <= tags
+
+    def test_schema_flat_and_layered_are_exclusive(self, daq_tag):
+        """A flat entry matches only the flat shape, a layered one only the layered."""
+        import jsonschema
+
+        schema = rig_schema()
+        shapes = {
+            shape["title"]: {"$defs": schema["$defs"], **shape}
+            for variant in schema["properties"]["devices"]["additionalProperties"]["oneOf"]
+            for shape in variant.get("oneOf", [])
+            if shape["properties"]["driver"]["const"] == daq_tag
+        }
+        flat_entry = {"driver": daq_tag, "zones": 2}
+        layered_entry = {"driver": daq_tag, "config": {"zones": 2}}
+
+        def matches(entry: dict[str, object]) -> set[str]:
+            valid = jsonschema.Draft202012Validator
+            return {title for title, shape in shapes.items() if valid(shape).is_valid(entry)}
+
+        assert matches(flat_entry) == {f"{daq_tag} (flat)"}
+        assert matches(layered_entry) == {f"{daq_tag} (layered)"}
+
+    def test_schema_accepts_a_layer_file(self, daq_tag):
+        """An overlay file names its bases and deletes with `null`: both validate in an editor."""
+        import jsonschema
+
+        layer = {
+            "extends": ["base.yaml"],
+            "links": {"real": None},
+            "devices": {
+                "f": None,
+                "g": {"driver": daq_tag, "zones": 1},
+                "h": {"bound": {"dry": "g.zone1"}, "config": {"zones": 3}},
+            },
+        }
+        jsonschema.Draft202012Validator(rig_schema()).validate(layer)
 
 
 class TestBuild:

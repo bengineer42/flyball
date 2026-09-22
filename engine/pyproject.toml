@@ -68,10 +68,11 @@ dev = [
     "ruff>=0.8",
     "import-linter>=2.1",
     "ipykernel>=7.3.0",
-    "flyball-sim",  # engine's own tests use SteppedClock/ScaledClock as scaffolding
-    "furnace",  # examples/stress's chaos.yaml/plant.yaml use its sim_furnace tag
-    "flyball-visa",  # example/stress rigs and the hardware-gate tests use visa/fake_text
-    "flyball-modbus",  # example/stress rigs use modbus/fake_registers
+    "flyball-sim", # engine's own tests use SteppedClock/ScaledClock as scaffolding
+    "furnace", # examples/stress's chaos.yaml/plant.yaml use its sim_furnace tag
+    "flyball-visa", # example/stress rigs and the hardware-gate tests use visa/fake_text
+    "flyball-modbus", # example/stress rigs use modbus/fake_registers
+    "jsonschema>=4.18",
 ]
 # The books under book/ and examples/*/book/ are MkDocs sites; mkdocstrings
 # renders the Python reference from docstrings, griffe-pydantic the model fields.
