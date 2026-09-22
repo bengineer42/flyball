@@ -93,6 +93,21 @@ describe("TelemetryStore", () => {
     expect(store.nowS()).toBe(2);
   });
 
+  it("earliestS is null before any signal has a point, then the oldest first row across every signal loaded", () => {
+    const { rig, send } = fakeRig();
+    const store = new TelemetryStore(rig);
+    store.subscribeLatest("furnace.zone1", () => undefined, 0);
+    store.subscribeLatest("furnace.zone2", () => undefined, 0);
+    expect(store.earliestS()).toBeNull();
+    send("samples", samples(["furnace", 10, { zone1: 20 }]));
+    vi.advanceTimersByTime(20);
+    expect(store.earliestS()).toBe(10);
+    // A signal seeded further back (a longer-lived one, or history landing) pulls the earliest back with it.
+    send("samples", samples(["furnace", 5, { zone2: 15 }]));
+    vi.advanceTimersByTime(20);
+    expect(store.earliestS()).toBe(5);
+  });
+
   it("feeds a number to the ring and to `latestValue`, but a bool/str/json to `latestValue` only", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);

@@ -23,6 +23,12 @@ function asDtype(dtype: string): Dtype {
   return "str";
 }
 
+/** The last point of a trace, formatted -- a generator-based controller write can record a non-numeric value (a ramp's `regulate` object, say), so this guards the same way `ControllerPanel.tsx`'s `value()`/`describeReference` do. */
+function latest(v: number[], precision: number): string {
+  const last = v[v.length - 1];
+  return typeof last === "number" ? fixed(last, precision) : "?";
+}
+
 /** A recorded signal as the charts take one: the row's metadata, no role or tags (not recorded) and no live values. */
 function asSignal(row: SignalRow): SignalOut {
   return {
@@ -279,7 +285,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               <h4>
                 <Ref kind="signal" name={tr.signal.address} />
                 <span className="fb-latest">
-                  {tr.v.length ? `${fixed(tr.v[tr.v.length - 1]!, tr.signal.precision ?? 2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
+                  {tr.v.length ? `${latest(tr.v, tr.signal.precision ?? 2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
                 </span>
                 {exports && <Download what={key} href={(f) => exports.series(tr.signal.address, f)} />}
               </h4>
@@ -322,7 +328,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
             <div className="fb-muted fb-session-latest">
               {group.map((tr) => (
                 <span key={tr.key}>
-                  {tr.key}: {tr.v.length ? `${fixed(tr.v[tr.v.length - 1]!, tr.signal.precision ?? 2)} ${unit} · ${tr.v.length} pts` : "no points"}
+                  {tr.key}: {tr.v.length ? `${latest(tr.v, tr.signal.precision ?? 2)} ${unit} · ${tr.v.length} pts` : "no points"}
                   {exports && <Download what={tr.key} href={(f) => exports.series(tr.signal.address, f)} />}
                 </span>
               ))}

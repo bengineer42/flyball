@@ -237,6 +237,16 @@ export function humanise(tag: string): string {
 }
 
 /**
+ * `verb` prefixed onto `label`, unless `label` already opens with it: a
+ * signal named `set_voltage` humanises to "Set voltage" on its own, so
+ * prefixing "Set " again for a "Set <label>" heading would double the word
+ * ("Set Set voltage") rather than saying it once.
+ */
+export function verbLabel(verb: string, label: string): string {
+  return new RegExp(`^${verb}\\b`, "i").test(label) ? label : `${verb} ${label}`;
+}
+
+/**
  * Every event `kind` the backend emits, worded for a log reader. Enumerated
  * from the `rig.event(...)` call sites (`runtime/{writer,polling,rig}.py`,
  * `programmer/programmer.py`, `server/routes/library.py`) -- not guessed.
