@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeUnit, fixed, humanise, tickDigits, withUnit } from "@flyball/client";
-import { axisSize, edgeTicks, yRange, type YScale } from "./yscale.js";
+import { describeUnit, fixed, humanise, withUnit } from "@flyball/client";
+import { axisSize, axisValues, edgeTicks, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { showLatestInLegend } from "./legend.js";
 import { navigation } from "./navigation.js";
@@ -100,19 +100,6 @@ const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.un
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
 const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(fixed(raw, s.precision ?? 2), s.unit));
-
-/**
- * An axis' tick labels at the signal's precision instead of uPlot's own
- * significant-figure guess (which over-shows digits on a near-flat trace) --
- * but never fewer decimals than tell one tick from the next, or a flat
- * trace reads `0.36, 0.36, 0.36` all the way up.
- */
-const axisValues =
-  (precision: number): uPlot.Axis.Values =>
-  (_u, splits) => {
-    const decimals = tickDigits(splits, precision);
-    return splits.map((v) => (Number.isFinite(v) ? fixed(v, decimals) : ""));
-  };
 
 /** Align traces with different time bases onto one x array, nulls where a trace has no point. */
 function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
