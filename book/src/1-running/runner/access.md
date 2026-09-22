@@ -7,8 +7,12 @@ Who may reach the runner, where, and what the API is allowed to do to the proces
 Three ways a runner can stand:
 
 - **Open** (the default): no password, no token; anyone who can reach the
-  port can read and drive the rig. Fine on loopback; not on `--host 0.0.0.0`,
-  and not on a rig a model can drive.
+  port can read and drive the rig. Fine on loopback, so it is served on
+  loopback only: an open runner with `--host` anything else (`0.0.0.0`, a
+  LAN address, a host name other than `localhost`) refuses to start, and
+  says how to fix it. To serve one open on the network anyway, say so:
+  `--insecure-open` (`auth.insecure_open: true`), and the runner logs a
+  warning each start. Not on a rig a model can drive.
 - **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
   the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
   The login page trades it for a session -- an `HttpOnly` cookie the browser
@@ -26,6 +30,16 @@ Three ways a runner can stand:
   `FLYBALL_TOKEN=T` in the environment. The login page takes the token too,
   so a browser on a token-only runner still ends up with a cookie and
   nothing in its storage.
+
+A password or a token given in the environment counts the same as one on
+the command line or in the file.
+
+**Plain HTTP.** The runner does not do TLS: a password, a token and a
+session cookie sent to it from another machine cross the network in the
+clear, and anyone on the path can take them. A runner with a password or a
+token that serves beyond loopback logs a warning saying so at start; put a
+proxy that terminates TLS in front of it on anything but a network you
+trust.
 
 Either one shuts the door: everything under `/api`, `/ws` and `/mcp` needs a
 session or the token, bar `/api/auth` (the door itself) and `/docs`.

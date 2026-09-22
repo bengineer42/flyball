@@ -2,14 +2,15 @@
 
 How the process serves: where it listens, what the API may do, where its
 files are. Nothing here is about the equipment, so it is not part of the
-rig document, a version or a save, and it may live in a file of its own
+rig document or a version, a save to a new file does not write it (a save
+over an existing file keeps that file's section), and it may live in a file of its own
 that `extends` the rig. Every key has a command-line flag of the same name;
 a flag (or its environment variable) beats the file. A path in the file is
 relative to the first rig file's directory.
 
 | key | type | default | flag | |
 | --- | --- | --- | --- | --- |
-| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable |
+| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable. Anything else needs `auth.password` or `auth.token` (or `auth.insecure_open`) |
 | `port` | int | `8000` | `--port` | |
 | `root_path` | `/prefix` | none | `--root-path`, `FLYBALL_ROOT_PATH` | serve everything under a path: `/furnace/api`, `/furnace/ws`, … for several rigs on one origin -- [a sub-path](../1-running/runner/access.md#a-sub-path) |
 | `log_level` | string | `info` | `--log-level` | uvicorn's |
@@ -19,6 +20,7 @@ relative to the first rig file's directory.
 | `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with neither may do: nothing, or every `GET` and stream |
 | `auth.session` | duration | `12h` | `--session`, `FLYBALL_SESSION` | how long a login lasts |
 | `auth.secret` | string | a key file beside the store | | what signs sessions; set it to keep sessions across machines or without a store |
+| `auth.insecure_open` | bool | `false` | `--insecure-open` | serve with no password and no token on a `host` beyond loopback: anyone who can reach it may operate the rig. Without it such a runner refuses to start; `flyball run --serve-ui` and `flyballd` read it too |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
 | `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |

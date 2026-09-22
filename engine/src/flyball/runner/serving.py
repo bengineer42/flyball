@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from flyball.record.store import Store
 from flyball.rig import Rig
-from flyball.runtime.config import RigConfig, RunnerConfig
+from flyball.runtime.config import RigConfig, RunnerConfig, check_exposure
 from flyball.runtime.retention import Retention
 
 if TYPE_CHECKING:
@@ -69,6 +69,10 @@ def serve(
             None leaves those routes answering 503 and keeps no scratch.
         config: What the rig was built from, for `/api/rig/config`.
 
+    An open runner (no password, no token) on an address beyond loopback raises
+    `ValueError` unless `settings.auth.insecure_open`; credentials served beyond
+    loopback over plain HTTP log one warning.
+
     A restart asked for over the API (`POST /api/runner/restart`) stops the
     rig and replaces this process with the same command line, once `serve`
     has unwound.
@@ -94,6 +98,9 @@ def serve(
     from flyball.sequencing import Programmer
 
     settings = settings or RunnerConfig()
+    exposure = check_exposure(settings)  # raises for an open runner beyond loopback
+    if exposure is not None:
+        log.warning("%s", exposure)
     programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers
     programmer = Programmer(rig)
     ensure_discovered()  # a caller that built `rig` without going through `main()` first

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from flyball.model.catalog import Catalogs, set_catalog
-from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
+from flyball.runtime.config import RigConfig, RunnerConfig, check_exposure, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 
@@ -45,6 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         section = RunnerConfig.model_validate(document.get("runner") or {})
         name = document.get("name")
         settings = settle(section, args, first, name if isinstance(name, str) else None, files)
+        check_exposure(settings)  # before anything is built: an open runner stays on loopback
         logging.getLogger().setLevel(settings.log_level.upper())
         assert settings.store is not None and settings.drivers is not None
         report = load_drivers(settings.drivers)

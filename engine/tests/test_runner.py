@@ -345,3 +345,95 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
     assert [(r.id, r.parent) for r in rows] == [(3, 2), (2, 1), (1, None)]
     assert store.head_rig_version().id == 3
     store.close()
+
+
+class TestExposure:
+    """An open runner -- no password, no token -- is served on loopback only, unless asked."""
+
+    @pytest.fixture(autouse=True)
+    def _no_env(self, monkeypatch):
+        for name in ("FLYBALL_PASSWORD", "FLYBALL_TOKEN"):
+            monkeypatch.delenv(name, raising=False)
+
+    @pytest.fixture
+    def served(self, monkeypatch):
+        seen: dict = {}
+        monkeypatch.setattr(
+            "flyball.runner.entrypoint.serve", lambda rig, settings, **kw: seen.update(s=settings)
+        )
+        return seen
+
+    @pytest.fixture
+    def lab(self, tmp_path):
+        rig_file = tmp_path / "lab.yaml"
+        rig_file.write_text("name: lab\n")
+        return rig_file
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1", "127.0.1.1"])
+    def test_loopback_stays_open(self, lab, served, host):
+        assert runner.main([str(lab), "--host", host]) == 0
+        assert not served["s"].auth.enabled
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.3", "", "pi.local"])
+    def test_an_open_runner_beyond_loopback_refuses_to_start(self, lab, served, capsys, host):
+        assert runner.main([str(lab), "--host", host]) == 2
+        err = capsys.readouterr().err
+        assert "open" in err and "--password" in err and "--insecure-open" in err
+        assert "s" not in served, "nothing is built or served"
+
+    def test_the_rig_file_s_host_counts_too(self, tmp_path, served, capsys):
+        rig_file = tmp_path / "lab.yaml"
+        rig_file.write_text("name: lab\nrunner: {host: 0.0.0.0}\n")
+        assert runner.main([str(rig_file)]) == 2
+        assert "insecure_open" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "argv, env",
+        [
+            (["--password", "hunter2"], {}),
+            (["--token", "t0k"], {}),
+            ([], {"FLYBALL_PASSWORD": "hunter2"}),
+            ([], {"FLYBALL_TOKEN": "t0k"}),
+        ],
+    )
+    def test_a_password_or_token_lets_it_bind_anywhere(self, lab, served, monkeypatch, argv, env):
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        assert runner.main([str(lab), "--host", "0.0.0.0", *argv]) == 0
+        assert served["s"].auth.enabled
+
+    def test_the_explicit_opt_in_lets_it_start_open(self, tmp_path, lab, served):
+        assert runner.main([str(lab), "--host", "0.0.0.0", "--insecure-open"]) == 0
+        assert served["s"].auth.insecure_open and not served["s"].auth.enabled
+        rig_file = tmp_path / "opt.yaml"
+        rig_file.write_text("name: lab\nrunner: {host: 0.0.0.0, auth: {insecure_open: true}}\n")
+        assert runner.main([str(rig_file)]) == 0
+
+    def test_the_check_and_its_warnings(self):
+        from flyball.runtime.config import AuthConfig, check_exposure
+
+        assert check_exposure(RunnerConfig()) is None
+        with pytest.raises(ValueError, match="open"):
+            check_exposure(RunnerConfig(host="0.0.0.0"))
+        opened = check_exposure(RunnerConfig(host="0.0.0.0", auth=AuthConfig(insecure_open=True)))
+        assert opened is not None and "anyone" in opened
+        clear = check_exposure(RunnerConfig(host="0.0.0.0", auth=AuthConfig(password="x")))
+        assert clear is not None and "unencrypted" in clear
+        assert check_exposure(RunnerConfig(auth=AuthConfig(token="x"))) is None
+
+    def test_serve_refuses_too(self, monkeypatch):
+        from flyball.rig import Rig
+
+        monkeypatch.setattr("uvicorn.Server.run", lambda self: None)
+        with pytest.raises(ValueError, match="open"):
+            runner.serve(Rig("t"), RunnerConfig(host="0.0.0.0", port=1))
+
+    def test_serve_warns_of_cleartext_once(self, monkeypatch, caplog):
+        from flyball.rig import Rig
+        from flyball.runtime.config import AuthConfig
+
+        monkeypatch.setattr("uvicorn.Server.run", lambda self: None)
+        with caplog.at_level("WARNING", logger="flyball.runner"):
+            runner.serve(Rig("t"), RunnerConfig(host="0.0.0.0", port=1, auth=AuthConfig(token="x")))
+        warnings = [r for r in caplog.records if "unencrypted" in r.getMessage()]
+        assert len(warnings) == 1

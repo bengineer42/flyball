@@ -202,6 +202,8 @@ class AuthConfig(BaseModel):
     caller with neither may do is `anonymous`: nothing, or read. Levels are
     `none < read < operate`; a later scheme (several sign-ins, a part of the
     rig locked) changes who gets which level, not what a level admits.
+    An open runner is served on loopback only unless `insecure_open` says
+    otherwise (see [check_exposure][flyball.runtime.config.check_exposure]).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -225,6 +227,11 @@ class AuthConfig(BaseModel):
         description="The key that signs sessions; default: a key file beside the store, else one"
         " made for the process (a restart then signs everyone out).",
     )
+    insecure_open: bool = Field(
+        default=False,
+        description="Serve with no password and no token on an address beyond loopback: anyone"
+        " who can reach it may operate the rig. Without this such a runner refuses to start.",
+    )
 
     @field_validator("session", mode="before")
     @classmethod
@@ -240,6 +247,60 @@ class AuthConfig(BaseModel):
     @property
     def session_s(self) -> float:
         return parse_duration_ns(self.session) / 1e9
+
+
+def is_loopback(host: str) -> bool:
+    """Whether a bind address reaches this machine only: `localhost`, `127.0.0.0/8`, `::1`.
+
+    Anything else -- `0.0.0.0`, `::`, an empty host, a LAN address, a name that is not
+    `localhost` -- may be reachable from elsewhere, and counts as not.
+    """
+    import ipaddress
+
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip().strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def check_exposure(settings: RunnerConfig) -> str | None:
+    """Refuse an open runner beyond loopback; return a warning worth logging, if any.
+
+    Open is no password and no token (`runner.auth`, `--password`/`--token`, or
+    `FLYBALL_PASSWORD`/`FLYBALL_TOKEN`, all settled into `settings` by then): anyone
+    who reaches the port may operate the rig. On loopback that is only this machine;
+    on any other address it is the network, so it needs `auth.insecure_open`.
+
+    Returns:
+        A warning when the runner serves beyond loopback: open by choice, or with
+        credentials over plain HTTP. None on loopback.
+
+    Raises:
+        ValueError: Open, beyond loopback, and not opted in.
+    """
+    auth = settings.auth
+    if is_loopback(settings.host):
+        return None
+    if not auth.enabled:
+        if not auth.insecure_open:
+            raise ValueError(
+                f"refusing to serve an open runner (no password, no token) on"
+                f" {settings.host or 'every interface'!r}: anyone who can reach it could operate"
+                " the rig. Set a password or a token (--password, --token, FLYBALL_PASSWORD,"
+                " FLYBALL_TOKEN, or runner.auth in the rig file), serve on 127.0.0.1, or, to"
+                " allow it knowingly, --insecure-open (runner.auth.insecure_open: true)"
+            )
+        return (
+            f"serving an OPEN runner on {settings.host or 'every interface'!r}"
+            " (insecure_open): anyone who can reach it may operate the rig"
+        )
+    return (
+        f"serving plain HTTP on {settings.host or 'every interface'!r}: the password, the token"
+        " and session cookies cross the network unencrypted; put TLS in front, or serve on"
+        " 127.0.0.1"
+    )
 
 
 class RunnerConfig(BaseModel):

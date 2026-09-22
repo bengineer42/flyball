@@ -28,7 +28,11 @@ def parser() -> argparse.ArgumentParser:
         help="start from the store's last rig version instead of the files: what was added"
         " through the API and not saved comes back",
     )
-    p.add_argument("--host", help="bind address (default: loopback only)")
+    p.add_argument(
+        "--host",
+        help="bind address (default: loopback only); beyond loopback it needs a password or a"
+        " token, or --insecure-open",
+    )
     p.add_argument(
         "--compose",
         action="store_const",
@@ -46,7 +50,14 @@ def parser() -> argparse.ArgumentParser:
         "--token",
         default=os.environ.get("FLYBALL_TOKEN") or None,
         help="bearer token for the CLI, MCP clients and scripts (env FLYBALL_TOKEN); default: none."
-        " With neither this nor a password the runner is open",
+        " With neither this nor a password the runner is open, and serves on loopback only",
+    )
+    p.add_argument(
+        "--insecure-open",
+        action="store_const",
+        const=True,
+        help="serve with no password and no token on an address beyond loopback: anyone who"
+        " reaches it may operate the rig. Without this such a runner refuses to start",
     )
     p.add_argument(
         "--anonymous",

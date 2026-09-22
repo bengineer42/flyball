@@ -1,7 +1,7 @@
 """Serve a rig described by a file.
 
     flyball-runner rig.toml
-    flyball-runner rig.toml --host 0.0.0.0 --port 8000 --record
+    FLYBALL_TOKEN=... flyball-runner rig.toml --host 0.0.0.0 --port 8000 --record
     flyball-runner furnace.yaml sim.yaml --set clock.speed=60
 
 Builds the rig from the file (any of `.toml`, `.yaml`, `.json`), starts its
