@@ -195,7 +195,9 @@ class TestBenchRig:
         tags = {
             shape["properties"]["driver"]["const"]
             for variant in by_driver["oneOf"]
-            for shape in variant["oneOf"]
+            # `.get`: the layer variants (an entry that only adds to a base's device, and `null`
+            # to remove one) have no nested `oneOf` and name no driver.
+            for shape in variant.get("oneOf", [])
         }
         assert "scpi" in tags
 
