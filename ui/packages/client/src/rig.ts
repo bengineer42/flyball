@@ -258,7 +258,11 @@ export class RigClient {
   /** Every version of the rig this store has seen, newest first: when, and why it changed. */
   // region Auth
 
-  /** Who this caller is here and what this rig's door is like (`GET /api/auth`); always answers. */
+  /**
+   * Who this caller is here and what this rig's door is like (`GET /api/auth`). Answers anonymous for
+   * no credential or a stale session cookie, but 401 for an `Authorization` header that is not a
+   * valid flyball token (a proxy's `Basic`, say), with or without a session cookie.
+   */
   auth(): Promise<AuthInfo> {
     return this.get("/api/auth");
   }
