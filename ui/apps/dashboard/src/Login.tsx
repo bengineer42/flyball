@@ -7,9 +7,11 @@ import { RigError } from "@flyball/client";
 import { useAuth } from "./auth.js";
 
 /**
- * The login page: one password field. Replaces the whole app while the runner says this browser may see
- * nothing (`level: none`), and stands in for a page whose request came back 401 after a session ended.
- * A runner with only a token takes that here too -- the browser trades it for a cookie and keeps nothing.
+ * The login page. Replaces the whole app while the door says this browser may see nothing, and stands in
+ * for a page whose request came back 401 after a session ended. What it asks for is `info.login`'s: a
+ * `password` front takes its password, a bare runner its token (traded for a cookie; the browser keeps
+ * nothing). A `proxy` front offers neither -- the proxy in front of it signs people in -- so the page says
+ * that and has no field.
  */
 export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
   const { login, info } = useAuth();
@@ -17,6 +19,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const label = info?.login.password ? "Password" : "Token";
+  const typed = Boolean(info?.login.password || info?.login.token);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,7 +38,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", p: 3 }}>
-      <Paper component="form" onSubmit={submit} sx={{ p: 4, maxWidth: 400, width: "100%" }} elevation={2} data-testid="login">
+      <Paper component="form" onSubmit={submit} sx={{ p: 4, maxWidth: 400, width: "100%" }} elevation={2} data-testid="login" data-shape={info?.shape}>
         <Stack spacing={2}>
           <Typography variant="h2" component="h1">
             Sign in
@@ -43,20 +46,26 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
           <Typography variant="body2" color="text.secondary">
             {info?.login.password
               ? "This rig needs a password."
-              : "This rig needs its token: the one the runner was started with (--token)."}
+              : info?.login.token
+                ? "This rig needs its token: the one the runner was started with (--token)."
+                : info?.shape === "proxy"
+                  ? "This rig's sign-in is the proxy in front of it, and this request reached it without one. Open the rig through the proxy's own address, or sign in there, then reload."
+                  : "This rig offers no sign-in here."}
           </Typography>
-          <TextField
-            size="small"
-            label={label}
-            type="password"
-            autoComplete="current-password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            autoFocus
-            fullWidth
-            error={error !== null}
-            inputProps={{ "data-testid": "login-secret" }}
-          />
+          {typed && (
+            <TextField
+              size="small"
+              label={label}
+              type="password"
+              autoComplete="current-password"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              autoFocus
+              fullWidth
+              error={error !== null}
+              inputProps={{ "data-testid": "login-secret" }}
+            />
+          )}
           {error && (
             <Alert severity="error" data-testid="login-error">
               {error}
@@ -71,9 +80,11 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
                 Keep looking
               </Button>
             )}
-            <Button type="submit" variant="contained" disabled={!secret || busy} data-testid="login-submit">
-              Sign in
-            </Button>
+            {typed && (
+              <Button type="submit" variant="contained" disabled={!secret || busy} data-testid="login-submit">
+                Sign in
+              </Button>
+            )}
           </Stack>
         </Stack>
       </Paper>

@@ -79,7 +79,7 @@ describe("StopButton shows iff this caller holds OPERATE", () => {
   });
 });
 
-describe("StopButton is honest about a 501 (A8's route not wired up yet)", () => {
+describe("StopButton reports what the stop did, or why it failed", () => {
   it("confirms, then shows the report's message rather than nothing", async () => {
     const report = { at_ns: 1, actor: { sub: "local:console", sid: "s1", kind: "human", via: "http", detail: "" }, reason: "", devices: {}, program_interrupted: false, controllers_manual: [], interim: true };
     withProviders(OPERATOR, () => ({ status: 200, json: report }));
@@ -92,14 +92,15 @@ describe("StopButton is honest about a 501 (A8's route not wired up yet)", () =>
     expect(screen.getByTestId("stop-result").textContent).not.toMatch(/\bstopped\b|safe/i);
   });
 
-  it("a 501 is shown as a failure, never as a successful stop", async () => {
-    withProviders(OPERATOR, () => ({ status: 501, json: { detail: "stop not wired yet" } }));
+  it("a refusal is shown as a failure with the server's own reason, never as a stop", async () => {
+    withProviders(OPERATOR, () => ({ status: 501, json: { detail: "no stopper on this runner" } }));
     await waitFor(() => screen.getByTestId("stop-button"));
     fireEvent.click(screen.getByTestId("stop-button"));
     await waitFor(() => screen.getByRole("dialog"));
     fireEvent.click(screen.getByRole("button", { name: "Software stop" }));
     const result = await waitFor(() => screen.getByTestId("stop-result"));
-    expect(result.textContent).toMatch(/not wired up yet/i);
+    expect(result.textContent).toContain("no stopper on this runner");
+    expect(result.textContent).not.toMatch(/not wired up yet/i);
     expect(result.className).not.toMatch(/success/i);
   });
 

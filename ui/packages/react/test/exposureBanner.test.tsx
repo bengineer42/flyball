@@ -41,3 +41,20 @@ describe("ExposureBanner", () => {
     expect(screen.getByTestId("exposure-banner").textContent).toMatch(/this machine only/i);
   });
 });
+
+describe("ExposureBanner at a front that fell back", () => {
+  it("does not say 'no password and no token' when a configured sign-in could not be used", () => {
+    const warning =
+      "front: auth: password needs a password: line (`flyball password` makes one) -- serving the local shape on 127.0.0.1:8443 only; the rig keeps running (D-028)";
+    render(createElement(ExposureBanner, { exposure: { ...base, requested: "0.0.0.0:8443", host: "127.0.0.1", restricted: true, warning } }));
+    const text = screen.getByTestId("exposure-banner").textContent ?? "";
+    expect(text).not.toMatch(/no password and no token/i);
+    expect(text).toMatch(/this machine only/i);
+    expect(text).toContain(warning);
+  });
+
+  it("an open network rig is described without claiming which credentials it lacks", () => {
+    render(createElement(ExposureBanner, { exposure: { ...base, requested: "0.0.0.0", host: "0.0.0.0", open_network: true } }));
+    expect(screen.getByTestId("exposure-banner").textContent).not.toMatch(/no password and no token/i);
+  });
+});
