@@ -201,6 +201,26 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 		detail(w, http.StatusForbidden, "Origin not allowed")
 		return
 	}
+	// Every route behind /api, /ws and /mcp needs a verb (the runner's only
+	// open ones are /api/auth*, answered by the front itself): a caller
+	// holding none is refused here, without a connection to the runner.
+	if len(f.Verbs(c, rig.Name)) == 0 {
+		refuseNoVerb(w, r, c)
+		return
+	}
+	if holds(r) {
+		release, ok := f.held.acquire(rig.Name, noCredential(c))
+		if !ok {
+			if isUpgrade(r) {
+				wsRefuse(w, r, closeTryLater, "Too many open connections to this rig; try again later")
+			} else {
+				w.Header().Set("Retry-After", "5")
+				detail(w, http.StatusTooManyRequests, "Too many open connections to this rig; try again later")
+			}
+			return
+		}
+		defer release()
+	}
 	t, err := f.target(r.Context(), rig)
 	if err != nil {
 		targetError(w, err)

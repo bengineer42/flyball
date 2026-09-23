@@ -115,6 +115,7 @@ type Front struct {
 	limiter  *store.Limiter
 	hasher   *store.Hasher
 	cancels  *cancels
+	held     *held
 	cookie   string
 	localSid string
 	signer   endpoint.Signer
@@ -140,6 +141,7 @@ func New(o Options) *Front {
 		limiter:  store.NewLimiter(store.LoginAttempts, store.LoginWindow, store.LimiterEntries, nil),
 		hasher:   store.NewHasher(store.HashingSlots),
 		cancels:  newCancels(),
+		held:     newHeld(),
 		localSid: randomHex(16),
 		verified: map[string][32]byte{}, transports: map[string]*http.Transport{},
 		stop: make(chan struct{}), done: make(chan struct{}),

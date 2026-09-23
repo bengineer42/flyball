@@ -300,12 +300,12 @@ func TestAudFromRoutedEntry(t *testing.T) {
 	d := newDaemon(t, front.ShapePassword)
 	d.start("lab", "/lab")
 	d.start("lab2", "/lab2")
-	tok := d.token("ci", "read:lab2")
+	tok := d.token("ci", "operate:lab", "read:lab2")
 	for _, c := range []struct {
 		path, aud string
 		scp       []string
 	}{
-		{"/lab/api/echo", "lab", []string{}},
+		{"/lab/api/echo", "lab", []string{"operate"}},
 		{"/lab2/api/echo", "lab2", []string{"read"}},
 	} {
 		code, body := d.do("GET", c.path, cred{bearer: tok}, "")

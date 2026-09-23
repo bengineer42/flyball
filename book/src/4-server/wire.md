@@ -106,8 +106,10 @@ options.
 and then closed, so the client sees why: 4401 without a credential, or with
 one that is wrong, revoked or expired, or an anonymous caller lacking the
 verb (the UI stops retrying, and offers sign-in); 4403 for a signed-in
-caller lacking the verb; 1014 when the front and the runner are out of
-step; 4404 for a path outside the runner's `--root-path`. A `403` for a
+caller lacking the verb; 1013 when the front already holds as many
+sockets to the rig as it allows (try again later: the UI retries); 1014
+when the front and the runner are out of step; 4404 for a path outside the
+runner's `--root-path`. A `403` for a
 missing verb says which: `{"detail", "needed": "operate"}`. The session
 cookie (`flyball-<port>` or `__Host-flyball` at a front,
 `flyball-bare-<port>` at a bare runner; [authentication](api.md#authentication))

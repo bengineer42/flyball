@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -40,6 +41,8 @@ type fakeRunner struct {
 
 	tooOld bool   // answers an unsigned probe with 200: a runner that ignores the principal
 	root   string // its root_path (flyballd: /<name>)
+
+	hits atomic.Int64 // every request that reached it, the readiness handshake included
 
 	mu       sync.Mutex
 	seen     []seenRequest
@@ -104,6 +107,7 @@ func (fr *fakeRunner) requests() []seenRequest {
 }
 
 func (fr *fakeRunner) serve(w http.ResponseWriter, r *http.Request) {
+	fr.hits.Add(1)
 	path := strings.TrimPrefix(r.URL.Path, fr.root)
 	if path == "/api/auth/front" {
 		if fr.tooOld {
@@ -196,6 +200,14 @@ func (fr *fakeRunner) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			writeServerFrame(conn, op, payload)
 		}
+	case path == "/api/rig/stop":
+		w.Write([]byte(`{"stopping":true}`))
+	case path == "/ws/hold":
+		// A socket held open until the client goes, as a dashboard's are.
+		conn, brw := serverUpgrade(w, r)
+		defer conn.Close()
+		writeServerFrame(conn, 0x1, []byte("hello"))
+		io.Copy(io.Discard, brw)
 	case path == "/ws/kick":
 		conn, _ := serverUpgrade(w, r)
 		writeServerFrame(conn, 0x8, closePayload(4401, "principal refused"))

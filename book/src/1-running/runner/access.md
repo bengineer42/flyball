@@ -56,6 +56,10 @@ runner:
 The password must be the hashed line `flyball password` prints; a plain
 one is refused. `anonymous: read` lets anyone who reaches the rig watch it
 without signing in (every `GET` and every stream); the default is `none`.
+A dashboard holds four sockets open; the front allows 128 held sockets and
+streams per rig to callers with no credential, and 512 in all, so a crowd
+of viewers cannot shut a signed-in operator out, and the stop is never
+counted ([refusals](../../4-server/api.md#authentication)).
 Most sites need two more keys at most: `url` and `tls` (next). Every other
 key -- session length, token lifetimes, forwarded addresses, the proxy
 presets' details -- is in the [reference](../../7-reference/rig-file.md#the-front).

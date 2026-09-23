@@ -145,13 +145,11 @@ func TestNoPathDecisions(t *testing.T) {
 			t.Errorf("a refused path reached the runner: %s", r.Path)
 		}
 	}
-	// Anonymous (anonymous: none) is proxied with scp [], not refused.
+	// Anonymous (anonymous: none) holds no verb: refused 401 at the front,
+	// whatever the path (D-047).
 	resp := h.do("GET", "/api/echo", "", nil)
-	if resp.StatusCode != 200 {
-		t.Fatalf("anonymous: %d", resp.StatusCode)
-	}
-	if c := readJSON[echo](t, resp).Claims; c.Sub != "anon:" || c.Scp == nil || len(c.Scp) != 0 {
-		t.Fatalf("anonymous claims %+v", c)
+	if resp.StatusCode != 401 {
+		t.Fatalf("anonymous: %d, want 401", resp.StatusCode)
 	}
 	// Whatever the path under /api, /ws or /mcp, the front passes it on; it
 	// never answers 403 on a path.
@@ -197,7 +195,7 @@ func TestHostRules(t *testing.T) {
 		}
 	})
 	t.Run("url set", func(t *testing.T) {
-		h := newHarness(t, Config{Listen: "127.0.0.1:8443", Auth: "password", Password: testScrypt, URL: "https://pi.lab:8443"})
+		h := newHarness(t, Config{Listen: "127.0.0.1:8443", Auth: "password", Password: testScrypt, URL: "https://pi.lab:8443", Anonymous: "read"})
 		for host, want := range map[string]int{"evil.example": 403, "pi.lab": 403, "pi.lab:8443": 200, "PI.LAB:8443": 200, "localhost": 200} {
 			req, _ := http.NewRequest("GET", h.srv.URL+"/api/echo", nil)
 			req.Host = host
@@ -209,7 +207,7 @@ func TestHostRules(t *testing.T) {
 		}
 	})
 	t.Run("password without url", func(t *testing.T) {
-		h := newHarness(t, Config{Auth: "password", Password: testScrypt})
+		h := newHarness(t, Config{Auth: "password", Password: testScrypt, Anonymous: "read"})
 		for _, host := range []string{"evil.example", "pi.lab:8000", "192.168.1.20"} {
 			req, _ := http.NewRequest("GET", h.srv.URL+"/api/echo", nil)
 			req.Host = host
@@ -360,7 +358,7 @@ func TestLoginLimits(t *testing.T) {
 	}
 
 	// With the peer trusted, X-Forwarded-For names the client.
-	tr := newHarness(t, Config{Auth: "password", Password: testScrypt, TrustedProxies: []string{"127.0.0.1"}})
+	tr := newHarness(t, Config{Auth: "password", Password: testScrypt, TrustedProxies: []string{"127.0.0.1"}, Anonymous: "read"})
 	xff := func(ip string) http.Header { return http.Header{"Origin": {tr.srv.URL}, "X-Forwarded-For": {ip}} }
 	for i := 0; i < store.LoginAttempts; i++ {
 		tr.do("POST", "/api/auth/login", wrong, xff("203.0.113.9"))
@@ -374,7 +372,8 @@ func TestLoginLimits(t *testing.T) {
 	if c := readJSON[echo](t, tr.do("GET", "/api/echo", "", xff("203.0.113.10"))).Claims; c.Cip != "203.0.113.10" {
 		t.Fatalf("cip behind a trusted proxy: %q", c.Cip)
 	}
-	if c := readJSON[echo](t, h.do("GET", "/api/echo", "", http.Header{"X-Forwarded-For": {"203.0.113.10"}})).Claims; c.Cip != "127.0.0.1" {
+	un := newHarness(t, Config{Auth: "password", Password: testScrypt, Anonymous: "read"})
+	if c := readJSON[echo](t, un.do("GET", "/api/echo", "", http.Header{"X-Forwarded-For": {"203.0.113.10"}})).Claims; c.Cip != "127.0.0.1" {
 		t.Fatalf("cip from an untrusted XFF: %q", c.Cip)
 	}
 
@@ -1277,9 +1276,10 @@ func TestNoCredentialInURL(t *testing.T) {
 	cookie := h.login()
 	secret := h.createToken(cookie, `{"name":"ci","scopes":["operate:*","read:*"]}`)
 	for _, q := range []string{"?token=", "?access_token=", "?flyball_token="} {
-		resp := h.do("GET", "/api/echo"+q+secret, "", nil)
-		if c := readJSON[echo](t, resp).Claims; c.Sub != "anon:" || len(c.Scp) != 0 {
-			t.Fatalf("%s: a token in the URL was honoured: %+v", q, c)
+		// Honoured, it would be proxied (200); ignored, the caller is
+		// anonymous with no verb (anonymous: none), refused 401.
+		if resp := h.do("GET", "/api/echo"+q+secret, "", nil); resp.StatusCode != 401 {
+			t.Fatalf("%s: a token in the URL was honoured: %d, want 401", q, resp.StatusCode)
 		}
 		info := readJSON[AuthInfo](t, h.do("GET", "/api/auth"+q+secret, "", nil))
 		if info.Scheme != "anonymous" {
@@ -1366,7 +1366,7 @@ func TestProviderChain(t *testing.T) {
 		"accept":   {stubClient{id: Identity{Issuer: "idp", Subject: "ben", Name: "Ben"}, outcome: Accept}, 200},
 		"reject":   {stubClient{outcome: Reject}, 401},
 		"error":    {stubClient{outcome: Reject, err: errors.New("JWKS unreachable")}, 503},
-		"not mine": {stubClient{outcome: NotMine}, 200},
+		"not mine": {stubClient{outcome: NotMine}, 401}, // anonymous, with no verb (anonymous: none)
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := newProxyHarness(t, c.client, map[string][]string{"all": {"ben"}}, "none")
@@ -1386,10 +1386,6 @@ func TestProviderChain(t *testing.T) {
 				info := readJSON[AuthInfo](t, p.do("GET", "/api/auth", "", nil))
 				if info.Shape != "proxy" || info.Scheme != "proxy" || info.User == nil || info.User.ID != "proxy:idp#ben" {
 					t.Fatalf("info %+v", info)
-				}
-			case "not mine":
-				if cl.Sub != "anon:" || len(cl.Scp) != 0 {
-					t.Fatalf("claims %+v", cl)
 				}
 			}
 		})
@@ -1432,7 +1428,11 @@ func TestTokenScopes(t *testing.T) {
 		return s
 	}
 	scp := func(secret string) []string {
-		return readJSON[echo](t, h.do("GET", "/api/echo", "", bearer(secret, nil))).Claims.Scp
+		resp := h.do("GET", "/api/echo", "", bearer(secret, nil))
+		if resp.StatusCode == 403 { // no verb on this rig: refused at the front (D-047)
+			return []string{}
+		}
+		return readJSON[echo](t, resp).Claims.Scp
 	}
 	cases := []struct {
 		scopes []string

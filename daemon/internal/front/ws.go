@@ -22,8 +22,10 @@ import (
 // Websocket close codes the front sends.
 const (
 	closeGoingAway  = 1001 // the front is shutting down
+	closeTryLater   = 1013 // over a held-connection cap (caps.go): the UI retries with backoff
 	closeBadGateway = 1014 // the runner refused the front's principal: out of step, not signed out
 	closeSignedOut  = 4401 // the credential is refused, revoked or expired: the UI stops retrying
+	closeForbidden  = 4403 // a signed-in caller lacking the verb, as the runner closes it
 )
 
 // lockWait bounds how long a revocation waits for a frame in flight to the
