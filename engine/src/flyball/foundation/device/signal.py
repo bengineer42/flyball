@@ -275,7 +275,8 @@ class SignalSpec:
     limits: tuple[Bound, Bound] | None = None
     """What a demand is clamped to, in the signal's unit: numbers, or references to signals of
     the same device whose current values bound it (a config's max flow, an input's humidity).
-    A demand while a referenced signal has no value yet is refused, never passed unclamped."""
+    A demand while a referenced signal has no value yet, or a non-finite one (NaN, inf), is
+    refused, never passed unclamped."""
     max_rate: Rate | None = None
     """How fast a demand may move, in the signal's unit per `Rate.per`: a demand that would
     move further than the elapsed time since the last commit allows is clamped to the
@@ -500,11 +501,23 @@ class Node:
         self.spec = replace(self.spec, **changes)
 
 
-class LimitNotKnownError(NotReadyError):
-    """A demand was refused: a limit follows a signal that has no value yet.
+def _finite(value: Any) -> float | None:
+    """A referenced bound as a number, or None: not known -- no value, or not a finite one."""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
-    Fail closed: an unresolved limit never lets a demand through unclamped.
-    Nothing is broken, and the demand succeeds once the bound is read.
+
+class LimitNotKnownError(NotReadyError):
+    """A demand was refused: a limit follows a signal that has no value yet, or a non-finite one.
+
+    Fail closed: an unresolved limit never lets a demand through unclamped
+    -- nor clamped to the other end, as `min(max(v, lo), nan)` would be.
+    The demand succeeds once the bound reads a finite value.
     """
 
     def __init__(self, address: str, unknown: list[str]) -> None:
@@ -512,7 +525,8 @@ class LimitNotKnownError(NotReadyError):
         self.unknown = unknown
         which = ", ".join(repr(path) for path in unknown) or "a referenced signal"
         super().__init__(
-            f"Demand on '{address}' refused: its limit follows {which}, which has no value yet"
+            f"Demand on '{address}' refused: its limit follows {which}, which has no value yet, "
+            "or not a finite one"
         )
 
 
@@ -581,8 +595,8 @@ class Signal:
 
         A reference names a signal of the device by path, or one of its
         inputs by role (the bound source's newest value, or the input's
-        default). None if there are none, or a reference has no value yet --
-        for display; a demand goes through
+        default). None if there are none, or a reference has no value yet or
+        a non-finite one (NaN, inf) -- for display; a demand goes through
         [clamp][flyball.foundation.device.signal.Signal.clamp], which refuses
         it in the second case rather than pass it unclamped.
         """
@@ -591,10 +605,10 @@ class Signal:
         resolved: list[float] = []
         for bound in limits:
             if isinstance(bound, SignalRef):
-                value = self.node.device.referenced(bound.path)
+                value = _finite(self.node.device.referenced(bound.path))
                 if value is None:
                     return None
-                resolved.append(float(value))
+                resolved.append(value)
             else:
                 resolved.append(bound)
         return (resolved[0], resolved[1])
@@ -602,13 +616,15 @@ class Signal:
     def clamp(self, value: float) -> float:
         """`value` held inside the effective limits; unchanged for a signal without limits.
 
-        Fails closed: when a bound follows a signal with no value yet, the
-        demand is refused rather than passed through unclamped -- even when
-        the other end is a number, since the unknown end is the one that
-        matters (a supply's humidity, a max flow read from the device).
+        Fails closed: when a bound follows a signal with no value yet, or a
+        non-finite one (NaN, inf), the demand is refused rather than passed
+        through unclamped -- even when the other end is a number, since the
+        unknown end is the one that matters (a supply's humidity, a max flow
+        read from the device).
 
         Raises:
-            LimitNotKnownError: A bound follows a signal that has no value yet.
+            LimitNotKnownError: A bound follows a signal that has no value yet,
+                or a non-finite one.
         """
         if (limits := self.limits) is not None:
             return min(max(value, limits[0]), limits[1])
@@ -618,7 +634,7 @@ class Signal:
         unknown = [
             bound.path
             for bound in declared
-            if isinstance(bound, SignalRef) and device.referenced(bound.path) is None
+            if isinstance(bound, SignalRef) and _finite(device.referenced(bound.path)) is None
         ]
         raise LimitNotKnownError(self.address, unknown)
 

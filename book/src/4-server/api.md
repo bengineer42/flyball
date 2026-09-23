@@ -116,7 +116,7 @@ lists them all with their signal trees.
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
 | `POST` | `/api/devices/{name}/commands/{tag}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline device restarts its polling |
 | `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut` |
-| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet -- refused whole, never passed unclamped; 404 for a name not under the device |
+| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal demand; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
 
 A `DeviceOut` is `{name, label, kind, driver, type, link, poll_s, signals,

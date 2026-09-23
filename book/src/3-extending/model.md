@@ -74,7 +74,7 @@ file may only narrow:
 | --- | --- | --- |
 | **R** readable | a `GET` returns a current value on demand (last known, or a fresh hardware read with `fresh=true`) | detail pages, "read now" |
 | **P** publishing | the device emits it on its own schedule (poll or push): samples, `/ws/samples`, the store, the recorder | readouts, charts, dashboards, history |
-| **W** writable | accepts a demand; a controller may target it; has `limits` (a demand is refused while a limit that follows another signal has no value yet); keeps its last *set* value beside its read value | target entry, controllers, program steps |
+| **W** writable | accepts a demand; a controller may target it; has `limits` (a demand is refused while a limit that follows another signal has no value yet, or a non-finite one); keeps its last *set* value beside its read value | target entry, controllers, program steps |
 
 `P` implies `R`. Typical: a thermocouple is `RP` (`Role.OUTPUT`); a heater's
 demand is `RPW` (`Role.DEMAND`) — the readback is the committed value, so

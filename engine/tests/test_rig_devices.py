@@ -687,6 +687,38 @@ class TestLimitsThatFollowASignal:
             "limit_known",
         ]
 
+    def test_a_nan_bound_is_not_known_a_demand_is_refused_not_clamped_to_the_other_end(
+        self, rig, supplied, clock
+    ):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.nan})])
+        assert humidity.limits is None, "a NaN bound is no bound to display"
+        with pytest.raises(
+            NotReadyError, match=r"'supply', which has no value yet, or not a finite"
+        ):
+            rig.demand(supplied.root, {humidity: 150.0})
+        assert supplied.written == {} and supplied.pending == {}, "nothing reached the device"
+        with pytest.raises(NotReadyError, match="limit"):
+            rig.run_command(supplied, "aim", {"humidity": 150.0})
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        assert rig.demand(supplied.root, {humidity: 150.0})[humidity].value == 95.0
+
+    def test_a_controller_is_held_while_its_bound_is_nan(self, rig, supplied, clock):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        chamber = supplied.signals["chamber"]
+        controller = rig.attach_controller(humidity, chamber, law=P(kp=1.0))
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.inf, chamber: 40.0})])
+        controller.regulate(150.0, transfer=Transfer.RESET)
+        assert supplied.written == {} and controller.expected is None, "held, not clamped"
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        clock.advance(1.0)
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
+        assert supplied.written[humidity].value == 95.0
+        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == [
+            "limit_unknown",
+            "limit_known",
+        ]
+
 
 class TestControllers:
     def test_attach_controller_wires_the_write_and_refuses_double_claims(self, rig, furnace):

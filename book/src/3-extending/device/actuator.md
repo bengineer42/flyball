@@ -50,13 +50,13 @@ resolved live) — are enforced by the rig before `apply` is ever called: a
 demand outside them is clamped, and the committed state's `at_limit` says
 which rail it landed on. `signal.limits` always gives the effective
 numbers, whichever way they were declared, and `None` while a referenced
-signal has no value yet. That case fails closed: the rig clamps through
+signal has no value yet or a non-finite one (NaN, inf). That case fails closed: the rig clamps through
 `signal.clamp(value)`, which raises `LimitNotKnownError` (a
 `NotReadyError`, 503 over HTTP) rather than let the demand through --
 even when the other end is a number, because the unknown end is usually
 the one that matters. A manual demand or a command's linked argument is
 refused whole; a controller's write is held (nothing applied) with a
-`limit_unknown` event, and `limit_known` once the bound is read. A driver
+`limit_unknown` event, and `limit_known` once the bound reads a finite value. A driver
 whose reference should never block a demand gives that signal an
 `initial` value. A controller drives at most one
 writable signal; the signal knows which one, so the committed state's

@@ -61,7 +61,7 @@ Every time a reading arrives on the controller's source, it ticks:
    `expected` is what came back — `None` if the commit is deferred (a
    blocking device's writer thread) or the driver cannot say. If a limit
    follows a signal that has no value yet (a supply humidity not read
-   yet), or the source has gone stale (`stale_after`), the write is
+   yet) or a non-finite one (NaN, infinite), or the source has gone stale (`stale_after`), the write is
    **held**: nothing is applied, `expected` is `None`, and an event says
    why (`limit_unknown` once, then `limit_known` when writes resume;
    `stale_input`). A law that raises (no law set, say) is a `step_failed`

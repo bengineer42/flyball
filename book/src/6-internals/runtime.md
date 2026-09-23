@@ -73,8 +73,9 @@ before touching anything:
 3. Each value is clamped to the signal's `limits` — numbers, or a reference
    to another signal of the same device, resolved live — and the original
    value kept (as `_requested`) only where the clamp changed it — that is
-   what `WriteState.requested` reports later. A reference with no value yet
-   fails closed (`Signal.clamp` raises `LimitNotKnownError`, a
+   what `WriteState.requested` reports later. A reference with no value yet,
+   or a non-finite one (NaN, inf: a NaN bound drops its side of the
+   clamp, `min(max(-50, nan), 100)` is `-50`), fails closed (`Signal.clamp` raises `LimitNotKnownError`, a
    `NotReadyError`): a manual demand is refused before anything is
    applied; a controller's demand is *held* — `demand()` returns `{}`,
    nothing is applied, as for a stale source — and the rig emits one

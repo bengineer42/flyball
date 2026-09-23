@@ -21,6 +21,7 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-027** | Store errors are classified three ways: a constraint violation is a 409, a store that cannot be reached a 503, anything else stays a 500 because it is a bug; the classification lives in the store's two connection helpers and the existing error map finds it through the class hierarchy | decided |
 | **D-028** | An open runner is never served beyond loopback, and an auth misconfiguration removes exposure, never operation: an open runner asked for a network address still runs the rig but binds `127.0.0.1` (same port) and says so on stderr and in `/api/auth` / `/api/health`; `flyball run --serve-ui` does the same for its UI, `flyballd` answers 503 for such a runner. The opt-in is per run only (`--insecure-open`, `FLYBALL_INSECURE_OPEN=1`), never a rig-file key; the dashboard shows a permanent banner while open on the network. Overwriting a rig file keeps its `runner` section | decided |
 | **D-029** | Store work never runs on the event loop: store routes are plain `def` behind four slots, and a session delete or trim goes in batches with the lock released between, marked so a cut-off delete is visible and finished at startup -- atomicity of a delete is given up | decided |
+| **D-030** | A limit that follows a signal with no value yet -- or a non-finite one -- fails closed: a demand is refused (503) and a controller is held with `limit_unknown`/`limit_known` events. A NaN bound counts as not known, since it silently drops that side of the clamp (`min(max(-50, nan), 100)` is `-50`); refusing rather than clamping to the known end is deliberate, as the unknown end is usually the one protecting the hardware | decided |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.
@@ -31,7 +32,8 @@ chapter describes intent rather than fact, it says which.
   clamped on every demand (D-006) — that closes the "no setpoint bounds"
   half of this. A rate-of-change clamp (`max_rate`) and a hold on a stale
   sensor (`stale_after`) followed ([`signals`](../2-config/devices/index.md#signals)),
-  and a limit that follows a signal with no value yet now fails closed: the
+  and a limit that follows a signal with no value yet, or a non-finite one,
+  now fails closed (D-030): the
   demand is refused (503), a controller's write held with a `limit_unknown`
   event — it used to pass unclamped;
   still open: runaway detection.
