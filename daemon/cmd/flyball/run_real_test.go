@@ -105,11 +105,13 @@ func TestRunRealRunner(t *testing.T) {
 	}
 	rig := filepath.Join(dir, "oven.yaml")
 	os.WriteFile(rig, src, 0o644)
-	r := &fakeRun{t: t, dir: dir, sigs: make(chan os.Signal, 2), done: make(chan error, 1)}
+	r := &fakeRun{t: t, dir: dir, sigs: make(chan os.Signal, 2), done: make(chan error, 1), addrs: make(chan string, 4)}
 	runOut = r
-	const addr = "127.0.0.1:18420"
-	go func() { r.done <- run([]string{rig, "--listen", addr, "--port", "18421"}, r.sigs) }()
+	r.listen()
+	port := freePort(t)
+	go func() { r.done <- run([]string{rig, "--listen", "127.0.0.1:0", "--port", port}, r.sigs) }()
 	t.Cleanup(func() { r.stop() })
+	addr := r.addr()
 
 	var info struct {
 		Endpoint string `json:"endpoint"`
@@ -120,7 +122,7 @@ func TestRunRealRunner(t *testing.T) {
 	if info.Endpoint != "unix:"+filepath.Join(fd, "sock") {
 		t.Fatalf("the runner binds %q, want its socket in %s", info.Endpoint, fd)
 	}
-	if c, err := net.DialTimeout("tcp", "127.0.0.1:18421", 300*time.Millisecond); err == nil {
+	if c, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 300*time.Millisecond); err == nil {
 		c.Close()
 		t.Fatal("something listens on the runner's --port: it must bind only its socket")
 	}

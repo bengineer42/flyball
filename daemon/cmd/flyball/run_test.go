@@ -122,8 +122,25 @@ type fakeRun struct {
 	args   string
 	sigs   chan os.Signal
 	done   chan error
+	addrs  chan string
+	at     string
 	mu     sync.Mutex
 	out    bytes.Buffer
+}
+
+// addr is where the front listens (it is asked for port 0).
+func (r *fakeRun) addr() string {
+	r.t.Helper()
+	if r.at != "" {
+		return r.at
+	}
+	select {
+	case r.at = <-r.addrs:
+		return r.at
+	case <-time.After(10 * time.Second):
+		r.t.Fatalf("the front never listened; output:\n%s", r.output())
+		return ""
+	}
 }
 
 func (r *fakeRun) Write(p []byte) (int, error) {
@@ -158,9 +175,9 @@ func fakeEnv(t *testing.T) (dir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, oldOut := runnerCommand, runOut
+	old, oldOut, oldListen := runnerCommand, runOut, onListen
 	runnerCommand = self
-	t.Cleanup(func() { runnerCommand, runOut = old, oldOut })
+	t.Cleanup(func() { runnerCommand, runOut, onListen = old, oldOut, oldListen })
 	return dir
 }
 
@@ -173,11 +190,34 @@ func startRun(t *testing.T, rigYAML string, flags ...string) *fakeRun {
 		t.Fatal(err)
 	}
 	r := &fakeRun{t: t, dir: dir, marker: filepath.Join(dir, "stopped"), args: filepath.Join(dir, "args"),
-		sigs: make(chan os.Signal, 2), done: make(chan error, 1)}
+		sigs: make(chan os.Signal, 2), done: make(chan error, 1), addrs: make(chan string, 4)}
 	runOut = r
+	r.listen()
 	go func() { r.done <- run(append([]string{rig}, flags...), r.sigs) }()
 	t.Cleanup(func() { r.stop() })
 	return r
+}
+
+// listen makes this run the one told where the front listens.
+func (r *fakeRun) listen() {
+	onListen = func(a net.Addr) {
+		select {
+		case r.addrs <- a.String():
+		default:
+		}
+	}
+}
+
+// freePort is a loopback port nothing listens on (as far as it can tell).
+func freePort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	return port
 }
 
 // stop sends SIGTERM and waits for the run to end.
@@ -228,8 +268,10 @@ func echoAt(t *testing.T, r *fakeRun, addr string, until func(fronttest.Echo) bo
 // 0700 dir with key, aud and endpoint at 0600), binds only the endpoint
 // there, and is reached through the front with a principal for aud.
 func TestRunFrontsTheRunner(t *testing.T) {
-	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:18401", "--port", "18499")
-	e := echoAt(t, r, "127.0.0.1:18401", nil)
+	port := freePort(t)
+	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0", "--port", port)
+	addr := r.addr()
+	e := echoAt(t, r, addr, nil)
 	if !strings.HasPrefix(e.Claims.Aud, "run-") || len(e.Claims.Aud) != 12 || e.Claims.Sub != "local:console" ||
 		!strings.Contains(strings.Join(e.Claims.Scp, ","), "operate") {
 		t.Fatalf("principal = %+v", e.Claims)
@@ -259,7 +301,7 @@ func TestRunFrontsTheRunner(t *testing.T) {
 	if !strings.HasPrefix(string(ep), "unix:"+dir+"/sock") {
 		t.Fatalf("endpoint = %q, want the socket in the front-dir", ep)
 	}
-	if c, err := net.DialTimeout("tcp", "127.0.0.1:18499", 300*time.Millisecond); err == nil {
+	if c, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 300*time.Millisecond); err == nil {
 		c.Close()
 		t.Fatal("something listens on the runner's --port: the runner binds only its socket")
 	}
@@ -269,7 +311,7 @@ func TestRunFrontsTheRunner(t *testing.T) {
 	if got, _ := os.ReadFile(r.marker); string(got) != "terminated" {
 		t.Fatalf("the runner saw %q, want SIGTERM", got)
 	}
-	if c, err := net.DialTimeout("tcp", "127.0.0.1:18401", 300*time.Millisecond); err == nil {
+	if c, err := net.DialTimeout("tcp", addr, 300*time.Millisecond); err == nil {
 		c.Close()
 		t.Fatal("the front still listens after the run ended")
 	}
@@ -282,19 +324,19 @@ func TestRunFrontsTheRunner(t *testing.T) {
 
 // --serve-ui is an alias of --listen.
 func TestRunServeUIIsAnAliasOfListen(t *testing.T) {
-	r := startRun(t, "name: t\n", "--serve-ui", "127.0.0.1:18402")
-	echoAt(t, r, "127.0.0.1:18402", nil)
+	r := startRun(t, "name: t\n", "--serve-ui", "127.0.0.1:0")
+	echoAt(t, r, r.addr(), nil)
 }
 
 // runner.front.listen, and the deprecated runner.run.serve_ui (with a
 // warning), say where the front listens.
 func TestRunListensWhereTheRigFileSays(t *testing.T) {
-	r := startRun(t, "name: t\nrunner:\n  front:\n    listen: 127.0.0.1:18403\n")
-	echoAt(t, r, "127.0.0.1:18403", nil)
+	r := startRun(t, "name: t\nrunner:\n  front:\n    listen: 127.0.0.1:0\n")
+	echoAt(t, r, r.addr(), nil)
 	r.stop()
 
-	r = startRun(t, "name: t\nrunner:\n  run:\n    serve_ui: 127.0.0.1:18404\n")
-	echoAt(t, r, "127.0.0.1:18404", nil)
+	r = startRun(t, "name: t\nrunner:\n  run:\n    serve_ui: 127.0.0.1:0\n")
+	echoAt(t, r, r.addr(), nil)
 	if !strings.Contains(r.output(), "runner.run") {
 		t.Fatalf("no deprecation warning: %s", r.output())
 	}
@@ -304,23 +346,28 @@ func TestRunListensWhereTheRigFileSays(t *testing.T) {
 // local shape on loopback with a banner, and the rig is still served.
 func TestRunBadFrontFallsBackAndTheRigRuns(t *testing.T) {
 	for name, front := range map[string]string{
-		"local beyond loopback": "listen: 0.0.0.0:18405",
-		"unreadable":            "listen: 0.0.0.0:18405\n    auth: [local]",
-		"unknown key":           "listen: 0.0.0.0:18405\n    lisen: x",
-		"sso":                   "listen: 0.0.0.0:18405\n    auth: sso",
-		"plaintext password":    "listen: 0.0.0.0:18405\n    auth: password\n    password: hunter2",
+		"local beyond loopback": "listen: 0.0.0.0:0",
+		"unreadable":            "listen: 0.0.0.0:0\n    auth: [local]",
+		"unknown key":           "listen: 0.0.0.0:0\n    lisen: x",
+		"sso":                   "listen: 0.0.0.0:0\n    auth: sso",
+		"plaintext password":    "listen: 0.0.0.0:0\n    auth: password\n    password: hunter2",
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := startRun(t, "name: t\nrunner:\n  front:\n    "+front+"\n")
-			e := echoAt(t, r, "127.0.0.1:18405", nil)
+			addr := r.addr()
+			host, port, _ := net.SplitHostPort(addr)
+			if host != "127.0.0.1" {
+				t.Fatalf("the front listens on %s, want loopback", addr)
+			}
+			e := echoAt(t, r, addr, nil)
 			if e.Claims.Sub != "local:console" {
 				t.Fatalf("principal %+v", e.Claims)
 			}
-			if !strings.Contains(r.output(), "D-028") || !strings.Contains(r.output(), "127.0.0.1:18405") {
+			if !strings.Contains(r.output(), "D-028") || !strings.Contains(r.output(), "on 127.0.0.1:0 only") {
 				t.Fatalf("no banner: %s", r.output())
 			}
 			if lan := lanAddress(); lan != "" {
-				if c, err := net.DialTimeout("tcp", net.JoinHostPort(lan, "18405"), 300*time.Millisecond); err == nil {
+				if c, err := net.DialTimeout("tcp", net.JoinHostPort(lan, port), 300*time.Millisecond); err == nil {
 					c.Close()
 					t.Fatal("the front is reachable on the LAN address")
 				}
@@ -332,8 +379,9 @@ func TestRunBadFrontFallsBackAndTheRigRuns(t *testing.T) {
 // --insecure-open (per run, never a file key) serves the local shape where
 // asked, with a warning.
 func TestRunInsecureOpen(t *testing.T) {
-	r := startRun(t, "name: t\n", "--listen", "0.0.0.0:18406", "--insecure-open")
-	echoAt(t, r, "127.0.0.1:18406", nil)
+	r := startRun(t, "name: t\n", "--listen", "0.0.0.0:0", "--insecure-open")
+	_, port, _ := net.SplitHostPort(r.addr())
+	echoAt(t, r, "127.0.0.1:"+port, nil)
 	if !strings.Contains(r.output(), "OPEN") {
 		t.Fatalf("no open warning: %s", r.output())
 	}
@@ -347,10 +395,10 @@ func TestRunInsecureOpen(t *testing.T) {
 // kill -9 the runner: it is spawned again with a fresh key, the same aud
 // and argv, and the front answers 200 again.
 func TestRunRespawnsAfterKill9(t *testing.T) {
-	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:18407")
-	first := echoAt(t, r, "127.0.0.1:18407", nil)
+	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
+	first := echoAt(t, r, r.addr(), nil)
 	syscall.Kill(first.Pid, syscall.SIGKILL)
-	second := echoAt(t, r, "127.0.0.1:18407", func(e fronttest.Echo) bool { return e.Pid != first.Pid })
+	second := echoAt(t, r, r.addr(), func(e fronttest.Echo) bool { return e.Pid != first.Pid })
 	if second.Key == first.Key || second.Claims.Aud != first.Claims.Aud {
 		t.Fatalf("respawn: key %s -> %s, aud %s -> %s; want a fresh key and the same aud", first.Key, second.Key, first.Claims.Aud, second.Claims.Aud)
 	}
@@ -376,7 +424,7 @@ func TestRunExitCodes(t *testing.T) {
 	} {
 		t.Run(c.exit, func(t *testing.T) {
 			t.Setenv("FLYBALL_FAKE_EXIT", c.exit)
-			r := startRun(t, "name: t\n", "--listen", "127.0.0.1:18408")
+			r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
 			if c.ends {
 				select {
 				case err := <-r.done:
@@ -388,7 +436,7 @@ func TestRunExitCodes(t *testing.T) {
 					t.Fatal("the run did not end")
 				}
 			} else {
-				echoAt(t, r, "127.0.0.1:18408", nil)
+				echoAt(t, r, r.addr(), nil)
 			}
 			if got := len(readLines(r.args)); got != c.spawns {
 				t.Fatalf("%d spawns, want %d", got, c.spawns)
@@ -400,16 +448,16 @@ func TestRunExitCodes(t *testing.T) {
 // A second `flyball run` of the same rig file finds the first's runner
 // holding the front-dir, and stops without touching its key.
 func TestRunTwiceRefusesTheLiveFrontDir(t *testing.T) {
-	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:18409")
-	first := echoAt(t, r, "127.0.0.1:18409", nil)
+	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
+	first := echoAt(t, r, r.addr(), nil)
 	rig := filepath.Join(r.dir, "rig.yaml")
-	runOut = &bytes.Buffer{}
-	err := run([]string{rig, "--listen", "127.0.0.1:18410"}, make(chan os.Signal))
+	runOut, onListen = &syncBuffer{}, nil
+	err := run([]string{rig, "--listen", "127.0.0.1:0"}, make(chan os.Signal))
 	if err == nil || !strings.Contains(err.Error(), "runner.lock") {
 		t.Fatalf("second run = %v, want refused on runner.lock", err)
 	}
 	runOut = r
-	again := echoAt(t, r, "127.0.0.1:18409", nil)
+	again := echoAt(t, r, r.addr(), nil)
 	if again.Key != first.Key || again.Pid != first.Pid {
 		t.Fatal("the second run disturbed the first runner")
 	}
@@ -426,8 +474,8 @@ func TestRunUVDeliversTheStopToTheRunner(t *testing.T) {
 	uvCommand = self
 	defer func() { uvCommand = old }()
 	t.Setenv("FLYBALL_FAKE_UV", "1")
-	r := startRun(t, "name: t\n", "--uv", "--listen", "127.0.0.1:18411")
-	echoAt(t, r, "127.0.0.1:18411", nil)
+	r := startRun(t, "name: t\n", "--uv", "--listen", "127.0.0.1:0")
+	echoAt(t, r, r.addr(), nil)
 	r.sigs <- syscall.SIGINT
 	select {
 	case err := <-r.done:
@@ -453,4 +501,15 @@ func lanAddress() string {
 		return ""
 	}
 	return host
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
 }

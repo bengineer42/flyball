@@ -1,10 +1,18 @@
 package frontwire
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 )
 
@@ -43,7 +51,7 @@ func TestDecodeRefusesUnknownKeysAndBadTypes(t *testing.T) {
 // the port asked for, with the reason in the banner (D-028).
 func TestPlanBadConfigFallsBackToLoopback(t *testing.T) {
 	c := front.Config{Listen: "0.0.0.0:18410"}
-	p, client := Plan(c, errBad("auth: not a string"), false)
+	p, client := Plan(c, errBad("auth: not a string"), false, ProxyOptions{})
 	defer p.Close()
 	if client != nil || p.Shape != front.ShapeLocal || p.Listen != "127.0.0.1:18410" || p.Requested != "0.0.0.0:18410" {
 		t.Fatalf("plan = %+v", p)
@@ -55,19 +63,25 @@ func TestPlanBadConfigFallsBackToLoopback(t *testing.T) {
 
 // A good block is ResolveWith's plan, with the hook's factory: nil here,
 // so a proxy shape falls back.
-func TestPlanUsesTheProxyFactoryHook(t *testing.T) {
+func TestPlanUsesThePresetsHook(t *testing.T) {
 	c := front.Config{Listen: "127.0.0.1:18411", Auth: "proxy", Proxy: &front.ProxyConfig{Preset: "authelia"}}
-	p, _ := Plan(c, nil, false)
+	p, _ := Plan(c, nil, false, ProxyOptions{})
 	if p.Fallback == "" {
 		t.Fatalf("with no factory the proxy shape must fall back: %+v", p)
 	}
 	called := false
-	old := ProxyFactory
-	ProxyFactory = func(*front.ProxyConfig, front.Plan) (front.Client, error) { called = true; return nil, errBad("no") }
-	defer func() { ProxyFactory = old }()
-	Plan(c, nil, false)
+	audit := &front.Audit{}
+	old := Presets
+	Presets.Factory = func(o ProxyOptions) front.ProxyFactory {
+		if o.Audit != audit {
+			t.Error("the factory was not built with the audit")
+		}
+		return func(*front.ProxyConfig, front.Plan) (front.Client, error) { called = true; return nil, errBad("no") }
+	}
+	defer func() { Presets = old }()
+	Plan(c, nil, false, ProxyOptions{Audit: audit})
 	if !called {
-		t.Fatal("Plan did not call ProxyFactory")
+		t.Fatal("Plan did not call the preset factory")
 	}
 }
 
@@ -99,3 +113,55 @@ func TestInsecureOpenEnv(t *testing.T) {
 type errBad string
 
 func (e errBad) Error() string { return string(e) }
+
+// Serve puts Presets.ConnContext on every connection.
+func TestServeSetsConnContext(t *testing.T) {
+	type key struct{}
+	old := Presets
+	defer func() { Presets = old }()
+	Presets.ConnContext = func(ctx context.Context, c net.Conn) context.Context { return context.WithValue(ctx, key{}, "seen") }
+	p := front.Resolve(front.Config{Listen: "127.0.0.1:0"}, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	addrs := make(chan net.Addr, 1)
+	go func() {
+		done <- Serve(ctx, p, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, r.Context().Value(key{}))
+		}), func(a net.Addr) { addrs <- a })
+	}()
+	addr := (<-addrs).String()
+	var body []byte
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		resp, err := http.Get("http://" + addr + "/")
+		if err != nil {
+			continue
+		}
+		body, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		break
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "seen" {
+		t.Fatalf("handler saw %q, want the ConnContext value", body)
+	}
+}
+
+// RunFrontDir is the dir `flyball run` gives its runner, from the rig path.
+func TestRunFrontDir(t *testing.T) {
+	rt := t.TempDir()
+	os.Chmod(rt, 0o700)
+	t.Setenv("RUNTIME_DIRECTORY", "")
+	t.Setenv("XDG_RUNTIME_DIR", rt)
+	dir, ok := RunFrontDir("rig.yaml")
+	id, _ := frontdir.FrontID("rig.yaml")
+	if !ok || dir != filepath.Join(rt, "flyball", id, "run") {
+		t.Fatalf("RunFrontDir = %q, %v", dir, ok)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	if _, ok := RunFrontDir("rig.yaml"); ok {
+		t.Fatal("no runtime dir: a run's front-dir is a temp dir, not derivable")
+	}
+}

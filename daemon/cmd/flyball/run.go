@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -79,7 +80,14 @@ func run(args []string, sigs <-chan os.Signal) error {
 	cfg, useUV, bad, warnings := runFront(runner, o.listen)
 	useUV = useUV || o.uv
 
-	plan, proxy := frontwire.Plan(cfg, bad, o.insecureOpen)
+	id, err := frontdir.FrontID(rig)
+	if err != nil {
+		return fmt.Errorf("front-dir for %s: %w", rig, err)
+	}
+	logger := slog.New(slog.NewTextHandler(runOut, nil))
+	state := frontwire.RunDir(id)
+	audit := frontwire.OpenAudit(state, logger)
+	plan, proxy := frontwire.Plan(cfg, bad, o.insecureOpen, frontwire.ProxyOptions{Logger: logger, Audit: audit})
 	plan.Warnings = append(warnings, plan.Warnings...)
 	if b := plan.Banner(); b != "" {
 		for _, line := range strings.Split(b, "\n") {
@@ -87,15 +95,11 @@ func run(args []string, sigs <-chan os.Signal) error {
 		}
 	}
 
-	id, err := frontdir.FrontID(rig)
-	if err != nil {
-		plan.Close()
-		return fmt.Errorf("front-dir for %s: %w", rig, err)
-	}
 	root := frontdir.Root(id)
-	dir, err := frontdir.Dir(root, "run")
+	dir, err := frontdir.Dir(root, frontwire.RunRig) // frontwire.RunFrontDir(rig) when not a temp dir
 	if err != nil {
 		plan.Close()
+		audit.Close()
 		return err
 	}
 	if root == "" || filepath.Dir(dir) != filepath.Clean(root) {
@@ -111,6 +115,7 @@ func run(args []string, sigs <-chan os.Signal) error {
 	}
 	if err := s.ep.Validate(); err != nil {
 		plan.Close()
+		audit.Close()
 		return err
 	}
 
@@ -118,16 +123,22 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if name == "" {
 		name = strings.TrimSuffix(filepath.Base(rig), filepath.Ext(rig))
 	}
-	logger := slog.New(slog.NewTextHandler(runOut, nil))
-	f, closeFront := frontwire.Open(plan, proxy, frontwire.RunDir(id),
-		front.SingleRig(front.Rig{Root: "", Name: name, Target: s.target}), nil, logger)
+	fo := frontwire.Options(plan, proxy, audit, state, logger)
+	fo.Route = front.SingleRig(front.Rig{Root: "", Name: name, Target: s.target})
+	f := front.New(fo)
+	closeFront := frontwire.Closer(f, plan, audit)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
-		fmt.Fprintf(runOut, "flyball: serving rig %s on %s (%s)\n", name, describeListen(plan), plan.Shape)
-		if err := front.Serve(ctx, plan, f); err != nil {
+		ready := func(a net.Addr) {
+			fmt.Fprintf(runOut, "flyball: serving rig %s on %s (%s)\n", name, describeListen(plan, a), plan.Shape)
+			if onListen != nil {
+				onListen(a)
+			}
+		}
+		if err := frontwire.Serve(ctx, plan, f, ready); err != nil {
 			// A front that cannot listen does not stop the rig (D-028):
 			// it runs on, stoppable by signal or `flyball stop`.
 			fmt.Fprintln(runOut, "flyball: the front cannot serve:", err)
@@ -148,15 +159,18 @@ func run(args []string, sigs <-chan os.Signal) error {
 	return err
 }
 
-func describeListen(p front.Plan) string {
-	if strings.HasPrefix(p.Listen, "unix:") {
-		return p.Listen
+// onListen, if set, is told where the front listens (tests: port 0).
+var onListen func(net.Addr)
+
+func describeListen(p front.Plan, a net.Addr) string {
+	if a.Network() == "unix" {
+		return "unix:" + a.String()
 	}
 	scheme := "http"
 	if p.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + p.Listen + "/"
+	return scheme + "://" + a.String() + "/"
 }
 
 // runnerExec builds each incarnation's command: flyball-runner bare, or

@@ -6,6 +6,8 @@ package frontwire
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -14,18 +16,40 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"flyballd/internal/endpoint"
+	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 	"flyballd/internal/webui"
 
 	"gopkg.in/yaml.v3"
 )
 
-// ProxyFactory builds the proxy shape's provider from `proxy:`. Both fronts
-// resolve through it (Plan). nil: this build has no presets, and a proxy
-// shape falls back to local on loopback. The trusted-header presets
-// (package front/proxyauth) are wired in by setting it here.
-var ProxyFactory front.ProxyFactory
+// Presets are the trusted-header presets (package front/proxyauth) as both
+// fronts use them: Plan resolves through Presets.Factory, and Serve's
+// server sets Presets.ConnContext on each connection (proxyauth reads the
+// SO_PEERCRED uid of a `from: unix` peer from it). The zero value is a
+// build without presets: a proxy shape falls back to local on loopback.
+// Wiring the presets in is this one assignment:
+//
+//	var Presets = Hooks{
+//		Factory:     func(o ProxyOptions) front.ProxyFactory { return proxyauth.Factory(proxyauth.Options{Logger: o.Logger, Audit: o.Audit}) },
+//		ConnContext: proxyauth.ConnContext,
+//	}
+var Presets Hooks
+
+// Hooks are what the presets plug in.
+type Hooks struct {
+	Factory     func(ProxyOptions) front.ProxyFactory
+	ConnContext func(ctx context.Context, c net.Conn) context.Context
+}
+
+// ProxyOptions are what a preset factory is built with.
+type ProxyOptions struct {
+	Logger *slog.Logger
+	Audit  *front.Audit // nil: proxy events go to Logger
+}
 
 // The files the front keeps in its state directory (RunDir, DaemonDir).
 const (
@@ -54,13 +78,17 @@ func Decode(block map[string]any) (front.Config, error) {
 	return c, nil
 }
 
-// Plan resolves c with ProxyFactory. bad is why c's block could not be
-// read (Decode's error): then the front serves the local shape on
-// loopback, on c.Listen's port, with bad in the banner -- a front
-// misconfiguration never stops the rig (D-028).
-func Plan(c front.Config, bad error, insecureOpen bool) (front.Plan, front.Client) {
+// Plan resolves c with the presets (Presets.Factory, built with o). bad is
+// why c's block could not be read (Decode's error): then the front serves
+// the local shape on loopback, on c.Listen's port, with bad in the banner
+// -- a front misconfiguration never stops the rig (D-028).
+func Plan(c front.Config, bad error, insecureOpen bool, o ProxyOptions) (front.Plan, front.Client) {
 	if bad == nil {
-		return front.ResolveWith(c, insecureOpen, ProxyFactory)
+		var factory front.ProxyFactory
+		if Presets.Factory != nil {
+			factory = Presets.Factory(o)
+		}
+		return front.ResolveWith(c, insecureOpen, factory)
 	}
 	requested := c.Listen
 	if requested == "" {
@@ -115,6 +143,29 @@ func RunDir(frontID string) string {
 	return filepath.Join(StateHome(), "flyball", "front-"+frontID)
 }
 
+// RunRig is the rig name a `flyball run` front-dir is made for.
+const RunRig = "run"
+
+// RunFrontDir is the front-dir `flyball run RIG` gives its runner, derived
+// from the rig file's path alone: <frontdir.Root(FrontID(rig))>/run. ok is
+// false when there is no private runtime dir, or the socket path would be
+// too long: then each run gets a random temp dir, which cannot be derived.
+func RunFrontDir(rig string) (dir string, ok bool) {
+	id, err := frontdir.FrontID(rig)
+	if err != nil {
+		return "", false
+	}
+	root := frontdir.Root(id)
+	if root == "" || !filepath.IsAbs(root) {
+		return "", false
+	}
+	dir = filepath.Join(root, RunRig)
+	if len(filepath.Join(dir, frontdir.Sock)) > endpoint.MaxSocketPath {
+		return "", false
+	}
+	return dir, true
+}
+
 // DaemonDir is where flyballd keeps them: <data_dir>/front, absolute.
 func DaemonDir(dataDir string) string {
 	abs, err := filepath.Abs(filepath.Join(dataDir, "front"))
@@ -124,30 +175,72 @@ func DaemonDir(dataDir string) string {
 	return abs
 }
 
-// Open opens the front: its audit at dir/audit.jsonl, its named tokens at
-// dir/tokens.json, the embedded UI. An audit that cannot be opened is
-// logged and the front runs without one (D-028: the rig is still served).
-// closeAll closes the front, the plan's TLS reloader and the audit.
-func Open(plan front.Plan, proxy front.Client, dir string, route func(string) (front.Rig, bool), fallback http.Handler, logger *slog.Logger) (f *front.Front, closeAll func()) {
-	if logger == nil {
-		logger = slog.Default()
-	}
+// OpenAudit opens the front's audit at dir/audit.jsonl. One that cannot be
+// opened is logged and the front runs without one (D-028: the rig is
+// still served); nil is a valid *front.Audit that writes nothing.
+func OpenAudit(dir string, logger *slog.Logger) *front.Audit {
 	audit, err := front.OpenAudit(filepath.Join(dir, AuditFile))
 	if err != nil {
-		logger.Error("front: no audit log", "err", err)
-		audit = nil
+		orDefault(logger).Error("front: no audit log", "err", err)
+		return nil
 	}
+	return audit
+}
+
+// Options are the front's options over plan: its named tokens at
+// dir/tokens.json, its audit, the embedded UI. The caller adds Route and
+// Fallback.
+func Options(plan front.Plan, proxy front.Client, audit *front.Audit, dir string, logger *slog.Logger) front.Options {
 	ui, err := fs.Sub(webui.Dist, "dist")
 	if err != nil {
 		ui = nil
 	}
-	f = front.New(front.Options{
-		Plan: plan, Proxy: proxy, Route: route, Fallback: fallback,
-		TokensPath: filepath.Join(dir, TokensFile), Audit: audit, UI: ui, Logger: logger,
-	})
-	return f, func() {
+	return front.Options{
+		Plan: plan, Proxy: proxy, TokensPath: filepath.Join(dir, TokensFile), Audit: audit, UI: ui,
+		Logger: orDefault(logger),
+	}
+}
+
+// Closer closes the front, the plan's TLS reloader and the audit.
+func Closer(f *front.Front, plan front.Plan, audit *front.Audit) func() {
+	return func() {
 		f.Close()
 		plan.Close()
 		audit.Close()
 	}
+}
+
+// Serve is front.Serve with Presets.ConnContext on the server: it listens
+// on the plan's address, says where (ready, if not nil), and serves h
+// until ctx is done, then shuts down (5 s grace).
+func Serve(ctx context.Context, p front.Plan, h http.Handler, ready func(net.Addr)) error {
+	ln, err := front.Listen(p)
+	if err != nil {
+		return err
+	}
+	if ready != nil {
+		ready(ln.Addr())
+	}
+	srv := front.NewServer(p, h)
+	srv.ConnContext = Presets.ConnContext
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ln) }()
+	select {
+	case err := <-errc:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(sctx)
+	}
+}
+
+func orDefault(l *slog.Logger) *slog.Logger {
+	if l == nil {
+		return slog.Default()
+	}
+	return l
 }
