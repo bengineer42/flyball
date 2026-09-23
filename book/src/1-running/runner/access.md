@@ -447,7 +447,8 @@ as `local:signal`; the signal's sender is not recorded.
   `token.create`, `token.create.refused`, `token.revoke`, `token.refused`,
   `proxy.refused`, `proxy.peer` (the local user behind a proxy's socket)
   and `fallback`, each with its time, a sequence number and a boot id
-  (`token.revoke` also with its `outcome`). A sign-in or a new token whose
+  (`token.revoke` also with its `outcome`). A line left torn by a crash is
+  ended before the next record, so only that line is lost. A sign-in or a new token whose
   record cannot be written does not happen (`503`); a revoke still happens,
   and its `503` says so. If the file cannot be opened at all, the front
   still serves the rig and says so at start (with the reason) and in the

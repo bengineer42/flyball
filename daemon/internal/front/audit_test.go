@@ -1,6 +1,8 @@
 package front
 
 import (
+	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,5 +106,36 @@ func TestAuditWarningKeepsFallback(t *testing.T) {
 	}
 	if w := *info.Exposure.Warning; !strings.Contains(w, h.plan.Fallback) || !strings.Contains(w, "no audit log") {
 		t.Fatalf("warning %q: want the fallback and the audit both", w)
+	}
+}
+
+// Wave 3 R4: a crash can leave a torn last line in the audit. The next
+// record starts on a line of its own, so a JSON-lines reader loses only
+// the torn line, never the record after it.
+func TestAuditAfterTornLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, []byte("garbage line\n{\"half\":"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 { // a second open finds the file whole: nothing added
+		a, err := OpenAudit(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.Event("login.ok", slog.Int("n", i)); err != nil {
+			t.Fatal(err)
+		}
+		a.Close()
+	}
+	raw, _ := os.ReadFile(path)
+	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	if len(lines) != 4 || lines[1] != `{"half":` {
+		t.Fatalf("audit lines %q: want the garbage, the torn line, then two records", lines)
+	}
+	for _, l := range lines[2:] {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(l), &rec); err != nil || rec["event"] != "login.ok" {
+			t.Fatalf("record %q after a torn line: %v", l, err)
+		}
 	}
 }
