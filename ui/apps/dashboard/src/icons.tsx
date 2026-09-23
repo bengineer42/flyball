@@ -28,13 +28,11 @@ import type { Page } from "./router.js";
 export type IconComponent = typeof SvgIcon;
 
 export const PAGE_ICONS: Record<Page, IconComponent> = {
-  overview: SpaceDashboardOutlinedIcon,
   dashboards: DashboardOutlinedIcon,
-  inputs: ShowChartIcon,
+  readings: ShowChartIcon,
   graph: MultilineChartIcon,
   controllers: LoopIcon,
   devices: MemoryIcon,
-  rig: AccountTreeOutlinedIcon,
   programs: PlaylistPlayIcon,
   events: NotificationsNoneIcon,
   sessions: StorageOutlinedIcon,

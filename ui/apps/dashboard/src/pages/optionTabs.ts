@@ -2,6 +2,7 @@
 export const OPTION_TABS = [
   { id: "dashboards", label: "Dashboards" },
   { id: "rig", label: "Rig file" },
+  { id: "runner", label: "Runner" },
   { id: "appearance", label: "Appearance" },
   { id: "pages", label: "Pages" },
 ] as const;

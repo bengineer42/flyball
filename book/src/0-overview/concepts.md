@@ -10,7 +10,7 @@ name (`furnace`, `humidity`), a clock (real time, or faster on a
 simulation), and at any moment it is either recording or not.
 
 **A device** is one thing on the rig -- a sensor, a heater, a bench
-instrument, a pump blender -- and one card on the Devices page. A device
+instrument, a pump blender -- and one card on the Readings page. A device
 shows its **signals**, its **commands** (buttons with a form: `set_limit`,
 `off`, `fail`) and its **conditions** (what it says is wrong with itself
 now: offline, railed).

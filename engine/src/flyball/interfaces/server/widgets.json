@@ -647,15 +647,15 @@
           "page": {
             "type": "string",
             "title": "Page",
-            "default": "overview",
+            "default": "dashboards",
             "oneOf": [
               {
                 "const": "dashboards",
                 "title": "Dashboards"
               },
               {
-                "const": "overview",
-                "title": "Overview"
+                "const": "readings",
+                "title": "Readings"
               },
               {
                 "const": "devices",
@@ -686,8 +686,8 @@
                 "title": "Simulation"
               },
               {
-                "const": "rig",
-                "title": "Config"
+                "const": "options",
+                "title": "Options"
               },
               {
                 "const": "url",

@@ -17,6 +17,8 @@ import type { ControllerOut, Request, Response, SignalOut, StreamHandlers, Subsc
 import { RigProvider } from "../src/provider.js";
 import { WritePanel } from "../src/panels/WritePanel.js";
 import { ControllerPanel } from "../src/panels/ControllerPanel.js";
+import { CommandForm } from "../src/panels/CommandForm.js";
+import type { CommandSchema } from "@flyball/client";
 
 /** A transport with sane empty answers for everything `WritePanel`/`ControllerPanel` seed from on mount. */
 function fakeTransport(): Transport {
@@ -140,5 +142,19 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
     expect(stopWrap).not.toBeNull();
     expect(moveWrap!.style.pointerEvents).toBe("none");
     expect(stopWrap!.style.opacity).toBe("0.5");
+  });
+});
+
+
+describe("CommandForm canOperate", () => {
+  const NO_ARGS: CommandSchema = { description: null, arguments: { type: "object", properties: {} }, simulation: false, commit: false, mode: null, interrupts: false, demand_of: null };
+  const run = vi.fn(async () => undefined);
+  it("a command's button is live by default", () => {
+    render(withRig(createElement(CommandForm, { name: "zero", command: NO_ARGS, onRun: run })));
+    expect((screen.getByRole("button", { name: "Zero" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("is shown but disabled without canOperate", () => {
+    render(withRig(createElement(CommandForm, { name: "zero", command: NO_ARGS, onRun: run, canOperate: false })));
+    expect((screen.getByRole("button", { name: "Zero" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

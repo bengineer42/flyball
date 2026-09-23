@@ -1,11 +1,11 @@
 # Charts and the Graph page
 
-**Inputs** (`#/inputs`) charts every published signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
+**Readings** (`#/readings`) charts every published signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
 
 ## Any chart opens almost-fullscreen
 
 Every chart in the app — a dashboard's `chart` and `loop` widgets, a
-`readout` widget's or a Readout panel's sparkline, Inputs' and Graph's
+`readout` widget's or a Readout panel's sparkline, Readings' and Graph's
 charts, a controller faceplate's Process/Drive trends, a session's charts —
 opens the same way: a full chart (axes, legend, toolbar already showing) by
 double-clicking the plot or its toolbar's expand button; a sparkline or a
@@ -32,7 +32,7 @@ forced on, titled for the controller and which trend (`… · process` /
 ## Graph
 
 **Graph** (`#/graph`) is a free-form chart: pick any signals across any
-devices and plot them together, unlike Inputs' charts which stay grouped by
+devices and plot them together, unlike Readings' charts which stay grouped by
 device or unit. A picker on the left lists every numeric published signal
 under its device, each by its title (a signal the driver left unlabelled, or
 whose label another signal of the device shares, is named by its namespace

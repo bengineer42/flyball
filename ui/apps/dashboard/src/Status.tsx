@@ -154,7 +154,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
   const h = health.data;
 
   // Alarm summary (research §6): `/api/health.alarms` counts the signals outside their warn/alarm
-  // band plus the device conditions at WARNING/ERROR, so the chip reads the same as the Overview tile.
+  // band plus the device conditions at WARNING/ERROR, so the chip reads the same as the health widget.
   const active = (h?.conditions ?? []).filter((c) => c.level >= 30);
   const amber = h?.alarms.warn ?? 0;
   const red = h?.alarms.alarm ?? 0;
@@ -246,7 +246,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
           short={`${running}/${devices.length}`}
           colour="error"
           lines={deviceLines}
-          href={hashFor("devices")}
+          href={hashFor("readings")}
         />
       )}
     </>

@@ -79,7 +79,7 @@ describe("the app bar is the navigation", () => {
     open("#/options/pages");
     expect((await screen.findByTestId("options-gear")).getAttribute("href")).toBe("#/options");
     const pages = await screen.findByTestId("options-pages");
-    for (const id of ["inputs", "devices", "controllers", "graph", "overview", "programs", "events", "sessions"])
+    for (const id of ["readings", "controllers", "graph", "programs", "events", "sessions"])
       expect(within(pages).getByTestId(`options-page-${id}`).getAttribute("href")).toBe(`#/${id}`);
     expect(within(pages).queryByTestId("options-page-simulation")).toBeNull();
   });

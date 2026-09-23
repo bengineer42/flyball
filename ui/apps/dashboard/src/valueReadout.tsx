@@ -1,7 +1,7 @@
 /**
  * A non-numeric signal's value as a compact readout: bool on/off, str/enum a
  * chip, json a compact block -- never a gauge or a series (those are for
- * float/int only). Shared between Overview's tiles and the Readout widget,
+ * float/int only). Shared by the Readout widget,
  * which differ only in how they frame it (a `PanelFrame` of their own, or
  * chrome handed up through `useWidgetChrome`).
  */

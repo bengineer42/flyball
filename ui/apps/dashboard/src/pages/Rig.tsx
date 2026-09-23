@@ -427,7 +427,12 @@ function ControllersSection({ document, schema, devices, onChanged }: { document
  * the runner started, its version history with a restore per row, and a box
  * to save it -- the overlay by default, or the whole rig to a path.
  */
-export function RigPage() {
+/**
+ * The running rig, as two Options tabs (D-053): `file` is what the rig is made of -- devices, links,
+ * controllers, the running document and what changed since start; `runner` is what happens to it
+ * as a whole -- versions and restore, save, shutdown/restart, connecting a model.
+ */
+export function RigPage({ part = "file" }: { part?: "file" | "runner" }) {
   const rig = useRig();
   const document = useRigDocument(5000);
   const changes = useRigChanges(5000);
@@ -481,7 +486,9 @@ export function RigPage() {
 
   return (
     <>
-      <SectionHead icon={PAGE_ICONS.rig} title="Config" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
+      {part === "file" && (
+      <>
+      <SectionHead icon={PAGE_ICONS.options} title="Rig file" />
       <div className="grid">
         <DevicesSection document={document} schema={rigSchema} devices={devices.data ?? []} onChanged={composed} />
         <div className="c12 xl6">
@@ -502,6 +509,13 @@ export function RigPage() {
           {changes.error && <Alert severity="error">{changes.error.message}</Alert>}
           {!changes.error && (changes.data !== undefined ? <YamlBlock value={changes.data} empty="Nothing changed." highlight={changeCount > 0} /> : <Typography color="text.secondary">loading…</Typography>)}
         </Paper>
+      </div>
+      </>
+      )}
+      {part === "runner" && (
+      <>
+      <SectionHead icon={PAGE_ICONS.options} title="Runner" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
+      <div className="grid">
         <Paper className="c12 xl6" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
             Versions {versions.data && `· ${versions.data.length}`}
@@ -526,6 +540,8 @@ export function RigPage() {
         </div>
         <ConnectModelCard />
       </div>
+      </>
+      )}
       <Confirm
         open={power !== null}
         title={power === "shutdown" ? "Shut the runner down?" : "Restart the runner?"}

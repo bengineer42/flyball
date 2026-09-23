@@ -59,10 +59,8 @@ afterEach(() => {
 
 /** The list route of each page, and the title its app bar shows. */
 const ROUTES: Array<[hash: string, title: string]> = [
-  ["#/overview", "Overview"],
   ["#/dashboards", "Dashboards"],
-  ["#/inputs", "Inputs"],
-  ["#/devices", "Devices"],
+  ["#/readings", "Readings"],
   ["#/graph", "Graph"],
   ["#/controllers", "Controllers"],
   ["#/programs", "Programs"],
@@ -90,9 +88,20 @@ describe("every route renders", () => {
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Options"));
   });
 
-  it("an unknown route falls back to the overview", async () => {
+  it.each([
+    ["#/overview", "#/dashboards?generated="],
+    ["#/inputs", "#/readings"],
+    ["#/inputs/furnace.zone1", "#/readings/furnace.zone1"],
+    ["#/devices", "#/readings"],
+  ])("the old address %s lands on %s", async (from, to) => {
+    window.location.hash = from;
+    render(createElement(AuthProvider, { transport }, createElement(RigProvider, { transport }, createElement(App, { onSignIn: () => undefined }))));
+    await waitFor(() => expect(window.location.hash).toBe(to));
+  });
+
+  it("an unknown route, or none, opens the dashboards", async () => {
     window.location.hash = "#/nowhere";
     render(createElement(AuthProvider, { transport }, createElement(RigProvider, { transport }, createElement(App, { onSignIn: () => undefined }))));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Overview"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Dashboards"));
   });
 });

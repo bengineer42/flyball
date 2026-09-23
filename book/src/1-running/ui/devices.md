@@ -8,8 +8,8 @@ not here. Where a device's fields come from is [Where a device's options come fr
 
 ## Devices
 
-**Devices** (`#/devices`, or `#/devices/<name>` for one alone) is a card
-per device: signals grouped by namespace, with a toggle to pivot by `tags`
+Every device is listed on **Readings** (`#/readings`, from Options › Pages; the old
+`#/devices` address lands there); `#/devices/<name>` is one device alone, as a card: signals grouped by namespace, with a toggle to pivot by `tags`
 section where the device has one; commands as cards; `conditions`, `mode`
 and `last.*` drawn as the list, chip and "ran at" lines they are rather
 than raw JSON. In the side menu the **Devices** entry opens (a chevron,

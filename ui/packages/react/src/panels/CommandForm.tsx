@@ -17,6 +17,8 @@ export interface CommandFormProps {
   command: CommandSchema;
   onRun(args: Record<string, unknown>): Promise<unknown>;
   busy?: boolean;
+  /** This browser may run commands (`AuthState.canOperate`, or a dashboard's `canWrite`); default true. False disables the form and its button, still shown. */
+  canOperate?: boolean;
   result?: { result?: unknown; error?: Error; at: number };
   /** The RJSF form to render with (a theme's `Form`); default `@rjsf/core`. */
   form?: SchemaFormProps["form"];
@@ -90,7 +92,7 @@ function LastRan({ device, name, label, schema }: { device: string; name: string
  * (left blank again, the rig keeps it where it is) and shows the signal's
  * live readback beside the form.
  */
-export function CommandForm({ name, command, onRun, busy, result, form, device, currentMode }: CommandFormProps) {
+export function CommandForm({ name, command, onRun, busy, result, form, device, currentMode, canOperate = true }: CommandFormProps) {
   const only = onlyArgument(command.arguments);
   const args = only
     ? { ...command.arguments, properties: { ...command.arguments.properties, [only]: { ...command.arguments.properties![only]!, title: "" } } }
@@ -132,12 +134,12 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
         )}
       </header>
       {isEmpty(command.arguments) ? (
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void onRun({})}>
+        <button type="button" className="btn btn-primary" disabled={busy || !canOperate} onClick={() => void onRun({})}>
           {label}
         </button>
       ) : (
         <>
-          <SchemaForm schema={args} value={initial} onSubmit={onRun} submitLabel={only ? "Set" : label} disabled={busy ?? false} form={form} />
+          <SchemaForm schema={args} value={initial} onSubmit={onRun} submitLabel={only ? "Set" : label} disabled={(busy ?? false) || !canOperate} form={form} />
           {linked.length > 0 && (
             <div className="fb-command-links">
               {linked.map((a) => (

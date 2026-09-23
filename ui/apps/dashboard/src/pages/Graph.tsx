@@ -25,7 +25,7 @@ import { MultiSeries, useControllers, useTraceRef, controllerSetpointKey, contro
 import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { StateBlock } from "../cards.js";
-import { publishingOf } from "./Inputs.js";
+import { publishingOf } from "./Readings.js";
 import { isNumeric } from "../valueReadout.js";
 
 export interface GraphProps extends ChartSettings {

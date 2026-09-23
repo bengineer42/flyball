@@ -58,7 +58,7 @@ import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
 // the overview/loops/etc. routes never need.
 const ProgramBuilder = lazy(() => import("./ProgramBuilder.js").then((m) => ({ default: m.ProgramBuilder })));
 import { when } from "../time.js";
-import { Crumbs } from "./Inputs.js";
+import { Crumbs } from "./Readings.js";
 
 const FORMATS: ProgramFormat[] = ["yaml", "toml", "json"];
 const TEMPLATE = "steps: []\n";
@@ -114,7 +114,7 @@ function CheckChip({ check }: { check: { data: ProgramCheck | undefined; error: 
   );
 }
 
-/** A section heading in the Overview's style. */
+/** A section heading in the app's style. */
 export function Heading({ children, end }: { children: ReactNode; end?: ReactNode }) {
   return (
     <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.125 }}>

@@ -7,7 +7,7 @@ export type Grouping = "device" | "signal" | "unit";
 
 const KEY = "flyball.inputs.view";
 
-/** Remembered like the theme: one choice for the Overview and the Inputs page. */
+/** Remembered like the theme: one choice wherever signals are grouped (Readings). */
 export const readGrouping = (): Grouping => {
   try {
     const v = window.localStorage.getItem(KEY);

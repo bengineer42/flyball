@@ -10,7 +10,7 @@ with no front-end change. This section is what the app does, a page per area:
 | --- | --- |
 | [Devices](devices.md) | a card per device: signals, commands, conditions; adding and removing devices and links |
 | [Controllers](controllers.md) | the faceplate: reading, target, output, trends, the law |
-| [Charts and the Graph page](charts.md) | Inputs, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
+| [Charts and the Graph page](charts.md) | Readings, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
 | [Sessions](sessions.md) | recording, the rolling record, keep, pin, export, delete |
 | [The rig file](rig.md) | Options › Rig file: the running document, versions and restore, save, restart, connect a model |
 | [Dashboards](../dashboards.md) | saved and generated layouts of widgets |
@@ -41,22 +41,24 @@ There is no sidebar: the app bar at the top of every page is how you move.
   place, read-only switch and home), the **Rig file** (the running
   document, versions, save, the runner; the old `#/rig` address lands here),
   **Appearance** (the theme), and **Pages**, a link to every page the bar
-  does not reach directly (Inputs, Devices, Controllers, Graph, Overview).
+  does not reach directly (Readings, Controllers, Graph).
+
+Addresses from before this layout still work: `#/overview` opens the
+generated dashboard, `#/inputs` and `#/devices` open Readings, `#/rig`
+opens Options › Rig file.
 
 ## Pages
 
 | Page | For |
 | --- | --- |
 | **Dashboards** | saved and generated layouts of widgets — see [Dashboards](../dashboards.md) |
-| **Overview** | the rig at a glance: a stat tile per published signal, a card per polled device (its run: period, last read, conditions) |
-| **Inputs** | every published signal charted, grouped by device or by unit |
-| **Devices** | one card per device (signals, commands, conditions); add or remove a device or a link |
+| **Readings** | the plain fall-back view (Options › Pages): every published signal charted, grouped by device or by unit, with each device's commands; `#/readings/<address>` is one signal, `#/devices/<name>` one device. The generated dashboard is the rig at a glance |
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (each row with the rig's check of it: ok, warnings or error; run, delete, upload, new) and, for one program, its editor and, while it runs or afterwards, its steps and events. The editor has two tabs over one document: **Steps**, a palette of the rig's step kinds and a card per step whose arguments are a form (drag a chip in as a new step, drag a card's handle to move it; buttons do the same without a pointer; a `command` or `set` step picks a device, then that device's own command or writable signals), and **Text**, the YAML or JSON. Either side updates the other; the rig re-checks the document as it changes and marks the offending step, red for an error and amber for a step naming something the rig lacks right now. Every save is a new version; Save as makes a new program |
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
-| **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
+| **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): devices, links and controllers, the running rig as a file would show it and what has changed since the runner started. **Runner** (`#/options/runner`): its version history (the current one marked) and restore, saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
 
 ### The playback bar
 
@@ -70,7 +72,7 @@ bar's paused chip is the way back to live.
 
 Paused, or scrubbed back, every page shows the rig **as it was at that
 moment**: charts end there and show the page's window before it, readouts,
-gauges and the Overview tiles hold the last sample at or before it, a
+gauges and the health tiles hold the last sample at or before it, a
 controller faceplate's reading and trends are from then. The samples come
 from the telemetry store, which cuts the window from what it already holds
 (up to an hour) or reads it from the session's `/api/history` once a seek

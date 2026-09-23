@@ -14,10 +14,10 @@ vi.mock("uplot", () => ({
   },
 }));
 // F3: a page that throws during render must not take the app bar (and the stop button) down with
-// it. The Overview page (the default route) is swapped for one that always throws.
-vi.mock("../src/pages/Overview.js", () => ({
-  Overview: () => {
-    throw new Error("boom from Overview");
+// it. The Dashboards page (the default route) is swapped for one that always throws.
+vi.mock("../src/pages/Dashboards.js", () => ({
+  Dashboards: () => {
+    throw new Error("boom from Dashboards");
   },
 }));
 import { RigProvider } from "@flyball/react";
@@ -132,6 +132,6 @@ describe("App: a page that throws during render (F3)", () => {
     // button (inside the same tree as the page) would disappear along with the crashed page.
     await waitFor(() => expect(screen.getByTestId("stop-button")).toBeTruthy());
     expect(screen.getByText(/failed to render/i)).toBeTruthy();
-    expect(screen.getByText(/boom from Overview/)).toBeTruthy();
+    expect(screen.getByText(/boom from Dashboards/)).toBeTruthy();
   });
 });
