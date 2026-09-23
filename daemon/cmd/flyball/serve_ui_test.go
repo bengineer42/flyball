@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -462,5 +463,125 @@ func TestRunUVDeliversTheStopToTheRunner(t *testing.T) {
 		}
 	case <-time.After(8 * time.Second):
 		t.Fatal("the runner kept running: the SIGINT never reached it")
+	}
+}
+
+// startUI runs serveUI on 127.0.0.1:frontPort in front of handler, served
+// on 127.0.0.1:fakeRunnerPort, until the test ends.
+func startUI(t *testing.T, handler http.Handler) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:"+fakeRunnerPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := &http.Server{Handler: handler}
+	go upstream.Serve(ln)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); serveUI(ctx, "127.0.0.1:"+frontPort, fakeRunnerPort, nil) }()
+	t.Cleanup(func() { cancel(); <-done; upstream.Close() })
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if c, err := net.Dial("tcp", "127.0.0.1:"+frontPort); err == nil {
+			c.Close()
+			return
+		}
+	}
+	t.Fatal("the UI server never listened")
+}
+
+// shortTimeouts makes the UI server's timeouts short enough to test.
+func shortTimeouts(t *testing.T) {
+	oldHeader, oldIdle := uiReadHeaderTimeout, uiIdleTimeout
+	uiReadHeaderTimeout, uiIdleTimeout = 300*time.Millisecond, 300*time.Millisecond
+	t.Cleanup(func() { uiReadHeaderTimeout, uiIdleTimeout = oldHeader, oldIdle })
+}
+
+// A client that sends its headers slowly (slowloris) is cut off, not held
+// open for ever; one that sends too many is refused.
+func TestServeUITimesOutSlowHeadersAndRefusesHugeOnes(t *testing.T) {
+	shortTimeouts(t)
+	startUI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	c, err := net.Dial("tcp", "127.0.0.1:"+frontPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Write([]byte("GET /api/health HTTP/1.1\r\nHost: x\r\n")) // and never the blank line
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	start := time.Now()
+	_, err = c.Read(make([]byte, 1))
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("the connection with unfinished headers was still open after 3 s")
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("closed after %s, want about the header timeout", took)
+	}
+
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:"+frontPort+"/api/health", nil)
+	req.Header.Set("X-Big", strings.Repeat("a", 1<<20))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
+		t.Fatalf("1 MiB of headers: %d, want 431", resp.StatusCode)
+	}
+}
+
+// A websocket (an upgraded connection) through the proxy outlives the
+// header and idle timeouts: it is not a request waiting for headers.
+func TestServeUIWebsocketOutlivesTheTimeouts(t *testing.T) {
+	shortTimeouts(t)
+	startUI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			http.Error(w, "upgrade only", http.StatusBadRequest)
+			return
+		}
+		conn, rw, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		rw.Flush()
+		buf := make([]byte, 64)
+		for { // an echo, standing in for frames
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			conn.Write(buf[:n])
+		}
+	}))
+	c, err := net.Dial("tcp", "127.0.0.1:"+frontPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Write([]byte("GET /ws/samples HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"))
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	head := make([]byte, 0, 256)
+	buf := make([]byte, 256)
+	for !strings.Contains(string(head), "\r\n\r\n") {
+		n, err := c.Read(buf)
+		if err != nil {
+			t.Fatalf("no upgrade: %v (%q)", err, head)
+		}
+		head = append(head, buf[:n]...)
+	}
+	if !strings.HasPrefix(string(head), "HTTP/1.1 101") {
+		t.Fatalf("answer %q, want 101", head)
+	}
+	for i := 0; i < 3; i++ {
+		time.Sleep(500 * time.Millisecond) // past both timeouts, each time
+		c.SetDeadline(time.Now().Add(2 * time.Second))
+		if _, err := c.Write([]byte("ping")); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+		n, err := c.Read(buf)
+		if err != nil || string(buf[:n]) != "ping" {
+			t.Fatalf("echo %d: %q, %v", i, buf[:n], err)
+		}
 	}
 }

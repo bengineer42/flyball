@@ -22,6 +22,19 @@ import (
 	"flyballd/internal/webui"
 )
 
+// The UI server's limits: a client gets uiReadHeaderTimeout to send its
+// headers (a slow one would otherwise hold a connection for ever -- and
+// enough of them, every rig's UI), a keep-alive connection is closed after
+// uiIdleTimeout with no request, and headers over uiMaxHeaderBytes are
+// refused (431). No ReadTimeout or WriteTimeout: a websocket through the
+// proxy, or a long download, is one request that lasts as long as it
+// needs. Variables so a test can shorten them.
+var (
+	uiReadHeaderTimeout = 10 * time.Second
+	uiIdleTimeout       = 120 * time.Second
+	uiMaxHeaderBytes    = 64 << 10
+)
+
 // serveUI serves the embedded dashboard UI at "/" and reverse-proxies
 // /api, /ws and /mcp to the runner on 127.0.0.1:port -- so `flyball run
 // RIG-FILE --serve-ui :80` is reachable on its own, no nginx or other
@@ -63,7 +76,13 @@ func serveUI(ctx context.Context, addr string, port string, plan *exposure.Plan)
 	mux.Handle("/mcp/", proxy)
 	mux.Handle("/", http.FileServer(http.FS(dist)))
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: uiReadHeaderTimeout,
+		IdleTimeout:       uiIdleTimeout,
+		MaxHeaderBytes:    uiMaxHeaderBytes,
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 
