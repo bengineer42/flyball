@@ -8,6 +8,7 @@ is answered meanwhile -- with a control that the store request really waited.
 from __future__ import annotations
 
 import asyncio
+import gc
 import threading
 import time
 from collections.abc import Iterator
@@ -26,6 +27,19 @@ from test_recorder import Furnace, _sample
 
 HOLD_S = 1.0
 QUICK_S = 0.3
+
+
+@pytest.fixture(autouse=True)
+def _no_collection_in_the_timed_window() -> Iterator[None]:
+    """Collect first, then not at all: late in the suite a full collection takes ~0.4 s.
+
+    Measured 23 Sep: a generation-2 collection of 0.445 s landed inside the window
+    below and failed a test about the store's lock, not the collector.
+    """
+    gc.collect()
+    gc.disable()
+    yield
+    gc.enable()
 
 
 @pytest.fixture
