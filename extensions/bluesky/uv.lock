@@ -108,30 +108,30 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", marker = "extra == 'all'", specifier = ">=0.115" },
-    { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
     { name = "flyball-sim", marker = "extra == 'all'", editable = "../../sim" },
-    { name = "flyball-sim", marker = "extra == 'web'", editable = "../../sim" },
+    { name = "flyball-sim", marker = "extra == 'server'", editable = "../../sim" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'cli'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.27" },
-    { name = "httpx", marker = "extra == 'web'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'server'", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'all'", specifier = ">=1.12" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.12" },
-    { name = "mcp", marker = "extra == 'web'", specifier = ">=1.12" },
+    { name = "mcp", marker = "extra == 'server'", specifier = ">=1.12" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'mcp'", specifier = ">=6" },
-    { name = "pyyaml", marker = "extra == 'web'", specifier = ">=6" },
+    { name = "pyyaml", marker = "extra == 'server'", specifier = ">=6" },
     { name = "tomli-w", specifier = ">=1.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'all'", specifier = ">=0.32" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = ">=0.32" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32" },
     { name = "websockets", marker = "extra == 'all'", specifier = ">=13" },
     { name = "websockets", marker = "extra == 'cli'", specifier = ">=13" },
     { name = "websockets", marker = "extra == 'mcp'", specifier = ">=13" },
-    { name = "websockets", marker = "extra == 'web'", specifier = ">=13" },
+    { name = "websockets", marker = "extra == 'server'", specifier = ">=13" },
 ]
-provides-extras = ["all", "cli", "mcp", "web"]
+provides-extras = ["all", "cli", "mcp", "server"]
 
 [package.metadata.requires-dev]
 dev = [
