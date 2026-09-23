@@ -378,13 +378,29 @@ func (f *Front) trusted(ip netip.Addr) bool {
 	return false
 }
 
-// scheme is what the client used: https under TLS, or behind an upstream
-// that terminates it (an https url:).
+// scheme is what the hop to this front used (D-047 2): https under TLS,
+// or when an https url: names a TLS proxy and the peer is one -- this
+// machine (loopback, a unix socket) or a trusted_proxies address. A peer
+// elsewhere reaching the front directly over plain HTTP is http, whatever
+// url: says.
 func (f *Front) scheme(r *http.Request) string {
-	if r.TLS != nil || (f.plan.URL != nil && f.plan.URL.Scheme == "https") {
+	if r.TLS != nil {
+		return "https"
+	}
+	if f.plan.URL != nil && f.plan.URL.Scheme == "https" && (isLoopbackPeer(r) || f.trustedPeer(r)) {
 		return "https"
 	}
 	return "http"
+}
+
+// trustedPeer: the TCP peer itself is in trusted_proxies.
+func (f *Front) trustedPeer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && f.trusted(ip.Unmap())
 }
 
 // cookieName is `__Host-flyball` when the cookie is Secure, else
@@ -753,7 +769,10 @@ func (f *Front) createToken(w http.ResponseWriter, r *http.Request, c Caller) {
 		}
 		life = time.Duration(*body.ExpiresIn * float64(time.Second))
 	}
-	cleartext := f.scheme(r) == "http" && !isLoopbackPeer(r)
+	// Cleartext is the hop itself: no TLS on this connection from another
+	// machine, whatever url: says (D-047 2) -- a TLS proxy on another host
+	// forwards over the LAN in the clear.
+	cleartext := r.TLS == nil && !isLoopbackPeer(r)
 	// D-036 safeguard 3: an operate-or-above token minted from the admin
 	// session (what `flyball login` authenticates as, but also anything
 	// else that holds the password) lives at most 30 d, whatever the

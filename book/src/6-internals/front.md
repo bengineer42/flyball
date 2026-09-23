@@ -98,7 +98,7 @@ payload = JSON, keys in this order, no whitespace:
 | `scp` | the caller's verbs **on this rig**, expanded, sorted, unique |
 | `kind` | `human`, `service` or `agent` |
 | `aud` | the runner's `aud`, so a principal for one rig is refused by another |
-| `cip`, `sch` | the client's address as the front saw it (`""` if unknown), and `http` or `https` |
+| `cip`, `sch` | the client's address as the front saw it (`""` if unknown), and `http` or `https`: `https` under the front's own TLS, or with an `https` `url` when the peer is this machine or in `trusted_proxies` -- the hop, not what `url` claims |
 | `via` | `mcp` when the runner re-minted it for an MCP tool's call |
 | `iat`, `exp` | Unix seconds; 60 s apart |
 

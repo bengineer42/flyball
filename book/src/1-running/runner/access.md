@@ -164,7 +164,8 @@ flyball token create --name bench --config rig.yaml --scope operate --expires 30
 It prints the token once; the file keeps only its hash. Every token
 expires: after 90 days unless it says otherwise, a year at most, and 30
 days at most for `--kind agent` or a token made over plain HTTP from
-another machine. `flyball token list` and `flyball token revoke ID` work on
+another machine -- plain HTTP on the hop to the front itself, whatever
+`url` says, so also through a TLS proxy on another host. `flyball token list` and `flyball token revoke ID` work on
 the same file; a revoked or expired token's open streams and sockets are
 closed within a second. Revoking a token never changes what the hardware is
 doing: a program it started keeps running. The admin session (or anyone

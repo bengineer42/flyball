@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -226,5 +227,61 @@ func TestAnonymousKnownHostsOnly(t *testing.T) {
 	secret := h.createToken(cookie, `{"name":"ci","scopes":["read:*"]}`)
 	if resp := h.sendHost("GET", "/api/echo", evil, "", bearer(secret, nil)); resp.StatusCode != 200 {
 		t.Errorf("token by a foreign name: %d", resp.StatusCode)
+	}
+}
+
+// D-047 2: cleartext is the hop itself -- no TLS on this connection and a
+// non-loopback peer, whatever url: says. A token made over plain HTTP from
+// another machine is capped as cleartext even with url: https.
+func TestCleartextIsTheHop(t *testing.T) {
+	h := newHarness(t, Config{Auth: "password", Password: testScrypt, URL: "https://pi.lab",
+		TrustedProxies: []string{"192.168.1.1"}})
+	cookie := h.login2(http.Header{"Host": {"pi.lab"}, "Origin": {"https://pi.lab"}})
+	direct := func(method, path, remote, reqBody string) *httptest.ResponseRecorder {
+		var req *http.Request
+		if reqBody != "" {
+			req = httptest.NewRequest(method, "http://pi.lab"+path, strings.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req = httptest.NewRequest(method, "http://pi.lab"+path, nil)
+		}
+		req.RemoteAddr = remote
+		req.Header.Set("Origin", "https://pi.lab")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.front.ServeHTTP(rec, req)
+		return rec
+	}
+	lifetime := func(rec *httptest.ResponseRecorder) time.Duration {
+		t.Helper()
+		if rec.Code != 201 {
+			t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+		}
+		resp := rec.Result()
+		exp, err := time.Parse(time.RFC3339, readJSON[map[string]any](t, resp)["expires"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return time.Until(exp)
+	}
+	const ninety = `{"name":"%s","scopes":["read:*"],"expires_in":7776000}`
+	if d := lifetime(direct("POST", "/api/auth/tokens", "192.168.1.50:40000", strings.Replace(ninety, "%s", "lan", 1))); d > 31*24*time.Hour {
+		t.Errorf("a read token made over plain HTTP from 192.168.1.50 with url: https lives %v, want the 30-day cleartext cap", d)
+	}
+	if d := lifetime(direct("POST", "/api/auth/tokens", "127.0.0.1:40000", strings.Replace(ninety, "%s", "lo", 1))); d < 89*24*time.Hour {
+		t.Errorf("a token made from loopback is capped: %v", d)
+	}
+
+	// The principal's sch: https only for TLS, or url: https with a
+	// loopback, unix or trusted-proxy peer.
+	for remote, want := range map[string]string{"192.168.1.50:40000": "http", "127.0.0.1:40000": "https",
+		"@": "https", "192.168.1.1:40000": "https"} {
+		rec := direct("GET", "/api/echo", remote, "")
+		if rec.Code != 200 {
+			t.Fatalf("%s: %d %s", remote, rec.Code, rec.Body.String())
+		}
+		if got := readJSON[echo](t, rec.Result()).Claims.Sch; got != want {
+			t.Errorf("peer %s: sch %q, want %q", remote, got, want)
+		}
 	}
 }
