@@ -652,8 +652,8 @@ export interface RigVersion {
  * resolved (flags over environment over file). The token is never returned.
  */
 export interface RunnerInfo {
-  host: string;
-  port: number;
+  /** Where the runner listens: `unix:/abs/path` behind a front, `tcp:<host>:<port>` bare; null when unknown. */
+  endpoint: string | null;
   root_path: string | null;
   mcp: boolean;
   compose: boolean;

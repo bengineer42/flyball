@@ -248,7 +248,7 @@ function RunnerControls({ runner, busy, onAsk }: { runner: RunnerInfo; busy: boo
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
       <Typography variant="body2" color="text.secondary" title={runner.files.join("\n")}>
-        {runner.host}:{runner.port}
+        {runner.endpoint ?? ""}
         {runner.root_path ? runner.root_path : ""} · {runner.files.length} file{runner.files.length === 1 ? "" : "s"}
       </Typography>
       {runner.allow_shutdown && (
