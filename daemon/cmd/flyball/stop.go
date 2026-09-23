@@ -24,11 +24,18 @@ import (
 )
 
 func runStopCommand(server, token string, args []string) error {
+	all, args := popBool(args, "--all")
 	pidFlag, args, hasPID := popValue(args, "--pid")
 	frontDir, args, hasFrontDir := popValue(args, "--front-dir")
 	reason, args, _ := popValue(args, "--reason")
+	if all {
+		if len(args) > 0 || hasPID || hasFrontDir {
+			return fmt.Errorf("usage: flyball stop --all [--reason TEXT] (every rig flyballd lists; no NAME, --pid or --front-dir)")
+		}
+		return stopAllRigs(token, reason)
+	}
 	if len(args) > 1 {
-		return fmt.Errorf("usage: flyball stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT]")
+		return fmt.Errorf("usage: flyball stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT] | flyball stop --all [--reason TEXT]")
 	}
 	var name string
 	if len(args) == 1 {
@@ -93,6 +100,61 @@ func runStopCommand(server, token string, args []string) error {
 		}
 	}
 	return fmt.Errorf("the front could not be reached; pass --front-dir DIR (its runner.lock names the pid) or --pid N to stop the runner directly")
+}
+
+// stopAllRigs is `flyball stop --all` (D-037): the rig stop -- POST
+// <root>/api/rig/stop, as `flyball stop NAME` -- on every rig flyballd
+// (FLYBALLD_URL) lists for this credential (GET /api/rigs: the rigs it
+// holds any verb on; no management scope needed), each report printed
+// under the rig's name. The runner processes stay up. Any rig whose stop
+// was refused or failed makes it an error naming them; so does a list
+// with no rig in it, since nothing was stopped. No signal fallback: with
+// flyballd unreachable there is no list, and each runner is stopped with
+// `flyball stop --pid N` / `--front-dir DIR`.
+func stopAllRigs(token, reason string) error {
+	base := daemonURL()
+	daemon := client.Target{BaseURL: base}.WithToken(token)
+	req, err := http.NewRequest("GET", base+"/api/rigs", nil)
+	if err != nil {
+		return err
+	}
+	for k, vs := range daemon.AuthHeaders() {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("flyballd at %s cannot be reached (%v): nothing was stopped; stop each runner with `flyball stop --pid N` or `--front-dir DIR`", base, err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("listing the rigs at %s: %s: %s; nothing was stopped", base, resp.Status, strings.TrimSpace(string(body)))
+	}
+	var rigs []struct {
+		Name     string `json:"name"`
+		RootPath string `json:"root_path"`
+	}
+	if err := json.Unmarshal(body, &rigs); err != nil {
+		return fmt.Errorf("listing the rigs at %s: %v; nothing was stopped", base, err)
+	}
+	if len(rigs) == 0 {
+		return fmt.Errorf("flyballd at %s lists no rig this credential holds a verb on (pass --token, or set FLYBALL_TOKEN); nothing was stopped", base)
+	}
+	var failed []string
+	for _, rig := range rigs {
+		fmt.Printf("%s:\n", rig.Name)
+		target := client.Target{BaseURL: base, Prefix: rig.RootPath}.WithToken(token)
+		if _, err := postStop(target, reason); err != nil {
+			fmt.Printf("  not stopped: %v\n", err)
+			failed = append(failed, rig.Name)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d of %d rigs not stopped: %s", len(failed), len(rigs), strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 // postStop sends the stop request. refused is true when the front

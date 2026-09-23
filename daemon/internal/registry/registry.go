@@ -25,6 +25,12 @@ type Entry struct {
 	Manifest config.Manifest
 	Endpoint string
 	Status   backend.Status
+	// Pid, Adopted and Reason come from a backend.Inspector: the live
+	// process, whether it was adopted rather than spawned (D-037), and why
+	// the runner is busy or failed.
+	Pid     int
+	Adopted bool
+	Reason  string
 }
 
 type Registry struct {
@@ -178,6 +184,15 @@ func (r *Registry) List() []*Entry {
 
 func (r *Registry) withStatus(e *Entry) *Entry {
 	c := *e
+	if in, ok := r.be.(backend.Inspector); ok {
+		if d, err := in.Detail(e.Manifest.Name); err == nil {
+			c.Status, c.Pid, c.Adopted, c.Reason = d.Status, d.Pid, d.Adopted, d.Reason
+			if d.Endpoint != "" {
+				c.Endpoint = d.Endpoint
+			}
+			return &c
+		}
+	}
 	st, err := r.be.Status(e.Manifest.Name)
 	if err != nil {
 		st = backend.StatusStopped

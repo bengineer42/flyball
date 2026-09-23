@@ -1,0 +1,40 @@
+# An example systemd unit for flyballd. Copy it to /etc/systemd/system/,
+# adjust User=, the paths and PATH, then:
+#   systemctl daemon-reload && systemctl enable --now flyballd
+#
+# flyballd leaves its runners running when it stops, and adopts them when it
+# starts again (D-037): a restart or crash of the management plane never
+# changes what the hardware does. Two settings below exist for that; do not
+# drop either.
+
+[Unit]
+Description=flyball daemon: supervises and fronts the rigs' runners
+After=network.target
+
+[Service]
+Type=simple
+User=flyball
+Group=flyball
+ExecStart=/usr/local/bin/flyballd -config /etc/flyball/flyballd.yaml
+# flyball-runner (or uv, for manifests with uv_project:) must be on PATH.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+
+# D-037: stop only flyballd itself. The default (control-group) would have
+# systemd kill every runner in the unit's cgroup on `systemctl stop` or
+# `restart` -- the runners must outlive a flyballd restart, so the next
+# flyballd can adopt them without interrupting control. To end the runners,
+# use `flyball runners stop --all` (needs a manage token).
+KillMode=process
+
+# The runners' front-dirs (/run/flyball/<name>: key, socket, runner.lock).
+# 0700: flyballd refuses a runtime dir others can enter, and falls back to
+# temp dirs a restarted flyballd cannot find. Preserve: systemd would
+# otherwise delete /run/flyball when flyballd stops, from under the runners
+# still using it, and the next flyballd could not adopt them.
+RuntimeDirectory=flyball
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

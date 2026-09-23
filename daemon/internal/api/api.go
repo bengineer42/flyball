@@ -4,7 +4,8 @@
 // list, the landing page, start/stop/restart/logs -- which need a bearer
 // token carrying the management scope (grants.Management(), made by
 // `flyball token create`). A web session, the local shape's console or a
-// proxy identity never has it (F21, merge requirement 18).
+// proxy identity never has it (F21, merge requirement 18). One route is
+// not management: GET /api/rigs, the rigs the caller holds a verb on.
 package api
 
 import (
@@ -14,6 +15,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"flyballd/internal/backend"
@@ -66,6 +68,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/runners/{name}/restart", s.manage(s.handleRestartRunner))
 	s.mux.HandleFunc("GET /api/runners/{name}/logs", s.manage(s.handleLogs))
 	s.mux.HandleFunc("GET /{$}", s.manage(s.handleLanding))
+	s.mux.HandleFunc("GET /api/rigs", s.handleRigs)
 }
 
 // manage gates a route on a bearer token with the management scope: a
@@ -129,6 +132,41 @@ func Route(reg *registry.Registry) func(string) (front.Rig, bool) {
 	}
 }
 
+// verbs is c's verbs on rig: the front's own rule when auth is the front
+// (a token's issuer's verbs intersected), else c's ceiling for rig.
+func (s *Server) verbs(c front.Caller, rig string) []string {
+	if v, ok := s.auth.(interface {
+		Verbs(front.Caller, string) []string
+	}); ok {
+		return v.Verbs(c, rig)
+	}
+	return grants.ForRig(c.Scopes, rig)
+}
+
+// handleRigs is GET /api/rigs: the rigs the caller holds any verb on,
+// sorted by name -- {name, root_path, status}. Not a management route:
+// what it shows is what the caller could reach anyway, and `flyball stop
+// --all` needs it with only operate (D-037). A credential that does not
+// work is refused (401/503), as everywhere.
+func (s *Server) handleRigs(w http.ResponseWriter, r *http.Request) {
+	c, err := s.auth.Authenticate(r)
+	if err != nil {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="flyballd"`)
+		http.Error(w, err.Error(), front.Status(err))
+		return
+	}
+	out := []map[string]any{}
+	entries := s.reg.List()
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Manifest.Name < entries[j].Manifest.Name })
+	for _, e := range entries {
+		if len(s.verbs(c, e.Manifest.Name)) == 0 {
+			continue
+		}
+		out = append(out, map[string]any{"name": e.Manifest.Name, "root_path": e.Manifest.RootPath, "status": e.Status})
+	}
+	writeJSON(w, out)
+}
+
 func (s *Server) handleListRunners(w http.ResponseWriter, r *http.Request) {
 	entries := s.reg.List()
 	out := make([]map[string]any, 0, len(entries))
@@ -154,6 +192,9 @@ func runnerJSON(e *registry.Entry) map[string]any {
 		"restart":   e.Manifest.Restart,
 		"status":    e.Status,
 		"endpoint":  e.Endpoint,
+		"pid":       e.Pid,     // the live process, 0 when none
+		"adopted":   e.Adopted, // taken over from a previous flyballd, not spawned (D-037)
+		"reason":    e.Reason,  // why it is busy or failed, "" when not known
 	}
 }
 
