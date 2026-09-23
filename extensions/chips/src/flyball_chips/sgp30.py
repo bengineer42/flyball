@@ -12,10 +12,10 @@ datasheet has the host read the baseline periodically (about once an hour)
 and write it back after a power cycle, so `Sgp30Sensor.get_baseline` /
 `set_baseline` are part of the API, not an omission.
 
-[Unverified] The write order of the two baseline words in `set_baseline`
-(CO2eq then TVOC, mirroring the order `get_baseline` returns them) follows
-the common convention of Sensirion's own embedded-sgp driver rather than a
-directly re-read datasheet table; treat it as unconfirmed.
+The two baseline words go back in the reverse of the order they come out:
+`get_baseline` reads CO2eq then TVOC, `set_baseline` writes TVOC then CO2eq
+(datasheet v1.0, "Set and Get Baseline"; Sensirion's embedded-sgp
+`sgp30_set_iaq_baseline` does the same).
 """
 
 from __future__ import annotations
@@ -104,13 +104,16 @@ class Sgp30Sensor:
         return Baseline(co2eq, tvoc)
 
     def set_baseline(self, baseline: Baseline) -> None:
-        """Restores a baseline read earlier, typically just after `init_air_quality`."""
+        """Restores a baseline read earlier, typically just after `init_air_quality`.
+
+        The chip takes the words as (TVOC, CO2eq), the reverse of `get_baseline`'s order.
+        """
         self.link.write(
             self.address,
             [
                 *command(SET_IAQ_BASELINE),
-                *word_with_crc(baseline.co2eq),
                 *word_with_crc(baseline.tvoc),
+                *word_with_crc(baseline.co2eq),
             ],
         )
 
