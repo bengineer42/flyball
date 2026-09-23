@@ -55,14 +55,14 @@ class ModbusLink:
 
     def read_registers(self, address: int, count: int = 1, unit: int = 1) -> list[int]:
         with self._lock:
-            result = self._client.read_holding_registers(address, count=count, slave=unit)
+            result = self._client.read_holding_registers(address, count=count, device_id=unit)
         if result.isError():
             raise OSError(f"Modbus read at {address} failed: {result}")
         return list(result.registers)
 
     def write_registers(self, address: int, values: list[int], unit: int = 1) -> None:
         with self._lock:
-            result = self._client.write_registers(address, values, slave=unit)
+            result = self._client.write_registers(address, values, device_id=unit)
         if result.isError():
             raise OSError(f"Modbus write at {address} failed: {result}")
 

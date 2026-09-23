@@ -8,8 +8,41 @@ from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
 from flyball_modbus import FakeRegisterLink, Modbus, ModbusRegister
+from flyball_modbus._links import ModbusLink
 
 NS = 1_000_000_000  # a second, in the ns the runtime counts time in
+
+
+class FakePymodbusClient:
+    """Mimics pymodbus's client interface (>=3.10: `device_id=`, not `slave=`)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def connect(self) -> None:
+        pass
+
+    def read_holding_registers(self, address: int, count: int, device_id: int):
+        self.calls.append(("read", address, count, device_id))
+        return type("Result", (), {"isError": lambda self: False, "registers": [42] * count})()
+
+    def write_registers(self, address: int, values: list[int], device_id: int):
+        self.calls.append(("write", address, values, device_id))
+        return type("Result", (), {"isError": lambda self: False})()
+
+
+class TestModbusLink:
+    def test_read_registers_passes_device_id_not_slave(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        assert link.read_registers(100, 2, unit=7) == [42, 42]
+        assert client.calls == [("read", 100, 2, 7)]
+
+    def test_write_registers_passes_device_id_not_slave(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        link.write_registers(100, [1, 2], unit=7)
+        assert client.calls == [("write", 100, [1, 2], 7)]
 
 
 class TestModbusRegister:
