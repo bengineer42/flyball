@@ -71,5 +71,9 @@ steps:
 
 The file form is translated into the request form before it is validated, and
 the file's JSON schema is generated from the same command registry, so an
-editor validates exactly what the rig accepts. [Writing programs](writing.md)
+editor validates exactly what the rig accepts. The UI's editor is built on the
+same schema: a **Steps** tab with a palette of step kinds and a form per step,
+drag-and-drop to add and reorder, and a **Text** tab with the file as written,
+each rewriting the other, with the rig's check shown per step as you edit
+([The UI](../ui/index.md#pages)). [Writing programs](writing.md)
 has the rules.
