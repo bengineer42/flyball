@@ -12,7 +12,7 @@ feedforward the controller's correction works around. A heater that holds
 from __future__ import annotations
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Band, Committable, DriverConfig, Setting, Signal, command
+from flyball.foundation.device import Bounds, Committable, DriverConfig, Setting, Signal, command
 from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.foundation.quantities.si import Hertz
 from flyball.hardware.spanned_demand import (
@@ -49,7 +49,7 @@ class PwmChannel(Committable):
         invert: bool = False,
         unit: str | None = None,
         quantity: str | None = None,
-        span: Band | None = None,
+        span: Bounds | None = None,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
@@ -131,7 +131,7 @@ class PwmChannelConfig(DriverConfig[PwmChannel], tag="pwm_channel"):
     quantity: str | None = Field(
         default=None, description="With `unit`: what `drive` then is ('temperature')."
     )
-    span: Band | None = Field(
+    span: Bounds | None = Field(
         default=None, description="With `unit`: the value meaning 0 % and the one meaning 100 %."
     )
 

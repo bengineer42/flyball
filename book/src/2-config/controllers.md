@@ -27,7 +27,7 @@ controllers:
 
 | key | type | |
 | --- | --- | --- |
-| `measured` | address | the measured signal: a publishing signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
+| `measured` | address | the measured signal: a published signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
 | `law` | `{tag, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
 | `feedforward` | `{tag, …}` | `setpoint` (the measured unit passed through); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
@@ -63,7 +63,7 @@ Enough to choose a law and a feedforward; the full mechanics are
 
 Every time a reading arrives on the controller's measured signal, it ticks.
 First it checks the write would land. If the measured signal has gone stale
-(`stale_after`), or a limit on the output follows a signal that has no
+(`stale_after_s`), or a limit on the output follows a signal that has no
 value yet (a supply humidity not read yet) or a non-finite one (NaN,
 infinite), the controller is **held** and the tick stops here: the law
 does not step, nothing is written, the output keeps what it last took,
@@ -115,8 +115,9 @@ the feedforward's own mapping of the setpoint. Two things follow:
   the same path as regulation.
 - **Handover is arithmetic.** Switching from manual to regulating, or
   swapping a tuning, means choosing what the correction should be at the
-  instant of the switch — a `Transfer`: `none` (zero), `reset` (the law's
-  own resume from the current reading), `carry` (keep the old correction),
+  instant of the switch — a `Transfer`: `none` (leave the law and its
+  correction as they are), `cold` (start the law cold: correction zero),
+  `carry` (keep the old correction),
   or `track` (match the output already being delivered, the default,
   bumpless). See [The loop in detail](../6-internals/controller.md#handover).
 

@@ -41,7 +41,7 @@ def bench_document() -> dict:
                 },
                 "signals": {
                     "wet": {"poll_s": 5},
-                    "dry": {"signals": {"humidity": {"warn": [0, 10]}}},
+                    "dry": {"signals": {"humidity": {"warning": [0, 10]}}},
                 },
             },
             "adc": {
@@ -135,7 +135,7 @@ def test_the_tree_and_the_envelope_s_overrides(rig):
         "temperature": "rp",
         "setpoint": "rpw",
     }
-    assert _signal(rig, "hum.dry.humidity").spec.warn == (0.0, 10.0)
+    assert _signal(rig, "hum.dry.humidity").spec.warning == (0.0, 10.0)
     assert _signal(rig, "hum.wet.humidity").poll_s == 5.0
     assert _signal(rig, "adc.pressure").spec.range == (0.0, 100.0)
     assert _signal(rig, "heater.drive").limits == (10.0, 34.0), "the file narrowed the span"

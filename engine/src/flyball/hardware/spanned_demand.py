@@ -9,11 +9,11 @@ a signal's value and the fraction actually written. Originally `pwm.py` and `mcp
 
 from __future__ import annotations
 
-from flyball.foundation.device import Access, Band, Role, SignalSpec
+from flyball.foundation.device import Access, Bounds, Role, SignalSpec
 from flyball.foundation.quantities import Quantity
 
 
-def validate_span(unit: str | None, span: Band | None, *, prefix: str = "") -> None:
+def validate_span(unit: str | None, span: Bounds | None, *, prefix: str = "") -> None:
     """Raise if exactly one of `unit`/`span` is given, or `span` isn't rising.
 
     Raises:
@@ -26,7 +26,7 @@ def validate_span(unit: str | None, span: Band | None, *, prefix: str = "") -> N
 
 
 def spanned_signal_spec(
-    name: str, unit: str | None, quantity: str | None, span: Band | None, *, bare: Quantity
+    name: str, unit: str | None, quantity: str | None, span: Bounds | None, *, bare: Quantity
 ) -> SignalSpec:
     """A `[RPW]` demand signal called `name`: `bare` (0-1), or `span` mapped onto `unit`.
 
@@ -56,7 +56,7 @@ def spanned_signal_spec(
     )
 
 
-def to_fraction(value: float, span: Band | None) -> float:
+def to_fraction(value: float, span: Bounds | None) -> float:
     """The 0-1 fraction a signal value of `value` asks for: itself, or linear over `span`."""
     if span is None:
         return value
@@ -64,7 +64,7 @@ def to_fraction(value: float, span: Band | None) -> float:
     return (value - d0) / (d1 - d0)
 
 
-def from_fraction(achieved: float, span: Band | None) -> float:
+def from_fraction(achieved: float, span: Bounds | None) -> float:
     """The signal-unit value an achieved 0-1 fraction corresponds to: itself, or over `span`."""
     if span is None:
         return achieved

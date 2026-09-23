@@ -192,7 +192,7 @@ devices:
       ports:
         temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
-      temperature: { range: [-20, 150], precision: 1, warn: [0, 100], alarm: [-10, 120] }
+      temperature: { range: [-20, 150], precision: 1, warning: [0, 100], alarm: [-10, 120] }
   kelvin:
     driver: sim_daq
     label: Temperature (K)
@@ -212,7 +212,7 @@ devices:
       ports:
         humidity: { port: output, quantity: humidity, unit: "%" }
     signals:
-      humidity: { range: [0, 100], precision: 1, warn: [10, 90] }
+      humidity: { range: [0, 100], precision: 1, warning: [10, 90] }
   volume:
     driver: sim_daq
     label: Volume (L)

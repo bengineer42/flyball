@@ -47,7 +47,7 @@ function asSignal(row: SignalRow): SignalOut {
     initial: null,
     range: row.range,
     precision: row.precision,
-    warn: row.warn,
+    warning: row.warning,
     alarm: row.alarm,
     poll_s: null,
     limits: row.limits,

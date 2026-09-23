@@ -32,7 +32,7 @@ class Scan:
         """Which of `signals` -- the driver's own map -- to read at `time_ns`, and mark them read.
 
         `whole` -- a read someone asked for -- takes every readable one;
-        the runtime's poll takes the publishing ones whose period has
+        the runtime's poll takes the published ones whose period has
         passed. The caller passes its own registers or channels, never the
         device's whole tree, so `conditions` and `last.*` are never among
         them.

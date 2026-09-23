@@ -102,18 +102,18 @@ devices:
     poll_s: 1
     config: { link: i2c1, sensors: { chamber: { address: 0x44 }, dry: { address: 0x45 }, wet: { address: 0x46 } } }
     signals:
-      chamber: { signals: { humidity: { warn: [20, 80] } } }
+      chamber: { signals: { humidity: { warning: [20, 80] } } }
       dry:     { poll_s: 5 }
 ```
 
 (from the plan's worked example — `examples/humidity/rig-multi-sensor.yaml` is the real
 file this became).
 
-A `SignalOverride` is `{label, range, precision, warn, alarm, poll_s,
-stale_after, limits, max_rate, tags, access, readable, publishing, writable}`:
+A `SignalOverride` is `{label, range, precision, warning, alarm, poll_s,
+stale_after_s, limits, max_rate, tags, access, readable, published, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
-filters by; `stale_after` is seconds since the last reading beyond which a
+filters by; `stale_after_s` is seconds since the last reading beyond which a
 controller regulated from the signal is held -- its law does not step and
 its demand is not applied;
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
@@ -123,7 +123,7 @@ elapsed time allows, up to one update period (`poll_s`, else the controller's
 to the intersection of the driver's limits and the file's, resolved at each
 demand, and a file bound past a numeric driver bound is refused at load);
 `access` names the set to keep (`"r"`), and
-`readable`/`publishing`/`writable` drop one flag each and take only
+`readable`/`published`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
 it, unless the driver also names a ceiling for that signal (a Python-level
 option, not a rig-file key), in which case `access` may ask for anything up
@@ -135,7 +135,7 @@ A key left out of an override leaves the driver's value; a key given as
 `null` clears it to the unset default (`label` the titlecased name, a band
 none, `poll_s` inherited) -- `limits: null` clears only the file's
 narrowing, never the driver's limits. `poll_s` (on a device, namespace or
-signal) and `stale_after` must be finite and above zero; `0`, a negative
+signal) and `stale_after_s` must be finite and above zero; `0`, a negative
 number or `.nan` is refused at load.
 
 ## Links
@@ -164,7 +164,7 @@ a setting, or an `RP` demand, is refused when the rig is built.
 
 | key | type | |
 | --- | --- | --- |
-| `measured` | address | the measured signal: a publishing (`P`) signal, what is regulated |
+| `measured` | address | the measured signal: a published (`P`) signal, what is regulated |
 | `law` | `{tag, ...gains}` | e.g. `{tag: PI, kp: 0.2, ki: 0.05}`; omit for none |
 | `feedforward` | `{tag, ...}` | maps the measured signal's unit to the output's: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |

@@ -53,7 +53,7 @@ served. Start with a simulated one, then swap the links for real ones.
 | | |
 | --- | --- |
 | **Devices** | a sensor, an actuator, a bench instrument, a composite: each a tree of **signals** with an address (`furnace.zone1`), a unit, a role and what may be done with it (read, watch, write). SCPI, Modbus, QCoDeS and PyMeasure instruments need no code: a few lines in the config file |
-| **Controllers** | one publishing signal regulated through one writable signal by a law (P, PI, PID, or your own) with feedforward, limits, bumpless handover between manual and automatic, autotune from a step or a relay test |
+| **Controllers** | one published signal regulated through one writable signal by a law (P, PI, PID, or your own) with feedforward, limits, bumpless handover between manual and automatic, autotune from a step or a relay test |
 | **Programs** | a sequence of commands -- regulate, ramp, hold, arrive, set, wait -- written as a file, validated in an editor, run and interrupted from the API |
 | **Recording** | every reading, demand and controller tick into SQLite as sessions; export as CSV, JSON or a zip; rig versions beside the data so a session always has its rig |
 | **Simulation** | plants (lags, furnaces, tanks) and a clock that runs at 60× or in steps, so a rig, a program and a dashboard are built and tested with nothing plugged in, then run unchanged on hardware |
@@ -65,8 +65,8 @@ served. Start with a simulated one, then swap the links for real ones.
 A **rig** is a set of **devices** on **links** (a bus, an instrument
 connection, a simulated plant). Every device has a tree of **signals**;
 each signal has an **address**, a **quantity** (name and unit) and an
-**access** -- readable, publishing, writable. A **controller** binds one
-publishing signal to one writable signal through a **law**. A **program**
+**access** -- readable, published, writable. A **controller** binds one
+published signal to one writable signal through a **law**. A **program**
 is a list of **commands** run against the rig. A **session** is everything
 recorded between a start and an end. The **config file** declares the
 links, the devices and the controllers; the **runner** builds the rig from

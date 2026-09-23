@@ -22,7 +22,7 @@ from typing import Any, Literal
 from flyball.foundation.config import Config, resolve
 from flyball.foundation.device import (
     Access,
-    Band,
+    Bounds,
     Committable,
     Condition,
     DriverConfig,
@@ -174,7 +174,7 @@ def _output_quantity(plant: AnyPlant, port: str) -> Quantity | None:
     return hook(port) if hook is not None else None
 
 
-def _input_quantity(plant: AnyPlant, port: str) -> tuple[Quantity, Band]:
+def _input_quantity(plant: AnyPlant, port: str) -> tuple[Quantity, Bounds]:
     """What a plant's input port takes and its range: watts for a heater, a fraction otherwise."""
     if port not in _input_ports(plant):
         raise ValueError(f"no input port {port!r}; there are {_input_ports(plant)}")
@@ -221,7 +221,7 @@ def _static_inverse(plant: AnyPlant, port: str) -> Callable[[float], float] | No
     return (lambda drive: inverse(port, drive)) if isinstance(inner, MultiPlant) else inverse
 
 
-def _static_range(name: str, path: str, plant: AnyPlant, port: str) -> Band:
+def _static_range(name: str, path: str, plant: AnyPlant, port: str) -> Bounds:
     """The output-unit span a `demand: output` port can deliver, read off the plant's own model."""
     inverse = _static_inverse(plant, port)
     if inverse is None:
@@ -306,12 +306,12 @@ class DaqPort(BaseModel):
     tags: dict[str, str] | None = Field(
         default=None, description="Groupings across the tree, `{axis: name}`: `{line: dry}`."
     )
-    range: Band | None = None
+    range: Bounds | None = None
     precision: int | None = None
-    warn: Band | None = Field(
+    warning: Bounds | None = Field(
         default=None, description="The band a value is normal inside; outside it, a warning."
     )
-    alarm: Band | None = Field(
+    alarm: Bounds | None = Field(
         default=None, description="The band a value is acceptable inside; outside it, an alarm."
     )
 
@@ -362,7 +362,7 @@ class SimDaq(Readable):
                 tags=dict(spec.tags or {}),
                 range=spec.range,
                 precision=spec.precision,
-                warn=spec.warn,
+                warning=spec.warning,
                 alarm=spec.alarm,
             )
             self.ports[path] = spec.port
@@ -520,7 +520,7 @@ class DrivePort(BaseModel):
         " output measures, if it cannot say.",
     )
     unit: str | None = None
-    limits: Band | None = Field(
+    limits: Bounds | None = Field(
         default=None,
         description="Input mode: what maps onto the port's drive, `limits[0]` off, `limits[1]`"
         " full. Output mode: the deliverable span, defaulted from the plant's model if it has one.",
@@ -562,7 +562,7 @@ class SimDrive(Committable):
         self._config = config
         self.ports: dict[str, str] = {}
         """The plant port behind each signal, by the signal's path (`"dry.flow"`)."""
-        self._spans: dict[str, Band] = {}
+        self._spans: dict[str, Bounds] = {}
         """What each signal's `limits` were declared as: the span its values map over."""
         self._smart: set[str] = set()
         """Paths declared `demand: output`: `commit` inverts the plant instead of a linear map."""

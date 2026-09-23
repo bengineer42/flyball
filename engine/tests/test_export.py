@@ -222,7 +222,7 @@ def test_history_routes_read_by_address(client):
         "label": None,
         "range": None,
         "precision": None,
-        "warn": None,
+        "warning": None,
         "alarm": None,
         "limits": None,
     }

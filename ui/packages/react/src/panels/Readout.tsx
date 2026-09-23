@@ -54,7 +54,7 @@ export interface ReadoutProps {
  * period) otherwise -- so the two never disagree (a signal polled slower than its device would
  * otherwise show a threshold shorter than the one that actually decided "stale").
  */
-export function readoutLevel(signal: Pick<SignalOut, "warn" | "alarm" | "poll_s">, last: number | undefined, fresh: Freshness | undefined) {
+export function readoutLevel(signal: Pick<SignalOut, "warning" | "alarm" | "poll_s">, last: number | undefined, fresh: Freshness | undefined) {
   const level = alarmLevel(last, signal, fresh);
   const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
   const stale = level === "stale";
@@ -86,8 +86,8 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
   const { level, label, footer } = readoutLevel(signal, last, fresh);
   // Band edges that fall inside the range, as ticks on the bar.
   const ticks = range
-    ? (["warn", "alarm"] as const).flatMap((band) =>
-        (signal[band] ?? [])
+    ? ([["warning", "warn"], ["alarm", "alarm"]] as const).flatMap(([key, band]) =>
+        (signal[key] ?? [])
           .filter((edge) => edge > range[0] && edge < range[1])
           .map((edge) => ({ band, left: ((edge - range[0]) / (range[1] - range[0])) * 100 })),
       )

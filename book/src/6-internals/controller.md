@@ -1,6 +1,6 @@
 # The controller in detail
 
-`Controller` regulates one publishing **measured** signal, through one law
+`Controller` regulates one published **measured** signal, through one law
 and a feedforward, by writing one demand, its **output** — one reference,
 one law, one output. It is named after the output it drives
 (`controller.name` is `output_signal.address`). `Controller.__init__`
@@ -153,7 +153,7 @@ Seven things to note:
    asks `self.hold()` -- the rig's
    [`hold_reason`][flyball.rig.rig.Rig.hold_reason], injected like `write`
    -- whether the rig would refuse its write: `stale_input` (the measured signal is
-   older than `stale_after`) or `limit_unknown` (a limit on the output
+   older than `stale_after_s`) or `limit_unknown` (a limit on the output
    follows a signal with no finite value, D-030). If so the tick returns
    there: the law does not step, `correction`, `output`, `expected` and
    `delivered_correction` keep their last values, and `held` records the
@@ -290,7 +290,7 @@ correction for the old setpoint and step the output by the difference.
 | transfer | correction becomes | meaning |
 | --- | --- | --- |
 | `NONE` | untouched, law not reset | do not hand over |
-| `RESET` | zero, law reset | cold start |
+| `COLD` | zero, law reset | cold start |
 | `CARRY` | what the law already held | keep the offset |
 | `TRACK` | what holds the delivered output | bumpless |
 
@@ -299,7 +299,7 @@ or, if nothing has been committed yet, last asked (`self.output`) — is
 captured at the very top of `regulate()`, before the aim moves. For anything
 but `NONE`, the law is reset next (`reset_law`, which also moves `offset_ns`
 to the handover instant). Then, unless there is no reading yet or `transfer
-is RESET` (both cold-start straight to `correction = 0.0`, with no call to
+is COLD` (both cold-start straight to `correction = 0.0`, with no call to
 the law), the correction is seeded by asking the law `resume(reading,
 setpoint, hold)`: *set your state so your next output is `hold`; return
 what you managed.* `hold` is `held − feedforward(setpoint, rate)` for

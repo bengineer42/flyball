@@ -655,7 +655,7 @@ DRIVE: tuple[Tool, ...] = (
                     "A tuning's tag, or a law config as an object; default the current."
                 ),
                 "transfer": _str(
-                    "How the law takes over.", enum=["none", "carry", "track", "reset"]
+                    "How the law takes over.", enum=["none", "carry", "track", "cold"]
                 ),
             },
             "controller",

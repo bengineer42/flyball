@@ -14,7 +14,7 @@ from flyball.model.catalog import Catalogs, get_catalog
 from ..errors import NotFoundError
 from ..time.clock import Rate
 from .device import ENVELOPE_KEYS, Device, DriverConfig
-from .signal import Access, Band, Node, NodeSpec, Signal, SignalSpec
+from .signal import Access, Bounds, Node, NodeSpec, Signal, SignalSpec
 
 
 def _period(value: float | None, name: str | None) -> float | None:
@@ -27,38 +27,38 @@ def _period(value: float | None, name: str | None) -> float | None:
 class SignalOverride(BaseModel):
     """The envelope's per-signal keys: metadata to override, access to remove.
 
-    `access` names the set to keep (`"r"`); `readable`, `publishing` and
+    `access` names the set to keep (`"r"`); `readable`, `published` and
     `writable` drop one flag each and take only `false` -- the driver
     declares what it can honour, the file cannot add to it. `limits` only
     narrows the driver's: a demand is clamped to both.
 
     A key left out leaves the driver's value; a key given as `null` clears
     it back to the unset default (`label: null` is the titlecased name,
-    `warn: null` no band). `limits: null` clears only the file's narrowing,
+    `warning: null` no band). `limits: null` clears only the file's narrowing,
     never the driver's limits.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     label: str | None = None
-    range: Band | None = None
+    range: Bounds | None = None
     precision: int | None = None
-    warn: Band | None = None
-    alarm: Band | None = None
+    warning: Bounds | None = None
+    alarm: Bounds | None = None
     poll_s: float | None = None
-    stale_after: float | None = None
-    limits: Band | None = None
+    stale_after_s: float | None = None
+    limits: Bounds | None = None
     max_rate: Rate | None = None
     tags: dict[str, str] | None = None
     """Groupings across the tree, `{axis: name}`, added to the driver's."""
     access: str | None = None
     readable: bool | None = None
-    publishing: bool | None = None
+    published: bool | None = None
     writable: bool | None = None
 
-    @field_validator("range", "warn", "alarm", "limits")
+    @field_validator("range", "warning", "alarm", "limits")
     @classmethod
-    def _finite_and_not_inverted(cls, value: Band | None, info: Any) -> Band | None:
+    def _finite_and_not_inverted(cls, value: Bounds | None, info: Any) -> Bounds | None:
         if value is None:
             return value
         lo, hi = value
@@ -68,7 +68,7 @@ class SignalOverride(BaseModel):
             raise ValueError(f"{info.field_name} {value!r}: inverted, low above high")
         return value
 
-    @field_validator("poll_s", "stale_after")
+    @field_validator("poll_s", "stale_after_s")
     @classmethod
     def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
         return _period(value, info.field_name)
@@ -78,7 +78,7 @@ class SignalOverride(BaseModel):
     def _wire_form(cls, value: str | None) -> str | None:
         return None if value is None else str(Access.parse(value))
 
-    @field_validator("readable", "publishing", "writable")
+    @field_validator("readable", "published", "writable")
     @classmethod
     def _only_removes(cls, value: bool | None) -> bool | None:
         if value:
@@ -199,10 +199,10 @@ _SIGNAL_FIELDS = (
     "label",
     "range",
     "precision",
-    "warn",
+    "warning",
     "alarm",
     "poll_s",
-    "stale_after",
+    "stale_after_s",
     "max_rate",
 )
 _NODE_FIELDS = ("label", "poll_s", "tags")
@@ -273,12 +273,12 @@ def _override_signal(signal: Signal, override: SignalOverride) -> None:
     value = signal.access.value if override.access is None else Access.parse(override.access).value
     for flag, keep in (
         (Access.R, override.readable),
-        (Access.P, override.publishing),
+        (Access.P, override.published),
         (Access.W, override.writable),
     ):
         if keep is False:
             value &= ~flag.value
     if value & Access.P.value and not value & Access.R.value:
-        raise ValueError(f"Signal '{signal.address}': readable: false leaves it publishing")
+        raise ValueError(f"Signal '{signal.address}': readable: false leaves it published")
     if value != signal.access.value:
         signal.restrict(Access(value))

@@ -114,10 +114,10 @@ class TestExplicitNull:
 
     def test_a_null_clears_a_driver_value(self, build):
         device = build({})
-        device.signals["free"].override(warn=(0.0, 10.0), stale_after=5.0)
-        _override_signal(device.signals["free"], SignalOverride.model_validate({"warn": None}))
-        assert device.signals["free"].spec.warn is None, "explicit null clears"
-        assert device.signals["free"].spec.stale_after == 5.0, "absent key leaves alone"
+        device.signals["free"].override(warning=(0.0, 10.0), stale_after_s=5.0)
+        _override_signal(device.signals["free"], SignalOverride.model_validate({"warning": None}))
+        assert device.signals["free"].spec.warning is None, "explicit null clears"
+        assert device.signals["free"].spec.stale_after_s == 5.0, "absent key leaves alone"
 
     def test_an_absent_key_leaves_it_alone(self, build):
         device = build({"heater": {"label": "Heater 1"}})
@@ -204,7 +204,7 @@ class TestInvertedLimits:
         humidity, dry = device.signals["humidity"], device.signals["dry"]
         controller = rig.attach_controller(humidity, dry, law=P(kp=1.0))
         _read(rig, device, dry=70.0, wet=30.0)
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert device.written == {}, "held, not clamped to either end"
         assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == ["limit_unknown"]
 
@@ -219,13 +219,13 @@ class TestNamespaceAndDevicePeriods:
 
 
 class TestOverridePeriods:
-    @pytest.mark.parametrize("field", ["stale_after", "poll_s"])
+    @pytest.mark.parametrize("field", ["stale_after_s", "poll_s"])
     @pytest.mark.parametrize("value", [math.nan, math.inf, 0.0, -1.0])
     def test_non_positive_or_non_finite_is_refused(self, field, value):
         with pytest.raises(ValidationError, match=field):
             SignalOverride.model_validate({field: value})
 
-    @pytest.mark.parametrize("field", ["stale_after", "poll_s"])
+    @pytest.mark.parametrize("field", ["stale_after_s", "poll_s"])
     def test_a_positive_value_and_null_are_accepted(self, field):
         assert getattr(SignalOverride.model_validate({field: 0.5}), field) == 0.5
         assert getattr(SignalOverride.model_validate({field: None}), field) is None

@@ -27,8 +27,8 @@ devices:
       chamber:
         label: Chamber
         signals:
-          humidity: { label: Chamber humidity, warn: [70, 100] }
-          temperature: { label: Chamber temperature, warn: [10, 28] }
+          humidity: { label: Chamber humidity, warning: [70, 100] }
+          temperature: { label: Chamber temperature, warning: [10, 28] }
 
   co2:                                     # co2.co2/temperature/humidity [RP]
     driver: scd30
@@ -38,7 +38,7 @@ devices:
       link: i2c1
       address: 0x61
     signals:
-      co2: { label: Chamber CO2, warn: [400, 5000] }
+      co2: { label: Chamber CO2, warning: [400, 5000] }
 
   fogger:                                  # fogger.drive [W]
     driver: pwm_channel

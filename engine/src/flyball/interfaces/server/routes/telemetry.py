@@ -107,7 +107,7 @@ def _wait_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
 def _prime(rig: Rig) -> None:
     """Seed the cells so a new client's first frame has everything, not just what ticks next.
 
-    The newest reading of every publishing signal, grouped by the signal's
+    The newest reading of every published signal, grouped by the signal's
     own node and stamped with the newest of the group -- not the last sample
     delivered on each node, which for a device that pushes by namespace at
     start and on its root afterwards would show the start-up values again.
@@ -120,7 +120,7 @@ def _prime(rig: Rig) -> None:
                 rig.write_states.set(signal.address, state)
             by_node: dict[Node, dict[Signal, Any]] = {}
             newest: dict[Node, int] = {}
-            for signal in device.publishing.values():
+            for signal in device.published.values():
                 if (reading := rig.router.reading(signal)) is None:
                     continue
                 by_node.setdefault(signal.node, {})[signal] = reading.value

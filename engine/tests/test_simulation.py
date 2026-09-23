@@ -128,7 +128,7 @@ class TestSimulation:
             assert again.links[name].gain == 40.0 and again.links[name].dead_s == 5.0
             assert again.links[name].model == "fopdt"
             assert set(again.devices) == {"thermocouple", "heater"}, "untouched entries survive"
-            assert again.devices["thermocouple"].signals["temperature"].warn == (30.0, 90.0)
+            assert again.devices["thermocouple"].signals["temperature"].warning == (30.0, 90.0)
             assert list(again.controllers) == ["heater.drive"]
             rig = again.build(start=False)
             assert rig.resolve("thermocouple.temperature").spec.alarm == (10.0, 110.0)

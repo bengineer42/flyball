@@ -307,7 +307,7 @@ class Device:
         return self._having(Access.R)
 
     @property
-    def publishing(self) -> dict[str, Signal]:
+    def published(self) -> dict[str, Signal]:
         """Every signal with `P`, by path: what polling samples and the recorder keeps."""
         return self._having(Access.P)
 
@@ -448,7 +448,7 @@ class Readable(Device):
         address once and passes the bound object, and a Sample's keys are
         the bound signals (`self.signals["dry.humidity"]`, or the
         descriptor `self.humidity`). Usually one Sample carrying every
-        publishing signal, but a slow bus may yield them at different
+        published signal, but a slow bus may yield them at different
         instants, a buffered instrument a backlog, and per-signal `poll_s`
         means only some are due at a given call. Yield nothing if none are.
         Raise HardwareError to go offline; the runtime records the condition

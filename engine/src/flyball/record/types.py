@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
-from flyball.foundation.device import Band, Limit
+from flyball.foundation.device import Bounds, Limit
 from flyball.foundation.primitives import Labelled
 
 # region Declarations
@@ -80,11 +80,11 @@ class SignalRow:
     dtype: str = "float"
     shape: list[int] = field(default_factory=list)
     label: str | None = None
-    range: Band | None = None
+    range: Bounds | None = None
     precision: int | None = None
-    warn: Band | None = None
-    alarm: Band | None = None
-    limits: Band | None = None
+    warning: Bounds | None = None
+    alarm: Bounds | None = None
+    limits: Bounds | None = None
 
     @property
     def device(self) -> str:
@@ -98,7 +98,7 @@ class WriteRow:
 
     signal: SignalRow
     driver: str | None
-    limits: Band | None
+    limits: Bounds | None
 
     @property
     def address(self) -> str:

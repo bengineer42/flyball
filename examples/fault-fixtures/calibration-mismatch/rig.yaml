@@ -23,13 +23,13 @@ devices:
     label: Probe A
     poll_s: 1
     config: { link: probe_a, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
-    signals: { temperature: { range: [0, 100], warn: [20, 70], precision: 1 } }
+    signals: { temperature: { range: [0, 100], warning: [20, 70], precision: 1 } }
   probe_b:
     driver: sim_daq
     label: Probe B
     poll_s: 1
     config: { link: probe_b, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
-    signals: { temperature: { range: [0, 100], warn: [20, 70], precision: 1 } }
+    signals: { temperature: { range: [0, 100], warning: [20, 70], precision: 1 } }
 
 # No controllers, no drives: both plants just settle toward their own
 # `ambient` -- the fault is purely that they don't settle toward the SAME

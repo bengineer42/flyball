@@ -208,10 +208,10 @@ export function SliderNumberWidget(props: WidgetProps) {
   );
 }
 
-/** Two number inputs for a `[low, high]` pair (a `Band`): the RJSF `ArrayField` this replaces does not
+/** Two number inputs for a `[low, high]` pair (a `Bounds`): the RJSF `ArrayField` this replaces does not
  * tolerate a `null` value (switched to from a nullable field's "leave unchanged"), so this widget must,
  * rendering both boxes empty rather than throwing. */
-export function BandWidget(props: WidgetProps) {
+export function BoundsWidget(props: WidgetProps) {
   const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, required, autofocus } = props;
   const s = schema as JsonSchema;
   const itemSchema = (Array.isArray(s.items) ? s.items[0] : undefined) as JsonSchema | undefined;
@@ -336,7 +336,7 @@ export const widgets = {
   text: TextWidget,
   unitNumber: UnitNumberWidget,
   slider: SliderNumberWidget,
-  band: BandWidget,
+  band: BoundsWidget,
   toggle: ToggleWidget,
   segmented: SegmentedWidget,
 };

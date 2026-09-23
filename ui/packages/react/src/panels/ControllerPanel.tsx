@@ -55,15 +55,15 @@ function stdDev(values: (number | null)[]): number {
  * A band around `center` (the setpoint) for the process mini trend under
  * "auto": uPlot's plain fit-to-data zooms into pure sensor noise once a controller
  * settles onto a flat setpoint, and a hold with a millikelvin of noise reads
- * as a storm. The floor is whichever is widest of the warn band, 2% of the
+ * as a storm. The floor is whichever is widest of the warning band, 2% of the
  * signal's declared range, or 5x the reading's own noise; widened further
  * to cover the reading itself, so a real excursion (an output at limit,
  * say) still shows instead of being clipped to the floor.
  */
-function settledBand(center: number, warn: [number, number] | null | undefined, range: [number, number] | null | undefined, reading: (number | null)[]): [number, number] | null {
+function settledBand(center: number, warning: [number, number] | null | undefined, range: [number, number] | null | undefined, reading: (number | null)[]): [number, number] | null {
   const xs = reading.filter((v): v is number => v != null);
   const halves = [5 * stdDev(reading)];
-  if (warn) halves.push(Math.max(Math.abs(center - warn[0]), Math.abs(warn[1] - center)));
+  if (warning) halves.push(Math.max(Math.abs(center - warning[0]), Math.abs(warning[1] - center)));
   if (range) halves.push(0.02 * Math.abs(range[1] - range[0]));
   const half = Math.max(...halves);
   if (half <= 0 && !xs.length) return null;
@@ -258,9 +258,9 @@ const fractionOf = (value: number | null, range: [number, number] | null | undef
   value == null || !range ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
 
 /** Warn/alarm band edges that fall inside `range`, as left-offset percentages for ticks on a bar (mirrors `Readout`). */
-function bandTicks(signal: Pick<SignalOut, "warn" | "alarm">, range: [number, number]): Array<{ band: "warn" | "alarm"; left: number }> {
-  return (["warn", "alarm"] as const).flatMap((band) =>
-    (signal[band] ?? [])
+function bandTicks(signal: Pick<SignalOut, "warning" | "alarm">, range: [number, number]): Array<{ band: "warn" | "alarm"; left: number }> {
+  return ([["warning", "warn"], ["alarm", "alarm"]] as const).flatMap(([key, band]) =>
+    (signal[key] ?? [])
       .filter((edge) => edge > range[0] && edge < range[1])
       .map((edge) => ({ band, left: ((edge - range[0]) / (range[1] - range[0])) * 100 })),
   );
@@ -605,7 +605,7 @@ export function ControllerPanel({
               yScale={yScale}
               range={source.range}
               windowS={windowS}
-              settledBand={setpoint != null ? settledBand(setpoint, source.warn, source.range, history.measured) : null}
+              settledBand={setpoint != null ? settledBand(setpoint, source.warning, source.range, history.measured) : null}
               title={`${describeController(controller)} · process`}
               unit={unit}
               exportHref={exportHref}

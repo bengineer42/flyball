@@ -257,7 +257,7 @@ export type AlarmSummary = Record<AlarmLevel, number>;
  * (`/ws/devices`); re-renders only when a count changes, checked at most
  * once a second.
  */
-export function useAlarmSummary(signals: ReadonlyArray<Pick<SignalOut, "address" | "warn" | "alarm">>): AlarmSummary {
+export function useAlarmSummary(signals: ReadonlyArray<Pick<SignalOut, "address" | "warning" | "alarm">>): AlarmSummary {
   const store = useTelemetry();
   const ident = signals.map((s) => s.address).join("\n");
   const subscribe = useCallback(

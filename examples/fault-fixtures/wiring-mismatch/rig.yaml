@@ -23,7 +23,7 @@ devices:
     label: Zone temperature
     poll_s: 1
     config: { link: unrelated, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
-    signals: { temperature: { range: [0, 100], warn: [0, 60], alarm: [0, 80], precision: 1 } }
+    signals: { temperature: { range: [0, 100], warning: [0, 60], alarm: [0, 80], precision: 1 } }
   heater:
     driver: sim_drive
     label: Zone heater

@@ -69,7 +69,7 @@ class MyLaw(ControlLaw, tag="mine"):
 ```
 
 - `step` is called once per tick with seconds since the law's own start.
-  `last_applied` is the correction the target actually delivered last
+  `last_applied` is the correction the output actually delivered last
   tick, or `None`.
 - `reset` clears memory: a cold start.
 - `resume` seeds memory so the next `step` reproduces `correction`, and

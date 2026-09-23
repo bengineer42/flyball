@@ -241,7 +241,7 @@ devices:
       ports:
         volume: { port: output, quantity: volume, unit: L }
     signals:
-      volume: { range: [0, 100], precision: 1, warn: [15, 100] }   # starts in warn: 12 L is below 15
+      volume: { range: [0, 100], precision: 1, warning: [15, 100] }   # starts in warning: 12 L is below 15
   level2:
     driver: sim_daq
     label: Tank 2 level
@@ -261,7 +261,7 @@ devices:
       ports:
         pressure: { port: output, quantity: pressure, unit: kPa }
     signals:
-      pressure: { range: [0, 500], precision: 1, warn: [110, 600], alarm: [105, 600] }
+      pressure: { range: [0, 500], precision: 1, warning: [110, 600], alarm: [105, 600] }
   # ------------------------------------------------------------ SCPI bench --
   # Three fake instruments over `fake_text`: a PSU (writable, no controller),
   # a DMM (voltage + current) and a frequency counter (frequency + duty).
@@ -467,7 +467,7 @@ devices:
         zone12: zone12
         sample: sample
     signals:
-      zone1: { label: Zone 1, range: [0, 1300], precision: 1, warn: [25, 1300] }
+      zone1: { label: Zone 1, range: [0, 1300], precision: 1, warning: [25, 1300] }
       zone2: { label: Zone 2, range: [0, 1300], precision: 1, poll_s: 0.5 }
       zone3: { label: Zone 3, range: [0, 1300], precision: 1, poll_s: 1.0 }
       zone4: { label: Zone 4, range: [0, 1300], precision: 1, poll_s: 2.0 }

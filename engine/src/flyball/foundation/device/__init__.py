@@ -14,7 +14,7 @@ from .entry import DeviceEntry
 from .signal import (
     Access,
     AddressNotFoundError,
-    Band,
+    Bounds,
     Limit,
     LimitNotKnownError,
     LimitsInvertedError,
@@ -38,8 +38,8 @@ __all__ = [
     "RESERVED_NAMES",
     "Access",
     "AddressNotFoundError",
-    "Band",
     "BoundInput",
+    "Bounds",
     "CommandSpec",
     "Committable",
     "Condition",

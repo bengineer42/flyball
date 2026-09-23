@@ -125,7 +125,7 @@ class TestRecording:
         assert recorder.records == [
             ([Sample(furnace.root, 5, {zone1: 40.0})], [(controller, rig.latest[zone1])], {}, 5)
         ], "manual: the tick wrote nothing; the setting is not published"
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         rig.on_samples([Sample(furnace.root, 6, {zone1: 40.0})])
         # The delivery itself, then a follow-up delivery for heater1's own readback (it
         # publishes now: the rig pushes what the driver did not).
@@ -199,7 +199,7 @@ class TestBlockingDevices:
         heater1, zone1 = slow.signals["heater1"], slow.signals["zone1"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
         rig.on_samples([Sample(slow.root, 0, {zone1: 40.0})])
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert controller.expected is None, "the write is queued, not done"
         started = time.monotonic()
         with rig.write_states.watch(), rig.controller_states.watch():
@@ -256,7 +256,7 @@ class TestBlockingDevices:
         heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         rig.on_samples([Sample(furnace.root, 1, {zone1: 40.0})])
         assert furnace.inputs == {"heater1": 100.0} and rig._writers == {}
 

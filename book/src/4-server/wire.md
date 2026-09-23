@@ -27,7 +27,7 @@ first; convert the small result second.
 | type | JSON |
 | --- | --- |
 | `Quantity` | not carried on its own; a signal's `unit` and `dimension` fields say what it is |
-| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warn, alarm, poll_s, limits, initial, latest, write}` — see [Devices](api.md#devices) |
+| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, limits, initial, latest, write}` — see [Devices](api.md#devices) |
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
 | `role` | `"demand"`, `"output"`, `"setting"` or `"config"` |
 | `Reading` | `{"signal": address, "time_ns": int, "value": float}` |
@@ -78,7 +78,7 @@ Kelvin against a °C signal converts before it reports.
 | `Tuning` | `{"tag": name, "config": law config}` |
 | `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured}` — `name` is `output_signal`; `measured` is a `ReadingOut`; see [Controllers](api.md#controllers) |
 | `mode` | `"manual"`, `"open"`, `"regulating"` |
-| `Transfer` | `"none"`, `"carry"`, `"track"`, `"reset"` |
+| `Transfer` | `"none"`, `"carry"`, `"track"`, `"cold"` |
 | `ValueSource` | `"measured"`, `"setpoint"`, `"output"` |
 
 A running law cannot cross the wire; a request that takes one takes a

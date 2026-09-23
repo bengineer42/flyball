@@ -73,7 +73,7 @@ empty samples and ticks after a manual demand made outside one; a blocking
 device's deferred write states reach it the same way, through
 `Rig.written`, once its writer thread finishes the commit.
 
-What is recorded follows a signal's access: readings of publishing (`P`)
+What is recorded follows a signal's access: readings of published (`P`)
 signals go in as samples — a fresh read of an `RW` setting is for whoever
 asked for it, not the record — and write states of writable (`W`) ones go
 in as `write_state` rows; a controller's measured signal and output are always

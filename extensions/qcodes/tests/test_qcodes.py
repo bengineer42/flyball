@@ -63,7 +63,7 @@ class TestQCoDeS:
         device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt")})
         assert device.signals["bias"].role is Role.DEMAND
         assert device.signals["bias"].access is Access.RPW, "a demand, whatever `publish` says"
-        assert "bias" in device.publishing, "a demand publishes its readback"
+        assert "bias" in device.published, "a demand publishes its readback"
 
     def test_a_settable_parameter_declared_a_setting_is_one(self, fresh):
         """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
@@ -79,7 +79,7 @@ class TestQCoDeS:
         device = QCoDeS(fresh("smu"), inst, {"temp": QCoDeSSignal(property="temp")})
         assert device.signals["temp"].role is Role.READOUT
         assert device.signals["temp"].access is Access.R
-        assert "temp" not in device.publishing, "not streamed unless published"
+        assert "temp" not in device.published, "not streamed unless published"
 
     def test_a_read_only_parameter_published_is_rp(self, fresh):
         inst = FakeInstrument("smu")

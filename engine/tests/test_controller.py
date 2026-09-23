@@ -84,7 +84,7 @@ def test_the_output_must_be_a_writable_demand_and_the_measured_signal_publishing
         Controller(clock, furnace.signals["range"], zone1)  # writable, but a setting
     with pytest.raises(ConflictError, match=r"furnace.flow \[rp\] is not writable"):
         Controller(clock, furnace.signals["flow"], zone1)  # a demand only its group drives
-    with pytest.raises(ConflictError, match=r"furnace.setpoint \[rw\] is not publishing"):
+    with pytest.raises(ConflictError, match=r"furnace.setpoint \[rw\] is not published"):
         Controller(clock, furnace.signals["heater1"], furnace.signals["setpoint"])
 
 
@@ -131,7 +131,7 @@ def test_on_reading_ticks_and_writes(furnace):
     controller.on_reading(Reading(zone1, clock.now_ns(), 20.0))
     assert controller.measured is not None and controller.measured.value == 20.0
     assert writes == [], "manual: nothing written"
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     assert controller.setpoint == 50.0 and writes == [500.0]
 
     clock.advance(1.0)
@@ -149,7 +149,7 @@ def test_unwired_records_the_demand_and_writes_nothing(furnace):
     clock = SteppedClock(0)
     controller = Controller(clock, furnace.signals["bath"], furnace.signals["zone1"], law=P(kp=2.0))
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 40.0))
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     assert controller.output == 50.0, "the setpoint itself: same unit, correction reset"
     controller.on_reading(Reading(furnace.signals["zone1"], 1_000_000_000, 40.0))
     assert controller.output == 50.0 + 2.0 * 10.0
@@ -167,7 +167,7 @@ def test_delivered_closes_a_deferred_write(furnace):
         write=lambda demand: None,
     )
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 30.0))
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     controller.on_reading(Reading(furnace.signals["zone1"], 1_000_000_000, 30.0))
     assert controller.output == 500.0 + 100.0 * 20.0
     assert controller.expected is None and controller.delivered_correction is None
@@ -253,7 +253,7 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
     controller, writes = _regulating(furnace, clock, law=PI(kp=1.0, ki=0.5))
     zone1 = furnace.signals["zone1"]
     controller.on_reading(Reading(zone1, 0, 40.0))
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     for i in range(1, 6):
         controller.on_reading(Reading(zone1, i * 1_000_000_000, 40.0))
     held = writes[-1]
@@ -266,7 +266,7 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
     result = controller.regulate(50.0, transfer=Transfer.TRACK)
     assert result.bump == pytest.approx(0.0), "TRACK seeds the law to hold the output"
     assert writes[-1] == pytest.approx(held)
-    reset = controller.regulate(50.0, transfer=Transfer.RESET)
+    reset = controller.regulate(50.0, transfer=Transfer.COLD)
     assert reset.output == 50.0 and reset.bump == pytest.approx(50.0 - held)
 
 
@@ -298,7 +298,7 @@ def test_the_first_step_after_an_outage_counts_as_one_ordinary_step(furnace):
     controller, writes = _regulating(furnace, clock, law=law)
     zone1 = furnace.signals["zone1"]
     controller.on_reading(Reading(zone1, 0, 40.0))
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     for i in range(1, 6):  # a 10-degree error, one second apart: +10 a step
         controller.on_reading(Reading(zone1, i * 1_000_000_000, 40.0))
     before = law.integral
@@ -316,7 +316,7 @@ def test_a_slower_but_steady_source_is_not_an_outage(furnace):
     controller, _ = _regulating(furnace, clock, law=law)
     zone1 = furnace.signals["zone1"]
     controller.on_reading(Reading(zone1, 0, 40.0))
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     t = 0
     for step_s in (1, 1, 2, 2, 2):  # the interval widens, never more than threefold at once
         t += step_s * 1_000_000_000
@@ -358,7 +358,7 @@ def test_a_ramp_starts_where_the_setpoint_is_and_lands_at_its_end(furnace):
     controller, _ = _regulating(furnace, clock, law=P(kp=1.0))
     zone1 = furnace.signals["zone1"]
     controller.on_reading(Reading(zone1, 0, 20.0))
-    controller.regulate(20.0, transfer=Transfer.RESET)
+    controller.regulate(20.0, transfer=Transfer.COLD)
     controller.regulate(20.0, generator=LinearRampSetpoint(Duration(60), 100.0))
 
     assert controller.setpoint == 20.0
@@ -404,7 +404,7 @@ def test_arrived_follows_the_reference(furnace):
     controller, _ = _regulating(furnace, clock, law=P(kp=1.0))
     assert controller.arrived is False, "nothing to have arrived at"
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 20.0))
-    controller.regulate(50.0, transfer=Transfer.RESET)
+    controller.regulate(50.0, transfer=Transfer.COLD)
     assert controller.arrived is True and controller.view.arrived is True
 
     class Endless(SetPointGenerator):

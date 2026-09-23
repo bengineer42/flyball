@@ -91,8 +91,8 @@ export function isBounded(schema: JsonSchema): boolean {
   return (schema.minimum ?? schema.exclusiveMinimum) !== undefined && (schema.maximum ?? schema.exclusiveMaximum) !== undefined;
 }
 
-/** The `[low, high]` tuple `simplifyNullables` rewrites a `Band` (`tuple[float, float]`) into. */
-function isBand(schema: JsonSchema): boolean {
+/** The `[low, high]` tuple `simplifyNullables` rewrites a `Bounds` (`tuple[float, float]`) into. */
+function isBounds(schema: JsonSchema): boolean {
   return Array.isArray(schema.items) && schema.items.length === 2 && schema.items.every((i) => i.type === "number" || i.type === "integer");
 }
 
@@ -108,7 +108,7 @@ function widgetFor(schema: JsonSchema): string | undefined {
   const n = enumCount(schema);
   if (n > 0 && n <= SEGMENTED_MAX) return "segmented";
   if (n === 0 && type === "string") return "text";
-  if (isBand(schema)) return "band";
+  if (isBounds(schema)) return "band";
   return undefined;
 }
 

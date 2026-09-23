@@ -14,7 +14,7 @@ server stores the document and validates its outline; the UI owns what a
 
 A rig with no saved dashboards is not blank: `#/dashboards` shows
 **"Overview (generated)"**, built from the rig's schema on the fly — a health
-strip, a readout per publishing signal, a chart per unit, a faceplate per
+strip, a readout per published signal, a chart per unit, a faceplate per
 controller, a card per device. It follows the rig as it changes and is never
 saved unless you choose **Save as…**; editing it does not touch anything on
 disk until then.

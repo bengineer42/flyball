@@ -199,7 +199,7 @@ class Controller:
             raise ConflictError(f"{output_signal.address} [{output_signal.access}] is not writable")
         if Access.P not in measured_signal.access:
             raise ConflictError(
-                f"{measured_signal.address} [{measured_signal.access}] is not publishing"
+                f"{measured_signal.address} [{measured_signal.access}] is not published"
             )
         self.clock = clock
         self.output_signal = output_signal
@@ -395,7 +395,7 @@ class Controller:
                 self.reset_law(time_ns)
                 setpoint = self.setpoint_at(time_ns)
                 reading = self.last_value
-                if reading is None or transfer is Transfer.RESET:
+                if reading is None or transfer is Transfer.COLD:
                     self.correction = 0.0
                 else:
                     hold = (

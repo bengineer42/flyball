@@ -41,7 +41,7 @@ a fresh read may deliver several at once:
    arrive later through `Rig.written`.
 5. **The recorder goes last**, so it sees what the whole delivery produced:
    `recorder.record(published, ticks, states, time_ns=...)` — every sample
-   that had something publishing, every controller tick, every write state
+   that had something published, every controller tick, every write state
    from this delivery's commits.
 
 Streamed samples (`Sample.published()`) and controller states are pushed to
@@ -111,7 +111,7 @@ what was just delivered.
 
 `flyball.rig.polling.Polling` runs each device's `read` on its own
 period: [poll_period][flyball.rig.polling.poll_period] is the smallest
-`poll_s` over the device's *publishing* signals (each signal's `poll_s` is
+`poll_s` over the device's *published* signals (each signal's `poll_s` is
 already the nearest one up the tree — its own, else its namespace's, else
 the device's), so a device with nothing on a period is never polled at all.
 `Rig.start_polling` calls it after a device is added. One `PeriodicLoop`

@@ -90,7 +90,7 @@ class Foo200Config(DriverConfig[Foo200], tag="foo200"):
 
 | descriptor | what | who sets it |
 |---|---|---|
-| `Readout(name, label, quantity, range=, precision=, warn=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
+| `Readout(name, label, quantity, range=, precision=, warning=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
 | `Demand(name, label, quantity, limits=)` | a value someone asks for; its readback is what the device is doing | a controller, a command, `set_demand` |
 | `Namespace(name, label)` then `ns.readout(...)` / `ns.demand(...)` / `ns.config(...)` / `ns.input(...)` | a subtree, one address segment | -- |
 | `ns.config(section, label, quantity)` | a value fixed at build from the config (a max flow) | `build`, by `self.x.push(...)` |

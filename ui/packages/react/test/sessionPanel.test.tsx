@@ -66,7 +66,7 @@ function signalRow(address: string, unit: string, extra: Partial<SignalRow> = {}
     label: null,
     range: null,
     precision: 2,
-    warn: null,
+    warning: null,
     alarm: null,
     limits: null,
     ...extra,

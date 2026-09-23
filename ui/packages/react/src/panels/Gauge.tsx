@@ -37,7 +37,7 @@ export function gaugeKindFor(unit: string): GaugeKind {
 }
 
 /** What a gauge needs of a signal: its plausible range, its bands, and what a demand is clamped to. */
-export type Bands = Pick<SignalOut, "range" | "warn" | "alarm" | "limits">;
+export type Bands = Pick<SignalOut, "range" | "warning" | "alarm" | "limits">;
 
 /**
  * The signal's own range, else the widest band padded a tenth, else what a
@@ -47,7 +47,7 @@ export type Bands = Pick<SignalOut, "range" | "warn" | "alarm" | "limits">;
  */
 export function gaugeRange(signal: Bands): [number, number] {
   if (signal.range) return signal.range;
-  const band = signal.alarm ?? signal.warn;
+  const band = signal.alarm ?? signal.warning;
   if (band) {
     const pad = (band[1] - band[0]) / 10 || 1;
     return [band[0] - pad, band[1] + pad];
@@ -66,9 +66,9 @@ export interface GaugeZone {
 /** The range cut at every band edge, each piece labelled with the level a value inside it has. */
 export function gaugeZones(signal: Bands): GaugeZone[] {
   const [lo, hi] = gaugeRange(signal);
-  if (!signal.warn && !signal.alarm) return [{ from: lo, to: hi, level: null }];
+  if (!signal.warning && !signal.alarm) return [{ from: lo, to: hi, level: null }];
   const edges = new Set([lo, hi]);
-  for (const band of [signal.warn, signal.alarm]) {
+  for (const band of [signal.warning, signal.alarm]) {
     if (band) for (const edge of band) if (edge > lo && edge < hi) edges.add(edge);
   }
   const sorted = [...edges].sort((a, b) => a - b);
@@ -86,14 +86,14 @@ export function numberWidth(range: [number, number] | null, precision: number): 
 
 const zoneColour = (zone: GaugeZone) => (zone.level === null ? NEUTRAL : COLOUR[zone.level]);
 
-/** One signal as a picture: its range with the warn/alarm zones, the value as a fill or needle, the number under it. */
+/** One signal as a picture: its range with the warning/alarm zones, the value as a fill or needle, the number under it. */
 export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height, fresh }: GaugeProps) {
   const range = gaugeRange(signal);
   const zones = gaugeZones(signal);
   const level = alarmLevel(value, signal, fresh);
   const stale = level === "stale";
   const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
-  const hasBands = !!(signal.warn || signal.alarm);
+  const hasBands = !!(signal.warning || signal.alarm);
   const fill = hasBands ? COLOUR[level] : ACCENT;
   const fraction = value === undefined ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
   const precision = signal.precision ?? 2;

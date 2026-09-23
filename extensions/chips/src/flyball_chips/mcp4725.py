@@ -28,7 +28,7 @@ engineering units instead of a bare fraction.
 from __future__ import annotations
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Band, Committable, DriverConfig, Signal
+from flyball.foundation.device import Bounds, Committable, DriverConfig, Signal
 from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.spanned_demand import (
@@ -93,7 +93,7 @@ class Mcp4725(Committable):
         address: int = MCP4725_ADDRESS,
         unit: str | None = None,
         quantity: str | None = None,
-        span: Band | None = None,
+        span: Bounds | None = None,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
@@ -138,7 +138,7 @@ class Mcp4725Config(DriverConfig[Mcp4725], tag="mcp4725"):
     quantity: str | None = Field(
         default=None, description="With `unit`: what `drive` then is ('drive')."
     )
-    span: Band | None = Field(
+    span: Bounds | None = Field(
         default=None, description="With `unit`: the value meaning 0 % and the one meaning 100 %."
     )
 

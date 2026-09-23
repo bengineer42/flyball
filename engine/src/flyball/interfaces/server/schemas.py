@@ -202,7 +202,7 @@ class SignalOut(BaseModel):
     range: tuple[float, float] | None = None
     """What a gauge or axis spans: the signal's own, else its limits, else the unit's scale."""
     precision: int | None = None
-    warn: tuple[float, float] | None = None
+    warning: tuple[float, float] | None = None
     alarm: tuple[float, float] | None = None
     poll_s: float | None = None
     limits: tuple[float, float] | None = None
@@ -230,7 +230,7 @@ class SignalOut(BaseModel):
             shape=list(spec.shape),
             range=signal.range,
             precision=spec.precision,
-            warn=spec.warn,
+            warning=spec.warning,
             alarm=spec.alarm,
             poll_s=signal.poll_s,
             limits=signal.limits,

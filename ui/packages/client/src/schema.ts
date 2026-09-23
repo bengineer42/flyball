@@ -632,7 +632,7 @@ export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null 
 
 /**
  * Where `value` sits against a signal's bands: outside `alarm` is "alarm",
- * outside `warn` is "warn", else "ok" — unless `fresh` says no sample has
+ * outside `warning` is "warn", else "ok" — unless `fresh` says no sample has
  * arrived recently enough, in which case the level is "stale" regardless of
  * the last value (a stuck reading is not a healthy one). A signal with no
  * bands, or no value, is "ok" unless stale.
@@ -646,7 +646,7 @@ export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null 
  */
 export function alarmLevel(
   value: number | null | undefined,
-  signal: { warn?: [number, number] | null; alarm?: [number, number] | null; poll_s?: number | null },
+  signal: { warning?: [number, number] | null; alarm?: [number, number] | null; poll_s?: number | null },
   fresh?: Freshness | null,
 ): AlarmLevel {
   if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(signal.poll_s ?? fresh.periodS))
@@ -655,6 +655,6 @@ export function alarmLevel(
   const outside = (band: [number, number] | null | undefined) =>
     !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));
   if (outside(signal.alarm)) return "alarm";
-  if (outside(signal.warn)) return "warn";
+  if (outside(signal.warning)) return "warn";
   return "ok";
 }

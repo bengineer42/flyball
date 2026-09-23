@@ -117,7 +117,7 @@ class Rig:
     """Controllers whose writes are held because a limit follows a signal with no value yet:
     one event on entering the hold, one on leaving it, none per step between."""
     _stale_held: set[str]
-    """Controllers whose writes are held because their measured signal is past `stale_after`:
+    """Controllers whose writes are held because their measured signal is past `stale_after_s`:
     one event on entering the hold, none per step while it lasts."""
     _failing: set[str]
     """Controllers whose step raised: one event on the first failure, one when a step succeeds
@@ -382,7 +382,7 @@ class Rig:
         Raises:
             AddressNotFoundError: An address does not resolve; names it.
             ConflictError: A signal that does not publish, or a node with
-                nothing publishing under it.
+                nothing published under it.
         """
         for role, address in roles.items():
             target = self.resolve(address)
@@ -390,7 +390,7 @@ class Rig:
                 if Access.P not in target.access:
                     raise ConflictError(
                         f"{device.name}.bound.{role}: '{target.address}' [{target.access}]"
-                        " is not publishing"
+                        " is not published"
                     )
                 self._observers.setdefault(target, {})[device] = None
             else:
@@ -610,7 +610,7 @@ class Rig:
     def hold_reason(self, controller: Controller) -> Kind | None:
         """Why a write by `controller` would be held now, or None if it would go through.
 
-        `stale_input`: its measured signal has not been read within `stale_after`.
+        `stale_input`: its measured signal has not been read within `stale_after_s`.
         `limit_unknown`: a limit on its output follows a signal with no value
         yet, or a non-finite one (D-030), or the limits resolve inverted
         (D-040). Each is one event on entering the hold, not one per call;
@@ -619,11 +619,11 @@ class Rig:
         the output; `demand` asks it again for its own writes.
         """
         name = controller.name
-        if (stale_after := controller.measured_signal.spec.stale_after) is not None:
+        if (stale_after_s := controller.measured_signal.spec.stale_after_s) is not None:
             measured = controller.measured_signal
             reading = self.router.latest.get(measured)
             age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
-            if age_s is None or age_s > stale_after:
+            if age_s is None or age_s > stale_after_s:
                 if name not in self._stale_held:
                     self._stale_held.add(name)
                     self.event(
@@ -631,7 +631,7 @@ class Rig:
                         Scope.CONTROLLER,
                         name,
                         Kind.STALE_INPUT,
-                        f"'{measured.address}' has not been read in over {stale_after:g}s: held",
+                        f"'{measured.address}' has not been read in over {stale_after_s:g}s: held",
                         {"age_s": age_s},
                     )
                 return Kind.STALE_INPUT
@@ -1230,7 +1230,7 @@ class Rig:
         Raises:
             SignalClaimedError: `output` is already driven, or `measured`
                 already regulated, by another controller.
-            ConflictError: `output` is not writable, `measured` not publishing,
+            ConflictError: `output` is not writable, `measured` not published,
                 or the feedforward cannot map the units.
         """
         if isinstance(law, str):
@@ -1287,7 +1287,7 @@ class Rig:
         A sample's keys must be bound, readable signals under its node, and
         there must be some: anything else is a driver bug, refused before
         any of the delivery is applied. Every reading lands in `latest`;
-        only those on publishing signals go on to `samples` and the
+        only those on published signals go on to `samples` and the
         recorder, so a fresh read of a setting is known here without being
         streamed. Several controllers on one device, and a bound input
         beside them, cost that device one commit.

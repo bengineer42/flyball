@@ -110,7 +110,7 @@
       "title": "AuthConfig",
       "type": "object"
     },
-    "Band": {
+    "Bounds": {
       "maxItems": 2,
       "minItems": 2,
       "prefixItems": [
@@ -1795,7 +1795,7 @@
     },
     "SignalOverride": {
       "additionalProperties": false,
-      "description": "The envelope's per-signal keys: metadata to override, access to remove.\n\n`access` names the set to keep (`\"r\"`); `readable`, `publishing` and\n`writable` drop one flag each and take only `false` -- the driver\ndeclares what it can honour, the file cannot add to it. `limits` only\nnarrows the driver's: a demand is clamped to both.\n\nA key left out leaves the driver's value; a key given as `null` clears\nit back to the unset default (`label: null` is the titlecased name,\n`warn: null` no band). `limits: null` clears only the file's narrowing,\nnever the driver's limits.",
+      "description": "The envelope's per-signal keys: metadata to override, access to remove.\n\n`access` names the set to keep (`\"r\"`); `readable`, `published` and\n`writable` drop one flag each and take only `false` -- the driver\ndeclares what it can honour, the file cannot add to it. `limits` only\nnarrows the driver's: a demand is clamped to both.\n\nA key left out leaves the driver's value; a key given as `null` clears\nit back to the unset default (`label: null` is the titlecased name,\n`warning: null` no band). `limits: null` clears only the file's narrowing,\nnever the driver's limits.",
       "properties": {
         "label": {
           "anyOf": [
@@ -1812,7 +1812,7 @@
         "range": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -1832,10 +1832,10 @@
           "default": null,
           "title": "Precision"
         },
-        "warn": {
+        "warning": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -1846,7 +1846,7 @@
         "alarm": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -1866,7 +1866,7 @@
           "default": null,
           "title": "Poll S"
         },
-        "stale_after": {
+        "stale_after_s": {
           "anyOf": [
             {
               "type": "number"
@@ -1876,12 +1876,12 @@
             }
           ],
           "default": null,
-          "title": "Stale After"
+          "title": "Stale After S"
         },
         "limits": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -1973,7 +1973,7 @@
           "default": null,
           "title": "Readable"
         },
-        "publishing": {
+        "published": {
           "anyOf": [
             {
               "type": "boolean"
@@ -1983,7 +1983,7 @@
             }
           ],
           "default": null,
-          "title": "Publishing"
+          "title": "Published"
         },
         "writable": {
           "anyOf": [
@@ -2739,7 +2739,7 @@
         "span": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -3155,7 +3155,7 @@
         "range": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -3175,10 +3175,10 @@
           "default": null,
           "title": "Precision"
         },
-        "warn": {
+        "warning": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -3190,7 +3190,7 @@
         "alarm": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -3367,7 +3367,7 @@
         "limits": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Band"
+              "$ref": "#/$defs/Bounds"
             },
             {
               "type": "null"
@@ -6758,7 +6758,7 @@
                       "span": {
                         "anyOf": [
                           {
-                            "$ref": "#/$defs/Band"
+                            "$ref": "#/$defs/Bounds"
                           },
                           {
                             "type": "null"
@@ -6889,7 +6889,7 @@
                   "span": {
                     "anyOf": [
                       {
-                        "$ref": "#/$defs/Band"
+                        "$ref": "#/$defs/Bounds"
                       },
                       {
                         "type": "null"
@@ -7896,7 +7896,7 @@
                       "span": {
                         "anyOf": [
                           {
-                            "$ref": "#/$defs/Band"
+                            "$ref": "#/$defs/Bounds"
                           },
                           {
                             "type": "null"
@@ -8041,7 +8041,7 @@
                   "span": {
                     "anyOf": [
                       {
-                        "$ref": "#/$defs/Band"
+                        "$ref": "#/$defs/Bounds"
                       },
                       {
                         "type": "null"

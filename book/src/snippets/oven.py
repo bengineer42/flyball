@@ -16,7 +16,7 @@ TEMPERATURE = Quantity("temperature", Celsius)
 
 
 class Probe(Readable):
-    """Reads the oven: one signal, readable and publishing."""
+    """Reads the oven: one signal, readable and published."""
 
     temperature = Readout("temperature", "Temperature", TEMPERATURE, range=(0.0, 300.0), precision=1)
 

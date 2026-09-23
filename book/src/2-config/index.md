@@ -53,7 +53,7 @@ devices:                       # what is on the rig, keyed by name
     poll_s: 1
     config: { link: tube, ports: { zone1: zone1 } }     # the plant's port, as the signal `furnace.zone1`
     signals:
-      zone1: { warn: [0, 1100], precision: 1 }
+      zone1: { warning: [0, 1100], precision: 1 }
   heaters:
     driver: sim_drive
     config: { link: tube, ports: { heater1: heater1 } }

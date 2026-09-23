@@ -20,7 +20,7 @@ Putting flyball on your own hardware means writing one thing, in three
 possible shapes:
 
 1. **A device** — a `Device` subclass declaring a tree of **signals**, each
-   readable, publishing or writable. A sensor is a device with only `R`/`P`
+   readable, published or writable. A sensor is a device with only `R`/`P`
    signals; a relay or a PSU only `W`; many real instruments are both.
 2. **A config** — a `DriverConfig` that builds it, so a rig file can name it.
 3. Optionally, **commands** — methods marked `@command` for anything that

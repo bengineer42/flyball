@@ -19,11 +19,11 @@ TEMP = Quantity("temperature", Celsius)
 
 def test_a_signal_spec_carries_bands_and_defaults_to_none():
     plain = SignalSpec(name="t", quantity=TEMP, access=Access.RP, range=(-40.0, 125.0))
-    assert plain.warn is None and plain.alarm is None
+    assert plain.warning is None and plain.alarm is None
     banded = SignalSpec(
-        name="t", quantity=TEMP, access=Access.RP, warn=(30.0, 90.0), alarm=(10.0, 110.0)
+        name="t", quantity=TEMP, access=Access.RP, warning=(30.0, 90.0), alarm=(10.0, 110.0)
     )
-    assert banded.warn == (30.0, 90.0) and banded.alarm == (10.0, 110.0)
+    assert banded.warning == (30.0, 90.0) and banded.alarm == (10.0, 110.0)
 
 
 def test_oven_rig_file_sets_bands_on_the_thermocouple():
@@ -31,7 +31,7 @@ def test_oven_rig_file_sets_bands_on_the_thermocouple():
     rig = config.build(start=False)
     signal = rig.resolve("thermocouple.temperature")
     assert signal.spec.range == (0.0, 120.0) and signal.spec.precision == 2
-    assert signal.spec.warn == (30.0, 90.0) and signal.spec.alarm == (10.0, 110.0)
+    assert signal.spec.warning == (30.0, 90.0) and signal.spec.alarm == (10.0, 110.0)
     assert signal.spec.quantity == TEMP and str(signal.access) == "rp"
 
 

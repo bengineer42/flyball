@@ -19,7 +19,7 @@ function Harness() {
       ))}
     </select>
   );
-  // Every signal of every device by address, for a controller's source and target.
+  // Every signal of every device by address, for a controller's measured signal and output.
   const signals = new Map<string, SignalOut>();
   for (const device of devices.data ?? []) for (const s of signalsOf(device.signals)) signals.set(s.address, s);
   return (
@@ -29,9 +29,9 @@ function Harness() {
       </div>
       <WaitPrompt waits={waits.pending} nowS={nowS} onFire={waits.fire} onInterrupt={waits.interrupt} />
       {Object.values(controllers).map((controller) => {
-        const source = signals.get(controller.source);
+        const source = signals.get(controller.measured_signal);
         return source ? (
-          <ControllerPanel key={controller.name} controller={controller} source={source} target={signals.get(controller.target)} history={history[controller.name]} windowS={windowS} controls={select} detail />
+          <ControllerPanel key={controller.name} controller={controller} source={source} target={signals.get(controller.output_signal)} history={history[controller.name]} windowS={windowS} controls={select} detail />
         ) : null;
       })}
       {(devices.data ?? []).filter((d) => d.kind === "device").map((device) => (

@@ -111,7 +111,7 @@ class TestController:
         heater = Heater()
         loop = controller(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=1.0, bias=10.0))
         loop.tick(reading(40.0, clock.now_ns()))
-        loop.regulate(50.0, transfer=Transfer.RESET)
+        loop.regulate(50.0, transfer=Transfer.COLD)
         loop.tick(reading(45.0, clock.now_ns()))
         # feedforward(50) = 60 W; the law adds kp * (50 - 45) = 10 W.
         assert loop.output == pytest.approx(70.0)
@@ -128,7 +128,7 @@ class TestController:
         clock = SteppedClock()
         heater = Heater()
         loop = controller(clock, heater, law=P(kp=10.0), feedforward=Affine(gain=1.0))
-        loop.regulate(90.0, transfer=Transfer.RESET)
+        loop.regulate(90.0, transfer=Transfer.COLD)
         loop.tick(reading(80.0, clock.now_ns()))
         assert loop.output == pytest.approx(190.0)  # 90 + 10 * 10
         assert loop.expected == pytest.approx(100.0)  # the heater's ceiling
@@ -161,14 +161,14 @@ class TestController:
         clock = SteppedClock()
         heater = Heater()
         loop = controller(clock, heater, law=P(kp=2.0), feedforward=Affine(gain=2.0, bias=10.0))
-        loop.regulate(50.0, transfer=Transfer.RESET)
+        loop.regulate(50.0, transfer=Transfer.COLD)
         loop.tick(reading(45.0, clock.now_ns()))
         # demand = feedforward(50) + kp*(50-45) = 110 + 10 = 120 W; the setpoint
         # behind that demand is invert(120) = 55, in the source's unit (°C).
         assert loop.output == pytest.approx(120.0)
         assert loop.resolve_value(ValueSource.OUTPUT) == pytest.approx(55.0)
 
-        result = loop.regulate(ValueSource.OUTPUT, transfer=Transfer.RESET)
+        result = loop.regulate(ValueSource.OUTPUT, transfer=Transfer.COLD)
         assert loop.reference == pytest.approx(55.0)
         assert loop.setpoint == pytest.approx(55.0)
         assert result.output == pytest.approx(120.0), "correction reset: demand == feedforward(55)"
@@ -177,7 +177,7 @@ class TestController:
         clock = SteppedClock()
         heater = Heater()
         loop = controller(clock, heater, law=P(kp=2.0), feedforward=NoFeedforward())
-        loop.regulate(50.0, transfer=Transfer.RESET)
+        loop.regulate(50.0, transfer=Transfer.COLD)
         loop.tick(reading(45.0, clock.now_ns()))
         with pytest.raises(FeedforwardNotInvertibleError, match="'none'"):
             loop.regulate(ValueSource.OUTPUT)

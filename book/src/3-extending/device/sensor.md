@@ -27,7 +27,7 @@ rig can differ in all three.
 Each signal is a **descriptor** on the class: [`Readout`][flyball.foundation.device.descriptors.Readout]
 for something produced (`RP`), the only role a pure sensor needs. Its
 arguments are the signal's name, a label, its quantity, then metadata:
-`range` and `precision` for a gauge or an axis, `warn` and `alarm` bands,
+`range` and `precision` for a gauge or an axis, `warning` and `alarm` bands,
 `poll_s` for a signal read at its own rate, `tags` to group it across
 devices. A [`Namespace`][flyball.foundation.device.descriptors.Namespace] groups several
 under one path (`hum_sensors.dry.humidity`), for a device that is really
@@ -71,7 +71,7 @@ what comes back — `read` yields one `Sample` per instant actually read.
 
 `time_ns` is the rig's clock at the moment of the poll; stamp the sample
 with it unless the hardware gives a better timestamp. A device is polled on
-the smallest `poll_s` over its publishing signals — set it on the device
+the smallest `poll_s` over its published signals — set it on the device
 (`weather.poll_s = 1.0`) or per-signal for a mixed rate; `None` (the
 default) means never polled, the shape [Assembling a rig](../rig.md#devices)
 covers.

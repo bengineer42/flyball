@@ -20,7 +20,7 @@ import random
 from collections.abc import Sequence
 from threading import Lock
 
-from flyball.foundation.device import Band
+from flyball.foundation.device import Bounds
 from flyball.foundation.quantities import Quantity
 from flyball_sim.devices import POWER_W, TEMPERATURE_C
 
@@ -159,7 +159,7 @@ class Furnace:
         """Every output is a thermocouple: °C, regardless of which zone or the sample."""
         return TEMPERATURE_C
 
-    def input_quantity(self, port: str) -> tuple[Quantity, Band]:
+    def input_quantity(self, port: str) -> tuple[Quantity, Bounds]:
         """Every input is a heater: watts, clamped to that zone's own `power_w`."""
         return POWER_W, (0.0, self.power[int(port.removeprefix("heater")) - 1])
 

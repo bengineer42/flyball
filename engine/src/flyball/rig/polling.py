@@ -31,13 +31,13 @@ if TYPE_CHECKING:
 
 
 def poll_period(device: Device) -> float | None:
-    """The period the runtime polls `device` on: the smallest over its publishing signals.
+    """The period the runtime polls `device` on: the smallest over its published signals.
 
     Each signal's `poll_s` is already the nearest one up the tree, so the
     device's own and any namespace override are counted through it. None
     when nothing publishes on a period: the device is never polled.
     """
-    periods = [s.poll_s for s in device.publishing.values() if s.poll_s is not None]
+    periods = [s.poll_s for s in device.published.values() if s.poll_s is not None]
     return min(periods) if periods else None
 
 

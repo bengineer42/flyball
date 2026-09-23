@@ -190,7 +190,7 @@ class Thermostat(Committable):
     """A demand driven off a source that goes stale after 5s unread."""
 
     TREE = (
-        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after=5.0),
+        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after_s=5.0),
         SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),
     )
 
@@ -547,7 +547,7 @@ class TestDemand:
         assert controller.name not in rig.controllers and controller.mode.value == "manual"
         state = rig.write(furnace.root, {"heater1": 1.0})[heater1]
         assert state == WriteState(value=1.0, controller=None)
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert furnace.written[heater1].value == 1.0, "detached: its demands go nowhere"
 
     def test_a_demand_within_the_rate_limit_passes_through_unchanged(self, rig, fresh, clock):
@@ -668,7 +668,7 @@ class TestLimitsThatFollowASignal:
         chamber = supplied.signals["chamber"]
         controller = rig.attach_controller(humidity, chamber, law=P(kp=1.0))
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
-        controller.regulate(150.0, transfer=Transfer.RESET)  # the write goes through the rig
+        controller.regulate(150.0, transfer=Transfer.COLD)  # the write goes through the rig
         assert controller.expected is None, "held: nothing was applied"
         assert supplied.written == {} and humidity.reading is None
         clock.advance(1.0)
@@ -709,7 +709,7 @@ class TestLimitsThatFollowASignal:
         chamber = supplied.signals["chamber"]
         controller = rig.attach_controller(humidity, chamber, law=P(kp=1.0))
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.inf, chamber: 40.0})])
-        controller.regulate(150.0, transfer=Transfer.RESET)
+        controller.regulate(150.0, transfer=Transfer.COLD)
         assert supplied.written == {} and controller.expected is None, "held, not clamped"
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
         clock.advance(1.0)
@@ -757,7 +757,7 @@ class TestControllers:
         # From outside a delivery -- a program, a route -- the write commits at once.
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
         assert furnace.commits == 0, "manual: the tick wrote nothing"
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert furnace.commits == 1 and furnace.inputs == {"heater1": 0.0}
         assert controller.expected == 0.0, "the write returned the committed value"
         assert furnace.written[heater1] == WriteState(
@@ -770,8 +770,8 @@ class TestControllers:
         c1 = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
         c2 = rig.attach_controller(heater2, zone2, law=P(kp=10.0))
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0, zone2: 40.0})])
-        c1.regulate(50.0, transfer=Transfer.RESET)
-        c2.regulate(60.0, transfer=Transfer.RESET)
+        c1.regulate(50.0, transfer=Transfer.COLD)
+        c2.regulate(60.0, transfer=Transfer.COLD)
         assert furnace.commits == 2, "two handovers outside a delivery: one commit each"
         rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0, zone2: 40.0})])
         assert furnace.commits == 3, "one delivery, two controllers, one commit"
@@ -785,7 +785,7 @@ class TestControllers:
         heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=1000.0))
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         with rig.controller_states.watch(), rig.write_states.watch():
             rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0})])
         assert controller.output == 10_000.0 and controller.expected == 2500.0, "clamped"
@@ -814,7 +814,7 @@ class TestBoundInputs:
         controller = rig.attach_controller(
             blender.signals["humidity"], sensors.signals["chamber.humidity"], law=P(kp=1.0)
         )
-        controller.regulate(47.0, transfer=Transfer.RESET)
+        controller.regulate(47.0, transfer=Transfer.COLD)
         assert blender.commits == 2 and blender.target == 47.0
         rig.on_samples([
             Sample(dry, 6, {dry_h: 4.0}),
@@ -855,7 +855,7 @@ class TestBoundInputs:
     def test_bind_inputs_refuses_what_cannot_be_followed(self, rig, sensors, blender, fresh):
         with pytest.raises(AddressNotFoundError, match=f"no 'humidty' under {sensors.name}.dry"):
             rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidty"})
-        with pytest.raises(ConflictError, match=r"\[rw\] is not publishing"):
+        with pytest.raises(ConflictError, match=r"\[rw\] is not published"):
             rig.bind_inputs(blender, {"dry": f"{blender.name}.blend_flow"})
         stage = Stage(fresh("stage"))
         stage.signals["position.x"].restrict(Access.W)

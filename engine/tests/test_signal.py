@@ -97,8 +97,8 @@ class TestSpecs:
             SignalSpec(name="heater", quantity=POWER, access=Access.W, limits=(2500.0, 0.0))
 
     def test_a_non_finite_band_is_refused(self):
-        with pytest.raises(ValueError, match="warn"):
-            SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, warn=(0.0, float("nan")))
+        with pytest.raises(ValueError, match="warning"):
+            SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, warning=(0.0, float("nan")))
         with pytest.raises(ValueError, match="alarm"):
             SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, alarm=(0.0, float("inf")))
 

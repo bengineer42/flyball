@@ -44,10 +44,10 @@ class Daq(Readable, Committable):
         TEMP,
         range=(0.0, 1200.0),
         precision=1,
-        warn=(0.0, 1100.0),
+        warning=(0.0, 1100.0),
         alarm=(-10.0, 1150.0),
     )
-    zone2 = Readout("zone2", "", TEMP, warn=(0.0, 1100.0))
+    zone2 = Readout("zone2", "", TEMP, warning=(0.0, 1100.0))
     setpoint = Demand("setpoint", "", TEMP)
 
     def __init__(self, name: str, label: str | None = None) -> None:
@@ -216,7 +216,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "shape": [],
         "range": [0.0, 1200.0],
         "precision": 1,
-        "warn": [0.0, 1100.0],
+        "warning": [0.0, 1100.0],
         "alarm": [-10.0, 1150.0],
         "poll_s": None,
         "limits": None,

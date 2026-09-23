@@ -22,8 +22,8 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | Page | For |
 | --- | --- |
 | **Dashboards** | saved and generated layouts of widgets — see [Dashboards](../dashboards.md) |
-| **Overview** | the rig at a glance: a stat tile per publishing signal, a card per polled device (its run: period, last read, conditions) |
-| **Inputs** | every publishing signal charted, grouped by device or by unit |
+| **Overview** | the rig at a glance: a stat tile per published signal, a card per polled device (its run: period, last read, conditions) |
+| **Inputs** | every published signal charted, grouped by device or by unit |
 | **Devices** | one card per device (signals, commands, conditions); add or remove a device or a link |
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
 | **Programs** | the program library (each row with the rig's check of it: ok, warnings or error; run, delete, upload, new) and, for one program, its editor and, while it runs or afterwards, its steps and events. The editor has two tabs over one document: **Steps**, a palette of the rig's step kinds and a card per step whose arguments are a form (drag a chip in as a new step, drag a card's handle to move it; buttons do the same without a pointer; a `command` or `set` step picks a device, then that device's own command or writable signals), and **Text**, the YAML or JSON. Either side updates the other; the rig re-checks the document as it changes and marks the offending step, red for an error and amber for a step naming something the rig lacks right now. Every save is a new version; Save as makes a new program |
@@ -70,7 +70,7 @@ A condition summary sits in the app bar, built from `/api/health` (falling
 back to a client-side count from the samples stream on an older runner):
 
 - an always-present **alarm** chip — the count of active device conditions
-  plus signals outside their warn/alarm bands, coloured by the worst one
+  plus signals outside their warning/alarm bands, coloured by the worst one
   (amber for warn, red for alarm; otherwise the neutral outline every
   healthy state uses — colour is reserved for abnormal conditions), held to
   one width across its own states so it doesn't reflow its neighbours as the

@@ -76,7 +76,7 @@ file may only narrow:
 | flag | meaning | where it matters |
 | --- | --- | --- |
 | **R** readable | a `GET` returns a current value on demand (last known, or a fresh hardware read with `fresh=true`) | detail pages, "read now" |
-| **P** publishing | the device emits it on its own schedule (poll or push): samples, `/ws/samples`, the store, the recorder | readouts, charts, dashboards, history |
+| **P** published | the device emits it on its own schedule (poll or push): samples, `/ws/samples`, the store, the recorder | readouts, charts, dashboards, history |
 | **W** writable | accepts a demand; a controller may target it; has `limits` (a demand is refused while a limit that follows another signal has no value yet, or a non-finite one; what an end follows -- a signal of the device, or one of its inputs by role -- is resolved once, when the device is added, and a name that matches neither refuses the device); keeps its last *set* value beside its read value | target entry, controllers, program steps |
 
 `P` implies `R`. Typical: a thermocouple is `RP` (`Role.READOUT`); a heater's
@@ -86,7 +86,7 @@ blender's `blend` is `RP` (`Role.SETTING`, read on demand, changed only by
 its command, never streamed as a demand would be).
 
 The **driver declares** each signal's access; a rig file may only
-*restrict* it (`publishing: false` on a noisy diagnostic), never add a flag
+*restrict* it (`published: false` on a noisy diagnostic), never add a flag
 the driver did not declare. Write it as `furnace.zone1 [RP]` in prose and
 in `rig check`'s output.
 
@@ -127,7 +127,7 @@ delivery touched.
 
 ## Controller
 
-A **controller** regulates one publishing signal, its **measured** signal,
+A **controller** regulates one published signal, its **measured** signal,
 by writing one demand, its **output**, through a law (and an optional
 feedforward). It is named by the output's address, since a demand has at
 most one controller:

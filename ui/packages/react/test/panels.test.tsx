@@ -18,12 +18,12 @@ function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "r
     dimension: null,
     dtype: "float",
     shape: [],
-    role: "output",
+    role: "readout",
     tags: {},
     initial: null,
     range: null,
     precision: null,
-    warn: null,
+    warning: null,
     alarm: null,
     poll_s: null,
     limits: null,
@@ -44,7 +44,7 @@ describe("Gauge on a SignalOut", () => {
   });
 
   it("cuts the range at every band edge and labels each piece", () => {
-    const zones = gaugeZones(signal("furnace.zone1", "°C", { range: [0, 100], warn: [30, 90], alarm: [10, 110] }));
+    const zones = gaugeZones(signal("furnace.zone1", "°C", { range: [0, 100], warning: [30, 90], alarm: [10, 110] }));
     expect(zones.map((z) => [z.from, z.to, z.level])).toEqual([
       [0, 10, "alarm"],
       [10, 30, "warn"],
@@ -63,7 +63,7 @@ describe("Gauge on a SignalOut", () => {
 });
 
 describe("readoutLevel", () => {
-  const s = signal("furnace.zone1", "°C", { warn: [30, 90], alarm: [10, 110] });
+  const s = signal("furnace.zone1", "°C", { warning: [30, 90], alarm: [10, 110] });
   it("reads the bands off the signal", () => {
     expect(readoutLevel(s, 60, undefined).level).toBe("ok");
     expect(readoutLevel(s, 95, undefined).level).toBe("warn");

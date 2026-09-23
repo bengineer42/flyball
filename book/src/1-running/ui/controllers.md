@@ -24,7 +24,7 @@ matches, it is one list.
 controller as three aligned rows, each with a bar:
 
 - **Measured** — the measured value (PV), with a fill bar against the
-  measured signal's range, warn/alarm band ticks, and a notch at the
+  measured signal's range, warning/alarm band ticks, and a notch at the
   setpoint; a caption below it reading "N °C above/below setpoint".
 - **Setpoint** — the setpoint (SP), with the entry/Move control inline (one line,
   wrapping only below 900px) and a caption naming what it is following when

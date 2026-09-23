@@ -128,7 +128,7 @@ devices:
       ports:
         temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
-      temperature: { range: [0, 120], precision: 2, warn: [30, 90], alarm: [10, 110] }
+      temperature: { range: [0, 120], precision: 2, warning: [30, 90], alarm: [10, 110] }
   heater:
     driver: sim_drive
     label: Oven heater

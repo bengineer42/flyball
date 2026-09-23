@@ -191,14 +191,14 @@ class TestNamespaces:
                     "poll_s": 1,
                     "config": {"link": "plant", "ports": {"dry.t": "zone1", "wet.t": "zone2"}},
                     "signals": {
-                        "dry": {"signals": {"t": {"warn": [0, 100]}}},
+                        "dry": {"signals": {"t": {"warning": [0, 100]}}},
                         "wet": {"poll_s": 5},
                     },
                 },
             },
         })
         rig = config.build(start=False)
-        assert rig.resolve("hum_sensors.dry.t").spec.warn == (0.0, 100.0)
+        assert rig.resolve("hum_sensors.dry.t").spec.warning == (0.0, 100.0)
         assert rig.resolve("hum_sensors.wet.t").poll_s == 5
 
 
@@ -316,7 +316,7 @@ class TestRigFile:
                     "driver": "sim_daq",
                     "poll_s": 1,
                     "config": {"link": "plant", "ports": {"zone1": "zone1", "zone2": "zone2"}},
-                    "signals": {"zone1": {"range": [0, 1200], "warn": [0, 1100]}},
+                    "signals": {"zone1": {"range": [0, 1200], "warning": [0, 1100]}},
                 },
                 "heaters": {
                     "driver": "sim_drive",
@@ -329,7 +329,7 @@ class TestRigFile:
         })
         assert config.simulated
         rig = config.build(start=False)
-        assert rig.resolve("furnace.zone1").spec.warn == (0.0, 1100.0)
+        assert rig.resolve("furnace.zone1").spec.warning == (0.0, 1100.0)
         assert rig.resolve("heaters.heater2").limits == (0.0, 3000.0), "the file narrowed it"
         assert rig.resolve("heaters.heater1").limits == (0.0, 2500.0)
         assert rig.devices["furnace"].plant is rig.devices["heaters"].plant is rig.links["plant"]

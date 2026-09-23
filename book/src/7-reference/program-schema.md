@@ -31,7 +31,7 @@ declares. Any other key is an error.
 | `ValueSource \| float` | a number, or `measured`, `setpoint`, `output` |
 | a controller name | the address of the demand it drives, e.g. `heaters.heater1` — a controller is named by its output |
 | a law (`tuning`) | the name of a registered tuning, or `{tag: PI, kp: …, ki: …, tt: …}` |
-| `Transfer` | `track`, `carry`, `reset`, `none` |
+| `Transfer` | `track`, `carry`, `cold`, `none` |
 
 ## The library's commands
 

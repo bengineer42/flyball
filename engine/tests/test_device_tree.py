@@ -70,7 +70,7 @@ class SimFurnace(Readable, Committable):
         self.bind(tree)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        temps = {s: 20.0 for s in self.publishing.values() if s is not self.conditions}
+        temps = {s: 20.0 for s in self.published.values() if s is not self.conditions}
         yield Sample(self.root, time_ns, temps)
 
     def write_signal(self, signal: Signal, value: float) -> None:
@@ -148,13 +148,13 @@ class TestBinding:
 
     def test_views_by_access(self):
         furnace = SimFurnace("f", zones=2, power_w=(1.0, 1.0))
-        assert list(furnace.publishing) == ["conditions", "zone1", "zone2", "sample"]
+        assert list(furnace.published) == ["conditions", "zone1", "zone2", "sample"]
         assert list(furnace.readables) == ["conditions", "zone1", "zone2", "sample"]
         assert list(furnace.writables) == ["heater1", "heater2"]
         blender = Blender("b")
         assert list(blender.writables) == ["humidity", "dry_flow", "wet_flow", "blend_flow"]
         assert list(blender.readables) == ["conditions", "blend_flow", "expected_humidity"]
-        assert list(blender.publishing) == ["conditions", "expected_humidity"]
+        assert list(blender.published) == ["conditions", "expected_humidity"]
 
     def test_a_namespace_two_deep(self):
         class Stage(Device):
@@ -199,7 +199,7 @@ class TestBinding:
         assert bare.poll_s is None and bare.label is None
         assert bare.root.address == "bare" and bare.nodes == {}
         assert list(bare.root.walk()) == [bare.signals["conditions"]]
-        assert list(bare.publishing) == ["conditions"]
+        assert list(bare.published) == ["conditions"]
 
 
 class TestPollPeriod:
@@ -370,14 +370,14 @@ class TestDeviceEntry:
                 "sensors": {"chamber": {"address": 0x44}, "dry": {"address": 0x45}},
             },
             "signals": {
-                "chamber": {"signals": {"humidity": {"warn": [20, 80]}}},
+                "chamber": {"signals": {"humidity": {"warning": [20, 80]}}},
                 "dry": {"poll_s": 5},
                 "wet": {"poll_s": 5},
             },
         })
         assert entry.config["sensors"]["chamber"] == {"address": 0x44}
         chamber = entry.signals["chamber"]
-        assert chamber.signals["humidity"].warn == (20.0, 80.0)  # type: ignore[union-attr]
+        assert chamber.signals["humidity"].warning == (20.0, 80.0)  # type: ignore[union-attr]
         with pytest.raises(ValidationError, match="config"):  # a namespace has no driver config
             DeviceEntry.model_validate({
                 "driver": "sht4x_set",
@@ -394,7 +394,7 @@ class TestDeviceEntry:
             "power_w": [2500, 6000],
             "signals": {
                 "zone1": {"label": "Zone 1 (entry)", "range": [0, 1200], "precision": 1},
-                "sample": {"poll_s": 2, "warn": [0, 1100]},
+                "sample": {"poll_s": 2, "warning": [0, 1100]},
                 "heater2": {"limits": [0, 5000]},
             },
         })
@@ -406,7 +406,7 @@ class TestDeviceEntry:
         assert zone1.label == "Zone 1 (entry)" and zone1.spec.range == (0.0, 1200.0)
         assert zone1.spec.precision == 1 and zone1.poll_s == 1.0
         assert furnace.signals["sample"].poll_s == 2.0
-        assert furnace.signals["sample"].spec.warn == (0.0, 1100.0)
+        assert furnace.signals["sample"].spec.warning == (0.0, 1100.0)
         assert furnace.signals["heater2"].limits == (0.0, 5000.0)
         assert furnace.signals["heater1"].limits == (0.0, 2500.0), "untouched"
         assert furnace.signals["zone1"].access is Access.RP, "untouched"
@@ -416,14 +416,14 @@ class TestDeviceEntry:
             "driver": sensors_tag,
             "poll_s": 1,
             "signals": {
-                "chamber": {"label": "Chamber", "signals": {"humidity": {"warn": [20, 80]}}},
+                "chamber": {"label": "Chamber", "signals": {"humidity": {"warning": [20, 80]}}},
                 "dry": {"poll_s": 5, "signals": {"temperature": {"poll_s": 10}}},
                 "wet": {"poll_s": 5},
             },
         })
         sensors = entry.build("hum")
         assert sensors.nodes["chamber"].label == "Chamber"
-        assert sensors.signals["chamber.humidity"].spec.warn == (20.0, 80.0)
+        assert sensors.signals["chamber.humidity"].spec.warning == (20.0, 80.0)
         assert sensors.signals["chamber.humidity"].poll_s == 1.0
         assert sensors.signals["dry.humidity"].poll_s == 5.0
         assert sensors.signals["dry.temperature"].poll_s == 10.0
@@ -477,13 +477,13 @@ class TestDeviceEntry:
     def test_access_can_be_removed_but_not_added(self, furnace_tag):
         entry = DeviceEntry.model_validate({
             "driver": furnace_tag,
-            "signals": {"sample": {"publishing": False}, "zone2": {"access": "r"}},
+            "signals": {"sample": {"published": False}, "zone2": {"access": "r"}},
         })
         furnace = entry.build("furnace")
         assert furnace.signals["sample"].access is Access.R
         assert furnace.signals["sample"].spec.access is Access.RP, "the driver's stays"
         assert furnace.signals["zone2"].access is Access.R
-        assert "zone2" not in furnace.publishing and "zone2" in furnace.readables
+        assert "zone2" not in furnace.published and "zone2" in furnace.readables
 
         entry = DeviceEntry.model_validate({
             "driver": furnace_tag,
@@ -497,14 +497,14 @@ class TestDeviceEntry:
             "signals": {"zone1": {"readable": False}},
         })
         with pytest.raises(
-            ValueError, match="'furnace.zone1': readable: false leaves it publishing"
+            ValueError, match="'furnace.zone1': readable: false leaves it published"
         ):
             entry.build("furnace")
 
         with pytest.raises(ValidationError, match="only `false` is allowed"):
             DeviceEntry.model_validate({
                 "driver": furnace_tag,
-                "signals": {"heater1": {"publishing": True}},
+                "signals": {"heater1": {"published": True}},
             })
         with pytest.raises(ValidationError, match="P without R"):
             DeviceEntry.model_validate({

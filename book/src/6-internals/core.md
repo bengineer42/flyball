@@ -57,7 +57,7 @@ value on demand), **P**ublishing (emitted on the device's own schedule;
 implies R), **W**ritable (accepts a demand) — and `Access.check` refuses `P`
 without `R` the moment a set is built, an `Access.parse`d, or a
 `SignalSpec` constructed, not later at first use. The rig file may only
-*narrow* a signal's access (`SignalOverride.readable`/`publishing`/`writable`
+*narrow* a signal's access (`SignalOverride.readable`/`published`/`writable`
 take only `false`) — never add what the driver did not declare.
 
 `Device.bind` turns a spec tree into bound [Node][flyball.foundation.device.signal.Node]

@@ -4,7 +4,7 @@ Not an observer: it sees the whole delivery after the controllers have
 ticked and the touched devices have committed, so it records what each tick
 produced and what each write set. The rig holds at most one and calls it last.
 
-What is recorded follows a signal's access: readings on publishing signals
+What is recorded follows a signal's access: readings on published signals
 (`P` is recorded; a fresh read of a setting is for whoever asked for it),
 write states on writable ones (a write to a setting is in the history as
 what was set), and a controller's ticks with its measured signal always included.
@@ -56,7 +56,7 @@ class Recorder:
 
     Args:
         writer: The open session.
-        signals: What to record: readings of the publishing ones, write
+        signals: What to record: readings of the published ones, write
             states of the writable ones. A controller's measured signal and output
             are always included.
         controllers: The controllers whose ticks to record.

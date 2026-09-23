@@ -13,7 +13,7 @@ any controller regulates. Assembly is a handful of calls:
 `rig.add_device(device)` makes it reachable by name — one namespace
 rig-wide; a second device with the same name is a `ConflictError`.
 `rig.start_polling(device)` polls it on the smallest `poll_s` over its
-publishing signals (`None` anywhere: never polled). `rig.read(node,
+published signals (`None` anywhere: never polled). `rig.read(node,
 fresh=True)` reads once, now, on the calling thread — the way to drive a
 rig by hand with a stepped clock, as `oven.py`'s `__main__` block does.
 
@@ -23,7 +23,7 @@ rig by hand with a stepped clock, as `oven.py`'s `__main__` block does.
 rig.attach_controller(heater.signals["demand"], probe.signals["temperature"], law=PI(kp=0.5, ki=0.05), default=True)
 ```
 
-regulates one publishing signal (its measured signal) by writing one
+regulates one published signal (its measured signal) by writing one
 demand (its output) through a law (and an optional feedforward), and
 registers it under the output's address — a controller is *named by what
 it drives*. A demand has at most one controller: a second

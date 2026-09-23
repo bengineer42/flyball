@@ -131,7 +131,7 @@ describe("address helpers", () => {
 
   it("flattens a device tree to its signals, namespaces recursed", () => {
     const signal = (address: string, access: string): TreeNode =>
-      ({ name: address.split(".").pop()!, address, access, label: "", quantity: "q", unit: "", dimension: null, dtype: "float", shape: [], range: null, precision: null, warn: null, alarm: null, poll_s: null, limits: null, role: "output", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
+      ({ name: address.split(".").pop()!, address, access, label: "", quantity: "q", unit: "", dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
     const tree: TreeNode[] = [
       signal("d.a", "rp"),
       { name: "ns", address: "d.ns", atomic: true, label: "", poll_s: null, signals: [signal("d.ns.b", "w"), signal("d.ns.c", "rw")] },
@@ -147,7 +147,7 @@ describe("address helpers", () => {
 
 describe("titles from labels", () => {
   const signal = (address: string, unit: string, quantity = "q", label = ""): TreeNode =>
-    ({ name: address.split(".").pop()!, address, access: "rp", label, quantity, unit, dimension: null, dtype: "float", shape: [], range: null, precision: null, warn: null, alarm: null, poll_s: null, limits: null, role: "output", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
+    ({ name: address.split(".").pop()!, address, access: "rp", label, quantity, unit, dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
   const sensors = {
     name: "hum_sensors",
     label: "Humidity sensors",

@@ -24,8 +24,8 @@ from flyball.model.model import ModelOf, creation_model
 class Transfer(Labelled):
     NONE = "none", "Do not transfer any correction"
     CARRY = "carry", "Keep the correction the law is already holding"
-    TRACK = "track", "Seed the correction from what the pumps are delivering"
-    RESET = "reset", "Start the law cold"
+    TRACK = "track", "Seed the correction from what the output is delivering"
+    COLD = "cold", "Start the law cold"
 
 
 class ControlLawConfig(BaseModel):

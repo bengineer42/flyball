@@ -52,7 +52,7 @@ def dtype_of(vtype: Any) -> str:
 
 
 class Access(Flag):
-    """Which of readable, publishing and writable a signal supports.
+    """Which of readable, published and writable a signal supports.
 
     `P` implies `R`: what a device publishes on its own schedule can also be
     read on demand, so a set with `P` but not `R` is refused wherever one is
@@ -85,7 +85,7 @@ class Access(Flag):
     def check(cls, access: Access) -> Access:
         """`access` back, or a ValueError when it has `P` without `R`."""
         if cls.P in access and cls.R not in access:
-            raise ValueError(f"access {access!s}: P without R, but a publishing signal is readable")
+            raise ValueError(f"access {access!s}: P without R, but a published signal is readable")
         return access
 
     @classmethod
@@ -138,7 +138,7 @@ def _check_band(name: str, field_name: str, band: tuple[Any, Any] | None) -> Non
         raise ValueError(f"signal {name!r}: {field_name} {band!r}: inverted, low above high")
 
 
-type Band = tuple[float, float]
+type Bounds = tuple[float, float]
 
 
 class Limit(StrEnum):
@@ -258,17 +258,17 @@ class SignalSpec:
     label: str = ""
     """The display text; `""` shows the titlecased name. The rig file may override it."""
     # read side (R / P)
-    range: Band | None = None
+    range: Bounds | None = None
     """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
     precision: int | None = None
     """Decimal places worth showing; None if the driver has not said."""
-    warn: Band | None = None
+    warning: Bounds | None = None
     """The band a value is normal inside (EPICS LOW/HIGH); outside it, a warning."""
-    alarm: Band | None = None
+    alarm: Bounds | None = None
     """The band a value is acceptable inside (EPICS LOLO/HIHI); outside it, an alarm."""
     poll_s: float | None = None
     """None: the enclosing node's; only meaningful with `P`."""
-    stale_after: float | None = None
+    stale_after_s: float | None = None
     """Seconds since the last reading beyond which a controller regulated from this signal
     treats it as untrustworthy: its demand is held rather than applied. None (default):
     never checked, today's behaviour."""
@@ -296,7 +296,7 @@ class SignalSpec:
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
         _check_band(self.name, "range", self.range)
-        _check_band(self.name, "warn", self.warn)
+        _check_band(self.name, "warning", self.warning)
         _check_band(self.name, "alarm", self.alarm)
         _check_band(self.name, "limits", self.limits)
         if self.section is not None and self.section.axis not in self.tags:
@@ -575,7 +575,7 @@ class LimitsInvertedError(UnachievableError):
     than held at either end.
     """
 
-    def __init__(self, address: str, limits: Band) -> None:
+    def __init__(self, address: str, limits: Bounds) -> None:
         self.address = address
         self.limits = limits
         self.unknown: list[str] = []
@@ -604,7 +604,7 @@ class Signal:
     at_limit: Limit | None = None
     """What the driver says of the last demand on it: railed low or high, or neither. Set in
     `commit`; the rig puts it on the demand's write state."""
-    narrowed: Band | None = None
+    narrowed: Bounds | None = None
     """The rig file's `limits`: a band a demand is held inside as well as the driver's, never
     instead of them. Set through [narrow][flyball.foundation.device.signal.Signal.narrow]."""
     _bounds: tuple[Followed, Followed] | None = field(default=None, repr=False)
@@ -644,7 +644,7 @@ class Signal:
         return self.spec.label
 
     @property
-    def range(self) -> Band | None:
+    def range(self) -> Bounds | None:
         """What a gauge or an axis spans: the signal's own, else its limits, else the unit's scale.
 
         None if none of them say.
@@ -652,7 +652,7 @@ class Signal:
         return self.spec.range or self.limits or self.unit.scale
 
     @property
-    def limits(self) -> Band | None:
+    def limits(self) -> Bounds | None:
         """The effective limits now: the driver's, intersected with the rig file's narrowing.
 
         A reference in the driver's names a signal of the device by path, or
@@ -668,7 +668,7 @@ class Signal:
             return None
         return band
 
-    def _resolved(self) -> tuple[Band | None, list[str]]:
+    def _resolved(self) -> tuple[Bounds | None, list[str]]:
         """The effective band, maybe inverted, and the bounds that are not known now."""
         narrowed = self.narrowed
         if (bounds := self.bind_limits()) is None:
@@ -680,7 +680,7 @@ class Signal:
             low, high = max(low, narrowed[0]), min(high, narrowed[1])
         return (low, high), []
 
-    def narrow(self, band: Band | None) -> None:
+    def narrow(self, band: Bounds | None) -> None:
         """Hold demands inside `band` as well as the driver's limits; None drops the narrowing.
 
         The rig file's `limits`. The effective limits are the intersection,
@@ -884,7 +884,7 @@ class Sample:
         return {node.relative(signal): value for signal, value in self.values.items()}
 
     def published(self) -> Sample | None:
-        """Without the values on non-publishing signals: itself if none, None if nothing is left."""
+        """Without the values on non-published signals: itself if none, None if nothing is left."""
         kept = {s: v for s, v in self.values.items() if Access.P in s.access}
         if len(kept) == len(self.values):
             return self

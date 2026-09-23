@@ -32,7 +32,7 @@ class Thermostat(Committable):
     """A heater driven off a zone that goes stale after 5s unread."""
 
     TREE = (
-        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after=5.0),
+        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after_s=5.0),
         SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),
     )
 
@@ -95,13 +95,13 @@ class TestAHeldWriteFreezesTheLaw:
         zone, heater = dev.signals["zone"], dev.signals["heater"]
         controller = rig.attach_controller(heater, zone, law=law)
         rig.on_samples([Sample(dev.root, at(clock, 10), {zone: 20.0})])
-        controller.regulate(30.0, transfer=Transfer.RESET)
+        controller.regulate(30.0, transfer=Transfer.COLD)
         for t in (11, 12):
             rig.on_samples([Sample(dev.root, at(clock, t), {zone: 20.0})])
         frozen = []
         if hold:
             before = (dict(law.state.__dict__), controller.correction, dev.written[heater])
-            for t in range(18, 24):  # each reading arrives 5.5s old: past `stale_after`
+            for t in range(18, 24):  # each reading arrives 5.5s old: past `stale_after_s`
                 at(clock, t)
                 rig.on_samples([Sample(dev.root, clock.now_ns() - 5_500_000_000, {zone: 20.0})])
                 frozen.append(
@@ -138,7 +138,7 @@ class TestAHeldWriteFreezesTheLaw:
             law = PI(kp=1.0, ki=0.5, tt=2.0)
             controller = rig.attach_controller(humidity, chamber, law=law)
             rig.on_samples([Sample(dev.root, at(clock, 0), {supply: 95.0, chamber: 40.0})])
-            controller.regulate(50.0, transfer=Transfer.RESET)
+            controller.regulate(50.0, transfer=Transfer.COLD)
             for t in (1, 2):
                 rig.on_samples([Sample(dev.root, at(clock, t), {chamber: 40.0})])
             if hold:

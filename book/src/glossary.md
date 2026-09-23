@@ -1,6 +1,6 @@
 # Glossary
 
-**access** — which of readable (**R**), publishing (**P**) or writable
+**access** — which of readable (**R**), published (**P**) or writable
 (**W**) a signal supports; the driver declares it, a rig file may only
 restrict it -- unless the driver also names a **ceiling**, up to which the
 rig file may widen it instead. `P` implies `R`.
@@ -171,7 +171,7 @@ changed only through the rig, under its lock, as an event.
 
 **tick** — one controller step on one reading.
 
-**transfer** — how a handover seeds the correction: `none`, `reset`,
+**transfer** — how a handover seeds the correction: `none`, `cold`,
 `carry`, `track`.
 
 **tuning** — a named law config.

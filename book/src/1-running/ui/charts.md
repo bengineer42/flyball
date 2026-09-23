@@ -1,6 +1,6 @@
 # Charts and the Graph page
 
-**Inputs** (`#/inputs`) charts every publishing signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
+**Inputs** (`#/inputs`) charts every published signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
 
 ## Any chart opens almost-fullscreen
 
@@ -33,7 +33,7 @@ forced on, titled for the controller and which trend (`… · process` /
 
 **Graph** (`#/graph`) is a free-form chart: pick any signals across any
 devices and plot them together, unlike Inputs' charts which stay grouped by
-device or unit. A picker on the left lists every numeric publishing signal
+device or unit. A picker on the left lists every numeric published signal
 under its device, each by its title (a signal the driver left unlabelled, or
 whose label another signal of the device shares, is named by its namespace
 too: `Dry line humidity`, never three `Humidity`) with its unit; above the

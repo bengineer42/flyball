@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 from pydantic_core import to_jsonable_python
 
-from flyball.foundation.device import Access, Band, Device, Limit, Sample, Signal, WriteState
+from flyball.foundation.device import Access, Bounds, Device, Limit, Sample, Signal, WriteState
 from flyball.foundation.errors import ConflictError, NotFoundError
 
 from .errors import (
@@ -108,7 +108,7 @@ def _decode_reading(dtype: str, raw: Any) -> Any:
     return raw
 
 
-def _band(text: str | None) -> Band | None:
+def _band(text: str | None) -> Bounds | None:
     if text is None:
         return None
     lo, hi = json.loads(text)
@@ -140,7 +140,7 @@ def _signal_row(row: sqlite3.Row) -> SignalRow:
         label=row["label"],
         range=_band(row["range"]),
         precision=row["precision"],
-        warn=_band(row["warn"]),
+        warning=_band(row["warning"]),
         alarm=_band(row["alarm"]),
         limits=_band(row["limits"]),
     )
@@ -332,7 +332,7 @@ class SqliteSessionWriter:
             sid = len(self._signal_ids) + 1
             connection.execute(
                 "INSERT INTO signal (session_id, id, device_id, address, quantity, unit, access,"
-                " dtype, shape, label, range, precision, warn, alarm, limits)"
+                " dtype, shape, label, range, precision, warning, alarm, limits)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     self._session.id,
@@ -347,7 +347,7 @@ class SqliteSessionWriter:
                     spec.label or None,
                     _dumps(spec.range),
                     spec.precision,
-                    _dumps(spec.warn),
+                    _dumps(spec.warning),
                     _dumps(spec.alarm),
                     _dumps(signal.limits),  # effective: a limit that follows a signal, as a number
                 ),
@@ -868,7 +868,7 @@ class SqliteStore:
                 (
                     "signal",
                     "id, device_id, address, quantity, unit, access, dtype, shape, label,"
-                    " range, precision, warn, alarm, limits",
+                    " range, precision, warning, alarm, limits",
                 ),
                 ("write", "signal_id, driver, limits"),
                 ("controller", "name, measured, law, feedforward"),

@@ -44,8 +44,8 @@ export type JsonSchema = {
 
 export type Nanoseconds = number;
 
-/** A closed interval `[low, high]`: a plausible range, a warn or alarm band, a clamp. */
-export type Band = [number, number];
+/** A closed interval `[low, high]`: a plausible range, a warning or alarm band, a clamp. */
+export type Bounds = [number, number];
 
 /** A signal's or node's dotted path: `device[.namespace…].signal`. */
 export type Address = string;
@@ -159,16 +159,16 @@ export interface SignalOut {
   /** The value the signal has before anything reads or sets it (a mode's starting state), or null. */
   initial: Value;
   /** What a gauge or axis spans: the signal's own range, else its limits, else the unit's scale. */
-  range: Band | null;
+  range: Bounds | null;
   precision: number | null;
   /** The band a value is normal inside; outside it, a warning. */
-  warn: Band | null;
+  warning: Bounds | null;
   /** The band a value is acceptable inside; outside it, an alarm. */
-  alarm: Band | null;
+  alarm: Bounds | null;
   /** The signal's own poll period; null: the enclosing node's. */
   poll_s: number | null;
   /** What a demand is clamped to, in the signal's unit, as effective now; a demand only. */
-  limits: Band | null;
+  limits: Bounds | null;
   /** The last reading, once there has been one. */
   latest: LatestOut | null;
   /** The last committed state of a writable signal, once it has been set. */
@@ -295,9 +295,9 @@ export interface SignalSchema {
   dtype: Dtype;
   /** The JSON schema of one value: a number, an enum's members, a structure. */
   value: JsonSchema;
-  range: Band | null;
+  range: Bounds | null;
   precision: number | null;
-  limits: Band | null;
+  limits: Bounds | null;
 }
 
 /** An input as a `DeviceSchema` lists it. */
@@ -462,9 +462,9 @@ export interface SignalChoice {
   unit: string;
   dimension: string | null;
   /** A published signal's plausible values, for a setpoint entry. */
-  range: Band | null;
+  range: Bounds | null;
   /** A demand's clamp, for an output entry. */
-  limits: Band | null;
+  limits: Bounds | null;
 }
 
 /** A stored tuning as the controller form offers it: its name, the law it is for, and the gains. */
@@ -511,7 +511,7 @@ export interface NewController {
 }
 
 export type ValueSource = "measured" | "setpoint" | "output";
-export type Transfer = "none" | "carry" | "track" | "reset";
+export type Transfer = "none" | "carry" | "track" | "cold";
 
 /** Where a controller is sent: a value, where it already is (`measured`/`setpoint`/`output`), or a trajectory to follow. */
 export type SetpointSpec = number | ValueSource | GeneratorSpec;
@@ -902,18 +902,18 @@ export interface SignalRow {
   dtype: string;
   shape: number[];
   label: string | null;
-  range: Band | null;
+  range: Bounds | null;
   precision: number | null;
-  warn: Band | null;
-  alarm: Band | null;
-  limits: Band | null;
+  warning: Bounds | null;
+  alarm: Bounds | null;
+  limits: Bounds | null;
 }
 
 /** A writable signal whose write states the session recorded. */
 export interface WriteRow {
   signal: SignalRow;
   driver: string | null;
-  limits: Band | null;
+  limits: Bounds | null;
 }
 
 /** A controller is named by the demand it drives; `measured` is the signal it regulates. */

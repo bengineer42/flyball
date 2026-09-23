@@ -44,7 +44,7 @@ class Daq(Readable):
         ])
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        temps = {s: 20.0 for s in self.publishing.values() if s is not self.conditions}
+        temps = {s: 20.0 for s in self.published.values() if s is not self.conditions}
         yield Sample(self.root, time_ns, temps)
 
 
@@ -221,7 +221,7 @@ class TestParsing:
                     "label": "Tube furnace",
                     "poll_s": 1,
                     "zones": 3,
-                    "signals": {"zone1": {"label": "Zone 1 (entry)", "warn": [0, 1100]}},
+                    "signals": {"zone1": {"label": "Zone 1 (entry)", "warning": [0, 1100]}},
                 },
                 "heaters": {
                     "driver": heaters_tag,

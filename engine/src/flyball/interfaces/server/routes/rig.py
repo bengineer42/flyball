@@ -61,7 +61,7 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
     for signal, reading in latest:
         if _outside(reading.value, signal.spec.alarm):
             alarm += 1
-        elif _outside(reading.value, signal.spec.warn):
+        elif _outside(reading.value, signal.spec.warning):
             warn += 1
     for c in conditions:
         if c["level"] >= 40:

@@ -26,8 +26,8 @@ devices:
       chamber:
         label: Chamber
         signals:
-          humidity: { label: Chamber humidity, warn: [60, 98] }
-          temperature: { label: Chamber temperature, warn: [8, 16] }
+          humidity: { label: Chamber humidity, warning: [60, 98] }
+          temperature: { label: Chamber temperature, warning: [8, 16] }
 
   humidifier:                              # humidifier.drive [W]
     driver: pwm_channel

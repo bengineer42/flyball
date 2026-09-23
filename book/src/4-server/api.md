@@ -145,7 +145,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
@@ -212,7 +212,7 @@ runtime's (`offline`, `slow`), and `run` `{period_s, running,
 last_read_ns}` for a polled device (null otherwise).
 
 A signal in the tree is `{name, address, access, role, tags, label,
-quantity, unit, dimension, dtype, shape, range, precision, warn, alarm,
+quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
 poll_s, limits, initial, latest, write}`: `access` is the set in force as
 letters (`rp`, `w`, `rw`, `rpw`), `role` one of `demand`, `readout`,
 `setting`, `config`, `tags` the section as `{axis: name}` (empty without
@@ -254,7 +254,7 @@ properties linked to a demand also carry `x-signal`, `unit` and
 
 ## Controllers
 
-A controller regulates one publishing signal, its **measured** signal,
+A controller regulates one published signal, its **measured** signal,
 by writing one demand, its **output**, through a law and a feedforward. It
 is named by its output's address.
 
@@ -263,7 +263,7 @@ is named by its output's address.
 | `GET` | `/api/controllers` | `[ControllerOut]` |
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
-| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every publishing signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
+| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every published signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
 | `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, default?, min_period_s?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
 | `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the output holds its last value; manual demands may drive it again |
 | `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{tag, ...its own arguments}`, e.g. `{tag: "linear_ramp_setpoint", pace, end}`, discriminated by `tag` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
@@ -334,7 +334,7 @@ Reads the store, never the rig.
 | `POST` | `/api/history/sessions/{id}/end` | close a session; 409 on the live scratch record |
 | `DELETE` | `/api/history/sessions/{id}` | 204; everything the session recorded goes; tunings survive. 409 on the live scratch record or the session being recorded |
 | `GET` | `/api/history/sessions/{id}/devices` | `[DeviceRow {id, address, driver, config, label}]` |
-| `GET` | `/api/history/sessions/{id}/signals` | `[SignalRow {id, device_id, address, quantity, unit, access, dtype, shape, label, range, precision, warn, alarm, limits}]` |
+| `GET` | `/api/history/sessions/{id}/signals` | `[SignalRow {id, device_id, address, quantity, unit, access, dtype, shape, label, range, precision, warning, alarm, limits}]` |
 | `GET` | `/api/history/sessions/{id}/writes` | `[WriteRow {signal: SignalRow, driver, limits}]` |
 | `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, measured, law, feedforward}]` |
 | `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
@@ -487,7 +487,7 @@ flush sends nothing.
 | `/ws/waits` | every registered wait | `{waits: [WaitState]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |
 
-A `SampleOut` is `{node, time_ns, values, writes}`: only publishing signals,
+A `SampleOut` is `{node, time_ns, values, writes}`: only published signals,
 `values` keyed relative to `node`; `writes` carries `{requested, at_limit,
 controller}` for each demand the sample includes, keyed the same way as
 `values` -- a demand's write record rides with its reading now, so

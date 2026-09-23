@@ -56,7 +56,7 @@ const SIGNAL: SignalOut = {
   initial: null,
   range: null,
   precision: 1,
-  warn: null,
+  warning: null,
   alarm: null,
   poll_s: null,
   limits: null,
