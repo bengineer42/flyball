@@ -144,7 +144,7 @@ func fakeRunner(marker string) int {
 	mux.HandleFunc("GET /api/auth", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"scheme": "anonymous", "level": "operate", "anonymous": "none",
-			"password": false, "token": token,
+			"password": false, "token": token, "exposure": nil,
 		})
 	})
 	ln, err := net.Listen("tcp", "127.0.0.1:"+os.Getenv("FLYBALL_FAKE_PORT"))
@@ -165,20 +165,39 @@ func fakeRunner(marker string) int {
 	}
 }
 
-func freePort(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+// The fixed ports these tests use: the fake runner, and the front.
+const (
+	fakeRunnerPort = "18356"
+	frontPort      = "18357"
+)
+
+// lanAddress is this machine's address on its default route, or "" (no
+// packet is sent).
+func lanAddress() string {
+	c, err := net.Dial("udp", "192.0.2.1:9")
 	if err != nil {
-		t.Fatal(err)
+		return ""
 	}
-	defer ln.Close()
-	return fmt.Sprint(ln.Addr().(*net.TCPAddr).Port)
+	defer c.Close()
+	host, _, _ := net.SplitHostPort(c.LocalAddr().String())
+	if net.ParseIP(host).IsLoopback() {
+		return ""
+	}
+	return host
 }
 
-// runFake runs `flyball run RIG --serve-ui ADDR [extra...]` against the
-// fake runner and returns runDirect's error, what it wrote to stderr, how
-// long it took and whether the runner was stopped by a signal.
-func runFake(t *testing.T, door, rigYAML, addr string, lifetime time.Duration, extra ...string) (error, string, time.Duration, bool) {
+// seen is what a test saw of the front while it ran: /api/auth through it
+// on loopback, and whether the machine's LAN address reached it.
+type seen struct {
+	auth       map[string]any
+	lanReached bool
+}
+
+// runFake runs `flyball run RIG --serve-ui HOST:frontPort [extra...]`
+// against the fake runner and returns runDirect's error, what it wrote to
+// stderr, how long it took, whether the runner was stopped by a signal,
+// and what the front looked like while it ran.
+func runFake(t *testing.T, door, rigYAML, host string, lifetime time.Duration, extra ...string) (error, string, time.Duration, bool, seen) {
 	t.Helper()
 	dir := t.TempDir()
 	rig := filepath.Join(dir, "rig.yaml")
@@ -186,9 +205,8 @@ func runFake(t *testing.T, door, rigYAML, addr string, lifetime time.Duration, e
 		t.Fatal(err)
 	}
 	marker := filepath.Join(dir, "stopped")
-	port := freePort(t)
 	t.Setenv("FLYBALL_FAKE_RUNNER", marker)
-	t.Setenv("FLYBALL_FAKE_PORT", port)
+	t.Setenv("FLYBALL_FAKE_PORT", fakeRunnerPort)
 	t.Setenv("FLYBALL_FAKE_DOOR", door)
 	t.Setenv("FLYBALL_FAKE_LIFETIME", lifetime.String())
 	self, err := os.Executable()
@@ -199,6 +217,28 @@ func runFake(t *testing.T, door, rigYAML, addr string, lifetime time.Duration, e
 	runnerCommand = self
 	defer func() { runnerCommand = old }()
 
+	var saw seen
+	looked := make(chan struct{})
+	go func() {
+		defer close(looked)
+		client := &http.Client{Timeout: 300 * time.Millisecond}
+		for end := time.Now().Add(lifetime); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+			resp, err := client.Get("http://127.0.0.1:" + frontPort + "/api/auth")
+			if err != nil {
+				continue
+			}
+			json.NewDecoder(resp.Body).Decode(&saw.auth)
+			resp.Body.Close()
+			if lan := lanAddress(); lan != "" {
+				if c, err := net.DialTimeout("tcp", net.JoinHostPort(lan, frontPort), 300*time.Millisecond); err == nil {
+					saw.lanReached = true
+					c.Close()
+				}
+			}
+			return
+		}
+	}()
+
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -206,71 +246,108 @@ func runFake(t *testing.T, door, rigYAML, addr string, lifetime time.Duration, e
 	stderr := os.Stderr
 	os.Stderr = w
 	start := time.Now()
-	args := append([]string{rig, "--serve-ui", addr, "--port", port}, extra...)
+	args := append([]string{rig, "--serve-ui", net.JoinHostPort(host, frontPort), "--port", fakeRunnerPort}, extra...)
 	runErr := runDirect(args)
 	took := time.Since(start)
 	os.Stderr = stderr
 	w.Close()
 	out, _ := io.ReadAll(r)
+	<-looked
 	_, statErr := os.Stat(marker)
-	return runErr, string(out), took, statErr == nil
+	return runErr, string(out), took, statErr == nil, saw
 }
 
-// An open runner behind a front on every interface: the front refuses,
-// stops the runner and exits non-zero -- well before the runner would
-// have exited by itself.
-func TestServeUIRefusesAnOpenRunnerBeyondLoopback(t *testing.T) {
-	err, out, took, stopped := runFake(t, "open", "name: t\n", "0.0.0.0:0", 30*time.Second)
-	if err == nil || !strings.Contains(err.Error(), "open runner") || !strings.Contains(err.Error(), "--insecure-open") {
-		t.Fatalf("runDirect = %v, want the open-runner refusal (stderr: %s)", err, out)
+func exposureOf(t *testing.T, s seen) map[string]any {
+	t.Helper()
+	e, _ := s.auth["exposure"].(map[string]any)
+	if e == nil {
+		t.Fatalf("/api/auth through the front has no exposure: %v", s.auth)
 	}
-	if !stopped {
-		t.Fatal("the runner was not stopped")
+	return e
+}
+
+// An open runner behind a front asked for every interface: an auth
+// misconfiguration removes exposure, never operation -- the runner keeps
+// running, the front serves on loopback only, says why once, and
+// /api/auth says so.
+func TestServeUIServesAnOpenRunnerOnLoopbackOnly(t *testing.T) {
+	err, out, _, stopped, saw := runFake(t, "open", "name: t\n", "0.0.0.0", 2*time.Second)
+	if err != nil || stopped {
+		t.Fatalf("runDirect = %v (stopped %v), want the runner left running (stderr: %s)", err, stopped, out)
 	}
-	if took > 15*time.Second {
-		t.Fatalf("took %s: the runner ran out its lifetime instead of being stopped", took)
+	if strings.Count(out, "WARNING") != 1 || !strings.Contains(out, "127.0.0.1:"+frontPort) || !strings.Contains(out, "--insecure-open") {
+		t.Fatalf("stderr = %q, want one warning naming 127.0.0.1 and the fix", out)
 	}
-	if strings.Contains(out, "serving UI on") {
-		t.Fatalf("the UI was served: %s", out)
+	if !strings.Contains(out, "serving UI on 127.0.0.1:"+frontPort) {
+		t.Fatalf("stderr = %q, want the UI served on loopback", out)
+	}
+	if saw.lanReached {
+		t.Fatal("the front was reachable on the LAN address")
+	}
+	e := exposureOf(t, saw)
+	if e["restricted"] != true || e["open_network"] != false || e["requested"] != "0.0.0.0:"+frontPort {
+		t.Fatalf("exposure = %v, want restricted from 0.0.0.0", e)
 	}
 }
 
-// With a token the front serves, and warns once that it is plain HTTP.
+// With a token the front serves where asked, and warns once that it is plain HTTP.
 func TestServeUIServesARunnerWithATokenAndWarnsOfCleartext(t *testing.T) {
-	err, out, _, stopped := runFake(t, "token", "name: t\n", "0.0.0.0:0", 1500*time.Millisecond)
+	err, out, _, stopped, _ := runFake(t, "token", "name: t\n", "0.0.0.0", 1500*time.Millisecond)
 	if err != nil || stopped {
 		t.Fatalf("runDirect = %v (stopped %v), want a normal run (stderr: %s)", err, stopped, out)
 	}
-	if strings.Count(out, "unencrypted") != 1 || !strings.Contains(out, "serving UI on") {
+	if strings.Count(out, "unencrypted") != 1 || !strings.Contains(out, "serving UI on 0.0.0.0:"+frontPort) {
 		t.Fatalf("stderr = %q, want one cleartext warning and the UI served", out)
 	}
 }
 
-// The explicit opt-in, as a flag or in the rig file, lets an open runner out, with a warning.
+// The explicit opt-in, as a flag or in the environment -- never the rig
+// file -- serves an open runner where asked, with a warning, and /api/auth
+// says it is open to the network.
 func TestServeUIOpenRunnerWithTheOptIn(t *testing.T) {
 	for name, c := range map[string]struct {
-		rig   string
+		env   string
 		extra []string
 	}{
-		"flag": {"name: t\n", []string{"--insecure-open"}},
-		"file": {"name: t\nrunner:\n  auth:\n    insecure_open: true\n", nil},
+		"flag": {"", []string{"--insecure-open"}},
+		"env":  {"1", nil},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err, out, _, stopped := runFake(t, "open", c.rig, "0.0.0.0:0", 1500*time.Millisecond, c.extra...)
+			t.Setenv("FLYBALL_INSECURE_OPEN", c.env)
+			err, out, _, stopped, saw := runFake(t, "open", "name: t\n", "0.0.0.0", 1500*time.Millisecond, c.extra...)
 			if err != nil || stopped {
 				t.Fatalf("runDirect = %v (stopped %v): %s", err, stopped, out)
 			}
-			if !strings.Contains(out, "OPEN runner") {
+			if !strings.Contains(out, "OPEN runner") || !strings.Contains(out, "serving UI on 0.0.0.0:"+frontPort) {
 				t.Fatalf("stderr = %q, want the open warning", out)
+			}
+			if e := exposureOf(t, saw); e["open_network"] != true {
+				t.Fatalf("exposure = %v, want open_network", e)
 			}
 		})
 	}
 }
 
+// A rig-file key is not an opt-in: a file can be pasted or `extends`ed.
+func TestServeUIRigFileCannotOptIn(t *testing.T) {
+	t.Setenv("FLYBALL_INSECURE_OPEN", "")
+	rig := "name: t\nrunner:\n  auth:\n    insecure_open: true\n"
+	err, out, _, _, saw := runFake(t, "open", rig, "0.0.0.0", 1500*time.Millisecond)
+	if err != nil || !strings.Contains(out, "serving UI on 127.0.0.1:"+frontPort) {
+		t.Fatalf("runDirect = %v, stderr %q: want loopback only", err, out)
+	}
+	if saw.lanReached {
+		t.Fatal("the front was reachable on the LAN address")
+	}
+}
+
 // On loopback nothing changes: an open runner is served, no warning.
 func TestServeUILoopbackServesAnOpenRunner(t *testing.T) {
-	err, out, _, stopped := runFake(t, "open", "name: t\n", "127.0.0.1:0", 1500*time.Millisecond)
-	if err != nil || stopped || strings.Contains(out, "unencrypted") || strings.Contains(out, "OPEN") {
+	err, out, _, stopped, saw := runFake(t, "open", "name: t\n", "127.0.0.1", 1500*time.Millisecond)
+	if err != nil || stopped || strings.Contains(out, "WARNING") {
 		t.Fatalf("runDirect = %v (stopped %v), stderr %q", err, stopped, out)
+	}
+	if saw.auth["exposure"] != nil {
+		t.Fatalf("exposure = %v, want the runner's own (none)", saw.auth["exposure"])
 	}
 }

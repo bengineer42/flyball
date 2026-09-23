@@ -2,7 +2,7 @@
 //
 // A runner with no password and no token is open: anyone who reaches it
 // may operate the rig. The runner itself serves open only on loopback
-// (engine/src/flyball/runtime/config.py's check_exposure); the two Go
+// (engine/src/flyball/runtime/config.py's settle_exposure); the two Go
 // fronts -- `flyball run --serve-ui` and flyballd's routing -- proxy to a
 // runner on loopback, so they must make the same decision for the address
 // they listen on. They ask the runner rather than reading its file, since
@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -79,18 +80,19 @@ func Probe(ctx context.Context, client *http.Client, url string) (Door, error) {
 	return Door{Password: *body.Password, Token: *body.Token}, nil
 }
 
-// Refusal is the error for an open runner behind a front listening on addr.
-func Refusal(addr string) error {
-	return fmt.Errorf("refusing to serve an open runner (no password, no token) on %s:"+
-		" anyone who can reach it could operate the rig. Give the runner a password or a"+
-		" token (runner.auth in the rig file, --password/--token, or FLYBALL_PASSWORD/FLYBALL_TOKEN),"+
-		" listen on 127.0.0.1, or, to allow it knowingly, --insecure-open"+
-		" (runner.auth.insecure_open: true)", describe(addr))
+// RestrictedWarning is logged when an open runner, asked to be served on
+// addr beyond loopback, is served on loopback instead.
+func RestrictedWarning(addr, loopback string) string {
+	return fmt.Sprintf("asked to serve on %s, but the runner has no password and no token:"+
+		" serving on %s only, so nothing beyond this machine can reach the rig. To serve it on"+
+		" the network give the runner a password or a token (runner.auth in the rig file,"+
+		" --password/--token, FLYBALL_PASSWORD/FLYBALL_TOKEN; `flyball password` makes one),"+
+		" or, knowingly, --insecure-open or FLYBALL_INSECURE_OPEN=1", describe(addr), loopback)
 }
 
 // OpenWarning is logged when an open runner is exposed by choice.
 func OpenWarning(addr string) string {
-	return fmt.Sprintf("serving an OPEN runner on %s (insecure_open): anyone who can reach it may operate the rig", describe(addr))
+	return fmt.Sprintf("serving an OPEN runner on %s (--insecure-open): anyone who can reach it may operate the rig", describe(addr))
 }
 
 // CleartextWarning is logged when credentials are served beyond loopback
@@ -100,19 +102,53 @@ func CleartextWarning(addr string) string {
 		" cross the network unencrypted; put TLS in front, or listen on 127.0.0.1", describe(addr))
 }
 
-// Decide is the front's rule for a runner with door d behind addr: an
-// error to refuse with, else a warning to log ("" for none).
-func Decide(addr string, d Door, insecureOpen bool) (warning string, refuse error) {
+// Plan is where a front asked to listen on Requested serves a runner.
+type Plan struct {
+	Requested string // the address asked for
+	Addr      string // the address to listen on: Requested, or loopback for an open runner
+	Open      bool   // the runner has no password and no token
+	Warning   string // one line for stderr; "" for none
+}
+
+// Restricted is an open runner moved to loopback.
+func (p Plan) Restricted() bool { return p.Addr != p.Requested }
+
+// OpenNetwork is an open runner reachable beyond this machine, by choice.
+func (p Plan) OpenNetwork() bool { return p.Open && !IsLoopback(p.Addr) }
+
+// Exposure is the plan as the runner's GET /api/auth and /api/health
+// report it (`exposure`), so the dashboard can warn.
+func (p Plan) Exposure() map[string]any {
+	host, port, _ := net.SplitHostPort(p.Addr)
+	n, _ := strconv.Atoi(port)
+	var warning any
+	if p.Warning != "" {
+		warning = p.Warning
+	}
+	return map[string]any{
+		"requested": p.Requested, "host": host, "port": n, "open": p.Open,
+		"restricted": p.Restricted(), "open_network": p.OpenNetwork(), "warning": warning,
+	}
+}
+
+// Decide is the front's rule for a runner with door d behind addr. An
+// auth misconfiguration removes exposure, never operation: an open runner
+// beyond loopback is served on 127.0.0.1 (the same port) unless
+// insecureOpen, never refused.
+func Decide(addr string, d Door, insecureOpen bool) Plan {
+	plan := Plan{Requested: addr, Addr: addr, Open: d.Open()}
 	switch {
 	case IsLoopback(addr):
-		return "", nil
 	case d.Open() && !insecureOpen:
-		return "", Refusal(addr)
+		_, port, _ := net.SplitHostPort(addr)
+		plan.Addr = net.JoinHostPort("127.0.0.1", port)
+		plan.Warning = RestrictedWarning(addr, plan.Addr)
 	case d.Open():
-		return OpenWarning(addr), nil
+		plan.Warning = OpenWarning(addr)
 	default:
-		return CleartextWarning(addr), nil
+		plan.Warning = CleartextWarning(addr)
 	}
+	return plan
 }
 
 func describe(addr string) string {

@@ -24,20 +24,27 @@ func TestIsLoopback(t *testing.T) {
 
 func TestDecide(t *testing.T) {
 	open, token := Door{}, Door{Token: true}
-	if w, err := Decide("127.0.0.1:8000", open, false); w != "" || err != nil {
-		t.Errorf("loopback, open: (%q, %v), want nothing", w, err)
+	if p := Decide("127.0.0.1:8000", open, false); p.Warning != "" || p.Addr != "127.0.0.1:8000" || p.Restricted() || p.OpenNetwork() {
+		t.Errorf("loopback, open: %+v, want it as asked, nothing said", p)
 	}
-	if _, err := Decide(":8000", open, false); err == nil || !strings.Contains(err.Error(), "every interface") {
-		t.Errorf("every interface, open: %v, want a refusal naming it", err)
+	p := Decide(":8000", open, false)
+	if p.Addr != "127.0.0.1:8000" || !p.Restricted() || p.OpenNetwork() || !strings.Contains(p.Warning, "every interface") || !strings.Contains(p.Warning, "--insecure-open") {
+		t.Errorf("every interface, open: %+v, want loopback on the same port, and why", p)
 	}
-	if w, err := Decide("0.0.0.0:8000", open, true); err != nil || !strings.Contains(w, "OPEN") {
-		t.Errorf("opted in: (%q, %v), want the open warning", w, err)
+	if e := p.Exposure(); e["restricted"] != true || e["host"] != "127.0.0.1" || e["port"] != 8000 || e["requested"] != ":8000" {
+		t.Errorf("exposure = %v", e)
 	}
-	if w, err := Decide("0.0.0.0:8000", token, false); err != nil || !strings.Contains(w, "unencrypted") {
-		t.Errorf("with a token: (%q, %v), want the cleartext warning", w, err)
+	if p := Decide("[::]:8000", open, false); p.Addr != "127.0.0.1:8000" {
+		t.Errorf("::, open: %+v, want 127.0.0.1", p)
 	}
-	if w, err := Decide("0.0.0.0:8000", Door{Password: true}, false); err != nil || w == "" {
-		t.Errorf("with a password: (%q, %v), want the cleartext warning", w, err)
+	if p := Decide("0.0.0.0:8000", open, true); p.Addr != "0.0.0.0:8000" || !p.OpenNetwork() || !strings.Contains(p.Warning, "OPEN") {
+		t.Errorf("opted in: %+v, want as asked, with the open warning", p)
+	}
+	if p := Decide("0.0.0.0:8000", token, false); p.Addr != "0.0.0.0:8000" || p.OpenNetwork() || !strings.Contains(p.Warning, "unencrypted") {
+		t.Errorf("with a token: %+v, want the cleartext warning", p)
+	}
+	if p := Decide("0.0.0.0:8000", Door{Password: true}, false); p.Restricted() || p.Warning == "" {
+		t.Errorf("with a password: %+v, want the cleartext warning", p)
 	}
 }
 

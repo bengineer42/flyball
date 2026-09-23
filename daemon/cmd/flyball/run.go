@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,11 +31,13 @@ import (
 // reverse-proxying /api, /ws and /mcp to the runner -- so the runner is
 // reachable through the CLI's own binary with no separate reverse proxy
 // in front of it (see serve_ui.go). On an address beyond loopback it
-// serves nothing until the runner answers GET /api/auth: an open runner
-// (no password, no token) is stopped and the command fails, unless
-// --insecure-open or runner.auth.insecure_open says to serve it anyway;
-// a runner with credentials is served with a warning that plain HTTP
-// carries them in the clear.
+// serves nothing until the runner answers GET /api/auth. An auth
+// misconfiguration removes exposure, never operation: an open runner (no
+// password, no token) keeps running and the UI is served on 127.0.0.1 on
+// the same port instead, with one warning saying why, unless
+// --insecure-open or FLYBALL_INSECURE_OPEN=1 (per run: never a rig-file
+// key) says to serve it where asked. A runner with credentials is served
+// with a warning that plain HTTP carries them in the clear.
 //
 // --uv runs `flyball-runner` via `uv run --project <dir>` instead of
 // execing it bare, where <dir> is the rig file's own directory -- the
@@ -60,7 +63,7 @@ func runDirect(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
 	}
-	insecureOpen := insecureOpenRequested(args, args[0])
+	insecureOpen := insecureOpenRequested(args)
 
 	var cmd *exec.Cmd
 	if useUV {
@@ -96,27 +99,25 @@ func runDirect(args []string) error {
 
 	uiCtx, cancelUI := context.WithCancel(context.Background())
 	defer cancelUI()
-	refused := make(chan error, 1)
 	uiDone := make(chan struct{})
 	if !wantUI {
 		close(uiDone)
 	} else {
 		go func() {
 			defer close(uiDone)
+			var plan *exposure.Plan
 			if !exposure.IsLoopback(serveAddr) {
 				// Beyond loopback the front serves nothing until the runner
-				// has said it has a door: an open one is refused and stopped.
-				if err := guardExposure(uiCtx, serveAddr, port, insecureOpen); err != nil {
-					if uiCtx.Err() != nil {
-						return // the runner exited first
-					}
-					refused <- err
-					stopRunner(cmd)
-					return
+				// has said what door it has: an open one gets loopback only.
+				p, err := guardExposure(uiCtx, serveAddr, port, insecureOpen)
+				if err != nil {
+					return // the runner exited first
 				}
+				plan = &p
+				serveAddr = p.Addr
 			}
 			fmt.Fprintf(os.Stderr, "flyball: serving UI on %s, proxying to runner on 127.0.0.1:%s\n", serveAddr, port)
-			if err := serveUI(uiCtx, serveAddr, port); err != nil {
+			if err := serveUI(uiCtx, serveAddr, port, plan); err != nil {
 				fmt.Fprintln(os.Stderr, "flyball: UI server:", err)
 			}
 		}()
@@ -125,67 +126,52 @@ func runDirect(args []string) error {
 	err := cmd.Wait()
 	cancelUI() // the runner is gone: stop the front, and wait for it
 	<-uiDone
-	select {
-	case r := <-refused:
-		return r
-	default:
-		return err
-	}
+	return err
 }
 
 // guardExposure waits for the runner on 127.0.0.1:port to answer
-// GET /api/auth, then applies exposure.Decide for a front on addr: an
-// error for an open runner not opted in (or one whose door cannot be
-// read), else nil after logging any warning. Returns ctx's error if the
-// runner exits first.
-func guardExposure(ctx context.Context, addr, port string, insecureOpen bool) error {
+// GET /api/auth, then plans the front on addr (exposure.Decide), logging
+// its warning. A runner whose door cannot be read counts as open. Returns
+// ctx's error if the runner exits first.
+func guardExposure(ctx context.Context, addr, port string, insecureOpen bool) (exposure.Plan, error) {
 	fmt.Fprintf(os.Stderr, "flyball: waiting for the runner on 127.0.0.1:%s before serving the UI on %s\n", port, addr)
 	url := "http://127.0.0.1:" + port + "/api/auth"
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		door, err := exposure.Probe(ctx, client, url)
-		if err == nil {
-			warning, refuse := exposure.Decide(addr, door, insecureOpen)
-			if refuse != nil {
-				return refuse
+		if err == nil || errors.Is(err, exposure.ErrNotADoor) {
+			// It answered; if not as a runner's door, it cannot tell: open.
+			plan := exposure.Decide(addr, door, insecureOpen)
+			if plan.Warning != "" {
+				fmt.Fprintln(os.Stderr, "flyball: WARNING:", plan.Warning)
 			}
-			if warning != "" {
-				fmt.Fprintln(os.Stderr, "flyball: WARNING:", warning)
-			}
-			return nil
-		}
-		if errors.Is(err, exposure.ErrNotADoor) {
-			// It answered, but not as a runner's door: cannot tell, so refuse.
-			return fmt.Errorf("cannot tell whether the runner has a password or a token (%v); not serving it on %s", err, addr)
+			return plan, nil
 		}
 		// No answer yet: the runner is still starting.
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return exposure.Plan{}, ctx.Err()
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
 }
 
-// stopRunner asks the runner to stop as Ctrl-C would, and kills it if it
-// has not within 15 s.
-func stopRunner(cmd *exec.Cmd) {
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	time.AfterFunc(15*time.Second, func() { _ = cmd.Process.Kill() })
-}
-
 // insecureOpenRequested is the explicit opt-in to serve an open runner
-// beyond loopback: --insecure-open among the runner's flags (left there,
-// so the runner sees it too), or runner.auth.insecure_open in the file.
-func insecureOpenRequested(args []string, rigPath string) bool {
+// beyond loopback, per run only: --insecure-open among the runner's flags
+// (left there, so the runner sees it too), or FLYBALL_INSECURE_OPEN set to
+// 1/true/yes/on (inherited by the runner). Never a rig-file key: a file
+// can be pasted from anywhere, and `extends` would inherit it.
+func insecureOpenRequested(args []string) bool {
 	for _, a := range args {
 		if a == "--insecure-open" {
 			return true
 		}
 	}
-	auth, _ := runnerSection(rigPath)["auth"].(map[string]any)
-	on, _ := auth["insecure_open"].(bool)
-	return on
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("FLYBALL_INSECURE_OPEN"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // runYAMLDefaults reads rigPath's own document -- `extends` resolved the

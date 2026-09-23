@@ -1,18 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"flyballd/internal/exposure"
 	"flyballd/internal/webui"
 )
 
@@ -20,8 +26,11 @@ import (
 // /api, /ws and /mcp to the runner on 127.0.0.1:port -- so `flyball run
 // RIG-FILE --serve-ui :80` is reachable on its own, no nginx or other
 // reverse proxy needed in front of it. Runs until ctx is cancelled
-// (runDirect cancels it once the runner itself exits).
-func serveUI(ctx context.Context, addr string, port string) error {
+// (runDirect cancels it once the runner itself exits). A non-nil plan is
+// the front's own exposure beyond what the runner knows (it listens on
+// loopback): it replaces `exposure` in the runner's GET /api/auth, so the
+// dashboard warns about the front, not the runner behind it.
+func serveUI(ctx context.Context, addr string, port string, plan *exposure.Plan) error {
 	dist, err := fs.Sub(webui.Dist, "dist")
 	if err != nil {
 		return fmt.Errorf("embedded UI: %w", err)
@@ -39,8 +48,11 @@ func serveUI(ctx context.Context, addr string, port string) error {
 	// the runner has answered a request at least once, then log errors
 	// the way httputil.ReverseProxy does by default.
 	var upstreamReady atomic.Bool
-	proxy.ModifyResponse = func(*http.Response) error {
+	proxy.ModifyResponse = func(resp *http.Response) error {
 		upstreamReady.Store(true)
+		if plan != nil {
+			return reportExposure(resp, *plan)
+		}
 		return nil
 	}
 	proxy.ErrorHandler = quietStartupErrors(&upstreamReady)
@@ -66,6 +78,30 @@ func serveUI(ctx context.Context, addr string, port string) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// reportExposure rewrites `exposure` in a GET /api/auth answer to plan's.
+func reportExposure(resp *http.Response, plan exposure.Plan) error {
+	if resp.StatusCode != http.StatusOK || !strings.HasSuffix(resp.Request.URL.Path, "/api/auth") ||
+		resp.Header.Get("Content-Encoding") != "" {
+		return nil
+	}
+	raw, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	var body map[string]any
+	if json.Unmarshal(raw, &body) == nil {
+		body["exposure"] = plan.Exposure()
+		if rewritten, err := json.Marshal(body); err == nil {
+			raw = rewritten
+		}
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(raw))
+	resp.ContentLength = int64(len(raw))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(raw)))
+	return nil
 }
 
 // quietStartupErrors returns a ReverseProxy ErrorHandler that drops
