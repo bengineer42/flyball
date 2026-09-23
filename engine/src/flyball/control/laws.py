@@ -127,15 +127,22 @@ class IComponent:
             error: Setpoint minus reading.
             elapsed: Seconds since the law was reset or resumed.
             last_applied: What was delivered last step, for back-calculation
-                anti-windup. Ignored without `tt`.
+                anti-windup: the integral's output moves toward it by
+                `(last_applied - last_raw) * (1 - exp(-dt/tt))`, so it never
+                crosses it however long the step. Ignored without `tt`.
         """
         dt = elapsed - self.last_elapsed
         if dt < 0.0:
             return 0.0
         self.last_elapsed = elapsed
         self.integral += error * dt
-        if self._tt_mul_ki and last_applied is not None and self.last_raw is not None:
-            self.integral += (last_applied - self.last_raw) * dt / self._tt_mul_ki
+        if self.tt > 0.0 and last_applied is not None and self.last_raw is not None:
+            # Back-calculation relaxes the integral's output toward what was
+            # applied with time constant tt, integrated exactly over dt: the
+            # gap closes by the fraction 1 - exp(-dt/tt), never more. Forward
+            # Euler (dt/tt) overshoots once dt > tt and diverges past 2*tt.
+            k = 1.0 - exp(-dt / self.tt)
+            self.integral += (last_applied - self.last_raw) * k / self._ki
         return dt
 
     def update_output(self, output: float) -> None:

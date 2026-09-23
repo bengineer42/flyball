@@ -9,6 +9,12 @@ the commit is deferred to the end of the delivery -- then
 [delivered][flyball.model.controller.Controller.delivered] closes the tick
 with the write state. Until one is injected, a demand is recorded on the
 controller and nothing is written.
+
+A second injected callable, `hold`, says whether the rig would refuse the
+write now (a stale source, a limit not yet known) and why. While it does,
+the controller is frozen: the law does not step and nothing is written, so
+the integral cannot wind up against a write that never lands; the first
+step after the hold counts as one ordinary interval.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from flyball.foundation import (
     WriteState,
     require,
 )
-from flyball.foundation.device import Access
+from flyball.foundation.device import Access, Kind
 from flyball.model.errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
@@ -167,6 +173,8 @@ class Controller:
     lock: RLock
     _base: float | None = None
     """The feedforward's part of the last demand, so a deferred delivery can split the rest."""
+    held: Kind | None = None
+    """Why the last tick was held (`stale_input`, `limit_unknown`); None when it stepped."""
 
     def __init__(
         self,
@@ -178,6 +186,7 @@ class Controller:
         feedforward: Feedforward | FeedforwardConfig | None = None,
         min_period_s: float | None = None,
         write: Callable[[float], float | None] | None = None,
+        hold: Callable[[], Kind | None] | None = None,
     ) -> None:
         if Access.W not in target.access:
             raise ConflictError(f"{target.address} [{target.access}] is not writable")
@@ -200,6 +209,8 @@ class Controller:
         self.feedforward = built
         self.write: Callable[[float], float | None] = self._unwired if write is None else write
         """How a demand reaches the target: the rig's `demand`, returning the committed value."""
+        self.hold: Callable[[], Kind | None] = self._never_held if hold is None else hold
+        """Why the rig would refuse a write now, or None: asked before the law steps."""
         self.law = None
         if law is not None:
             self._set_law(law)
@@ -212,6 +223,11 @@ class Controller:
     @staticmethod
     def _unwired(demand: float) -> float | None:
         """Nothing to write to yet: the demand is recorded on the controller, not delivered."""
+        return None
+
+    @staticmethod
+    def _never_held() -> Kind | None:
+        """Nothing to refuse a write: no rig in front of the target."""
         return None
 
     @property
@@ -445,29 +461,42 @@ class Controller:
             return
 
         if self.mode.active():
+            # The rig would refuse the write: freeze. Stepping the law against
+            # a demand that never lands winds the integral up (back-calculation
+            # has no delivered value to pull against) and slams the output
+            # when the hold ends. The law's clock skips the hold on return.
+            if (reason := self.hold()) is not None:
+                self.held = reason
+                return
+            resumed, self.held = self.held is not None, None
             setpoint = self.setpoint_at(time_ns)
             if reading is not None and self.mode is ControllerMode.REGULATING:
-                self._skip_outage(time_ns)
+                self._skip_outage(time_ns, resumed=resumed)
                 self._last_step_ns = time_ns
                 self.correction = self.required_law.step(
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
             self._apply_demand(setpoint, self.rate_at(time_ns))
 
-    def _skip_outage(self, time_ns: int) -> None:
+    def _skip_outage(self, time_ns: int, *, resumed: bool = False) -> None:
         """Keep a gap in the readings out of the law's time.
 
         A source that went quiet (a sensor offline, a stalled poll) comes back
         with one reading after the whole gap; stepped as is, the law would
         integrate the error over all of it at once. Past `OUTAGE_STEPS` usual
         intervals, the law's clock is moved on by the gap less one interval,
-        so the first step after an outage counts as one ordinary step.
+        so the first step after an outage counts as one ordinary step. The
+        first step after a hold (`resumed`) is treated the same way whatever
+        the gap's length: at most one usual interval, none if there is no
+        usual interval yet.
         """
         last, interval = self._last_step_ns, self._step_interval_ns
         if last is None:
             return
         gap = time_ns - last
-        if interval is not None and gap > OUTAGE_STEPS * interval:
+        if resumed:
+            self.offset_ns += max(0, gap - (interval or 0))
+        elif interval is not None and gap > OUTAGE_STEPS * interval:
             self.offset_ns += gap - interval
         elif gap > 0:
             self._step_interval_ns = gap

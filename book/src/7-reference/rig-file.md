@@ -114,10 +114,12 @@ stale_after, limits, max_rate, tags, access, readable, publishing, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by; `stale_after` is seconds since the last reading beyond which a
-controller regulated from the signal holds its demand rather than apply it;
+controller regulated from the signal is held -- its law does not step and
+its demand is not applied;
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
-elapsed time allows, not refused; `limits` only narrows: a demand is clamped
+elapsed time allows, up to one update period (`poll_s`, else the controller's
+`min_period_s`, else 1 s), not refused; `limits` only narrows: a demand is clamped
 to the intersection of the driver's limits and the file's, resolved at each
 demand, and a file bound past a numeric driver bound is refused at load);
 `access` names the set to keep (`"r"`), and
