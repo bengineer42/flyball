@@ -254,7 +254,7 @@ A manifest:
 | `root_path` | `/NAME` | `/segments` of the same characters. One that contains another rig's, or is under `/api`, is refused |
 | `restart` | `on-failure` | below |
 | `network` | `unix` (`tcp` on Windows) | how the front reaches the runner: a socket in its front-dir, or loopback TCP -- `tcp` for a runner in another network namespace |
-| `host`, `port` | `127.0.0.1`, none | `network: tcp` only, and `port` is required there; `host` must be loopback |
+| `host`, `port` | `127.0.0.1`, none | `network: tcp` only, and `port` is required there; `host` must be loopback. Any local user can connect to that port; `flyballd` logs a warning |
 | `enabled` | `true` | `false`: not started |
 | `uv_project` | none | a directory to `uv run --project` `flyball-runner` from, when it isn't on `flyballd`'s own `$PATH` |
 
@@ -282,7 +282,12 @@ front-dirs to be where the last `flyballd` left them: under systemd,
 `/run/flyball/<name>` kept across restarts (the unit below); otherwise
 `$XDG_RUNTIME_DIR/flyball/<id>/<name>`, the id derived from the path of
 `flyballd.yaml`. With no private runtime directory `flyballd` warns at
-start that its runners get temporary front-dirs and will not be adopted.
+start that its runners get temporary front-dirs and will not be adopted;
+it warns for one runner when the runtime directory is too deep for that
+runner's socket path. Such a runner, left running by a `flyballd` that
+stopped, keeps the rig: the next `flyballd`'s runner for it exits 3 and
+the rig is `busy` until the old runner is ended (`kill <pid>`, the pid in
+its `<store>.lock`).
 An adopted runner is not `flyballd`'s child: when it exits, its exit
 status cannot be known, and the manifest's `restart` policy treats it as a
 crash.

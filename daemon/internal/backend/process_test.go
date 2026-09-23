@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -185,6 +186,64 @@ func TestStopKillsTheRunnersGroup(t *testing.T) {
 		t.Errorf("the runner (pid %d) under uv survived Stop", pid)
 	}
 }
+
+// network: tcp is logged when the runner is started (flyballd's log and
+// the runner's): its port is open to every local user.
+func TestTCPIsLogged(t *testing.T) {
+	var buf strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.Write(p) }))
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", Network: "tcp", Port: 8123}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	logged := buf.String()
+	mu.Unlock()
+	if !strings.Contains(logged, "network: tcp") || !strings.Contains(logged, "127.0.0.1:8123") {
+		t.Errorf("flyballd's log: %q, want a line naming network: tcp and the port", logged)
+	}
+	if l := readFile(t, filepath.Join(b.logDir, "r.log")); !strings.Contains(l, "network: tcp") {
+		t.Errorf("the runner's log: %q, want the tcp line", l)
+	}
+	buf.Reset()
+	b.Start("u", Spec{ServerConfig: "rig.yaml"})
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Contains(buf.String(), "network: tcp") {
+		t.Errorf("a unix runner logged %q", buf.String())
+	}
+}
+
+// A runtime dir too deep for a socket path under it gives a runner a temp
+// front-dir, which the next flyballd cannot find: its runner will not be
+// adopted. That is logged, naming the runner.
+func TestATempFrontDirUnderARootIsLogged(t *testing.T) {
+	var buf strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.Write(p) }))
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	deep := filepath.Join(t.TempDir(), strings.Repeat("d", 90))
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	b.SetFront(FrontOptions{Root: deep})
+	mustStart(t, b, "r")
+	if dir := frontDirOf(t, b, "r"); strings.HasPrefix(dir, deep) {
+		t.Fatalf("front-dir %s under the too-deep root", dir)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(buf.String(), "runner r") || !strings.Contains(buf.String(), "not be adopted") {
+		t.Errorf("flyballd's log: %q, want a warning that runner r's front-dir is temporary", buf.String())
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // Restart kills a runner that ignores SIGTERM after Stop's timeout -- a
 // read stuck in a driver must not make it wait for ever -- and a new

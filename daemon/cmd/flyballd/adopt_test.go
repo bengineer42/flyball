@@ -291,6 +291,29 @@ func TestARestartedFlyballdAdoptsItsRunner(t *testing.T) {
 	}
 }
 
+// A flyballd killed with -9 leaves exactly what a SIGTERMed one does --
+// Detach writes and removes nothing -- so the next one adopts its runner
+// all the same (given a front-dir it can find: a private runtime dir).
+func TestASIGKILLedFlyballdsRunnerIsAdopted(t *testing.T) {
+	fakeOnPath(t)
+	dir, cfg := daemonFixture(t, "", "name: oven\n")
+	t.Cleanup(func() { killRunners(t, dir) })
+	d1 := spawnDaemon(t, dir, cfg)
+	manage := d1.token("manage")
+	first := echo(t, d1.testDaemon, nil)
+	d1.cmd.Process.Signal(syscall.SIGKILL)
+	d1.exit(t)
+
+	d2 := spawnDaemon(t, dir, cfg)
+	r := row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" })
+	if !r.Adopted || r.Pid != first.Pid {
+		t.Fatalf("/api/runners: %+v, want adopted, pid %d\n%s", r, first.Pid, d2.logs)
+	}
+	if again := echo(t, d2.testDaemon, nil); again.Pid != first.Pid || again.Key != first.Key {
+		t.Fatalf("through the restarted front: pid %d, want the same runner (pid %d) and key", again.Pid, first.Pid)
+	}
+}
+
 // A runner.lock held by a runner flyballd cannot adopt -- one too old to
 // enforce the principal, or one under another key -- leaves the rig busy
 // with the reason; its key is never rewritten and the front does not
@@ -387,6 +410,51 @@ func TestRealRunnerIsAdopted(t *testing.T) {
 	}
 	body := d2.until("/oven/api/runner", "", 10*time.Second, nil)
 	t.Logf("adopted pid %d; /oven/api/runner through the new front: %.120s", r.Pid, body)
+}
+
+// With no private runtime dir a runner's front-dir is a temp dir the next
+// flyballd cannot find: after flyballd dies (here kill -9; SIGTERM is the
+// same), the next one does not adopt the runner, its own runner exits 3
+// on the rig's store lock, and the rig is busy while the old runner runs
+// on. flyballd says so at start. (What the wave-1 resilience run saw.)
+func TestWithNoRuntimeDirTheRunnerIsNotAdopted(t *testing.T) {
+	bin, _ := filepath.Abs("../../../engine/.venv/bin")
+	if _, err := os.Stat(filepath.Join(bin, "flyball-runner")); err != nil {
+		t.Skipf("no flyball-runner in %s (cd engine && UV_FROZEN=1 uv sync --all-extras)", bin)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	rig, err := os.ReadFile("../../../examples/simulated/oven.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, cfg := daemonFixture(t, "", string(rig))
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	tmp, err := os.MkdirTemp("", "ft") // the temp front-dirs, short enough for a socket path
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	t.Setenv("TMPDIR", tmp)
+	d1 := spawnDaemon(t, dir, cfg)
+	if !strings.Contains(d1.logs.String(), "is not adopted") || !strings.Contains(d1.logs.String(), "busy") {
+		t.Errorf("flyballd with no runtime dir did not say its runners will not be adopted:\n%s", d1.logs)
+	}
+	manage := d1.token("manage")
+	first := row(t, d1.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" && r.Pid != 0 })
+	t.Cleanup(func() {
+		syscall.Kill(first.Pid, syscall.SIGTERM)
+		for end := time.Now().Add(10 * time.Second); alive(first.Pid) && time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		}
+		syscall.Kill(first.Pid, syscall.SIGKILL)
+	})
+	d1.cmd.Process.Signal(syscall.SIGKILL)
+	d1.exit(t)
+
+	d2 := spawnDaemon(t, dir, cfg)
+	r := row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "busy" })
+	if r.Adopted || !strings.Contains(r.Reason, "exit 3") || !alive(first.Pid) {
+		t.Fatalf("/api/runners: %+v, want busy on exit 3, the first runner (pid %d) alive and not adopted", r, first.Pid)
+	}
 }
 
 // buildCLI builds the flyball CLI (../flyball) into a temp dir.

@@ -54,7 +54,10 @@ only by its `<store>.lock`.
 
 TCP is used only where a unix socket cannot be: on Windows, and for a
 `flyballd` manifest that says `network: tcp` (a runner in another network
-namespace). The same signed principal protects both.
+namespace). The same signed principal protects both, but a loopback port
+is open to every local user, and one who binds it first (while the runner
+is down) would be taken for the runner; `flyballd` logs a warning when it
+starts a runner on TCP.
 
 ## Readiness
 
@@ -168,4 +171,6 @@ An adopted runner is not `flyballd`'s child, so its exit status cannot be
 known: when its pid goes, the manifest's `restart` policy treats it as a
 crash. A runner spawned into a front-dir that another runner took
 meanwhile exits 3 on its `runner.lock`; that one is adopted the same way.
-`flyball run` has no adoption: its runner stops with it.
+A runner in a temporary front-dir (no private runtime directory, or one
+too deep for a socket path under it) cannot be found: `flyballd` warns of
+it at start. `flyball run` has no adoption: its runner stops with it.

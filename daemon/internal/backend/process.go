@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -255,6 +256,21 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 		return "", fmt.Errorf("runner %s: %w", name, err)
 	}
 
+	var warnings []string
+	if network == "tcp" {
+		warnings = append(warnings, fmt.Sprintf("runner %s: network: tcp, on %s: any local user can connect to that port"+
+			" (the runner still demands the front's signed principal), and a process that binds it first is taken for the runner;"+
+			" a unix socket in a 0700 front-dir has neither exposure", name, ep.Address))
+	}
+	if tempDir && b.front.Root != "" {
+		warnings = append(warnings, fmt.Sprintf("runner %s: %s/%s/%s would be over %d bytes, so its front-dir is a temp dir (%s):"+
+			" a restarted flyballd cannot find it, and this runner will not be adopted -- the next flyballd's runner exits 3 and the rig is busy"+
+			" while this one runs on; use a shorter runtime dir", name, b.front.Root, name, frontdir.Sock, endpoint.MaxSocketPath, dir))
+	}
+	for _, w := range warnings {
+		log.Printf("WARNING: %s", w)
+	}
+
 	logPath := filepath.Join(b.logDir, name+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -269,6 +285,10 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 			os.RemoveAll(dir)
 		}
 		return "", fmt.Errorf("restricting log file for %s: %w", name, err)
+	}
+
+	for _, w := range warnings {
+		fmt.Fprintf(logFile, "flyballd: WARNING: %s\n", w)
 	}
 
 	// No --host/--port: the runner binds what <front-dir>/endpoint says.
