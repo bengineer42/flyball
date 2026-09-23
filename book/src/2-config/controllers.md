@@ -15,7 +15,7 @@ controllers:
 | key | type | |
 | --- | --- | --- |
 | `signal` | address | the source, a publishing signal |
-| `law` | `{tag, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b}` (`tt`: anti-windup tracking time; `b`: setpoint weight); `IMC {gain, tau, dead_time, lam, derivative}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …]}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
+| `law` | `{tag, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
 | `feedforward` | `{tag, …}` | `setpoint` (the source's unit passed through); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | step the law at most this often |
