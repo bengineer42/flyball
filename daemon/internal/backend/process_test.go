@@ -476,6 +476,8 @@ func readFile(t *testing.T, path string) string {
 
 // recorder runs a fake runner that writes its argv, env and front-dir key
 // to out/<n>.{argv,env,key} for its n-th incarnation, then runs script.
+// <n>.key is written last, and renamed into place: once it exists, all
+// three are complete (a test that kills the runner waits for it).
 func recorder(b *ProcessBackend, out, script string) func() int {
 	var mu sync.Mutex
 	n := 0
@@ -484,7 +486,7 @@ func recorder(b *ProcessBackend, out, script string) func() int {
 		n++
 		i := n
 		mu.Unlock()
-		rec := fmt.Sprintf(`o=%s/%d; printf '%%s\n' "$@" > $o.argv; env > $o.env; cat "$3/key" > $o.key 2>/dev/null; `, out, i)
+		rec := fmt.Sprintf(`o=%s/%d; printf '%%s\n' "$@" > $o.argv; env > $o.env; cat "$3/key" > $o.key.tmp 2>/dev/null; mv $o.key.tmp $o.key; `, out, i)
 		return exec.Command("sh", append([]string{"-c", rec + script, "sh"}, args...)...)
 	}
 	return func() int { mu.Lock(); defer mu.Unlock(); return n }
@@ -507,8 +509,7 @@ func TestSpawnWritesFrontDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := frontDirOf(t, b, "r")
-	eventually(t, "the runner's record", func() bool { _, err := os.Stat(out + "/1.env"); return err == nil })
-	time.Sleep(50 * time.Millisecond)
+	eventually(t, "the runner's record", func() bool { _, err := os.Stat(out + "/1.key"); return err == nil })
 
 	if m := mode(t, dir); m != 0o700 {
 		t.Errorf("front-dir %v, want 0700", m)
@@ -561,13 +562,12 @@ func TestRespawnFreshKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := frontDirOf(t, b, "r")
-	eventually(t, "the first record", func() bool { _, err := os.Stat(out + "/1.env"); return err == nil })
+	eventually(t, "the first record", func() bool { _, err := os.Stat(out + "/1.key"); return err == nil })
 	first := b.pid("r")
 	firstKey := readFile(t, filepath.Join(dir, "key"))
 
 	syscall.Kill(first, syscall.SIGKILL)
-	eventually(t, "a respawn", func() bool { _, err := os.Stat(out + "/2.env"); return err == nil && spawned() == 2 })
-	time.Sleep(50 * time.Millisecond)
+	eventually(t, "a respawn", func() bool { _, err := os.Stat(out + "/2.key"); return err == nil && spawned() == 2 })
 
 	if k := readFile(t, filepath.Join(dir, "key")); k == firstKey {
 		t.Error("the respawn kept the dead runner's key")
