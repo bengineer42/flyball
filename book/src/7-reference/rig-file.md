@@ -212,12 +212,14 @@ Every named token expires. `tokens:` may only tighten the built-ins:
 | `default_lifetime` | `90d` | a token created without a lifetime of its own; at most `max_lifetime` |
 | `max_lifetime` | `365d` | the most any token may have; above 365 days is refused |
 
-A token of `kind: agent`, or one created over plain HTTP from another
-machine, lives at most 30 days, or `max_lifetime` if that is shorter. A
-lifetime asked for above the cap gets the cap. Durations are Go's (`36h`)
-or whole days (`30d`); a bad value warns and its built-in applies. `flyball
-token create --config PATH` reads the same block, so a token made offline
-gets the same limits.
+A token of `kind: agent`, one created over plain HTTP from another
+machine, or one asking for a scope above `read` from the admin session
+(`flyball login --scope`, or anything else that holds the password and
+calls `POST /api/auth/tokens` directly) lives at most 30 days, or
+`max_lifetime` if that is shorter. A lifetime asked for above the cap gets
+the cap. Durations are Go's (`36h`) or whole days (`30d`); a bad value
+warns and its built-in applies. `flyball token create --config PATH` reads
+the same block, so a token made offline gets the same limits.
 
 ### Proxy presets
 

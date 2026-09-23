@@ -712,8 +712,15 @@ func (f *Front) createToken(w http.ResponseWriter, r *http.Request, c Caller) {
 		life = time.Duration(*body.ExpiresIn * float64(time.Second))
 	}
 	cleartext := f.scheme(r) == "http" && !isLoopbackPeer(r)
+	// D-036 safeguard 3: an operate-or-above token minted from the admin
+	// session (what `flyball login` authenticates as, but also anything
+	// else that holds the password) lives at most 30 d, whatever the
+	// config says -- the client already asks for that, but the server
+	// enforces it itself rather than trusting the request (merge
+	// requirement-style fail-closed; F2 of the wave-1 review).
+	elevatedSession := c.Scheme == SchemeSession && scopesAboveRead(scopes)
 	secret, tok, err := f.tokens.Create(store.NewToken{Name: body.Name, Scopes: scopes, Kind: body.Kind,
-		Issuer: c.Sub, ExpiresIn: life, Cleartext: cleartext})
+		Issuer: c.Sub, ExpiresIn: life, Cleartext: cleartext, Elevated: elevatedSession})
 	if err != nil {
 		var pathErr *fs.PathError
 		if errors.As(err, &pathErr) {
@@ -761,6 +768,18 @@ func (f *Front) revokeToken(w http.ResponseWriter, r *http.Request, c Caller, id
 		frontHeaders(w)
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// scopesAboveRead reports whether any of scopes (already normalized,
+// management already refused) names a verb other than read.
+func scopesAboveRead(scopes []string) bool {
+	for _, s := range scopes {
+		p, err := grants.ParseScope(s)
+		if err != nil || p.Verb != grants.Read {
+			return true
+		}
+	}
+	return false
 }
 
 func isLoopbackPeer(r *http.Request) bool {

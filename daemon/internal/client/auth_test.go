@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,8 +108,10 @@ func (er *echoRunner) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 // newTestFront builds a real front (password shape) over an httptest
-// server, its own tokens.json in t.TempDir(), and fronting er.
-func newTestFront(t *testing.T, er *echoRunner) (*httptest.Server, string) {
+// server, its own tokens.json in t.TempDir(), and fronting er. tweak, if
+// given, edits the Options before the front starts (e.g. to attach an
+// Audit).
+func newTestFront(t *testing.T, er *echoRunner, tweak ...func(*front.Options)) (*httptest.Server, string) {
 	t.Helper()
 	plan := front.Resolve(front.Config{Auth: "password", Password: scryptLine(testPassword, 16)}, false)
 	tokensPath := filepath.Join(t.TempDir(), "front", "tokens.json")
@@ -120,6 +123,9 @@ func newTestFront(t *testing.T, er *echoRunner) (*httptest.Server, string) {
 		TokensPath: tokensPath,
 		FailDelay:  time.Millisecond,
 		Sweep:      20 * time.Millisecond,
+	}
+	for _, f := range tweak {
+		f(&opts)
 	}
 	f := front.New(opts)
 	srv := httptest.NewServer(f)
@@ -171,6 +177,54 @@ func TestLoginWrongPassword(t *testing.T) {
 
 	if _, err := Login(Target{BaseURL: srv.URL}, "wrong", LoginOptions{}); err == nil {
 		t.Fatal("Login with the wrong password did not error")
+	}
+}
+
+// Wave-1 review F2: Login's own helper session (password -> session ->
+// token) used to be left alive after the token was minted, whether or
+// not the exchange succeeded -- unaudited as ever having ended, sitting
+// in the front's memory until its own idle/absolute timeout. It should
+// be logged out once Login is done with it.
+func TestLoginLogsOutItsHelperSession(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	er := newEchoRunner(t, "run-test")
+	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	audit, err := front.OpenAudit(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { audit.Close() })
+	srv, _ := newTestFront(t, er, func(o *front.Options) { o.Audit = audit })
+
+	if _, err := Login(Target{BaseURL: srv.URL}, testPassword, LoginOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec struct {
+			Event string `json:"event"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("audit line %q: %v", line, err)
+		}
+		events = append(events, rec.Event)
+	}
+	found := false
+	for _, e := range events {
+		if e == "logout" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("audit events %v: no logout -- Login's helper session was left alive", events)
 	}
 }
 

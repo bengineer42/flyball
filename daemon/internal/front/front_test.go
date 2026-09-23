@@ -1347,6 +1347,62 @@ func TestTokenRoutes(t *testing.T) {
 	}
 }
 
+// D-036 safeguard 3: an operate-or-above token minted from the admin
+// session lives at most 30 days, whatever the config says. The CLI
+// (`flyball login`) already asks for no more, but the server must not
+// rely on that: wave-1 review F2 found any HTTP client holding the
+// admin password could ask for up to the configured max (100 d here)
+// directly, past the CLI's own cap.
+func TestElevatedSessionTokenCappedAt30Days(t *testing.T) {
+	h := newHarness(t, Config{Auth: "password", Password: testScrypt, Tokens: &TokensConfig{MaxLifetime: "100d"}})
+	admin := h.login()
+
+	resp := h.do("POST", "/api/auth/tokens", `{"name":"ci","scopes":["operate:*"],"expires_in":7776000}`, withCookie(admin, h.origin())) // 90 d
+	if resp.StatusCode != 201 {
+		t.Fatalf("create: %d %s", resp.StatusCode, body(resp))
+	}
+	created := readJSON[map[string]any](t, resp)
+	exp, err := time.Parse(time.RFC3339, created["expires"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Until(exp); d > 31*24*time.Hour {
+		t.Fatalf("operate token from an admin session lived %v, want capped at 30 days (D-036 safeguard 3)", d)
+	}
+
+	// A read-only session token is not an elevated request: it still
+	// reaches the configured max, unaffected.
+	resp2 := h.do("POST", "/api/auth/tokens", `{"name":"ro","scopes":["read:*"],"expires_in":7776000}`, withCookie(admin, h.origin()))
+	if resp2.StatusCode != 201 {
+		t.Fatalf("create read: %d %s", resp2.StatusCode, body(resp2))
+	}
+	created2 := readJSON[map[string]any](t, resp2)
+	exp2, err := time.Parse(time.RFC3339, created2["expires"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Until(exp2); d < 89*24*time.Hour {
+		t.Fatalf("read-only session token capped unexpectedly: %v", d)
+	}
+
+	// The local shape is not the admin session: D-036 safeguard 3 names
+	// `flyball login`'s password/session flow, not a trusted local
+	// caller, so it is unaffected (default lifetimes: 365 d max).
+	l := newHarness(t, Config{})
+	respL := l.do("POST", "/api/auth/tokens", `{"name":"ci","scopes":["operate:*"],"expires_in":7776000}`, l.origin())
+	if respL.StatusCode != 201 {
+		t.Fatalf("local create: %d %s", respL.StatusCode, body(respL))
+	}
+	createdL := readJSON[map[string]any](t, respL)
+	expL, err := time.Parse(time.RFC3339, createdL["expires"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Until(expL); d < 89*24*time.Hour {
+		t.Fatalf("local-shape operate token capped unexpectedly: %v", d)
+	}
+}
+
 // Merge requirement 27: an old runner is never proxied to.
 func TestTooOldRunner(t *testing.T) {
 	h := newHarness(t, Config{})
