@@ -57,7 +57,7 @@ def test_start_polling_reads_on_the_period_and_delivers(rig, clock, furnace):
     assert rig.latest[zone1] == Reading(zone1, clock.now_ns(), 20.0)
     run = rig.polling.runs.changed_since(0)[1][furnace.name]
     assert run.last_read_ns == clock.now_ns() and run.conditions == ()
-    rig.stop()
+    rig.close()
     assert rig.polling.run(furnace.name).running is False
     clock.advance(1.0)
     assert furnace.reads == 2
@@ -155,7 +155,7 @@ def test_a_slow_read_raises_a_warning_condition(rig, furnace):
 
 
 def test_stop_gives_up_on_a_read_stuck_in_its_driver(monkeypatch, caplog, fresh):
-    """A hung read must not hang `rig.stop()` -- SIGTERM and a daemon Restart run it."""
+    """A hung read must not hang `rig.close()` -- SIGTERM and a daemon Restart run it."""
     monkeypatch.setattr(polling, "STOP_JOIN_S", 0.3)
     entered, release = threading.Event(), threading.Event()
 
@@ -174,7 +174,7 @@ def test_stop_gives_up_on_a_read_stuck_in_its_driver(monkeypatch, caplog, fresh)
         assert entered.wait(2.0), "the read never started"
         started = time.monotonic()
         with caplog.at_level(logging.WARNING, logger="flyball.polling"):
-            rig.stop()
+            rig.close()
         took = time.monotonic() - started
         assert took < 0.3 + 0.5, f"stop took {took:.2f} s"
         stuck_logs = [r for r in caplog.records if stuck.name in r.getMessage()]

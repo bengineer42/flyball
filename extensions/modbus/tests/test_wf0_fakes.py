@@ -76,7 +76,7 @@ class TestFakeBlockingGoesThroughTheWriter:
 
         _wait_until(lambda: chiller.link.writes != [])
         assert chiller.link.registers[100] == 250
-        rig.stop()
+        rig.close()
 
 
 class TestModbusTcpTimeout:

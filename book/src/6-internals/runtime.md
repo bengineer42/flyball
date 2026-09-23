@@ -152,10 +152,11 @@ tick — is arithmetic under the lock. What leaves it:
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
 
-`rig.stop()` stops all of it: polling, writers, recording. It waits for
-reads in progress for `STOP_JOIN_S` (2 s) in total; a poll thread still in
-its driver's `read` after that is abandoned -- it is a daemon thread -- and
-logged once by device name.
+`rig.close()` stops all of it: polling, writers, recording, then closes the
+rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
+total; a poll thread still in its driver's `read` after that is abandoned
+-- it is a daemon thread -- and logged once by device name. A link whose
+`close` raises is logged and skipped; the rest still close.
 
 `rig.remove_device` waits for neither thread. It runs under the lock, which
 a read or a write in flight needs in order to report, so it stops the

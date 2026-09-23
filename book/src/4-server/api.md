@@ -405,9 +405,14 @@ inside the widget's own `config`) names something this rig does not
 currently have; a readout wants a signal that publishes. The document is
 saved and returned as given; nothing is refused for this.
 
-Documents carry `schema_version: 2`. A version-1 document (bindings to
-channels, loops and actuators) is migrated on read, never refused, and
-what is stored stays as saved: `channel` (`"source.measurand"` or
+Documents carry `schema_version: 3`, which adds two fields to version 2:
+`readonly` (bool, default `false`: the app disables the dashboard's write
+controls for everyone; a convenience, not access control) and `order`
+(a number or `null`, default `null`: where its tab sits, ascending, with
+unordered dashboards after, newest saved first). An older document is
+migrated on read, never refused, and what is stored stays as saved. A
+version-2 document reads as writable and unordered. A version-1 document
+(bindings to channels, loops and actuators) is migrated too: `channel` (`"source.measurand"` or
 `{source, measurand}`) becomes `address`, `channels` become `addresses`,
 a `loop` widget's `loop` becomes `controller`, and an `actuator` widget
 becomes a `device` widget bound by `device`. A loop was named by its

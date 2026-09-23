@@ -34,6 +34,11 @@ export interface RigData {
   charts: ChartSettings;
   /** Pixels per grid row, from the document; with `GRID_MARGIN` it gives a tile's height from its `h`. */
   rowHeight: number;
+  /**
+   * Whether a widget's write controls (commands, Start/End, Interrupt) are live: the viewer may
+   * operate and the document is not `readonly`. Below that they render disabled, never hidden.
+   */
+  canWrite: boolean;
 }
 
 export const RigDataContext = createContext<RigData | null>(null);
@@ -46,6 +51,7 @@ export function useRigData(): RigData {
   return data;
 }
 export const useBindings = () => useRigData().bindings;
+export const useCanWrite = () => useRigData().canWrite;
 export const useControllersData = () => useContext(ControllersContext);
 export const useEventsData = () => useContext(EventsContext);
 

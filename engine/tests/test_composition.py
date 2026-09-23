@@ -86,7 +86,7 @@ def client(rig, store):
     set_runner(None)
     set_store(None)
     set_rig(None)
-    rig.stop()
+    rig.close()
 
 
 class TestRig:

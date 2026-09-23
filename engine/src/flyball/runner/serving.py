@@ -403,7 +403,7 @@ def serve(
         set_simulation(None)
         set_programmer(None)
         set_rig(None)
-        rig.stop()  # polling, writers, recording
+        rig.close()  # polling, writers, recording, links
         if previous is not None:
             signal.signal(signal.SIGTERM, previous)
     if handle.restarting:

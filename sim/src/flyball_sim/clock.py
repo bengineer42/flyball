@@ -115,14 +115,19 @@ class ScaledClock(Clock):
 
     __slots__ = ("_base_real_ns", "_base_scaled_ns", "_lock", "_speed")
 
-    def __init__(self, speed: float = 1.0, seconds: float | int | None = None) -> None:
+    def __init__(
+        self,
+        speed: float = 1.0,
+        seconds: float | int | None = None,
+        nanoseconds: int | None = None,
+    ) -> None:
         if speed <= 0:
             raise ValueError("speed must be positive")
         self._lock = Lock()
         self._speed = float(speed)
         self._base_real_ns = time.monotonic_ns()
         self._base_scaled_ns = self._base_real_ns
-        super().__init__(seconds)
+        super().__init__(seconds, nanoseconds)
 
     @property
     def speed(self) -> float:

@@ -215,7 +215,7 @@ class TestBlockingDevices:
         assert rig.write_states.changed_since(0)[1] == {heater1.address: expected}
         assert rig.controller_states.changed_since(0)[1][controller.name].expected == 100.0
         assert rig.write_conditions() == []
-        rig.stop()
+        rig.close()
 
     def test_a_manual_demand_returns_nothing_and_the_state_follows(self, rig, fresh, clock):
         slow = Slow(fresh("slow"))
@@ -227,7 +227,7 @@ class TestBlockingDevices:
         _wait_until(lambda: heater2 in slow.written)
         assert slow.committed == [{"heater2": 100.0}], "the newest value wins"
         assert slow.written[heater2] == WriteState(value=100.0)
-        rig.stop()
+        rig.close()
 
     def test_a_failing_bus_is_a_condition_and_an_event_until_a_write_succeeds(
         self, rig, fresh, clock
@@ -250,7 +250,7 @@ class TestBlockingDevices:
         rig.write(slow.root, {"heater1": 3.0})
         _wait_until(lambda: rig.write_conditions() == [])
         assert rig.recent[-1].kind == "write_recovered" and slow.written[heater1].value == 3.0
-        rig.stop()
+        rig.close()
 
     def test_a_synchronous_device_is_written_in_the_delivery(self, rig, furnace):
         heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
@@ -276,7 +276,7 @@ def test_stop_ends_polling_writers_and_recording(rig, fresh, recorder_module):
     rig.write(slow.root, {"heater1": 1.0})
     recorder = rig.start_recording(FakeStore())
     assert rig.polling.run(polled.name).running is True
-    rig.stop()
+    rig.close()
     assert rig.polling.run(polled.name).running is False
     assert rig.recorder is None and recorder.closed
     assert not rig._writers[slow]._thread.is_alive()

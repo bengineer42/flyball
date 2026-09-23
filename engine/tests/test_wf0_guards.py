@@ -285,7 +285,7 @@ def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
         assert _events(rig, Kind.WRITE_RECOVERED)
         assert rig.latest[device.signals["heater1"]].value == 20.0
     finally:
-        rig.stop()
+        rig.close()
 
 
 # endregion

@@ -23,11 +23,13 @@ disk until then.
 
 ```jsonc
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "name": "furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
   "grid": { "cols": 24, "row_height": 24 },
+  "readonly": false,
+  "order": null,
   "widgets": [
     { "id": "w1", "kind": "health", "x": 0, "y": 0, "w": 24, "h": 2, "config": { "tiles": ["rig", "recording", "devices", "controllers", "conditions"] } },
     { "id": "w2", "kind": "readout", "x": 0, "y": 2, "w": 6, "h": 5, "config": { "address": "furnace.zone1", "sparkline": true } },
@@ -59,6 +61,19 @@ rig does not currently have. The document is never refused for this: the
 widget shows the "unbound" state instead (a dashed border and the reason) so
 a renamed sensor does not cost you the rest of a twenty-widget dashboard. In
 edit mode, reconfigure or remove it from the widget's own `⋯` menu.
+
+`readonly` marks a dashboard for looking at, not operating: every write
+control on it, from a device widget's commands to the recording widget's
+Start and End and the program widget's Interrupt, shows but is disabled.
+Toggle it from the page bar's `⋯` menu (**Make read-only** / **Make
+writable**); like any edit, it takes effect at once and **Save** keeps it.
+It is a convenience for a wall display, not access control: anyone who may
+save the dashboard may turn it off. A screen that must not operate the rig
+should be a browser without the `operate` verb (see
+[access](runner/access.md)). Layout editing is unaffected. `order` places
+the dashboard among the others, ascending; dashboards without one follow,
+newest saved first. A version-2 document has neither and reads as
+writable and unordered.
 
 A document saved before the device model is `schema_version: 1` (bindings
 to channels, loops and actuators); it is migrated on read, never refused,

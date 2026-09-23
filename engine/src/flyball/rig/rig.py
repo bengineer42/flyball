@@ -151,7 +151,8 @@ class Rig:
     removed), with a one-line reason: the runner records a version."""
     on_recording_stopped: Callable[[], None] | None
     """Called after `stop_recording` closes a session, outside the lock: the runner reopens
-    its scratch record. Not called when a recording replaces another, nor by `stop`."""
+    its scratch record. Not called when a recording replaces another, nor by `close`."""
+    _closed: bool
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
@@ -192,6 +193,7 @@ class Rig:
         self.loaded = None
         self.on_change = None
         self.on_recording_stopped = None
+        self._closed = False
 
     @property
     def latest(self) -> dict[Signal, Reading]:
@@ -285,12 +287,26 @@ class Rig:
             if (failed := writer.failed) is not None
         ] + [(device.name, failed) for device, failed in list(self._commit_failures.items())]
 
-    def stop(self) -> None:
-        """Stop what runs on threads: polling, writers, recording. The rig can be built again."""
+    def close(self) -> None:
+        """Tear down: polling, writers, recording, links. The rig can be built again.
+
+        Idempotent; a second call is a no-op.
+        """
+        if self._closed:
+            return
+        self._closed = True
         self.polling.stop_all()
         for writer in self._writers.values():
             writer.stop()
         self._stop_recording()
+        for name, link in self.links.items():
+            close = getattr(link, "close", None)
+            if close is None:
+                continue
+            try:
+                close()
+            except Exception:
+                log.exception("link %r: close failed", name)
 
     # region Recording
 

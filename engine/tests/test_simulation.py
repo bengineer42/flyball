@@ -209,7 +209,7 @@ class TestLiveValues:
             assert set(described["clock"]) == {"speed", "measured", "stepped", "now_ns"}
             assert plant["inputs"]["heater1"] == pytest.approx(400 / 2500)
         finally:
-            rig.stop()
+            rig.close()
 
     def test_single_port_plant_links_to_output(self, oven):
         (name,) = oven.plants

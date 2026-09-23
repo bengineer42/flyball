@@ -38,8 +38,9 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
-SCHEMA_VERSION = 2
-"""The document shape this server writes: bindings are addresses and controller names."""
+SCHEMA_VERSION = 3
+"""The document shape this server writes: bindings are addresses and controller names (2); a
+document says whether it is read-only and where its tab sits (3)."""
 
 
 class Widget(BaseModel):
@@ -77,6 +78,21 @@ class Dashboard(BaseModel):
     description: str | None = None
     grid: Grid = Field(default_factory=Grid)
     widgets: list[Widget] = Field(default_factory=list)
+    readonly: bool = Field(
+        default=False,
+        description=(
+            "Its widgets' write controls render disabled, for everyone. A convenience for a wall "
+            "display, not access control: whoever may save the dashboard may clear it. Layout "
+            "editing is unaffected."
+        ),
+    )
+    order: float | None = Field(
+        default=None,
+        description=(
+            "Where its tab sits: ascending, then unordered ones newest first. A float so moving "
+            "one tab between two others rewrites only that one."
+        ),
+    )
 
 
 class Rename(BaseModel):
@@ -149,11 +165,19 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
     `actuator` widget becomes a `device` widget bound by `device`. A loop
     was named by its actuator and a controller is named by its output's
     address, so the name is carried as it was; `problems` says if it no
-    longer resolves.
+    longer resolves. Version 2 had no `readonly` or `order`: it is writable
+    and unordered.
     """
     version = document.get("schema_version", 1)
     if not isinstance(version, int) or version >= SCHEMA_VERSION:
         return document
+    if version < 2:
+        document = _bindings_by_address(document)
+    return {"readonly": False, "order": None, **document, "schema_version": SCHEMA_VERSION}
+
+
+def _bindings_by_address(document: dict[str, Any]) -> dict[str, Any]:
+    """Version 1 → 2: channel, loop and actuator bindings become addresses and names."""
     widgets: list[Any] = []
     for widget in document.get("widgets") or []:
         if not isinstance(widget, dict) or not isinstance(widget.get("config"), dict):
@@ -178,7 +202,7 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
             if "actuator" in config:
                 config["device"] = config.pop("actuator")
         widgets.append({**widget, "kind": kind, "config": config})
-    return {**document, "schema_version": SCHEMA_VERSION, "widgets": widgets}
+    return {**document, "widgets": widgets}
 
 
 def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
