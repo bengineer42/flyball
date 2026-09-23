@@ -218,14 +218,14 @@ func TestStopExitsNonZeroOnRefusal(t *testing.T) {
 
 // TestStopFallsBackToFrontDirWhenUnreachable: nothing is listening at
 // FLYBALL_URL, so the HTTP attempt fails at the network level, and
-// --front-dir's runner.lock supplies the pid to signal instead.
+// --front-dir's runner.lock -- held by the pid it names, as a live
+// runner's is -- supplies the pid to signal instead.
 func TestStopFallsBackToFrontDirWhenUnreachable(t *testing.T) {
 	t.Setenv("FLYBALL_URL", "http://127.0.0.1:1") // nothing listens on port 1
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	dir := t.TempDir()
-	lock := filepath.Join(dir, "runner.lock")
-	os.WriteFile(lock, []byte("pid "+strconv.Itoa(os.Getpid())+" rig blender\n"), 0o600)
+	holdRunnerLock(t, dir, "pid "+strconv.Itoa(os.Getpid())+" rig blender\n")
 
 	ch := make(chan os.Signal, 1)
 	notifyUSR1(t, ch)
@@ -293,10 +293,7 @@ func TestStopDerivesFrontDirFromARigFilePath(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	lock := filepath.Join(dir, "runner.lock")
-	if err := os.WriteFile(lock, []byte("pid "+strconv.Itoa(os.Getpid())+" rig blender\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	holdRunnerLock(t, dir, "pid "+strconv.Itoa(os.Getpid())+" rig blender\n")
 
 	ch := make(chan os.Signal, 1)
 	notifyUSR1(t, ch)
@@ -362,4 +359,130 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = old
 	data, _ := io.ReadAll(r)
 	return string(data)
+}
+
+// --- a stop is never blockable ------------------------------------------
+
+// hungListener accepts connections and never answers them: a front that
+// is up but wedged. The accepted connections are left open until the test
+// binary exits, so a client with no deadline stays blocked on them.
+func hungListener(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		var held []net.Conn
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			held = append(held, c)
+		}
+	}()
+	return "http://" + ln.Addr().String()
+}
+
+// holdRunnerLock writes content to dir/runner.lock and holds LOCK_EX on it
+// for the life of t, as a live runner holds its own (locking.py's
+// hold_front) -- from this process, so the holder's pid is os.Getpid().
+func holdRunnerLock(t *testing.T, dir, content string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+}
+
+// shortStopTimeout makes stopTimeout 500 ms for t, for the tests that
+// exercise the bound rather than its value.
+func shortStopTimeout(t *testing.T) {
+	old := stopTimeout
+	stopTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { stopTimeout = old })
+}
+
+// stopWithin runs `flyball stop args...` and fails the test if it has not
+// returned within bound.
+func stopWithin(t *testing.T, bound time.Duration, args ...string) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- runStopCommand("", "", args) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(bound):
+		t.Fatalf("flyball stop %v still blocked after %s", args, bound)
+		return nil
+	}
+}
+
+// TestStopWithAHungFrontFallsBackToTheSignal: a front that accepts the
+// connection and never answers must not block `flyball stop`: the HTTP
+// attempt gives up after stopTimeout (its real value, 5 s) and
+// --front-dir's runner.lock supplies the pid to signal.
+func TestStopWithAHungFrontFallsBackToTheSignal(t *testing.T) {
+	t.Setenv("FLYBALL_URL", hungListener(t))
+	t.Setenv("FLYBALLD_URL", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	holdRunnerLock(t, dir, "pid "+strconv.Itoa(os.Getpid())+" rig blender\n")
+
+	ch := make(chan os.Signal, 1)
+	notifyUSR1(t, ch)
+
+	start := time.Now()
+	if err := stopWithin(t, 10*time.Second, "--front-dir", dir); err != nil {
+		t.Fatalf("runStopCommand: %v", err)
+	}
+	t.Logf("returned after %s", time.Since(start).Round(time.Millisecond))
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SIGUSR1 was not delivered after the front timed out")
+	}
+}
+
+// TestStopResolvingThroughAHungDaemonFallsBack: with FLYBALLD_URL set and
+// no NAME, the target is resolved by listing flyballd's runners -- that
+// call is bounded too.
+func TestStopResolvingThroughAHungDaemonFallsBack(t *testing.T) {
+	shortStopTimeout(t)
+	t.Setenv("FLYBALLD_URL", hungListener(t))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	holdRunnerLock(t, dir, "pid "+strconv.Itoa(os.Getpid())+" rig blender\n")
+
+	ch := make(chan os.Signal, 1)
+	notifyUSR1(t, ch)
+
+	if err := stopWithin(t, 10*time.Second, "--front-dir", dir); err != nil {
+		t.Fatalf("runStopCommand: %v", err)
+	}
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SIGUSR1 was not delivered after flyballd timed out")
+	}
+}
+
+// TestStopAllWithAHungDaemonIsBounded: `flyball stop --all` against a
+// flyballd that never answers its list returns an error, not a hang.
+func TestStopAllWithAHungDaemonIsBounded(t *testing.T) {
+	shortStopTimeout(t)
+	t.Setenv("FLYBALLD_URL", hungListener(t))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := stopWithin(t, 10*time.Second, "--all"); err == nil {
+		t.Fatal("expected an error: flyballd never answered, nothing was stopped")
+	}
 }

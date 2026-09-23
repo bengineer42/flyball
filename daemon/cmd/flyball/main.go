@@ -28,6 +28,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -208,11 +209,17 @@ func main() {
 // if FLYBALLD_URL is set (a daemon is in play) use the default-runner
 // rules; else FLYBALL_URL alone, direct-to-runner, unchanged from today.
 func resolveTarget(server string) (client.Target, error) {
+	return resolveTargetContext(context.Background(), server)
+}
+
+// resolveTargetContext is resolveTarget with flyballd's runner list (the
+// only network call in it) bound to ctx.
+func resolveTargetContext(ctx context.Context, server string) (client.Target, error) {
 	if server != "" {
 		return client.Resolve(server)
 	}
 	if daemonURL := os.Getenv("FLYBALLD_URL"); daemonURL != "" {
-		return client.ResolveDefault(daemonURL)
+		return client.ResolveDefaultContext(ctx, daemonURL)
 	}
 	return client.Resolve("")
 }
