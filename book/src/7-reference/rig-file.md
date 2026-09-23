@@ -184,7 +184,7 @@ ignored with one warning line and its default used.
 
 | key | type | default | |
 | --- | --- | --- | --- |
-| `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` (`flyballd`: `127.0.0.1:9000`) | where the front listens; `flyball run --listen` wins. A unix socket file nobody answers on is replaced; one another process answers on is left, and the front does not serve (the rig runs on). Unparseable: falls back |
+| `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` (`flyballd`: `127.0.0.1:9000`) | where the front listens; `flyball run --listen` wins. A unix socket file nobody answers on is replaced; one another process answers on is left, and the front does not serve (the rig runs on). The socket is made `0660`; a directory anyone may write to without the sticky bit, or the front's own directory with any permission for others, is refused the same way ([who may connect](../1-running/runner/access.md#behind-an-identity-proxy)). Unparseable: falls back |
 | `auth` | `local` / `password` / `proxy` / `sso` | `local` | the [shape](../1-running/runner/access.md#shapes-who-gets-in). `local` asked for a non-loopback `listen` falls back unless the run says `--insecure-open`; `sso` falls back (not in this release) |
 | `password` | string | none | `auth: password`'s admin password, as the `$scrypt$` line `flyball password` prints; missing or plain text falls back |
 | `anonymous` | `none` / `read` | `none` | what a caller with no credential may do under `password` and `proxy`; the `local` shape ignores it. Another value warns |

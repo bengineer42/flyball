@@ -163,7 +163,7 @@ preset line says which, and the front reads the identity the proxy
 asserts -- a signed token, or plain headers from a proxy it can vouch for.
 
 Authelia (or oauth2-proxy, or authentik, unsigned), with the proxy talking
-to the front over a unix socket, so no other process can pose as it:
+to the front over a unix socket:
 
 ```yaml
 runner:
@@ -174,6 +174,25 @@ runner:
       preset: authelia
       grants: {all: ["group:lab-admins"]}
 ```
+
+The front believes whoever can connect to that socket, so the file
+permissions are what keep another local process from posing as the proxy.
+The front makes the socket `0660` (its own user and group, never everyone)
+and will not listen in a directory anyone may write to without the sticky
+bit, or in one of its own that others may enter. A web server proxy
+usually runs as another user (`www-data`, `caddy`), so give the directory to
+the front's user and the proxy's group, setgid so the socket inherits that
+group, and put nobody else in the group (`tailscaled` runs as root and
+needs no group):
+
+```sh
+sudo install -d -o flyball -g www-data -m 2750 /run/flyball
+```
+
+A `systemd` unit can do the same with `RuntimeDirectory=flyball`,
+`RuntimeDirectoryMode=2750` and `Group=www-data`. Every member of that group
+can assert any identity; the audit records the local user behind each new
+one (`proxy.peer`), after the fact.
 
 Tailscale Serve is the same with `preset: tailscale` and
 `tailscale serve unix:/run/flyball/front.sock` on the Tailscale side

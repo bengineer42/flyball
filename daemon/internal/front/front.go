@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -375,10 +376,17 @@ func NewServer(p Plan, h http.Handler) *http.Server {
 
 // Listen opens the plan's listener: TCP, or `unix:/path` (a stale socket
 // file nobody answers on is replaced), wrapped in TLS when the plan has it.
+// A unix socket is made 0660, whatever the umask, and is refused in a
+// directory another user could replace it in or, when the front owns the
+// directory, reach it through: an unsigned proxy preset believes whoever
+// connects.
 func Listen(p Plan) (net.Listener, error) {
 	var ln net.Listener
 	var err error
 	if path, ok := strings.CutPrefix(p.Listen, "unix:"); ok {
+		if err := checkSocketDir(filepath.Dir(path)); err != nil {
+			return nil, fmt.Errorf("listen %s: %w", p.Listen, err)
+		}
 		if fi, statErr := os.Lstat(path); statErr == nil && fi.Mode()&os.ModeSocket != 0 {
 			if c, dialErr := net.DialTimeout("unix", path, time.Second); dialErr == nil {
 				c.Close()
@@ -387,6 +395,11 @@ func Listen(p Plan) (net.Listener, error) {
 			os.Remove(path)
 		}
 		ln, err = net.Listen("unix", path)
+		if err == nil {
+			if err = os.Chmod(path, 0o660); err != nil {
+				ln.Close()
+			}
+		}
 	} else {
 		ln, err = net.Listen("tcp", p.Listen)
 	}
