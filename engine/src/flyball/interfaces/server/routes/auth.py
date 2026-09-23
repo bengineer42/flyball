@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from collections.abc import AsyncIterator
+from functools import partial
+from typing import Annotated, Any
 
 from anyio import to_thread
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from flyball.interfaces.server import deps, passkeys
 from flyball.interfaces.server.auth import COOKIE, Auth, Level, Principal, Scheme
 from flyball.interfaces.server.deps import current_exposure
+from flyball.record.errors import StoreError
 from flyball.runtime.config import Anonymous
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -217,8 +220,19 @@ def _require_operate(request: Request) -> Auth:
     return auth
 
 
-def _repo() -> passkeys.PasskeyRepo:
-    return passkeys.repo_for(deps.current_store())
+async def _repo_slot() -> AsyncIterator[passkeys.PasskeyRepo]:
+    """The passkey repo, holding one of `STORE_SLOTS` until the request is answered.
+
+    `StoreDep`'s contract (D-029) for a store that may be absent: the routes that
+    take it are plain `def`, or hand the store call to a worker thread, so the
+    event loop never waits on the store's lock.
+    """
+    repo = passkeys.repo_for(deps.current_store())
+    async with deps.STORE_SLOTS:
+        yield repo
+
+
+RepoDep = Annotated[passkeys.PasskeyRepo, Depends(_repo_slot)]
 
 
 class PasskeyOut(BaseModel):
@@ -244,21 +258,23 @@ class PasskeyLogin(BaseModel):
 
 
 @router.post("/passkey/challenge")
-def passkey_challenge(request: Request) -> Response:
+def passkey_challenge(request: Request, repo: RepoDep) -> Response:
     """A registration challenge. Needs a signed-in caller who may operate."""
     _require_operate(request)
     challenge = passkeys.challenges.issue()
     options = passkeys.registration_options(
-        _repo(), rp_id=_rp_id(request), rp_name="flyball", challenge=challenge
+        repo, rp_id=_rp_id(request), rp_name="flyball", challenge=challenge
     )
     return Response(content=passkeys.options_json(options), media_type="application/json")
 
 
 @router.post("/passkey/register")
-def passkey_register(request: Request, body: PasskeyRegister) -> PasskeyOut:
+def passkey_register(request: Request, body: PasskeyRegister, repo: RepoDep) -> PasskeyOut:
     """Verify the response and store the credential.
 
-    Attestation itself is not checked: `none` is what was requested.
+    Attestation itself is not checked: `none` is what was requested. A store that
+    refuses the row or cannot be reached is its own answer (409, 503; D-027), not a
+    credential that did not verify.
     """
     _require_operate(request)
     try:
@@ -269,7 +285,7 @@ def passkey_register(request: Request, body: PasskeyRegister) -> PasskeyOut:
         raise HTTPException(status_code=400, detail="challenge expired or already used")
     try:
         row = passkeys.verify_registration(
-            _repo(),
+            repo,
             body.credential,
             expected_challenge=challenge,
             rp_id=_rp_id(request),
@@ -277,6 +293,8 @@ def passkey_register(request: Request, body: PasskeyRegister) -> PasskeyOut:
             label=body.label,
             now_ns=time.time_ns(),
         )
+    except StoreError:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"registration did not verify: {e}") from e
     return _passkey_out(row)
@@ -287,7 +305,7 @@ def _address(request: Request) -> str:
 
 
 @router.post("/passkey/login/challenge")
-def passkey_login_challenge(request: Request) -> Response:
+def passkey_login_challenge(request: Request, repo: RepoDep) -> Response:
     """An authentication challenge. No prior auth needed -- this is how one signs in.
 
     The same address-based limiter as the password login applies, so an address
@@ -298,16 +316,21 @@ def passkey_login_challenge(request: Request) -> Response:
     if auth.attempts.blocked(_address(request)):
         raise HTTPException(status_code=429, detail="Too many failed attempts; wait a minute")
     challenge = passkeys.challenges.issue()
-    options = passkeys.login_options(_repo(), rp_id=_rp_id(request), challenge=challenge)
+    options = passkeys.login_options(repo, rp_id=_rp_id(request), challenge=challenge)
     return Response(content=passkeys.options_json(options), media_type="application/json")
 
 
 @router.post("/passkey/login")
-async def passkey_login(request: Request, response: Response, body: PasskeyLogin) -> AuthOut:
+async def passkey_login(
+    request: Request, response: Response, body: PasskeyLogin, repo: RepoDep
+) -> AuthOut:
     """Trade a verified assertion for a session cookie bound to that credential.
 
     Like `login`'s cookie, but its scheme names the credential (`passkey:<id>`),
-    so revoking the credential ends every session it opened.
+    so revoking the credential ends every session it opened. The verification reads
+    the credential and bumps its sign count, so it runs on a worker thread (D-029). A
+    store that cannot be reached is a 503 and no failed attempt: the caller did
+    nothing wrong.
     """
     auth = _door(request)
     address = _address(request)
@@ -321,13 +344,18 @@ async def passkey_login(request: Request, response: Response, body: PasskeyLogin
         auth.attempts.failure(address)
         raise HTTPException(status_code=400, detail="challenge expired or already used")
     try:
-        row = passkeys.verify_login(
-            _repo(),
-            body.credential,
-            expected_challenge=challenge,
-            rp_id=_rp_id(request),
-            origin=_origin(request),
+        row = await to_thread.run_sync(
+            partial(
+                passkeys.verify_login,
+                repo,
+                body.credential,
+                expected_challenge=challenge,
+                rp_id=_rp_id(request),
+                origin=_origin(request),
+            )
         )
+    except StoreError:
+        raise
     except Exception as e:
         auth.attempts.failure(address)
         if auth.delay:
@@ -348,17 +376,17 @@ class PasskeyListOut(BaseModel):
 
 
 @router.get("/passkey")
-def list_passkeys(request: Request) -> PasskeyListOut:
+def list_passkeys(request: Request, repo: RepoDep) -> PasskeyListOut:
     """This runner's registered credentials -- never the public keys themselves."""
     _require_operate(request)
     return PasskeyListOut(
         store_backed=deps.current_store() is not None,
-        passkeys=[_passkey_out(row) for row in _repo().passkeys()],
+        passkeys=[_passkey_out(row) for row in repo.passkeys()],
     )
 
 
 @router.delete("/passkey/{passkey_id}")
-def revoke_passkey(request: Request, passkey_id: int) -> None:
+def revoke_passkey(request: Request, passkey_id: int, repo: RepoDep) -> None:
     """Forget a credential.
 
     Its sessions end with it: each passkey cookie names the credential it came
@@ -366,7 +394,7 @@ def revoke_passkey(request: Request, passkey_id: int) -> None:
     refused from their next request, including the caller if it is their own.
     """
     _require_operate(request)
-    if not _repo().delete_passkey(passkey_id):
+    if not repo.delete_passkey(passkey_id):
         raise HTTPException(status_code=404, detail="no such passkey")
 
 

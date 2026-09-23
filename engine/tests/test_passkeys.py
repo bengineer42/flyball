@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from fastapi.testclient import TestClient
 from webauthn.helpers import bytes_to_base64url, encode_cbor
 
+from conftest import TestClient as LoopbackClient
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.auth import hash_password
 from flyball.interfaces.server.deps import set_store
@@ -324,7 +325,8 @@ def test_an_open_runner_takes_no_passkeys(rig):
     set_rig(rig)
     set_store(None)
     reset_memory_repo()
-    http = TestClient(create_app(None, secret=b"k", login_delay=0))
+    # an open runner answers loopback names only, and the stock client says `testserver`
+    http = LoopbackClient(create_app(None, secret=b"k", login_delay=0))
     with http:
         assert http.get("/api/auth").json()["passkey"] is False
         assert http.post("/api/auth/passkey/challenge").status_code == 409
@@ -477,7 +479,9 @@ def test_a_store_that_cannot_be_asked_refuses_the_session_instead_of_failing(log
 def test_malformed_client_data_is_a_400_not_a_500(loggedin, credential):
     """Client data that decodes to something other than an object is the caller's fault."""
     loggedin.post("/api/auth/logout")
-    assert loggedin.post("/api/auth/passkey/login", json={"credential": credential}).status_code == 400
+    assert (
+        loggedin.post("/api/auth/passkey/login", json={"credential": credential}).status_code == 400
+    )
 
 
 def test_malformed_client_data_counts_against_the_limiter(loggedin):
@@ -487,3 +491,83 @@ def test_malformed_client_data_counts_against_the_limiter(loggedin):
     for _ in range(10):
         assert loggedin.post("/api/auth/passkey/login", json=bad).status_code == 400
     assert loggedin.post("/api/auth/passkey/login", json=bad).status_code == 429
+
+
+def test_a_store_backed_passkey_session_never_takes_the_store_on_the_event_loop(rig, tmp_path):
+    """Register, sign in, use the session, revoke: all against sqlite, all off the loop.
+
+    The conftest guard fails this test if the app's loop took the store's lock
+    (D-029): the door's per-request credential check and the login's sign-count
+    bump both reach the store.
+    """
+    from flyball.record.sqlite import SqliteStore
+
+    store = SqliteStore(tmp_path / "s.sqlite3")
+    http = _serve(rig, store=store)
+    try:
+        with http:
+            http.post("/api/auth/login", json={"secret": "hunter2"})
+            authenticator = _FakeAuthenticator()
+            passkey_id = _register(http, authenticator).json()["id"]
+            http.post("/api/auth/logout")
+            challenge = http.post("/api/auth/passkey/login/challenge").json()
+            credential = authenticator.assertion(
+                "testserver", challenge["challenge"], "http://testserver"
+            )
+            signed_in = http.post("/api/auth/passkey/login", json={"credential": credential})
+            assert signed_in.status_code == 200, signed_in.text
+            assert http.get("/api/auth").json()["scheme"] == "passkey"
+            assert http.get("/api/health").status_code == 200
+            assert http.delete(f"/api/auth/passkey/{passkey_id}").status_code == 200
+            assert http.get("/api/health").status_code == 401, "revoked, so the session ended"
+    finally:
+        set_rig(None)
+        set_store(None)
+        store.close()
+
+
+def test_a_passkey_post_from_another_site_is_refused_at_the_door(loggedin):
+    """The passkey routes are under the open `/api/auth`, but the Origin check still applies."""
+    evil = {"Origin": "https://evil.example"}
+    assert loggedin.post("/api/auth/passkey/challenge", headers=evil).status_code == 403
+    assert loggedin.post("/api/auth/passkey/login/challenge", headers=evil).status_code == 403
+    assert loggedin.post("/api/auth/passkey/login", json={}, headers=evil).status_code == 403
+    assert loggedin.delete("/api/auth/passkey/1", headers=evil).status_code == 403
+    own = {"Origin": "http://testserver"}
+    assert loggedin.post("/api/auth/passkey/challenge", headers=own).status_code == 200
+
+
+def test_a_store_outage_while_registering_is_a_503_not_a_bad_credential(loggedin, monkeypatch):
+    """D-027: a store that cannot be reached is the runner's trouble, not the caller's."""
+    from flyball.interfaces.server import passkeys
+    from flyball.record.errors import StoreUnavailableError
+
+    def unavailable(*args, **kwargs):
+        raise StoreUnavailableError("database is locked", "s.sqlite3")
+
+    monkeypatch.setattr(passkeys.MemoryPasskeyRepo, "add_passkey", unavailable)
+    assert _register(loggedin, _FakeAuthenticator()).status_code == 503
+
+
+def test_a_store_outage_while_signing_in_is_a_503_and_not_a_failed_attempt(loggedin, monkeypatch):
+    from flyball.interfaces.server import passkeys
+    from flyball.record.errors import StoreUnavailableError
+
+    authenticator = _FakeAuthenticator()
+    assert _register(loggedin, authenticator).status_code == 200
+    loggedin.post("/api/auth/logout")
+
+    def unavailable(*args, **kwargs):
+        raise StoreUnavailableError("database is locked", "s.sqlite3")
+
+    monkeypatch.setattr(passkeys.MemoryPasskeyRepo, "update_passkey_sign_count", unavailable)
+    for _ in range(11):
+        challenge = loggedin.post("/api/auth/passkey/login/challenge")
+        assert challenge.status_code == 200, "an outage is not counted against the address"
+        credential = authenticator.assertion(
+            "testserver", challenge.json()["challenge"], "http://testserver"
+        )
+        assert (
+            loggedin.post("/api/auth/passkey/login", json={"credential": credential}).status_code
+            == 503
+        )

@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 
+from anyio import to_thread
 from fastapi.responses import JSONResponse
 
 from flyball.runtime.config import AuthConfig
@@ -329,8 +330,13 @@ class Auth:
 
     # -- resolving --
 
-    def principal(self, scope: Any) -> Principal | None:
-        """Who is asking; `None` for a token that was presented and is wrong."""
+    async def principal(self, scope: Any) -> Principal | None:
+        """Who is asking; `None` for a token that was presented and is wrong.
+
+        A passkey session is checked against the store, which never happens on the
+        event loop (D-029): the lookup goes to a worker thread, holding one of the
+        store's slots like any store route.
+        """
         if self.open:
             return OPEN
         headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
@@ -340,7 +346,11 @@ class Auth:
         cookie.load(headers.get(b"cookie", b"").decode(errors="replace"))
         if COOKIE in cookie and (scheme := self.sessions.verify(cookie[COOKIE].value)) is not None:
             if scheme.startswith("passkey"):
-                return PASSKEY if self._passkey_live(scheme) else self.anonymous
+                from flyball.interfaces.server.deps import STORE_SLOTS  # a cycle at import
+
+                async with STORE_SLOTS:
+                    live = await to_thread.run_sync(self._passkey_live, scheme)
+                return PASSKEY if live else self.anonymous
             return PERSON
         return self.anonymous
 
@@ -355,9 +365,12 @@ class Auth:
         Anything the store raises is a No. This runs inside the ASGI door, where an
         exception would be a 500 on every request the session makes -- a locked or
         closed database would take the whole runner out for its operator rather than
-        asking them to sign in again. `Store` is a protocol, so what it can raise is
-        not ours to enumerate; failing closed is the only safe reading of "cannot
-        tell whether this credential still exists".
+        asking them to sign in again. That holds for D-027's classes too: a
+        `StoreUnavailableError`, which a route would answer 503, is here the same "cannot
+        tell", and even a bug (which a route leaves a 500) is better failed closed and
+        logged than every request of the session broken. `Store` is a protocol, so what
+        it can raise is not ours to enumerate; failing closed is the only safe reading
+        of "cannot tell whether this credential still exists".
         """
         # routes-level modules; imported here to avoid a cycle
         from flyball.interfaces.server import deps, passkeys
@@ -411,7 +424,7 @@ class Auth:
             )
             await _refuse(scope, receive, send, 403, detail)
             return
-        principal = self.principal(scope)
+        principal = await self.principal(scope)
         if principal is None:
             await _refuse(scope, receive, send, 401, "Wrong token")
             return
