@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import type { WaitState } from "@flyball/client";
+import type { ActivityOut } from "@flyball/client";
 
-export interface WaitPromptProps {
-  /** Prompts still waiting for a person; nothing renders when empty. Pass `useWaits().pending`, not every wait. */
-  waits: WaitState[];
+export interface PromptPanelProps {
+  /** Prompts still waiting for a person; nothing renders when empty. Pass `useActivities().pending`, not every activity. */
+  prompts: ActivityOut[];
   /** The rig's now, in seconds, for the "waiting for" clock; wall time when omitted. */
   nowS?: number;
   onFire: (name: string) => void | Promise<void>;
-  /** Give up on the wait: the program treats it as interrupted. Omit to hide the button. */
-  onInterrupt?: (name: string) => void | Promise<void>;
+  /** Give up on the prompt: the program treats it as interrupted. Omit to hide the button. */
+  onCancel?: (name: string) => void | Promise<void>;
 }
 
 const clock = (s: number) => {
@@ -23,15 +23,15 @@ const clock = (s: number) => {
  * Pure: the app decides where it goes (a banner on every page, so nobody
  * misses it) and what firing does.
  */
-export function WaitPrompt({ waits, nowS, onFire, onInterrupt }: WaitPromptProps) {
+export function PromptPanel({ prompts, nowS, onFire, onCancel }: PromptPanelProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [wall, setWall] = useState(() => Date.now() / 1000);
   useEffect(() => {
-    if (nowS !== undefined || !waits.length) return;
+    if (nowS !== undefined || !prompts.length) return;
     const id = window.setInterval(() => setWall(Date.now() / 1000), 1000);
     return () => window.clearInterval(id);
-  }, [nowS, waits.length]);
-  if (!waits.length) return null;
+  }, [nowS, prompts.length]);
+  if (!prompts.length) return null;
   const now = nowS ?? wall;
   const answer = async (fn: (name: string) => void | Promise<void>, name: string) => {
     setBusy(name);
@@ -43,7 +43,7 @@ export function WaitPrompt({ waits, nowS, onFire, onInterrupt }: WaitPromptProps
   };
   return (
     <div className="fb-signals" role="alert">
-      {waits.map((w) => {
+      {prompts.map((w) => {
         const waitedS = Math.max(0, now - w.since_ns / 1e9);
         const leftS = w.timeout_s === null ? null : w.timeout_s - waitedS;
         return (
@@ -60,9 +60,9 @@ export function WaitPrompt({ waits, nowS, onFire, onInterrupt }: WaitPromptProps
             <button type="button" className="fb-signal-go" disabled={busy === w.name} onClick={() => answer(onFire, w.name)}>
               Go
             </button>
-            {onInterrupt && (
-              <button type="button" className="fb-signal-skip" disabled={busy === w.name} onClick={() => answer(onInterrupt, w.name)} title="Stop waiting; the program sees this step as interrupted">
-                Abandon
+            {onCancel && (
+              <button type="button" className="fb-signal-skip" disabled={busy === w.name} onClick={() => answer(onCancel, w.name)} title="Cancel this prompt; the program sees this step as interrupted">
+                Cancel
               </button>
             )}
           </div>

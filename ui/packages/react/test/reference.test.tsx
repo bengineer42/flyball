@@ -29,15 +29,15 @@ describe("describeReference", () => {
   });
   it("says arrived once the controller has", () => {
     expect(describeReference({ reference: ramp(), arrived: true }, "%RH", 1, NOW, START)).toBe("ramped to 75.0 %RH · arrived");
-    expect(describeReference({ reference: { tag: "hold", value: 30, duration: { seconds: 60, nanoseconds: 0 }, end_time: 160 }, arrived: true }, "%RH", 0, NOW, START)).toBe("held 30 %RH · arrived");
+    expect(describeReference({ reference: { tag: "dwell", value: 30, duration: { seconds: 60, nanoseconds: 0 }, end_time: 160 }, arrived: true }, "%RH", 0, NOW, START)).toBe("dwelt at 30 %RH · arrived");
   });
-  it("describes a hold, timed or not", () => {
-    expect(describeReference({ reference: { tag: "hold", value: 30, duration: { seconds: 90, nanoseconds: 0 }, end_time: 190 }, arrived: false }, "%RH", 0, NOW, START)).toMatch(/^holding 30 %RH for 1 min 30 s · until .+ \(in 1 min 30 s\)$/);
-    expect(describeReference({ reference: { tag: "hold", value: 30, duration: null }, arrived: false }, "%RH", 0, NOW, START)).toBe("holding 30 %RH");
+  it("describes a dwell, timed or not", () => {
+    expect(describeReference({ reference: { tag: "dwell", value: 30, duration: { seconds: 90, nanoseconds: 0 }, end_time: 190 }, arrived: false }, "%RH", 0, NOW, START)).toMatch(/^dwelling at 30 %RH for 1 min 30 s · until .+ \(in 1 min 30 s\)$/);
+    expect(describeReference({ reference: { tag: "dwell", value: 30, duration: null }, arrived: false }, "%RH", 0, NOW, START)).toBe("dwelling at 30 %RH");
   });
   it("describes a profile by its segment in force", () => {
-    const profile: GeneratorOut = { tag: "profile", segments: [ramp({ end_time: undefined }), { tag: "hold", value: 75, duration: { seconds: 60, nanoseconds: 0 } }], active: 1, end_time: 310 };
-    expect(describeReference({ reference: profile, arrived: false }, "%RH", 1, NOW, START)).toMatch(/^profile · segment 2 of 2 · holding 75\.0 %RH for 1 min 0 s · ends .+ \(in 3 min 30 s\)$/);
+    const profile: GeneratorOut = { tag: "profile", segments: [ramp({ end_time: undefined }), { tag: "dwell", value: 75, duration: { seconds: 60, nanoseconds: 0 } }], active: 1, end_time: 310 };
+    expect(describeReference({ reference: profile, arrived: false }, "%RH", 1, NOW, START)).toMatch(/^profile · segment 2 of 2 · dwelling at 75\.0 %RH for 1 min 0 s · ends .+ \(in 3 min 30 s\)$/);
     expect(describeReference({ reference: profile, arrived: true }, "%RH", 1, NOW, START)).toBe("profile of 2 segments · arrived");
   });
   it("falls back to the tag for a generator it does not know", () => {

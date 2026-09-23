@@ -235,7 +235,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
         <Stat icon={PAGE_ICONS.devices} label="devices" value={h ? `${polled - stopped}/${polled} polling` : "…"} tone={stopped ? "warn" : undefined} href={hashFor("devices")} />
         <Stat icon={PAGE_ICONS.controllers} label="controllers" value={h ? Object.keys(h.controllers).length : "…"} href={hashFor("controllers")} />
         <Stat icon={WarnIcon} label="conditions" value={h ? conditionsCount : "…"} tone={h ? conditionsTone : undefined} href={warnings} />
-        <Stat icon={CircleIcon} label="waits" value={h ? h.waits.length : "…"} href={hashFor("events")} />
+        <Stat icon={CircleIcon} label="activities" value={h ? h.activities.length : "…"} href={hashFor("events")} />
         <Stat icon={PAGE_ICONS.events} label="events" value={`${problems} warn/error of ${events.length}`} tone={errors ? "bad" : problems ? "warn" : undefined} href={hashFor("events")} />
         <Stat icon={PAGE_ICONS.sessions} label="uptime" value={h ? uptime(h.uptime_s) : "…"} />
       </div>

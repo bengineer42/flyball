@@ -380,7 +380,7 @@ export type FeedforwardConfig =
  * config}` plus, once started, where it lands. Loosely typed on purpose (the
  * server allows extra keys), so the shape stays put as generators are added.
  * A `linear_ramp_setpoint` carries `end` and `pace` (a speed as `{value,
- * per}`, or a duration as `{seconds, nanoseconds}`); a `hold` carries
+ * per}`, or a duration as `{seconds, nanoseconds}`); a `dwell` carries
  * `value` and `duration`; a `profile` its `segments` as given.
  */
 export interface GeneratorOut {
@@ -406,8 +406,8 @@ export interface LinearRampSpec {
 }
 
 /** Sit at `value`; with no `duration` it never finishes of its own accord. */
-export interface HoldSpec {
-  tag: "hold";
+export interface DwellSpec {
+  tag: "dwell";
   value: number;
   duration?: DurationSpec | null;
 }
@@ -415,11 +415,11 @@ export interface HoldSpec {
 /** Segments in order; only the last may be endless. */
 export interface ProfileSpec {
   tag: "profile";
-  segments: Array<LinearRampSpec | HoldSpec>;
+  segments: Array<LinearRampSpec | DwellSpec>;
 }
 
 /** A set-point generator as `PUT .../setpoint` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
-export type GeneratorSpec = LinearRampSpec | HoldSpec | ProfileSpec | { tag: string; [k: string]: unknown };
+export type GeneratorSpec = LinearRampSpec | DwellSpec | ProfileSpec | { tag: string; [k: string]: unknown };
 
 /**
  * A controller as a client sees it: it regulates one published signal
@@ -440,7 +440,7 @@ export interface ControllerOut {
   feedforward: FeedforwardConfig;
   /** The unit `output`, `expected` and `correction` are in: the output signal's. */
   output_unit: string;
-  /** A fixed setpoint, or the trajectory being followed (a ramp, a hold, a profile). */
+  /** A fixed setpoint, or the trajectory being followed (a ramp, a dwell, a profile). */
   reference: number | GeneratorOut | null;
   /** The reference resolved at the last tick, in the measured unit: a ramp's current value. */
   setpoint: number | null;
@@ -530,18 +530,18 @@ export interface RegulateRequest {
 
 // endregion
 
-// region Waits
+// region Activities
 
-export type WaitOutcome = "pending" | "fired" | "timeout" | "interrupted";
+export type ActivityOutcome = "pending" | "fired" | "timeout" | "interrupted";
 
-/** What the rig is waiting on: a program step's prompt, a settle test, a hold. */
-export interface WaitState {
+/** What the rig is waiting on: a program step's prompt, a settle test, a timed wait. */
+export interface ActivityOut {
   name: string;
   message: string | null;
-  outcome: WaitOutcome;
+  outcome: ActivityOutcome;
   since_ns: Nanoseconds;
   timeout_s: number | null;
-  /** Waiting on a person (a program's `wait`): only these deserve a button. A hold or an arrival settles by itself. */
+  /** Waiting on a person (a program's `prompt`): only these deserve a button. A timed wait or a settle finishes by itself. */
   prompt: boolean;
 }
 
@@ -575,8 +575,8 @@ export interface Health {
    * conditions at WARNING (warn) or ERROR (alarm); `max_level` is 40/30/0.
    */
   alarms: { warn: number; alarm: number; max_level: number };
-  /** The names of the registered waits. */
-  waits: string[];
+  /** The names of the registered activities. */
+  activities: string[];
   recording: boolean;
   exposure?: Exposure | null;
 }
@@ -840,7 +840,7 @@ export interface SaveResult {
 export interface Streams {
   samples: { samples?: SampleOut[]; runs?: DeviceRunOut[] };
   controllers: { controllers: ControllerOut[] };
-  waits: { waits: WaitState[] };
+  activities: { activities: ActivityOut[] };
   events: { events: Event[] };
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { alarmLevel, deviceOf, staleAfterS, type Address, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WaitState, type WriteOut } from "@flyball/client";
+import { alarmLevel, deviceOf, staleAfterS, type Address, type ActivityOut, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WriteOut } from "@flyball/client";
 import { useTelemetry } from "../provider.js";
 import type { SocketStream, StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
 
@@ -124,17 +124,17 @@ export function useDeviceRuns(): Record<string, DeviceRunOut> {
 }
 
 /**
- * Every wait the rig has reported, by name, and the ones still waiting on a
- * person (`pending`): from `/ws/waits`. Settled waits stay until the page
+ * Every activity the rig has reported, by name, and the ones still waiting on a
+ * person (`pending`): from `/ws/activities`. Settled activities stay until the page
  * reloads; `pending` is what a UI puts a button in front of.
  */
-export function useWaitStates(): { waits: Record<string, WaitState>; pending: WaitState[] } {
+export function useActivityStates(): { activities: Record<string, ActivityOut>; pending: ActivityOut[] } {
   const store = useTelemetry();
-  const subscribe = useCallback((cb: () => void) => store.subscribeWaits(cb, READOUT_MS), [store]);
-  const version = useSyncExternalStore(subscribe, () => store.waitsVersionNow());
+  const subscribe = useCallback((cb: () => void) => store.subscribeActivities(cb, READOUT_MS), [store]);
+  const version = useSyncExternalStore(subscribe, () => store.activitiesVersionNow());
   return useMemo(() => {
-    const waits = store.waits();
-    return { waits, pending: Object.values(waits).filter((w) => w.outcome === "pending" && w.prompt) };
+    const activities = store.activities();
+    return { activities, pending: Object.values(activities).filter((w) => w.outcome === "pending" && w.prompt) };
     // `version` is the dependency that matters; the object behind it is in the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, version]);

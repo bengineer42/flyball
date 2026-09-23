@@ -356,19 +356,19 @@ describe("TelemetryStore", () => {
     expect(store.deviceVersion("heaters")).toBe(2);
   });
 
-  it("keeps waits by name as they register and settle", () => {
+  it("keeps activities by name as they register and settle", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     const cb = vi.fn();
-    store.subscribeWaits(cb, 0);
-    const wait = (name: string, outcome: string) => ({ name, message: null, outcome, since_ns: 0, timeout_s: null, prompt: true });
-    send("waits", { waits: [wait("step-1", "pending")] });
-    send("waits", { waits: [wait("step-1", "fired"), wait("step-2", "pending")] });
+    store.subscribeActivities(cb, 0);
+    const activity = (name: string, outcome: string) => ({ name, message: null, outcome, since_ns: 0, timeout_s: null, prompt: true });
+    send("activities", { activities: [activity("step-1", "pending")] });
+    send("activities", { activities: [activity("step-1", "fired"), activity("step-2", "pending")] });
     vi.advanceTimersByTime(20);
     expect(cb).toHaveBeenCalledTimes(1);
-    expect(store.waits()["step-1"]?.outcome).toBe("fired");
-    expect(store.waits()["step-2"]?.outcome).toBe("pending");
-    expect(store.waitsVersionNow()).toBe(2);
+    expect(store.activities()["step-1"]?.outcome).toBe("fired");
+    expect(store.activities()["step-2"]?.outcome).toBe("pending");
+    expect(store.activitiesVersionNow()).toBe(2);
   });
 
   it("caps events and drops the resent ones", () => {
@@ -389,9 +389,9 @@ describe("TelemetryStore", () => {
     const store = new TelemetryStore(rig);
     store.subscribeLatest("a.x", () => undefined);
     store.subscribeWrites(null, () => undefined); // rides the same "samples" socket
-    store.subscribeWaits(() => undefined);
+    store.subscribeActivities(() => undefined);
     expect(() => send("samples", { error: "no rig attached" })).not.toThrow();
-    expect(() => send("waits", { error: "no rig attached" })).not.toThrow();
+    expect(() => send("activities", { error: "no rig attached" })).not.toThrow();
     expect(store.signalKeys()).toEqual([]);
   });
 

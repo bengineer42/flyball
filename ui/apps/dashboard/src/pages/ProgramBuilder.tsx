@@ -21,7 +21,7 @@ import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { Form as MuiForm } from "@rjsf/mui";
 import { SchemaForm } from "@flyball/react";
 import type { JsonSchema } from "@flyball/client";
-import { argsOf, commandsOf, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
+import { argsOf, commandsOf, enforceWaitTimeSpelling, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
 
 const COMMAND_TYPE = "application/x-flyball-command";
 const STEP_TYPE = "application/x-flyball-step";
@@ -204,11 +204,13 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
                   // the composite time field is not the form's: carry it over as it is
                   const current = argsOf(value, command);
                   const time = Object.fromEntries(Object.entries(current).filter(([k]) => command?.time?.keys.includes(k)));
-                  replace(i, { ...step, [tag]: inOrder({ ...args, ...time }, current) });
+                  const merged = inOrder({ ...args, ...time }, current);
+                  replace(i, { ...step, [tag]: enforceWaitTimeSpelling(tag, merged, command?.time) });
                 }}
                 onTime={(key, v) => {
                   if (!tag || !command?.time) return;
-                  replace(i, { ...step, [tag]: withTime(argsOf(value, command), command.time, key, v) });
+                  const merged = withTime(argsOf(value, command), command.time, key, v);
+                  replace(i, { ...step, [tag]: enforceWaitTimeSpelling(tag, merged, command.time) });
                 }}
                 onCommand={(next) => {
                   if (!programSchema) return;

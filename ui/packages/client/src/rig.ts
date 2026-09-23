@@ -59,7 +59,7 @@ import type {
   StreamName,
   Streams,
   Tick,
-  WaitState,
+  ActivityOut,
   WriteOut,
   WriteRow,
   WriteStateRow,
@@ -454,25 +454,25 @@ export class RigClient {
 
   // endregion
 
-  // region Waits -- what the rig is waiting on, and answering it
+  // region Activities -- what the rig is waiting on, and answering it
 
-  /** Every registered wait by name: pending, or settled but not yet taken down. */
-  waits(): Promise<Record<string, WaitState>> {
-    return this.get("/api/waits");
+  /** Every registered activity by name: pending, or settled but not yet taken down. */
+  activities(): Promise<Record<string, ActivityOut>> {
+    return this.get("/api/activities");
   }
 
-  wait(name: string): Promise<WaitState> {
-    return this.get(`/api/waits/${enc(name)}`);
+  activity(name: string): Promise<ActivityOut> {
+    return this.get(`/api/activities/${enc(name)}`);
   }
 
-  /** Settle the wait as met; `fired` false if it had already settled. */
-  fireWait(name: string): Promise<{ name: string; fired: boolean }> {
-    return this.call({ method: "POST", path: `/api/waits/${enc(name)}/fire` });
+  /** Settle the activity as met; `fired` false if it had already settled. */
+  fireActivity(name: string): Promise<{ name: string; fired: boolean }> {
+    return this.call({ method: "POST", path: `/api/activities/${enc(name)}/fire` });
   }
 
-  /** Cancel the wait; the program stops at this step. */
-  interruptWait(name: string): Promise<{ name: string; interrupted: boolean }> {
-    return this.call({ method: "POST", path: `/api/waits/${enc(name)}/interrupt` });
+  /** Cancel the activity; the program stops at this step. */
+  cancelActivity(name: string): Promise<{ name: string; interrupted: boolean }> {
+    return this.call({ method: "POST", path: `/api/activities/${enc(name)}/interrupt` });
   }
 
   // endregion

@@ -24,7 +24,7 @@ export interface CommandInfo {
   short?: string;
   /** The argument object: the dialect's request schema without `command`, flat time keys included. */
   args: JsonSchema;
-  /** The field a bare scalar / list under the command key stands for (`wait: "msg"` → `message`). */
+  /** The field a bare scalar / list under the command key stands for (`prompt: "msg"` → `message`). */
   primary?: string;
   /** The composite time field (`pace`, `timeout`, `duration`) the flat time keys fold into, when the command has one. */
   time?: TimeField;
@@ -78,6 +78,7 @@ function timeFieldOf(args: JsonSchema, root: JsonSchema): TimeField | undefined 
   if (flat.length === 0) return undefined;
   for (const [name, raw] of Object.entries(properties)) {
     if (FLAT_KEYS.has(name)) continue;
+    if (name === "timeout") continue; // never folded flat: a step's timeout always nests as its own Duration
     const { inner } = unwrapNullable(deref(raw, root));
     const alternatives = inner.anyOf ?? inner.oneOf ?? [inner];
     const groups = alternatives
@@ -201,6 +202,27 @@ export function withTime(args: Record<string, unknown>, field: TimeField, key: s
   }
   if (!placed && key !== null && value !== undefined) out[key] = value;
   return out;
+}
+
+/**
+ * C9: a timed `wait` with a `message` must write its duration nested
+ * (`duration: {minutes: 20}`), never folded flat beside `message` -- the
+ * loader refuses `wait: {minutes: 20, message: "soak"}`. A `wait` with no
+ * message still folds flat as usual; every other command is untouched.
+ * Applied to the full step arguments after any edit (`args` already has the
+ * composite field's keys, flat or nested, alongside `message`); several flat
+ * keys at once (a file's conflict, shown by the time control) are left for
+ * that to resolve first.
+ */
+export function enforceWaitTimeSpelling(tag: string | undefined, args: Record<string, unknown>, field: TimeField | undefined): Record<string, unknown> {
+  if (tag !== "wait" || !field) return args;
+  if (typeof args.message !== "string" || args.message === "") return args;
+  if (field.name in args) return args; // already nested
+  const flatKeys = field.keys.filter((k) => k !== field.name && k in args);
+  if (flatKeys.length !== 1) return args;
+  const key = flatKeys[0]!;
+  const { [key]: value, ...rest } = args;
+  return { ...rest, [field.name]: { [key]: value } };
 }
 
 /**

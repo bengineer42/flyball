@@ -1,6 +1,6 @@
 import { Component, createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { ExposureBanner, LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
+import { ExposureBanner, LinksProvider, PromptPanel, countRender, useActivities, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
@@ -164,10 +164,10 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: Error | n
 }
 
 /** A program waiting on a person shows on every page: nobody should have to go looking for the Go button. */
-function Waits() {
-  const waits = useWaits();
+function Prompts() {
+  const activities = useActivities();
   const nowS = useNowS();
-  return <WaitPrompt waits={waits.pending} nowS={nowS} onFire={waits.fire} onInterrupt={waits.interrupt} />;
+  return <PromptPanel prompts={activities.pending} nowS={nowS} onFire={activities.fire} onCancel={activities.cancel} />;
 }
 
 // Pages that need the polled or streamed state subscribe here, one wrapper each, so
@@ -343,7 +343,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               >
                 <PageBoundary key={page}>
                   <ExposureBanner exposure={exposure} />
-                  <Waits />
+                  <Prompts />
                   <Suspense fallback={<PageFallback />}>
                     {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
                     {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}

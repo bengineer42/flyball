@@ -342,10 +342,10 @@ export function describeReference(controller: Pick<ControllerOut, "reference" | 
       const pace = describePace(seg.pace, unit);
       return `${live ? "ramping" : "ramp"} to ${value(seg.end)}${pace ? ` ${pace}` : ""}`;
     }
-    if (seg.tag === "hold") {
+    if (seg.tag === "dwell") {
       const d = seg.duration as { seconds?: number; nanoseconds?: number } | null | undefined;
       const forS = d && typeof d.seconds === "number" ? d.seconds + (d.nanoseconds ?? 0) / 1e9 : null;
-      return `${live ? "holding" : "hold"} ${value(seg.value)}${forS !== null ? ` for ${span(forS)}` : ""}`;
+      return `${live ? `dwelling at ${value(seg.value)}` : `dwell ${value(seg.value)}`}${forS !== null ? ` for ${span(forS)}` : ""}`;
     }
     return `following ${humanise(seg.tag).toLowerCase()}`;
   };
@@ -358,10 +358,10 @@ export function describeReference(controller: Pick<ControllerOut, "reference" | 
   }
   if (arrived) {
     if (g.tag === "linear_ramp_setpoint") return `ramped to ${value(g.end)} · arrived`;
-    if (g.tag === "hold") return `held ${value(g.value)} · arrived`;
+    if (g.tag === "dwell") return `dwelt at ${value(g.value)} · arrived`;
     return `${segment(g, false)} · arrived`;
   }
-  return `${segment(g, true)}${arrival(g.tag === "hold" ? "until" : "arrives")}`;
+  return `${segment(g, true)}${arrival(g.tag === "dwell" ? "until" : "arrives")}`;
 }
 
 /** The rig clock's origin in epoch seconds (`GET /api/clock`, once per mount): what a generator's `end_time` counts from. */

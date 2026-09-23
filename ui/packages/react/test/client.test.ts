@@ -81,7 +81,7 @@ describe("RigClient routes by address", () => {
       "POST /api/controllers/heaters.heater1/regulate": {},
       "PUT /api/controllers/heaters.heater1/setpoint": {},
       "POST /api/devices/furnace/commands/fail": null,
-      "POST /api/waits/step-1/fire": { name: "step-1", fired: true },
+      "POST /api/activities/step-1/fire": { name: "step-1", fired: true },
     });
     const rig = new RigClient(transport);
     expect(await rig.write("heaters.heater1", 500)).toEqual({ "heaters.heater1": write });
@@ -89,14 +89,14 @@ describe("RigClient routes by address", () => {
     await rig.regulate("heaters.heater1", { at: 100 });
     await rig.setSetpoint("heaters.heater1", "measured");
     await rig.command("furnace", "fail", { signal: "zone1" });
-    expect(await rig.fireWait("step-1")).toEqual({ name: "step-1", fired: true });
+    expect(await rig.fireActivity("step-1")).toEqual({ name: "step-1", fired: true });
     expect(asked.map((r) => [r.method, r.path, r.body])).toEqual([
       ["PUT", "/api/signals/heaters.heater1", 500],
       ["PUT", "/api/devices/heaters/write", { heater1: 500, heater2: 500 }],
       ["POST", "/api/controllers/heaters.heater1/regulate", { at: 100 }],
       ["PUT", "/api/controllers/heaters.heater1/setpoint", { at: "measured" }],
       ["POST", "/api/devices/furnace/commands/fail", { signal: "zone1" }],
-      ["POST", "/api/waits/step-1/fire", undefined],
+      ["POST", "/api/activities/step-1/fire", undefined],
     ]);
   });
 

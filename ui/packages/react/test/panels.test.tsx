@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { SignalOut, WaitState } from "@flyball/client";
+import type { SignalOut, ActivityOut } from "@flyball/client";
 import { Gauge, gaugeRange, gaugeZones } from "../src/panels/Gauge.js";
 import { readoutLevel } from "../src/panels/Readout.js";
 import { groupByUnit } from "../src/panels/UnitCharts.js";
-import { WaitPrompt } from "../src/panels/WaitPrompt.js";
+import { PromptPanel } from "../src/panels/PromptPanel.js";
 
 /** A publishing signal as `GET /api/devices` lists one, with the given bands. */
 function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "range" | "precision" | "warn" | "alarm" | "limits">> = {}): SignalOut {
@@ -87,17 +87,17 @@ describe("groupByUnit", () => {
   });
 });
 
-describe("WaitPrompt", () => {
-  const wait = (name: string, message: string | null, timeout_s: number | null): WaitState => ({ name, message, outcome: "pending", since_ns: 100e9, timeout_s, prompt: true });
-  it("renders nothing with no pending wait", () => {
-    expect(renderToStaticMarkup(<WaitPrompt waits={[]} onFire={() => undefined} />)).toBe("");
+describe("PromptPanel", () => {
+  const wait = (name: string, message: string | null, timeout_s: number | null): ActivityOut => ({ name, message, outcome: "pending", since_ns: 100e9, timeout_s, prompt: true });
+  it("renders nothing with no pending prompt", () => {
+    expect(renderToStaticMarkup(<PromptPanel prompts={[]} onFire={() => undefined} />)).toBe("");
   });
-  it("shows each wait's message, how long it has waited in rig time, and when it gives up", () => {
-    const html = renderToStaticMarkup(<WaitPrompt waits={[wait("door", "Close the door", 600), wait("ack", null, null)]} nowS={190} onFire={() => undefined} onInterrupt={() => undefined} />);
+  it("shows each prompt's message, how long it has waited in rig time, and when it gives up", () => {
+    const html = renderToStaticMarkup(<PromptPanel prompts={[wait("door", "Close the door", 600), wait("ack", null, null)]} nowS={190} onFire={() => undefined} onCancel={() => undefined} />);
     expect(html).toContain("Close the door");
     expect(html).toContain("waiting 1 min 30 s");
     expect(html).toContain("gives up in 8 min 30 s");
     expect(html).toContain("waiting for ack");
-    expect(html).toContain("Abandon");
+    expect(html).toContain("Cancel");
   });
 });

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import { signalsOf, type SignalOut } from "@flyball/client";
-import { RigProvider, useControllers, useDevices, useEvents, useNowS, useWaits, ControllerPanel, DeviceSignals, EventsPanel, WaitPrompt } from "@flyball/react";
+import { RigProvider, useControllers, useDevices, useEvents, useNowS, useActivities, ControllerPanel, DeviceSignals, EventsPanel, PromptPanel } from "@flyball/react";
 import "uplot/dist/uPlot.min.css";
 import "@flyball/react/styles.css";
 
@@ -10,7 +10,7 @@ function Harness() {
   const { controllers, history, status } = useControllers(3600);
   const devices = useDevices(10000);
   const events = useEvents(500);
-  const waits = useWaits();
+  const activities = useActivities();
   const nowS = useNowS();
   const select = (
     <select value={windowS} onChange={(e) => setWindowS(Number(e.target.value))}>
@@ -27,7 +27,7 @@ function Harness() {
       <div id="status" data-controllers={status} data-events={events.status} data-devices={devices.loading ? "loading" : devices.error ? "error" : "ok"}>
         controllers: {status} · events: {events.status} · devices: {devices.data?.length ?? (devices.error?.message ?? "loading")}
       </div>
-      <WaitPrompt waits={waits.pending} nowS={nowS} onFire={waits.fire} onInterrupt={waits.interrupt} />
+      <PromptPanel prompts={activities.pending} nowS={nowS} onFire={activities.fire} onCancel={activities.cancel} />
       {Object.values(controllers).map((controller) => {
         const source = signals.get(controller.measured_signal);
         return source ? (

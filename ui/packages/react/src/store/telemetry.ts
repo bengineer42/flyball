@@ -1,4 +1,4 @@
-import type { Address, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Series, Subscription, Value, WaitState, WriteOut } from "@flyball/client";
+import type { Address, ActivityOut, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Series, Subscription, Value, WriteOut } from "@flyball/client";
 import { addressOf, deviceOf, setpointOf, signalsOf, isScratch } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
@@ -12,10 +12,10 @@ export type StreamStatus = "connecting" | "open" | "closed";
  * they stay separate buckets here, so a `useWriteState`/`useDeviceRun`
  * subscriber still wakes only on the update it asked for.
  */
-export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "waits" | "events";
+export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "activities" | "events";
 /** The streams that actually open a socket; `writes` and `devices` share `samples`'s. */
-export type SocketStream = "samples" | "controllers" | "waits" | "events";
-const STREAMS: SocketStream[] = ["samples", "controllers", "waits", "events"];
+export type SocketStream = "samples" | "controllers" | "activities" | "events";
+const STREAMS: SocketStream[] = ["samples", "controllers", "activities", "events"];
 /**
  * How long a dropped socket is shown as `"reconnecting"` before escalating to
  * `"closed"` (offline). A drop-and-immediate-reopen is normal churn (a
@@ -139,7 +139,7 @@ export interface PlaybackSession {
  * writable signal (a demand's `writes` entry, riding with its reading in
  * the same `/ws/samples` frame), the latest state and a ring of ticks per
  * controller (`/ws/controllers`, keyed by target address), each polled
- * device's run (`/ws/samples`'s `runs`), the waits (`/ws/waits`), a capped
+ * device's run (`/ws/samples`'s `runs`), the activities (`/ws/activities`), a capped
  * ring of events. Subscribers are told once per animation frame at most,
  * each at its own cadence, and read what they need from the rings (no
  * arrays are built per message). A socket opens on the first subscriber to
@@ -177,18 +177,18 @@ export class TelemetryStore {
   private deviceVersions = new Map<string, number>();
   private devicesVersion = 0;
   private periodsKey = "";
-  private waitList: Record<string, WaitState> = {};
-  private waitsVersion = 0;
+  private activityList: Record<string, ActivityOut> = {};
+  private activitiesVersion = 0;
   private eventList: Event[] = [];
   private eventsVersion = 0;
   private readonly eventCap = 2000;
   private eventsSeeded: Promise<void> | null = null;
   private eventsSeedLimit = 0;
 
-  private subs = { samples: new Set<Sub>(), writes: new Set<Sub>(), controllers: new Set<Sub>(), devices: new Set<Sub>(), waits: new Set<Sub>(), events: new Set<Sub>(), status: new Set<Sub>() };
+  private subs = { samples: new Set<Sub>(), writes: new Set<Sub>(), controllers: new Set<Sub>(), devices: new Set<Sub>(), activities: new Set<Sub>(), events: new Set<Sub>(), status: new Set<Sub>() };
   /** Subscribers by key, so a sample touches only those that asked for its address; and those that asked for any. */
   private byKey = new Map<string, Set<Sub>>();
-  private anyKey = { samples: new Set<Sub>(), writes: new Set<Sub>(), controllers: new Set<Sub>(), devices: new Set<Sub>(), waits: new Set<Sub>(), events: new Set<Sub>(), status: new Set<Sub>() };
+  private anyKey = { samples: new Set<Sub>(), writes: new Set<Sub>(), controllers: new Set<Sub>(), devices: new Set<Sub>(), activities: new Set<Sub>(), events: new Set<Sub>(), status: new Set<Sub>() };
   private dirty = new Set<Sub>();
   private frame: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -197,7 +197,7 @@ export class TelemetryStore {
     SocketStream,
     { subscription: Subscription; count: number; closer: ReturnType<typeof setTimeout> | null; offlineTimer: ReturnType<typeof setTimeout> | null }
   >();
-  private statuses: Record<SocketStream, StreamStatus | "idle"> = { samples: "idle", controllers: "idle", waits: "idle", events: "idle" };
+  private statuses: Record<SocketStream, StreamStatus | "idle"> = { samples: "idle", controllers: "idle", activities: "idle", events: "idle" };
   private statusVersion = 0;
 
   private seededSignals = new Set<Address>();
@@ -782,28 +782,28 @@ export class TelemetryStore {
 
   // endregion
 
-  // region Waits
+  // region Activities
 
-  /** Every wait the socket has reported, by name, settled ones included; the same object until one changes. */
-  waits(): Record<string, WaitState> {
-    return this.waitList;
+  /** Every activity the socket has reported, by name, settled ones included; the same object until one changes. */
+  activities(): Record<string, ActivityOut> {
+    return this.activityList;
   }
 
-  waitsVersionNow(): number {
-    return this.waitsVersion;
+  activitiesVersionNow(): number {
+    return this.activitiesVersion;
   }
 
-  private onWaits(waits: WaitState[]): void {
-    if (!waits.length) return;
-    const next = { ...this.waitList };
-    for (const wait of waits) next[wait.name] = wait;
-    this.waitList = next;
-    this.waitsVersion++;
-    this.mark("waits", null);
+  private onActivities(activities: ActivityOut[]): void {
+    if (!activities.length) return;
+    const next = { ...this.activityList };
+    for (const activity of activities) next[activity.name] = activity;
+    this.activityList = next;
+    this.activitiesVersion++;
+    this.mark("activities", null);
   }
 
-  subscribeWaits(cb: () => void, everyMs = 250): () => void {
-    return this.subscribe("waits", null, cb, everyMs);
+  subscribeActivities(cb: () => void, everyMs = 250): () => void {
+    return this.subscribe("activities", null, cb, everyMs);
   }
 
   // endregion
@@ -1205,8 +1205,8 @@ export class TelemetryStore {
         case "controllers":
           this.onControllers((message as { controllers: ControllerOut[] }).controllers ?? []);
           break;
-        case "waits":
-          this.onWaits((message as { waits: WaitState[] }).waits ?? []);
+        case "activities":
+          this.onActivities((message as { activities: ActivityOut[] }).activities ?? []);
           break;
         case "events":
           this.onEvents((message as { events: Event[] }).events ?? []);

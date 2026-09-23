@@ -128,7 +128,7 @@ export interface StatusProps {
   byStream: Readonly<Record<SocketStream, StreamStatus | "idle">>;
 }
 
-const STREAM_LABEL: Record<SocketStream, string> = { samples: "readings", controllers: "controllers", waits: "waits", events: "events" };
+const STREAM_LABEL: Record<SocketStream, string> = { samples: "readings", controllers: "controllers", activities: "activities", events: "events" };
 
 /**
  * The app bar's condition summary: an always-present alarm chip, one folded

@@ -9,10 +9,10 @@ import type { WidgetKind, WidgetComponentProps } from "./types.js";
 type Tone = "ok" | "warn" | "bad";
 const TONE_COLOUR: Record<Tone, string | undefined> = { ok: undefined, warn: "warning.main", bad: "error.main" };
 
-// The tile ids match `/api/health`'s fields (`devices`, `controllers`, `waits`).
-const TILES = ["rig", "recording", "devices", "controllers", "conditions", "waits", "events", "uptime"] as const;
+// The tile ids match `/api/health`'s fields (`devices`, `controllers`, `activities`).
+const TILES = ["rig", "recording", "devices", "controllers", "conditions", "activities", "events", "uptime"] as const;
 type TileId = (typeof TILES)[number];
-const TILE_TITLES: Record<TileId, string> = { rig: "rig", recording: "recording", devices: "devices", controllers: "controllers", conditions: "conditions", waits: "waits", events: "events", uptime: "uptime" };
+const TILE_TITLES: Record<TileId, string> = { rig: "rig", recording: "recording", devices: "devices", controllers: "controllers", conditions: "conditions", activities: "activities", events: "events", uptime: "uptime" };
 
 /**
  * One stat: icon, 11px label over a 13/600 value, the whole thing a link when
@@ -58,7 +58,7 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
     devices: <Stat key="devices" icon={PAGE_ICONS.devices} label="devices" value={h ? `${polled - stopped}/${polled} polling` : "…"} tone={stopped ? "warn" : undefined} href={hashFor("devices")} />,
     controllers: <Stat key="controllers" icon={PAGE_ICONS.controllers} label="controllers" value={h ? Object.keys(h.controllers).length : "…"} href={hashFor("controllers")} />,
     conditions: <Stat key="conditions" icon={WarnIcon} label="conditions" value={h ? conditionsCount : "…"} tone={h ? conditionsTone : undefined} href={hashFor("events", null, { level: "WARNING" })} />,
-    waits: <Stat key="waits" icon={CircleIcon} label="waits" value={h ? h.waits.length : "…"} href={hashFor("events")} />,
+    activities: <Stat key="activities" icon={CircleIcon} label="activities" value={h ? h.activities.length : "…"} href={hashFor("events")} />,
     events: <Stat key="events" icon={PAGE_ICONS.events} label="events" value={`${problems} warn/error of ${events.length}`} tone={errors ? "bad" : problems ? "warn" : undefined} href={hashFor("events")} />,
     uptime: <Stat key="uptime" icon={PAGE_ICONS.sessions} label="uptime" value={h ? duration(h.uptime_s) : "…"} />,
   };
@@ -73,7 +73,7 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
 export const health: WidgetKind = {
   kind: "health",
   label: "Health",
-  description: "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, waits, uptime.",
+  description: "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, activities, uptime.",
   category: "status",
   // 24×2: a 60px body holds the 32px label-over-value pair; the strip never grows a second row (measured, DESIGN-SPEC.md §10).
   defaultSize: { w: 24, h: 2 },

@@ -455,7 +455,7 @@
     {
       "kind": "health",
       "label": "Health",
-      "description": "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, waits, uptime.",
+      "description": "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, activities, uptime.",
       "category": "status",
       "default_size": {
         "w": 24,
@@ -497,8 +497,8 @@
                   "title": "conditions"
                 },
                 {
-                  "const": "waits",
-                  "title": "waits"
+                  "const": "activities",
+                  "title": "activities"
                 },
                 {
                   "const": "events",
