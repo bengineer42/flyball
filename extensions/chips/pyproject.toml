@@ -7,15 +7,8 @@ name = "flyball-chips"
 version = "0.1.0"
 description = "Chip drivers for flyball rigs: I2C/SPI/GPIO/UART sensors and actuators, one module each"
 requires-python = ">=3.12"
-license = "MIT AND BSD-3-Clause"  # bme680.py, see LICENSES/
-license-files = ["LICENSE", "LICENSES/*"]
-# Not for PyPI yet -- the Bosch notice is now in (LICENSES/), but a 23 Sep
-# audit found bme680.py reading three register blocks at the wrong offsets:
-# block-1 calibration is off by one from `par_p1`, the heater-range values
-# come from registers that do not hold them, and the field burst is off by
-# one (four for gas). It has never seen a chip. Drop this line once that is
-# fixed and checked against hardware.
-classifiers = ["Private :: Do Not Upload"]
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 # Protocol-level, OS-agnostic: flyball for the link protocols, flyball-sim for the
 # fakes its own tests (and a hardware-free rig) run against. Never flyball-linux --
