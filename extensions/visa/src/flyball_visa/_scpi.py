@@ -2,8 +2,8 @@
 
 `MEAS:VOLT:DC?` answers `+1.23456E-02`. A [Scpi][flyball_visa.Scpi]
 device's tree is its own config: `channels` maps each signal's name to a
-query, a write template, or both (plan §1.8.2 -- a generic driver's tree
-lives in its own config, not the envelope). Replies parse as a float by
+query, a write template, or both -- a generic driver's tree lives in its
+own config, not the envelope. Replies parse as a float by
 default; give `parse` for an instrument that answers `1.234 V`.
 """
 
@@ -26,6 +26,7 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import TextLink
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ._links import FakeTextLink, TextLinkConfig
@@ -44,7 +45,7 @@ class ScpiSignal(BaseModel):
     `query` alone: an output, `[RP]`. `write`, with or without `query`: a
     demand, `[RPW]` -- its readback is the value last committed. Metadata
     such as range, precision and limits are not here -- they are the
-    envelope's `signals:` overrides (plan §1.5), which apply to any driver's
+    envelope's `signals:` overrides, which apply to any driver's
     tree.
     """
 
@@ -104,7 +105,7 @@ class Scpi(Readable, Committable):
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
         # per instance, at build.
         self.blocking = not isinstance(link, FakeTextLink)  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_read: dict[Signal, int] = {}
+        self._scan = Scan()
         self.bind([
             SignalSpec(
                 name=key,
@@ -114,13 +115,6 @@ class Scpi(Readable, Committable):
             )
             for key, sig in self.channels.items()
         ])
-
-    def _due(self, signal: Signal, time_ns: int) -> bool:
-        poll_s = signal.poll_s
-        if poll_s is None:
-            return True
-        last = self._last_read.get(signal)
-        return last is None or (time_ns - last) >= poll_s * 1e9
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One query per due, publishing signal under `node`: each its own instant.
@@ -132,14 +126,15 @@ class Scpi(Readable, Committable):
         query behind it.
         """
         target = node if node is not None else self.root
-        for key, channel in self.channels.items():
-            if channel.query is None:
-                continue
-            signal = self.signals[key]
-            if not target.contains(signal) or not self._due(signal, time_ns):
-                continue
+        candidates = {
+            self.signals[key]: key
+            for key, channel in self.channels.items()
+            if channel.query is not None and target.contains(self.signals[key])
+        }
+        for signal in self._scan.due(candidates, time_ns, whole=False):
+            channel = self.channels[candidates[signal]]
+            assert channel.query is not None
             value = self.parse(self.link.query(channel.query)) * channel.scale
-            self._last_read[signal] = time_ns
             yield Sample(self.root, time_ns, {signal: value})
 
     def write_signal(self, signal: Signal, value: float) -> None:

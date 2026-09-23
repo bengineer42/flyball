@@ -58,6 +58,14 @@ class TestModbus:
         assert [s.by_name() for s in dev.read(0)] == [{"a": 10.0}, {"b": 20.0}]
         assert [s.by_name() for s in dev.read(2 * NS)] == [{"b": 20.0}]
 
+    def test_a_slightly_early_poll_still_counts_as_due(self):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        link = FakeRegisterLink({1: 10})
+        dev = Modbus("d", link, {"a": ModbusRegister(address=1, unit="1")})
+        dev.signals["a"].override(poll_s=1.0)
+        list(dev.read(0))
+        assert [s.by_name() for s in dev.read(int(0.95 * NS))] == [{"a": 10.0}]
+
     def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
         dev = Modbus("d", FakeRegisterLink({}), {"a": ModbusRegister(address=1, unit="1")})
         assert dev.blocking is False
