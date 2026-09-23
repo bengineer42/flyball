@@ -64,7 +64,7 @@ class Heater(Readable, Committable):
 
     def commit(self, time_ns: int) -> None:
         """Push the demand to the element, capped by `limit`."""
-        if (target := self.demand.pending) is not None:
+        if (target := self.demand.staged) is not None:
             wanted = max(0.0, (target - 20.0) * 5.0)  # 5 W per degree above ambient
             self._power = min(wanted, self._config.max_power_w * self.limit.value)
     # --8<-- [end:heater-read-commit]

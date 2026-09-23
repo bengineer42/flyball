@@ -56,7 +56,7 @@ class TestFakeBlockingGoesThroughTheWriter:
         psu = rig.devices["psu"]
         assert psu.blocking is True
 
-        assert rig.demand(psu.root, {"set_voltage": 12.0}) == {}, "queued, not done inline"
+        assert rig.write(psu.root, {"set_voltage": 12.0}) == {}, "queued, not done inline"
         assert rig._writers, "a writer thread was started for the blocking fake"
 
         _wait_until(lambda: psu.link.written != [])

@@ -56,7 +56,7 @@ from flyball.interfaces.client import Rig
 rig = Rig("http://pi:8000")
 rig.devices.heater.set_limit(limit=0.5)
 rig.devices.probe.view()["conditions"]
-rig.demand("heaters.heater1", 1200.0)
+rig.write("heaters.heater1", 1200.0)
 for frame in rig.watch("controllers"):
     ...
 ```

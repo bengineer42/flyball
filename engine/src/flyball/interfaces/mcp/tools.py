@@ -633,15 +633,15 @@ DRIVE: tuple[Tool, ...] = (
         destructive=True,
     ),
     Tool(
-        "set_demand",
-        "Put a value on one writable signal. Refused while a controller drives it.",
+        "write",
+        "Write a value to one writable signal. Refused while a controller drives it.",
         _object(
             {"address": ADDRESS, "value": _num("The value, in the signal's unit.")},
             "address",
             "value",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.demand(a["address"], a["value"]),
+        lambda rig, a: rig.write(a["address"], a["value"]),
     ),
     Tool(
         "regulate",

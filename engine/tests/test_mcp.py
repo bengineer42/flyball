@@ -112,12 +112,12 @@ class TestModes:
     def test_author_adds_the_store_and_nothing_that_moves(self, client):
         author = names(tools_for(client, "author"))
         assert {"save_program", "update_dashboard", "save_tuning"} <= author
-        assert not {"set_demand", "run_program", "heaters-set_duty"} & author
+        assert not {"write", "run_program", "heaters-set_duty"} & author
 
     def test_operate_adds_the_rig_s_own_commands(self, client):
         operate = names(tools_for(client, "operate"))
         assert {
-            "set_demand",
+            "write",
             "regulate",
             "run_program",
             "heaters-set_duty",
@@ -325,7 +325,7 @@ class TestOverTheWire:
                     by_name = {t.name: t for t in listed.tools}
                     assert by_name["status"].annotations.read_only_hint is True
                     assert by_name["delete_program"].annotations.destructive_hint is True
-                    assert "set_demand" not in by_name
+                    assert "write" not in by_name
                     result = await session.call_tool("view_device", {"name": "heaters"})
                     assert not result.is_error
                     assert isinstance(result.content[0], types.TextContent)
@@ -384,7 +384,7 @@ class TestMounted:
         )
         listed = self.rpc(http, "read", "tools/list", session=session, id=2).json()["result"]
         names = {t["name"] for t in listed["tools"]}
-        assert "status" in names and "set_demand" not in names
+        assert "status" in names and "write" not in names
         called = self.rpc(
             http,
             "read",

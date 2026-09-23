@@ -123,16 +123,16 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
 
     # A manual demand on a signal an active controller drives is refused; the
     # other heater is free, and so is this one while the controller is manual.
-    assert client.put(f"/api/devices/{drive.name}/demand", json={"heater1": 5.0}).status_code == 200
+    assert client.put(f"/api/devices/{drive.name}/write", json={"heater1": 5.0}).status_code == 200
     assert client.post(f"/api/controllers/{target}/regulate", json={"at": 50.0}).status_code == 200
-    refused = client.put(f"/api/devices/{drive.name}/demand", json={"heater1": 5.0})
+    refused = client.put(f"/api/devices/{drive.name}/write", json={"heater1": 5.0})
     assert refused.status_code == 409
     assert refused.json()["detail"] == (
         f"'{target}' is driven by controller '{target}':"
         " set its reference, put it in manual, or detach it"
     )
     assert client.put(f"/api/signals/{target}", json=5.0).status_code == 409
-    assert client.put(f"/api/devices/{drive.name}/demand", json={"heater2": 5.0}).status_code == 200
+    assert client.put(f"/api/devices/{drive.name}/write", json={"heater2": 5.0}).status_code == 200
 
     # Regulating commits the handover's demand at once.
     reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 60.0, "transfer": "reset"})

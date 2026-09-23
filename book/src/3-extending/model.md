@@ -64,7 +64,7 @@ in `__init__` with the same factories and bound with `Device.bind`.
 across the tree, orthogonal to the namespace. On the class a descriptor is
 its spec; on an instance it is the bound
 [`Signal`][flyball.foundation.device.signal.Signal] (`self.dry_flow.value`,
-`.push(v)`, `.pending`, `.limits`).
+`.push(v)`, `.staged`, `.limits`).
 
 ## Signals: R, P, W
 
@@ -117,7 +117,7 @@ references, not strings.
 ## Demands are a sample in reverse
 
 A **demand** puts one or more values on `W` signals under one node, at one
-instant, applied atomically: `rig.demand(node, {name: value, ...})`. Writes
+instant, applied atomically: `rig.write(node, {name: value, ...})`. Writes
 are two-phase: `apply` records a value (no I/O), and `commit` pushes
 everything recorded to hardware once, at the end of a delivery — `commit`
 returns nothing; a driver whose actual readback differs from the demand (a
@@ -168,7 +168,7 @@ link.
 | --- | --- | --- | --- |
 | **declaration** | a driver's `SignalSpec`/`NodeSpec`, a `Quantity` | frozen | never; the driver's word |
 | **structure** (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup | the rig, under its lock, as an event — a file override, a live limit change, a controller attached |
-| **values** (per instant) | `Reading`, `Sample`, `Demand`, `WriteState`, `Event` | frozen | never after the fact; recorded, streamed, compared |
+| **values** (per instant) | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen | never after the fact; recorded, streamed, compared |
 
 A device's own signals echo the same split at finer grain: a role's *access*
 is the declaration tier, a `Role.CONFIG` signal is effective at the

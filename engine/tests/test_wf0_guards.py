@@ -125,8 +125,8 @@ class TestCommitFailure:
         out = flaky.signals["out"]
         flaky.fail = True
         with pytest.raises(OSError, match="bus gone"):
-            rig.demand(flaky.root, {out: 80.0})  # a manual write still hears the failure
-        assert flaky.pending == {}, "the failed demand does not linger"
+            rig.write(flaky.root, {out: 80.0})  # a manual write still hears the failure
+        assert flaky.staged == {}, "the failed demand does not linger"
         flaky.fail = False
         clock.advance(1.0)
         _deliver(rig, furnace)  # an input landing commits again: nothing stale goes out
@@ -212,7 +212,7 @@ class Picky(Committable):
         self.seen: list[float] = []
 
     def commit(self, time_ns: int) -> None:
-        if (value := self.signals["a"].pending) is not None:
+        if (value := self.signals["a"].staged) is not None:
             self.seen.append(value)
 
 
@@ -220,23 +220,23 @@ def test_a_demand_the_driver_did_not_read_is_reported_not_echoed(rig, fresh):
     picky = Picky(fresh("picky"))
     rig.add_device(picky)
     a, b = picky.signals["a"], picky.signals["b"]
-    states = rig.demand(picky.root, {b: 5.0})
+    states = rig.write(picky.root, {b: 5.0})
     (event,) = _events(rig, Kind.DEMAND_IGNORED)
     assert event.scope == Scope.DEVICE and event.subject == picky.name
     assert event.level is Level.WARNING and event.details["signal"] == b.address
     assert rig.latest.get(b) is None, "not echoed as a readback"
     assert states[b] == WriteState(value=None, requested=5.0)
-    assert picky.pending == {}
-    rig.demand(picky.root, {b: 6.0})
+    assert picky.staged == {}
+    rig.write(picky.root, {b: 6.0})
     assert len(_events(rig, Kind.DEMAND_IGNORED)) == 1, "one event while it goes unread"
 
-    rig.demand(picky.root, {a: 7.0})
+    rig.write(picky.root, {a: 7.0})
     assert picky.seen == [7.0] and rig.latest[a].value == 7.0, "a read demand is echoed"
     assert len(_events(rig, Kind.DEMAND_IGNORED)) == 1
 
 
 def test_a_driver_that_writes_pending_through_raises_nothing(rig, furnace):
-    rig.demand(furnace.root, {"heater1": 100.0, "heater2": 200.0})
+    rig.write(furnace.root, {"heater1": 100.0, "heater2": 200.0})
     assert furnace.inputs == {"heater1": 100.0, "heater2": 200.0}
     assert rig.latest[furnace.signals["heater1"]].value == 100.0
     assert not _events(rig, Kind.DEMAND_IGNORED)
@@ -272,7 +272,7 @@ def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
 
     monkeypatch.setattr(rig, "written", written)
     try:
-        rig.demand(device.root, {"heater1": 10.0})
+        rig.write(device.root, {"heater1": 10.0})
         writer = rig._writers[device]
         _until(lambda: writer.failed is not None)
         assert (
@@ -280,7 +280,7 @@ def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
         )
         assert _events(rig, Kind.WRITE_FAILED)
         assert writer._thread.is_alive()
-        rig.demand(device.root, {"heater1": 20.0})
+        rig.write(device.root, {"heater1": 20.0})
         _until(lambda: len(calls) == 2 and writer.failed is None)
         assert _events(rig, Kind.WRITE_RECOVERED)
         assert rig.latest[device.signals["heater1"]].value == 20.0

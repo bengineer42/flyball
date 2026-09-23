@@ -155,7 +155,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
     setBusy(true);
     setError(null);
     try {
-      await (onDemand ? onDemand(value) : rig.demand(signal.address, value));
+      await (onDemand ? onDemand(value) : rig.write(signal.address, value));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

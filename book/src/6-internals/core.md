@@ -62,7 +62,7 @@ take only `false`) — never add what the driver did not declare.
 
 `Device.bind` turns a spec tree into bound [Node][flyball.foundation.device.signal.Node]
 and [Signal][flyball.foundation.device.signal.Signal] objects once, at construction:
-identity-hashed, made once, so a `Reading`, `Sample`, `Demand` or
+identity-hashed, made once, so a `Reading`, `Sample`, `Write` or
 `WriteState` holds a reference and nothing on the hot path looks a name up.
 [Path][flyball.foundation.device.signal.Path] is the address's value type — a tuple of
 segments, hashable, `str()` giving the dotted form (`"dry.humidity"`) —
@@ -75,7 +75,7 @@ objects.
 | --- | --- |
 | `Reading` | one value on one signal at one instant |
 | `Sample` | the readings of signals under one node at one instant, keyed by the bound signal; any readable signal under the node may be missing, but there is always at least one |
-| `Demand` | one or more values put on `W` signals under one node at one instant — a Sample in reverse |
+| `Write` | one or more values written to `W` signals under one node at one instant — a Sample in reverse |
 | `WriteState` | what a device reports after a commit: the value after limits, what was asked for if the clamp changed it, `at_limit`, the controller driving it |
 
 ## Mutability: three tiers
@@ -86,7 +86,7 @@ Three kinds of object, told apart by who changes them and when:
 | --- | --- | --- |
 | declaration | `SignalSpec`, `NodeSpec`, `Quantity` | frozen — the driver's word; one spec object may back many devices |
 | structure (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
-| values (per instant) | `Reading`, `Sample`, `Demand`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
+| values (per instant) | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
 
 A device's own signal roles echo the same split at finer grain (below): a
 `Role.CONFIG` signal is effective at the structure tier; a
@@ -133,7 +133,7 @@ lands the rig commits the device, which reads it itself
 Writes are two-phase: `apply(signal, time_ns, value)` records one value
 with no hardware I/O, and `commit(time_ns) -> None` pushes everything
 recorded to the hardware once. `commit` returns nothing: the rig reports
-each pending demand as the readback the driver pushed
+each staged demand as the readback the driver pushed
 (`signal.push(value, time_ns)`), or the committed value if the driver
 pushed nothing itself; a demand that railed has its `signal.at_limit` set
 before `commit` returns. The rig calls `commit` once per delivery for every
@@ -141,7 +141,7 @@ device it touched, and immediately after a manual demand; the rig tracks
 which devices a delivery touched, so a driver keeps no dirty flag of its
 own. A simple device inherits both `apply` and the default `commit`; a
 composite one (blending two pumps into one settable humidity) overrides
-`commit` itself to do arithmetic across everything pending and everything
+`commit` itself to do arithmetic across everything staged and everything
 it reads from its inputs, so a new target, a changed input reading and a
 new setting arriving in one delivery still cost one write.
 

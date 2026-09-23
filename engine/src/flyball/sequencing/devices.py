@@ -18,7 +18,7 @@ from .command import Activity, Command
 
 @dataclass(frozen=True)
 class Set(Command, tag="set"):
-    """Put `values` on `device`'s writable signals, as one demand -- `rig.demand` in a step."""
+    """Put `values` on `device`'s writable signals, as one demand -- `rig.write` in a step."""
 
     device: str
     values: dict[str, float]
@@ -27,7 +27,7 @@ class Set(Command, tag="set"):
         node = rig.resolve(self.device)
         if isinstance(node, Signal):
             raise NotFoundError(f"'{self.device}' is a signal, not a device or namespace")
-        rig.demand(node, {**self.values})
+        rig.write(node, {**self.values})
         return None
 
     def missing(self, rig: Rig) -> list[str]:

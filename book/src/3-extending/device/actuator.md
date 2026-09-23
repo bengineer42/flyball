@@ -20,31 +20,31 @@ Writes are two-phase, the mirror of a sample:
    already validated the whole demand (names resolve to `W` signals under
    the node, units convert, no signal another controller's, clamped to
    `limits`) and fans it out one signal at a time. The default stores into
-   `self.pending`; most drivers need not override it.
+   `self.staged`; most drivers need not override it.
 2. `commit(time_ns) -> None` — pushes everything recorded since the last
    commit to hardware **once**. The rig calls it at the end of every
    delivery that touched the device — a demand applied, or one of its
    `Input` signals landing — and immediately after a manual demand. The
-   default writes each pending value through `write_signal`; a composite
+   default writes each staged value through `write_signal`; a composite
    device overrides `commit` itself to do arithmetic across everything
-   pending and everything it reads from its inputs (`self.<input>.value`) —
+   staged and everything it reads from its inputs (`self.<input>.value`) —
    see the blender in [`examples/humidity`](../../0-overview/examples.md).
 
-`commit` returns nothing: the rig reports each pending demand as the
+`commit` returns nothing: the rig reports each staged demand as the
 readback the driver pushed (`signal.push(value, time_ns)`), or the
 committed value if it pushed nothing itself; a demand that railed has its
 `signal.at_limit` set before `commit` returns. `write_signal(signal,
 value)` is the simple case: *put one committed value on the hardware*.
 `oven.py`'s `Heater` only needs this one method — the default `commit`
-calls it once per pending signal.
+calls it once per staged signal.
 
-A demand `commit` never looks at — not through `self.pending` (walking it,
-`[]`, `get`, `pop`, `in`) nor `signal.pending` — was not set: the rig does
+A demand `commit` never looks at — not through `self.staged` (walking it,
+`[]`, `get`, `pop`, `in`) nor `signal.staged` — was not set: the rig does
 not echo it as a reading, reports it with the reading unchanged and the
 demand as `requested`, and raises a `demand_ignored` event once until one
 is read again. A composite that drives from its target and has no use for a
 line demand in its present mode gets exactly this for that demand. If
-`commit` raises, the device's pending demands are dropped (not sent with a
+`commit` raises, the device's staged demands are dropped (not sent with a
 later commit) and a `commit_failed` event names it; the rest of the
 delivery goes on.
 
@@ -99,7 +99,7 @@ subclassing: pydantic must be able to describe every `vtype`.
 --8<-- "device.py:heater-read-commit"
 ```
 
-`commit` reads what was just applied from `self.demand.pending`, not
+`commit` reads what was just applied from `self.demand.staged`, not
 `self.demand.value` — the rig has not yet pushed the reading when `commit`
 runs; a driver that needs the value again later reads `.value` instead,
 once it has been committed.
@@ -166,7 +166,7 @@ Once attached to a rig (`rig.add_device(heater)`), with no further code:
 ```
 GET  /api/devices/heater                     the signal tree, conditions, readable/writable
 GET  /api/devices/heater/schema              the config schema, every signal's and command's
-PUT  /api/devices/heater/demand              {"demand": 120.0}
+PUT  /api/devices/heater/write              {"demand": 120.0}
 POST /api/devices/heater/commands/set_limit  {"fraction": 0.5}
 
 flyball view heater
@@ -183,7 +183,7 @@ as well as anything it publishes.
   only records.
 - `commit` returns nothing; push a readback (`signal.push(...)`) if the
   committed value differs from the demand, and set `signal.at_limit` if it
-  railed. Read every demand it acts on from `pending`: one it never reads is
+  railed. Read every demand it acts on from `staged`: one it never reads is
   reported as `demand_ignored`.
 - Anything slow is in `commit`, not `apply` — mark `blocking = True` if
   `commit` may wait on a bus, so the rig runs it on a thread of its own.

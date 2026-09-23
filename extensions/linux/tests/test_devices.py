@@ -88,7 +88,7 @@ class TestI2cTable:
         dac.commit(1)
         assert bus.written == [(0x60, 0x40, [0x04, 0xD2])]
         assert out.value == pytest.approx(1.234), "1234.5 LSB rounds to even; differs, so pushed"
-        assert dac.pending == {out: 1.2345}, "commit does not clear pending -- the rig does"
+        assert dac.staged == {out: 1.2345}, "commit does not clear staged -- the rig does"
         (sample,) = dac.read(2)
         assert sample.by_name() == {"out": pytest.approx(1.234)}, "read back from the register"
 

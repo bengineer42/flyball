@@ -171,7 +171,7 @@ class TestLimitsNarrowOnly:
         rig.add_device(device)
         humidity = device.signals["humidity"]
         _read(rig, device, dry=5.0, wet=95.0)
-        assert rig.demand(device.root, {humidity: 99.0})[humidity].value == 80.0
+        assert rig.write(device.root, {humidity: 99.0})[humidity].value == 80.0
 
 
 class TestInvertedLimits:
@@ -195,7 +195,7 @@ class TestInvertedLimits:
         humidity = device.signals["humidity"]
         _read(rig, device, dry=70.0, wet=30.0)
         with pytest.raises(LimitsInvertedError):
-            rig.demand(device.root, {humidity: 50.0})
+            rig.write(device.root, {humidity: 50.0})
         assert device.written == {}
 
     def test_a_controller_s_demand_is_held(self, rig, build):

@@ -9,7 +9,7 @@ from .descriptors import (
     Readout,
     Setting,
 )
-from .device import Committable, Device, DriverConfig, Pending, Readable
+from .device import Committable, Device, DriverConfig, Readable, Staged
 from .entry import DeviceEntry
 from .signal import (
     Access,
@@ -29,10 +29,8 @@ from .signal import (
     SignalRef,
     SignalSpec,
     Value,
+    Write,
     WriteState,
-)
-from .signal import (
-    Demand as WriteDemand,
 )
 from .state import Condition, Event, Kind, Level, Scope
 
@@ -62,7 +60,6 @@ __all__ = [
     "Node",
     "NodeSpec",
     "Path",
-    "Pending",
     "Readable",
     "Reading",
     "Readout",
@@ -74,8 +71,9 @@ __all__ = [
     "Signal",
     "SignalRef",
     "SignalSpec",
+    "Staged",
     "Value",
-    "WriteDemand",
+    "Write",
     "WriteState",
     "command",
 ]

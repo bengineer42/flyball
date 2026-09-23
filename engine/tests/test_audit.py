@@ -112,7 +112,7 @@ def test_audit_rows(http, store):
 
     clamped = http.put("/api/signals/heater.drive", json=150.0, headers=_as(OPERATOR))
     assert clamped.status_code == 200, clamped.text
-    again = http.put("/api/devices/heater/demand", json={"drive": 40.0}, headers=_as(OPERATOR))
+    again = http.put("/api/devices/heater/write", json={"drive": 40.0}, headers=_as(OPERATOR))
     assert again.status_code == 200, again.text
     refused = http.put("/api/signals/thermocouple.temperature", json=1.0, headers=_as(OPERATOR))
     assert refused.status_code == 409, refused.text
@@ -126,7 +126,7 @@ def test_audit_rows(http, store):
     rows = _rows(store)[len(before) :]
     assert [(r.method, r.route, r.status, r.outcome) for r in rows] == [
         ("PUT", "/api/signals/{address}", 200, "done"),
-        ("PUT", "/api/devices/{name}/demand", 200, "done"),
+        ("PUT", "/api/devices/{name}/write", 200, "done"),
         ("PUT", "/api/signals/{address}", 409, "refused"),
         ("POST", "/api/rig/stop", 403, "denied"),
         ("POST", "/api/rig/stop", 200, "done"),
@@ -198,7 +198,7 @@ def test_a_callers_denied_rows_are_bounded(http, store):
 
     other = _as({"read"}, sub="token:other", sid="t-10")
     flood = {f"k{i}": float(i) for i in range(2000)}
-    denied = http.put("/api/devices/heater/demand", json=flood, headers=other)
+    denied = http.put("/api/devices/heater/write", json=flood, headers=other)
     assert denied.status_code == 403
     (row,) = _rows(store)[len(before) + len(rows) :]
     assert row.sub == "token:other"

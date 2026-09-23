@@ -100,7 +100,7 @@ class Blender(Committable):
         for role, signal in self.bound.items():
             if isinstance(signal, Signal) and (reading := signal.reading) is not None:
                 self.supply[role] = reading.value
-        pending = {signal.name: value for signal, value in self.pending.items()}
+        pending = {signal.name: value for signal, value in self.staged.items()}
         self.target = pending.get("humidity", self.target)
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
         self.pump_writes.append((self.blend_flow, self.target))
@@ -195,7 +195,7 @@ class TestBinding:
     def test_a_bare_device_has_an_empty_tree_beyond_conditions(self):
         bare = Device("bare")
         assert list(bare.signals) == ["conditions"], "every device has this much"
-        assert bare.pending == {} and bare.bound == {}
+        assert bare.staged == {} and bare.bound == {}
         assert bare.poll_s is None and bare.label is None
         assert bare.root.address == "bare" and bare.nodes == {}
         assert list(bare.root.walk()) == [bare.signals["conditions"]]
@@ -225,11 +225,11 @@ class TestWriteSide:
         h1, h2 = furnace.signals["heater1"], furnace.signals["heater2"]
         furnace.apply(h1, 10, 1250.0)
         furnace.apply(h2, 10, 6000.0)
-        assert furnace.pending == {h1: 1250.0, h2: 6000.0}
+        assert furnace.staged == {h1: 1250.0, h2: 6000.0}
         assert furnace.written == {}
         assert furnace.commit(10) is None
         assert furnace.inputs == {"heater1": 0.5, "heater2": 1.0}
-        assert furnace.pending == {h1: 1250.0, h2: 6000.0}, "the rig clears pending, not the driver"
+        assert furnace.staged == {h1: 1250.0, h2: 6000.0}, "the rig clears staged, not the driver"
         assert furnace.written == {}, "the rig fills it in, not the driver"
 
         furnace.apply(h1, 20, 0.0)
@@ -244,7 +244,7 @@ class TestWriteSide:
         setpoint = holder.signals["setpoint"]
         holder.apply(setpoint, 1, 50.0)
         assert holder.commit(1) is None
-        assert holder.pending == {setpoint: 50.0}, "the driver never clears it; the rig does"
+        assert holder.staged == {setpoint: 50.0}, "the driver never clears it; the rig does"
         assert holder.commit(2) is None
 
     def test_a_composite_device_sees_every_pending_value_at_once(self):
@@ -256,7 +256,7 @@ class TestWriteSide:
         assert blender.pump_writes == []
         assert blender.commit(1) is None
         assert blender.pump_writes == [(1.5, 47.0)]
-        assert blender.pending == {humidity: 47.0, flow: 1.5}, "the rig clears pending"
+        assert blender.staged == {humidity: 47.0, flow: 1.5}, "the rig clears staged"
 
     def test_a_bound_input_s_newest_value_is_read_in_commit(self):
         blender = Blender("b")

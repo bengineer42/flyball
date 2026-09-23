@@ -185,14 +185,14 @@ class TestBenchRig:
         rig = RigConfig.model_validate(bench_document()).build(start=False)
         psu = _psu(rig)
         assert isinstance(psu.link, FakeTextLink)
-        states = rig.demand(psu.root, {"set_voltage": 12.0})
+        states = rig.write(psu.root, {"set_voltage": 12.0})
         assert psu.link.written == ["SOUR:VOLT 12.000"]
         assert states[_signal(rig, "psu.set_voltage")].value == 12.0
 
     def test_demand_is_clamped_to_the_envelope_s_limits(self):
         rig = RigConfig.model_validate(bench_document()).build(start=False)
         psu = _psu(rig)
-        states = rig.demand(psu.root, {"set_voltage": 99.0})
+        states = rig.write(psu.root, {"set_voltage": 99.0})
         signal = _signal(rig, "psu.set_voltage")
         assert states[signal].value == 30.0 and states[signal].at_limit == "high"
 

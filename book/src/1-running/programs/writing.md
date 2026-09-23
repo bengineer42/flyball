@@ -137,7 +137,7 @@ may write flat (`hold: {minutes: 10}`), and a second duration-typed field
 would make that ambiguous.
 
 `set` reaches a device directly rather than through a controller: it is
-`rig.demand` in a step, and fails the same way a demand does -- 409 for a
+`rig.write` in a step, and fails the same way a demand does -- 409 for a
 signal a controller drives, or a signal that is not writable.
 
 `command`'s `device` names any device on the rig, readable or writable,

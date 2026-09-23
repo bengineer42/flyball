@@ -80,7 +80,7 @@ Then:
 2. **Step the law.** The law takes `(elapsed, measured, setpoint)` and
    returns a **correction**: the offset to add to the setpoint.
 3. **Form the output**: `output = feedforward(setpoint, rate) + correction`.
-4. **Write it**: the controller calls `rig.demand(output.node, {output:
+4. **Write it**: the controller calls `rig.write(output.node, {output:
    value}, by=self)`, which validates, clamps to `limits`, and commits;
    `expected` is what came back — `None` if the commit is deferred (a
    blocking device's writer thread) or the driver cannot say. An output
@@ -130,7 +130,7 @@ the feedforward's own mapping of the setpoint. Two things follow:
 
 Mode says what the controller is *doing*. Who is *allowed* to change it —
 a program step, an operator, the API — is a separate question, answered
-separately: `rig.demand` refuses a manual write against a signal a
+separately: `rig.write` refuses a manual write against a signal a
 controller is driving, so mode also decides who may write.
 
 ### Time

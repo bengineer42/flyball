@@ -131,11 +131,11 @@ Seven things to note:
 
    ```python
    def write(value: float) -> float | None:
-       states = self.demand(output.node, {output: value}, by=controller)
+       states = self.write(output.node, {output: value}, by=controller)
        return None if (state := states.get(output)) is None else state.value
    ```
 
-   `rig.demand(...)` validates and clamps the value, then either commits it
+   `rig.write(...)` validates and clamps the value, then either commits it
    at once (a manual demand, or a controller ticking outside a delivery) or,
    when the controller is ticking *inside* one (`Rig.on_samples`, mid-delivery,
    several controllers and a bound input sharing one device's commit),

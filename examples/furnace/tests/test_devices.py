@@ -166,7 +166,7 @@ class TestNamespaces:
         rig.add_device(drive)
         h1 = rig.resolve("heaters.bank.h1")
         assert isinstance(h1, Signal) and h1.limits == (0.0, 2500.0)
-        states = rig.demand(drive.nodes["bank"], {"h1": 1250.0, "h2": 300.0})
+        states = rig.write(drive.nodes["bank"], {"h1": 1250.0, "h2": 300.0})
         assert states[h1].value == 1250.0 and tube.inputs["heater1"] == 0.5
         assert tube.inputs["heater2"] == 0.05 and drive.inputs == {
             "bank.h1": 0.5,
@@ -213,7 +213,7 @@ class TestSimDrive:
         h1, h2 = drive.signals["h1"], drive.signals["h2"]
         assert h1.access == Access.RPW and h1.unit.symbol == "W" and h1.quantity.name == "power"
         assert h1.limits == (0.0, 2500.0) and h2.limits == (0.0, 6000.0)
-        states = rig.demand(drive.root, {"h1": 1250.0, "h2": 6000.0})
+        states = rig.write(drive.root, {"h1": 1250.0, "h2": 6000.0})
         assert tube.inputs == {"heater1": 0.5, "heater2": 1.0, "heater3": 0.0}
         assert states[h1].value == 1250.0 and states[h1].at_limit is None
         assert states[h2].at_limit == "high" and drive.written[h2] is states[h2]
@@ -226,10 +226,10 @@ class TestSimDrive:
         rig.clock = SteppedClock(0)
         drive = _built(SimDriveConfig(link="tube", ports={"h3": "heater3"}), "heaters", tube)
         rig.add_device(drive)
-        (state,) = rig.demand(drive.root, {"h3": 5000.0}).values()
+        (state,) = rig.write(drive.root, {"h3": 5000.0}).values()
         assert state.value == 2000.0 and state.requested == 5000.0 and state.at_limit == "high"
         assert tube.inputs["heater3"] == 1.0
-        (state,) = rig.demand(drive.root, {"h3": -1.0}).values()
+        (state,) = rig.write(drive.root, {"h3": -1.0}).values()
         assert state.value == 0.0 and state.at_limit == "low" and tube.inputs["heater3"] == 0.0
 
 
@@ -275,7 +275,7 @@ class TestSharedPlant:
             rig.add_device(device)
             rig.start_polling(device)
         assert clock.scheduled == 1, "only the daq publishes, so only it is polled"
-        rig.demand(drive.root, {"heater1": 2500.0})
+        rig.write(drive.root, {"heater1": 2500.0})
         clock.advance(600)
         zones = {
             n: rig.latest[rig.resolve(f"furnace.{n}")].value for n in ("zone1", "zone2", "zone3")
@@ -303,7 +303,7 @@ class TestSharedPlant:
         assert rig.latest[daq.signals["zone2"]].value == pytest.approx(300, abs=20)
         assert 0.0 < tube.inputs["heater2"] < 1.0
         with pytest.raises(ConflictError, match="driven by controller 'heaters.heater2'"):
-            rig.demand(drive.root, {"heater2": 0.0})
+            rig.write(drive.root, {"heater2": 0.0})
 
 
 class TestRigFile:

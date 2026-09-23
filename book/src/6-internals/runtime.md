@@ -35,7 +35,7 @@ a fresh read may deliver several at once:
    or by a controller's write — filling in what the rig knows (the
    value requested before clamping, and which controller drives the
    signal) that the device itself cannot know. `commit` returns nothing:
-   the rig fills in each pending demand's state from what the driver
+   the rig fills in each staged demand's state from what the driver
    pushed (or the committed value, if it pushed nothing). A blocking
    device's commit runs on its own `Writer` thread instead, and its states
    arrive later through `Rig.written`.
@@ -53,9 +53,9 @@ A sample's keys must be bound, readable signals under its node, and there
 must be at least one — anything else is a driver bug, refused (`ValueError`)
 before any of the delivery runs.
 
-## Rig.demand: validating a write before anything is recorded
+## Rig.write: validating a write before anything is recorded
 
-[Rig.demand][flyball.rig.rig.Rig.demand] puts one or more values on `W`
+[Rig.write][flyball.rig.rig.Rig.write] puts one or more values on `W`
 signals under one node, as a single demand, and validates the whole thing
 before touching anything:
 
@@ -77,7 +77,7 @@ before touching anything:
    or a non-finite one (NaN, inf: a NaN bound drops its side of the
    clamp, `min(max(-50, nan), 100)` is `-50`), fails closed (`Signal.clamp` raises `LimitNotKnownError`, a
    `NotReadyError`): a manual demand is refused before anything is
-   applied; a controller's demand is *held* — `demand()` returns `{}`,
+   applied; a controller's demand is *held* — `write()` returns `{}`,
    nothing is applied, as for a stale source — and the rig emits one
    `limit_unknown` event (`WARNING`, scope `controller`) on entering the
    hold and one `limit_known` (`INFO`) on the first write after it, not
@@ -90,7 +90,7 @@ blocking device, `writer.apply`) is called once per signal, under the rig's
 lock. A manual demand — `by=None`, or one made from outside a delivery — is
 committed at once and its states returned; a controller's demand made
 *inside* a delivery is folded into that delivery's own commit at the end
-(the device is just added to `touched`), and `demand()` returns nothing —
+(the device is just added to `touched`), and `write()` returns nothing —
 the state arrives through the delivery's normal path instead.
 
 ## Rig.resolve: addresses parsed once
@@ -129,7 +129,7 @@ controller whose law raises is kept to itself: a `step_failed` event on the
 first failure and `step_recovered` when it steps again, its mode left as it
 was, and every other controller, commit, reading and the recorder carry on.
 A device whose `commit` raises is likewise kept to itself: its demands are
-dropped rather than left pending, a `commit_failed` event names it once per
+dropped rather than left staged, a `commit_failed` event names it once per
 outage (`commit_recovered` when a commit succeeds again), and the other
 commits and the recorder carry on. Any other failure *downstream* of the
 read — an observer, the recorder — is the rig's, not the read's: a
@@ -176,7 +176,7 @@ controller, so the controller *is* named by what it drives — and by
 measured signal, for the tick (`Controllers.find(signal)`). The `default` flag is
 what a command or program step means when it names no controller.
 `rig.attach_controller(output, measured, law=..., feedforward=..., default=...)`
-builds one and wires its `write` callback to `rig.demand`; `detach_controller`
+builds one and wires its `write` callback to `rig.write`; `detach_controller`
 takes it off its output (left in manual, its last value held) so a manual
 demand may drive the output again.
 

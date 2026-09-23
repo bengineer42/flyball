@@ -126,8 +126,8 @@ class Modbus(Readable, Committable):
             yield Sample(self.root, time_ns, {signal: value})
 
     def commit(self, time_ns: int) -> None:
-        """Write every pending register once; push back what the quantised word actually set."""
-        for signal, value in self.pending.items():
+        """Write every staged register once; push back what the quantised word actually set."""
+        for signal, value in self.staged.items():
             register = self.registers[signal.name]
             word = round(value / register.scale)
             self.link.write_registers(register.address, [word], self.unit_id)

@@ -106,7 +106,7 @@ class GpioLine(Readable, Committable):
 
     def commit(self, time_ns: int) -> None:
         """Drive the line; a switch has two positions and neither is a rail, so no `at_limit`."""
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             on = value >= 0.5
             self._drive(on)
             readback = float(on)

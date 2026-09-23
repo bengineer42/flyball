@@ -164,7 +164,7 @@ class Blender(Readable, Committable):
                 published = None if sample is None else sample.published()
                 if published is not None:
                     self.supply[role] = published.by_name()
-        pending = {signal.name: value for signal, value in self.pending.items()}
+        pending = {signal.name: value for signal, value in self.staged.items()}
         self.target = pending.get("humidity", self.target)
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
         dry = self.supply.get("dry", 0.0)
@@ -372,7 +372,7 @@ class TestDelivery:
         }, "cut to what publishes; a sample with nothing left is not set at all"
         assert rig.recent_readings(flow) == [Reading(flow, 3, 1.5), Reading(flow, 4, 1.6)]
         # A fresh read of the setting goes through the same delivery.
-        rig.demand(blender.root, {"blend_flow": 2.5})
+        rig.write(blender.root, {"blend_flow": 2.5})
         clock.advance(1.0)
         assert rig.read(flow, fresh=True) == Reading(flow, clock.now_ns(), 2.5)
         assert rig.latest[flow].value == 2.5
@@ -463,32 +463,32 @@ class TestRead:
 class TestDemand:
     def test_refuses_a_signal_that_is_not_writable(self, rig, furnace):
         with pytest.raises(ConflictError, match=rf"'{furnace.name}.zone1' \[rp\] is not writable"):
-            rig.demand(furnace.root, {"zone1": 1.0})
+            rig.write(furnace.root, {"zone1": 1.0})
         with pytest.raises(AddressNotFoundError, match=f"no 'heater9' under {furnace.name}"):
-            rig.demand(furnace.root, {"heater9": 1.0})
+            rig.write(furnace.root, {"heater9": 1.0})
         with pytest.raises(ValueError, match=f"Demand on '{furnace.name}' carries no values"):
-            rig.demand(furnace.root, {})
-        assert furnace.pending == {} and furnace.commits == 0
+            rig.write(furnace.root, {})
+        assert furnace.staged == {} and furnace.commits == 0
 
     def test_dry_and_wet_flow_are_independent_demands(self, rig, blender):
         """`together` is gone: each flow signal is its own demand now."""
         dry_flow, wet_flow = blender.signals["dry_flow"], blender.signals["wet_flow"]
-        states = rig.demand(blender.root, {"dry_flow": 0.4})
+        states = rig.write(blender.root, {"dry_flow": 0.4})
         assert states == {dry_flow: WriteState(value=0.4)}
-        states = rig.demand(blender.root, {dry_flow: 0.5, "wet_flow": 0.5})
+        states = rig.write(blender.root, {dry_flow: 0.5, "wet_flow": 0.5})
         assert states == {dry_flow: WriteState(value=0.5), wet_flow: WriteState(value=0.5)}
 
     def test_signal_keys_and_names_are_the_same_demand(self, rig, furnace):
         heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
-        by_name = rig.demand(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
-        by_signal = rig.demand(furnace.root, {heater1: 3000.0, heater2: 100.0})
+        by_name = rig.write(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
+        by_signal = rig.write(furnace.root, {heater1: 3000.0, heater2: 100.0})
         assert by_name == by_signal
         assert by_signal[heater1] == WriteState(value=2500.0, requested=3000.0, at_limit="high")
         assert furnace.commits == 2 and furnace.inputs == {"heater1": 2500.0, "heater2": 100.0}
         with pytest.raises(
             ValueError, match=f"Demand on '{furnace.name}' names '{heater1.address}' twice"
         ):
-            rig.demand(furnace.root, {"heater1": 1.0, heater1: 2.0})
+            rig.write(furnace.root, {"heater1": 1.0, heater1: 2.0})
         assert furnace.commits == 2
 
     def test_a_signal_key_must_be_under_the_node(self, rig, furnace, fresh):
@@ -496,56 +496,56 @@ class TestDemand:
         rig.add_device(stage)
         heater1, x = furnace.signals["heater1"], stage.signals["position.x"]
         with pytest.raises(ConflictError, match=f"'{x.address}' is not under '{furnace.name}'"):
-            rig.demand(furnace.root, {heater1: 1.0, x: 1.0})
+            rig.write(furnace.root, {heater1: 1.0, x: 1.0})
         with pytest.raises(
             ConflictError, match=f"'{heater1.address}' is not under '{stage.name}.position'"
         ):
-            rig.demand(stage.nodes["position"], {heater1: 1.0})
-        assert furnace.pending == {} and stage.pending == {}
-        assert rig.demand(stage.root, {x: 1.0}) == {x: WriteState(value=1.0)}
+            rig.write(stage.nodes["position"], {heater1: 1.0})
+        assert furnace.staged == {} and stage.staged == {}
+        assert rig.write(stage.root, {x: 1.0}) == {x: WriteState(value=1.0)}
 
     def test_a_manual_demand_commits_now_and_reports_the_clamp(self, rig, furnace):
         heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
-        states = rig.demand(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
+        states = rig.write(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
         assert furnace.commits == 1 and furnace.inputs == {"heater1": 2500.0, "heater2": 100.0}
         assert states[heater1] == WriteState(value=2500.0, requested=3000.0, at_limit="high")
         assert states[heater2] == WriteState(value=100.0)
         assert furnace.written[heater1] == states[heater1], "the wire sees the same"
         with rig.write_states.watch():
-            rig.demand(furnace.root, {"heater1": -1.0})
+            rig.write(furnace.root, {"heater1": -1.0})
         assert rig.write_states.changed_since(0)[1] == {
             f"{furnace.name}.heater1": WriteState(value=0.0, requested=-1.0, at_limit="low")
         }
-        assert rig.demand(furnace.root, {"heater1": 2500.0})[heater1].requested is None
+        assert rig.write(furnace.root, {"heater1": 2500.0})[heater1].requested is None
 
     def test_a_dotted_name_reaches_a_signal_under_a_namespace(self, rig, fresh):
         stage = Stage(fresh("stage"))
         rig.add_device(stage)
         x, y = stage.signals["position.x"], stage.signals["position.y"]
-        assert rig.demand(stage.root, {"position.x": 1.0}) == {x: WriteState(value=1.0)}
-        assert rig.demand(stage.nodes["position"], {"x": 2.0, "y": 3.0}) == {
+        assert rig.write(stage.root, {"position.x": 1.0}) == {x: WriteState(value=1.0)}
+        assert rig.write(stage.nodes["position"], {"x": 2.0, "y": 3.0}) == {
             x: WriteState(value=2.0),
             y: WriteState(value=3.0),
         }
         with pytest.raises(ConflictError, match=f"'{stage.name}.position' is a namespace"):
-            rig.demand(stage.root, {"position": 1.0})
+            rig.write(stage.root, {"position": 1.0})
 
     def test_a_controller_owned_signal_refuses_a_manual_demand(self, rig, furnace):
         heater1 = furnace.signals["heater1"]
         controller = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=1.0))
-        rig.demand(furnace.root, {"heater1": 0.5})  # attached but manual: takes demands
+        rig.write(furnace.root, {"heater1": 0.5})  # attached but manual: takes demands
         controller.regulate(50.0)
         with pytest.raises(
             ConflictError,
             match=f"'{heater1.address}' is driven by controller '{controller.name}'",
         ):
-            rig.demand(furnace.root, {"heater1": 1.0})
-        assert rig.demand(furnace.root, {"heater2": 1.0}) == {
+            rig.write(furnace.root, {"heater1": 1.0})
+        assert rig.write(furnace.root, {"heater2": 1.0}) == {
             furnace.signals["heater2"]: WriteState(value=1.0)
         }
         assert rig.detach_controller(controller.name) is controller
         assert controller.name not in rig.controllers and controller.mode.value == "manual"
-        state = rig.demand(furnace.root, {"heater1": 1.0})[heater1]
+        state = rig.write(furnace.root, {"heater1": 1.0})[heater1]
         assert state == WriteState(value=1.0, controller=None)
         controller.regulate(50.0, transfer=Transfer.RESET)
         assert furnace.written[heater1].value == 1.0, "detached: its demands go nowhere"
@@ -554,9 +554,9 @@ class TestDemand:
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         limited = dev.signals["limited"]
-        assert rig.demand(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        assert rig.write(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
         clock.advance(1.0)  # 10 units/s allows up to 15.0 now
-        assert rig.demand(dev.root, {limited: 12.0}) == {limited: WriteState(value=12.0)}
+        assert rig.write(dev.root, {limited: 12.0}) == {limited: WriteState(value=12.0)}
 
     def test_a_demand_exceeding_the_rate_limit_is_clamped_and_the_clamped_value_is_recorded(
         self, rig, fresh, clock
@@ -564,9 +564,9 @@ class TestDemand:
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         limited = dev.signals["limited"]
-        rig.demand(dev.root, {limited: 5.0})
+        rig.write(dev.root, {limited: 5.0})
         clock.advance(1.0)  # 10 units/s allows a step of at most 10.0: 5.0 -> 15.0
-        states = rig.demand(dev.root, {limited: 100.0})
+        states = rig.write(dev.root, {limited: 100.0})
         assert states == {limited: WriteState(value=15.0, requested=100.0)}
         assert dev.written[limited].value == 15.0, "the clamped value committed, not the ask"
 
@@ -575,9 +575,9 @@ class TestDemand:
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         unlimited = dev.signals["unlimited"]
-        rig.demand(dev.root, {unlimited: 0.0})
+        rig.write(dev.root, {unlimited: 0.0})
         clock.advance(0.001)
-        states = rig.demand(dev.root, {unlimited: 10_000.0})
+        states = rig.write(dev.root, {unlimited: 10_000.0})
         assert states == {unlimited: WriteState(value=10_000.0)}
 
     def test_a_controller_demand_is_held_once_its_source_goes_stale(self, rig, fresh, clock):
@@ -587,11 +587,11 @@ class TestDemand:
         controller = rig.attach_controller(heater, zone, law=P(kp=1.0))
         rig.on_samples([Sample(thermo.root, clock.now_ns(), {zone: 20.0})])
         clock.advance(4.9)  # under the 5s threshold: still trusted
-        assert rig.demand(thermo.root, {heater: 10.0}, by=controller) == {
+        assert rig.write(thermo.root, {heater: 10.0}, by=controller) == {
             heater: WriteState(value=10.0, controller=controller.name)
         }
         clock.advance(0.2)  # 5.1s since the reading: now stale
-        assert rig.demand(thermo.root, {heater: 20.0}, by=controller) == {}
+        assert rig.write(thermo.root, {heater: 20.0}, by=controller) == {}
         assert thermo.written[heater].value == 10.0, "held: the last applied value stands"
 
 
@@ -636,8 +636,8 @@ class TestLimitsThatFollowASignal:
         humidity = supplied.signals["humidity"]
         assert humidity.limits is None, "nothing read on the supply yet"
         with pytest.raises(NotReadyError, match=r"limit follows 'supply', which has no value yet"):
-            rig.demand(supplied.root, {humidity: 150.0})
-        assert supplied.written == {} and supplied.pending == {}, "nothing reached the device"
+            rig.write(supplied.root, {humidity: 150.0})
+        assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
         assert humidity.reading is None
 
     def test_the_first_reading_of_the_bound_lifts_the_refusal_and_clamps_to_it(
@@ -645,9 +645,9 @@ class TestLimitsThatFollowASignal:
     ):
         humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
         with pytest.raises(NotReadyError):
-            rig.demand(supplied.root, {humidity: 150.0})
+            rig.write(supplied.root, {humidity: 150.0})
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
-        assert rig.demand(supplied.root, {humidity: 150.0}) == {
+        assert rig.write(supplied.root, {humidity: 150.0}) == {
             humidity: WriteState(value=95.0, requested=150.0, at_limit="high")
         }
 
@@ -697,12 +697,12 @@ class TestLimitsThatFollowASignal:
         with pytest.raises(
             NotReadyError, match=r"'supply', which has no value yet, or not a finite"
         ):
-            rig.demand(supplied.root, {humidity: 150.0})
-        assert supplied.written == {} and supplied.pending == {}, "nothing reached the device"
+            rig.write(supplied.root, {humidity: 150.0})
+        assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
         with pytest.raises(NotReadyError, match="limit"):
             rig.run_command(supplied, "aim", {"humidity": 150.0})
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
-        assert rig.demand(supplied.root, {humidity: 150.0})[humidity].value == 95.0
+        assert rig.write(supplied.root, {humidity: 150.0})[humidity].value == 95.0
 
     def test_a_controller_is_held_while_its_bound_is_nan(self, rig, supplied, clock):
         humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
@@ -914,7 +914,7 @@ class Gated(Committable):
 
     def commit(self, time_ns: int) -> None:
         self.gate.wait(2.0)
-        self.committed.extend(self.pending.values())
+        self.committed.extend(self.staged.values())
 
 
 def _within(seconds: float, fn: Callable[[], object]) -> bool:
@@ -952,7 +952,7 @@ class TestRemoval:
         gated = Gated(fresh("gated"))
         rig.add_device(gated)
         heater = gated.signals["heater"]
-        rig.demand(gated.root, {heater: 1.0})
+        rig.write(gated.root, {heater: 1.0})
         writer = rig._writers[gated]
         assert _within(0.5, lambda: rig.remove_device(gated.name)), "no wait on the writer"
         gated.gate.set()
@@ -969,7 +969,7 @@ def test_a_blocking_write_with_no_readback_reports_each_committed_value(rig, fre
     rig.add_device(gated)
     heater = gated.signals["heater"]
     for value in (1.0, 3.0):
-        rig.demand(gated.root, {heater: value})
+        rig.write(gated.root, {heater: value})
         deadline = time.monotonic() + 2.0
         while gated.written.get(heater) != WriteState(value=value):
             assert time.monotonic() < deadline, f"{value} was reported as {gated.written[heater]}"
@@ -984,20 +984,20 @@ class TestNonFinite:
 
     @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
     def test_a_demand_refuses_a_value_that_is_not_finite(self, rig, furnace, bad):
-        rig.demand(furnace.root, {"heater1": 10.0})
+        rig.write(furnace.root, {"heater1": 10.0})
         with pytest.raises(ValueError, match=rf"'{furnace.name}.heater1' .* not finite"):
-            rig.demand(furnace.root, {"heater2": 5.0, "heater1": bad})
+            rig.write(furnace.root, {"heater2": 5.0, "heater1": bad})
         assert furnace.inputs == {"heater1": 10.0}, "nothing of the demand was applied"
-        assert furnace.commits == 1 and furnace.pending == {}
+        assert furnace.commits == 1 and furnace.staged == {}
 
     def test_a_non_finite_last_value_is_no_rate_reference(self, rig, fresh, clock):
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         limited = dev.signals["limited"]
         limited.push(math.nan, clock.now_ns())  # a driver's readback gone wrong
-        assert rig.demand(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        assert rig.write(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
         clock.advance(1.0)
-        states = rig.demand(dev.root, {limited: 100.0})
+        states = rig.write(dev.root, {limited: 100.0})
         assert states == {limited: WriteState(value=15.0, requested=100.0)}, "5.0 is the reference"
 
     def test_a_non_finite_demand_over_http_is_a_422(self, rig, furnace):
@@ -1014,7 +1014,7 @@ class TestNonFinite:
                 )
                 assert put.status_code == 422, put.text
                 put = client.put(
-                    f"/api/devices/{furnace.name}/demand",
+                    f"/api/devices/{furnace.name}/write",
                     content='{"heater1": Infinity}',
                     headers={"content-type": "application/json"},
                 )

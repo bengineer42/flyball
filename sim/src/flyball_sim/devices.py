@@ -632,7 +632,7 @@ class SimDrive(Committable):
         return offset
 
     def commit(self, time_ns: int) -> None:
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             path = str(signal.path)
             port = self.ports[path]
             fraction = (

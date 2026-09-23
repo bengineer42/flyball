@@ -192,7 +192,7 @@ def test_keep_range_is_a_closed_copy_rebased_to_its_start(rig, oven, clock, stor
     scratch_id = rig.recorder.writer.session.id
     feed(rig, oven, clock, 10)
     clock.advance(0.5)
-    rig.demand(oven.root, {"heater": 40.0})
+    rig.write(oven.root, {"heater": 40.0})
     rig.recorder.flush()
     rig.recorder.writer.write_event(Event(int(6.5 * S), "note", "x", "kept"))
     kept = store.keep_range(scratch_id, 3 * S, 8 * S, details={"name": "the middle"})

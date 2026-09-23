@@ -86,7 +86,7 @@ TABLE: Final[tuple[Rule, ...]] = (  # TODO(D-034): the verbs; the rows are fixed
     Rule("GET", "/api/devices/{name}", READ),
     Rule("GET", "/api/devices/{name}/schema", READ),
     Rule("POST", "/api/devices/{name}/restart", OPERATE),
-    Rule("PUT", "/api/devices/{name}/demand", OPERATE),
+    Rule("PUT", "/api/devices/{name}/write", OPERATE),
     Rule("PUT", "/api/signals/{address}", OPERATE),
     Rule("POST", "/api/devices/{name}/commands/{tag}", OPERATE),
     Rule("POST", "/api/links", OPERATE),

@@ -140,8 +140,8 @@ class I2cTable(Readable, Committable):
             yield Sample(self.root, time_ns, {signal: self._value(signal) for signal in due})
 
     def commit(self, time_ns: int) -> None:
-        """Write each pending register; push what the chip now holds if it differs, quantised."""
-        for signal, value in self.pending.items():
+        """Write each staged register; push what the chip now holds if it differs, quantised."""
+        for signal, value in self.staged.items():
             register = self.registers[signal.name]
             data = register.encode(value)
             self.link.write_register(self.address, register.address, data)

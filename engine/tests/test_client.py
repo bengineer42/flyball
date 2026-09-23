@@ -68,7 +68,7 @@ class TestClientSurfaces:
         rig.put = lambda path, body=None: calls.append(("PUT", path, body))
         rig.get = lambda path: calls.append(("GET", path, None)) or {"ok": True}
 
-        rig.demand("heaters.heater1", 1200.0)
+        rig.write("heaters.heater1", 1200.0)
         rig.read("furnace.zone1")
         rig.read("furnace.zone1", fresh=True)
         rig.controllers()

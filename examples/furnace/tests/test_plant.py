@@ -100,7 +100,7 @@ def test_the_example_reads_every_port_from_one_plant(furnace_rig):
     assert set(rig.devices) == {"furnace", "heaters"}
     assert rig.devices["furnace"].plant is rig.devices["heaters"].plant is rig.links["tube"]
     rig.detach_controller("heaters.heater1")  # a driven signal refuses a manual demand
-    (state,) = rig.demand(rig.resolve("heaters"), {"heater1": 600}).values()
+    (state,) = rig.write(rig.resolve("heaters"), {"heater1": 600}).values()
     assert state.value == 600.0 and state.at_limit is None
     assert rig.links["tube"].inputs["heater1"] == pytest.approx(600 / 2500)
     clock.advance(600)

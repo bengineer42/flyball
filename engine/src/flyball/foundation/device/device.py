@@ -72,17 +72,17 @@ __all__ = [
     "Committable",
     "Device",
     "DriverConfig",
-    "Pending",
     "Readable",
+    "Staged",
     "command",
 ]
 
 
-class Pending(dict[Signal, float]):
-    """`Committable.pending`: what `apply` recorded, noting which demands the driver read.
+class Staged(dict[Signal, float]):
+    """`Committable.staged`: what `apply` staged for `commit`, noting which the driver read.
 
     A plain dict to a driver. Looking a demand up (`[]`, `get`, `pop`, `in`,
-    `signal.pending`) marks it read; walking the whole (`items`, `keys`,
+    `signal.staged`) marks it read; walking the whole (`items`, `keys`,
     `values`, iterating, `copy`) marks all of them. After `commit` the rig
     asks which were never read -- a demand the driver did not look at, so
     nothing was set -- and `clear` forgets the marks with the demands.
@@ -210,8 +210,8 @@ class Device:
     bound: dict[str, Signal | Node]
     """Inputs this device follows on other devices, by role (`"dry"`): a signal, or a whole
     namespace read as one message; the rig resolves them."""
-    pending: Pending
-    """What `apply` recorded since the last `commit`; the rig clears it after each."""
+    staged: Staged
+    """What `apply` staged since the last `commit`; the rig clears it after each."""
     written: dict[Signal, WriteState]
     """The last state each W signal was committed to, for the wire."""
     router: Router
@@ -225,7 +225,7 @@ class Device:
         self.name = name
         self.label = label
         self.bound = {}
-        self.pending = Pending()
+        self.staged = Staged()
         self.written = {}
         self.router = Router()
         self._extended = False
@@ -470,10 +470,10 @@ class Committable(Device):
         The rig has already validated the whole demand this came from --
         demands under one node, in their own units, controller ownership,
         clamped to `limits` -- and fans it out one signal at a time, noting
-        that this device was touched. The default stores into `pending`;
+        that this device was touched. The default stages it in `staged`;
         most drivers need not override.
         """
-        self.pending[signal] = value
+        self.staged[signal] = value
 
     def commit(self, time_ns: int) -> None:
         """Push everything recorded since the last commit to the hardware, once.
@@ -481,14 +481,14 @@ class Committable(Device):
         The rig calls it once per delivery for every device it touched --
         a demand applied, an input landed -- and immediately after a manual
         demand. There is no dirty flag in the driver contract: the rig keeps
-        the touched set. The default writes `pending` straight through
+        the touched set. The default writes `staged` straight through
         [write_signal][flyball.foundation.device.device.Committable.write_signal]; a
         composite device (a blender) recomputes from all its inputs here,
         pushes its readbacks, and may skip I/O when nothing changed. The rig
-        then reports each pending demand -- as the readback the driver
-        pushed, or the committed value -- and clears `pending`.
+        then reports each staged demand -- as the readback the driver
+        pushed, or the committed value -- and clears `staged`.
         """
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             self.write_signal(signal, value)
 
     def write_signal(self, signal: Signal, value: float) -> None:

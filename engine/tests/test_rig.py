@@ -141,7 +141,7 @@ class TestRecording:
         heater2 = furnace.signals["heater2"]
         recorder = rig.start_recording(FakeStore())
         clock.advance(3.0)
-        rig.demand(furnace.root, {"heater2": 7000.0})
+        rig.write(furnace.root, {"heater2": 7000.0})
         assert recorder.records[0] == (
             [],
             [],
@@ -176,7 +176,7 @@ class Slow(Furnace):
         self.attempts += 1
         if self.fail:
             raise OSError("bus timeout")
-        self.committed.append({s.name: v for s, v in self.pending.items()})
+        self.committed.append({s.name: v for s, v in self.staged.items()})
         return super().commit(time_ns)
 
 
@@ -221,8 +221,8 @@ class TestBlockingDevices:
         slow = Slow(fresh("slow"))
         rig.add_device(slow)
         heater2 = slow.signals["heater2"]
-        assert rig.demand(slow.root, {"heater2": 7000.0}) == {}
-        assert rig.demand(slow.root, {"heater2": 100.0}) == {}
+        assert rig.write(slow.root, {"heater2": 7000.0}) == {}
+        assert rig.write(slow.root, {"heater2": 100.0}) == {}
         slow.gate.set()
         _wait_until(lambda: heater2 in slow.written)
         assert slow.committed == [{"heater2": 100.0}], "the newest value wins"
@@ -237,17 +237,17 @@ class TestBlockingDevices:
         slow.gate.set()
         rig.add_device(slow)
         heater1 = slow.signals["heater1"]
-        rig.demand(slow.root, {"heater1": 1.0})
+        rig.write(slow.root, {"heater1": 1.0})
         _wait_until(lambda: rig.write_conditions() != [])
         [(name, condition)] = rig.write_conditions()
         assert name == slow.name and condition.kind == "write_failed"
         assert condition.level is Level.ERROR and "bus timeout" in condition.message
         assert rig.recent[-1].kind == "write_failed" and rig.recent[-1].subject == slow.name
-        rig.demand(slow.root, {"heater1": 2.0})
+        rig.write(slow.root, {"heater1": 2.0})
         _wait_until(lambda: slow.attempts == 2)
         assert len(rig.recent) == 1, "one event per outage, not one per write"
         slow.fail = False
-        rig.demand(slow.root, {"heater1": 3.0})
+        rig.write(slow.root, {"heater1": 3.0})
         _wait_until(lambda: rig.write_conditions() == [])
         assert rig.recent[-1].kind == "write_recovered" and slow.written[heater1].value == 3.0
         rig.stop()
@@ -273,7 +273,7 @@ def test_stop_ends_polling_writers_and_recording(rig, fresh, recorder_module):
     slow = Slow(fresh("slow"))
     slow.gate.set()
     rig.add_device(slow)
-    rig.demand(slow.root, {"heater1": 1.0})
+    rig.write(slow.root, {"heater1": 1.0})
     recorder = rig.start_recording(FakeStore())
     assert rig.polling.run(polled.name).running is True
     rig.stop()

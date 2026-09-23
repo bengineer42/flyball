@@ -42,7 +42,7 @@ error's message; there is no separate decode-by-registry step the way a
 A demand's value must be finite. JSON has no NaN or infinity, but the
 server's parser takes the literals `NaN`, `Infinity` and `-Infinity`, so
 a demand carrying one (`PUT /api/signals/{address}`,
-`PUT /api/devices/{name}/demand`, a synthesised `set_<name>` command) is
+`PUT /api/devices/{name}/write`, a synthesised `set_<name>` command) is
 refused with a 422 before anything is applied: a NaN would pass every
 limit and rate clamp and reach the device.
 

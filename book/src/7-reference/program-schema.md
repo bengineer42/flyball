@@ -69,7 +69,7 @@ list of addresses, or omitted for the rig's default controller. Source:
 
 `regulate`/`ramp`/`hold`/`arrive`/`manual` are steps on a **controller**
 (named by its target's address); `set` and `command` reach a **device**
-directly — `set` is one demand (`rig.demand`) on its writable signals,
+directly — `set` is one demand (`rig.write`) on its writable signals,
 `command` calls one of its `@command` methods, `device_command` naming the
 tag rather than `command` because a step's own wire form reserves
 `command` for its own tag. See [Programs](../1-running/programs/index.md) for

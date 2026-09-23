@@ -53,7 +53,7 @@ from flyball.interfaces.client import Rig
 
 rig = Rig("http://127.0.0.1:8000")          # or "http://host/furnace" behind a prefix
 print(rig.read("furnace.zone1"))             # a signal by address
-rig.demand("heaters.heater1", 0.4)           # a writable signal, directly
+rig.write("heaters.heater1", 0.4)           # a writable signal, directly
 rig.post("/api/controllers/heaters.heater1/regulate", {"at": 400})   # any route
 rig.devices["furnace"].fail(signal="zone1")  # a device command, checked against its schema
 ```

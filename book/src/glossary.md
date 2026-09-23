@@ -180,7 +180,7 @@ changed only through the rig, under its lock, as an event.
 signal, one law, one output (a demand), one reference; named by the
 address of its output (a demand has at most one).
 
-**values tier** — the per-instant objects (`Reading`, `Sample`, `Demand`,
+**values tier** — the per-instant objects (`Reading`, `Sample`, `Write`,
 `WriteState`, `Event`): frozen; recorded, streamed, compared; never
 changed after the fact.
 

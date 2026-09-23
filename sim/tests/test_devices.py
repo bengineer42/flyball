@@ -158,11 +158,11 @@ class TestAnyMultiPlant:
         assert isinstance(humidity, Signal) and str(humidity.access) == "rpw"
         assert humidity.unit.symbol == "%" and humidity.limits == (0.0, 100.0)
         assert humidity.quantity.name == "humidity"
-        (state,) = rig.demand(drive.root, {"humidity": 25.0}).values()
+        (state,) = rig.write(drive.root, {"humidity": 25.0}).values()
         assert state.value == 25.0 and chamber.inputs == {"wet_fraction": 0.25}
         assert drive.inputs == {"humidity": 0.25}
         assert drive.disturb("humidity", 10.0) == {"humidity": pytest.approx(0.35)}
-        (state,) = rig.demand(drive.root, {"humidity": 150.0}).values()
+        (state,) = rig.write(drive.root, {"humidity": 150.0}).values()
         # the disturb kick (fraction 0.1) survives this commit, on top of the clamped demand
         assert state.at_limit == "high"
         assert chamber.inputs["wet_fraction"] == pytest.approx(1.1)

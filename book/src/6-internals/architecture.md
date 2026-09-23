@@ -51,7 +51,7 @@ writing a device driver rather than editing the rig.
 
 | package | layer | holds |
 | --- | --- | --- |
-| `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; errors; `Topic`, `Latest`, `Trigger` |
+| `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Write`, `WriteState`, `Access`; `Device`, `DriverConfig`; errors; `Topic`, `Latest`, `Trigger` |
 | `flyball.model` | control (unlisted -- a real cycle, see Layering) | `Catalog`/`Catalogs`, `Config`; the base `ControlLaw`, `Feedforward`, `SetPointGenerator`, `Controller`/`ControllerSettings`/`ValueSource`, `Transfer` every registered law, feedforward, generator and `DriverConfig` derives from |
 | `flyball.control` | control | the 9 built-in laws (`P`, `PI`, `PID`, `IMC`, `OnOff`, `OpenLoop`, `Scheduled`, `SlidingMode`, `SmithPredictor`), the `Affine`/`Table` feedforwards, the `Hold`/`LinearRampSetpoint`/`Profile` generators |
 | `flyball.library` | library | `Tuning`, `Tunings` -- saved, named configs |

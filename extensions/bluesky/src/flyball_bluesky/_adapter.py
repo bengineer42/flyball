@@ -150,7 +150,7 @@ class SignalMovable:
         self._last: float | None = None
 
     def set(self, value: float) -> Status:
-        self._rig.demand(self._signal.node, {self._signal: value})
+        self._rig.write(self._signal.node, {self._signal: value})
         self._last = value
         signal = Trigger()
         signal.fire()

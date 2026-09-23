@@ -12,7 +12,7 @@ records authentication failures). An identified caller's denials are kept to
 left out is counted in the log. A CORS preflight (`OPTIONS`) and a websocket (every one
 needs only read) act on nothing and are not recorded either.
 
-For a demand (`PUT /api/signals/{address}`, `PUT /api/devices/{name}/demand`) the row
+For a write (`PUT /api/signals/{address}`, `PUT /api/devices/{name}/write`) the row
 carries each signal's old value (its last write, else its latest reading, as the rig had it
 just before), the value requested (the body) and the value applied (the answer's, after the
 rig's limits; None when refused). For a stop, the reason. The row is queued on
@@ -66,9 +66,9 @@ REQUEST_ID: Final = re.compile(r"\A[0-9a-f]{32}\Z")
 """The front's `X-Request-Id`: 16 random bytes, hex."""
 
 _SIGNAL: Final = "/api/signals/{address}"
-_DEMAND: Final = "/api/devices/{name}/demand"
+_WRITE: Final = "/api/devices/{name}/write"
 _STOP: Final = "/api/rig/stop"
-_BODIES: Final = (_SIGNAL, _DEMAND, _STOP)
+_BODIES: Final = (_SIGNAL, _WRITE, _STOP)
 """Routes whose request body the row needs: what was asked for."""
 _ROUTES: Final = tuple((rule.method, compile_path(rule.path)[0], rule.path) for rule in verbs.TABLE)
 _MAX_BODY: Final = 64 * 1024
@@ -143,7 +143,7 @@ class Audit:
             try:
                 if message["type"] == "http.response.start":
                     status = int(message["status"])
-                    if route not in (_SIGNAL, _DEMAND):
+                    if route not in (_SIGNAL, _WRITE):
                         finish(status)
                 elif message["type"] == "http.response.body" and status is not None and not done:
                     if len(answer) < _MAX_BODY:
@@ -286,7 +286,7 @@ def _asked(
     route: str, params: dict[str, str], body: bytes
 ) -> dict[str, tuple[Signal | None, float | None]]:
     """For a demand: by address, the signal (when the rig knows it) and the value asked for."""
-    if route not in (_SIGNAL, _DEMAND):
+    if route not in (_SIGNAL, _WRITE):
         return {}
     try:
         document = json.loads(body) if body else None

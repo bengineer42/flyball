@@ -8,7 +8,7 @@ device (`Device.bind`) makes one [Node][flyball.foundation.device.signal.Node] o
 are identity-hashed and created once, so a
 [Reading][flyball.foundation.device.signal.Reading], a
 [Sample][flyball.foundation.device.signal.Sample]
-or a [Demand][flyball.foundation.device.signal.Demand] holds a reference and nothing on the
+or a [Write][flyball.foundation.device.signal.Write] holds a reference and nothing on the
 hot path looks a name up. Addresses are parsed once, at the boundary.
 """
 
@@ -315,7 +315,7 @@ class NodeSpec:
     name: str
     children: tuple[NodeSpec | SignalSpec, ...]
     atomic: bool = False
-    """Read (and written) as one Sample / one Demand."""
+    """Read (and written) as one Sample / one Write."""
     label: str = ""
     poll_s: float | None = None
     """Inherited downwards; a child may override."""
@@ -761,9 +761,9 @@ class Signal:
         return min(max(value, band[0]), band[1])
 
     @property
-    def pending(self) -> float | None:
-        """The demand recorded on this signal since the last commit, if any."""
-        return self.node.device.pending.get(self)
+    def staged(self) -> float | None:
+        """The value written to this signal and staged since the last commit, if any."""
+        return self.node.device.staged.get(self)
 
     @property
     def poll_s(self) -> float | None:
@@ -903,8 +903,8 @@ class Sample:
 
 
 @dataclass(frozen=True, slots=True)
-class Demand:
-    """One or more values put on W signals under one node at one instant: a Sample in reverse.
+class Write:
+    """One or more values written to W signals under one node at one instant: a Sample in reverse.
 
     A rig-level object: the rig validates it whole, then fans it out to
     `Device.apply` one signal at a time. `values` are keyed by the bound

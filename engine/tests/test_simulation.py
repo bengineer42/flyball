@@ -174,7 +174,7 @@ class TestLiveValues:
         try:
             sim = Simulation(rig, config, document, path)
             rig.detach_controller("heaters.heater1")
-            rig.demand(rig.resolve("heaters"), {"heater1": 400})
+            rig.write(rig.resolve("heaters"), {"heater1": 400})
             rig.clock.advance(120)
             described = sim.describe()
             plant = described["plants"]["tube"]

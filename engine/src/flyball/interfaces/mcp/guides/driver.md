@@ -64,7 +64,7 @@ class Foo200(Readable, Committable):
 
     def commit(self, time_ns: int) -> None:
         """Everything recorded since the last commit, to the hardware, once."""
-        if (target := self.setpoint.pending) is not None:
+        if (target := self.setpoint.staged) is not None:
             self._link.write(f"SET {target:.2f}")
 
     @command
@@ -102,7 +102,7 @@ may be numbers, a config descriptor (resolved at build) or an input
 (resolved live). An `Readout` with a non-float `vtype` (an enum, `initial=`)
 is how a device reports its mode. On the class a descriptor is the spec; on
 the instance `self.bath` is the bound signal: `.value`, `.push(value,
-time_ns)`, and for a demand `.pending` (what was asked and not yet
+time_ns)`, and for a demand `.staged` (what was asked and not yet
 committed) and `.at_limit`.
 
 ## Read and commit

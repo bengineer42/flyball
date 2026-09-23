@@ -87,7 +87,7 @@ class TestPyMeasure:
         device.apply(bias, 1, 2.0)
         assert device.commit(1) is None
         assert inst.written == [2.0]
-        assert device.pending[bias] == 2.0, "the rig clears pending, not the driver"
+        assert device.staged[bias] == 2.0, "the rig clears staged, not the driver"
 
     def test_a_settable_property_declared_a_setting_is_one(self, fresh):
         """C13: `role: setting` keeps a range or a mode out of a controller's reach."""

@@ -63,7 +63,7 @@ class Daq(Readable, Committable):
         yield Sample(self.root, time_ns, {self.signals[n]: v for n, v in self.temps.items()})
 
     def commit(self, time_ns: int) -> None:
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             self.temps[signal.name] = value
 
     @command
@@ -316,7 +316,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
 
     # After a delivery and a demand, the values ride along on the tree.
     sample = deliver(rig, daq, 5_000_000_000)
-    rig.demand(drive.root, {"heater1": 3000.0})
+    rig.write(drive.root, {"heater1": 3000.0})
     one = client.get(f"/api/devices/{daq.name}").json()
     assert one["signals"][1]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
     assert one["signals"][3]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
@@ -451,7 +451,7 @@ def test_read_by_address(client, rig, daq, clock):
 
 
 def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
-    r = client.put(f"/api/devices/{drive.name}/demand", json={"heater1": 3000.0, "heater2": 10.0})
+    r = client.put(f"/api/devices/{drive.name}/write", json={"heater1": 3000.0, "heater2": 10.0})
     assert r.status_code == 200
     assert r.json() == {
         f"{drive.name}.heater1": {
@@ -474,20 +474,20 @@ def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
     assert drive.inputs["heater1"] == 100.0
 
     # What the rig refuses, the route refuses with its message.
-    r = client.put(f"/api/devices/{daq.name}/demand", json={"zone1": 1.0})
+    r = client.put(f"/api/devices/{daq.name}/write", json={"zone1": 1.0})
     assert r.status_code == 409 and r.json() == {
         "detail": f"'{daq.name}.zone1' [rp] is not writable"
     }
-    assert client.put(f"/api/devices/{drive.name}/demand", json={"heater9": 1.0}).status_code == 404
-    assert client.put(f"/api/devices/{drive.name}/demand", json={}).status_code == 422
-    assert client.put("/api/devices/nope/demand", json={"x": 1.0}).status_code == 404
+    assert client.put(f"/api/devices/{drive.name}/write", json={"heater9": 1.0}).status_code == 404
+    assert client.put(f"/api/devices/{drive.name}/write", json={}).status_code == 422
+    assert client.put("/api/devices/nope/write", json={"x": 1.0}).status_code == 404
     r = client.put(f"/api/signals/{drive.name}", json=1.0)
     assert r.status_code == 409 and "is a namespace" in r.json()["detail"]
     assert client.put(f"/api/signals/{drive.name}.heater9", json=1.0).status_code == 404
     assert client.put(f"/api/signals/{drive.name}.heater1", json="x").status_code == 422
 
     # A demand is written the same way, and a fresh read sees it.
-    client.put(f"/api/devices/{daq.name}/demand", json={"setpoint": 60.0})
+    client.put(f"/api/devices/{daq.name}/write", json={"setpoint": 60.0})
     read = client.get(f"/api/read/{daq.name}.setpoint?fresh=true").json()
     assert read["reading"]["value"] == 60.0
 
@@ -496,7 +496,7 @@ def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(clie
     supplied = Supplied(fresh("supplied"))
     rig.add_device(supplied)
     for r in (
-        client.put(f"/api/devices/{supplied.name}/demand", json={"humidity": 150.0}),
+        client.put(f"/api/devices/{supplied.name}/write", json={"humidity": 150.0}),
         client.put(f"/api/signals/{supplied.name}.humidity", json=150.0),
     ):
         assert r.status_code == 503, "not ready: never passed through unclamped"
@@ -507,7 +507,7 @@ def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(clie
     assert supplied.inputs == {}
 
     rig.on_samples([Sample(supplied.root, rig.clock.now_ns(), {supplied.signals["supply"]: 95.0})])
-    r = client.put(f"/api/devices/{supplied.name}/demand", json={"humidity": 150.0})
+    r = client.put(f"/api/devices/{supplied.name}/write", json={"humidity": 150.0})
     assert r.status_code == 200
     assert r.json()[f"{supplied.name}.humidity"]["value"] == 95.0
     assert supplied.inputs == {"humidity": 95.0}
@@ -678,14 +678,14 @@ def _sample_of(frame: dict, node: str) -> dict:
 
 def test_writes_ride_the_samples_stream(client, rig, drive):
     """`/ws/writes` is gone: a demand's write record rides with its reading on `/ws/samples`."""
-    rig.demand(drive.root, {"heater1": 10.0})
+    rig.write(drive.root, {"heater1": 10.0})
     with client.websocket_connect("/ws/samples") as ws:
         first = _sample_of(ws.receive_json(), drive.name)
         assert first["values"]["heater1"] == 10.0
         assert first["writes"] == {
             "heater1": {"requested": None, "at_limit": None, "controller": None}
         }
-        rig.demand(drive.root, {"heater2": 9000.0})
+        rig.write(drive.root, {"heater2": 9000.0})
         frame = _sample_of(ws.receive_json(), drive.name)
         assert frame["writes"]["heater2"]["at_limit"] == "high"
 

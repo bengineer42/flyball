@@ -53,7 +53,7 @@ class Heater(Committable):
         self.writes = []
 
     def commit(self, time_ns: int) -> None:
-        if (power := self.power.pending) is not None:
+        if (power := self.power.staged) is not None:
             self.writes.append(("power", power))
             if self.mode.value is not Mode.AUTO:
                 self.mode.push(Mode.AUTO, time_ns)
@@ -186,7 +186,7 @@ class TestRun:
     ) -> None:
         rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0})
         assert heater.mode.value is Mode.HAND
-        rig.demand(heater.root, {"power": 10.0})
+        rig.write(heater.root, {"power": 10.0})
         assert heater.mode.value is Mode.AUTO, "pushed inside commit, delivered after it"
         assert rig.router.sample(heater.root) is not None
 

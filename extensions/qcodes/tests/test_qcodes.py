@@ -132,7 +132,7 @@ class TestQCoDeS:
         device.apply(bias, 1, 3.0)
         assert device.commit(1) is None
         assert inst.parameters["volt"].sets == [3.0]
-        assert device.pending[bias] == 3.0, "the rig clears pending, not the driver"
+        assert device.staged[bias] == 3.0, "the rig clears staged, not the driver"
 
     def test_a_dotted_property_reaches_a_submodule_parameter(self, fresh):
         inst = FakeInstrument("smu")

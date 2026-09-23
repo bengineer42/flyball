@@ -71,7 +71,7 @@ class TestFakeBlockingGoesThroughTheWriter:
         chiller = rig.devices["chiller"]
         assert chiller.blocking is True
 
-        assert rig.demand(chiller.root, {"setpoint": 25.0}) == {}, "queued, not done inline"
+        assert rig.write(chiller.root, {"setpoint": 25.0}) == {}, "queued, not done inline"
         assert rig._writers, "a writer thread was started for the blocking fake"
 
         _wait_until(lambda: chiller.link.writes != [])

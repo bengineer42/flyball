@@ -36,13 +36,13 @@ from flyball.foundation.device import (
     LimitNotKnownError,
     LimitsInvertedError,
     Node,
-    Pending,
     Readable,
     Reading,
     Role,
     Sample,
     Scope,
     Signal,
+    Staged,
     WriteState,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
@@ -498,10 +498,10 @@ class Rig:
 
     # region Writes
 
-    def demand(
+    def write(
         self, node: Node, values: Mapping[str | Signal, float], *, by: Controller | None = None
     ) -> Mapping[Signal, WriteState]:
-        """Put `values` on W signals under `node`, as one demand, in each signal's unit.
+        """Write `values` to W signals under `node`, as one atomic write, in each signal's unit.
 
         A key is a bound signal under `node`, or its name relative to
         `node`, dotted for a namespace -- the wire's form, resolved here and
@@ -724,7 +724,7 @@ class Rig:
         states come back through `written` when the write completes.
 
         A commit that raises is that device's alone: its demands are dropped
-        (not left in `pending` to go out with a later commit, over a newer
+        (not left in `staged` to go out with a later commit, over a newer
         write), it becomes a `commit_failed` event once per outage and a
         condition, and the other devices commit regardless. Into `failed`,
         when given, go the states of what it dropped (`value` None: nothing
@@ -770,10 +770,10 @@ class Rig:
                 device.name,
                 Kind.COMMIT_FAILED,
                 message,
-                {"signals": [signal.address for signal in device.pending]},
+                {"signals": [signal.address for signal in device.staged]},
             )
         dropped: dict[Signal, WriteState] = {}
-        for signal in device.pending:
+        for signal in device.staged:
             holder = self.controllers.driving(signal)
             dropped[signal] = WriteState(
                 value=None,
@@ -781,13 +781,13 @@ class Rig:
                 controller=None if holder is None else holder.name,
             )
             signal.at_limit = None
-        device.pending.clear()
+        device.staged.clear()
         return dropped
 
     def _states(
         self, device: Committable, time_ns: int, before: Mapping[Signal, int]
     ) -> dict[Signal, WriteState]:
-        """What a commit set each pending demand to, with what the rig knows; clears `pending`.
+        """What a commit set each staged demand to, with what the rig knows; clears `staged`.
 
         The driver may have pushed a readback in `commit` (`before` is the
         router's count per signal from before it ran): that is the state's
@@ -805,9 +805,9 @@ class Rig:
         """
         states: dict[Signal, WriteState] = {}
         seq = self.router.seq
-        pending = device.pending
-        unread = set(pending.unread()) if isinstance(pending, Pending) else set()
-        for signal, value in dict.items(pending):
+        staged = device.staged
+        unread = set(staged.unread()) if isinstance(staged, Staged) else set()
+        for signal, value in dict.items(staged):
             pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
             requested = self._requested.pop(signal, None)
             ignored = signal in unread
@@ -848,7 +848,7 @@ class Rig:
                     at_limit=state.at_limit,
                     controller=state.controller,
                 )
-        device.pending.clear()
+        device.staged.clear()
         return states
 
     def _demand_ignored(self, device: Committable, signal: Signal, value: float) -> None:
@@ -1112,7 +1112,7 @@ class Rig:
         An argument that is a value for a demand (`Annotated[..., d]`) is filled from
         that demand's current value when left out, and clamped to the
         signal's effective limits. A synthesised `set_<name>` goes through
-        [demand][flyball.rig.rig.Rig.demand]. A command that changes
+        [demand][flyball.rig.rig.Rig.write]. A command that changes
         what drives the device -- one with a `mode`, or a linked argument --
         is refused while a controller drives one of the device's demands,
         unless it `interrupts`: then the controller is put into manual first,
@@ -1139,7 +1139,7 @@ class Rig:
         given = dict(args or {})
         if spec.demand_of is not None:
             signal = device.signals[spec.demand_of]
-            return self.demand(signal.node, {signal: given["value"]})
+            return self.write(signal.node, {signal: given["value"]})
         with self.lock:
             linked: dict[str, Signal] = {}
             for name, param in spec.params.items():
@@ -1239,7 +1239,7 @@ class Rig:
             feedforward = get_catalog().feedforwards[feedforward]()
 
         def write(value: float) -> float | None:
-            states = self.demand(output.node, {output: value}, by=controller)
+            states = self.write(output.node, {output: value}, by=controller)
             return None if (state := states.get(output)) is None else state.value
 
         with self.lock:  # not while a delivery is looking controllers up

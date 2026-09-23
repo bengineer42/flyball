@@ -129,7 +129,7 @@ def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):
     store = SqliteStore(":memory:")
     rig.start_recording(store)
     clock.advance(1.0)
-    rig.demand(furnace.root, {"heater": 3000.0, "setpoint": 200.0})
+    rig.write(furnace.root, {"heater": 3000.0, "setpoint": 200.0})
     rig.stop_recording()
     session = store.sessions()[0]
     (state,) = store.write_states(session.id, f"{furnace.name}.heater")

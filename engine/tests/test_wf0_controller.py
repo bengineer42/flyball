@@ -198,29 +198,29 @@ class TestRateWindow:
     def test_the_window_is_the_targets_poll_period(self, setup):
         rig, dev, clock = setup
         polled = dev.signals["polled"]
-        rig.demand(dev.root, {polled: 0.0})
+        rig.write(dev.root, {polled: 0.0})
         at(clock, 100)
-        assert rig.demand(dev.root, {polled: 1000.0})[polled].value == pytest.approx(5.0)
+        assert rig.write(dev.root, {polled: 1000.0})[polled].value == pytest.approx(5.0)
 
     def test_within_the_window_the_elapsed_time_counts(self, setup):
         rig, dev, clock = setup
         polled = dev.signals["polled"]
-        rig.demand(dev.root, {polled: 0.0})
+        rig.write(dev.root, {polled: 0.0})
         at(clock, 0.2)
-        assert rig.demand(dev.root, {polled: 1000.0})[polled].value == pytest.approx(2.0)
+        assert rig.write(dev.root, {polled: 1000.0})[polled].value == pytest.approx(2.0)
 
     def test_without_a_poll_period_a_controllers_min_period(self, setup):
         rig, dev, clock = setup
         unpolled, zone = dev.signals["unpolled"], dev.signals["zone"]
         controller = rig.attach_controller(unpolled, zone, law=PI(kp=1.0), min_period_s=2.0)
-        rig.demand(dev.root, {unpolled: 0.0}, by=controller)
+        rig.write(dev.root, {unpolled: 0.0}, by=controller)
         at(clock, 100)
-        state = rig.demand(dev.root, {unpolled: 1000.0}, by=controller)[unpolled]
+        state = rig.write(dev.root, {unpolled: 1000.0}, by=controller)[unpolled]
         assert state.value == pytest.approx(20.0)
 
     def test_else_one_second(self, setup):
         rig, dev, clock = setup
         unpolled = dev.signals["unpolled"]
-        rig.demand(dev.root, {unpolled: 0.0})
+        rig.write(dev.root, {unpolled: 0.0})
         at(clock, 100)
-        assert rig.demand(dev.root, {unpolled: 1000.0})[unpolled].value == pytest.approx(10.0)
+        assert rig.write(dev.root, {unpolled: 1000.0})[unpolled].value == pytest.approx(10.0)

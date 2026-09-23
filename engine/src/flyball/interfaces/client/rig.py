@@ -6,7 +6,7 @@ validating arguments against the schema before sending:
     rig = Rig("http://pi:8000")
     rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
     rig.devices.sht4x.view()["conditions"]
-    rig.demand("heaters.heater1", 1200.0)
+    rig.write("heaters.heater1", 1200.0)
     for frame in rig.watch("controllers"):
         ...
 
@@ -224,8 +224,8 @@ class Rig:
         query = "?fresh=true" if fresh else ""
         return self.get(f"/api/read/{segment(address)}{query}")
 
-    def demand(self, address: str, value: float) -> Any:
-        """Put `value` on the single writable signal at `address`."""
+    def write(self, address: str, value: float) -> Any:
+        """Write `value` to the single writable signal at `address`."""
         return self.put(f"/api/signals/{segment(address)}", value)
 
     def waits(self) -> dict[str, Any]:

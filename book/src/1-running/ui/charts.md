@@ -53,7 +53,7 @@ ticking one plots that controller's setpoint alongside the signals, on the
 axis of the signal it regulates (same unit — a controller is named by the
 signal it drives), dashed, and labelled `‹signal title› (setpoint)` so it
 reads apart from the measured line at a glance. Only the setpoint is
-offered here, not the controller's reading/demand/expected/correction —
+offered here, not the controller's measured/output/expected/correction —
 that fuller trace is the Controllers page's `ControllerPanel`, not this
 picker.
 

@@ -82,7 +82,7 @@ class Writer:
             before = dict(self.rig.router.seq)
             self.device.commit(time_ns)
         except Exception as error:
-            self.device.pending.clear()
+            self.device.staged.clear()
             self._failure(error)
             return
         self.writes += 1

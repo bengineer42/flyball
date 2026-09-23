@@ -176,14 +176,14 @@ def test_a_namespace_reads_as_one_sample(rig):
 
 def test_a_demand_commits_through_the_fake_bus(rig):
     chip = rig.devices["chip"]
-    states = rig.demand(chip.root, {"setpoint": 25.3})
+    states = rig.write(chip.root, {"setpoint": 25.3})
     setpoint = _signal(rig, "chip.setpoint")
     assert chip.link.written == [(0x4A, 0x01, [0x00, 0x33])], "(25.5 / 0.5) = 51 = 0x33"
     assert states[setpoint].value == pytest.approx(25.5), "what the chip holds, quantised"
     fan = rig.devices["fan"]
-    assert rig.demand(fan.root, {"on": 1})[_signal(rig, "fan.on")].value == 1.0
+    assert rig.write(fan.root, {"on": 1})[_signal(rig, "fan.on")].value == 1.0
     assert fan.link.levels[18] is True
-    states = rig.demand(fan.root, {"on": 3})
+    states = rig.write(fan.root, {"on": 3})
     assert states[_signal(rig, "fan.on")].requested == 3.0, "clamped to limits [0, 1]"
 
 
@@ -202,7 +202,7 @@ def test_a_controller_drives_the_heater_and_a_manual_demand_is_refused(rig):
         (28.5 - 10) / 30, abs=0.001
     )
     with pytest.raises(ConflictError, match="driven by controller"):
-        rig.demand(heater.root, {"drive": 20.0})
+        rig.write(heater.root, {"drive": 20.0})
     controller.regulate(60.0)
     rig.on_samples(list(rig.devices["air"].read(2 * NS)))
     assert heater.written[drive].value == 34.0 and heater.written[drive].at_limit == "high"

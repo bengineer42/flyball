@@ -26,8 +26,8 @@ from .device import (
     WriteState,
     command,
 )
-from .device.descriptors import Demand as DemandSignal
-from .device.signal import Demand
+from .device.descriptors import Demand
+from .device.signal import Write
 from .errors import (
     ConflictError,
     FlyballError,
@@ -65,7 +65,6 @@ __all__ = [
     "ConfigSignal",
     "ConflictError",
     "Demand",
-    "DemandSignal",
     "Descriptor",
     "DeviceEntry",
     "DriverConfig",
@@ -115,6 +114,7 @@ __all__ = [
     "Unset",
     "UnsetType",
     "Value",
+    "Write",
     "WriteState",
     "command",
     "require",

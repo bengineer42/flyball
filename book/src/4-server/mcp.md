@@ -127,7 +127,7 @@ Every tool call is recorded like any other request that needs more than
   read, so the read tier's "nothing here changes the rig" stays true.
   `session_series` is one recorded signal over a session; `session_ticks`
   is a recorded controller's steps over one -- mode, correction and, when
-  logged, setpoint, demand and reading, the data behind a ramp's setpoint
+  logged, setpoint, output and measured, the data behind a ramp's setpoint
   curve, which no signal series carries.
 - The rig can be built up: `attach_link`, `attach_device`, or a whole
   document with `attach_document`; `rig_document` shows the result,

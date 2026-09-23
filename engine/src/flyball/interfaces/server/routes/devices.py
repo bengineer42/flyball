@@ -5,8 +5,8 @@ one list. Routes resolve against the live rig at request time, since the app
 exists before the rig is set. OpenAPI therefore lists one generic command
 route; `/{name}/schema` carries each command's real request schema.
 
-A demand is the write side: `PUT /api/devices/{name}/demand` puts values on
-W signals under the device as one demand, and `PUT /api/signals/{address}`
+A write is the other side: `PUT /api/devices/{name}/write` puts values on
+W signals under the device as one write, and `PUT /api/signals/{address}`
 is the single-signal shorthand. Both answer with the write states by
 address, and refuse -- 409 -- what the rig refuses: a signal a controller
 drives, a signal that is not writable.
@@ -245,9 +245,9 @@ def restart_device(rig: RigDep, name: str) -> DeviceOut:
     return device_out(rig, device)
 
 
-@router.put("/devices/{name}/demand")
-def demand(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
-    """Put values on W signals under the device, as one demand; keys are relative names.
+@router.put("/devices/{name}/write")
+def write(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
+    """Put values on W signals under the device, as one write; keys are relative names.
 
     Dotted for a signal under a namespace (`position.x`). Committed at
     once; the response is the write state of each signal set, by address.
@@ -257,7 +257,7 @@ def demand(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut
     """
     device = device_of(rig, name)
     values: dict[str | Signal, float] = {name: value for name, value in body.items()}
-    return writes_out(rig.demand(device.root, values))
+    return writes_out(rig.write(device.root, values))
 
 
 @router.put("/signals/{address}")
@@ -266,7 +266,7 @@ def set_signal(rig: RigDep, address: str, body: Annotated[float, Body()]) -> dic
     target = rig.resolve(address)
     if isinstance(target, Node):
         raise ConflictError(f"'{address}' is a namespace, not a signal: demand on its device")
-    return writes_out(rig.demand(target.node, {target: body}))
+    return writes_out(rig.write(target.node, {target: body}))
 
 
 # Plain `def`: FastAPI runs it in the threadpool, so a command that touches

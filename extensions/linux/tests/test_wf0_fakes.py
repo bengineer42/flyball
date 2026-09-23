@@ -56,7 +56,7 @@ class TestFakeBlockingGoesThroughTheWriter:
         dac = rig.devices["dac"]
         assert dac.blocking is True
 
-        assert rig.demand(dac.root, {"out": 5.0}) == {}, "queued, not done inline"
+        assert rig.write(dac.root, {"out": 5.0}) == {}, "queued, not done inline"
         assert rig._writers, "a writer thread was started for the blocking fake"
 
         _wait_until(lambda: dac.link.written != [])
