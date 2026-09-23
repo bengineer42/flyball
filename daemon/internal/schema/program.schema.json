@@ -19,7 +19,7 @@
           {
             "type": "object",
             "properties": {
-              "wait": {
+              "prompt": {
                 "anyOf": [
                   {
                     "title": "Message",
@@ -102,17 +102,17 @@
                     "required": [
                       "message"
                     ],
-                    "title": "WaitRequest",
+                    "title": "PromptRequest",
                     "type": "object"
                   }
                 ]
               }
             },
             "required": [
-              "wait"
+              "prompt"
             ],
             "additionalProperties": false,
-            "description": "Pause the program until the named wait is fired.\n\n`name` is what it is fired by (`POST /api/waits/{name}/fire`), default\n`wait`. `timeout` gives up and ends the program."
+            "description": "Pause the program until a person (or an external trigger) fires the named prompt.\n\n`name` is what it is fired by (`POST /api/activities/{name}/fire`), default\n`prompt`. `timeout` gives up and ends the program."
           },
           {
             "type": "object",
@@ -444,7 +444,7 @@
           {
             "type": "object",
             "properties": {
-              "hold": {
+              "wait": {
                 "anyOf": [
                   {
                     "anyOf": [
@@ -634,22 +634,22 @@
                         "minimum": 0
                       }
                     },
-                    "title": "HoldRequest",
+                    "title": "WaitRequest",
                     "type": "object"
                   }
                 ]
               }
             },
             "required": [
-              "hold"
+              "wait"
             ],
             "additionalProperties": false,
-            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout`, like `wait`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
+            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout`, like `prompt`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
           },
           {
             "type": "object",
             "properties": {
-              "arrive": {
+              "settle": {
                 "anyOf": [
                   {
                     "anyOf": [
@@ -695,9 +695,9 @@
                         "title": "Within",
                         "type": "number"
                       },
-                      "readings": {
+                      "count": {
                         "default": 3,
-                        "title": "Readings",
+                        "title": "Count",
                         "type": "integer"
                       },
                       "timeout": {
@@ -767,17 +767,17 @@
                         "title": "Message"
                       }
                     },
-                    "title": "ArriveRequest",
+                    "title": "SettleRequest",
                     "type": "object"
                   }
                 ]
               }
             },
             "required": [
-              "arrive"
+              "settle"
             ],
             "additionalProperties": false,
-            "description": "Wait until the named controllers have settled within `within` of their setpoints.\n\nJudged on `readings` consecutive readings per controller; a ramp started\nwith `wait: false` is waited out here, against where the ramp is at each\nreading. The other controllers carry on regulating meanwhile."
+            "description": "Wait until the named controllers have settled within `within` of their setpoints.\n\nJudged on `count` consecutive readings per controller; a ramp started\nwith `wait: false` is waited out here, against where the ramp is at each\nreading. The other controllers carry on regulating meanwhile."
           },
           {
             "type": "object",

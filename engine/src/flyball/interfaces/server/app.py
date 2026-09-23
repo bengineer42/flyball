@@ -28,6 +28,7 @@ from flyball.interfaces.server.auth import Door, Fronted
 from flyball.interfaces.server.deps import current_retention, current_rig
 from flyball.interfaces.server.redact import redact_access_logs
 from flyball.interfaces.server.routes import (
+    activities_router,
     composition_router,
     controllers_router,
     dashboards_router,
@@ -45,7 +46,6 @@ from flyball.interfaces.server.routes import (
     schema_router,
     sim_router,
     telemetry_router,
-    waits_router,
 )
 from flyball.interfaces.server.routes.auth import router as auth_router
 from flyball.interfaces.server.routes.stop import router as stop_router
@@ -242,7 +242,7 @@ def create_app(
     app.include_router(drivers_router)
     app.include_router(read_router)
     app.include_router(recording_router)
-    app.include_router(waits_router)
+    app.include_router(activities_router)
     app.include_router(events_router)
     app.include_router(program_router)
     app.include_router(schema_router)

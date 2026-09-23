@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from flyball.control.feedforward import Table
 from flyball.model.feedforward import NoFeedforward
-from flyball.sequencing import Hold, Manual, Program, Programmer, Ramp, Regulate
+from flyball.sequencing import Manual, Program, Programmer, Ramp, Regulate, Wait
 from flyball.runtime.config import RigConfig, resolve_document
 from flyball_sim import Port, SteppedClock
 
@@ -124,14 +124,14 @@ def test_a_firing_runs_deterministically_on_the_stepped_clock(furnace_rig):
         Program([
             Regulate(20, loop=HEATERS),
             Ramp(300, pace=Rate_per_minute(10), loop=HEATERS),
-            Hold(Duration_minutes(10)),
+            Wait(Duration_minutes(10)),
             Manual(loop=HEATERS),
         ])
     )
     programmer.join(30)
     assert programmer.running is False
     elapsed_min = (clock.now_ns() - start) / 60e9
-    assert elapsed_min == pytest.approx(28 + 10, abs=0.1), "28 min ramp + 10 min hold, no waiting"
+    assert elapsed_min == pytest.approx(28 + 10, abs=0.1), "28 min ramp + 10 min wait, all rig time"
     for name in ("zone1", "zone2", "zone3"):
         assert _zone(rig, name) == pytest.approx(300, abs=50)  # it overshoots
         assert rig.controllers[f"heaters.{name.replace('zone', 'heater')}"].mode.value == "manual"
@@ -166,7 +166,7 @@ def _zone_losses(temperature_c: float) -> float:
 
 
 def _run_ramp_to_700(rig, feedforward) -> float:
-    """Ramp all three zones to 700 at 15 degC/min, hold 20 min; zone2's peak overshoot."""
+    """Ramp all three zones to 700 at 15 degC/min, wait 20 min; zone2's peak overshoot."""
     controller = rig.controllers["heaters.heater2"]
     controller.feedforward = feedforward
     peak = float("-inf")
@@ -182,7 +182,7 @@ def _run_ramp_to_700(rig, feedforward) -> float:
         Program([
             Regulate(20, loop=HEATERS),
             Ramp(700, pace=Rate_per_minute(15), loop=HEATERS),
-            Hold(Duration_minutes(20)),
+            Wait(Duration_minutes(20)),
             Manual(loop=HEATERS),
         ])
     )

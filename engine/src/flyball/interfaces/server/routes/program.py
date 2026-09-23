@@ -17,6 +17,7 @@ from flyball.interfaces.server.commands import command_request, commands_schema
 from flyball.interfaces.server.deps import DialectDep, ProgrammerDep, RigDep
 from flyball.interfaces.server.dialect import (
     StepError,
+    check_renamed,
     normalise_program,
     program_from_document,
     program_schema,
@@ -99,9 +100,14 @@ def run_command(
     programmer: ProgrammerDep,
     interrupt: bool = False,
 ) -> ProgrammerState:
-    """Apply one internally tagged command; a hold or ramp continues on the programmer's thread."""
+    """Apply one internally tagged command; a wait or ramp continues on the programmer's thread."""
     # Validated here rather than in the signature: the command union exists
     # only once commands have registered, which is after this module loads.
+    try:
+        rest = {key: value for key, value in body.items() if key != "command"}
+        check_renamed(body.get("command"), rest, "command", dialect.commands)
+    except StepError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     try:
         request = TypeAdapter(command_request(dialect.commands)).validate_python(body)
     except ValidationError as e:

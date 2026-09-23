@@ -16,7 +16,7 @@ from flyball.model.feedforward import NoFeedforward, Setpoint
 
 from .feedforward import Affine, Table
 from .laws import IMC, PI, PID, OnOff, OpenLoop, P, Scheduled, SlidingMode, SmithPredictor
-from .setpoint import Hold, LinearRampSetpoint, Profile
+from .setpoint import Dwell, LinearRampSetpoint, Profile
 
 
 def register(catalog: Catalogs) -> None:
@@ -33,6 +33,6 @@ def register(catalog: Catalogs) -> None:
     catalog.register_feedforward(NoFeedforward)
     catalog.register_feedforward(Affine)
     catalog.register_feedforward(Table)
-    catalog.register_generator(Hold)
+    catalog.register_generator(Dwell)
     catalog.register_generator(LinearRampSetpoint)
     catalog.register_generator(Profile)

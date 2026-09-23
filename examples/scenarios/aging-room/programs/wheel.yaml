@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=program.schema.json
 # A wheel's humidity schedule: starts wet (bloom), steps down in stages as
-# it ages, the way a real cave's setpoint is walked down over weeks. `hold`
+# it ages, the way a real cave's setpoint is walked down over weeks. `wait`
 # durations below are a live-demo compression of a months-long schedule --
 # scale them up (or run at `clock.speed` < 1, the opposite of the furnace
 # demo's speed-up) for a real cellar.
@@ -10,15 +10,15 @@
 name: wheel-demo
 steps:
   - regulate: { loop: humidifier.drive, setpoint: 95 }
-  - hold: { minutes: 2, message: "bloom: high humidity while the rind forms" }
+  - wait: { duration: { minutes: 2 }, message: "bloom: high humidity while the rind forms" }
 
   - ramp: { loop: humidifier.drive, to: 85, per_minute: 5 }
-  - hold: { minutes: 2, message: "early age" }
+  - wait: { duration: { minutes: 2 }, message: "early age" }
 
   - ramp: { loop: humidifier.drive, to: 75, per_minute: 5 }
-  - hold: { minutes: 2, message: "mid age" }
+  - wait: { duration: { minutes: 2 }, message: "mid age" }
 
   - ramp: { loop: humidifier.drive, to: 65, per_minute: 5 }
-  - hold: { minutes: 3, message: "late age, drier rind" }
+  - wait: { duration: { minutes: 3 }, message: "late age, drier rind" }
 
   - manual: humidifier.drive

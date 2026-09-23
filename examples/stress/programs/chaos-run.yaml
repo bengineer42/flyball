@@ -4,12 +4,12 @@
 # spell of `command` steps that fail zone3's thermocouple, kick heater5's
 # plant input and restore zone3 again (the same routes
 # `scripts/chaos-disturb.sh` drives from outside, now timed against the
-# program itself); a `hold` whose own `timeout` gives up long before its
+# program itself); a timed `wait` whose own `timeout` gives up long before its
 # `duration`, to exercise the "timed out" outcome; then a normal prompt, for
-# reference (never reached in this run: the hold above ends the program
-# first, same as the wait it replaces would have).
+# reference (never reached in this run: the wait above ends the program
+# first, as a prompt timing out would).
 name: chaos-run
-description: A ramp too fast to follow, mid-run disturbances, a hold that gives up.
+description: A ramp too fast to follow, mid-run disturbances, a wait that gives up.
 steps:
   - regulate:
       loop:
@@ -34,17 +34,17 @@ steps:
         ]
       to: 900
       per_minute: 2000   # absurd: every controller's demand saturates within one reading
-  - hold: { seconds: 90, message: "saturating" }   # 1.5 s of wall time at this rig's 60x
+  - wait: { duration: { seconds: 90 }, message: "saturating" }   # 1.5 s of wall time at this rig's 60x
   - command: { device_command: fail, device: furnace, args: { signal: zone3 } }
-  - hold: { seconds: 60, message: "zone3's thermocouple is dead" }
+  - wait: { duration: { seconds: 60 }, message: "zone3's thermocouple is dead" }
   - command:
       device_command: disturb
       device: heaters
       args: { signal: heater5, offset: -270 }
-  - hold: { seconds: 60, message: "heater5 kicked: a door opened, a leak" }
+  - wait: { duration: { seconds: 60 }, message: "heater5 kicked: a door opened, a leak" }
   - command: { device_command: restore, device: furnace, args: { signal: zone3 } }
-  - hold:
-      minutes: 5
+  - wait:
+      duration: { minutes: 5 }
       timeout: 5   # a bare number is seconds
       message: "saturated; zone2 should be ringing, zone5 clamped at 40 %"
   - ramp:
@@ -68,4 +68,4 @@ steps:
         heaters.heater5,
         heaters.heater6,
       ]
-  - wait: { message: "unload, then press go", timeout: { minutes: 10 } }
+  - prompt: { message: "unload, then press go", timeout: { minutes: 10 } }

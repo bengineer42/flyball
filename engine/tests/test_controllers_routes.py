@@ -66,7 +66,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
         for d in schema["generators"]["$defs"].values()
         if "tag" in d.get("properties", {})
     }
-    assert generators == {"linear_ramp_setpoint", "hold", "profile"}
+    assert generators == {"linear_ramp_setpoint", "dwell", "profile"}
     assert schema["generators"]["discriminator"]["propertyName"] == "tag"
     assert schema["regulated"] == {} and schema["driven"] == {}
 
@@ -266,8 +266,8 @@ def test_setpoint_can_start_a_profile(client, rig, daq, drive, clock):
                 "tag": "profile",
                 "segments": [
                     {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0},
-                    {"tag": "hold", "value": 30.0, "duration": {"minutes": 5}},
-                    {"tag": "profile", "segments": [{"tag": "hold", "value": 25.0}]},
+                    {"tag": "dwell", "value": 30.0, "duration": {"minutes": 5}},
+                    {"tag": "profile", "segments": [{"tag": "dwell", "value": 25.0}]},
                 ],
             }
         },
@@ -275,10 +275,10 @@ def test_setpoint_can_start_a_profile(client, rig, daq, drive, clock):
     assert profile.status_code == 200, profile.text
     reference = profile.json()["reference"]
     assert reference["tag"] == "profile" and "end_time" not in reference, "endless at the end"
-    assert [s["tag"] for s in reference["segments"]] == ["linear_ramp_setpoint", "hold", "profile"]
+    assert [s["tag"] for s in reference["segments"]] == ["linear_ramp_setpoint", "dwell", "profile"]
     assert reference["segments"][0]["pace"] == {"value": 10.0, "per": "minute"}
     assert reference["segments"][2]["segments"] == [
-        {"tag": "hold", "value": 25.0, "duration": None}
+        {"tag": "dwell", "value": 25.0, "duration": None}
     ]
     assert "active" not in reference, "not yet ticked"
     assert profile.json()["arrived"] is False
@@ -298,19 +298,19 @@ def test_setpoint_can_start_a_profile(client, rig, daq, drive, clock):
     deliver(rig, daq)
     last = client.get(f"/api/controllers/{target}").json()
     assert last["setpoint"] == 25.0 and last["reference"]["active"] == 2
-    assert last["arrived"] is False, "a hold with no duration never lands"
+    assert last["arrived"] is False, "a dwell with no duration never lands"
 
     endless_first = client.put(
         f"/api/controllers/{target}/setpoint",
         json={
             "at": {
                 "tag": "profile",
-                "segments": [{"tag": "hold", "value": 1.0}, {"tag": "hold", "value": 2.0}],
+                "segments": [{"tag": "dwell", "value": 1.0}, {"tag": "dwell", "value": 2.0}],
             }
         },
     )
     assert endless_first.status_code == 422
-    assert "segment 0 (hold) never ends" in endless_first.text
+    assert "segment 0 (dwell) never ends" in endless_first.text
     empty = client.put(
         f"/api/controllers/{target}/setpoint", json={"at": {"tag": "profile", "segments": []}}
     )

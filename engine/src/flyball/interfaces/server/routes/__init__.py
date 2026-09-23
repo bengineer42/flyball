@@ -1,5 +1,6 @@
 """Routers the app mounts."""
 
+from .activities import router as activities_router
 from .composition import router as composition_router
 from .controllers import router as controllers_router
 from .dashboards import router as dashboards_router
@@ -17,9 +18,9 @@ from .runner import router as runner_router
 from .schema import router as schema_router
 from .sim import router as sim_router
 from .telemetry import router as telemetry_router
-from .waits import router as waits_router
 
 __all__ = [
+    "activities_router",
     "composition_router",
     "controllers_router",
     "dashboards_router",
@@ -37,5 +38,4 @@ __all__ = [
     "schema_router",
     "sim_router",
     "telemetry_router",
-    "waits_router",
 ]

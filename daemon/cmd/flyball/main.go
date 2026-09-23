@@ -3,8 +3,8 @@
 // alongside the daemon, sharing internal/client with it.
 //
 // Capability parity with the old Python cli.py (engine/src/flyball/cli.py):
-// every HTTP-addressed capability is here (read/demand/watch/status/waits/
-// wait/clock/schema/devices/controllers/device view+invoke/sessions/
+// every HTTP-addressed capability is here (read/demand/watch/status/activities/
+// activity/clock/schema/devices/controllers/device view+invoke/sessions/
 // export/program */sim */logs), plus daemon-management commands the
 // Python CLI never had (it predates the Go daemon). `rig check`, `rig
 // schema` and `program schema` are all local operations reimplemented
@@ -238,11 +238,11 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
                                       runners stay up; non-zero if any stop was refused or failed
   read ADDRESS [--fresh]              GET /api/read/{address}
   demand ADDRESS VALUE                PUT /api/signals/{address}
-  status [--json]                     one screen: devices, controllers, waits
+  status [--json]                     one screen: devices, controllers, activities
   schema                              the rig's schema
   clock                               the rig's timebase
-  waits                               what the rig is waiting on
-  wait fire|interrupt NAME            answer or cancel a wait
+  activities                          what the rig is waiting on: prompts, timed waits, settles
+  activity fire|cancel NAME           answer a prompt (or skip a wait), or cancel it
   watch samples|controllers|writes|signals   follow a live stream
   devices / controllers               list them
   view DEVICE                         one device's tree

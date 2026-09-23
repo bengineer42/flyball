@@ -3,7 +3,7 @@
 Every socket sends what the rig knows on connect, then every `FLUSH_S` one
 frame of whatever changed: the rig keeps only the newest value per key in
 a [Latest][flyball.foundation.router.topic.Latest] cell -- samples by node address,
-controller states and device runs by name, waits by name -- so a socket
+controller states and device runs by name, activities by name -- so a socket
 costs at most one frame per flush at any tick rate, and an idle server
 builds nothing. `/ws/samples` carries a demand's write record with its
 reading (`SampleOut.writes`) and a device's run beside its samples
@@ -35,7 +35,7 @@ FLUSH_S = 0.05
 """How often a socket sends what changed; a dashboard needs at most ~20/s."""
 
 RUN = TypeAdapter(DeviceRun)
-WAIT = TypeAdapter(TriggerState)
+ACTIVITY = TypeAdapter(TriggerState)
 
 
 async def send(websocket: WebSocket, frame: dict[str, Any]) -> None:
@@ -100,8 +100,8 @@ def _run_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:
     return {"name": name, **RUN.dump_python(run, mode="json")}
 
 
-def _wait_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
-    return WAIT.dump_python(state, mode="json")
+def _activity_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
+    return ACTIVITY.dump_python(state, mode="json")
 
 
 def _prime(rig: Rig) -> None:
@@ -204,7 +204,7 @@ async def controllers(websocket: WebSocket) -> None:
     await _serve(websocket, lambda rig: rig.controller_states, "controllers", _controller_out)
 
 
-@router.websocket("/ws/waits")
-async def waits(websocket: WebSocket) -> None:
-    """Every registered wait on connect, then each as it is registered or settles."""
-    await _serve(websocket, lambda rig: rig.triggers.latest, "waits", _wait_out)
+@router.websocket("/ws/activities")
+async def activities(websocket: WebSocket) -> None:
+    """Every registered activity on connect, then each as it is registered or settles."""
+    await _serve(websocket, lambda rig: rig.triggers.latest, "activities", _activity_out)

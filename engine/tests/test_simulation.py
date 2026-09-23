@@ -53,12 +53,12 @@ class TestSteppedClock:
         set_event.set()
         assert clock.wait(set_event, timeout=10) is True and clock.now_ns() == 40_000_000_000
 
-    def test_a_program_s_timed_wait_passes_at_once(self, rig, clock):
+    def test_a_prompt_s_timeout_passes_at_once(self, rig, clock):
         from flyball.foundation.time import Duration
-        from flyball.sequencing import Program, Programmer, Wait
+        from flyball.sequencing import Program, Programmer, Prompt
 
         programmer = Programmer(rig)
-        programmer.start(Program([Wait("hold", timeout=Duration(600))]))
+        programmer.start(Program([Prompt("never answered", timeout=Duration(600))]))
         programmer.join(2)
         assert programmer.running is False and clock.now_ns() >= 600_000_000_000
 

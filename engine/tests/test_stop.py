@@ -32,7 +32,7 @@ from flyball.runtime.config import AuthConfig, load_rig_config
 from flyball.sequencing import Programmer
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
-PROGRAM = {"steps": [{"regulate": {"setpoint": 50}}, {"wait": "hold on"}]}
+PROGRAM = {"steps": [{"regulate": {"setpoint": 50}}, {"prompt": "hold on"}]}
 """Hand the oven's controller to its law, then wait for an answer that never comes."""
 
 
@@ -72,7 +72,7 @@ def oven() -> Iterator[tuple[Rig, Programmer]]:
 
 def _run_program(rig: Rig, programmer: Programmer) -> None:
     programmer.start(program_from_document(PROGRAM, get_dialect()))
-    assert programmer.state.running and programmer.state.command == "wait"
+    assert programmer.state.running and programmer.state.command == "prompt"
     assert rig.controllers["heater.drive"].mode is ControllerMode.REGULATING
 
 
@@ -422,7 +422,7 @@ def test_sigusr1_stops_without_exit(tmp_path):
 
         _until(up, 30)
         running = _call(port, "POST", "/api/programs/run", PROGRAM)
-        assert running["running"] is True and running["command"] == "wait"
+        assert running["running"] is True and running["command"] == "prompt"
         controller = _call(port, "GET", "/api/controllers/heater.drive")
         assert controller["mode"] == "regulating"
         demand = controller["output"]

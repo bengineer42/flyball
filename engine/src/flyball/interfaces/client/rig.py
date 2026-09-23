@@ -228,15 +228,17 @@ class Rig:
         """Write `value` to the single writable signal at `address`."""
         return self.put(f"/api/signals/{segment(address)}", value)
 
-    def waits(self) -> dict[str, Any]:
-        """What the rig is waiting on, by name."""
-        return self.get("/api/waits")
+    def activities(self) -> dict[str, Any]:
+        """What the rig is waiting on -- prompts, timed waits, settles, ramps -- by name."""
+        return self.get("/api/activities")
 
-    def fire(self, name: str) -> bool:
-        return bool(self.post(f"/api/waits/{segment(name)}/fire")["fired"])
+    def fire_activity(self, name: str) -> bool:
+        """Settle the activity as met: answer a prompt, or skip a wait. False if already settled."""
+        return bool(self.post(f"/api/activities/{segment(name)}/fire")["fired"])
 
-    def interrupt(self, name: str) -> bool:
-        return bool(self.post(f"/api/waits/{segment(name)}/interrupt")["interrupted"])
+    def cancel_activity(self, name: str) -> bool:
+        """Cancel the activity; the program stops at this step."""
+        return bool(self.post(f"/api/activities/{segment(name)}/interrupt")["interrupted"])
 
     def clock(self) -> dict[str, Any]:
         """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed`."""

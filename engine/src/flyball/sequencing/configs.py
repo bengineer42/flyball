@@ -9,17 +9,17 @@ program steps get too.
 
 from flyball.model.catalog import Catalogs
 
-from .activities import Wait
+from .activities import Prompt
 from .devices import RunCommand, Set
-from .loops import Arrive, Hold, Manual, Ramp, Regulate
+from .loops import Manual, Ramp, Regulate, Settle, Wait
 
 
 def register(catalog: Catalogs) -> None:
-    catalog.register_command(Wait)
+    catalog.register_command(Prompt)
     catalog.register_command(Set)
     catalog.register_command(RunCommand)
     catalog.register_command(Regulate)
     catalog.register_command(Ramp)
-    catalog.register_command(Hold)
-    catalog.register_command(Arrive)
+    catalog.register_command(Wait)
+    catalog.register_command(Settle)
     catalog.register_command(Manual)

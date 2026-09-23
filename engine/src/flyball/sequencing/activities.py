@@ -12,18 +12,18 @@ from flyball.rig import Rig
 from .command import Activity, Command
 
 
-class Prompt(Activity):
+class Prompted(Activity):
     """Fires when someone fires it: an operator prompt, or an external trigger."""
 
     __slots__ = ()
 
 
 @dataclass(frozen=True)
-class Wait(Command, tag="wait", primary="message"):
-    """Pause the program until the named wait is fired.
+class Prompt(Command, tag="prompt", primary="message"):
+    """Pause the program until a person (or an external trigger) fires the named prompt.
 
-    `name` is what it is fired by (`POST /api/waits/{name}/fire`), default
-    `wait`. `timeout` gives up and ends the program.
+    `name` is what it is fired by (`POST /api/activities/{name}/fire`), default
+    `prompt`. `timeout` gives up and ends the program.
     """
 
     message: str
@@ -32,7 +32,7 @@ class Wait(Command, tag="wait", primary="message"):
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity:
         timeout = None if self.timeout is None else float(self.timeout)
-        return Prompt(timeout, name=self.name, message=self.message, clock=rig.clock)
+        return Prompted(timeout, name=self.name, message=self.message, clock=rig.clock)
 
 
 class Sustained(Activity):
@@ -71,8 +71,8 @@ class Sustained(Activity):
         self.controller.detach_on_tick(self._on_tick)
 
 
-class Arrived(Activity):
-    """Fires once every controller has read within `within` of its setpoint, `readings` times.
+class Settled(Activity):
+    """Fires once every controller has read within `within` of its setpoint, `count` times running.
 
     Each controller is judged against *its own* setpoint at the reading's
     instant, so one still on a ramp is measured against where the ramp is
@@ -81,7 +81,7 @@ class Arrived(Activity):
     them arrives.
     """
 
-    __slots__ = ("_controllers", "_counts", "readings", "within")
+    __slots__ = ("_controllers", "_counts", "count", "within")
 
     name: str  # pyright: ignore[reportIncompatibleVariableOverride]
 
@@ -89,7 +89,7 @@ class Arrived(Activity):
         self,
         controllers: list[Controller],
         within: float,
-        readings: int = 3,
+        count: int = 3,
         timeout: Positive | None = None,
         name: str | None = None,
         message: str | None = None,
@@ -98,14 +98,14 @@ class Arrived(Activity):
         names = ",".join(controller.name for controller in controllers)
         super().__init__(
             timeout,
-            name=name or f"arrive:{names}",
-            message=message or f"{names} within {within:g} of setpoint for {readings} readings",
+            name=name or f"settle:{names}",
+            message=message or f"{names} within {within:g} of setpoint for {count} readings",
             clock=clock,
         )
         self._controllers = list(controllers)
         self._counts = dict.fromkeys(self._controllers, 0)
         self.within = within
-        self.readings = readings
+        self.count = count
 
     def _on_tick(self, controller: Controller, reading: Reading | None) -> None:
         if reading is None:
@@ -114,7 +114,7 @@ class Arrived(Activity):
         self._counts[controller] = (
             self._counts[controller] + 1 if abs(reading.value - setpoint) <= self.within else 0
         )
-        if all(count >= self.readings for count in self._counts.values()):
+        if all(n >= self.count for n in self._counts.values()):
             self.fire()
 
     def attach(self, rig: Rig) -> None:
@@ -127,10 +127,10 @@ class Arrived(Activity):
 
 
 class Timed(Activity):
-    """Fires after `duration` seconds of the rig's clock: a hold, a soak, a ramp's end.
+    """Fires after `duration` seconds of the rig's clock: a timed wait, a soak, a ramp's end.
 
     On a scaled clock it passes proportionally sooner; on a stepped one it
-    steps the clock past itself at once. `timeout`, like `Wait`'s, ends the
+    steps the clock past itself at once. `timeout`, like `Prompt`'s, ends the
     program instead if `duration` itself never elapses.
     """
 

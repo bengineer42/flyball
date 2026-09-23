@@ -7,7 +7,7 @@ left here is what ships built on top of that machinery: the 9 built-in laws,
 the plant-model feedforwards (`Affine`, `Table` -- `Setpoint`/
 `NoFeedforward`, `Controller`'s own defaults, live in `flyball.model
 .feedforward` instead, see that module's docstring), and the built-in
-generators (`Hold`, `LinearRampSetpoint`, `Profile`).
+generators (`Dwell`, `LinearRampSetpoint`, `Profile`).
 """
 
 from .errors import (
@@ -29,8 +29,8 @@ from .laws import (
     SmithPredictor,
 )
 from .setpoint import (
+    Dwell,
     GeneratorConfig,
-    Hold,
     LinearRampSetpoint,
     Profile,
     SetPointGenerator,
@@ -45,10 +45,10 @@ __all__ = [
     "ControlLawNotRegisteredError",
     "ControlLawNotSetError",
     "ControllerSuspendedError",
+    "Dwell",
     "Feedforward",
     "FeedforwardConfig",
     "GeneratorConfig",
-    "Hold",
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "OnOff",

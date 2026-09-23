@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from flyball.foundation.device import Kind, Level, Scope
 from flyball.foundation.resource import Operator
 
-from .activities import Prompt
+from .activities import Prompted
 from .errors import CommandRuntimeError, ProgramAlreadyRunningError
 from .program import Program
 
@@ -251,7 +251,7 @@ class Programmer:
             activity,
             activity.message,
             activity.timeout_s,
-            prompt=isinstance(activity, Prompt),
+            prompt=isinstance(activity, Prompted),
         )
         activity.attach(self.rig)
         try:

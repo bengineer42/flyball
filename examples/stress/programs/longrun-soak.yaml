@@ -1,10 +1,10 @@
 # yaml-language-server: $schema=program.schema.json
-# Ten hours of rig time in one hold; at longrun.yaml's 600x clock that is
+# Ten hours of rig time in one timed wait; at longrun.yaml's 600x clock that is
 # about a minute of wall time. Good for filling a session with history fast.
 name: longrun-soak
-description: Regulate both controllers and hold for ten hours of rig time (~1 minute of wall time).
+description: Regulate both controllers and wait for ten hours of rig time (~1 minute of wall time).
 steps:
   - regulate: { loop: heater.drive, setpoint: 60 }
   - regulate: { loop: pump.drive, setpoint: 150 }
-  - hold: { hours: 10, message: "ten hours of rig time, about a minute of wall time at 600x" }
+  - wait: { duration: { hours: 10 }, message: "ten hours of rig time, about a minute of wall time at 600x" }
   - manual: [heater.drive, pump.drive]

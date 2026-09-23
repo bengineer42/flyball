@@ -8,7 +8,7 @@
 # The zones are not treated alike: the end zone (heaters.heater3, the smaller mass)
 # is taken up more gently and released first, so the steps show `loop`
 # selecting a subset, `ramp ... wait: false` starting a ramp without waiting
-# for it, and `arrive` waiting on only the loops that matter.
+# for it, and `settle` waiting on only the loops that matter.
 # About 6 h of furnace time.
 name: anneal
 description: >-
@@ -18,11 +18,11 @@ steps:
   - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
   - ramp: { loop: [heaters.heater1, heaters.heater2], to: 700, per_minute: 15, wait: false }   # the hot zones go up fast...
   - ramp: { loop: [heaters.heater3], to: 650, per_minute: 10 }                         # ...while the end zone follows; this one blocks
-  - arrive: { loop: [heaters.heater1, heaters.heater2], within: 3, readings: 10, timeout: { minutes: 30 } }
-  - hold: { minutes: 90, message: "soak at 700; the sample catches up" }
+  - settle: { loop: [heaters.heater1, heaters.heater2], within: 3, count: 10, timeout: { minutes: 30 } }
+  - wait: { duration: { minutes: 90 }, message: "soak at 700; the sample catches up" }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 300, per_minute: 2 }     # 200 min, driven
-  - hold: { minutes: 10, message: "at 300" }
+  - wait: { duration: { minutes: 10 }, message: "at 300" }
   - manual: [heaters.heater3]                                                        # the end zone coasts from here
   - ramp: { loop: [heaters.heater1, heaters.heater2], to: 50, per_minute: 10 }               # faster than it can cool
   - manual: [heaters.heater1, heaters.heater2]
-  - wait: { message: "unload when the sample reads under 60", timeout: { hours: 2 } }
+  - prompt: { message: "unload when the sample reads under 60", timeout: { hours: 2 } }

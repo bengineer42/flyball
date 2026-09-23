@@ -6,7 +6,7 @@ is the key, its arguments the value:
     - ramp: {to: 60, pace: {seconds: 600}}
     - flag: "sample loaded"                  # scalar shorthand: the command's `primary` field
     - setpoint: 50
-      settle: {within: 0.5, readings: 5}     # a modifier alongside the command
+      until: {within: 0.5}                   # a modifier alongside the command
 
 The HTTP API speaks the *internally tagged* form (`{"command": "ramp", ...}`).
 This module bridges them: a normaliser rewrites a file step into that form
@@ -151,6 +151,59 @@ def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> di
     return {**arguments, name: flat}
 
 
+_RENAMED_STEPS = {
+    "hold": "the timed step is now `wait:`, not `hold:`",
+    "arrive": "`arrive:` is now `settle:`",
+}
+"""Step keys that were renamed, and what to say instead of "unknown key"."""
+
+_PROMPT_NOW = "operator prompts are now `prompt:`; `wait:` is the timed step"
+_TIMED_WAIT_NEEDS_DURATION = (
+    "a prompt is now `prompt:`; for a timed wait with a message write `duration:` explicitly"
+)
+
+
+def _is_number(value: Any) -> bool:
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[Command]]) -> None:
+    """Refuse a step written with a name from before the step renames, saying what it is now.
+
+    `hold` became `wait` and `arrive` became `settle` (whose `readings` became
+    `count`); the operator `wait` became `prompt`. A `wait` that looks like
+    an operator prompt -- a bare message, a `name`, or a `message` with flat
+    time keys that would otherwise silently parse as a timer -- is refused
+    rather than run as one. Applies to a file step's key and body, or to an
+    internally tagged command's `command` and the rest of it.
+
+    Raises:
+        StepError: The step uses an old name.
+    """
+    if not isinstance(tag, str):
+        return
+    if tag in _RENAMED_STEPS and tag not in commands:
+        raise StepError(f"{where}: {_RENAMED_STEPS[tag]}")
+    if tag == "settle" and isinstance(body, Mapping) and "readings" in body:
+        raise StepError(f"{where}: `settle`'s `readings:` is now `count:`")
+    if tag != "wait":
+        return
+    if isinstance(body, str) and not _is_number(body):
+        raise StepError(f"{where}: {_PROMPT_NOW}")
+    if not isinstance(body, Mapping) or not ({"message", "name"} & body.keys()):
+        return
+    flat = any(key in DURATION_KEYS for key in body)
+    if "duration" in body:
+        return
+    if flat and "name" not in body:
+        raise StepError(f"{where}: {_TIMED_WAIT_NEEDS_DURATION}")
+    raise StepError(f"{where}: {_PROMPT_NOW}")
+
+
 def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict[str, Any]:
     """One file step -> `{"command": {...internally tagged...}, <modifier field>: ...}`.
 
@@ -162,6 +215,9 @@ def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict
     if not isinstance(raw, Mapping):
         raise StepError(f"{where}: expected a mapping, got {type(raw).__name__}")
     modifiers = dialect.modifier_keys
+    for key in raw:
+        if key not in modifiers:
+            check_renamed(key, raw[key], where, dialect.commands)
     tags = [key for key in raw if key in dialect.commands]
     unknown = [key for key in raw if key not in dialect.commands and key not in modifiers]
     if unknown:

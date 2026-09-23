@@ -515,21 +515,30 @@ def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(clie
 
 # endregion
 
-# region Waits, clock, health, events
+# region Activities, clock, health, events
 
 
-def test_waits_can_be_listed_fired_and_interrupted(client, rig):
+def test_activities_can_be_listed_fired_and_interrupted(client, rig):
     lid = Trigger()
     rig.triggers.register("lid", lid, "Close the lid", prompt=True)
-    assert client.get("/api/waits").json()["lid"]["outcome"] == "pending"
-    assert client.get("/api/waits/lid").json()["prompt"] is True
-    assert client.post("/api/waits/lid/fire").json() == {"name": "lid", "fired": True}
+    assert client.get("/api/activities").json()["lid"]["outcome"] == "pending"
+    assert client.get("/api/activities/lid").json()["prompt"] is True
+    assert client.post("/api/activities/lid/fire").json() == {"name": "lid", "fired": True}
     assert lid.fired
-    assert client.post("/api/waits/nope/fire").status_code == 404
+    assert client.post("/api/activities/nope/fire").status_code == 404
     other = Trigger()
     rig.triggers.register("other", other)
-    assert client.post("/api/waits/other/interrupt").json()["interrupted"] is True
+    assert client.post("/api/activities/other/interrupt").json()["interrupted"] is True
     assert other.interrupted
+
+
+def test_the_old_waits_route_is_gone_so_it_cannot_skip_a_timer(client, rig):
+    timer = Trigger()
+    rig.triggers.register("wait", timer)
+    # The verb table refuses a route it does not know (403) before routing would 404.
+    assert client.post("/api/waits/wait/fire").status_code in (403, 404)
+    assert client.get("/api/waits").status_code in (403, 404)
+    assert not timer.fired
 
 
 def test_clock_reports_the_rig_s_timebase(client, rig, clock):
@@ -547,7 +556,7 @@ def test_health_is_one_look_at_the_rig(client, rig, daq):
     assert body["ok"] is True and body["recording"] is False
     assert body["devices"] == {} and body["controllers"] == {} and body["conditions"] == []
     assert body["alarms"] == {"warn": 0, "alarm": 0, "max_level": 0}
-    assert body["waits"] == []
+    assert body["activities"] == []
     daq.poll_s = 0.5
     rig.start_polling(daq)
     try:
@@ -705,10 +714,10 @@ def test_device_runs_ride_the_samples_stream(client, rig, daq):
         assert run["conditions"][0]["kind"] == "offline"
 
 
-def test_waits_stream(client, rig):
-    with client.websocket_connect("/ws/waits") as ws:
+def test_activities_stream(client, rig):
+    with client.websocket_connect("/ws/activities") as ws:
         rig.triggers.register("lid", Trigger(), "Close the lid", prompt=True)
-        (state,) = ws.receive_json()["waits"]
+        (state,) = ws.receive_json()["activities"]
         assert state["name"] == "lid" and state["outcome"] == "pending"
 
 
@@ -752,7 +761,7 @@ def test_program_check_warns_of_what_the_rig_lacks(client, programmer, drive):
             {"manual": "no_such_controller"},
             {"command": {"device_command": "nope", "device": drive.name}},
             {"command": {"device_command": "off", "device": "ghost"}},
-            {"wait": "fine"},
+            {"prompt": "fine"},
         ]
     }
     checked = client.post("/api/programs/check", json=body).json()
@@ -766,38 +775,46 @@ def test_program_check_warns_of_what_the_rig_lacks(client, programmer, drive):
 
 
 def test_program_check_normalises_without_running(client, programmer):
-    body = {"name": "t", "steps": [{"wait": "press go"}, {"wait": {"message": "m", "name": "n"}}]}
+    body = {
+        "name": "t",
+        "steps": [{"prompt": "press go"}, {"prompt": {"message": "m", "name": "n"}}],
+    }
     checked = client.post("/api/programs/check", json=body).json()
     assert checked["ok"] is True and checked["warnings"] == {}
     normalised = checked["normalised"]
-    assert normalised["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
+    assert normalised["steps"][0] == {"command": {"command": "prompt", "message": "press go"}}
     assert normalised["steps"][1]["command"]["name"] == "n"
     assert client.get("/api/programs/running").json()["running"] is False
     bad = client.post("/api/programs/check", json={"steps": [{"nope": 1}]})
     assert bad.status_code == 422 and "nope" in bad.json()["detail"]
-    extra = client.post("/api/programs/check", json={"steps": [{"wait": {"message": "m", "x": 1}}]})
+    extra = client.post(
+        "/api/programs/check", json={"steps": [{"prompt": {"message": "m", "x": 1}}]}
+    )
     assert extra.status_code == 422 and "x" in extra.json()["detail"]
     assert (
-        "wait"
+        "prompt"
         in client.get("/api/programs/schema").json()["properties"]["steps"]["items"]["oneOf"][0][
             "properties"
         ]
     )
 
 
-def test_program_runs_step_by_step_as_waits_are_answered(client, programmer, rig):
-    body = {"name": "go", "steps": [{"wait": "one"}, {"wait": {"message": "two", "name": "two"}}]}
+def test_program_runs_step_by_step_as_prompts_are_answered(client, programmer, rig):
+    body = {
+        "name": "go",
+        "steps": [{"prompt": "one"}, {"prompt": {"message": "two", "name": "two"}}],
+    }
     state = client.post("/api/programs/run", json=body).json()
     assert state == {
         "running": True,
         "step": 0,
         "steps": 2,
-        "command": "wait",
+        "command": "prompt",
         "failed": False,
         "error": None,
     }
-    assert list(client.get("/api/waits").json()) == ["wait"]
-    assert client.post("/api/waits/wait/fire").json()["fired"] is True
+    assert list(client.get("/api/activities").json()) == ["prompt"], "named by its tag"
+    assert client.post("/api/activities/prompt/fire").json()["fired"] is True
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline and "two" not in rig.triggers.states():
         time.sleep(0.01)
@@ -833,9 +850,46 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
 
 
 def test_program_with_an_unknown_step_is_refused_before_anything_runs(client, programmer):
-    r = client.post("/api/programs/run", json={"steps": [{"wait": "ok"}, {"bogus": 1}]})
+    r = client.post("/api/programs/run", json={"steps": [{"prompt": "ok"}, {"bogus": 1}]})
     assert r.status_code == 422
-    assert client.get("/api/waits").json() == {}
+    assert client.get("/api/activities").json() == {}
+
+
+@pytest.mark.parametrize(
+    ("step", "message"),
+    [
+        ({"hold": {"minutes": 5}}, "the timed step is now `wait:`, not `hold:`"),
+        ({"arrive": {"within": 1}}, "`arrive:` is now `settle:`"),
+        ({"settle": {"within": 1, "readings": 5}}, "`settle`'s `readings:` is now `count:`"),
+        ({"wait": "Load the sample"}, "operator prompts are now `prompt:`"),
+        ({"wait": {"message": "Load the sample"}}, "operator prompts are now `prompt:`"),
+        ({"wait": {"name": "go", "timeout": {"minutes": 5}}}, "operator prompts are now `prompt:`"),
+        (
+            {"wait": {"message": "Load the sample", "minutes": 10}},
+            "for a timed wait with a message write `duration:` explicitly",
+        ),
+    ],
+)
+def test_an_old_step_name_gets_a_targeted_error(client, programmer, step, message):
+    for route in ("/api/programs/check", "/api/programs/run"):
+        r = client.post(route, json={"steps": [step]})
+        assert r.status_code == 422 and message in r.json()["detail"], (route, r.text)
+    ((tag, body),) = step.items()
+    rest = body if isinstance(body, dict) else {"message": body}
+    r = client.post("/api/programs/command", json={"command": tag, **rest})
+    assert r.status_code == 422 and message in r.json()["detail"], r.text
+
+
+def test_a_timed_wait_with_a_message_and_a_duration_is_not_a_prompt(client, programmer):
+    body = {"steps": [{"wait": {"message": "soak", "duration": {"minutes": 10}, "timeout": 900}}]}
+    checked = client.post("/api/programs/check", json=body).json()
+    assert checked["ok"] is True, checked
+    command = checked["normalised"]["steps"][0]["command"]
+    assert command["command"] == "wait" and command["timeout"] == 900
+    flat = client.post("/api/programs/check", json={"steps": [{"wait": {"minutes": 5}}]}).json()
+    assert flat["ok"] is True and flat["normalised"]["steps"][0]["command"]["duration"] == {
+        "minutes": 5
+    }
 
 
 def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_it(

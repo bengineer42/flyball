@@ -21,7 +21,7 @@ class Activity(Trigger):
 
     error: Exception | None
     name: str | None
-    """The name the wait is registered under (the command's tag when None) and its message."""
+    """The name the activity is registered under (the command's tag when None) and its message."""
     message: str | None
     timeout_s: float | None
 
@@ -39,7 +39,7 @@ class Activity(Trigger):
         self.timeout_s = timeout
 
     def attach(self, rig: Rig) -> None:
-        """Hook in. Default: nothing -- a pure wait."""
+        """Hook in. Default: nothing -- fired only from outside, as a prompt is."""
 
     def detach(self, rig: Rig) -> None:
         """Undo attach. Default: nothing."""

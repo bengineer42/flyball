@@ -73,19 +73,23 @@ func runCommand(t client.Target, args []string) error {
 		}
 		return printJSON(out)
 
-	case "waits":
+	case "activities":
 		var out any
-		if err := t.Do("GET", "/api/waits", nil, &out); err != nil {
+		if err := t.Do("GET", "/api/activities", nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
 
-	case "wait":
-		if len(args) != 3 || (args[1] != "fire" && args[1] != "interrupt") {
-			return fmt.Errorf("usage: flyball wait fire|interrupt <name>")
+	case "activity":
+		if len(args) != 3 || (args[1] != "fire" && args[1] != "cancel") {
+			return fmt.Errorf("usage: flyball activity fire|cancel <name>")
+		}
+		action := args[1]
+		if action == "cancel" {
+			action = "interrupt" // the route's name for it
 		}
 		var out any
-		if err := t.Do("POST", "/api/waits/"+args[2]+"/"+args[1], nil, &out); err != nil {
+		if err := t.Do("POST", "/api/activities/"+args[2]+"/"+action, nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
@@ -444,7 +448,7 @@ func readJSONOrYAMLFile(path string) (any, error) {
 }
 
 // printStatus is a plain-text rendering of GET /api/health plus
-// devices/controllers/waits, mirroring cli.py's cmd_status layout
+// devices/controllers/activities, mirroring cli.py's cmd_status layout
 // closely enough to be recognisable, not byte-identical.
 func printStatus(t client.Target, health any) error {
 	h, _ := health.(map[string]any)
@@ -477,10 +481,10 @@ func printStatus(t client.Target, health any) error {
 			fmt.Printf("  controller %-16s %-11s\n", name, mode)
 		}
 	}
-	var waits map[string]any
-	if err := t.Do("GET", "/api/waits", nil, &waits); err == nil {
-		for name, w := range waits {
-			wm, _ := w.(map[string]any)
+	var activities map[string]any
+	if err := t.Do("GET", "/api/activities", nil, &activities); err == nil {
+		for name, a := range activities {
+			wm, _ := a.(map[string]any)
 			outcome, _ := wm["outcome"].(string)
 			fmt.Printf("  waiting  %-16s %s\n", name, outcome)
 		}

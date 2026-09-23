@@ -1,6 +1,6 @@
 """`SetPointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
 
-`control/setpoint.py` holds the concrete generators that ship (`Hold`,
+`control/setpoint.py` holds the concrete generators that ship (`Dwell`,
 `LinearRampSetpoint`, `Profile`, ...) and the closed discriminated union over
 them (`GeneratorConfig`); this is just the machinery every one subclasses,
 the same shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
@@ -43,7 +43,7 @@ class SetPointGeneratorConfig(BaseModel):
 class SetPointGenerator:
     """A reference trajectory. Subclassing derives `config`; registering is explicit.
 
-    A tag is assigned when subclassed (`class Hold(SetPointGenerator, tag="hold")`),
+    A tag is assigned when subclassed (`class Dwell(SetPointGenerator, tag="dwell")`),
     but nothing is written into a shared registry any more -- see
     [Catalogs][flyball.model.catalog.Catalogs].
     """

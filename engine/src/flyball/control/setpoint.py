@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, ClassVar, Literal, Union
 
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 
 from flyball.foundation import Duration, Rate, Speed
 from flyball.model.generator import SetPointGenerator, SetPointGeneratorConfig
@@ -50,7 +50,7 @@ class LinearRampSetpoint(SetPointGenerator):
         return time >= self.end_time
 
 
-class Hold(SetPointGenerator):
+class Dwell(SetPointGenerator):
     """A fixed set point, as a trajectory: a profile's soak, or a plain setpoint with an end.
 
     With no `duration` it never finishes -- a runner decides when it has
@@ -96,9 +96,9 @@ class ProfileConfig(SetPointGeneratorConfig):
 class Profile(SetPointGenerator):
     """Segments run back to back: each starts where the previous one landed.
 
-    A ramp lands at its `end`, a hold at its `value`, a nested profile
+    A ramp lands at its `end`, a dwell at its `value`, a nested profile
     wherever its last segment does; the first segment starts from the value
-    the profile is started at. A segment with no end (a hold without a
+    the profile is started at. A segment with no end (a dwell without a
     duration) can only be last, since nothing after it would ever begin.
 
     Raises:
@@ -159,9 +159,18 @@ class Profile(SetPointGenerator):
 
 ProfileConfig.generator = Profile
 
+
+def _renamed(value: Any) -> Any:
+    """A targeted error for a generator's old name, rather than an unmatched tag."""
+    if isinstance(value, dict) and value.get("tag") == "hold":
+        raise ValueError("the setpoint generator `hold` is now `dwell`")
+    return value
+
+
 GeneratorConfig = Annotated[  # type: ignore[valid-type]
-    Union[LinearRampSetpoint.config, Hold.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
+    Union[LinearRampSetpoint.config, Dwell.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="tag"),
+    BeforeValidator(_renamed),
 ]
 """Every built-in generator's config, discriminated by `tag`; a profile's segments are these."""
 

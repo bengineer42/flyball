@@ -67,16 +67,16 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     assert set(catalogs.feedforwards.tags()) >= {"setpoint", "none", "affine", "table"}, (
         "engine's own built-in feedforwards (control/configs.py) did not all load"
     )
-    assert set(catalogs.generators.tags()) >= {"hold", "linear_ramp_setpoint", "profile"}, (
+    assert set(catalogs.generators.tags()) >= {"dwell", "linear_ramp_setpoint", "profile"}, (
         "engine's own built-in generators (control/configs.py) did not all load"
     )
     assert set(catalogs.commands.tags()) >= {
-        "wait",
+        "prompt",
         "set",
         "command",
         "regulate",
         "ramp",
-        "hold",
-        "arrive",
+        "wait",
+        "settle",
         "manual",
     }, "engine's own built-in commands (sequencing/configs.py) did not all load"

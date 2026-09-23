@@ -5,9 +5,9 @@ name: firing
 steps:
   - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 600, per_minute: 10 }
-  - hold: { minutes: 20, message: "soak at 600" }
+  - wait: { duration: { minutes: 20 }, message: "soak at 600" }
   - ramp: { loop: heaters.heater2, to: 900, per_minute: 5 }       # the middle only: the neighbours fight it
-  - hold: { minutes: 15, message: "soak at 900" }
+  - wait: { duration: { minutes: 15 }, message: "soak at 900" }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 100, per_minute: 20 }
   - manual: [heaters.heater1, heaters.heater2, heaters.heater3]
-  - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }
+  - prompt: { message: "unload the sample, then press go", timeout: { minutes: 10 } }

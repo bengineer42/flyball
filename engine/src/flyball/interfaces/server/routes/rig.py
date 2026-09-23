@@ -118,7 +118,7 @@ async def read_health() -> dict[str, Any]:
         "controllers": {name: c.mode.value for name, c in rig.controllers.items()},
         "conditions": conditions,
         "alarms": _alarm_summary(rig, conditions),
-        "waits": sorted(rig.triggers.states()),
+        "activities": sorted(rig.triggers.states()),
         "recording": rig.recording is not None,
         "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }

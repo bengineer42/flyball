@@ -56,12 +56,12 @@ class Triggers:
         """Name a signal while something waits on it.
 
         Args:
-            name: What it is fired by: `POST /api/waits/{name}/fire`.
+            name: What it is fired by: `POST /api/activities/{name}/fire`.
             signal: What is waited on.
             message: What the wait is for, for a person.
             timeout_s: When the wait gives up, if it does.
             prompt: Nothing but a person (or an external trigger) fires it,
-                so a UI should ask. A hold or an arrival settles on its own.
+                so a UI should ask. A timed wait or a settle ends on its own.
 
         Raises:
             ConflictError: `name` is already waiting on something else.

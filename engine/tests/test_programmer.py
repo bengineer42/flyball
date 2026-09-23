@@ -9,7 +9,7 @@ import pytest
 from flyball.foundation.device import Committable, Demand, Level, Readout, Sample, command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
-from flyball.sequencing import Command, Program, Programmer, Wait
+from flyball.sequencing import Command, Program, Programmer, Prompt
 from flyball.sequencing.errors import ProgramAlreadyRunningError
 
 TEMP = Quantity("temperature", Celsius)
@@ -78,13 +78,15 @@ def test_a_failing_first_step_raises_and_leaves_the_programmer_idle(rig, note):
     assert programmer.state.failed is False, "starting again clears the previous failure"
 
 
-def test_steps_after_a_wait_run_on_the_worker_and_a_failure_there_is_an_event(rig, note):
+def test_steps_after_a_prompt_run_on_the_worker_and_a_failure_there_is_an_event(rig, note):
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Note("a"), Wait("go", name="go"), Note("b"), Note("boom")], name="p"))
-    assert seen == ["a"] and programmer.state.step == 1 and programmer.state.command == "wait"
+    programmer.start(
+        Program([Note("a"), Prompt("go", name="go"), Note("b"), Note("boom")], name="p")
+    )
+    assert seen == ["a"] and programmer.state.step == 1 and programmer.state.command == "prompt"
     assert "go" in rig.triggers.states()
-    assert rig.triggers.states()["go"].prompt is True, "a wait is answered by a person"
+    assert rig.triggers.states()["go"].prompt is True, "a prompt is answered by a person"
     rig.triggers.fire("go")
     programmer.join(2)
     assert seen == ["a", "b"] and programmer.running is False
@@ -141,10 +143,10 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
     assert state.failed is True and "no_such_controller" in state.error
 
 
-def test_interrupt_stops_at_the_wait_and_start_can_replace_a_running_program(rig, note):
+def test_interrupt_stops_at_the_prompt_and_start_can_replace_a_running_program(rig, note):
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Wait("one", name="one"), Note("never")]))
+    programmer.start(Program([Prompt("one", name="one"), Note("never")]))
     with pytest.raises(ProgramAlreadyRunningError):
         programmer.start(Note("x"))
     programmer.start(Note("instead"), interrupt=True)
@@ -192,7 +194,7 @@ def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, 
             returned.append(activity := Activity())  # no timeout: waits until settled
             return activity
 
-    programmer.start(Program([Wait("go", name="go"), Slow()]))
+    programmer.start(Program([Prompt("go", name="go"), Slow()]))
     rig.triggers.fire("go")
     assert entered.wait(5), "the worker never reached the second step"
     interrupter = threading.Thread(target=programmer.interrupt, daemon=True)
@@ -208,12 +210,12 @@ def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, 
         interrupter.join(5)
 
 
-def test_a_timed_out_wait_ends_the_program(rig, note):
+def test_a_timed_out_prompt_ends_the_program(rig, note):
     from flyball.foundation.time import Duration
 
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Wait("brief", timeout=Duration(0.05)), Note("after")]))
+    programmer.start(Program([Prompt("brief", timeout=Duration(0.05)), Note("after")]))
     programmer.join(2)
     assert seen == [] and programmer.running is False
     (event,) = [e for e in rig.recent if e.level == Level.WARNING]
@@ -221,14 +223,14 @@ def test_a_timed_out_wait_ends_the_program(rig, note):
 
 
 def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking():
-    """`ramp wait: false` returns at once; `arrive` fires only when the named controllers settle."""
+    """`ramp wait: false` returns at once; `settle` fires only when the named controllers settle."""
     import time
 
     from flyball.control import P
     from flyball.foundation.time import Duration
     from flyball.rig import Rig
     from flyball.sequencing import Program, Programmer
-    from flyball.sequencing.loops import Arrive, Ramp, Regulate
+    from flyball.sequencing.loops import Ramp, Regulate, Settle
 
     rig = Rig()
     a, b = Heater("ha"), Heater("hb")
@@ -247,13 +249,14 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
         [
             Regulate(setpoint=50.0, loop=[ca.name, cb.name]),
             Ramp(to=60.0, pace=Duration(0.01), loop=[ca.name], wait=False),
-            Arrive(loop=[ca.name], within=0.5, readings=2),
+            Settle(loop=[ca.name], within=0.5, count=2),
         ],
-        name="arrive-test",
+        name="settle-test",
     )
     programmer.start(program)
-    assert programmer.running and programmer.state.command == "arrive"  # the ramp did not block
-    deliver(b, 50.0)  # hb settling is irrelevant to an arrive on ha's controller
+    assert programmer.running and programmer.state.command == "settle"  # the ramp did not block
+    assert "settle:" + ca.name in rig.triggers.states()
+    deliver(b, 50.0)  # hb settling is irrelevant to a settle on ha's controller
     deliver(b, 50.0)
     assert programmer.running
     time.sleep(0.02)  # the ramp reaches 60 in 10 ms of rig time
@@ -264,25 +267,26 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
     assert programmer.running is False
 
 
-def test_a_hold_is_a_signal_but_not_a_prompt(rig, note):
+def test_a_timed_wait_is_an_activity_but_not_a_prompt(rig, note):
     from flyball.foundation.time import Duration
-    from flyball.sequencing.loops import Hold
+    from flyball.sequencing.loops import Wait
 
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Hold(Duration(60)), Note("after")]))
-    (state,) = rig.triggers.states().values()
-    assert state.prompt is False, "a hold settles on its own; nobody should be asked"
+    programmer.start(Program([Wait(Duration(60)), Note("after")]))
+    ((name, state),) = rig.triggers.states().items()
+    assert name == "wait", "a timed wait registers under its tag"
+    assert state.prompt is False, "a timed wait ends on its own; nobody should be asked"
     programmer.start(Note("instead"), interrupt=True)
 
 
-def test_a_hold_can_time_out_like_a_wait(rig, note):
+def test_a_timed_wait_can_time_out_like_a_prompt(rig, note):
     from flyball.foundation.time import Duration
-    from flyball.sequencing.loops import Hold
+    from flyball.sequencing.loops import Wait
 
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Hold(Duration(60), timeout=Duration(0.05)), Note("after")]))
+    programmer.start(Program([Wait(Duration(60), timeout=Duration(0.05)), Note("after")]))
     programmer.join(2)
     assert seen == [] and programmer.running is False
     (event,) = [e for e in rig.recent if e.level == Level.WARNING]
@@ -356,12 +360,12 @@ def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
 def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
     from flyball.control import P
     from flyball.foundation.time import Duration
-    from flyball.sequencing.loops import Arrive, Manual, Ramp, Regulate
+    from flyball.sequencing.loops import Manual, Ramp, Regulate, Settle
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
 
-    for named_none in (Regulate(setpoint=1.0), Manual(), Arrive(), Ramp(to=1.0, pace=Duration(1))):
+    for named_none in (Regulate(setpoint=1.0), Manual(), Settle(), Ramp(to=1.0, pace=Duration(1))):
         assert named_none.missing(rig) == ["the rig has no default controller"]
 
     # the first controller attached becomes the default (`Controllers.add`)
@@ -372,7 +376,7 @@ def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
     for named_unknown in (
         Regulate(setpoint=1.0, loop="no_such"),
         Manual(loop="no_such"),
-        Arrive(loop="no_such"),
+        Settle(loop="no_such"),
         Ramp(to=1.0, pace=Duration(1), loop="no_such"),
     ):
         assert named_unknown.missing(rig) == ["controller 'no_such' is not on the rig"]

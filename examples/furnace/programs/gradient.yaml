@@ -8,12 +8,12 @@ name: gradient
 steps:
   - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 400, per_minute: 10 }
-  - hold: { minutes: 15, message: "level at 400" }
+  - wait: { duration: { minutes: 15 }, message: "level at 400" }
   - ramp: { loop: heaters.heater2, to: 600, per_minute: 10 }        # the middle first...
   - ramp: { loop: heaters.heater1, to: 800, per_minute: 10 }        # ... then the hot end
-  - hold: { minutes: 30, message: "gradient 800 / 600 / 400: watch heaters.heater3 sit at zero" }
+  - wait: { duration: { minutes: 30 }, message: "gradient 800 / 600 / 400: watch heaters.heater3 sit at zero" }
   - ramp: { loop: heaters.heater1, to: 600, per_minute: 5 }
   - ramp: { loop: heaters.heater3, to: 600, per_minute: 10 }
-  - hold: { minutes: 30, message: "flat at 600" }
+  - wait: { duration: { minutes: 30 }, message: "flat at 600" }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 100, per_minute: 20 }
   - manual: [heaters.heater1, heaters.heater2, heaters.heater3]

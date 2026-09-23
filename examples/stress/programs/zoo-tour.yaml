@@ -9,5 +9,5 @@ steps:
   - regulate: { loop: voltage_source.drive, setpoint: 18 }
   - regulate: { loop: length_motor.drive, setpoint: 3 }
   - regulate: { loop: flow_pump.drive, setpoint: 20 }
-  - hold: { minutes: 2, message: "all four controllers regulating" }
+  - wait: { duration: { minutes: 2 }, message: "all four controllers regulating" }
   - manual: [celsius_heater.drive, voltage_source.drive, length_motor.drive, flow_pump.drive]

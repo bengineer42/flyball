@@ -152,7 +152,7 @@ READ: tuple[Tool, ...] = (
     Tool(
         "status",
         "One look at the rig: ok or not, uptime, devices polling, controller modes, conditions, "
-        "alarms, waits, recording.",
+        "alarms, activities, recording.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/health"),
@@ -231,11 +231,12 @@ READ: tuple[Tool, ...] = (
         output_schema=_list_of("controllers", "Every controller on the rig."),
     ),
     Tool(
-        "waits",
-        "What a running program is waiting on, by name; `fire` answers one.",
+        "activities",
+        "What a running program is waiting on -- a prompt, a timed wait, a settle, a ramp -- "
+        "by name; `fire_activity` answers one.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.waits(),
+        lambda rig, a: rig.activities(),
     ),
     Tool(
         "program_status",
@@ -619,7 +620,7 @@ AT = _any(
     "generator config (a ramp, say) as an object."
 )
 CONTROLLER = _str("The controller: the address of the demand it drives, its output.")
-WAIT = _str("The wait's name, from `waits`.")
+ACTIVITY = _str("The activity's name, from `activities`.")
 
 DRIVE: tuple[Tool, ...] = (
     Tool(
@@ -757,18 +758,18 @@ DRIVE: tuple[Tool, ...] = (
         destructive=True,
     ),
     Tool(
-        "fire",
-        "Answer a wait: the program goes on.",
-        _object({"name": WAIT}, "name"),
+        "fire_activity",
+        "Answer a prompt, or skip what the program is waiting on: the program goes on.",
+        _object({"name": ACTIVITY}, "name"),
         Tier.DRIVE,
-        lambda rig, a: {"fired": rig.fire(a["name"])},
+        lambda rig, a: {"fired": rig.fire_activity(a["name"])},
     ),
     Tool(
-        "interrupt_wait",
-        "Cancel a wait: the program is interrupted.",
-        _object({"name": WAIT}, "name"),
+        "cancel_activity",
+        "Cancel what the program is waiting on: the program is interrupted.",
+        _object({"name": ACTIVITY}, "name"),
         Tier.DRIVE,
-        lambda rig, a: {"interrupted": rig.interrupt(a["name"])},
+        lambda rig, a: {"interrupted": rig.cancel_activity(a["name"])},
         destructive=True,
     ),
     Tool(
