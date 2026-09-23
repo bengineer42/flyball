@@ -128,9 +128,12 @@ called by the command route and by a program's `command` step alike). A
 controller whose law raises is kept to itself: a `step_failed` event on the
 first failure and `step_recovered` when it steps again, its mode left as it
 was, and every other controller, commit, reading and the recorder carry on.
-Any other failure *downstream* of the read — an observer, a commit, the
-recorder — is the rig's, not the read's: a `delivery_failed` event, and the
-device's samples are still noted as read. After a gap in its readings
+A device whose `commit` raises is likewise kept to itself: its demands are
+dropped rather than left pending, a `commit_failed` event names it once per
+outage (`commit_recovered` when a commit succeeds again), and the other
+commits and the recorder carry on. Any other failure *downstream* of the
+read — an observer, the recorder — is the rig's, not the read's: a
+`delivery_failed` event, and the device's samples are still noted as read. After a gap in its readings
 longer than three usual intervals (an outage), a controller's next step
 counts as one ordinary step, not the whole gap.
 A poll that takes longer than its period logs a `slow` condition but does

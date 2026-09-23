@@ -40,6 +40,8 @@ class Kind(StrEnum):
     DELIVERY_FAILED = "delivery_failed"
     WRITE_FAILED = "write_failed"
     WRITE_RECOVERED = "write_recovered"
+    COMMIT_FAILED = "commit_failed"
+    COMMIT_RECOVERED = "commit_recovered"
     # A controller.
     STEP_FAILED = "step_failed"
     STEP_RECOVERED = "step_recovered"

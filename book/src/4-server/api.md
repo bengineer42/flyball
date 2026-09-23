@@ -82,7 +82,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` as in `GET /api/auth`; `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` as in `GET /api/auth`; `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
@@ -381,14 +381,24 @@ one of a fixed set:
 
 | scope | kinds |
 | --- | --- |
-| `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered` |
+| `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered`, `commit_failed`, `commit_recovered` |
 | `controller` | `step_failed`, `step_recovered`, `stale_input`, `limit_unknown`, `limit_known`, `interrupted` |
 | `program` | `started`, `step`, `step_timed_out`, `step_failed`, `finished`, `failed`, `interrupted`, `run_from_library` |
 | `rig` | `delivery_failed`, `recording_failed`, `restored` |
 
 A [`Condition`](wire.md#devices) the runtime raises uses the same kinds
-(`offline`, `slow`, `write_failed`); a driver's own conditions may use any
+(`offline`, `slow`, `write_failed`, `commit_failed`); a driver's own conditions may use any
 string.
+
+`commit_failed` (`ERROR`) is a device's `commit` that raised on the delivery
+path: once per outage, with the demands it dropped in `details.signals`, and
+a `commit_failed` condition on the device until a commit succeeds
+(`commit_recovered`, `INFO`). The dropped demands are not sent later; the
+controller driving one hears `expected: null` for that tick, and the rest
+of the delivery -- other devices' commits, the recorder -- goes on. A
+manual demand or a command whose commit raises also gets the error back.
+`write_failed` / `write_recovered` are the same for a blocking device's
+writer thread.
 
 ## Websockets
 

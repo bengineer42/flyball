@@ -119,6 +119,10 @@ class Rig:
     again, none per failing step between. The others in the delivery carry on regardless."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
+    _commit_failures: dict[Device, Condition]
+    """Devices whose last `commit` on the delivery path raised, with what it raised: one
+    event on the first failure, one when a commit succeeds again, none per failing commit
+    between. A blocking device's writer keeps its own."""
     entries: dict[str, DeviceEntry]
     """What each device was built from: its rig-file entry, for rendering the rig back out."""
     link_entries: dict[str, Any]
@@ -165,6 +169,7 @@ class Rig:
         self._limit_held = set()
         self._failing = set()
         self._touched = None
+        self._commit_failures = {}
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -254,7 +259,7 @@ class Rig:
         return event
 
     def write_conditions(self) -> list[tuple[str, Condition]]:
-        """Bus failures the writers of blocking devices are seeing now, by device name.
+        """Bus failures seen now, by device name: a blocking device's writer's, a commit's.
 
         Read from a snapshot, not under the lock: the async health route
         calls it on the event loop, which must not wait on a delivery.
@@ -263,7 +268,7 @@ class Rig:
             (device.name, failed)
             for device, writer in list(self._writers.items())
             if (failed := writer.failed) is not None
-        ]
+        ] + [(device.name, failed) for device, failed in list(self._commit_failures.items())]
 
     def stop(self) -> None:
         """Stop what runs on threads: polling, writers, recording. The rig can be built again."""
@@ -645,11 +650,25 @@ class Rig:
         finally:
             self._touched = None
 
-    def _commit(self, devices: Iterable[Device], time_ns: int) -> dict[Signal, WriteState]:
+    def _commit(
+        self,
+        devices: Iterable[Device],
+        time_ns: int,
+        failed: dict[Signal, WriteState] | None = None,
+    ) -> dict[Signal, WriteState]:
         """One commit per device, and the states filled in with what the rig knows.
 
         A blocking device's commit is handed to its writer instead, and its
         states come back through `written` when the write completes.
+
+        A commit that raises is that device's alone: its demands are dropped
+        (not left in `pending` to go out with a later commit, over a newer
+        write), it becomes a `commit_failed` event once per outage and a
+        condition, and the other devices commit regardless. Into `failed`,
+        when given, go the states of what it dropped (`value` None: nothing
+        was set), for the controllers driving them; without it -- a manual
+        demand or a command, one device -- the error is raised to the caller
+        too.
         """
         states: dict[Signal, WriteState] = {}
         for device in devices:
@@ -657,11 +676,51 @@ class Rig:
                 continue  # touched by an input landing; nothing to commit
             if (writer := self._writer_for(device)) is not None:
                 writer.request(time_ns)
-            else:
-                before = dict(self.router.seq)
+                continue
+            before = dict(self.router.seq)
+            try:
                 device.commit(time_ns)
-                states.update(self._states(device, time_ns, before))
+            except Exception as error:
+                dropped = self._commit_failed(device, error)
+                if failed is None:
+                    raise
+                failed.update(dropped)
+                continue
+            if self._commit_failures.pop(device, None) is not None:
+                self.event(
+                    Level.INFO, Scope.DEVICE, device.name, Kind.COMMIT_RECOVERED, "commits succeed"
+                )
+            states.update(self._states(device, time_ns, before))
         return states
+
+    def _commit_failed(self, device: Committable, error: Exception) -> dict[Signal, WriteState]:
+        """A commit raised: drop its demands, report the outage once; what each demand became."""
+        message = f"{type(error).__name__}: {error}"
+        first = device not in self._commit_failures
+        self._commit_failures[device] = Condition(
+            Kind.COMMIT_FAILED, Level.ERROR, message, self.clock.now_ns()
+        )
+        if first:  # one event per outage, not one per delivery
+            log.warning("%s: commit failed: %s", device.name, message, exc_info=error)
+            self.event(
+                Level.ERROR,
+                Scope.DEVICE,
+                device.name,
+                Kind.COMMIT_FAILED,
+                message,
+                {"signals": [signal.address for signal in device.pending]},
+            )
+        dropped: dict[Signal, WriteState] = {}
+        for signal in device.pending:
+            holder = self.controllers.driving(signal)
+            dropped[signal] = WriteState(
+                value=None,
+                requested=self._requested.pop(signal, None),
+                controller=None if holder is None else holder.name,
+            )
+            signal.at_limit = None
+        device.pending.clear()
+        return dropped
 
     def _states(
         self, device: Committable, time_ns: int, before: Mapping[Signal, int]
@@ -871,6 +930,7 @@ class Rig:
             self.router.seq.pop(signal, None)
             self.write_states.discard(signal.address)
             self._requested.pop(signal, None)
+        self._commit_failures.pop(device, None)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)
             self.router.cuts.pop(node, None)
@@ -1187,9 +1247,11 @@ class Rig:
             for controller, reading in ticks:
                 self._step(controller, reading)
             time_ns = max(s.time_ns for s in samples)
-            states = self._commit(touched, time_ns)
+            failed: dict[Signal, WriteState] = {}
+            states = self._commit(touched, time_ns, failed)
         finally:
             self._touched = None
+        self._deliver(failed)
         self._deliver(states)
         if self.controller_states.watched:
             for controller, _ in ticks:
