@@ -250,10 +250,11 @@ local (no runner or daemon involved):
   run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]   start a runner directly, foreground
   password [PASSWORD]                 hash a password for runner.auth.password
   new NAME [--dir PATH]                write a starting point for a device driver
-  token create --name N --config PATH [--scope S ...] [--kind human|service|agent] [--expires D]
+  token create --name N --config PATH [--daemon] [--scope S ...] [--kind human|service|agent] [--expires D]
                                       write a token into the front's tokens.json offline; prints it once
-  token list --config PATH            list tokens (never their secrets)
-  token revoke ID --config PATH       remove a token; the front picks this up at its next check
+  token list --config PATH [--daemon] list tokens (never their secrets)
+  token revoke ID --config PATH [--daemon]
+                                      remove a token; the front picks this up at its next check
 
 daemon-managed (talks to flyballd via FLYBALLD_URL, never routed through a runner):
   daemon runners                      list registered runners

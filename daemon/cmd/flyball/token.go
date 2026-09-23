@@ -45,11 +45,12 @@ func runTokenCommand(args []string) error {
 func runTokenCreate(args []string) error {
 	name, args, _ := popValue(args, "--name")
 	config, args, _ := popValue(args, "--config")
+	daemon, args := popBool(args, "--daemon")
 	kind, args, _ := popValue(args, "--kind")
 	expires, args, hasExpires := popValue(args, "--expires")
 	scopes, args := popAllValues(args, "--scope")
 	if name == "" || config == "" || len(args) != 0 {
-		return fmt.Errorf("usage: flyball token create --name NAME --config PATH [--scope SCOPE ...] [--kind human|service|agent] [--expires DURATION]")
+		return fmt.Errorf("usage: flyball token create --name NAME --config PATH [--daemon] [--scope SCOPE ...] [--kind human|service|agent] [--expires DURATION]")
 	}
 	if len(scopes) == 0 {
 		scopes = []string{grants.Read} // auth.md: "Default scope for automation, MCP included: read"
@@ -67,11 +68,11 @@ func runTokenCreate(args []string) error {
 		}
 	}
 
-	path, err := tokensPathFor(config)
+	path, err := tokensPathFor(config, daemon)
 	if err != nil {
 		return err
 	}
-	lifetimes, warnings, err := lifetimesFor(config)
+	lifetimes, warnings, err := lifetimesFor(config, daemon)
 	if err != nil {
 		return err
 	}
@@ -101,10 +102,11 @@ func runTokenCreate(args []string) error {
 
 func runTokenList(args []string) error {
 	config, args, _ := popValue(args, "--config")
+	daemon, args := popBool(args, "--daemon")
 	if config == "" || len(args) != 0 {
-		return fmt.Errorf("usage: flyball token list --config PATH")
+		return fmt.Errorf("usage: flyball token list --config PATH [--daemon]")
 	}
-	path, err := tokensPathFor(config)
+	path, err := tokensPathFor(config, daemon)
 	if err != nil {
 		return err
 	}
@@ -133,10 +135,11 @@ func runTokenList(args []string) error {
 
 func runTokenRevoke(args []string) error {
 	config, args, _ := popValue(args, "--config")
+	daemon, args := popBool(args, "--daemon")
 	if config == "" || len(args) != 1 {
-		return fmt.Errorf("usage: flyball token revoke ID --config PATH")
+		return fmt.Errorf("usage: flyball token revoke ID --config PATH [--daemon]")
 	}
-	path, err := tokensPathFor(config)
+	path, err := tokensPathFor(config, daemon)
 	if err != nil {
 		return err
 	}
@@ -206,8 +209,8 @@ func parseExpires(s string) (time.Duration, error) {
 // resolves it the same way the front does (store.ResolveLifetimes), so
 // that an offline `flyball token create --config PATH` applies the same
 // effective default/max lifetimes a running front would.
-func lifetimesFor(config string) (store.Lifetimes, []string, error) {
-	tc, err := tokensConfigFor(config)
+func lifetimesFor(config string, forceDaemon bool) (store.Lifetimes, []string, error) {
+	tc, err := tokensConfigFor(config, forceDaemon)
 	if err != nil {
 		return store.Lifetimes{}, nil, err
 	}
@@ -223,8 +226,8 @@ func lifetimesFor(config string) (store.Lifetimes, []string, error) {
 // (store.ResolveLifetimes does that): the top level for a daemon config,
 // or runner.front.tokens for a rig file. A missing file or block is nil,
 // nil -- the same "not set" lifetimesFor treats as the built-ins.
-func tokensConfigFor(config string) (*front.TokensConfig, error) {
-	daemon, err := looksLikeDaemonConfig(config)
+func tokensConfigFor(config string, forceDaemon bool) (*front.TokensConfig, error) {
+	daemon, err := isDaemonConfig(config, forceDaemon)
 	if err != nil {
 		return nil, err
 	}
@@ -262,8 +265,8 @@ func tokensConfigFor(config string) (*front.TokensConfig, error) {
 // (daemon/internal/frontwire), so a running front and this offline command
 // always agree on the file:
 //
-//   - PATH looks like flyballd.yaml (has one of its own top-level keys,
-//     none required alone -- see looksLikeDaemonConfig) -> its data_dir
+//   - PATH is flyballd.yaml (--daemon, the file's name, or one of its own
+//     top-level keys -- see isDaemonConfig) -> its data_dir
 //     ("data" by default, matching config.DefaultDaemonConfig) ->
 //     frontwire.DaemonDir(dataDir), the same absolute directory
 //     `flyballd --config flyballd.yaml` opens its tokens file in,
@@ -277,8 +280,8 @@ func tokensConfigFor(config string) (*front.TokensConfig, error) {
 // name and shape deliberately: `flyball token create --config
 // flyballd.yaml` bootstraps a daemon-fronted token exactly the way
 // `flyballd --config flyballd.yaml` starts that same daemon.
-func tokensPathFor(config string) (string, error) {
-	daemon, err := looksLikeDaemonConfig(config)
+func tokensPathFor(config string, forceDaemon bool) (string, error) {
+	daemon, err := isDaemonConfig(config, forceDaemon)
 	if err != nil {
 		return "", err
 	}
@@ -310,9 +313,19 @@ func tokensPathFor(config string) (string, error) {
 // daemon config; a rig file has none of them at its top level.
 var daemonOnlyKeys = []string{"manifests_dir", "data_dir", "default_server", "log_max_size"}
 
-// looksLikeDaemonConfig: config parses as YAML with any of daemonOnlyKeys
-// at the top level.
-func looksLikeDaemonConfig(config string) (bool, error) {
+// isDaemonConfig says whether config is flyballd.yaml rather than a rig
+// file: --daemon says so; else a file named flyballd.yaml (or .yml) is;
+// else one with any of daemonOnlyKeys at its top level is. A flyballd.yaml
+// that sets only the front's keys (listen, auth, password, ...) has none of
+// daemonOnlyKeys, so under another name it needs --daemon.
+func isDaemonConfig(config string, forced bool) (bool, error) {
+	if forced {
+		return true, nil
+	}
+	switch filepath.Base(config) {
+	case "flyballd.yaml", "flyballd.yml":
+		return true, nil
+	}
 	data, err := os.ReadFile(config)
 	if os.IsNotExist(err) {
 		// Doesn't exist yet: nothing to sniff. Treated as a rig file --

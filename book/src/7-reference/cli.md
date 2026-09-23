@@ -123,9 +123,9 @@ stopped with `--pid` or `--front-dir`.
 | `program schema` | the program file's JSON Schema |
 | `run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]` | [start a rig](#flyball-run) behind a front, in the foreground |
 | `password [PASSWORD]` | hash a password for `runner.front.password` (or `password:` in `flyballd.yaml`); prompts if omitted |
-| `token create --name N --config PATH [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
-| `token list --config PATH` | the tokens in that file: id, name, scopes, kind, created, expires, last used -- never a secret |
-| `token revoke ID --config PATH` | remove one; the front stops accepting it within a second |
+| `token create --name N --config PATH [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
+| `token list --config PATH [--daemon]` | the tokens in that file: id, name, scopes, kind, created, expires, last used -- never a secret |
+| `token revoke ID --config PATH [--daemon]` | remove one; the front stops accepting it within a second |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
 
 !!! note "`rig check --print`'s formatting"
@@ -196,9 +196,11 @@ config:
 - a rig file: the tokens of `flyball run PATH`,
   `$XDG_STATE_HOME/flyball/front-<id>/tokens.json`;
 - a `flyballd.yaml`: `<data_dir>/front/tokens.json`. It is recognised by
-  having one of `manifests_dir`, `data_dir`, `default_server` or
-  `log_max_size` at its top level, so a `flyballd.yaml` with none of them
-  would be taken for a rig file: set `data_dir` in it.
+  its name (`flyballd.yaml` or `flyballd.yml`), or by having one of
+  `manifests_dir`, `data_dir`, `default_server` or `log_max_size` at its
+  top level. A daemon config under another name that sets none of them
+  -- only the front's keys -- would be taken for a rig file: say
+  `--daemon`.
 
 `create` prints the token alone on stdout and its details on stderr, so
 `flyball token create … > token.txt` keeps just the token.
@@ -206,6 +208,7 @@ config:
 | flag | default | |
 | --- | --- | --- |
 | `--name N` | required | 1 to 64 characters, no control characters |
+| `--daemon` | off | `PATH` is a `flyballd.yaml`, whatever its name and keys (`create`, `list` and `revoke`) |
 | `--scope S` | `read` | repeatable: `read`, `operate` (every rig), `operate:<rig>`, `read:<rig>`, `manage` (`flyballd`'s management routes; only here). A scope above `read` also gets `read` on the same rigs. The verbs are pending D-034 |
 | `--kind K` | `service` | `human`, `service` or `agent`; an `agent` token lives at most 30 days |
 | `--expires D` | the front's `tokens.default_lifetime` (90 days) | `30d`, `36h`; capped at `tokens.max_lifetime` (365 days at most) |
