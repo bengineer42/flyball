@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Annotated
 
 import pytest
 
@@ -11,8 +12,11 @@ from flyball.foundation.device import (
     Access,
     AddressNotFoundError,
     Committable,
+    Demand,
+    Level,
     Node,
     NodeSpec,
+    Output,
     Readable,
     Reading,
     Role,
@@ -20,6 +24,7 @@ from flyball.foundation.device import (
     Signal,
     SignalSpec,
     WriteState,
+    command,
 )
 from flyball.foundation.errors import ConflictError, NotReadyError
 from flyball.foundation.quantities import Quantity
@@ -184,6 +189,19 @@ class Thermostat(Committable):
         SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after=5.0),
         SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),
     )
+
+
+class Supplied(Committable):
+    """A demand bounded by a reading that may not have arrived yet: a supply line's humidity."""
+
+    supply = Output("supply", "Supply humidity", HUMIDITY)
+    chamber = Output("chamber", "Chamber humidity", HUMIDITY)
+    humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
+
+    @command
+    def aim(self, humidity: Annotated[float, humidity]) -> float:
+        """Aim at a humidity: a linked argument, clamped like a demand."""
+        return humidity
 
 
 class Stage(Committable):
@@ -571,6 +589,74 @@ class TestDemand:
         clock.advance(0.2)  # 5.1s since the reading: now stale
         assert rig.demand(thermo.root, {heater: 20.0}, by=controller) == {}
         assert thermo.written[heater].value == 10.0, "held: the last applied value stands"
+
+
+class TestLimitsThatFollowASignal:
+    """A limit bound to a signal with no value yet fails closed: never an unclamped demand."""
+
+    @pytest.fixture
+    def supplied(self, rig, fresh) -> Supplied:
+        device = Supplied(fresh("supplied"))
+        rig.add_device(device)
+        return device
+
+    def test_a_demand_before_the_bound_is_known_is_refused_not_passed_unclamped(
+        self, rig, supplied
+    ):
+        humidity = supplied.signals["humidity"]
+        assert humidity.limits is None, "nothing read on the supply yet"
+        with pytest.raises(NotReadyError, match=r"limit follows 'supply', which has no value yet"):
+            rig.demand(supplied.root, {humidity: 150.0})
+        assert supplied.written == {} and supplied.pending == {}, "nothing reached the device"
+        assert humidity.reading is None
+
+    def test_the_first_reading_of_the_bound_lifts_the_refusal_and_clamps_to_it(
+        self, rig, supplied, clock
+    ):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        with pytest.raises(NotReadyError):
+            rig.demand(supplied.root, {humidity: 150.0})
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        assert rig.demand(supplied.root, {humidity: 150.0}) == {
+            humidity: WriteState(value=95.0, requested=150.0, at_limit="high")
+        }
+
+    def test_a_linked_command_argument_is_refused_while_its_limit_is_unknown(
+        self, rig, supplied, clock
+    ):
+        with pytest.raises(NotReadyError, match="limit"):
+            rig.run_command(supplied, "aim", {"humidity": 150.0})
+        assert supplied.signals["humidity"].reading is None
+        supply = supplied.signals["supply"]
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        assert rig.run_command(supplied, "aim", {"humidity": 150.0}) == 95.0
+
+    def test_a_controller_write_is_held_with_one_event_until_the_bound_is_known(
+        self, rig, supplied, clock
+    ):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        chamber = supplied.signals["chamber"]
+        controller = rig.attach_controller(humidity, chamber, law=P(kp=1.0))
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
+        controller.regulate(150.0, transfer=Transfer.RESET)  # the write goes through the rig
+        assert controller.expected is None, "held: nothing was applied"
+        assert supplied.written == {} and humidity.reading is None
+        clock.advance(1.0)
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])  # a step
+        assert supplied.written == {}, "still held on the next step"
+        held = [e for e in rig.recent if e.kind == "limit_unknown"]
+        assert len(held) == 1, "one event on entering the hold, not one per step"
+        assert held[0].level is Level.WARNING and held[0].subject == controller.name
+
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        clock.advance(1.0)
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
+        assert supplied.written[humidity].value == 95.0, "applied, clamped to the supply"
+        assert supplied.written[humidity].requested is not None
+        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == [
+            "limit_unknown",
+            "limit_known",
+        ]
 
 
 class TestControllers:

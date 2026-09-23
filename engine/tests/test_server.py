@@ -117,6 +117,20 @@ class Sensors(Readable):
             yield Sample(n, time_ns, {n.signals["humidity"]: 45.0, n.signals["temperature"]: 21.9})
 
 
+class Supplied(Committable):
+    """A demand bounded by a supply humidity that may not have been read yet."""
+
+    supply = Output("supply", "Supply humidity", HUMIDITY)
+    humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
+
+    def __init__(self, name: str, label: str | None = None) -> None:
+        super().__init__(name, label)
+        self.inputs: dict[str, float] = {}
+
+    def write_signal(self, signal: Signal, value: float) -> None:
+        self.inputs[signal.name] = value
+
+
 class Mode(Enum):
     IDLE = "idle"
     RUNNING = "running"
@@ -475,6 +489,27 @@ def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
     client.put(f"/api/devices/{daq.name}/demand", json={"setpoint": 60.0})
     read = client.get(f"/api/read/{daq.name}.setpoint?fresh=true").json()
     assert read["reading"]["value"] == 60.0
+
+
+def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(client, rig, fresh):
+    supplied = Supplied(fresh("supplied"))
+    rig.add_device(supplied)
+    for r in (
+        client.put(f"/api/devices/{supplied.name}/demand", json={"humidity": 150.0}),
+        client.put(f"/api/signals/{supplied.name}.humidity", json=150.0),
+    ):
+        assert r.status_code == 503, "not ready: never passed through unclamped"
+        assert (
+            "limit" in r.json()["detail"]
+            and "follows 'supply', which has no value yet" in r.json()["detail"]
+        )
+    assert supplied.inputs == {}
+
+    rig.on_samples([Sample(supplied.root, rig.clock.now_ns(), {supplied.signals["supply"]: 95.0})])
+    r = client.put(f"/api/devices/{supplied.name}/demand", json={"humidity": 150.0})
+    assert r.status_code == 200
+    assert r.json()[f"{supplied.name}.humidity"]["value"] == 95.0
+    assert supplied.inputs == {"humidity": 95.0}
 
 
 # endregion
