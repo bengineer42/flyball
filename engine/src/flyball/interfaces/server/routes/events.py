@@ -33,7 +33,8 @@ def event_out(event: Event) -> dict[str, Any]:
 def read_events(rig: RigDep, limit: int = 100, level: str | None = None) -> list[dict[str, Any]]:
     """The most recent events, oldest first; `level` keeps that level and above."""
     floor = Level[level.upper()] if level else Level.DEBUG
-    recent = [e for e in rig.recent if e.level >= floor]
+    # A snapshot: another thread appends to the deque while this filters it.
+    recent = [e for e in list(rig.recent) if e.level >= floor]
     return [event_out(e) for e in recent[-limit:]]
 
 
@@ -49,7 +50,8 @@ async def events(websocket: WebSocket) -> None:
                 continue
             closed = asyncio.ensure_future(_closed(websocket))
             with rig.events.subscribe(maxsize=200) as queue:
-                await websocket.send_json({"events": [event_out(e) for e in rig.recent]})
+                primed = [event_out(e) for e in list(rig.recent)]  # a snapshot, as above
+                await websocket.send_json({"events": primed})
                 getter: asyncio.Future[Any] = asyncio.ensure_future(queue.get())
                 try:
                     while current_rig() is rig:
