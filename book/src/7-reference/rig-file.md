@@ -192,7 +192,7 @@ ignored with one warning line and its default used.
 | `tls` | `{cert, key}` | none | PEM files the front serves HTTPS from, TLS 1.2 at least; re-read every 10 s and on `SIGHUP`, the last good pair kept. Unreadable at start: falls back |
 | `proxy` | table | none | `auth: proxy`'s identity layer: [below](#proxy-presets). Missing, or one that cannot be vouched for: falls back |
 | `session` | duration | `12h` | a session's idle lifetime (`12h`, `2d`); it ends after 7 days whatever. Unparseable warns |
-| `trusted_proxies` | `[IP or CIDR, …]` | `[]` | peers whose `X-Forwarded-For` the front believes: when the connection comes from one, the client is the right-most address in that header not in the list. That address is what the sign-in limit counts and the audit and principal record. A bad entry warns and is dropped |
+| `trusted_proxies` | `[IP or CIDR, …]` | `[]` | peers whose `X-Forwarded-For` the front believes: when the connection comes from one, the client is the right-most address in that header not in the list. That address is what the sign-in limit counts and the audit and principal record. List the proxies themselves, not the network they share with clients: a client whose own address is in the list is believed too, so it can name any address it likes. A bad entry warns and is dropped |
 | `tokens` | `{default_lifetime, max_lifetime}` | 90 days, 365 days | [named-token lifetimes](#token-lifetimes) |
 | `uv` | bool | `false` | `flyball run` only: run `flyball-runner` via `uv run --project <the rig file's directory>` |
 
