@@ -206,6 +206,14 @@ func Login(t Target, password string, opts LoginOptions) (LoggedIn, error) {
 	if cookie == nil {
 		return LoggedIn{}, fmt.Errorf("login: no session cookie in the response (this front has no password sign-in)")
 	}
+	// The token, not this session, is what gets kept (see the package
+	// doc): once the exchange below is done, whether it succeeds or
+	// fails, sign this helper session out rather than leaving it live in
+	// the front's memory (up to 12h idle / 7d absolute) with no way for
+	// the operator to see or revoke it -- it was never meant to
+	// outlive this call. Best-effort: a failure here does not change
+	// Login's own result, and the session still falls out on its own.
+	defer logoutSession(base, origin, cookie)
 
 	name := loginTokenName()
 	body := map[string]any{"name": name, "scopes": scopes}
@@ -248,6 +256,27 @@ func Login(t Target, password string, opts LoginOptions) (LoggedIn, error) {
 	path, _ := tokenFilePath(loginKey(t)) // "" only if os.UserConfigDir fails; SaveToken would already have.
 	return LoggedIn{ID: row.ID, Name: row.Name, Scopes: row.Scopes, Kind: row.Kind, Expires: row.Expires,
 		Elevated: elevated, Path: path}, nil
+}
+
+// logoutSession ends the helper session Login created to mint its token
+// (POST .../api/auth/logout), on every path once that session exists --
+// wave-1 review F2: it used to be left alive until its own idle/absolute
+// timeout, unaudited as ever having ended. Best-effort and silent: this
+// is cleanup after the real work (the token) is already saved or the
+// error already set, and a front that is briefly unreachable here should
+// not turn a successful login into a reported failure.
+func logoutSession(base, origin string, cookie *http.Cookie) {
+	req, err := http.NewRequest("POST", base+"/api/auth/logout", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Origin", origin)
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
 }
 
 // elevatedLifetime is the most an operate-or-above token flyball login
