@@ -86,9 +86,10 @@ describe("StopButton is honest about a 501 (A8's route not wired up yet)", () =>
     await waitFor(() => screen.getByTestId("stop-button"));
     fireEvent.click(screen.getByTestId("stop-button"));
     await waitFor(() => screen.getByRole("dialog"));
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-    await waitFor(() => expect(screen.getByTestId("stop-result").textContent).toMatch(/stopped/i));
-    expect(screen.getByTestId("stop-result").textContent).toMatch(/not wired up yet/i);
+    fireEvent.click(screen.getByRole("button", { name: "Software stop" }));
+    await waitFor(() => expect(screen.getByTestId("stop-result").textContent).toMatch(/software stop/i));
+    expect(screen.getByTestId("stop-result").textContent).toMatch(/nothing written/i);
+    expect(screen.getByTestId("stop-result").textContent).not.toMatch(/\bstopped\b|safe/i);
   });
 
   it("a 501 is shown as a failure, never as a successful stop", async () => {
@@ -96,7 +97,7 @@ describe("StopButton is honest about a 501 (A8's route not wired up yet)", () =>
     await waitFor(() => screen.getByTestId("stop-button"));
     fireEvent.click(screen.getByTestId("stop-button"));
     await waitFor(() => screen.getByRole("dialog"));
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Software stop" }));
     const result = await waitFor(() => screen.getByTestId("stop-result"));
     expect(result.textContent).toMatch(/not wired up yet/i);
     expect(result.className).not.toMatch(/success/i);
