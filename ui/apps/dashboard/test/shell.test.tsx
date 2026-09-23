@@ -104,6 +104,27 @@ describe("Options", () => {
   });
 });
 
+describe("Options › Access", () => {
+  it("an open rig says anyone may use it, and lists the verbs", async () => {
+    open("#/options/access");
+    expect((await screen.findByTestId("access-who")).textContent).toMatch(/anyone/i);
+    expect(screen.getByTestId("access-verb-operate")).toBeTruthy();
+    expect(screen.queryByTestId("access-sign-in")).toBeNull();
+  });
+
+  it("a locked rig's anonymous reader is offered Sign in, and told controls are greyed", async () => {
+    window.location.hash = "#/options/access";
+    const reader: AuthInfo = { ...who(["read"]), shape: "password", scheme: "anonymous", user: null, anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const t = transport(reader);
+    const onSignIn = vi.fn();
+    render(createElement(AuthProvider, { transport: t }, createElement(RigProvider, { transport: t }, createElement(App, { onSignIn }))));
+    (await screen.findByTestId("access-sign-in")).click();
+    expect(onSignIn).toHaveBeenCalled();
+    expect(screen.getByText(/greyed out/)).toBeTruthy();
+    expect(screen.getByTestId("access-who").textContent).toMatch(/not signed in/);
+  });
+});
+
 describe("the stop slot", () => {
   it("holds the stop button for an operator", async () => {
     open("#/events");

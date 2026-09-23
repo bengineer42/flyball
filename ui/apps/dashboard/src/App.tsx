@@ -343,7 +343,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                     {page === "readings" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
                     {page === "graph" && <Graph devices={all} {...charts} />}
                     {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
-                    {page === "options" && <Options tab={optionTab(name)} simulated={simulated} onTab={(t) => navigate("options", t)} />}
+                    {page === "options" && <Options tab={optionTab(name)} simulated={simulated} onTab={(t) => navigate("options", t)} onSignIn={onSignIn} />}
                     {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
                     {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
                     {page === "events" && (

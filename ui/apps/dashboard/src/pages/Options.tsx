@@ -2,11 +2,11 @@
  * Options (D-053): what the sidebar used to reach and the app bar has no room for, behind the gear.
  * One tab per concern, the tab in the route (`#/options/<tab>`), so each is linkable: this rig's
  * dashboards (order, read-only, home), the rig file (devices, links, controllers, the running
- * document), the runner (versions, save, shutdown/restart, a model's connection), appearance, and
- * every page not reached from the bar.
+ * document), the runner (versions, save, shutdown/restart, a model's connection), access (who
+ * this browser is here and what it may do), appearance, and every page not reached from the bar.
  */
 import { lazy, Suspense, useState } from "react";
-import { Alert, Box, Card, CardActionArea, CardContent, FormControlLabel, IconButton, Link, Radio, RadioGroup, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardActionArea, CardContent, Chip, FormControlLabel, IconButton, Link, Radio, RadioGroup, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Tooltip, Typography } from "@mui/material";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import HomeIcon from "@mui/icons-material/Home";
@@ -14,6 +14,7 @@ import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import { invalidateDashboards, useDashboards, useRig } from "@flyball/react";
 import type { DashboardRow } from "@flyball/client";
 import { useAuth } from "../auth.js";
+import { PasskeyManager } from "../PasskeyManager.js";
 import { readHome, writeHome } from "../dashboard/home.js";
 import { reorder, saveOrder } from "../dashboard/order.js";
 import { PAGE_ICONS } from "../icons.js";
@@ -23,7 +24,7 @@ import { OPTION_TABS, type OptionTab } from "./optionTabs.js";
 
 const RigPage = lazy(() => import("./Rig.js").then((m) => ({ default: m.RigPage })));
 
-export function Options({ tab, simulated, onTab }: { tab: OptionTab; simulated: boolean; onTab(tab: OptionTab): void }) {
+export function Options({ tab, simulated, onTab, onSignIn }: { tab: OptionTab; simulated: boolean; onTab(tab: OptionTab): void; onSignIn(): void }) {
   return (
     <Box>
       <Tabs value={tab} onChange={(_, v: OptionTab) => onTab(v)} aria-label="options" sx={{ mb: 2.5, borderBottom: 1, borderColor: "divider" }} data-testid="options-tabs">
@@ -37,6 +38,7 @@ export function Options({ tab, simulated, onTab }: { tab: OptionTab; simulated: 
           <RigPage part={tab === "rig" ? "file" : "runner"} />
         </Suspense>
       )}
+      {tab === "access" && <Access onSignIn={onSignIn} />}
       {tab === "appearance" && <Appearance />}
       {tab === "pages" && <Pages simulated={simulated} />}
     </Box>
@@ -133,6 +135,69 @@ function DashboardList() {
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
         Order and read-only are saved on each dashboard, for everyone. Home is this browser's. Rename and delete a dashboard from its own page's ⋯ menu.
       </Typography>
+    </Box>
+  );
+}
+
+/** What each verb lets this browser do; an unknown one is shown by name. */
+const VERB_NOTES: Record<string, string> = {
+  read: "see the rig: values, events, sessions, programs, dashboards",
+  operate: "drive it: commands, setpoints, controllers, programs, recording, the software stop, edits to the rig and dashboards",
+};
+
+/**
+ * Who this browser is on this rig and what it may do, and the way in or out. Signing in itself is
+ * the login page's (`Login.tsx`); this tab only opens it. Named tokens are managed at the front
+ * (`flyball token`), not here yet.
+ */
+function Access({ onSignIn }: { onSignIn(): void }) {
+  const { info, open, signedIn, canOperate, logout } = useAuth();
+  const [passkeys, setPasskeys] = useState(false);
+  if (!info) return <Typography color="text.secondary">loading…</Typography>;
+  const who = info.user ? `${info.user.name} (${info.user.kind})` : "nobody: not signed in";
+  return (
+    <Box sx={{ maxWidth: 640, display: "grid", gap: 2 }} data-testid="options-access">
+      <Box>
+        <Typography variant="h2" sx={{ mb: 1 }}>
+          This browser
+        </Typography>
+        <Typography data-testid="access-who">{open ? "Anyone who can reach this rig may use it: it asks nobody to sign in." : who}</Typography>
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 1 }}>
+          {info.verbs.length === 0 && <Chip size="small" label="no access" color="warning" variant="outlined" />}
+          {info.verbs.map((v) => (
+            <Tooltip key={v} title={VERB_NOTES[v] ?? v}>
+              <Chip size="small" label={v} variant="outlined" data-testid={`access-verb-${v}`} />
+            </Tooltip>
+          ))}
+        </Box>
+        {!canOperate && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Controls that change the rig show greyed out.
+          </Typography>
+        )}
+      </Box>
+      {!open && (
+        <Box sx={{ display: "flex", gap: 1 }}>
+          {signedIn ? (
+            <Button variant="outlined" onClick={() => void logout()} data-testid="access-sign-out">
+              Sign out
+            </Button>
+          ) : (
+            <Button variant="contained" onClick={onSignIn} data-testid="access-sign-in">
+              Sign in
+            </Button>
+          )}
+          {signedIn && info.login.passkey && typeof window !== "undefined" && "PublicKeyCredential" in window && (
+            <Button variant="outlined" onClick={() => setPasskeys(true)}>
+              Manage passkeys
+            </Button>
+          )}
+        </Box>
+      )}
+      <Typography variant="body2" color="text.secondary">
+        {!open && <>A caller with no credential gets {info.anonymous === "read" ? "read" : "nothing"} here. </>}Named tokens for scripts and models are made with <code>flyball token</code> at the rig's front.
+      </Typography>
+      <PasskeyManager open={passkeys} onClose={() => setPasskeys(false)} />
     </Box>
   );
 }

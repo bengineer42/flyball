@@ -161,7 +161,9 @@ a banner that cannot be dismissed. Not on a rig a model can drive.
 ## Signing in, sessions and tokens
 
 **People**, at a `password` front, sign in at the dashboard's login page
-with the admin password. The front keeps the session in memory and gives
+with the admin password. **Options › Access** (the gear in the app bar,
+`#/options/access`) says who this browser is on the rig and which verbs it
+holds, and has the Sign in / Sign out button. The front keeps the session in memory and gives
 the browser an `HttpOnly` cookie (`flyball-<port>`, or `__Host-flyball`
 under HTTPS); the page keeps no secret. A session ends after 12 hours
 without a request from it (`session:` changes that), 7 days at most, at

@@ -38,7 +38,8 @@ There is no sidebar: the app bar at the top of every page is how you move.
 - **Software stop** keeps its place whether or not you may operate, so
   signing in does not move anything.
 - **The gear opens Options** (`#/options`): **Dashboards** (each saved one's
-  place, read-only switch and home), the **Rig file** (the running
+  place, read-only switch and home), **Access** (who you are here, what you
+  may do, sign in or out), the **Rig file** (the running
   document, versions, save, the runner; the old `#/rig` address lands here),
   **Appearance** (the theme), and **Pages**, a link to every page the bar
   does not reach directly (Readings, Controllers, Graph).
@@ -58,7 +59,7 @@ opens Options › Rig file.
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
-| **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): devices, links and controllers, the running rig as a file would show it and what has changed since the runner started. **Runner** (`#/options/runner`): its version history (the current one marked) and restore, saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
+| **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): devices, links and controllers, the running rig as a file would show it and what has changed since the runner started. **Runner** (`#/options/runner`): its version history (the current one marked) and restore, saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Access** (`#/options/access`): who this browser is, its verbs, Sign in / Sign out. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
 
 ### The playback bar
 
