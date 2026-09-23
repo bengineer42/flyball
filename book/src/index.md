@@ -28,10 +28,11 @@ served. Start with a simulated one, then swap the links for real ones.
 1. Install: `cd engine && uv sync --all-extras`; the UI is
    `cd ui && npm install && npm run build` (or `npm run dev` while working
    on a rig -- see [The UI](1-running/ui/index.md)); the `flyball` CLI is
-   `cd daemon && go build ./cmd/flyball` (see
+   `cd daemon && ./build-with-ui.sh` (see
    [Installing](1-running/runner/index.md#installing)).
-2. [Starting a rig](1-running/runner/index.md): `flyball-runner rig.yaml`,
-   what it serves, the door, a sub-path, `--record`.
+2. [Starting a rig](1-running/runner/index.md): `flyball run rig.yaml`, the
+   dashboard at `http://127.0.0.1:8000/` with no sign-in; what it serves;
+   [who may reach it](1-running/runner/access.md); `--record`.
 3. [The config file](2-config/index.md): the annotated example, then
    [links](2-config/links.md), [devices](2-config/devices/index.md) and
    [controllers](2-config/controllers.md), each key on its own page.

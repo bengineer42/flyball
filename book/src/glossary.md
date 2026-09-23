@@ -12,6 +12,11 @@ timed hold).
 **address** — a signal's or node's path: `device[.namespace…].signal`; no
 dots inside a segment.
 
+**adoption** — a starting `flyballd` taking over a runner a previous
+`flyballd` left running: it finds the runner in its front-dir, checks it
+with the signed handshake and routes to it again, with no restart
+(D-037).
+
 **bound input** — a signal on another device this one follows (`bound:` in
 the rig file, an `Input` descriptor); when it lands the rig commits this
 device, which reads it itself (`self.<input>.value`) in `commit` — there
@@ -54,6 +59,15 @@ it cannot say.
 **feedforward** — what maps a controller's setpoint (source unit) to a
 demand (target unit); the law's correction adds to it.
 
+**front** — the Go server in front of every runner that `flyball run`
+and `flyballd` start: it serves the dashboard, decides who a caller is
+(its shape), checks `Host` and `Origin`, terminates TLS, and passes
+`/api`, `/ws` and `/mcp` to the runner with a signed principal.
+
+**front-dir** — the private directory (mode 0700) a front makes for each
+runner it starts: the principal's key, the runner's audience and
+endpoint, its socket and its `runner.lock`.
+
 **handover** — entering regulation, or changing a tuning: choosing what the
 correction should be at the instant of the switch (a `Transfer`).
 
@@ -85,6 +99,10 @@ derived value, a mode (`Role.OUTPUT`, `RP`).
 
 **plant** — the thing being controlled, as a model: gain, time constant,
 dead time (simulation only).
+
+**principal** — who a request is for, as the front signs it for one
+runner: the caller's id (`sub`), session, verbs on that rig (`scp`), kind
+and audience, valid for 60 s, in the `X-Flyball-Principal` header.
 
 **program** — an ordered list of commands. Data; no cursor.
 
@@ -119,8 +137,17 @@ the config and tuning in force.
 **setting** — a signal re-set by a command while a device runs, shown but
 not driven by a controller (`Role.SETTING`, `RP`).
 
+**shape** — which door a front has, set by `auth:`: `local` (no sign-in,
+loopback only), `password` (an admin password and named tokens) or
+`proxy` (an identity proxy in front).
+
 **signal** — one named value of one quantity on one device; has an address,
 a role and an access set.
+
+**software stop** — interrupting any running program and putting every
+controller in manual, for everyone at once (`POST /api/rig/stop`, `flyball
+stop`, the **Software stop** button, `SIGUSR1`). A control function, not
+an emergency stop; in this release it writes nothing to any device.
 
 **structure tier** — the rig-level objects (`Node`, `Signal`, `Device`,
 `Rig`, `Controller`): mutable, identity-hashed, made once at startup;
@@ -140,6 +167,11 @@ signal has at most one).
 **values tier** — the per-instant objects (`Reading`, `Sample`, `Demand`,
 `WriteState`, `Event`): frozen; recorded, streamed, compared; never
 changed after the fact.
+
+**verb** — what a caller may do on a rig, and what each route needs:
+`read` or `operate` for now (the vocabulary is pending D-034). A
+**scope** grants a verb on one rig (`operate:furnace`) or every rig
+(`operate`).
 
 **wait** — a signal fired once, and says how it ended: fired, timed out,
 interrupted.

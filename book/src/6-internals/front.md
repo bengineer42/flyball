@@ -1,0 +1,162 @@
+# The front and the runner
+
+The front (`daemon/internal/front`, Go) is the one component that decides
+who a caller is; the runner (Python) decides what each route needs. One
+package serves both `flyball run` and `flyballd`. What a site configures
+is in [Access](../1-running/runner/access.md); this page is how the two
+halves talk.
+
+```
+browser / CLI / MCP ── TLS or loopback ──▶ front                 ── unix socket ──▶ runner
+proxy (Authelia, …) ────────────────────▶ · who: token, session,    in a 0700       · verifies the principal
+                                            proxy, anonymous         front-dir       · the verb table: route → verb
+                                          · Host, Origin, TLS                        · the action audit
+                                          · mints the principal
+                                          · serves the dashboard
+```
+
+## The front-dir
+
+The front makes one directory per runner, mode 0700 and owned by its own
+user, checked with `lstat` (not a symlink) before every spawn:
+
+- under systemd with `RuntimeDirectory=flyball`, `/run/flyball/<name>/`;
+- otherwise `$XDG_RUNTIME_DIR/flyball/<front-id>/<name>/`, the front-id
+  being the first 8 hex digits of the SHA-256 of the absolute path of the
+  front's config (the rig file for `flyball run`, `flyballd.yaml` for the
+  daemon); `flyball run` names its one runner `run`;
+- with neither, or when the socket path would pass 100 bytes (`sun_path`),
+  a fresh temporary directory -- which a restarted front cannot find, so
+  there is no [adoption](#adoption) from one.
+
+| file | written by | mode | holds |
+| --- | --- | --- | --- |
+| `key` | the front, fresh at **every** spawn | 0600 | 64 lower-case hex characters (32 bytes) and a newline |
+| `aud` | the front | 0600 | the audience: the manifest name under `flyballd`, `run-<8 hex>` under `flyball run` |
+| `endpoint` | the front | 0600 | `unix:<front-dir>/sock`, or `tcp:127.0.0.1:<port>` |
+| `sock` | the runner (uvicorn) | 0666, protected by the directory | |
+| `runner.lock` | the runner, `flock`ed for its life | 0600 | `pid <n> rig <name>` |
+
+The front passes the directory in argv, `flyball-runner --front-dir DIR`;
+the key is never in argv or the environment. A runner given a front-dir
+that is unsafe, or whose `key`, `aud` or `endpoint` is missing or
+malformed, exits **4** before it takes the rig's lock or touches hardware;
+the front rewrites the directory and starts it once more. A second runner
+for the same store exits **3**: the rig's own `<store>.lock` is held. The
+front never rewrites `key` while `runner.lock` is held.
+
+TCP is used only where a unix socket cannot be: on Windows, and for a
+`flyballd` manifest that says `network: tcp` (a runner in another network
+namespace). The same signed principal protects both.
+
+## Readiness
+
+A runner counts as running only after two probes over its endpoint: an
+unsigned `GET <root>/api/auth/front` must get `401`, which shows it enforces
+the principal, and a signed one must get `200`
+`{"protocol": 1, "aud", "pid", "flyball"}`. A socket that is not there yet
+counts as starting (the front answers `503` with `Retry-After: 1`, and the
+dashboard shows *starting…*). A runner that answers otherwise -- one too old
+to know `--front-dir` exits 2 on the unknown flag -- is never proxied to:
+the front answers `502` "too old for this front".
+
+## The principal
+
+One header, `X-Flyball-Principal`, minted by the front for each request,
+HMAC-SHA256 with the runner's `key`:
+
+```
+token   = "v1." B64(payload) "." B64(HMAC-SHA256(key, "v1." B64(payload)))
+B64     = base64url, no padding
+payload = JSON, keys in this order, no whitespace:
+          sub, nm?, sid, scp, kind, aud, cip, sch, via?, iat, exp     (? omitted when empty)
+```
+
+| claim | |
+| --- | --- |
+| `sub` | who: `local:console` (the `local` shape), `local:admin` (the password), `token:<name>`, `proxy:<issuer>#<subject>`, `anon:`, `front:probe` |
+| `nm` | a display name, for the audit and the UI; never authorises |
+| `sid` | a random id per session, token or anonymous request; nothing derived from a cookie |
+| `scp` | the caller's verbs **on this rig**, expanded, sorted, unique |
+| `kind` | `human`, `service` or `agent` |
+| `aud` | the runner's `aud`, so a principal for one rig is refused by another |
+| `cip`, `sch` | the client's address as the front saw it (`""` if unknown), and `http` or `https` |
+| `via` | `mcp` when the runner re-minted it for an MCP tool's call |
+| `iat`, `exp` | Unix seconds; 60 s apart |
+
+The runner checks, in order, each failure with a fixed code sent back as
+`X-Flyball-Principal-Error`: `format` (three parts, at most 4096 bytes,
+exactly one such header and no other `x-flyball-*` header in any
+spelling), `version`, `mac` (over the bytes received, constant-time),
+`json`, `claims`, `aud`, `lifetime` (`0 < exp − iat ≤ 120`), `expired`
+(`now > exp + 5`), `future` (`iat > now + 5`). Unknown claims are ignored,
+so a front and a runner of different releases can meet. Go and Python
+share one set of golden vectors,
+`daemon/internal/principal/testdata/principal-v1.json`.
+
+A refused principal is the front's and the runner's disagreement, not the
+caller's fault: the front logs the code and answers `502` (a websocket is
+closed with 1014), and does not sign anyone out.
+
+## What the front passes on
+
+The front builds the runner's request headers from an allow-list: content
+negotiation and caching headers, `Range`, `User-Agent`, `Last-Event-Id`,
+the MCP session headers, trace context, and the websocket handshake. A
+header is copied only in its canonical spelling; an underscore or other
+variant is dropped. `Authorization`, `Cookie`, `Origin`, `Referer`, every
+`X-Forwarded-*` and `Forwarded`, and every `x-flyball-*` never reach a
+runner. The front sets `Host: localhost`, the principal and `X-Request-Id`.
+From the runner's answer it drops `Set-Cookie` and adds
+`X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`.
+Only `<root>/api`, `<root>/ws` and `<root>/mcp` are proxied; the front
+answers `<root>/api/auth*` itself and serves the dashboard for everything
+else, so a fronted runner's `/docs` is not reachable through it.
+
+A `GET` or a stream is cut when the credential behind it ends (sign-out,
+revocation, expiry), within a second; a write already on its way to
+hardware is not.
+
+## The verb table
+
+`flyball.interfaces.server.verbs` has one row per route and method: the
+verb the request needs. A route with no row is refused for everyone
+(`403`, `needed: null`), and a test walks the app's routes and fails on any
+without one. The front makes no decision by path: it puts the caller's
+verbs in the principal, and the runner compares.
+
+The vocabulary is a placeholder until D-034 is decided: two verbs, `read`
+(every `GET` and stream, `POST /api/rig/check`, `POST
+/api/programs/check`) and `operate` (everything else, `POST /api/rig/stop`
+included). `/mcp/read` needs `read`; `/mcp/author` and `/mcp/operate` need
+`operate`. The same list is `daemon/internal/grants/vocabulary.json` on
+the Go side, with the roles `all` and `viewer` and the management scope
+`manage`; a test keeps the two equal. D-034 changes data here, not code.
+
+A scope is `<verb>:<rig>`, `<verb>:*`, a bare verb (every rig), or
+`manage`. The front expands a caller's scopes for the rig a path routes
+to; a token's are also cut to what its issuer holds now.
+
+## MCP's own calls
+
+An MCP tool calls the runner's own HTTP API. Each call carries a principal
+the runner mints for that one request, with its own key -- the front-dir's,
+or an in-memory one on a bare runner: the caller's `sub`, `sid`, `kind`,
+`cip` and `sch`, `scp` = the caller's verbs ∩ the mode's, and `via: mcp`.
+Listing tools and refreshing the schema use a `read` principal of the
+runner's own (`runner:mcp`). No standing credential exists for it.
+`check_driver` and `search_drivers`, which run a file named by the caller
+on the host, are on the stdio server (`flyball-mcp`) only.
+
+## Adoption
+
+`flyballd` does not stop its runners when it stops, however it stops
+(D-037). A starting `flyballd` finds each rig's front-dir; if a runner
+holds its `runner.lock`, it reads `key`, `aud` and `endpoint`, checks the
+runner with the signed handshake, and routes to it again -- same process,
+same key, no interruption. `GET /api/runners` then says `adopted: true`
+and the `pid`. A runner that does not answer within 60 s, or answers for
+another audience, is left alone and the rig is `busy`, with the `reason`.
+An adopted runner is not `flyballd`'s child, so its exit status cannot be
+known: when its pid goes, the manifest's `restart` policy treats it as a
+crash. `flyball run` has no adoption: its runner stops with it.

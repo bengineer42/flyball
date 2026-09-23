@@ -1,19 +1,39 @@
 # Starting a rig
 
-The runner is a rig attached to the HTTP server, running in the foreground.
 A rig that a [config file](../../2-config/index.md) can describe needs no
-Python at all:
+Python at all. The usual way to start one is `flyball run`, which starts
+the rig's runner behind a front that serves the dashboard:
+
+```
+flyball run rig.yaml                  # the dashboard at http://127.0.0.1:8000/, no sign-in
+```
+
+That is the `local` shape: no password, no certificate, this machine only.
+To reach it from another machine, give the front a shape with a sign-in
+(`runner.front` in the rig file, [Access](access.md#shapes-who-gets-in)).
+[With the dashboard: `flyball run`](#with-the-dashboard-flyball-run) has
+the rest.
+
+The runner on its own, `flyball-runner`, is a rig attached to the HTTP
+server, running in the foreground, with a door of its own:
 
 ```
 flyball-runner rig.yaml                          # loopback, port 8000
-FLYBALL_PASSWORD=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
+FLYBALL_TOKEN=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
 ```
 
-Reachable needs a password or a token: an open runner (neither) asked for
-any other address still runs the rig but serves on `127.0.0.1` only, with a
-warning, and answers only to the names `localhost`, `127.0.0.1` and
-`[::1]`, unless that run says `--insecure-open` (or
-`FLYBALL_INSECURE_OPEN=1`) -- [the door](access.md#the-door-a-password-a-token-or-open).
+Reachable needs a token: an open runner (none) asked for any other address
+still runs the rig but serves on `127.0.0.1` only, with a warning, and
+answers only to the names `localhost`, `127.0.0.1` and `[::1]`, unless that
+run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`) --
+[the bare runner](access.md#the-bare-runner).
+
+!!! warning "flyball is not a safety system"
+    Its stop is a control function, not an emergency stop in the sense of
+    IEC 60204-1 or ISO 13850. Put the protection outside flyball: thermal
+    cut-outs, a hardware emergency stop that removes power, and wiring such
+    that de-energised is safe. [Unattended runs](#unattended-runs) says what
+    to check before leaving a rig alone.
 
 The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2, and so
@@ -22,8 +42,8 @@ config, a device that is not there -- so a supervisor can tell a config to
 fix from a crash. With
 `recording: true` in the file, or `--record`, a session is opened in
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
-shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd
-stop it -- the programmer is interrupted, the session closed and the polled
+shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyball run`, `flyball
+runners stop` and systemd stop it -- the programmer is interrupted, the session closed and the polled
 devices stopped, and the runner exits 0. A read stuck in its driver is waited
 on for 2 s at most (over all devices together), then abandoned with a
 warning naming the device, so a hung read does not hold up the shutdown.
@@ -33,40 +53,71 @@ store, the runner takes an exclusive lock on `<store>.lock` beside the store
 (`flock`, so it goes with the process however that ends). A second runner
 for the same rig -- the same store, which by default means the same rig
 file -- exits 3 at once, naming the process that holds it, and leaves the
-live one's session and hardware alone.
+live one's session and hardware alone. Started by a front
+(`--front-dir`), it also holds `runner.lock` in its front-dir, and exits 4,
+before touching anything, if that directory is unsafe or incomplete.
 
 Every log line -- the runner's own, uvicorn's and its access log -- starts
 with the local time and its offset (`2026-09-23T10:35:20+0100 INFO
 flyball.runner: …`), so a log `flyballd` or systemd keeps can be matched
 against readings and events. `--log-level` sets how much.
 
-The rest of this section: [access and safety](access.md) -- the door, a
-sub-path behind a proxy, stopping and restarting from the API -- and
+The rest of this section: [access](access.md) -- the front and its
+shapes, sign-in, tokens, the bare runner, the software stop, a sub-path,
+stopping and restarting from the API -- and
 [building a rig while it runs](building.md) -- the composition API,
 versions, saving, `--resume`. Every setting the runner takes, as a file
 rather than flags: [The runner section](../../2-config/runner.md).
 
 ## With the dashboard: `flyball run`
 
-`flyball-runner` on its own is API and websocket only -- no dashboard. The
-Go [CLI](../cli/index.md)'s `flyball run RIG-FILE --serve-ui ADDR` starts
-the runner and reverse-proxies the built dashboard, `/api`, `/ws` and
-`/mcp` on `ADDR`, so one command is enough to get a rig with a UI:
+`flyball run RIG-FILE` starts the rig's **front** -- the Go server that
+serves the dashboard, signs people in and passes `/api`, `/ws` and `/mcp`
+on -- and runs `flyball-runner` behind it. The runner listens only on a
+socket the front made for it and serves only requests the front signed,
+so the front's door is the only one. `flyball-runner` flags after the rig
+file go to the runner.
 
 ```
-flyball run rig.yaml --serve-ui :8000
+flyball run rig.yaml                        # 127.0.0.1:8000, the local shape
+flyball run rig.yaml --listen 0.0.0.0:8000  # needs a shape with a sign-in in runner.front
 ```
 
 `--uv` runs `flyball-runner` via `uv run --project <rig file's directory>`
 instead of a bare exec, for a rig whose application (`examples/humidity`,
 `examples/furnace`) manages its own venv rather than putting
-`flyball-runner` on `$PATH`. Both flags, and `--port` (where the proxy
-expects the runner to be listening), have a rig-file equivalent under
-`runner.run` -- so a deployment that always wants the same invocation (a
-Pi that runs the same command at every boot) can set it once in the file
-and drop the flags; a flag given on the command line always wins. Full
-flag and key reference: [`flyball run`](../../7-reference/cli.md#local-no-runner-or-daemon-involved),
-[`runner.run`](../../2-config/runner.md#run-flyball-runs-own-flags-in-the-file).
+`flyball-runner` on `$PATH`. `--listen` and `--uv` have rig-file
+equivalents under
+[`runner.front`](../../2-config/runner.md#front-how-flyball-run-serves-the-rig),
+so a deployment that always wants the same invocation -- a Pi that runs the
+same command at every boot -- sets them once in the file; a flag given on
+the command line always wins. A runner that crashes is started again; the
+run ends with the runner. Closing the terminal does not end it: the front
+and the runner keep running, their output also goes to a log file in the
+state directory, and a notice at start says so. Ctrl-C, SIGTERM or
+`flyball stop` stop it. Every flag:
+[`flyball run`](../../7-reference/cli.md#flyball-run).
+
+## Unattended runs
+
+What happens to the outputs when something goes wrong is decided by the
+hardware and its wiring, not by flyball:
+
+- **Closing the terminal does not stop the rig.** `flyball run` keeps its
+  rig running when the terminal or the SSH session goes; Ctrl-C, SIGTERM or
+  `flyball stop` stop it.
+- **A crash, `kill -9`, a power loss or a hung machine leaves each output
+  at its last value.** Nothing runs to change it: a Raspberry Pi's sysfs
+  PWM, for example, may keep its duty cycle with nothing left to drive it.
+- **A closed loop with a failed sensor can drive its actuator to its
+  limit.** Set output limits (`limits` on the writable signal) and decide
+  how faults are handled before any unattended run.
+- **Before the first overnight run**, on the real hardware, try a
+  [software stop](access.md#stopping-the-rig), a killed runner (`kill -9`)
+  and a power cut, and write down where each output ends up.
+- **Run an unattended rig under `flyballd` and systemd**
+  ([its unit](../../7-reference/cli.md#what-stopping-flyballd-does)), not in
+  an SSH session.
 
 ## Installing
 
@@ -74,19 +125,26 @@ flag and key reference: [`flyball run`](../../7-reference/cli.md#local-no-runner
 git clone git@github.com:bengineer42/flyball.git && cd flyball
 cd engine && uv sync --all-extras          # flyball's runner, every driver extra, the dev tools
 cd ../ui && npm install && npm run build       # the dashboard, to ui/apps/dashboard/dist
-cd ../daemon && go build ./cmd/flyball         # the flyball CLI, a standalone Go binary
+cd ../daemon && ./build-with-ui.sh            # the flyball CLI, a standalone Go binary, dashboard embedded
 ```
 
 `uv run flyball-runner …` from `engine/` starts a rig. There's no packaged
-install or release binary for the CLI yet -- `daemon/cmd/flyball`'s build
-above produces a `flyball` binary, put it on `PATH` or run it from
-`daemon/`. A rig on a Raspberry Pi also wants `extensions/linux/` (`flyball-linux`); an
+install or release binary for the CLI yet -- the build above produces
+`daemon/flyball`; put it on `PATH` or run it from `daemon/`. A rig on a Raspberry Pi also wants `extensions/linux/` (`flyball-linux`); an
 application such as `examples/humidity` has its own `uv sync` and brings
 its drivers with it. Extras per integration: [Integrations](../../5-integrations/index.md).
 
-The `flyballd` daemon supervises several runners behind one address: the
+The `flyballd` daemon supervises several runners behind one front: the
 same `daemon/` build produces it, and [the CLI reference](../../7-reference/cli.md#the-daemon)
-says how it is configured and driven.
+says how it is configured and driven. Its runners outlive it: stopping or
+restarting `flyballd` leaves every rig running, and the next `flyballd`
+takes them over ([what stopping `flyballd` does](../../7-reference/cli.md#what-stopping-flyballd-does)).
+
+A plain `go build` embeds a placeholder instead of the dashboard.
+`./build-with-ui.sh` (in `daemon/`) builds the UI, copies it into the Go
+tree and builds `flyball` with it; a `go build ./cmd/flyballd` after that
+embeds it too. A front built without it answers every page with one saying
+so, and the API still works.
 
 ## What it exposes
 
@@ -103,13 +161,15 @@ says how it is configured and driven.
 | `/api/drivers`, `/api/drivers/reload`, `/api/probe`, `/api/links/{name}/query` | what the runner can build, load the drivers directory again, what the board has, one raw exchange on a link |
 | `/mcp/read`, `/mcp/author`, `/mcp/operate` | the rig for a model: [the MCP server](../../4-server/mcp.md) |
 | `/api/waits` | what a program is waiting on; fire or interrupt one |
+| `/api/rig/stop` | the [software stop](access.md#stopping-the-rig): the program interrupted, every controller to manual |
+| `/api/auth` | who the caller is and what the door takes (a bare runner's; behind a front, the front answers it) |
 | `/api/programs` | check a program file, run one, see what is running |
 | `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.toml`/`*.yaml`/`*.json` beside the rig file are imported on start |
 | `/api/events`, `/ws/events` | what has happened: a step failed, a device went offline |
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
 | `/ws/controllers`, `/ws/waits` | a snapshot on connect, then what changed |
-| `/docs` | OpenAPI in Swagger UI, served by the runner itself, so it works offline (`/openapi.json` is the document) |
+| `/docs` | OpenAPI in Swagger UI, served by the runner itself, so it works offline (`/openapi.json` is the document); not passed on by a front |
 
 Full list: [HTTP and websocket API](../../4-server/api.md).
 
@@ -190,7 +250,9 @@ The keys, their spellings and defaults: [The runner section](../../2-config/runn
 ## Supervision
 
 Nothing forks or writes a PID file. Run it under systemd `Type=simple` (or
-any supervisor that restarts a foreground process) and let `--host`/`--port`
-(or the `runner:` section) decide where it listens. On shutdown the server stops the
-rig's polled devices; anything else — putting a controller in manual,
-closing a session — is the application's to do.
+any supervisor that restarts a foreground process): `flyball run` for one
+rig, `flyballd` for several ([its example unit](../../7-reference/cli.md#what-stopping-flyballd-does)).
+A bare runner decides where it listens with `--host`/`--port` (or the
+`runner:` section). On shutdown the server stops the rig's polled devices;
+anything else — putting a controller in manual, closing a session — is the
+application's to do.
