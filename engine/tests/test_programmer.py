@@ -152,6 +152,62 @@ def test_interrupt_stops_at_the_wait_and_start_can_replace_a_running_program(rig
     assert programmer.running is False
 
 
+def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, fresh):
+    """An interrupt between `_work`'s `_abort` check and `_apply` publishing the activity.
+
+    It used to cancel the previous (settled) activity, then join a worker waiting
+    forever on the new one.
+    """
+    import threading
+
+    from flyball.sequencing import Activity
+
+    class Watched(Programmer):
+        """Says when `interrupt` has set `_abort`, so the test needs no sleeps."""
+
+        aborted = threading.Event()
+
+        @property
+        def _abort(self) -> bool:  # type: ignore[override]
+            return self.__dict__.get("_abort_value", False)
+
+        @_abort.setter
+        def _abort(self, value: bool) -> None:
+            self.__dict__["_abort_value"] = value
+            if value:
+                self.aborted.set()
+
+    programmer = Watched(rig)
+    programmer.aborted = threading.Event()
+    entered = threading.Event()
+    returned: list[Activity] = []
+
+    @dataclass(frozen=True)
+    class Slow(Command, tag=fresh("slow")):
+        """Applies only once the interrupt has been asked for, then returns a wait."""
+
+        def run(self, rig, operator=None):
+            entered.set()
+            assert programmer.aborted.wait(5), "interrupt never set _abort"
+            returned.append(activity := Activity())  # no timeout: waits until settled
+            return activity
+
+    programmer.start(Program([Wait("go", name="go"), Slow()]))
+    rig.triggers.fire("go")
+    assert entered.wait(5), "the worker never reached the second step"
+    interrupter = threading.Thread(target=programmer.interrupt, daemon=True)
+    interrupter.start()
+    try:
+        interrupter.join(5)
+        assert not interrupter.is_alive(), "interrupt hung joining a worker waiting on its step"
+        assert returned[0].interrupted and programmer.running is False
+        assert [e.kind for e in rig.recent][-1] == "interrupted"
+    finally:  # unwind a hung worker so the failure does not leak a thread
+        for activity in returned:
+            activity.interrupt()
+        interrupter.join(5)
+
+
 def test_a_timed_out_wait_ends_the_program(rig, note):
     from flyball.foundation.time import Duration
 

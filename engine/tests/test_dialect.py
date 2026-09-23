@@ -111,6 +111,7 @@ class TestNormalise:
             ({"SETPOINT": {"command": "x"}}, "'command' is not an argument"),
             ("setpoint", "expected a mapping"),
             ({"RAMP": {"to": 60, "pace": 600, "minutes": 1}}, "not both"),
+            ({"TWICE": {"a": 1, "minutes": 2}}, "ambiguous"),
         ],
     )
     def test_refusals(self, dialect, commands, bad, message):

@@ -8,7 +8,7 @@ is a better estimate than the transient gives.
 from __future__ import annotations
 
 from collections import deque
-from math import exp
+from math import exp, isfinite
 from statistics import fmean
 
 from flyball.foundation.typing import Positive
@@ -53,7 +53,9 @@ class SteadyState:
     def push(self, time: float, value: float) -> bool:
         """Add a reading; return whether the last `window` seconds sit within `band`.
 
-        False until the window has filled.
+        False until the window has filled, and while a non-finite reading is
+        in the window: a NaN compares false both ways, so `max`/`min` would
+        skip it and a dropout would look steady.
         """
         self._samples.append(Sample(time, value))
         # One sample older than the window is kept, so the span the test runs
@@ -63,6 +65,8 @@ class SteadyState:
         if time - self._samples[0].time < self.window:
             return False
         values = [sample.value for sample in self._samples]
+        if not all(isfinite(value) for value in values):
+            return False
         return max(values) - min(values) <= self.band
 
 
