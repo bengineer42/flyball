@@ -109,13 +109,15 @@ end-to-end test cannot reach it.
   respawn) and `flyball stop --all` / `flyball runners stop --all` are to be added once that lands.
 - **A second uid.** Requirement 5's "another uid cannot connect" needs a second account.
 
-## Known failures
+## Fixed since D1
 
-Two checks fail on purpose: each proves a defect that is not this package's to fix.
+Two checks that D1 found failing are now green:
 
-- `TestRunPassword/the_cookie_is_named_after_the_port_the_front_serves`: with `--listen 127.0.0.1:0`
-  the session cookie is `flyball-0`, not `flyball-<bound port>`, so two such fronts on one host share
-  a cookie name. `cookieName` (`internal/front/auth.go`) reads the configured listen port.
-- `auth-e2e.mjs` phase `starting`: a page opened before the runner answers shows "Cannot reach the
-  rig: 503 … The rig's runner is starting" and stays there until reloaded
-  (`ui/apps/dashboard/src/App.tsx`, the `devices.error` branch).
+- `TestRunPassword/the_cookie_is_named_after_the_port_the_front_serves`: `(*Front).Bound`
+  recomputes `cookieName` from the bound TCP port (`internal/front/auth.go`), called from
+  `frontwire.Serve` once `front.Listen` knows it, so `--listen 127.0.0.1:0` no longer names
+  every such front's cookie `flyball-0`.
+- `auth-e2e.mjs` phase `starting`: a page opened before the runner answers now shows a
+  non-alarming starting state and retries `GET /api/devices` on a backoff
+  (`ui/apps/dashboard/src/useStartingRetry.ts`) instead of a permanent "Cannot reach the rig"
+  alert.
