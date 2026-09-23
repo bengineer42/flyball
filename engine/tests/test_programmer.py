@@ -143,15 +143,36 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
     assert state.failed is True and "no_such_controller" in state.error
 
 
-def test_interrupt_stops_at_the_prompt_and_start_can_replace_a_running_program(rig, note):
+def test_cancel_stops_at_the_prompt_and_start_can_replace_a_running_program(rig, note):
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Prompt("one", name="one"), Note("never")]))
+    programmer.start(Program([Prompt("one", name="one"), Note("never")], name="first"))
     with pytest.raises(ProgramAlreadyRunningError):
         programmer.start(Note("x"))
-    programmer.start(Note("instead"), interrupt=True)
+    programmer.start(Note("instead"), cancel=True)
     assert seen == ["instead"] and rig.triggers.states() == {}
     assert programmer.running is False
+    ended = [(e.subject, e.kind) for e in rig.recent if e.kind in ("cancelled", "succeeded")]
+    assert ended == [("first", "cancelled"), ("program", "succeeded")]
+
+
+def test_a_program_ends_succeeded_cancelled_or_interrupted_with_a_reason(rig, note):
+    Note, seen = note
+    programmer = Programmer(rig)
+    programmer.start(Note("done"))
+    assert rig.recent[-1].kind == "succeeded"
+    programmer.start(Program([Prompt("one", name="one")]))
+    programmer.cancel()
+    assert rig.recent[-1].kind == "cancelled"
+    programmer.start(Program([Prompt("two", name="two")]))
+    programmer.interrupt("the rig was stopped")
+    event = rig.recent[-1]
+    assert event.kind == "interrupted" and event.details["reason"] == "the rig was stopped"
+    assert "the rig was stopped" in event.message
+    programmer.start(Program([Prompt("three", name="three"), Note("never")]))
+    rig.triggers.interrupt("three")  # a person cancels what it waits on
+    programmer.join(2)
+    assert rig.recent[-1].kind == "cancelled" and "never" not in seen
 
 
 def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, fresh):
@@ -197,7 +218,7 @@ def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, 
     programmer.start(Program([Prompt("go", name="go"), Slow()]))
     rig.triggers.fire("go")
     assert entered.wait(5), "the worker never reached the second step"
-    interrupter = threading.Thread(target=programmer.interrupt, daemon=True)
+    interrupter = threading.Thread(target=programmer.interrupt, args=("a test",), daemon=True)
     interrupter.start()
     try:
         interrupter.join(5)
@@ -220,6 +241,8 @@ def test_a_timed_out_prompt_ends_the_program(rig, note):
     assert seen == [] and programmer.running is False
     (event,) = [e for e in rig.recent if e.level == Level.WARNING]
     assert event.kind == "step_timed_out"
+    assert rig.recent[-1].kind == "failed", "a program that gave up did not succeed"
+    assert programmer.state.failed and "gave up after" in (programmer.state.error or "")
 
 
 def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking():
@@ -277,7 +300,7 @@ def test_a_timed_wait_is_an_activity_but_not_a_prompt(rig, note):
     ((name, state),) = rig.triggers.states().items()
     assert name == "wait", "a timed wait registers under its tag"
     assert state.prompt is False, "a timed wait ends on its own; nobody should be asked"
-    programmer.start(Note("instead"), interrupt=True)
+    programmer.start(Note("instead"), cancel=True)
 
 
 def test_a_timed_wait_can_time_out_like_a_prompt(rig, note):

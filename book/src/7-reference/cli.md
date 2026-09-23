@@ -42,14 +42,14 @@ no per-device subcommand tree built from the schema -- those were `cli.py`'s
 | `clock` | `GET /api/clock` | `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed` |
 | `activities` | `GET /api/activities` | what the rig is waiting on |
 | `activity fire NAME` | `POST /api/activities/NAME/fire` | settle the activity as met |
-| `activity cancel NAME` | `POST /api/activities/NAME/interrupt` | cancel it |
+| `activity cancel NAME` | `POST /api/activities/NAME/cancel` | cancel it |
 | `watch STREAM` | `/ws/STREAM` | one JSON line per frame; `samples`, `controllers`, `writes`, `signals` |
 | `view DEVICE` | `GET /api/devices/DEVICE` | one device's signal tree |
 | `device-schema DEVICE` | `GET /api/schema` (the `devices.DEVICE` branch) | one device's config/signal/command schemas |
 | `invoke DEVICE COMMAND [KEY=VALUE ...\|JSON]` | `POST /api/devices/DEVICE/commands/COMMAND` | run a device command |
 | `sessions` | `GET /api/history/sessions` | recorded sessions, newest first |
 | `export SESSION [--format csv\|json\|zip] [--out PATH]` | `GET /api/history/sessions/SESSION/export` | a session as a table; written to `PATH` or stdout |
-| `program check\|run\|status\|stop PATH` | `/api/programs/*` | validate, start, watch, stop a program (`run` takes `[--interrupt]`) |
+| `program check\|run\|status\|cancel PATH` | `/api/programs/*` | validate, start, watch, cancel a program (`run` takes `[--cancel]`) |
 | `sim show\|clock\|step\|set\|reset\|config\|save` | `/api/sim/*` | a simulated rig's knobs |
 | `stop [NAME] [--reason TEXT]` | `POST /api/rig/stop` | the [software stop](#stopping-a-rig) |
 | `stop RIG-FILE \| --front-dir DIR \| --pid N` | none: `SIGUSR1` | the [software stop](#stopping-a-rig) by signal, for a runner on this host |

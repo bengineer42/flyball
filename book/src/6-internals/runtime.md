@@ -210,7 +210,8 @@ way round, and no thread is joined under either.
 
 `start` applies the first step on the calling thread — so an unapplicable
 command raises there — and hands the rest to a worker. `run` blocks. `join`
-waits. `interrupt` stops whatever is running and waits for the worker to
+waits. `cancel` (a person) and `interrupt(reason)` (the engine: a stop,
+a shutdown) end whatever is running and wait for the worker to
 unwind.
 
 ## The recorder

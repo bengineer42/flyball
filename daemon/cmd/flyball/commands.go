@@ -84,12 +84,8 @@ func runCommand(t client.Target, args []string) error {
 		if len(args) != 3 || (args[1] != "fire" && args[1] != "cancel") {
 			return fmt.Errorf("usage: flyball activity fire|cancel <name>")
 		}
-		action := args[1]
-		if action == "cancel" {
-			action = "interrupt" // the route's name for it
-		}
 		var out any
-		if err := t.Do("POST", "/api/activities/"+args[2]+"/"+action, nil, &out); err != nil {
+		if err := t.Do("POST", "/api/activities/"+args[2]+"/"+args[1], nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
@@ -220,7 +216,7 @@ func runCommand(t client.Target, args []string) error {
 
 func runProgramCommand(t client.Target, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: flyball program check|run|status|stop ...")
+		return fmt.Errorf("usage: flyball program check|run|status|cancel ...")
 	}
 	switch args[0] {
 	case "check":
@@ -237,17 +233,17 @@ func runProgramCommand(t client.Target, args []string) error {
 		}
 		return printJSON(out)
 	case "run":
-		interrupt, rest := popBool(args[1:], "--interrupt")
+		cancel, rest := popBool(args[1:], "--cancel")
 		if len(rest) != 1 {
-			return fmt.Errorf("usage: flyball program run <path> [--interrupt]")
+			return fmt.Errorf("usage: flyball program run <path> [--cancel]")
 		}
 		doc, err := readJSONOrYAMLFile(rest[0])
 		if err != nil {
 			return err
 		}
 		path := "/api/programs/run"
-		if interrupt {
-			path += "?interrupt=true"
+		if cancel {
+			path += "?cancel=true"
 		}
 		var out any
 		if err := t.Do("POST", path, jsonReader(doc), &out); err != nil {
@@ -260,9 +256,9 @@ func runProgramCommand(t client.Target, args []string) error {
 			return err
 		}
 		return printJSON(out)
-	case "stop":
+	case "cancel":
 		var out any
-		if err := t.Do("POST", "/api/programs/interrupt", nil, &out); err != nil {
+		if err := t.Do("POST", "/api/programs/cancel", nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
@@ -294,13 +290,13 @@ func runSimCommand(t client.Target, args []string) error {
 			return err
 		}
 		return printJSON(out)
-	case "step":
+	case "advance":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: flyball sim step <seconds>")
+			return fmt.Errorf("usage: flyball sim advance <seconds>")
 		}
 		body, _ := json.Marshal(map[string]any{"seconds": jsonOrString(args[0])})
 		var out any
-		if err := t.Do("POST", "/api/sim/clock/step", bytes.NewReader(body), &out); err != nil {
+		if err := t.Do("POST", "/api/sim/clock/advance", bytes.NewReader(body), &out); err != nil {
 			return err
 		}
 		return printJSON(out)

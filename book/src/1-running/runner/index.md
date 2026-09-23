@@ -173,7 +173,7 @@ so, and the API still works.
 | `/api/rig/schema`, `/api/rig/config`, `/api/rig/check` | the rig file's schema, the file as loaded, validate a document without building |
 | `/api/drivers`, `/api/drivers/reload`, `/api/probe`, `/api/links/{name}/query` | what the runner can build, load the drivers directory again, what the board has, one raw exchange on a link |
 | `/mcp/read`, `/mcp/author`, `/mcp/operate` | the rig for a model: [the MCP server](../../4-server/mcp.md) |
-| `/api/activities` | what a program is waiting on; fire or interrupt one |
+| `/api/activities` | what a program is waiting on; fire or cancel one |
 | `/api/rig/stop` | the [software stop](access.md#stopping-the-rig): the program interrupted, every controller to manual |
 | `/api/auth` | who the caller is and what the door takes (a bare runner's; behind a front, the front answers it) |
 | `/api/programs` | check a program file, run one, see what is running |

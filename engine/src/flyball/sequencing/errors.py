@@ -24,7 +24,7 @@ class ProgramAlreadyRunningError(ConflictError):
 class StepAlreadyRunningError(ConflictError):
     def __init__(self, current: Activity, new: Step) -> None:
         super().__init__(
-            f"Step is already running ({current}). Interrupt it before starting a new one ({new})."
+            f"Step is already running ({current}). Cancel it before starting a new one ({new})."
         )
 
 

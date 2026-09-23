@@ -1042,7 +1042,7 @@ export interface SimulationClock {
    * when the rig cannot keep up.
    */
   measured: number | null;
-  /** Time moves only when stepped (`POST /api/sim/clock/step`). */
+  /** Time moves only when advanced (`POST /api/sim/clock/advance`). */
   stepped: boolean;
   now_ns: Nanoseconds;
 }

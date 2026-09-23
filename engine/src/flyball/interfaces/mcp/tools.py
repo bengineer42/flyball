@@ -731,11 +731,11 @@ DRIVE: tuple[Tool, ...] = (
     Tool(
         "run_program",
         "Start a program: a stored one by `name`, or a `document`. Refused while one runs "
-        "unless `interrupt`.",
+        "unless `cancel`.",
         _object({
             "name": _str("A stored program."),
             "document": DOCUMENT,
-            "interrupt": _bool("Stop whatever is running first."),
+            "cancel": _bool("Cancel whatever is running first."),
         }),
         Tier.DRIVE,
         lambda rig, a: rig.post(
@@ -744,17 +744,17 @@ DRIVE: tuple[Tool, ...] = (
                 if "name" in a
                 else "/api/programs/run"
             )
-            + _query(interrupt="true" if a.get("interrupt") else None),
+            + _query(cancel="true" if a.get("cancel") else None),
             None if "name" in a else a.get("document"),
         ),
         destructive=True,
     ),
     Tool(
-        "interrupt_program",
-        "Stop the running program.",
+        "cancel_program",
+        "Cancel the running program: it ends `cancelled`; outputs are kept.",
         _object(),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/programs/interrupt"),
+        lambda rig, a: rig.post("/api/programs/cancel"),
         destructive=True,
     ),
     Tool(
@@ -766,10 +766,10 @@ DRIVE: tuple[Tool, ...] = (
     ),
     Tool(
         "cancel_activity",
-        "Cancel what the program is waiting on: the program is interrupted.",
+        "Cancel what the program is waiting on: the program ends `cancelled`.",
         _object({"name": ACTIVITY}, "name"),
         Tier.DRIVE,
-        lambda rig, a: {"interrupted": rig.cancel_activity(a["name"])},
+        lambda rig, a: {"cancelled": rig.cancel_activity(a["name"])},
         destructive=True,
     ),
     Tool(
@@ -828,11 +828,11 @@ SIM: tuple[Tool, ...] = (
         lambda rig, a: rig.put("/api/sim/clock", {"speed": a["speed"]}),
     ),
     Tool(
-        "sim_step",
+        "sim_advance",
         "Advance a stepped clock by `seconds`.",
         _object({"seconds": _num("", exclusiveMinimum=0)}, "seconds"),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/sim/clock/step", {"seconds": a["seconds"]}),
+        lambda rig, a: rig.post("/api/sim/clock/advance", {"seconds": a["seconds"]}),
     ),
     Tool(
         "sim_set_plant",

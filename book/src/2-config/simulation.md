@@ -197,7 +197,7 @@ the recent readings -- see [the API reference](../4-server/api.md#simulation)
 for the full shape and the rest of `/api/sim/*`.
 
 `clock: { stepped: true }` gives a clock that moves only when stepped:
-`POST /api/sim/clock/step` (`flyball sim step 60`), or a program's own waits
+`POST /api/sim/clock/advance` (`flyball sim advance 60`), or a program's own waits
 and ramps. Polled devices are scheduled *on* the clock rather than on
 threads, so stepping runs every poll due on the way, in order; a wait steps
 the clock past itself with the physics integrated underneath. A two-hour

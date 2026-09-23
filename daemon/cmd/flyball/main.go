@@ -251,8 +251,8 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   sessions                            list recorded sessions
   export SESSION [--format csv|json|zip] [--out PATH]
                                       a session's data, as the runner exports it
-  program check|run|status|stop PATH  program files
-  sim show|clock|step|set|reset|config|save   a simulated rig's knobs
+  program check|run|status|cancel PATH  program files
+  sim show|clock|advance|set|reset|config|save   a simulated rig's knobs
 
 local (no runner or daemon involved):
   rig schema                          the rig file's JSON Schema, for an editor

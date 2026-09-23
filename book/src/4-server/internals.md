@@ -85,7 +85,7 @@ the worker threads other routes share.
 | `recording.py` | starting and stopping recording on the live rig — the one place the rig and the store meet |
 | `history.py` | reads the store: sessions, devices, signals, writes, controllers, series, ticks, events, spans, exports |
 | `export.py` | the file forms `history.py`'s export endpoints share |
-| `program.py` | check/run/interrupt against the live rig |
+| `program.py` | check/run/cancel against the live rig |
 | `library.py` | the program library: documents kept as written (YAML/TOML/JSON), versioned by name, read back in another format on demand |
 | `dashboards.py` | dashboard documents, versioned per rig, migrated on read |
 | `sim.py` | `/api/sim*`, only on a rig whose links are all `sim_*`/`fake_*` |

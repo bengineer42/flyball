@@ -83,7 +83,7 @@ class Program(Protocol):
 
     @property
     def state(self) -> _Running: ...
-    def interrupt(self) -> None: ...
+    def interrupt(self, reason: str) -> None: ...
 
 
 UNCHANGED = "interim stop: controllers to manual; nothing written — outputs left as they were"
@@ -159,7 +159,7 @@ class InterimStopper:
             return False
         try:
             running = self.program.state.running
-            self.program.interrupt()
+            self.program.interrupt("the rig was stopped")
         except Exception:
             log.exception("stop: interrupting the program failed")
             return False

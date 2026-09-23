@@ -31,7 +31,7 @@ class SpeedIn(BaseModel):
     speed: float = Field(gt=0, description="Rig seconds per wall second.")
 
 
-class StepIn(BaseModel):
+class AdvanceIn(BaseModel):
     seconds: float = Field(gt=0)
 
 
@@ -70,8 +70,8 @@ def set_clock(body: SpeedIn, simulation: SimulationDep) -> dict[str, Any]:
     return {"speed": simulation.set_speed(body.speed)}
 
 
-@router.post("/clock/step")
-def step_clock(body: StepIn, simulation: SimulationDep) -> dict[str, Any]:
+@router.post("/clock/advance")
+def advance_clock(body: AdvanceIn, simulation: SimulationDep) -> dict[str, Any]:
     """Advance a stepped clock by `seconds`; 409 if the clock runs on its own."""
     return {"now_ns": simulation.step(body.seconds)}
 

@@ -390,7 +390,7 @@ def serve(
     finally:
         if bound is not None:
             _remove_socket(*bound)
-        programmer.interrupt()
+        programmer.interrupt("the runner shut down")
         if retention is not None:
             retention.stop()
         set_retention(None)

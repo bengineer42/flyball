@@ -305,7 +305,7 @@ timed wait, a ramp's end.
 | `GET` | `/api/activities` | `{name: ActivityOut}` |
 | `GET` | `/api/activities/{name}` | `ActivityOut` |
 | `POST` | `/api/activities/{name}/fire` | `{name, fired: bool}`; false if already settled |
-| `POST` | `/api/activities/{name}/interrupt` | `{name, interrupted: bool}` |
+| `POST` | `/api/activities/{name}/cancel` | `{name, cancelled: bool}`; the program ends `cancelled` |
 
 An `ActivityOut` is `{name, message, outcome, since_ns, timeout_s, prompt}`
 with `prompt` true only for a `prompt` step (an activity only a person
@@ -367,10 +367,10 @@ output's address (or none for the rig's default), a device by name.
 | `GET` | `/api/programs/schema` | JSON Schema for a program file in the dialect |
 | `GET` | `/api/programs/commands` | the internally tagged request union as JSON Schema |
 | `POST` | `/api/programs/check` | normalise and validate a document; 422 names the step that fails to parse; else `ProgramCheck {ok, error?, normalised, warnings}` |
-| `POST` | `/api/programs/run?interrupt=` | start a document; returns `ProgrammerState` once the first step is applied |
-| `POST` | `/api/programs/command?interrupt=` | one internally tagged command |
+| `POST` | `/api/programs/run?cancel=` | start a document (`cancel` cancels one already running); returns `ProgrammerState` once the first step is applied |
+| `POST` | `/api/programs/command?cancel=` | one internally tagged command |
 | `GET` | `/api/programs/running` | `ProgrammerState` |
-| `POST` | `/api/programs/interrupt` | stop whatever is running |
+| `POST` | `/api/programs/cancel` | cancel whatever is running: it ends `cancelled`, outputs kept |
 | `GET` | `/api/programs/library/{name}/check` | `ProgramCheck`, the same shape, for the newest stored version |
 
 `ProgramCheck` is `{ok, error?, normalised?, warnings}`: `warnings` maps a step
@@ -428,7 +428,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | --- | --- | --- |
 | `GET` | `/api/sim` | `{simulated, device, name, path, clock: {speed, measured, stepped, now_ns}, plants: {name: {config, links, live, readings, stats, input, output}}, changed}`; `inputs`/`outputs` for a multi-port plant; `readings` keyed by signal address; `device` says whether `/api/sim/device` exists (an application's own simulation device, e.g. a `disturb`), so a client need not probe it and 404 on a rig without one |
 | `PUT` | `/api/sim/clock` | `{speed}`; the rig's time runs at `speed`× from now on; 409 on a stepped clock |
-| `POST` | `/api/sim/clock/step` | `{seconds}`; a stepped clock only |
+| `POST` | `/api/sim/clock/advance` | `{seconds}`; a stepped clock only |
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |
 | `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
@@ -455,7 +455,7 @@ one of a fixed set:
 | --- | --- |
 | `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered`, `commit_failed`, `commit_recovered`, `demand_ignored` |
 | `controller` | `step_failed`, `step_recovered`, `stale_input`, `limit_unknown`, `limit_known`, `interrupted` |
-| `program` | `started`, `step`, `step_timed_out`, `step_failed`, `finished`, `failed`, `interrupted`, `run_from_library` |
+| `program` | `started`, `step`, `step_timed_out`, `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
 | `rig` | `delivery_failed`, `recording_failed`, `restored` |
 
 A [`Condition`](wire.md#devices) the runtime raises uses the same kinds

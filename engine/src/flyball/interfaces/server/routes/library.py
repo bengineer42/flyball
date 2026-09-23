@@ -236,7 +236,7 @@ def run_stored(
     programmer: ProgrammerDep,
     rig: RigDep,
     name: str,
-    interrupt: bool = False,
+    cancel: bool = False,
     version: Annotated[int | None, Query()] = None,
 ) -> ProgrammerState:
     """Run the newest version (or ``version``); the run is noted as an event naming the version."""
@@ -255,5 +255,5 @@ def run_stored(
         f"running {name} (version {row.id})",
         {"program_id": row.id, "sha256": row.sha256, "format": row.format},
     )
-    programmer.start(program, interrupt=interrupt)
+    programmer.start(program, cancel=cancel)
     return programmer.state

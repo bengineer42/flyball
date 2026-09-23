@@ -123,7 +123,10 @@ Every tool call is recorded like any other request that needs more than
   text and are saved whole.
 - `activities` lists what a running program is waiting on; `fire_activity`
   answers one (the operator pressed the button, or wants a timer skipped)
-  and `cancel_activity` stops the program at that step. The program step
+  and `cancel_activity` ends the program at that step, `cancelled`;
+  `cancel_program` cancels a running program, and `run_program`'s `cancel`
+  cancels one before starting another. `sim_advance` advances a stepped
+  clock. The program step
   `prompt` -- the operator-answered activity -- is unrelated to an MCP
   prompt; nothing here uses MCP's own prompts feature.
 - Streams have no equivalent: `read`, `read_many` and `events` are what a

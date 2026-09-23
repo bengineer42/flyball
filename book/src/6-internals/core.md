@@ -187,7 +187,7 @@ once, says how it ended (fired, timed out, interrupted), and calls
 `on_settle` so a registry can publish the outcome from whichever thread
 settled it. Not an extension point — user logic belongs in an `Activity`.
 The rig's `Triggers` registry (`flyball.rig.triggers`) gives a trigger a
-name and a message so the server can list, fire or interrupt it; on the
+name and a message so the server can list, fire or cancel it; on the
 wire these are "activities" (`/api/activities`).
 
 ## Config

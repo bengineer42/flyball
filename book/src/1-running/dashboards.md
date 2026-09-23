@@ -64,7 +64,7 @@ edit mode, reconfigure or remove it from the widget's own `⋯` menu.
 
 `readonly` marks a dashboard for looking at, not operating: every write
 control on it, from a device widget's commands to the recording widget's
-Start and End and the program widget's Interrupt, shows but is disabled.
+Start and End and the program widget's Cancel, shows but is disabled.
 Toggle it from the page bar's `⋯` menu (**Make read-only** / **Make
 writable**); like any edit, it takes effect at once and **Save** keeps it.
 It is a convenience for a wall display, not access control: anyone who may

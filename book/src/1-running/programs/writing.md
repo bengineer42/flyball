@@ -102,12 +102,12 @@ from flyball.sequencing import Programmer
 from flyball.interfaces.server.dialect import Dialect, program_from_file
 
 program = program_from_file("bake.yaml", Dialect(steps=dict(get_catalog().steps.items())))
-Programmer(rig).run(program)          # blocks until done or interrupted
+Programmer(rig).run(program)          # blocks until it ends
 ```
 
 `Programmer.start(program)` returns at once and runs on a worker thread;
-`interrupt()` stops it. The first step is applied on the calling thread, so
-an unapplicable command raises there rather than disappearing into a log.
+`cancel()` ends it, `cancelled`. The first step is applied on the calling thread, so
+an unapplicable step raises there rather than disappearing into a log.
 
 Over HTTP the same document goes to `POST /api/programs/run`;
 `POST /api/programs/check` normalises and validates it without running, and
@@ -120,7 +120,7 @@ A step that raises -- a controller, device or signal not found, a conflict
 with the rig's state, or any other exception from the step itself -- ends
 the program in a distinct `failed` state rather than finishing quietly: an
 ERROR `step_failed` event names the step, and a second ERROR `failed` event
-(in place of the usual `finished`/`interrupted`) closes the run, both
+(in place of `succeeded`, `cancelled` or `interrupted`) closes the run, both
 carrying the exception's text. Steps after the one that raised do not run.
 `GET /api/programs/running` keeps reporting `failed: true` and the error,
 even after the run has ended, until the next `run`/`start` clears it; a run

@@ -471,8 +471,8 @@ export class RigClient {
   }
 
   /** Cancel the activity; the program stops at this step. */
-  cancelActivity(name: string): Promise<{ name: string; interrupted: boolean }> {
-    return this.call({ method: "POST", path: `/api/activities/${enc(name)}/interrupt` });
+  cancelActivity(name: string): Promise<{ name: string; cancelled: boolean }> {
+    return this.call({ method: "POST", path: `/api/activities/${enc(name)}/cancel` });
   }
 
   // endregion
@@ -672,9 +672,9 @@ export class RigClient {
     return `/api/programs/library/${enc(name)}/download${query ? `?${query}` : ""}`;
   }
 
-  runStoredProgram(name: string, options: { interrupt?: boolean; version?: number } = {}): Promise<ProgrammerState> {
+  runStoredProgram(name: string, options: { cancel?: boolean; version?: number } = {}): Promise<ProgrammerState> {
     const q = new URLSearchParams();
-    if (options.interrupt) q.set("interrupt", "true");
+    if (options.cancel) q.set("cancel", "true");
     if (options.version !== undefined) q.set("version", String(options.version));
     const query = q.toString();
     return this.call({ method: "POST", path: `/api/programs/library/${enc(name)}/run${query ? `?${query}` : ""}` });
@@ -702,8 +702,8 @@ export class RigClient {
     return this.get("/api/programs/running");
   }
 
-  interruptProgram(): Promise<ProgrammerState> {
-    return this.call({ method: "POST", path: "/api/programs/interrupt" });
+  cancelProgram(): Promise<ProgrammerState> {
+    return this.call({ method: "POST", path: "/api/programs/cancel" });
   }
 
   // endregion
@@ -735,8 +735,8 @@ export class RigClient {
   }
 
   /** Advance a stepped clock; 409 if the clock runs on its own. */
-  stepSimulation(seconds: number): Promise<{ now_ns: number }> {
-    return this.call({ method: "POST", path: "/api/sim/clock/step", body: { seconds } });
+  advanceSimulation(seconds: number): Promise<{ now_ns: number }> {
+    return this.call({ method: "POST", path: "/api/sim/clock/advance", body: { seconds } });
   }
 
   simulationPlant(name: string): Promise<SimulationPlant> {

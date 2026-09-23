@@ -2,8 +2,8 @@
 
 A program step that waits registers a named activity: a prompt, a timed wait,
 a settle test, a ramp's end. These routes list them, fire one (answer a
-prompt, or skip what the step waits on) or interrupt one (stop the program
-here).
+prompt, or skip what the step waits on) or cancel one (the program ends
+here, `cancelled`).
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def fire_activity(rig: RigDep, name: str) -> dict[str, Any]:
     return {"name": name, "fired": rig.triggers.fire(name)}
 
 
-@router.post("/{name}/interrupt")
-def interrupt_activity(rig: RigDep, name: str) -> dict[str, Any]:
-    """Cancel the activity; the program stops at this step."""
-    return {"name": name, "interrupted": rig.triggers.interrupt(name)}
+@router.post("/{name}/cancel")
+def cancel_activity(rig: RigDep, name: str) -> dict[str, Any]:
+    """Cancel the activity; the program ends at this step, `cancelled`. False if it had settled."""
+    return {"name": name, "cancelled": rig.triggers.interrupt(name)}

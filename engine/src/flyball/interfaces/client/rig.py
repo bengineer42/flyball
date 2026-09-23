@@ -238,7 +238,7 @@ class Rig:
 
     def cancel_activity(self, name: str) -> bool:
         """Cancel the activity; the program stops at this step."""
-        return bool(self.post(f"/api/activities/{segment(name)}/interrupt")["interrupted"])
+        return bool(self.post(f"/api/activities/{segment(name)}/cancel")["cancelled"])
 
     def clock(self) -> dict[str, Any]:
         """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed`."""

@@ -38,9 +38,10 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """The document shape this server writes: bindings are addresses and controller names (2); a
-document says whether it is read-only and where its tab sits (3)."""
+document says whether it is read-only and where its tab sits (3); a program widget's button
+cancels, `cancel` (4)."""
 
 
 class Widget(BaseModel):
@@ -166,13 +167,16 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
     was named by its actuator and a controller is named by its output's
     address, so the name is carried as it was; `problems` says if it no
     longer resolves. Version 2 had no `readonly` or `order`: it is writable
-    and unordered.
+    and unordered. Up to version 3 a `program` widget's `interrupt` was what
+    is now its `cancel` button.
     """
     version = document.get("schema_version", 1)
     if not isinstance(version, int) or version >= SCHEMA_VERSION:
         return document
     if version < 2:
         document = _bindings_by_address(document)
+    if version < 4:
+        document = _program_cancel(document)
     return {"readonly": False, "order": None, **document, "schema_version": SCHEMA_VERSION}
 
 
@@ -202,6 +206,18 @@ def _bindings_by_address(document: dict[str, Any]) -> dict[str, Any]:
             if "actuator" in config:
                 config["device"] = config.pop("actuator")
         widgets.append({**widget, "kind": kind, "config": config})
+    return {**document, "widgets": widgets}
+
+
+def _program_cancel(document: dict[str, Any]) -> dict[str, Any]:
+    """Version 3 → 4: a `program` widget's `interrupt` button is its `cancel` button."""
+    widgets: list[Any] = []
+    for widget in document.get("widgets") or []:
+        config = widget.get("config") if isinstance(widget, dict) else None
+        if widget.get("kind") == "program" and isinstance(config, dict) and "interrupt" in config:
+            config = {("cancel" if k == "interrupt" else k): v for k, v in config.items()}
+            widget = {**widget, "config": config}
+        widgets.append(widget)
     return {**document, "widgets": widgets}
 
 

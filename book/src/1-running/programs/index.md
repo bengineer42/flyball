@@ -41,10 +41,15 @@ ramp, a settle test, a prompt to the operator — returns an **activity**: a
 signal the programmer waits on before the next step. While the wait lasts the
 signal is registered by name, so a client can list what the rig is waiting on,
 **fire** it (the operator pressed the button, or wants the wait skipped) or
-**interrupt** it (stop the program at this step).
+**cancel** it (the program ends at this step, `cancelled`).
 
 A signal settles exactly once, and says how: fired, timed out, or
 interrupted.
+
+A program ends `succeeded` (every step ran), `failed` (a step raised, or a
+wait timed out), `cancelled` (a person cancelled it, or what it waited on)
+or `interrupted` (the engine ended it: a software stop, a shutdown), with
+the reason. Either way the outputs are kept where they are.
 
 ## Who owns what
 

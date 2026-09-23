@@ -370,9 +370,9 @@
             "maximum": 50,
             "description": "How many program events to list under the status; 0 for none."
           },
-          "interrupt": {
+          "cancel": {
             "type": "boolean",
-            "title": "Interrupt button",
+            "title": "Cancel button",
             "default": true
           }
         }

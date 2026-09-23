@@ -24,7 +24,7 @@ COOKIE = "flyball-bare"
 FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 UNSAFE = (
     "/api/controllers/heaters.heater1/manual",
-    "/api/programs/interrupt",
+    "/api/programs/cancel",
     "/api/drivers/reload",
     "/api/runner/shutdown",
 )

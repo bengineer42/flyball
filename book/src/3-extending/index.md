@@ -36,7 +36,7 @@ API, the CLI — needs to change. The extension points are:
 | a control law | a class with `step` | a type usable in files and requests, config/state/view models |
 | a trajectory | a class with `generate` | the same |
 | a program command | a frozen dataclass with `run` | a request model, a spelling in program files |
-| a wait | an `Activity` | listed, fired or interrupted from the API |
+| a wait | an `Activity` | listed, fired or cancelled from the API |
 
 The running example throughout this part is a simulated oven — a
 first-order lag read by a probe and driven by a heater — in

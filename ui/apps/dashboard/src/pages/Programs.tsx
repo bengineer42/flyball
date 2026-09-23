@@ -42,7 +42,7 @@ import SaveAsIcon from "@mui/icons-material/SaveAs";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
-import StopIcon from "@mui/icons-material/Stop";
+import CancelIcon from "@mui/icons-material/CancelOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useQuery, useRig, useRigSchema } from "@flyball/react";
 import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "@flyball/client";
@@ -128,7 +128,7 @@ export function Heading({ children, end }: { children: ReactNode; end?: ReactNod
 }
 
 /** What the programmer is doing, and the recent program events for `name` (all programs when omitted). */
-export function ProgramStatus({ programmer, events, name, onInterrupt }: { programmer: Programmer; events: RigEvent[]; /** One program's page: its events only, and "Status" rather than "Programmer". */ name?: string; onInterrupt?(): void }) {
+export function ProgramStatus({ programmer, events, name, onCancel }: { programmer: Programmer; events: RigEvent[]; /** One program's page: its events only, and "Status" rather than "Programmer". */ name?: string; onCancel?(): void }) {
   const p = programmer.data;
   const recent = events
     .filter((e) => e.scope === "program" && (name === undefined || e.subject === name || e.subject.startsWith(`${name}[`)))
@@ -150,9 +150,9 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
     <Paper sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5 }}>
       <Heading
         end={
-          running && onInterrupt ? (
-            <Button variant="outlined" color="error" startIcon={<StopIcon />} onClick={onInterrupt}>
-              Interrupt
+          running && onCancel ? (
+            <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={onCancel}>
+              Cancel
             </Button>
           ) : undefined
         }
@@ -386,12 +386,12 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
         </TableContainer>
       )}
       <Box sx={{ mt: 2.25 }}>
-        <ProgramStatus programmer={programmer} events={events} onInterrupt={() => void act(() => rig.interruptProgram()).then(programmer.refresh)} />
+        <ProgramStatus programmer={programmer} events={events} onCancel={() => void act(() => rig.cancelProgram()).then(programmer.refresh)} />
       </Box>
       <Confirm
         open={toRun !== null}
         title={`Run ${toRun}?`}
-        text="The programmer takes over the rig until the program finishes or is interrupted."
+        text="The programmer takes over the rig until the program ends or is cancelled."
         action="Run"
         danger={false}
         busy={busy}
@@ -507,7 +507,7 @@ function parseProgram(text: string, format: ProgramFormat): { tree: ProgramTree;
 
 /**
  * One program: the step builder and the text, two views of one document tree,
- * each editable; format, save, download, history, run/interrupt, live status.
+ * each editable; format, save, download, history, run/cancel, live status.
  */
 export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
   const rig = useRig();
@@ -865,8 +865,8 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                 Run
               </Button>
               {running && (
-                <Button variant="outlined" color="error" startIcon={<StopIcon />} onClick={() => void act(() => rig.interruptProgram()).then(programmer.refresh)}>
-                  Interrupt
+                <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={() => void act(() => rig.cancelProgram()).then(programmer.refresh)}>
+                  Cancel
                 </Button>
               )}
               <Tooltip title="Delete program">
@@ -937,7 +937,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
 
       {!creating && (
         <Box sx={{ mb: 2.25 }}>
-          <ProgramStatus programmer={programmer} events={events} name={routeName} onInterrupt={() => void act(() => rig.interruptProgram()).then(programmer.refresh)} />
+          <ProgramStatus programmer={programmer} events={events} name={routeName} onCancel={() => void act(() => rig.cancelProgram()).then(programmer.refresh)} />
         </Box>
       )}
 
@@ -986,7 +986,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       <Confirm
         open={runVersion !== null}
         title={runVersion === "latest" ? `Run ${routeName}?` : `Run ${routeName} version ${runVersion}?`}
-        text={dirty ? "Unsaved edits are not run; the stored program is." : "The programmer takes over the rig until the program finishes or is interrupted."}
+        text={dirty ? "Unsaved edits are not run; the stored program is." : "The programmer takes over the rig until the program ends or is cancelled."}
         action="Run"
         danger={false}
         busy={busy}

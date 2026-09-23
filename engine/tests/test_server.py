@@ -528,7 +528,7 @@ def test_activities_can_be_listed_fired_and_interrupted(client, rig):
     assert client.post("/api/activities/nope/fire").status_code == 404
     other = Trigger()
     rig.triggers.register("other", other)
-    assert client.post("/api/activities/other/interrupt").json()["interrupted"] is True
+    assert client.post("/api/activities/other/cancel").json()["cancelled"] is True
     assert other.interrupted
 
 
@@ -734,7 +734,7 @@ def programmer(client, rig):
     programmer = Programmer(rig)
     set_programmer(programmer)
     yield programmer
-    programmer.interrupt()
+    programmer.cancel()
     set_programmer(None)
 
 
@@ -819,7 +819,7 @@ def test_program_runs_step_by_step_as_prompts_are_answered(client, programmer, r
     while time.monotonic() < deadline and "two" not in rig.triggers.states():
         time.sleep(0.01)
     assert client.get("/api/programs/running").json()["step"] == 1
-    assert client.post("/api/programs/interrupt").json()["running"] is False
+    assert client.post("/api/programs/cancel").json()["running"] is False
     programmer.join(2)
     assert rig.triggers.states() == {}
 
@@ -910,7 +910,7 @@ def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_i
 
     events = client.get("/api/events").json()
     kinds = [e["kind"] for e in events]
-    assert kinds[-1] == "failed" and "finished" not in kinds
+    assert kinds[-1] == "failed" and "succeeded" not in kinds
     (finish_event,) = [e for e in events if e["kind"] == "failed"]
     assert finish_event["level"] == "ERROR" and "heaters.heater1" in finish_event["message"]
 
@@ -959,7 +959,7 @@ class TestSimRoutes:
         state = client.get("/api/sim").json()
         assert state["simulated"] is True and list(state["plants"]) == ["tank"]
         assert state["clock"]["stepped"] is True
-        assert client.post("/api/sim/clock/step", json={"seconds": 2}).json()["now_ns"] > 0
+        assert client.post("/api/sim/clock/advance", json={"seconds": 2}).json()["now_ns"] > 0
         assert client.put("/api/sim/clock", json={"speed": 2}).status_code == 409, "stepped"
         assert client.put("/api/sim/plants/tank", json={"gain": 2.5}).json()["gain"] == 2.5
         assert client.put("/api/sim/plants/ghost", json={}).status_code == 404

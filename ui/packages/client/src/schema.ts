@@ -261,7 +261,7 @@ export function verbLabel(verb: string, label: string): string {
 /**
  * Every event `kind` the backend emits, worded for a log reader. Enumerated
  * from the `rig.event(...)` call sites (`runtime/{writer,polling,rig}.py`,
- * `programmer/programmer.py`, `server/routes/library.py`) -- not guessed.
+ * `sequencing/programmer.py`, `server/routes/library.py`) -- not guessed.
  */
 const EVENT_KINDS: Record<string, string> = {
   started: "Started",
@@ -269,7 +269,8 @@ const EVENT_KINDS: Record<string, string> = {
   step_timed_out: "Step timed out",
   step_failed: "Step failed",
   failed: "Failed",
-  finished: "Finished",
+  succeeded: "Succeeded",
+  cancelled: "Cancelled",
   interrupted: "Interrupted",
   run_from_library: "Run from library",
   restarted: "Restarted",

@@ -2,7 +2,7 @@
 
 The rig is what the equipment *is*; the programmer is what it is *doing*. Each
 has its own lock, so "abort the program" never tangles with "stop the pumps".
-A single command is a program of one step: one execution path, one interrupt.
+A single step is a program of one step: one execution path, one way to end it.
 
 The rig *drives* an [Activity][flyball.sequencing.Activity] (it owns the clock
 and sensors); the programmer owns its *lifetime* (it owns the sequence). Attach
@@ -48,7 +48,7 @@ class ProgrammerState:
     command: str | None
     """Tag of the step being run, `None` when idle."""
     failed: bool = False
-    """The last program ended with a step that raised, rather than finishing or interrupting."""
+    """The last program ended with a step that raised, rather than succeeding or being ended."""
     error: str | None = None
     """What the failing step raised, while `failed`; cleared by the next `start`/`run`."""
 
@@ -67,13 +67,17 @@ class Programmer:
     _thread: Thread | None = None
     _step: int = 0
     _abort: bool = False
+    _interrupted: str | None = None
+    """Why the engine ended the program (a stop, a shutdown); None when a person cancelled it."""
     _error: Exception | None = None
     """Set by `_failed`; read by `state` and `_finish` until the next `load` clears it."""
 
     def __init__(self, rig: Rig) -> None:
         self.rig = rig
         self.lock = RLock()
-        self.operator = Operator("program", on_revoke=self.interrupt)
+        self.operator = Operator(
+            "program", on_revoke=lambda: self.interrupt("its claim on the rig was revoked")
+        )
 
     # region Status
 
@@ -109,22 +113,22 @@ class Programmer:
 
     # region Running
 
-    def start(self, work: Step | Program, interrupt: bool = False) -> None:
+    def start(self, work: Step | Program, cancel: bool = False) -> None:
         """Begin `work` without waiting for it to finish.
 
         The first step is applied on the calling thread, so an unapplicable
-        command raises here; the rest goes to the worker thread.
+        step raises here; the rest goes to the worker thread.
 
         Args:
-            work: A command, or a program of them.
-            interrupt: Stop whatever is running first.
+            work: A step, or a program of them.
+            cancel: Cancel whatever is running first.
 
         Raises:
-            ProgramAlreadyRunningError: Something is running and `interrupt`
+            ProgramAlreadyRunningError: Something is running and `cancel`
                 is false.
         """
-        if interrupt:
-            self.interrupt()
+        if cancel:
+            self.cancel()
         program = self.load(work)
         self.rig.event(
             Level.INFO,
@@ -158,17 +162,18 @@ class Programmer:
             self._program = work = work if isinstance(work, Program) else Program([work])
             self._step = 0
             self._abort = False
+            self._interrupted = None
             self._activity = None
             self._error = None
             return self._program
 
-    def run(self, work: Step | Program, interrupt: bool = False) -> None:
-        """Apply `work` and block until it finishes or is interrupted.
+    def run(self, work: Step | Program, cancel: bool = False) -> None:
+        """Apply `work` and block until it ends.
 
         For use off the request path; routes want
         [start][flyball.sequencing.programmer.Programmer.start].
         """
-        self.start(work, interrupt)
+        self.start(work, cancel)
         self.join()
 
     def join(self, timeout: float | None = None) -> None:
@@ -178,9 +183,22 @@ class Programmer:
         if thread is not None and thread is not current_thread():
             thread.join(timeout)
 
-    def interrupt(self) -> None:
+    def cancel(self) -> None:
+        """End whatever is running, as a person asked: it ends `cancelled`. Outputs are kept."""
+        self._end(None)
+
+    def interrupt(self, reason: str) -> None:
+        """End whatever is running because the engine must (a stop, a shutdown).
+
+        It ends `interrupted`, with `reason`. Outputs are kept.
+        """
+        self._end(reason)
+
+    def _end(self, reason: str | None) -> None:
         """Stop whatever is running, and wait for the worker to unwind."""
         with self.lock:
+            if self._program is not None and not self._abort:
+                self._interrupted = reason
             self._abort = True
             if self._activity is not None:
                 # Cancels rather than completes, so the worker breaks out
@@ -218,6 +236,7 @@ class Programmer:
                         if self._abort:
                             break
                     if not self._wait_out(activity, program[step]):
+                        self._ended_early(program, step, activity)
                         break
                 step += 1
                 with self.lock:
@@ -238,8 +257,8 @@ class Programmer:
 
         Returns:
             False if the activity was cancelled or timed out, so the program
-            stops here. A timeout is recorded as an event; an interrupt was
-            asked for and is not.
+            stops here. A timeout is recorded as an event; a cancel or an
+            interrupt is recorded when the program ends.
 
         Raises:
             Exception: Whatever the activity failed with, so `_work` ends the
@@ -275,6 +294,24 @@ class Programmer:
             )
         return activity.fired
 
+    def _ended_early(self, program: Program, step: int, activity: Activity) -> None:
+        """The step's activity ended without being met: say how the program ends.
+
+        Cancelled from outside (a person answering its prompt with cancel) is
+        the program `cancelled`; timed out is the program `failed` at that
+        step. A `cancel()` or `interrupt()` has already said which it is.
+        """
+        with self.lock:
+            if self._abort or self._program is not program:
+                return
+            if activity.timed_out:
+                self._error = StepRuntimeError(
+                    program[step], step, TimeoutError(f"gave up after {activity.timeout_s} s")
+                )
+            else:
+                self._abort = True
+                self._interrupted = None
+
     def _apply(self, command: Step) -> Activity | None:
         """Apply one step under the rig's lock.
 
@@ -297,8 +334,8 @@ class Programmer:
         with self.lock:
             self._activity = activity
             if self._abort and activity is not None:
-                # `interrupt` landed while the step applied, so it cancelled the
-                # previous activity rather than this one.
+                # A cancel or an interrupt landed while the step applied, so it
+                # ended the previous activity rather than this one.
                 activity.interrupt()
         return activity
 
@@ -306,7 +343,7 @@ class Programmer:
         """A step that will not apply, or an activity that failed, ends the program: say so.
 
         Records `error` on the programmer itself, so `_finish` ends the program as
-        `failed` rather than `finished`, and `state` keeps reporting it until the
+        `failed` rather than `succeeded`, and `state` keeps reporting it until the
         next `load` clears it.
         """
         failure = StepRuntimeError(program[step], step, error)
@@ -327,26 +364,33 @@ class Programmer:
             if self._program is not program:
                 return
             error = self._error
+            reason = self._interrupted
             outcome = (
                 Kind.FAILED
                 if error is not None
-                else Kind.INTERRUPTED
+                else (Kind.INTERRUPTED if reason is not None else Kind.CANCELLED)
                 if self._abort
-                else Kind.FINISHED
+                else Kind.SUCCEEDED
             )
             self._program = None
             self._activity = None
             self._thread = None
             self._step = 0
             self._abort = False
+            self._interrupted = None
+        name = program.name or "program"
         message = (
-            f"{program.name or 'program'} failed: {error}"
+            f"{name} failed: {error}"
             if error is not None
-            else (f"{program.name or 'program'} {outcome}")
+            else f"{name} interrupted: {reason}"
+            if outcome is Kind.INTERRUPTED
+            else f"{name} {outcome}"
         )
         details: dict[str, Any] = {"steps": len(program)}
         if error is not None:
             details["error"] = str(error)
+        if outcome is Kind.INTERRUPTED:
+            details["reason"] = reason
         self.rig.event(
             Level.ERROR if error is not None else Level.INFO,
             Scope.PROGRAM,

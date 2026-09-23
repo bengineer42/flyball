@@ -50,12 +50,14 @@ class Kind(StrEnum):
     LIMIT_UNKNOWN = "limit_unknown"
     LIMIT_KNOWN = "limit_known"
     INTERRUPTED = "interrupted"
-    # A program (`step_failed` and `interrupted` too).
+    # A program (`step_failed` too). It ends `succeeded`, `failed`, `cancelled` by a person,
+    # or `interrupted` by the engine (a stop, a shutdown), with the reason.
     STARTED = "started"
     STEP = "step"
     STEP_TIMED_OUT = "step_timed_out"
-    FINISHED = "finished"
+    SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELLED = "cancelled"
     RUN_FROM_LIBRARY = "run_from_library"
     # The rig.
     RECORDING_FAILED = "recording_failed"

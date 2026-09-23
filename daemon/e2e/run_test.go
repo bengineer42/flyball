@@ -444,10 +444,10 @@ func TestRunPassword(t *testing.T) {
 			t.Fatalf("/api/auth signed in = %+v", info)
 		}
 		// The session acts, and its sid is not derivable from the cookie.
-		if r := do(t, hc, "POST", base+"/api/programs/interrupt", "", cat(same, cookie())); r.Status != 200 {
+		if r := do(t, hc, "POST", base+"/api/programs/cancel", "", cat(same, cookie())); r.Status != 200 {
 			t.Fatalf("interrupt with the session: %v", r)
 		}
-		row := waitAudit(t, store, map[string]string{"route": "/api/programs/interrupt", "sub": "local:admin", "status": "200"})
+		row := waitAudit(t, store, map[string]string{"route": "/api/programs/cancel", "sub": "local:admin", "status": "200"})
 		if sid := row.s("sid"); sid == "" || strings.Contains(ck.Value, sid) || strings.Contains(sid, ck.Value) {
 			t.Fatalf("the audit's sid %q and the cookie %q are related", sid, ck.Value)
 		}
@@ -480,7 +480,7 @@ func TestRunPassword(t *testing.T) {
 			}
 		}
 		// A bearer token is exempt: no ambient credential to ride on.
-		if r := do(t, hc, "POST", base+"/api/programs/interrupt", "", cat(bearer(opTok), h{"Origin", "http://evil.example"})); r.Status != 200 {
+		if r := do(t, hc, "POST", base+"/api/programs/cancel", "", cat(bearer(opTok), h{"Origin", "http://evil.example"})); r.Status != 200 {
 			t.Errorf("a bearer token with a foreign Origin: %v, want 200", r)
 		}
 	})
@@ -576,7 +576,7 @@ func TestRunPassword(t *testing.T) {
 		if !strings.Contains(string(after.Body), `"running":true`) || string(after.Body) != string(before.Body) {
 			t.Fatalf("the program before revocation %s, after %s", before.Body, after.Body)
 		}
-		if r := do(t, hc, "POST", base+"/api/programs/interrupt", "", bearer(opTok)); r.Status != 401 {
+		if r := do(t, hc, "POST", base+"/api/programs/cancel", "", bearer(opTok)); r.Status != 401 {
 			t.Fatalf("a revoked operate token acting: %v, want 401", r)
 		}
 	})

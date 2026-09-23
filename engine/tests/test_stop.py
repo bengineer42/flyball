@@ -65,7 +65,7 @@ def oven() -> Iterator[tuple[Rig, Programmer]]:
     try:
         yield rig, programmer
     finally:
-        programmer.interrupt()
+        programmer.cancel()
         set_programmer(None)
         set_rig(None)
 
@@ -258,7 +258,7 @@ def test_revocation_changes_nothing(oven, monkeypatch):
         revoked = {"Authorization": "Bearer revoked"}
         for method, path in (
             ("GET", "/api/programs/running"),
-            ("POST", "/api/programs/interrupt"),
+            ("POST", "/api/programs/cancel"),
             ("POST", "/api/rig/stop"),
         ):
             assert http.request(method, path, headers=revoked).status_code == 401
