@@ -12,6 +12,7 @@ import { Status, SimChip, PausedChip } from "./Status.js";
 import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
 import { readHome } from "./dashboard/home.js";
 import type { Programmer, Recording } from "./model.js";
+import { useStartingRetry } from "./useStartingRetry.js";
 
 // Each page (and the dashboard switcher) is its own chunk, fetched only on first visit to that
 // route: the app shell, MUI and the telemetry store are the only things every route pays for.
@@ -217,6 +218,11 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // Kept mounted across every branch below (error, loading, the full page) until it settles
   // once; after that it is gone from the tree for the rest of App's life.
   const settler = windowSettled ? null : <WindowSettler telemetry={telemetry} onSettle={onSettleWindow} />;
+  // `flyball run` now starts the front before the runner, so a page opened straight away sees a
+  // 503 "The rig's runner is starting" (Retry-After: 1) rather than any real failure: retry on a
+  // backoff instead of showing the permanent "cannot reach" alert until someone reloads.
+  const starting = devices.error instanceof RigError && devices.error.status === 503;
+  useStartingRetry(starting, devices.refresh);
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first
@@ -226,6 +232,15 @@ export function App({ onSignIn }: { onSignIn(): void }) {
         <>
           {settler}
           <LoginPage />
+        </>
+      );
+    if (starting)
+      return (
+        <>
+          {settler}
+          <Typography color="text.secondary" sx={{ m: 3 }}>
+            starting…
+          </Typography>
         </>
       );
     return (
