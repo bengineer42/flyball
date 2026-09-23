@@ -154,6 +154,11 @@ leaving that job to the controller's feedforward — so `heater.drive`'s law
 can be tuned in plain °C-per-°C and the default `setpoint` feedforward hands
 the target the setpoint untouched.
 
+Several `sim_daq`s may read one bare `sim_plant`: it is stepped once per
+instant, by whichever reads first, so its time never runs faster than the
+clock. A `fopdt` plant's delayed input takes effect at the instant it
+arrives, so its trajectory does not depend on how often it is read.
+
 ```
 flyball-runner oven.yaml
 flyball sim                          # clock 1x; chamber fopdt tau_s=60 ...
@@ -169,6 +174,8 @@ plant's would be — so you can watch the controller cope with a plant that
 just got faster. `model` cannot change without a restart. `save` rewrites
 the rig file with the new parameters and clock speed, in the format its
 suffix names, so the next `flyball-runner` starts from what you settled on.
+`save` replaces the file atomically (a unique temp file, fsynced, then
+renamed).
 Unsaved changes are listed by `flyball sim` (`flyball sim show`, its full
 name; bare `flyball sim` is the same command).
 
