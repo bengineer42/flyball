@@ -6,7 +6,7 @@ import type { ControllerTrace } from "../hooks/useControllers.js";
 import { useQuery } from "../hooks/useQuery.js";
 import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
-import { useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
+import { useBandLevel, useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
 import { thin } from "./thin.js";
 import { MultiSeries, toBreaks, type MultiSeriesTrace } from "./MultiSeries.js";
 import { axisValues, yRange, type YScale } from "./yscale.js";
@@ -409,6 +409,7 @@ export function ControllerPanel({
   const write = useWriteState(controller.output_signal) ?? target?.write ?? null;
   const run = useDeviceRun(deviceOf(controller.measured_signal));
   const fresh = useFreshness(controller.measured_signal);
+  const measuredBand = useBandLevel(controller.measured_signal);
   const unit = source.unit;
   const dUnit = target?.unit ?? controller.output_unit ?? unit;
   const precision = source.precision ?? 2;
@@ -498,7 +499,7 @@ export function ControllerPanel({
   const output = write?.value ?? controller.expected ?? controller.output;
   const requested = write?.requested ?? controller.output;
   const deviation = reading != null && setpoint != null ? reading - setpoint : null;
-  const deviationWarn = alarmLevel(reading, source) !== "ok";
+  const deviationWarn = alarmLevel(reading, source, undefined, measuredBand) !== "ok";
 
   const range = source.range;
   const pvFraction = fractionOf(reading, range);

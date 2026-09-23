@@ -1,3 +1,4 @@
+import { atLeast } from "@flyball/client";
 import { memo, type CSSProperties, type ReactNode } from "react";
 import { Box, Typography } from "@mui/material";
 import { CircleIcon, OkIcon, PAGE_ICONS, SignalIcon, WarnIcon, type IconComponent } from "../icons.js";
@@ -46,12 +47,11 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   const stopped = h ? Object.values(h.devices).filter((d) => !d.running).length : 0;
   const problems = events.filter((e) => e.severity === "error" || e.severity === "warning").length;
   const errors = events.filter((e) => e.severity === "error").length;
-  // Alarm summary (research §6): `/api/health.alarms` folds the signals outside their warn/alarm band with the
-  // device conditions at WARNING/ERROR, so this tile and the app-bar chip agree.
-  const amber = h?.alarms.warn ?? 0;
-  const red = h?.alarms.alarm ?? 0;
-  const conditionsCount = amber + red;
-  const conditionsTone: Tone | undefined = red > 0 || (h?.alarms.max_level ?? 0) >= 40 ? "bad" : conditionsCount > 0 ? "warn" : undefined;
+  // Every condition the rig holds at warning or above, on any scope (faults and the band alarms it
+  // raises on signals), counted the same way as the app-bar chip, so the two agree.
+  const active = (h?.conditions ?? []).filter((c) => atLeast(c.severity, "warning"));
+  const conditionsCount = active.length;
+  const conditionsTone: Tone | undefined = active.some((c) => atLeast(c.severity, "error")) ? "bad" : conditionsCount > 0 ? "warn" : undefined;
   const tiles: Record<TileId, ReactNode> = {
     rig: <Stat key="rig" icon={h?.ok ? OkIcon : WarnIcon} label="rig" value={h ? (h.ok ? "ok" : "fault") : "…"} tone={h ? (h.ok ? "ok" : "bad") : undefined} href={hashFor("events")} />,
     recording: <Stat key="recording" icon={SignalIcon} label="recording" value={h ? (h.recording ? "on" : "off") : "…"} tone={h?.recording ? "ok" : undefined} href={hashFor("sessions")} />,

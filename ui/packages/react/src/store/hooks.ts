@@ -217,6 +217,23 @@ export function useNowS(): number {
  * Re-renders once a second only while stale, and once when it turns stale
  * or fresh.
  */
+/**
+ * The rig's band alarm on a signal (`"ok"`, `"warn"`, `"alarm"`), kept live from its conditions; `undefined`
+ * until the rig's conditions have been read once. Pass it to `alarmLevel` so a tile shows what the rig
+ * says rather than judging the value against the bands itself.
+ */
+export function useBandLevel(address: Address | undefined): "ok" | "warn" | "alarm" | undefined {
+  const store = useTelemetry();
+  useEffect(() => {
+    if (address === undefined) return;
+    store.seedBands();
+    const id = window.setInterval(() => store.seedBands(), 30_000);
+    return () => window.clearInterval(id);
+  }, [store, address]);
+  const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeEvents(cb, 250)), [store, address]);
+  return useSyncExternalStore(subscribe, () => (address === undefined ? undefined : store.bandOf(address)));
+}
+
 export function useFreshness(address: Address | undefined, periodS?: number | null): Freshness {
   const store = useTelemetry();
   const device = address === undefined ? undefined : deviceOf(address);
@@ -265,10 +282,14 @@ export function useAlarmSummary(signals: ReadonlyArray<Pick<SignalOut, "address"
       const stopTick = subscribeTick(cb);
       const stopKeys = store.subscribeTrace(ident ? ident.split("\n") : [], cb, 1000);
       const stopRuns = ident ? store.subscribeDevices(null, cb, 1000) : () => undefined;
+      // The rig's band alarms: read once whole, then kept by the events' edges.
+      const stopBands = ident ? store.subscribeEvents(cb, 1000) : () => undefined;
+      if (ident) store.seedBands();
       return () => {
         stopTick();
         stopKeys();
         stopRuns();
+        stopBands();
       };
     },
     [store, ident],
@@ -278,7 +299,7 @@ export function useAlarmSummary(signals: ReadonlyArray<Pick<SignalOut, "address"
     const now = store.clockS();
     for (const s of signals) {
       const point = store.latest(s.address);
-      counts[alarmLevel(point?.v, s, { periodS: store.periodOf(s.address), lastSampleS: store.lastSampleS(s.address) ?? null, nowS: now })]++;
+      counts[alarmLevel(point?.v, s, { periodS: store.periodOf(s.address), lastSampleS: store.lastSampleS(s.address) ?? null, nowS: now }, store.bandOf(s.address))]++;
     }
     return `${counts.ok}:${counts.warn}:${counts.alarm}:${counts.stale}`;
   });

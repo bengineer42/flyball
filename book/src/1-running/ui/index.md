@@ -100,9 +100,10 @@ live with no gap, since the live samples kept arriving underneath.
 A condition summary sits in the app bar, built from `/api/health` (falling
 back to a client-side count from the samples stream on an older runner):
 
-- an always-present **alarm** chip — the count of signals the rig holds in
-  alarm (`band_warning` or `band_alarm`, [Bands](../../2-config/devices/index.md#bands)),
-  coloured by the worst one
+- an always-present **conditions** chip — the count of every condition the
+  rig holds at warning or above: a device's faults, and the band alarms it
+  raises on signals (`band_warning` or `band_alarm`,
+  [Bands](../../2-config/devices/index.md#bands)), coloured by the worst one
   (amber for warn, red for alarm; otherwise the neutral outline every
   healthy state uses — colour is reserved for abnormal conditions), held to
   one width across its own states so it doesn't reflow its neighbours as the
@@ -194,6 +195,9 @@ goes when the setting is fixed.
 
 Colour is reserved for abnormal states (ISA-101): a normal reading is
 neutral, warn and alarm change the tile's border and never only its colour,
+and warn and alarm are the rig's word, not the browser's: a tile shows the
+band alarm the rig holds on its signal (raised at once, cleared with the
+rig's hysteresis), never a check of the value against the bands of its own,
 and a stale tile is dashed with a hollow status dot. Every colour, space,
 radius and duration is a token in `ui/packages/react/src/styles.css`
 (`ui/README.md` *Theming* lists them with their purpose and contrast).
