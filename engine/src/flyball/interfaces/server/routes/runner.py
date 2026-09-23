@@ -19,8 +19,8 @@ router = APIRouter(prefix="/api/runner", tags=["runner"])
 class RunnerOut(BaseModel):
     """The runner's settings as resolved, less the token, and the files it loaded."""
 
-    host: str
-    port: int
+    endpoint: str | None
+    """What the runner binds: `tcp:<host>:<port>`, or `unix:<path>` when a front started it."""
     root_path: str | None
     mcp: bool
     compose: bool
@@ -68,8 +68,7 @@ def read_runner() -> RunnerOut:
     runner = _runner()
     s = runner.settings
     return RunnerOut(
-        host=s.host,
-        port=s.port,
+        endpoint=None if runner.exposure is None else runner.exposure.endpoint,
         root_path=s.root_path,
         mcp=s.mcp,
         compose=s.compose,
