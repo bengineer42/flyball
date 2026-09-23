@@ -131,9 +131,13 @@ type Plan struct {
 	// local shape on a fresh loopback address (Listen) instead -- a reverse
 	// proxy pointed at the requested address must not reach an open
 	// console. "" otherwise.
-	Refused     string
-	Warnings    []string // cleartext, open, ignored reference keys, ...
-	HostAllow   []string // nil = any Host (credential shapes without url:); loopback names match any port
+	Refused   string
+	Warnings  []string // cleartext, open, ignored reference keys, ...
+	HostAllow []string // nil = any Host (credential shapes without url:); loopback names match any port
+	// HostKnown: HostAllow also takes an IP address and this machine's own
+	// names (exposure.KnownHost) -- the local shape served beyond loopback
+	// by --insecure-open, never another DNS name (D-043).
+	HostKnown   bool
 	OriginAllow []string // the url: origin, if any; same-site-with-Host is always allowed
 	Secure      bool     // cookie Secure / __Host-
 
@@ -329,13 +333,14 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 	}
 	p.Secure = p.TLS != nil || (p.URL != nil && p.URL.Scheme == "https")
 
-	switch {
-	case p.Shape == ShapeLocal && !loopbackListen(p.Listen): // --insecure-open: any Host
-	case p.Shape == ShapeLocal || p.URL != nil:
+	if p.Shape == ShapeLocal || p.URL != nil {
 		if p.URL != nil {
 			p.HostAllow = append(p.HostAllow, urlAuthority(p.URL))
 		}
 		p.HostAllow = append(p.HostAllow, loopbackNames...)
+		// --insecure-open: every caller is the console, so on every route
+		// the Host is a name no page elsewhere can own, or url:'s (D-043).
+		p.HostKnown = p.Shape == ShapeLocal && !loopbackListen(p.Listen)
 	}
 	if p.URL != nil {
 		p.OriginAllow = []string{originOf(p.URL)}

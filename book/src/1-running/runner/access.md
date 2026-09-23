@@ -70,7 +70,13 @@ names the front answers to and its origin to the pages that may act, and
 when it is `https` the session cookie is marked `Secure` and named
 `__Host-flyball`, also when TLS ends at the proxy. Without it, a password
 or proxy front answers any `Host`, and a request that acts must come from a
-page on the same site as that `Host`.
+page on the same site as that `Host` -- except to a caller with no
+credential: `anonymous: read` is served the rig only by an IP address,
+a loopback name or the machine's own name (`hostname`, and
+`<hostname>.local`), never by another DNS name, which a web page elsewhere
+could point at the front (DNS rebinding). Signing in and the dashboard's
+own files answer any name, and a session or a token is served by any
+name. To let anonymous viewers in by a site DNS name, set `url` to it.
 
 **`tls: {cert, key}`** has the front serve HTTPS itself from a certificate
 and key file (PEM), TLS 1.2 at least. It re-reads both files at most every
@@ -126,8 +132,12 @@ loopback falls back to `127.0.0.1` on the same port. To serve it on the network 
 `--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in the environment of
 `flyball run` or `flyballd`. There is no file key for it: a file can be
 copied from anywhere, and `extends:` would pass it on. The front then
-answers any name, warns at every start, and the dashboard shows a banner
-that cannot be dismissed. Not on a rig a model can drive.
+answers, on every route (signing in and making tokens included), only an
+IP address, a loopback name, the machine's own name (`hostname`, and
+`<hostname>.local`) or `url`'s host -- never another DNS name, which a web
+page elsewhere could point at it (DNS rebinding); anything else is `403`,
+naming the names it takes. It warns at every start, and the dashboard shows
+a banner that cannot be dismissed. Not on a rig a model can drive.
 
 ## Signing in, sessions and tokens
 
@@ -238,6 +248,13 @@ For every request the front refuses, before anything else:
   `\` (`400`);
 - a `Host` it does not answer to (`403`): at the `local` shape, anything but
   a loopback name; with `url`, anything but that host or a loopback name;
+  at the `local` shape served beyond loopback by `--insecure-open`, anything
+  but an IP address, a loopback name, the machine's own name or `url`'s
+  host;
+- on the rig's `/api`, `/ws` and `/mcp`, a caller with no credential
+  (`anonymous: read`) whose `Host` is not an IP address, a loopback name,
+  the machine's own name or `url`'s host (`403`); a session or a token
+  passes any `Host`;
 - a request that acts -- any method but `GET`, `HEAD` and `OPTIONS`, and
   every websocket -- whose `Origin` is missing, `null`, or not the same site
   as its `Host` (or `url`'s origin) (`403`). A request with no `Origin` passes

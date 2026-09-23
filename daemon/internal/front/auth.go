@@ -236,9 +236,14 @@ func (f *Front) issuerVerbs(issuer, rig string) []string {
 }
 
 // CheckHost is the Host allow-list (merge requirement 8): the local shape
-// answers loopback names only (DNS rebinding), and url: adds its own host.
+// answers loopback names only (DNS rebinding), and url: adds its own host;
+// beyond loopback by --insecure-open, also an IP address and this
+// machine's own names (Plan.HostKnown, D-043).
 func (f *Front) CheckHost(r *http.Request) bool {
 	if f.plan.HostAllow == nil {
+		return true
+	}
+	if f.plan.HostKnown && exposure.KnownHost(r.Host, f.names) {
 		return true
 	}
 	defPort := "80"
@@ -262,6 +267,25 @@ func (f *Front) CheckHost(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// knownHost is D-043's rule for a caller with no credential: Host is an IP
+// address, a loopback name or this machine's own -- or the door already
+// held it to HostAllow (url:'s host and loopback).
+func (f *Front) knownHost(r *http.Request) bool {
+	return f.plan.HostAllow != nil || exposure.KnownHost(r.Host, f.names)
+}
+
+// known says which names knownHost takes, for a 403.
+func (f *Front) known() string {
+	s := "an IP address, localhost or this machine's name"
+	if len(f.names) > 0 {
+		s += " (" + strings.Join(f.names, ", ") + ")"
+	}
+	if f.plan.URL != nil {
+		s += ", or url:'s host (" + urlAuthority(f.plan.URL) + ")"
+	}
+	return s
 }
 
 // CheckOrigin is the Origin rule for a request that acts (merge
