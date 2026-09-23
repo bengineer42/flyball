@@ -68,7 +68,7 @@ const goto = (hash) => page.goto(`${uiUrl}/#${hash}`, { waitUntil: 'networkidle'
 // 1. Open #/dashboards (the generated overview) and enter edit mode.
 await goto('/dashboards');
 await page.waitForTimeout(2000);
-check('opens #/dashboards', await page.locator('[data-testid=dashboard-select]').isVisible(), 'switcher visible');
+check('opens #/dashboards', await page.locator('[data-testid=dashboard-tabs]').isVisible(), 'tabs visible');
 
 await page.click('[data-testid=edit-toggle]');
 await page.waitForTimeout(500);

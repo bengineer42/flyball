@@ -12,9 +12,11 @@ const readStored = (): PaletteMode | null => {
   }
 };
 
-const writeStored = (mode: PaletteMode) => {
+/** `null` forgets the choice: back to following the system. */
+const writeStored = (mode: PaletteMode | null) => {
   try {
-    window.localStorage.setItem(STORAGE_KEY, mode);
+    if (mode === null) window.localStorage.removeItem(STORAGE_KEY);
+    else window.localStorage.setItem(STORAGE_KEY, mode);
   } catch {
     /* private mode, quota, disabled storage: the choice just does not persist */
   }
@@ -97,7 +99,10 @@ export function makeTheme(mode: PaletteMode) {
   });
 }
 
-const ColorModeContext = createContext<{ mode: PaletteMode; toggle(): void }>({ mode: "light", toggle() {} });
+/** What the viewer chose: a fixed palette, or whatever the system says (the default). */
+export type ColorChoice = PaletteMode | "system";
+
+const ColorModeContext = createContext<{ mode: PaletteMode; choice: ColorChoice; choose(choice: ColorChoice): void; toggle(): void }>({ mode: "light", choice: "system", choose() {}, toggle() {} });
 
 export const useColorMode = () => useContext(ColorModeContext);
 
@@ -114,13 +119,19 @@ export function AppTheme({ children }: { children: ReactNode }) {
   const ctx = useMemo(
     () => ({
       mode,
+      choice: (chosen ?? "system") as ColorChoice,
+      choose(choice: ColorChoice) {
+        const next = choice === "system" ? null : choice;
+        setChosen(next);
+        writeStored(next);
+      },
       toggle() {
         const next: PaletteMode = mode === "light" ? "dark" : "light";
         setChosen(next);
         writeStored(next);
       },
     }),
-    [mode],
+    [mode, chosen],
   );
 
   // One density. The attribute stays because `styles.css` and `widgets/size.ts`'s `headPx()`

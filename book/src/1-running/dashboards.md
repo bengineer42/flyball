@@ -101,8 +101,10 @@ idle view.
 
 ## Saving, naming, switching
 
-The switcher in the app bar lists this rig's dashboards, default first, then
-alphabetically, alongside the generated overview. `Save ▾` offers:
+The app bar shows this rig's dashboards as tabs, the generated overview
+first, then the saved ones in their `order`, the rest newest saved first
+(see [Getting around](ui/index.md#getting-around)); `[+]` makes a new, empty
+dashboard. `Save ▾` offers:
 
 - **Save** — a new version under the current name.
 - **Save as…** — under a new name; the generated overview must go through

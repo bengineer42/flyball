@@ -69,7 +69,7 @@ const ROUTES: Array<[hash: string, title: string]> = [
   ["#/events", "Events"],
   ["#/sessions", "Sessions"],
   ["#/simulation", "Simulation"],
-  ["#/rig", "Config"],
+  ["#/options", "Options"],
 ];
 
 describe("every route renders", () => {
@@ -81,6 +81,13 @@ describe("every route renders", () => {
     await waitFor(() => expect(screen.queryByText("loading…")).toBeNull());
     expect(screen.queryByText(/failed to render/i)).toBeNull();
     expect(errors.filter((args) => args[0] === "page failed")).toEqual([]);
+  });
+
+  it("the old Config address opens the Options page's Rig file tab", async () => {
+    window.location.hash = "#/rig";
+    render(createElement(AuthProvider, { transport }, createElement(RigProvider, { transport }, createElement(App, { onSignIn: () => undefined }))));
+    await waitFor(() => expect(window.location.hash).toBe("#/options/rig"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Options"));
   });
 
   it("an unknown route falls back to the overview", async () => {

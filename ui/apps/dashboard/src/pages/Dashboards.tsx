@@ -458,8 +458,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
     setMenu(null);
   };
 
-  // The dashboard switcher itself lives in the app bar (`DashboardSwitcher`, via `Shell`'s
-  // `startSlot` -- DESIGN-SPEC.md §2: "dashboard identity at the top, not in the sidebar").
+  // Switching dashboards is the app bar's tabs (`DashboardTabs`, via `Shell`'s `startSlot`, D-053).
 
   const canUndo = hist.canUndo;
   const canRedo = hist.canRedo;

@@ -13,6 +13,7 @@ import PlaylistPlayIcon from "@mui/icons-material/PlaylistPlay";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
 import SpaceDashboardOutlinedIcon from "@mui/icons-material/SpaceDashboardOutlined";
 import SpeedIcon from "@mui/icons-material/Speed";
@@ -38,6 +39,7 @@ export const PAGE_ICONS: Record<Page, IconComponent> = {
   events: NotificationsNoneIcon,
   sessions: StorageOutlinedIcon,
   simulation: ScienceOutlinedIcon,
+  options: SettingsOutlinedIcon,
 };
 
 /** An icon for a signal from what it measures — the quantity first, then the unit as a fallback. */
