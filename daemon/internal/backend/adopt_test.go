@@ -346,3 +346,26 @@ func TestAdoptsARunnerThatHasNotNamedItselfYet(t *testing.T) {
 		t.Errorf("%d runners spawned; adoption spawns none", n)
 	}
 }
+
+// A runner listening but slow to answer the handshake -- a probe that
+// times out, or a connection closed before its answer (a Pi starting,
+// ~20 s; ~37 s under load) -- is starting, not "not ours": retried
+// within the adopt window, then adopted. Only an answer that proves
+// otherwise leaves it busy (TestAHeldLockThatFailsTheHandshakeIsBusy).
+func TestAdoptsARunnerSlowToAnswer(t *testing.T) {
+	for _, c := range []struct{ name, env string }{
+		{"connection closed unanswered", "FLYBALLD_TEST_DROP_FIRST=2"},
+		{"probe timed out", "FLYBALLD_TEST_SLOW_FIRST=" + (endpoint.ProbeTimeout + 500*time.Millisecond).String()},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := shortDir(t)
+			live := liveRunner(t, root, c.env)
+			b, spawned := frontedBackend(t, root)
+			b.adoptWindow = 15 * time.Second
+			adoptedWithin(t, b, live.Process.Pid, 15*time.Second)
+			if n := spawned(); n != 0 {
+				t.Errorf("%d runners spawned; adoption spawns none", n)
+			}
+		})
+	}
+}

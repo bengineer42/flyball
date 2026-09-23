@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -785,7 +786,24 @@ func fakeRunnerMain(args []string) {
 	if err != nil {
 		os.Exit(1)
 	}
+	// FLYBALLD_TEST_DROP_FIRST=N: the first N requests get their
+	// connection closed unanswered; FLYBALLD_TEST_SLOW_FIRST=D: the first
+	// answer comes after D -- a runner too busy starting to answer yet.
+	var mu sync.Mutex
+	drop, _ := strconv.Atoi(os.Getenv("FLYBALLD_TEST_DROP_FIRST"))
+	slow, _ := time.ParseDuration(os.Getenv("FLYBALLD_TEST_SLOW_FIRST"))
 	http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		dropThis, slowThis := drop > 0, slow
+		drop, slow = max(drop-1, 0), 0
+		mu.Unlock()
+		if dropThis {
+			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				c.Close()
+			}
+			return
+		}
+		time.Sleep(slowThis)
 		if r.URL.Path != root+"/api/auth/front" {
 			http.NotFound(w, r)
 			return

@@ -608,8 +608,10 @@ func (b *ProcessBackend) takeOver(rp *runnerProc) (cmd *exec.Cmd, adopted bool) 
 			return cmd, false
 		}
 		// A runner that has taken the lock but not yet named itself in it
-		// is starting, as is one not listening yet: each is retried
-		// within adoptWindow.
+		// is starting, as is one not listening yet or not answering yet
+		// (a probe that times out, or a connection closed unanswered: a
+		// Pi takes ~20 s to start). Each is retried within adoptWindow;
+		// only an answer that proves the runner is not ours makes it busy.
 		if errors.Is(err, errNoPid) && time.Now().Before(deadline) {
 			b.pause(rp, b.probeInterval)
 			continue
@@ -619,7 +621,7 @@ func (b *ProcessBackend) takeOver(rp *runnerProc) (cmd *exec.Cmd, adopted bool) 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*endpoint.ProbeTimeout)
 			info, err = endpoint.Handshake(ctx, h.ep, rp.rootPath, rp.aud, h.key, sign)
 			cancel()
-			if errors.Is(err, endpoint.ErrNotListening) {
+			if errors.Is(err, endpoint.ErrNotListening) || noAnswer(err) {
 				if time.Now().Before(deadline) {
 					b.pause(rp, b.probeInterval)
 					continue
@@ -752,6 +754,18 @@ var lockPid = regexp.MustCompile(`^pid (\d+)`)
 // errNoPid: runner.lock is held but names no pid -- its runner has taken
 // it and not yet written its pid (a front's Write leaves it empty).
 var errNoPid = errors.New(frontdir.Lock + " names no pid")
+
+// noAnswer: a handshake error that is not an answer -- a probe that timed
+// out, or a connection closed or reset before its answer came -- as
+// against one that proves the runner is not this front's (a wrong status,
+// protocol or aud). front/proxy.go's noAnswer reads it the same way.
+func noAnswer(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout() ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
+}
 
 // inspect reads the front-dir dir of a runner for aud: whether its
 // runner.lock is held, and if so the key, endpoint and pid a runner there

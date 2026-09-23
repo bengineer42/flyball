@@ -195,9 +195,11 @@ holds its `runner.lock`, it reads `key`, `aud` and `endpoint`, checks the
 runner with the signed handshake, and routes to it again -- same process,
 same key, no interruption. `GET /api/runners` then says `adopted: true`
 and the `pid`. A runner that holds the lock but has not yet named itself
-in it, or is not listening yet, is starting, and is tried again; one that
-does not answer within 60 s, or answers for another audience, is left
-alone and the rig is `busy`, with the `reason`.
+in it, is not listening yet, or does not answer the probe in time (a
+timeout, or a connection closed unanswered: a Raspberry Pi takes ~20 s to
+start) is starting, and is tried again; one still not answering after
+60 s, or one whose answer shows it is not this front's (another audience,
+an old runner), is left alone and the rig is `busy`, with the `reason`.
 An adopted runner is not `flyballd`'s child, so its exit status cannot be
 known: when its pid goes, the manifest's `restart` policy treats it as a
 crash. A runner spawned into a front-dir that another runner took
