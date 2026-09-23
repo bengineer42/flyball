@@ -63,6 +63,7 @@ def tick(self, reading):
     if self.mode.active():                                  # open or regulating
         setpoint = self.setpoint_at(time_ns)
         if reading is not None and self.mode is ControllerMode.REGULATING:
+            self._skip_outage(time_ns)                    # a gap counts as one ordinary step
             self._last_step_ns = time_ns
             self.correction = self.required_law.step(
                 self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
@@ -78,7 +79,7 @@ def _apply_demand(self, setpoint, rate=0.0):
     self.delivered_correction = None if self.expected is None else self.expected - base
 ```
 
-Five things to note:
+Six things to note:
 
 1. **The reading is recorded, and `attach_on_tick` callbacks run, before the
    `min_period_s` gate.** A fast source updates `controller.reading` every
@@ -99,7 +100,20 @@ Five things to note:
    `setpoint + correction` as such. `Setpoint`, the default feedforward
    when source and target units agree, makes the two the same thing;
    `Affine`/`Table`/`none` do not.
-4. **`self.write(self.demand)` is how the demand reaches the target.** Built
+4. **An outage does not integrate.** A source that goes quiet (a sensor
+   offline, a stalled poll) comes back with one reading after the whole
+   gap. If the gap is more than `OUTAGE_STEPS` (3) of the usual step
+   intervals, `_skip_outage` moves `offset_ns` on by the gap less one
+   interval, so the law's `dt` for that step is one ordinary interval, not
+   the outage; `reset_law` forgets the last step, so the first step after a
+   `regulate` is never mistaken for one. This is an interim bound: what a
+   controller does across and after an outage (freeze, reset, wait for fresh
+   readings) is still to be decided. Separately, `regulate` and
+   `set_reference` refuse a NaN or infinite setpoint before anything
+   changes, and the rig runs each controller's step on its own
+   (`Rig._step`): one that raises is a `step_failed` event and does not stop
+   the others.
+5. **`self.write(self.demand)` is how the demand reaches the target.** Built
    with no rig, `write` is `Controller._unwired`, which always returns
    `None`: the demand is recorded on the controller (`controller.demand`)
    and nothing is written — the shape a unit test on a law wants. Attached to
@@ -120,7 +134,7 @@ Five things to note:
    until the delivery's single `device.commit()` runs at its end and
    [`delivered(state)`][flyball.model.controller.Controller.delivered]
    fills them in, closing the tick with what the target actually took.
-5. **A target that never reports (`write` always returns `None`) gets no
+6. **A target that never reports (`write` always returns `None`) gets no
    anti-windup.** `step`'s `last_applied` argument is `self.delivered_correction`
    from the *previous* tick; `None` skips the back-calculation term (see
    below), so an unwired or permanently-deferred controller runs open,
