@@ -93,7 +93,7 @@ class TestSimDaq:
         (condition,) = daq.conditions.value
         assert condition.kind == "broken" and condition.since_ns == 5_000_000_000
         assert "z2" in condition.message
-        with pytest.raises(HardwareError, match="f.z2: thermocouple open circuit"):
+        with pytest.raises(HardwareError, match=r"f\.z2: sensor failed \(simulated\)"):
             list(daq.read(6_000_000_000))
         assert daq.restore("z2") == () and daq.conditions.value == ()
         assert list(daq.read(6_000_000_000))
