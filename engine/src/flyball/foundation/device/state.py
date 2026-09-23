@@ -83,6 +83,9 @@ class Code(StrEnum):
     STARTED = "started"
     STEP = "step"
     STEP_TIMED_OUT = "step_timed_out"
+    STEP_STILL_RUNNING = "step_still_running"
+    """The program was ended, but its step had not returned `END_JOIN_S` later (a command
+    still in its driver): it may still act. The program is reported ended regardless."""
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"

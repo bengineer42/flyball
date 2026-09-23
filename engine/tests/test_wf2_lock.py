@@ -23,9 +23,10 @@ from flyball.foundation.device import (
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import One
+from flyball.foundation.time import Duration
 from flyball.interfaces.server import create_app, set_rig
 from flyball.rig import Rig
-from flyball.sequencing import Programmer
+from flyball.sequencing import Program, Programmer, Step, Wait
 from flyball.sequencing.devices import RunCommand
 
 COUNT = Quantity("count", One)
@@ -331,6 +332,76 @@ class TestNothingOnTheLoop:
                 assert time.monotonic() - began < 1.0, "primed without the rig's lock"
             release.set()
         assert frame["samples"][0]["values"] == {"n": 1.0}
+
+
+# endregion
+
+
+# region 4. The programmer's lock against the rig's; a bounded end
+
+
+class Gated(Step, tag="gated_for_wf2"):
+    """A step that does nothing, under the rig's lock, as most steps run."""
+
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+
+    def run(self, rig: Rig, operator: object = None) -> None:
+        self.entered.set()
+
+
+class TestProgrammerLocks:
+    def test_a_revoke_under_the_rig_lock_does_not_deadlock_a_start(self, fresh):
+        rig = Rig()
+        programmer = Programmer(rig)
+        step = Gated()
+        revoked = threading.Event()
+        holding = threading.Event()
+        started = threading.Event()
+
+        def revoke_under_the_rig_lock() -> None:
+            with rig.lock:
+                holding.set()
+                assert started.wait(2.0)
+                time.sleep(0.2)  # the start is now waiting for the rig's lock in its step
+                programmer.operator.revoke()  # on_revoke -> interrupt: the programmer's lock
+                revoked.set()
+
+        a = threading.Thread(target=revoke_under_the_rig_lock, daemon=True)
+        a.start()
+        assert holding.wait(2.0)
+
+        def start() -> None:
+            started.set()
+            programmer.start(Program([step, step]))
+
+        b = threading.Thread(target=start, daemon=True)
+        b.start()
+        assert revoked.wait(2.0), "the revoke took the programmer's lock: no ABBA"
+        a.join(2.0)
+        b.join(2.0)
+        assert not a.is_alive() and not b.is_alive()
+        assert not programmer.running
+        ends = [e.code for e in rig.recent if e.scope == "program"]
+        assert ends[-1] == "interrupted", ends
+
+    def test_cancel_waits_a_bounded_time_and_reports_a_step_still_running(self, fresh, monkeypatch):
+        monkeypatch.setattr("flyball.sequencing.programmer.END_JOIN_S", 0.2)
+        rig = Rig()
+        doser = Doser(fresh("doser"))
+        rig.add_device(doser)
+        programmer = Programmer(rig)
+        dose = RunCommand(device_command="dose", device=doser.name, args={"seconds": 3.0})
+        programmer.start(Program([Wait(Duration(0.01)), dose]))
+        assert doser.started.wait(2.0)
+        began = time.monotonic()
+        assert programmer.cancel() is False
+        assert time.monotonic() - began < 1.0, "the cancel returned, not after the 3 s dose"
+        still = [e for e in rig.recent if e.code == "step_still_running"]
+        assert len(still) == 1 and still[0].details["command"] == "command"
+        rig.run_command(doser, "stop")
+        programmer.join(2.0)
+        assert not programmer.running
 
 
 # endregion

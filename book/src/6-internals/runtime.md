@@ -200,6 +200,15 @@ only from plain `def` routes, on the threadpool. A test fixture
 (`tests/conftest.py`) fails any test in which a thread running an event loop
 took `rig.lock`, as another does for the store's.
 
+The programmer's lock is never held while the rig's is taken: each step is
+applied with the programmer's released, on `start` as on the worker. So the
+only nesting is rig, then programmer (an operator's `on_revoke` calls
+`Programmer.interrupt` from whoever revoked it, perhaps under the rig's lock),
+and it cannot meet the reverse. `cancel`/`interrupt` join the worker for at
+most `END_JOIN_S` (5 s), since a caller may hold the rig's lock the worker's
+next step needs; a step still running then is a `step_still_running` event,
+and the call returns False.
+
 ## Controllers
 
 `Controllers` indexes by the output's address — a demand has at most one

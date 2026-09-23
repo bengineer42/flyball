@@ -469,7 +469,7 @@ message: one `raised` per outage, never one per poll or per step.
 | `device` | `offline` (cleared by a restart), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored` |
 | `signal` | a driver's own (the sim's `broken`) | |
 | `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown` | `interrupted` |
-| `program` | | `started`, `step`, `step_timed_out`, `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
+| `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
 | `rig` | `recording_failed` (cleared by the next recording) | `delivery_failed`, `restored` |
 
 There is no separate "recovered" code: `offline` cleared is what

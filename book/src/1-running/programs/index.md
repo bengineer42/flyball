@@ -51,6 +51,12 @@ wait timed out), `cancelled` (a person cancelled it, or what it waited on)
 or `interrupted` (the engine ended it: a software stop, a shutdown), with
 the reason. Either way the outputs are kept where they are.
 
+A `command` step on a long device command (a `dispense`, a `move`) runs
+until the command returns; cancelling the program does not stop the
+device. A cancel or a stop waits at most 5 s for the step to return and
+then goes on, with a `step_still_running` event naming the step: it may
+still act, so stop the device itself (its `stop` command) to end it.
+
 ## Who owns what
 
 The **rig** is what the equipment *is*: devices, controllers, the clock.
