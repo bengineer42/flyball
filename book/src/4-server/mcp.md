@@ -98,6 +98,12 @@ through without one.
   way. A tool that answers a list wraps it in a named key (`{"devices":
   [...]}`, `{"controllers": [...]}`, and so on), not a bare array, and
   declares that shape as its output schema.
+- A name, address or id the model passes goes into the route's path as
+  exactly one segment, percent-encoded (so a `?` or `#` in it cannot add a
+  query or cut the path short); an empty one, `.`, `..` or one holding a
+  `/` is refused with a tool error before anything is sent, so no argument
+  can reach a route other than the tool's own. The Python client does the
+  same (`flyball.interfaces.client.segment`).
 - `describe_device` is the schema; `widget_schema` every dashboard widget
   kind with its `config`; `program_schema` the program dialect. Together
   they are what a model needs to write a program or a dashboard that names

@@ -145,6 +145,27 @@ class TestTools:
         kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
         assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
 
+    @pytest.mark.parametrize("name", ["..", ".", "", "../health", "heaters/../../health"])
+    def test_a_name_cannot_climb_to_another_route(self, client, name):
+        """Httpx collapses `..` in a path, so `/api/devices/../health` would be `/api/health`."""
+        from flyball.interfaces.client import SchemaError
+
+        for tool, arguments in (
+            ("view_device", {"name": name}),
+            ("describe_device", {"name": name}),
+            ("read", {"address": name}),
+            ("manual", {"target": name}),
+        ):
+            with pytest.raises(SchemaError, match="not a name"):
+                self.tool(client, tool).run(client, arguments)
+
+    def test_a_name_is_one_path_segment_whatever_it_holds(self, client):
+        """`?`, `#` and `%` are encoded: a name cannot add a query or cut the path short."""
+        for name in ("heaters?fresh=true", "heaters#x", "heaters%"):
+            with pytest.raises(RigError) as refused:
+                self.tool(client, "view_device").run(client, {"name": name})
+            assert refused.value.status == 404, name
+
     def test_a_device_command_runs_and_is_validated(self, client):
         from flyball.interfaces.client import SchemaError
 

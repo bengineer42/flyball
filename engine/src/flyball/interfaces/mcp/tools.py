@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from flyball.interfaces.client import Rig, RigError, SchemaError
+from flyball.interfaces.client import Rig, RigError, SchemaError, segment
 from flyball.scaffold import render
 
 __all__ = ["GUIDES", "MODES", "Tier", "Tool", "tools_for"]
@@ -113,8 +114,10 @@ SESSION = _int("A recorded session's id, from `list_sessions`.")
 
 
 def _query(**params: Any) -> str:
+    """`?k=v&...` for the values given, each percent-encoded (a `,` list stays readable)."""
     given = {k: v for k, v in params.items() if v is not None}
-    return "?" + "&".join(f"{k}={v}" for k, v in given.items()) if given else ""
+    pairs = (f"{k}={quote(str(v), safe=',')}" for k, v in given.items())
+    return "?" + "&".join(pairs) if given else ""
 
 
 def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
@@ -169,14 +172,14 @@ READ: tuple[Tool, ...] = (
         "dashboard that names its signals.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/devices/{a['name']}/schema"),
+        lambda rig, a: rig.get(f"/api/devices/{segment(a['name'])}/schema"),
     ),
     Tool(
         "view_device",
         "A device now: its tree with current values, inputs, commands and conditions.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/devices/{a['name']}"),
+        lambda rig, a: rig.get(f"/api/devices/{segment(a['name'])}"),
     ),
     Tool(
         "read",
@@ -251,7 +254,7 @@ READ: tuple[Tool, ...] = (
         "A stored program's newest version: its text and format.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/programs/library/{a['name']}"),
+        lambda rig, a: rig.get(f"/api/programs/library/{segment(a['name'])}"),
     ),
     Tool(
         "check_program",
@@ -305,7 +308,7 @@ READ: tuple[Tool, ...] = (
         "One recorded session: when, what was recorded, its config.",
         _object({"session_id": SESSION}, "session_id"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/history/sessions/{a['session_id']}"),
+        lambda rig, a: rig.get(f"/api/history/sessions/{segment(a['session_id'])}"),
     ),
     Tool(
         "session_series",
@@ -323,7 +326,7 @@ READ: tuple[Tool, ...] = (
         ),
         Tier.READ,
         lambda rig, a: rig.get(
-            f"/api/history/sessions/{a['session_id']}/series/{a['address']}"
+            f"/api/history/sessions/{segment(a['session_id'])}/series/{segment(a['address'])}"
             + _query(
                 start_ns=a.get("start_ns"),
                 end_ns=a.get("end_ns"),
@@ -350,7 +353,7 @@ READ: tuple[Tool, ...] = (
         Tier.READ,
         lambda rig, a: {
             "ticks": rig.get(
-                f"/api/history/sessions/{a['session_id']}/ticks/{a['controller']}"
+                f"/api/history/sessions/{segment(a['session_id'])}/ticks/{segment(a['controller'])}"
                 + _query(start_ns=a.get("start_ns"), end_ns=a.get("end_ns"), every=a.get("every"))
             )
         },
@@ -369,7 +372,7 @@ READ: tuple[Tool, ...] = (
         "A dashboard's newest version, with `problems`: widgets bound to things the rig lacks.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/dashboards/{a['name']}"),
+        lambda rig, a: rig.get(f"/api/dashboards/{segment(a['name'])}"),
     ),
     Tool(
         "dashboard_schema",
@@ -431,7 +434,7 @@ def _save_program(rig: Rig, a: dict[str, Any]) -> Any:
     else:
         raise SchemaError("save_program: give `document` (JSON) or `text` (with `format`)")
     envelope = {"format": fmt, "body": body, "label": a.get("label"), "notes": a.get("notes")}
-    return rig.put(f"/api/programs/library/{a['name']}", envelope)
+    return rig.put(f"/api/programs/library/{segment(a['name'])}", envelope)
 
 
 def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
@@ -463,10 +466,10 @@ def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
 
 
 def _update_dashboard(rig: Rig, a: dict[str, Any]) -> Any:
-    document = rig.get(f"/api/dashboards/{a['name']}")["body"]
+    document = rig.get(f"/api/dashboards/{segment(a['name'])}")["body"]
     for change in a["changes"]:
         _apply(document, change)
-    return rig.put(f"/api/dashboards/{a['name']}", document)
+    return rig.put(f"/api/dashboards/{segment(a['name'])}", document)
 
 
 WIDGET = {
@@ -529,7 +532,7 @@ AUTHOR: tuple[Tool, ...] = (
         _object({"name": NAME, "new_name": _str("The new name.")}, "name", "new_name"),
         Tier.AUTHOR,
         lambda rig, a: rig.post(
-            f"/api/programs/library/{a['name']}/rename", {"name": a["new_name"]}
+            f"/api/programs/library/{segment(a['name'])}/rename", {"name": a["new_name"]}
         ),
     ),
     Tool(
@@ -537,7 +540,7 @@ AUTHOR: tuple[Tool, ...] = (
         "Delete a program and its whole history.",
         _object({"name": NAME}, "name"),
         Tier.AUTHOR,
-        lambda rig, a: rig.delete(f"/api/programs/library/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/programs/library/{segment(a['name'])}"),
         destructive=True,
     ),
     Tool(
@@ -547,7 +550,7 @@ AUTHOR: tuple[Tool, ...] = (
         "things the rig lacks.",
         _object({"name": NAME, "document": DOCUMENT}, "name", "document"),
         Tier.AUTHOR,
-        lambda rig, a: rig.put(f"/api/dashboards/{a['name']}", a["document"]),
+        lambda rig, a: rig.put(f"/api/dashboards/{segment(a['name'])}", a["document"]),
     ),
     Tool(
         "update_dashboard",
@@ -566,14 +569,16 @@ AUTHOR: tuple[Tool, ...] = (
         "Move a dashboard, every version, under a new name.",
         _object({"name": NAME, "new_name": _str("The new name.")}, "name", "new_name"),
         Tier.AUTHOR,
-        lambda rig, a: rig.post(f"/api/dashboards/{a['name']}/rename", {"name": a["new_name"]}),
+        lambda rig, a: rig.post(
+            f"/api/dashboards/{segment(a['name'])}/rename", {"name": a["new_name"]}
+        ),
     ),
     Tool(
         "delete_dashboard",
         "Delete a dashboard and its whole history.",
         _object({"name": NAME}, "name"),
         Tier.AUTHOR,
-        lambda rig, a: rig.delete(f"/api/dashboards/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/dashboards/{segment(a['name'])}"),
         destructive=True,
     ),
     Tool(
@@ -592,7 +597,7 @@ AUTHOR: tuple[Tool, ...] = (
         ),
         Tier.AUTHOR,
         lambda rig, a: rig.put(
-            f"/api/history/tunings/{a['name']}",
+            f"/api/history/tunings/{segment(a['name'])}",
             {
                 "law": a["law"],
                 "config": a["config"],
@@ -645,7 +650,7 @@ DRIVE: tuple[Tool, ...] = (
         ),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            f"/api/controllers/{a['target']}/regulate",
+            f"/api/controllers/{segment(a['target'])}/regulate",
             {k: v for k, v in a.items() if k != "target"},
         ),
     ),
@@ -654,7 +659,7 @@ DRIVE: tuple[Tool, ...] = (
         "Put a controller in manual: it stops driving; the demand stays where it is.",
         _object({"target": TARGET}, "target"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/controllers/{a['target']}/manual"),
+        lambda rig, a: rig.post(f"/api/controllers/{segment(a['target'])}/manual"),
     ),
     Tool(
         "set_reference",
@@ -666,7 +671,7 @@ DRIVE: tuple[Tool, ...] = (
         ),
         Tier.DRIVE,
         lambda rig, a: rig.put(
-            f"/api/controllers/{a['target']}/reference",
+            f"/api/controllers/{segment(a['target'])}/reference",
             {k: v for k, v in a.items() if k != "target"},
         ),
     ),
@@ -691,7 +696,7 @@ DRIVE: tuple[Tool, ...] = (
         "Remove a controller; its demand stays where it is.",
         _object({"target": TARGET}, "target"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/controllers/{a['target']}"),
+        lambda rig, a: rig.delete(f"/api/controllers/{segment(a['target'])}"),
         destructive=True,
     ),
     Tool(
@@ -706,7 +711,7 @@ DRIVE: tuple[Tool, ...] = (
             "law",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.put(f"/api/tunings/{a['tag']}", a["law"]),
+        lambda rig, a: rig.put(f"/api/tunings/{segment(a['tag'])}", a["law"]),
     ),
     Tool(
         "run_program",
@@ -719,7 +724,11 @@ DRIVE: tuple[Tool, ...] = (
         }),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            (f"/api/programs/library/{a['name']}/run" if "name" in a else "/api/programs/run")
+            (
+                f"/api/programs/library/{segment(a['name'])}/run"
+                if "name" in a
+                else "/api/programs/run"
+            )
             + _query(interrupt="true" if a.get("interrupt") else None),
             None if "name" in a else a.get("document"),
         ),
@@ -767,7 +776,7 @@ DRIVE: tuple[Tool, ...] = (
         "Restart a device's polling after a fault.",
         _object({"name": NAME}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/devices/{a['name']}/restart"),
+        lambda rig, a: rig.post(f"/api/devices/{segment(a['name'])}/restart"),
     ),
     Tool(
         "read",
@@ -815,7 +824,7 @@ SIM: tuple[Tool, ...] = (
         "Change some of a plant's parameters while it runs.",
         _object({"name": NAME, "parameters": {"type": "object"}}, "name", "parameters"),
         Tier.DRIVE,
-        lambda rig, a: rig.put(f"/api/sim/plants/{a['name']}", a["parameters"]),
+        lambda rig, a: rig.put(f"/api/sim/plants/{segment(a['name'])}", a["parameters"]),
     ),
     Tool(
         "sim_reset_plant",
@@ -823,7 +832,7 @@ SIM: tuple[Tool, ...] = (
         _object({"name": NAME, "output": _num(""), "input": _num("")}, "name"),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            f"/api/sim/plants/{a['name']}/reset",
+            f"/api/sim/plants/{segment(a['name'])}/reset",
             {k: a.get(k) for k in ("output", "input")},
         ),
     ),
@@ -1095,7 +1104,7 @@ DRIVERS: tuple[Tool, ...] = (
             "text",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/links/{a['link']}/query", {"text": a["text"]}),
+        lambda rig, a: rig.post(f"/api/links/{segment(a['link'])}/query", {"text": a["text"]}),
         route=("post", "/api/links/{name}/query"),
     ),
     Tool(
@@ -1125,7 +1134,7 @@ DRIVERS: tuple[Tool, ...] = (
         "Stop and remove a device from the running rig; its controllers go with it.",
         _object({"name": NAME}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/devices/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/devices/{segment(a['name'])}"),
         route=("delete", "/api/devices/{name}"),
         destructive=True,
         changes_tools=True,
@@ -1149,7 +1158,7 @@ DRIVERS: tuple[Tool, ...] = (
         "Drop a link no device is built on.",
         _object({"name": NAME}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/links/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/links/{segment(a['name'])}"),
         route=("delete", "/api/links/{name}"),
         destructive=True,
     ),
@@ -1198,7 +1207,7 @@ DRIVERS: tuple[Tool, ...] = (
         "One recorded rig version, with its whole document.",
         _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/rig/versions/{a['version_id']}"),
+        lambda rig, a: rig.get(f"/api/rig/versions/{segment(a['version_id'])}"),
         route=("get", "/api/rig/versions/{version_id}"),
     ),
     Tool(
@@ -1207,7 +1216,7 @@ DRIVERS: tuple[Tool, ...] = (
         "missing is added, a changed device is rebuilt, controllers re-attached.",
         _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/rig/versions/{a['version_id']}/restore"),
+        lambda rig, a: rig.post(f"/api/rig/versions/{segment(a['version_id'])}/restore"),
         route=("post", "/api/rig/versions/{version_id}/restore"),
         destructive=True,
         changes_tools=True,
