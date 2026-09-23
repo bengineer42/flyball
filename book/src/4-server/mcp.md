@@ -122,8 +122,8 @@ Put a token on any runner a model can drive; the read tier is what
   search script, so it is drive-tier like `check_driver`);
   `probe_hardware` says what buses the board has and `link_query` sends
   one raw command down a link, to find out what an instrument is before
-  writing its entry. `probe_hardware` is read-tier for the board and bus
-  list; `operate` has the same tool with a `scan` argument for the
+  writing its entry. `probe_hardware` (`POST /api/probe`) is read-tier for
+  the board and bus list; `operate` has the same tool with a `scan` argument for the
   addresses answering on each I2C bus, a bus transaction some devices
   mind, so it is not offered below that tier. Most instruments need no
   code: the `scpi` and `modbus` drivers take their signals from the

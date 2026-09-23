@@ -441,6 +441,22 @@ class TestDriverTools:
         with pytest.raises(RigError, match="no drivers directory"):
             self.tool(client, "reload_drivers").run(client, {})
 
+    def test_probe_hardware_posts_at_every_tier(self, client):
+        """A scan drives the bus, so `/api/probe` is a POST; the read tier never scans."""
+        seen: list[tuple[str, str]] = []
+
+        class Recorder:
+            def get(self, path: str) -> Any:
+                seen.append(("get", path))
+
+            def post(self, path: str, body: Any = None) -> Any:
+                seen.append(("post", path))
+
+        self.tool(client, "probe_hardware", "read").run(Recorder(), {})
+        self.tool(client, "probe_hardware").run(Recorder(), {"scan": True})
+        assert seen == [("post", "/api/probe?scan=false"), ("post", "/api/probe?scan=true")]
+        assert self.tool(client, "probe_hardware").route == ("post", "/api/probe")
+
     def test_guide_and_scaffold(self, client):
         guide = self.tool(client, "driver_guide", "read").run(client, {})
         assert guide.startswith("# Writing a device driver")

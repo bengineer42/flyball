@@ -57,8 +57,8 @@ recognised as the same site.
 `read` -- every `GET` and every stream is served to anyone, and only a
 session or the token may do anything else. `read` is how a rig goes on the
 public internet to be watched but not driven, with or without a proxy's
-`limit_except GET` in front of it; the one `GET` with a side effect,
-`/api/probe`, stays behind the door. With `read` the UI shows the rig
+`limit_except GET` in front of it -- no `GET` has a side effect (a bus
+probe is `POST /api/probe`). With `read` the UI shows the rig
 read-only, says so in the app bar, and offers to sign in when a control is
 refused.
 

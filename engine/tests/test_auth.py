@@ -212,7 +212,7 @@ def test_anyone_may_read_but_only_a_login_may_operate(public):
     }
     refused = public.post("/api/recording/start", json={})
     assert refused.status_code == 401 and "Sign in" in refused.json()["detail"]
-    assert public.get("/api/probe").status_code == 401, "a GET with a side effect"
+    assert public.post("/api/probe").status_code == 401, "a bus scan"
     public.post("/api/auth/login", json={"secret": "plain"})
     assert public.post("/api/recording/start", json={}).status_code != 401
 

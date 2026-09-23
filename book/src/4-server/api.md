@@ -18,8 +18,8 @@ every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
 `?token=T` on a websocket or a `GET`. Without: `401` with a `detail` and
 `WWW-Authenticate: Bearer`, and a socket is closed with code 4401. A token
 that is sent and wrong is `401` too, never anonymous. With
-`auth.anonymous: read`, a `GET` or a stream passes without any of them
-(bar `/api/probe`). `/api/auth` is always reachable, and so is a `GET`
+`auth.anonymous: read`, a `GET` or a stream passes without any of them;
+no `GET` changes anything. `/api/auth` is always reachable, and so is a `GET`
 outside `/api`, `/ws` and `/mcp`: the bundled UI (its login page
 included), `/docs` and `/openapi.json`.
 
@@ -114,7 +114,7 @@ saving are never gated.
 | `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}`; a `rig`/`versions`/`restored` event marks it on the event stream |
 | `GET` | `/api/drivers` | every registered tag: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
-| `GET` | `/api/probe` | `{report}`: the board's buses, GPIO chips and, with `?scan=true`, I²C addresses (flyball-linux); 404 where it is not installed |
+| `POST` | `/api/probe` | `{report}`: the board's buses, GPIO chips and I²C addresses (flyball-linux); `?scan=false` for the list without a bus transaction; 404 where it is not installed. A `POST` because a scan drives every I²C bus |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
 | `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
 

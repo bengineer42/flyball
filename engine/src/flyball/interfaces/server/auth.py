@@ -5,8 +5,8 @@ from, in order, a bearer token (a machine), a session cookie (a person who logge
 and nothing (anonymous); a token that is presented and wrong is refused, never taken as
 anonymous. Each principal has a *level* -- `none < read < operate` -- and each request
 *needs* one: a GET or a stream under `/api`, `/ws` or `/mcp` needs `read`, anything else
-there `operate`, bar the handful of GETs with side effects, which need `operate` too; a GET
-outside them is the bundled UI, which the login page is part of, and needs nothing.
+there `operate` (no GET has a side effect: a bus probe is a POST); a GET outside them is
+the bundled UI, which the login page is part of, and needs nothing.
 `allows` compares the two; that one comparison is the only place a later scheme (several
 sign-ins with levels, a part of the rig locked) has to grow.
 
@@ -52,8 +52,6 @@ Scheme = Literal["anonymous", "password", "token"]
 
 LEVELS: dict[Level, int] = {"none": 0, "read": 1, "operate": 2}
 COOKIE = "flyball_session"
-# GETs that do something: a probe scans a bus. Anonymous readers do not get these.
-SIDE_EFFECT_GETS = ("/api/probe",)
 # Behind the door. A GET anywhere else is the bundled UI (the login page included) or the
 # API's own description of itself (`/docs`, `/openapi.json`), and needs nothing.
 GUARDED = ("/api", "/ws", "/mcp")
@@ -193,7 +191,7 @@ def needed(scope: Any) -> Level:
         return "none"
     if scope["type"] == "websocket":
         return "read"
-    if scope.get("method") in ("GET", "HEAD") and not path.startswith(SIDE_EFFECT_GETS):
+    if scope.get("method") in ("GET", "HEAD"):
         return "read" if _under(path, GUARDED) else "none"
     return "operate"
 

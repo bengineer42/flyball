@@ -1072,8 +1072,8 @@ DRIVERS: tuple[Tool, ...] = (
         "transaction: some devices mind), which this tier cannot do.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/probe" + _query(scan="false")),
-        route=("get", "/api/probe"),
+        lambda rig, a: rig.post("/api/probe" + _query(scan="false")),
+        route=("post", "/api/probe"),
     ),
     Tool(
         "probe_hardware",
@@ -1082,8 +1082,8 @@ DRIVERS: tuple[Tool, ...] = (
         "mind).",
         _object({"scan": _bool("Scan the I2C buses.")}),
         Tier.DRIVE,
-        lambda rig, a: rig.get("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
-        route=("get", "/api/probe"),
+        lambda rig, a: rig.post("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
+        route=("post", "/api/probe"),
     ),
     Tool(
         "link_query",
