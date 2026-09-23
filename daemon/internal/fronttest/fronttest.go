@@ -60,13 +60,33 @@ func Serve(ep endpoint.Endpoint, key principal.Key, aud, root string) (*Runner, 
 	return r, nil
 }
 
-// FromFrontDir reads dir's key, aud and endpoint as `flyball-runner
-// --front-dir dir` does, holds runner.lock (writing `pid <n> rig <rig>`)
-// and serves.
+// FromFrontDir holds runner.lock (writing `pid <n> rig <rig>`), then
+// reads dir's key, aud and endpoint, as `flyball-runner --front-dir dir`
+// does, and serves.
 func FromFrontDir(dir, root, rig string) (*Runner, error) {
 	if err := frontdir.Check(dir); err != nil {
 		return nil, err
 	}
+	lock, err := os.OpenFile(filepath.Join(dir, frontdir.Lock), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		return nil, fmt.Errorf("runner.lock: %w", err)
+	}
+	lock.Truncate(0)
+	fmt.Fprintf(lock, "pid %d rig %s\n", os.Getpid(), rig)
+	r, err := fromHeldFrontDir(dir, root)
+	if err != nil {
+		lock.Close()
+		return nil, err
+	}
+	r.lock = lock
+	return r, nil
+}
+
+func fromHeldFrontDir(dir, root string) (*Runner, error) {
 	key, err := frontdir.ReadKey(dir)
 	if err != nil {
 		return nil, err
@@ -83,23 +103,7 @@ func FromFrontDir(dir, root, rig string) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
-	lock, err := os.OpenFile(filepath.Join(dir, frontdir.Lock), os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		lock.Close()
-		return nil, fmt.Errorf("runner.lock: %w", err)
-	}
-	lock.Truncate(0)
-	fmt.Fprintf(lock, "pid %d rig %s\n", os.Getpid(), rig)
-	r, err := Serve(ep, principal.Key(key), strings.TrimSpace(string(aud)), root)
-	if err != nil {
-		lock.Close()
-		return nil, err
-	}
-	r.lock = lock
-	return r, nil
+	return Serve(ep, principal.Key(key), strings.TrimSpace(string(aud)), root)
 }
 
 // Close stops serving and releases runner.lock.

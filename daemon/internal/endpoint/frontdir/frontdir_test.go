@@ -4,12 +4,14 @@ package frontdir
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"flyballd/internal/endpoint"
 )
@@ -96,8 +98,11 @@ func TestWriteFrontDir(t *testing.T) {
 		t.Error("a second Write kept the key; every spawn gets a fresh one")
 	}
 	left, _ := os.ReadDir(dir)
-	if len(left) != 3 {
-		t.Errorf("front-dir holds %d entries after two writes, want key/aud/endpoint only: %v", len(left), left)
+	if len(left) != 4 {
+		t.Errorf("front-dir holds %d entries after two writes, want key/aud/endpoint and runner.lock only: %v", len(left), left)
+	}
+	if m := perm(t, filepath.Join(dir, Lock)); m != 0o600 {
+		t.Errorf("runner.lock %v, want 0600", m)
 	}
 }
 
@@ -207,6 +212,37 @@ func TestLiveLockRefusesWrite(t *testing.T) {
 	// An unheld runner.lock left by a dead runner does not block.
 	if _, err := Write(dir, "oven", ep); err != nil {
 		t.Errorf("Write after the runner let go: %v", err)
+	}
+}
+
+// Write holds runner.lock while it writes: a runner that takes the lock
+// (before it reads its key) cannot read the old key between Write's check
+// and its rename -- it waits, then reads the new one. Paused here on a
+// FIFO in place of aud.tmp, which blocks Write's open until it is read.
+func TestWriteHoldsTheLockWhileItWrites(t *testing.T) {
+	dir := filepath.Join(shortTemp(t), "oven")
+	if err := Prepare(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(dir, Aud+".tmp"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Write(dir, "oven", sockOf(t, dir)); done <- err }()
+	time.Sleep(100 * time.Millisecond) // Write is blocked opening aud.tmp
+	held, err := LockHeld(dir)
+	fifo, ferr := os.OpenFile(filepath.Join(dir, Aud+".tmp"), os.O_RDONLY, 0)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	go io.Copy(io.Discard, fifo)
+	<-done // an error (fsync on a FIFO) or not: only the lock mattered
+	fifo.Close()
+	if err != nil || !held {
+		t.Fatalf("while Write wrote: runner.lock held %v (%v), want held", held, err)
+	}
+	if held, _ := LockHeld(dir); held {
+		t.Error("Write left runner.lock held")
 	}
 }
 

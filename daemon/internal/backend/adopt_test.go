@@ -265,3 +265,31 @@ func TestAnUnsafeFrontDirIsNeverAdopted(t *testing.T) {
 
 // alive: pid has not exited (a zombie counts as gone).
 func alive(pid int) bool { return processAlive(pid, "") }
+
+// A spawn that exits 3 because a runner took the front-dir's runner.lock
+// in the meantime -- the runner of a flyballd that exited while it was
+// starting (it takes runner.lock before it reads its key, so it holds the
+// key just written) -- is that runner's front-dir, not a busy rig: it is
+// adopted.
+func TestExit3WithTheFrontDirHeldAdopts(t *testing.T) {
+	root := shortDir(t)
+	b, _ := frontedBackend(t, root)
+	var live *exec.Cmd
+	b.command = func(uv string, args []string) *exec.Cmd {
+		if live != nil {
+			return helperCommand(uv, args)
+		}
+		dir := args[2] // rig.yaml --front-dir DIR ...
+		live = helperCommand(uv, args)
+		if err := live.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { live.Process.Kill(); live.Wait() })
+		eventually(t, "the other runner holds runner.lock", func() bool { h, _ := frontdir.LockHeld(dir); return h })
+		return exec.Command("sh", "-c", "exit 3")
+	}
+	d := running(t, b, Spec{})
+	if !d.Adopted || d.Pid != live.Process.Pid {
+		t.Fatalf("detail %+v, want adopted, pid %d", d, live.Process.Pid)
+	}
+}

@@ -8,8 +8,16 @@ from __future__ import annotations
 import fcntl
 import os
 import sys
+import time
 from pathlib import Path
 from typing import IO
+
+FRONT_PATIENCE_S = 2.0
+"""How long `hold_front` keeps trying for `runner.lock` before it gives up (`RigBusy`).
+
+A front asks "does a runner live here?" with a shared lock held for an instant, and holds the
+lock while it writes the directory; a runner taking the lock at that instant waits it out.
+"""
 
 
 class RigBusy(Exception):
@@ -51,25 +59,41 @@ def hold(store: Path) -> IO[str]:
     return handle
 
 
-def hold_front(front_dir: Path, rig: str) -> IO[str]:
+def hold_front(front_dir: Path, rig: str = "") -> IO[str]:
     """Take `<front-dir>/runner.lock` for the life of the process: "a runner of mine lives here".
 
     The front never rewrites the key of a front-dir whose lock is held, and reads it to tell
-    a live runner from a dead one. Taken after the rig's own lock (`hold`). `RigBusy` if
-    another runner holds it. The file holds `pid <n> rig <name>`.
+    a live runner from a dead one -- so it is taken first, before the runner reads the
+    front-dir's `key` (and before the rig's own lock, `hold`): a front that starts meanwhile
+    then finds the runner, instead of rewriting the key under it. Checked with
+    [frontdir.check][flyball.runner.frontdir.check] first. A front's probe or write holds the
+    lock for an instant; that is waited out for `FRONT_PATIENCE_S`, then `RigBusy`: another
+    runner holds it. The file holds `pid <n>`, then `pid <n> rig <name>` once `name_front`
+    names the rig.
     """
     path = front_dir / "runner.lock"
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     handle = os.fdopen(fd, "r+", encoding="utf-8")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        holder = handle.read().strip() or "unknown"
-        handle.close()
-        raise RigBusy(f"another runner lives in {front_dir} ({holder})") from None
+    deadline = time.monotonic() + FRONT_PATIENCE_S
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() < deadline:
+                time.sleep(0.02)
+                continue
+            holder = handle.read().strip() or "unknown"
+            handle.close()
+            raise RigBusy(f"another runner lives in {front_dir} ({holder})") from None
     os.chmod(path, 0o600)
+    name_front(handle, rig)
+    return handle
+
+
+def name_front(handle: IO[str], rig: str) -> None:
+    """Write `pid <n> rig <name>` into a held `runner.lock` (`pid <n>` with no name)."""
     handle.seek(0)
     handle.truncate()
-    handle.write(f"pid {os.getpid()} rig {rig}\n")
+    handle.write(f"pid {os.getpid()} rig {rig}\n" if rig else f"pid {os.getpid()}\n")
     handle.flush()
-    return handle

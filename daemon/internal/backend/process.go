@@ -449,6 +449,15 @@ func (b *ProcessBackend) watch(rp *runnerProc, cmd *exec.Cmd) (live bool) {
 				rp.reason = "exit 2: a bad rig file, or a flyball-runner too old for --front-dir"
 				fmt.Fprintf(rp.logFile, "flyballd: exit 2: a bad rig file, or a flyball-runner too old for --front-dir; not restarting\n")
 			case exitRigBusy:
+				if held, _ := frontdir.LockHeld(rp.dir); held {
+					// A runner took this front-dir between its Write and
+					// this spawn's start (one a flyballd before this one
+					// started): not a busy rig but a runner to adopt.
+					fmt.Fprintf(rp.logFile, "flyballd: exit 3: a runner holds %s in %s; adopting it\n", frontdir.Lock, rp.dir)
+					rp.status = StatusStarting
+					b.mu.Unlock()
+					return true
+				}
 				again, final = false, StatusBusy
 				rp.reason = "exit 3: another runner holds the rig's store lock"
 			case exitFrontDir:

@@ -773,6 +773,91 @@ def test_main_serves_fronted_and_holds_the_runner_lock(tmp_path, monkeypatch):
     assert oct((folder / "runner.lock").stat().st_mode & 0o777) == "0o600"
 
 
+def test_main_holds_the_runner_lock_before_it_reads_the_key(tmp_path, monkeypatch):
+    """`runner.lock` is held from the moment the key is read.
+
+    Or a front that starts while this runner is starting rewrites the key under a runner that
+    already read the old one (then spawns a second runner: exit 3, the rig busy for ever).
+    """
+    import fcntl
+
+    from flyball.runner import frontdir
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    folder = front_dir(tmp_path / "f")
+    real = frontdir.read
+    seen: dict = {}
+
+    def read(path):
+        with open(folder / "runner.lock", "a") as probe:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                seen["held"] = False
+            except BlockingIOError:
+                seen["held"] = True
+        return real(path)
+
+    monkeypatch.setattr(frontdir, "read", read)
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: None)
+    argv = [str(rig_file), "--store", str(tmp_path / "s.sqlite"), "--front-dir", str(folder)]
+    assert runner.main(argv) == 0
+    assert seen == {"held": True}, "the key was read before runner.lock was taken"
+
+
+def test_a_held_runner_lock_is_exit_3_before_the_key_is_read(tmp_path, monkeypatch, capsys):
+    """Another runner lives in the front-dir: this one leaves at once, whatever the files say."""
+    import fcntl
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    folder = front_dir(tmp_path / "f", key="not a key\n")
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: None)
+    monkeypatch.setattr("flyball.runner.locking.FRONT_PATIENCE_S", 0.05, raising=False)
+    argv = [str(rig_file), "--store", str(tmp_path / "s.sqlite"), "--front-dir", str(folder)]
+    with open(folder / "runner.lock", "a") as live:
+        fcntl.flock(live, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert runner.main(argv) == 3
+    assert "another runner lives in" in capsys.readouterr().err
+    assert not (tmp_path / "s.sqlite.lock").exists(), "nor took the rig's lock"
+
+
+def test_hold_front_waits_out_a_front_s_probe(tmp_path):
+    """A runner taking `runner.lock` while a front probes it does not give up (exit 3).
+
+    A front asks "is a runner here?" with a shared lock held for an instant.
+    """
+    import fcntl
+    import threading
+
+    from flyball.runner import locking
+
+    folder = front_dir(tmp_path / "f")
+    probe = open(folder / "runner.lock", "a")  # noqa: SIM115 -- released by the timer
+    fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    timer = threading.Timer(0.2, probe.close)
+    timer.start()
+    try:
+        with locking.hold_front(folder, "lab"):
+            pass
+    finally:
+        timer.cancel()
+        probe.close()
+
+
+def test_hold_front_still_refuses_a_live_runner(tmp_path, monkeypatch):
+    import fcntl
+
+    from flyball.runner import locking
+
+    monkeypatch.setattr(locking, "FRONT_PATIENCE_S", 0.1, raising=False)
+    folder = front_dir(tmp_path / "f")
+    with open(folder / "runner.lock", "a") as live:
+        fcntl.flock(live, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(locking.RigBusy, match="another runner lives in"):
+            locking.hold_front(folder, "lab")
+
+
 def test_serve_fronted_binds_the_endpoint_only(tmp_path, monkeypatch, capsys):
     from flyball.rig import Rig
     from flyball.runner.frontdir import read

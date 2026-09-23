@@ -651,10 +651,21 @@ func fakeRunnerMain(args []string) {
 			root = args[i+1]
 		}
 	}
+	if dir == "" {
+		os.Exit(4)
+	}
+	// runner.lock for its life, naming its pid, taken before the key is
+	// read, as the real runner does.
+	lock, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		os.Exit(3)
+	}
+	lock.Truncate(0)
+	fmt.Fprintf(lock, "pid %d\n", os.Getpid())
 	key, err1 := os.ReadFile(filepath.Join(dir, "key"))
 	aud, err2 := os.ReadFile(filepath.Join(dir, "aud"))
 	ep, err3 := os.ReadFile(filepath.Join(dir, "endpoint"))
-	if dir == "" || err1 != nil || err2 != nil || err3 != nil {
+	if err1 != nil || err2 != nil || err3 != nil {
 		os.Exit(4)
 	}
 	e, err := endpoint.Parse(strings.TrimSpace(string(ep)))
@@ -662,13 +673,6 @@ func fakeRunnerMain(args []string) {
 		os.Exit(4)
 	}
 	want := strings.TrimSpace(string(key)) + "/" + strings.TrimSpace(string(aud))
-	// runner.lock for its life, naming its pid, as the real runner does.
-	lock, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
-		os.Exit(3)
-	}
-	lock.Truncate(0)
-	fmt.Fprintf(lock, "pid %d rig %s\n", os.Getpid(), strings.TrimSpace(string(aud)))
 	l, err := net.Listen(e.Network, e.Address)
 	if err != nil {
 		os.Exit(1)
