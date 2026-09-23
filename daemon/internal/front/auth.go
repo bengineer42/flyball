@@ -356,6 +356,21 @@ func cookieName(p Plan) string {
 	return "flyball"
 }
 
+// Bound recomputes the cookie name from the port actually bound, for a
+// plan whose Listen asked for port 0 (e.g. `--listen 127.0.0.1:0`): before
+// this, cookieName saw "0" and every such front shared "flyball-0". Unix
+// sockets and TLS (__Host-) are unaffected, since cookieName does not use
+// the port for either.
+func (f *Front) Bound(addr net.Addr) {
+	tcp, ok := addr.(*net.TCPAddr)
+	if !ok {
+		return
+	}
+	p := f.plan
+	p.Listen = tcp.String()
+	f.cookie = cookieName(p)
+}
+
 func (f *Front) setCookie(w http.ResponseWriter, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: f.cookie, Value: value, Path: "/", MaxAge: maxAge,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: f.plan.Secure})

@@ -58,6 +58,7 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
+	normalized = addReadScopes(normalized)
 	var life time.Duration
 	if hasExpires {
 		life, err = parseExpires(expires)
@@ -149,6 +150,24 @@ func runTokenRevoke(args []string) error {
 	}
 	fmt.Println("revoked", args[0])
 	return nil
+}
+
+// addReadScopes adds read on the same rig for every non-read, non-management
+// scope. The vocabulary is an unordered set of verbs until D-034 lands, so
+// an elevated scope such as operate:blender does not itself imply read:
+// without this, a CLI-issued operate token gets 403 "needs 'read'" on a
+// websocket. CLI-only (flyball token create, flyball login --scope): the
+// server and the verb table are unchanged.
+func addReadScopes(scopes []string) []string {
+	out := append([]string{}, scopes...)
+	for _, s := range scopes {
+		p, err := grants.ParseScope(s)
+		if err != nil || p.Management() || p.Verb == grants.Read {
+			continue
+		}
+		out = append(out, grants.Read+":"+p.Rig)
+	}
+	return grants.Normalize(out)
 }
 
 // popAllValues collects every occurrence of --name VALUE (order

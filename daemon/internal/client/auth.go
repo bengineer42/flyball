@@ -300,6 +300,7 @@ func resolveLoginScopes(t Target, raw []string) (scopes []string, elevated bool,
 	if err != nil {
 		return nil, false, err
 	}
+	normalized = addReadScopes(normalized)
 	for _, s := range normalized {
 		p, perr := grants.ParseScope(s)
 		if perr == nil && !p.Management() && p.Verb != grants.Read {
@@ -307,6 +308,25 @@ func resolveLoginScopes(t Target, raw []string) (scopes []string, elevated bool,
 		}
 	}
 	return normalized, elevated, nil
+}
+
+// addReadScopes adds read on the same rig for every non-read, non-management
+// scope. The vocabulary is an unordered set of verbs until D-034 lands, so
+// an elevated scope such as operate:blender does not itself imply read:
+// without this, a session logged in with only an operate scope gets 403
+// "needs 'read'" on a websocket. CLI-only (flyball login --scope, and
+// cmd/flyball/token.go's flyball token create): the server and the verb
+// table are unchanged.
+func addReadScopes(scopes []string) []string {
+	out := append([]string{}, scopes...)
+	for _, s := range scopes {
+		p, err := grants.ParseScope(s)
+		if err != nil || p.Management() || p.Verb == grants.Read {
+			continue
+		}
+		out = append(out, grants.Read+":"+p.Rig)
+	}
+	return grants.Normalize(out)
 }
 
 // bareVerbRig is what a bare, elevated --scope verb resolves against

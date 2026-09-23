@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -772,6 +773,18 @@ func TestCookieNames(t *testing.T) {
 			t.Fatalf("claims over TLS: %+v", cl)
 		}
 	})
+}
+
+// Bound recomputes the cookie name from the port actually bound: a plan
+// asking for port 0 (`--listen 127.0.0.1:0`) sees "0" until the listener
+// says otherwise, so two such fronts would otherwise share "flyball-0".
+func TestBoundRenamesCookie(t *testing.T) {
+	h := newHarness(t, Config{Listen: "127.0.0.1:0", Auth: "password", Password: testScrypt})
+	h.front.Bound(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 51234})
+	resp := h.do("POST", "/api/auth/login", `{"password":"`+testPassword+`"}`, h.origin())
+	if raw := resp.Header.Get("Set-Cookie"); !strings.HasPrefix(raw, "flyball-51234=") {
+		t.Fatalf("cookie %q, want flyball-51234", raw)
+	}
 }
 
 // Merge requirement 24: every misconfiguration serves local on loopback

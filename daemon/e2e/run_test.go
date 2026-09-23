@@ -578,7 +578,7 @@ func TestRunPassword(t *testing.T) {
 	})
 
 	t.Run("an offline token: flyball stop, then flyball token revoke", func(t *testing.T) {
-		secret, errOut, code := e.run(nil, "flyball", "token", "create", "--config", rig, "--name", "cli-op", "--scope", "operate", "--scope", "read")
+		secret, errOut, code := e.run(nil, "flyball", "token", "create", "--config", rig, "--name", "cli-op", "--scope", "operate")
 		secret = strings.TrimSpace(secret)
 		m := regexp.MustCompile(`token (\S+):`).FindStringSubmatch(errOut)
 		if code != 0 || !strings.HasPrefix(secret, "fbt1_") || m == nil {

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +56,8 @@ func TestLoginScopeOperateBecomesRigScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	if len(tok.Scopes) != 1 || tok.Scopes[0] != "operate:blender" {
-		t.Errorf("scopes = %v, want [operate:blender]", tok.Scopes)
+	if want := []string{"operate:blender", "read:blender"}; !slices.Equal(tok.Scopes, want) {
+		t.Errorf("scopes = %v, want %v", tok.Scopes, want)
 	}
 	if !tok.Elevated {
 		t.Errorf("Elevated = false for an operate scope")
@@ -78,8 +79,8 @@ func TestLoginScopeBareOperateFetchesRigFromAuthInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	if len(tok.Scopes) != 1 || tok.Scopes[0] != "operate:blender" {
-		t.Errorf("scopes = %v, want [operate:blender]", tok.Scopes)
+	if want := []string{"operate:blender", "read:blender"}; !slices.Equal(tok.Scopes, want) {
+		t.Errorf("scopes = %v, want %v", tok.Scopes, want)
 	}
 }
 
@@ -95,8 +96,8 @@ func TestLoginScopeOperateStarIsKept(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	if len(tok.Scopes) != 1 || tok.Scopes[0] != "operate:*" {
-		t.Errorf("scopes = %v, want [operate:*]", tok.Scopes)
+	if want := []string{"operate:*", "read:*"}; !slices.Equal(tok.Scopes, want) {
+		t.Errorf("scopes = %v, want %v", tok.Scopes, want)
 	}
 	if !tok.Elevated {
 		t.Errorf("Elevated = false for operate:*")
