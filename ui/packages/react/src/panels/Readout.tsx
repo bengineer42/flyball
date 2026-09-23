@@ -1,7 +1,7 @@
 import { alarmLevel, captionUnder, describeUnit, deviceOf, signalTitleAt, staleAfterS, withUnit, type Freshness, type Place, type SignalOut, fixed } from "@flyball/client";
 import { TimeSeries } from "./TimeSeries.js";
 import { Ref } from "../links.js";
-import { useFreshness, useSignal, type TraceRef } from "../store/hooks.js";
+import { useBandLevel, useFreshness, useSignal, type TraceRef } from "../store/hooks.js";
 import { PanelFrame } from "./PanelFrame.js";
 
 export interface ReadoutProps {
@@ -54,8 +54,8 @@ export interface ReadoutProps {
  * period) otherwise -- so the two never disagree (a signal polled slower than its device would
  * otherwise show a threshold shorter than the one that actually decided "stale").
  */
-export function readoutLevel(signal: Pick<SignalOut, "warning" | "alarm" | "poll_s">, last: number | undefined, fresh: Freshness | undefined) {
-  const level = alarmLevel(last, signal, fresh);
+export function readoutLevel(signal: Pick<SignalOut, "warning" | "alarm" | "poll_s">, last: number | undefined, fresh: Freshness | undefined, band?: "ok" | "warn" | "alarm") {
+  const level = alarmLevel(last, signal, fresh, band);
   const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
   const stale = level === "stale";
   return {
@@ -74,6 +74,8 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
   const own = source !== undefined && (fresh === undefined || fresh.lastSampleS == null || fresh.nowS == null);
   const freshness = useFreshness(own ? signal.address : undefined, fresh?.periodS);
   if (own) fresh = freshness;
+  // Store-fed: the level is the rig's band alarm on this signal, not a check of the value here.
+  const band = useBandLevel(source !== undefined ? signal.address : undefined);
   const range = signal.range;
   const precision = signal.precision ?? 2;
   const title = signalTitleAt(signal, place ?? {});
@@ -83,7 +85,7 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
   const width = String(Math.floor(widest)).length + (range && range[0] < 0 ? 1 : 0) + (precision ? precision + 1 : 0);
   const fraction =
     last !== undefined && range ? Math.min(1, Math.max(0, (last - range[0]) / (range[1] - range[0]))) : null;
-  const { level, label, footer } = readoutLevel(signal, last, fresh);
+  const { level, label, footer } = readoutLevel(signal, last, fresh, band);
   // Band edges that fall inside the range, as ticks on the bar.
   const ticks = range
     ? ([["warning", "warn"], ["alarm", "alarm"]] as const).flatMap(([key, band]) =>

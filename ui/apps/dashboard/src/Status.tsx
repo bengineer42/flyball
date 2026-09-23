@@ -168,14 +168,11 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
   const health = useHealth(5000);
   const h = health.data;
 
-  // Alarm summary (research §6): `/api/health.alarms` counts the signals outside their warn/alarm
-  // band plus the device conditions at WARNING/ERROR, so the chip reads the same as the health widget.
+  // Every condition the rig holds at warning or above, on any scope: device faults, and the band
+  // alarms the rig raises on signals (`band_warning`/`band_alarm`). The rig decides; the chip counts.
   const active = (h?.conditions ?? []).filter((c) => atLeast(c.severity, "warning"));
-  const amber = h?.alarms.warn ?? 0;
-  const red = h?.alarms.alarm ?? 0;
-  const conditionCount = amber + red;
-  const worst = h?.alarms.max_level ?? 0;
-  const alarmColour: Colour = red > 0 || worst >= 40 ? "error" : amber > 0 || worst >= 30 ? "warning" : "default";
+  const conditionCount = active.length;
+  const alarmColour: Colour = active.some((c) => atLeast(c.severity, "error")) ? "error" : active.length > 0 ? "warning" : "default";
 
   // Two states, not three: a mid-outage "reconnecting" reads as less serious than it is.
   // Anything not fully open is red -- no amber middle ground.
@@ -198,8 +195,6 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
       minWidth="7rem"
       lines={[
         ...active.map((c) => ({ name: `${c.subject} ${c.code}`, href: conditionHref(c), state: c.message })),
-        ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
-        ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
       ]}
       href={hashFor("events")}
       testId="conditions-chip"

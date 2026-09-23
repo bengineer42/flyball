@@ -12,6 +12,9 @@ export type StreamStatus = "connecting" | "open" | "closed";
  * they stay separate buckets here, so a `useWriteState`/`useDeviceRun`
  * subscriber still wakes only on the update it asked for.
  */
+/** The rig's band-alarm condition codes and the level each means on a tile. */
+const BAND_CODES: Record<string, "warn" | "alarm" | undefined> = { band_warning: "warn", band_alarm: "alarm" };
+
 export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "activities" | "events";
 /** The streams that actually open a socket; `writes` and `devices` share `samples`'s. */
 export type SocketStream = "samples" | "controllers" | "activities" | "events";
@@ -180,6 +183,11 @@ export class TelemetryStore {
   private activityList: Record<string, ActivityOut> = {};
   private activitiesVersion = 0;
   private eventList: Event[] = [];
+  /** The rig's band alarms by signal address (a `band_warning`/`band_alarm` condition it holds), from `/api/health` then the events' edges. */
+  private bands = new Map<string, "warn" | "alarm">();
+  /** When the band alarms were last read whole from `/api/health`: 0 until the first read lands (bands then unknown). */
+  private bandsSeededAt = 0;
+  private bandsAskedAt = 0;
   private eventsVersion = 0;
   private readonly eventCap = 2000;
   private eventsSeeded: Promise<void> | null = null;
@@ -825,11 +833,52 @@ export class TelemetryStore {
     const last = this.eventList.length ? this.eventList[this.eventList.length - 1]!.time_ns : Number.NEGATIVE_INFINITY;
     const fresh = events.filter((e) => e.time_ns > last);
     if (!fresh.length) return;
+    for (const e of fresh) this.applyBandEdge(e);
     let next = [...this.eventList, ...fresh];
     if (next.length > this.eventCap) next = next.slice(next.length - this.eventCap);
     this.eventList = next;
     this.eventsVersion++;
     this.mark("events", null);
+  }
+
+  /** A band alarm raised or cleared on a signal: kept by address; a clear only drops the one it names. */
+  private applyBandEdge(e: Event): void {
+    const level = BAND_CODES[e.code];
+    if (!level || e.scope !== "signal" || !e.edge) return;
+    if (e.edge === "raised") this.bands.set(e.subject, level);
+    else if (this.bands.get(e.subject) === level) this.bands.delete(e.subject);
+  }
+
+  /**
+   * The rig's band alarm on a signal: `"warn"`/`"alarm"` while it holds one, `"ok"` when not,
+   * and `undefined` until the rig's conditions have been read once (then the caller cannot tell).
+   */
+  bandOf(address: string): "ok" | "warn" | "alarm" | undefined {
+    if (!this.bandsSeededAt) return undefined;
+    return this.bands.get(address) ?? "ok";
+  }
+
+  /**
+   * Read the rig's band alarms whole from `/api/health` (at most every ten seconds): the base the
+   * events' edges then keep current, and a resync after a dropped socket missed some.
+   */
+  seedBands(): void {
+    const now = Date.now();
+    if (now - this.bandsAskedAt < 10_000) return;
+    this.bandsAskedAt = now;
+    this.rig
+      .health()
+      .then((h) => {
+        const next = new Map<string, "warn" | "alarm">();
+        for (const c of h.conditions ?? []) {
+          const level = BAND_CODES[c.code];
+          if (level && c.scope === "signal") next.set(c.subject, level);
+        }
+        this.bands = next;
+        this.bandsSeededAt = Date.now();
+        this.mark("events", null);
+      })
+      .catch(() => undefined); // no rig, or an older one: bands stay unknown and panels judge the value themselves
   }
 
   subscribeEvents(cb: () => void, everyMs = 250): () => void {

@@ -59,9 +59,11 @@ export interface ProgramBuilderProps {
   revision: number;
   /** Create mode: the name field is shown, and is what the program will be stored as. A stored program is renamed from the header instead. */
   nameEditable?: boolean;
+  /** No description field: for a one-off run, which is never stored. */
+  hideDescription?: boolean;
 }
 
-export function ProgramBuilder({ tree, onChange, programSchema, controllers, devices, stepErrors, stepWarnings = {}, revision, nameEditable }: ProgramBuilderProps) {
+export function ProgramBuilder({ tree, onChange, programSchema, controllers, devices, stepErrors, stepWarnings = {}, revision, nameEditable, hideDescription }: ProgramBuilderProps) {
   const commands = useMemo(() => commandsOf(programSchema), [programSchema]);
   const modifierSchemas = useMemo(() => modifiersOf(programSchema), [programSchema]);
   const byTag = useMemo(() => Object.fromEntries(commands.map((c) => [c.tag, c])), [commands]);
@@ -143,7 +145,7 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
   return (
     <Stack spacing={1.5}>
       {nameEditable && <TextField label="name" value={name} required onChange={(e) => setField("name", e.target.value)} inputProps={{ "aria-label": "program name" }} helperText="The program is stored under this name." fullWidth />}
-      <TextField label="description" value={description} onChange={(e) => setField("description", e.target.value)} inputProps={{ "aria-label": "program description" }} multiline minRows={1} maxRows={6} fullWidth />
+      {!hideDescription && <TextField label="description" value={description} onChange={(e) => setField("description", e.target.value)} inputProps={{ "aria-label": "program description" }} multiline minRows={1} maxRows={6} fullWidth />}
       {commands.length > 0 && <Palette commands={commands} onPick={(c) => insert(steps.length, newStep(c))} />}
       <Box
         ref={listRef}

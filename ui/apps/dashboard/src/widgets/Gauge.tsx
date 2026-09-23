@@ -1,5 +1,5 @@
 import { memo, useRef } from "react";
-import { Gauge, gaugeKindFor, useFreshness, useSignal, type GaugeKind } from "@flyball/react";
+import { Gauge, gaugeKindFor, useBandLevel, useFreshness, useSignal, type GaugeKind } from "@flyball/react";
 import { alarmLevel, deviceOf, signalTitle } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
@@ -28,7 +28,8 @@ const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponen
   // From the store: this tile alone re-renders on its signal, at most four times a second.
   const value = useSignal(signal ? address : undefined)?.v;
   const fresh = useFreshness(signal ? address : undefined);
-  const level = signal ? alarmLevel(value, signal, fresh) : undefined;
+  const band = useBandLevel(signal ? address : undefined);
+  const level = signal ? alarmLevel(value, signal, fresh, band) : undefined;
   // The frame's dot and border carry the level; the gauge itself draws no stale border here (`fresh` stays for the footer age).
   useWidgetChrome(signal ? { severity: level } : null);
   if (!signal) return <Missing what="signal" name={address} />;
@@ -38,7 +39,7 @@ const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponen
   // The number under the drawing: 1.3em ≈ 17px line plus the gap.
   return (
     <div ref={host} className={`fb-fill fb-gauge-host fb-gauge-host-${kind} fb-alarm-${level}`}>
-      <Gauge signal={signal} value={value} kind={kind} height={kind === "bar" ? 14 : Math.max(48, height - 26)} fresh={fresh} />
+      <Gauge signal={signal} value={value} kind={kind} height={kind === "bar" ? 14 : Math.max(48, height - 26)} fresh={fresh} band={band} />
     </div>
   );
 });

@@ -26,6 +26,11 @@ import pytest
 from conftest import free_port
 
 
+def _runner_warnings(err: str) -> list[str]:
+    """The runner's own WARNING lines, not the rig's log (the oven starts cold: a band warning)."""
+    return [line for line in err.splitlines() if "WARNING" in line and "flyball.rig:" not in line]
+
+
 @pytest.fixture
 def port() -> int:
     """This test's runner's port."""
@@ -107,7 +112,7 @@ def test_an_open_runner_asked_for_the_network_runs_on_loopback(tmp_path, port):
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate(timeout=15)
     assert proc.returncode == 0
-    warnings = [line for line in err.splitlines() if "WARNING" in line]
+    warnings = _runner_warnings(err)
     assert len(warnings) == 1 and "127.0.0.1" in warnings[0] and "--insecure-open" in warnings[0]
 
 
@@ -409,7 +414,7 @@ def test_a_fronted_runner_takes_only_the_principal(tmp_path, front_dir):
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate(timeout=20)
     assert proc.returncode == 0, err[-2000:]
-    warnings = [line for line in err.splitlines() if "WARNING" in line]
+    warnings = _runner_warnings(err)
     assert len(warnings) == 1 and "--front-dir" in warnings[0], warnings
     assert "link?n=" not in err
 
@@ -479,7 +484,7 @@ def test_a_removed_password_warns_and_serves_loopback(tmp_path, how, port):
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate(timeout=15)
     assert proc.returncode == 0
-    warnings = [line for line in err.splitlines() if "WARNING" in line]
+    warnings = _runner_warnings(err)
     assert len(warnings) == 1 and "removed and ignored" in warnings[0], warnings
 
 

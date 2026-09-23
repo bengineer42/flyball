@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, Box, Button, IconButton, Link, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import { DeviceSignals, Gauge, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useSignal, useTraceRef } from "@flyball/react";
+import { DeviceSignals, Gauge, useBandLevel, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useSignal, useTraceRef } from "@flyball/react";
 import { describeController, deviceOf, formatValue, isHousekeeping, publishes, RigError, signalTitle, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
 import { useRecordingExports } from "../model.js";
 import { StateBlock } from "../cards.js";
@@ -215,6 +215,7 @@ export function signalAt(devices: DeviceOut[], address: string): SignalOut | und
  * regulate it (as their source) or drive it (as their target).
  */
 export function SignalDetail({ devices, address, ...charts }: { devices: DeviceOut[]; address: string } & ChartSettings) {
+  const band = useBandLevel(address);
   const auth = useAuth();
   const { windowS, yScale } = charts;
   const stored = useRecordingExports();
@@ -241,7 +242,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
       <Stack direction={{ xs: "column", sm: "row" }} spacing="16px" alignItems="stretch" sx={{ mb: "16px" }}>
         {chartable && (
           <Paper sx={{ p: 3, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 200 }}>
-            <Gauge signal={signal} value={last} height={180} />
+            <Gauge signal={signal} value={last} height={180} band={band} />
           </Paper>
         )}
         <Box sx={{ flexGrow: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "16px" }}>

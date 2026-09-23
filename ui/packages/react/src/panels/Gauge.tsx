@@ -17,6 +17,8 @@ export interface GaugeProps {
    * full title row.
    */
   fresh?: Freshness;
+  /** The rig's band alarm on this signal (`useBandLevel`); without it the value is checked against the bands here. */
+  band?: "ok" | "warn" | "alarm";
 }
 
 /** Zone and fill colours; an embedding page sets the variables. */
@@ -87,10 +89,10 @@ export function numberWidth(range: [number, number] | null, precision: number): 
 const zoneColour = (zone: GaugeZone) => (zone.level === null ? NEUTRAL : COLOUR[zone.level]);
 
 /** One signal as a picture: its range with the warning/alarm zones, the value as a fill or needle, the number under it. */
-export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height, fresh }: GaugeProps) {
+export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height, fresh, band }: GaugeProps) {
   const range = gaugeRange(signal);
   const zones = gaugeZones(signal);
-  const level = alarmLevel(value, signal, fresh);
+  const level = alarmLevel(value, signal, fresh, band);
   const stale = level === "stale";
   const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
   const hasBands = !!(signal.warning || signal.alarm);

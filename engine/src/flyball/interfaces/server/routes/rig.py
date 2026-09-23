@@ -6,14 +6,13 @@ made of is under `/api/devices` and `/api/controllers`.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import SerializeAsAny, TypeAdapter, ValidationError
 
 from flyball.control.errors import TuningNotRegisteredError
-from flyball.foundation.device import Condition, Severity
+from flyball.foundation.device import Code, Condition, Scope, Severity
 from flyball.interfaces.server.deps import (
     RigDep,
     current_exposure,
@@ -36,40 +35,31 @@ router = APIRouter(prefix="/api", tags=["rig"])
 # isn't `get_catalog()`/`Catalogs.discover()`.
 
 
-def _outside(value: object, band: tuple[float, float] | None) -> bool:
-    """Whether a number is outside `band`.
+BANDS = frozenset({Code.BAND_WARNING, Code.BAND_ALARM})
+"""The conditions that are alarms, not faults: a reading outside a band."""
 
-    Anything else -- None, NaN, an infinity, a string -- says nothing about
-    the band: neither in nor out, so neither warn nor alarm.
+
+def _alarm_summary(conditions: list[dict[str, Any]]) -> dict[str, int]:
+    """Signals holding `band_warning` (`warn`) and `band_alarm` (`alarm`): alarms, not faults.
+
+    Counted from the rig's band conditions, so the count keeps the rig's
+    hysteresis; a fault condition (offline, write_failed) is never an alarm.
+    A signal holds at most one; one caught mid-swap counts as `alarm`.
+    `unknown` (a banded signal with no value) is always 0 yet. `max_level`
+    is 40 with any `alarm`, 30 with only `warn`, else 0.
     """
-    if band is None or isinstance(value, bool) or not isinstance(value, int | float):
-        return False
-    return math.isfinite(value) and not (band[0] <= value <= band[1])
-
-
-def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]:
-    """Amber and red counts: signals outside their `warn`/`alarm` bands, plus device conditions.
-
-    A signal already outside `alarm` is not also counted in `warn`: the
-    chip shows the worse of the two. A condition at `warning` or above counts
-    the same way, by its own severity.
-    """
-    warn = alarm = 0
-    latest = list(rig.latest.items())  # one C-level copy: no lock, as the loop must not wait
-    for signal, reading in latest:
-        if _outside(reading.value, signal.spec.alarm):
-            alarm += 1
-        elif _outside(reading.value, signal.spec.warning):
-            warn += 1
+    held: dict[str, str] = {}
     for c in conditions:
-        rank = Severity(c["severity"]).rank
-        if rank >= Severity.ERROR.rank:
-            alarm += 1
-        elif rank >= Severity.WARNING.rank:
-            warn += 1
+        if c["scope"] != Scope.SIGNAL or c["code"] not in BANDS:
+            continue
+        if held.get(c["subject"]) != Code.BAND_ALARM:
+            held[c["subject"]] = c["code"]
+    alarm = sum(1 for code in held.values() if code == Code.BAND_ALARM)
+    warn = len(held) - alarm
     return {
         "warn": warn,
         "alarm": alarm,
+        "unknown": 0,
         "max_level": 40 if alarm else 30 if warn else 0,
     }
 
@@ -94,6 +84,9 @@ def _conditions(rig: Rig) -> list[dict[str, Any]]:
 async def read_health() -> dict[str, Any]:
     """One look: is anything offline, slow or pending. What a watchdog or a status line polls.
 
+    `ok` is false with any fault condition at `error`; a band alarm is not a
+    fault, and is counted in `alarms` instead.
+
     Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
     rig's lock, so it reads C-level `list(...)` snapshots of the rig's dicts instead.
     """
@@ -102,7 +95,9 @@ async def read_health() -> dict[str, Any]:
         return {"ok": False, "rig": None, "exposure": current_exposure()}
     conditions = _conditions(rig)
     return {
-        "ok": not any(c["severity"] == Severity.ERROR for c in conditions),
+        "ok": not any(
+            c["severity"] == Severity.ERROR and c["code"] not in BANDS for c in conditions
+        ),
         "rig": rig.name,
         "uptime_s": rig.clock.elapsed_s(),
         "devices": {
@@ -111,7 +106,7 @@ async def read_health() -> dict[str, Any]:
         },
         "controllers": {name: c.mode.value for name, c in list(rig.controllers.items())},
         "conditions": conditions,
-        "alarms": _alarm_summary(rig, conditions),
+        "alarms": _alarm_summary(conditions),
         "activities": sorted(rig.triggers.states()),
         "recording": rig.recording is not None,
         "exposure": current_exposure(),  # served on loopback though asked for more, or open

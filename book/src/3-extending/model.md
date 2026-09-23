@@ -181,7 +181,8 @@ genuine transition makes one. Setting a condition that already holds
 updates its message and nothing else, so a producer may set it on every
 poll or every step; one that could flicker adds hysteresis before it sets
 or clears (the runtime's `slow` does: three slow reads in a row to raise,
-five fast ones to clear).
+five fast ones to clear; a band's condition clears only after
+`max(2·poll_s, 1 s)` back inside).
 
 A driver raises its own through the device:
 
@@ -196,7 +197,9 @@ self.clear_condition("railed")                                        # when it 
 `set_condition` returns whether it raised the condition (it was not held
 before). The code is any stable string the driver chooses; the runtime's
 own are `Code` members (`offline`, `slow`, `write_failed`, `commit_failed`,
-`stale_input`, `limit_unknown`, `step_failed`, `recording_failed`). Both
+`stale_input`, `limit_unknown`, `step_failed`, `recording_failed`, and
+`band_warning`/`band_alarm` on a signal whose reading is outside its
+`warning`/`alarm` band -- [Bands](../2-config/devices/index.md#bands)). Both
 calls are safe from any thread, `read` and `commit` included. Before the
 device is on a rig they go to a store of its own; adding it to a rig
 raises what it holds there, on the rig's clock. `device.held_conditions()`

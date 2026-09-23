@@ -81,6 +81,14 @@ class Code(StrEnum):
     """A condition: the controller's measured signal is older than `stale_after_s`; held."""
     LIMIT_UNKNOWN = "limit_unknown"
     """A condition: a limit on the controller's output is not known; held."""
+    # A signal.
+    BAND_WARNING = "band_warning"
+    """A condition on a signal (`warning`): its reading is outside its `warning` band but not
+    its `alarm` band. Raised on the first reading beyond; cleared once readings have been back
+    inside for `max(2·poll_s, 1 s)`. `details`: `{side, value, bounds}`."""
+    BAND_ALARM = "band_alarm"
+    """A condition on a signal (`error`): its reading is outside its `alarm` band. A signal
+    holds this or `band_warning`, never both; same edges and `details`."""
     INTERRUPTED = "interrupted"
     # A program (`step_failed` too). It ends `succeeded`, `failed`, `cancelled` by a person,
     # or `interrupted` by the engine (a stop, a shutdown), with the reason.

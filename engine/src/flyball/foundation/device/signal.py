@@ -24,6 +24,7 @@ from ..errors import NotFoundError, NotReadyError, UnachievableError
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
+from .state import Code
 
 if TYPE_CHECKING:
     from ..router.router import Router
@@ -777,8 +778,16 @@ class Signal:
         self.node.device.push_one(self, value, time_ns)
 
     def set_meta(self, **changes: Any) -> None:
-        """Replace metadata fields of the spec in place; the bound object keeps its identity."""
-        self.spec = replace(self.spec, **changes)
+        """Replace metadata fields of the spec in place; the bound object keeps its identity.
+
+        A `warning` or `alarm` band removed takes its condition with it
+        (`band_warning`, `band_alarm`), cleared at once: there is no band
+        left for a reading to come back inside.
+        """
+        before, self.spec = self.spec, replace(self.spec, **changes)
+        for band, code in (("warning", Code.BAND_WARNING), ("alarm", Code.BAND_ALARM)):
+            if getattr(before, band) is not None and getattr(self.spec, band) is None:
+                self.node.device.conditions.clear(self, code, message=f"{band} band removed")
 
     def restrict(self, access: Access) -> None:
         """Set `access` to a subset of what the driver declared, or up to its `ceiling`.

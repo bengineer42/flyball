@@ -58,6 +58,19 @@ device. A cancel or a stop waits at most 5 s for the step to return and
 then goes on, with a `step_still_running` event naming the step: it may
 still act, so stop the device itself (its `stop` command) to end it.
 
+## Running one step on its own
+
+To do one thing now — put a loop in manual, ramp a setpoint, send a device a
+command — without writing a program, use **Run a step** on the Programs page.
+It opens the program editor's own palette and step forms in a dialog; pick a
+step, fill it in (the rig checks it as you go, as it does a program), and press
+**Run**. Nothing is saved to the library: it runs as an unstored program named
+"one-off step", so it shows on the program chip and in Events like any other
+run. Add more steps if you want a short sequence. If a program is already
+running, the dialog says so and the button becomes **Cancel it and run**. The
+button is off for a browser that may only read. Behind it is
+`POST /api/programs/run` with the document as the body.
+
 ## Who owns what
 
 The **rig** is what the equipment *is*: devices, controllers, the clock.

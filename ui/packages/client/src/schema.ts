@@ -672,9 +672,14 @@ export function alarmLevel(
   value: number | null | undefined,
   signal: { warning?: [number, number] | null; alarm?: [number, number] | null; poll_s?: number | null },
   fresh?: Freshness | null,
+  band?: "ok" | "warn" | "alarm",
 ): AlarmLevel {
   if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(signal.poll_s ?? fresh.periodS))
     return "stale";
+  // The rig raises band alarms (a `band_warning`/`band_alarm` condition on the signal) and the UI
+  // shows its word for it. Only a caller with no rig feed (a standalone panel) leaves `band` out and
+  // gets the value checked against the bands here instead.
+  if (band !== undefined) return band;
   if (value === null || value === undefined || Number.isNaN(value)) return "ok";
   const outside = (band: [number, number] | null | undefined) =>
     !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));

@@ -85,12 +85,17 @@ Three pydantic models, from the class itself, so a law is described once:
 - `view` — both flattened, round-tripping through `build()`.
 
 `MyLaw.config` is the model class; `law.config` is that law's values. A new
-law gains a wire schema this way, but nothing selects it by type until it is
-registered: add `catalog.register_law(MyLaw)` to your package's
-`register(catalog)` -- the same `flyball.configs` entry point a device or
-link registers through, see [Packaging](packaging.md). Once registered, it
-is selectable by type in a file or a request, and appears in the generated
-command form.
+law gains a wire schema this way, and `catalog.register_law(MyLaw)` in your
+package's `register(catalog)` (the same `flyball.configs` entry point a
+device or link registers through, see [Packaging](packaging.md)) adds it to
+the catalog.
+
+A registered law is **not yet selectable by type** in a rig file, a
+controller request or a saved tuning. Those validate against a fixed list of
+the built-in laws, and feedforwards and setpoint generators work the same
+way. Devices and links, by contrast, are checked against whatever is
+registered when the file is read. Until laws get the same treatment, a law
+of your own is usable only from Python.
 
 ## Tunings
 

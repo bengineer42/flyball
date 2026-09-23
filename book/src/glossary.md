@@ -17,6 +17,17 @@ dots inside a segment.
 with the signed handshake and routes to it again, with no restart
 (D-037).
 
+**alarm** — a signal's reading outside one of its **bands**, held by the
+rig as a condition on the signal: `band_warning` (outside `warning`) or
+`band_alarm` (outside `alarm`), never both. An alarm is not a fault:
+`/api/health` counts it in `alarms`, never in `ok`. A widget's limits only
+colour what it draws.
+
+**band** — a signal's `warning` or `alarm` range, `[lo, hi]`, set by the
+driver or the rig file. The rig raises its **alarm** on the first reading
+beyond it and clears it only after readings have been back inside for
+`max(2·poll_s, 1 s)`.
+
 **cancelled** — how a program ends when a person ends it: the cancel
 button, `POST /api/programs/cancel`, a new program started with `cancel`,
 or cancelling what it waits on. Outputs are kept. Compare **interrupted**.
