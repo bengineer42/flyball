@@ -42,7 +42,7 @@ guard, never new access. A key that is a namespace takes `label`,
 | `limits` | `[lo, hi]` | what a writable signal may be commanded to. A driver may declare an end that follows another of the device's signals (a supply's humidity, a max flow read from the device); until that signal has a finite value (none yet, or NaN or infinite, counts as not known), a demand is refused (503, "limit not known yet") and a controller's write is held -- never passed unclamped, nor clamped to the other end |
 | `max_rate` | `{per_second: N}` | how fast a demand may move; a faster one is clamped to the largest step the elapsed time allows, not refused. Unset: unlimited |
 | `poll_s` | number | this signal's own rate |
-| `stale_after` | number (seconds) | checked when a reading is delivered or the controller is regulated; a sensor that stops reporting is not caught. When it trips, a controller regulated from this signal holds its demand rather than apply it. Unset: never checked |
+| `stale_after` | number (seconds) | checked when a reading is delivered or the controller is regulated; a sensor that stops reporting is not caught. When it trips, a controller regulated from this signal is held: its law does not step and its demand is not applied, until a fresh reading. Unset: never checked |
 | `tags` | `{key: value}` | added to the driver's: `{line: dry}` groups signals across devices in the UI |
 | `access` | `"r"`, `"rp"`, … | keep only these of the flags the driver declared |
 | `readable`, `publishing`, `writable` | `false` | drop one flag each; only `false` is accepted |

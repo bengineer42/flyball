@@ -109,7 +109,8 @@ stale_after, limits, max_rate, tags, access, readable, publishing, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by; `stale_after` is seconds since the last reading beyond which a
-controller regulated from the signal holds its demand rather than apply it;
+controller regulated from the signal is held -- its law does not step and
+its demand is not applied;
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
 elapsed time allows, not refused); `access` names the set to keep (`"r"`), and

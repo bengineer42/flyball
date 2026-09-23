@@ -114,6 +114,9 @@ class Rig:
     _limit_held: set[str]
     """Controllers whose writes are held because a limit follows a signal with no value yet:
     one event on entering the hold, one on leaving it, none per step between."""
+    _stale_held: set[str]
+    """Controllers whose writes are held because their source is past `stale_after`:
+    one event on entering the hold, none per step while it lasts."""
     _failing: set[str]
     """Controllers whose step raised: one event on the first failure, one when a step succeeds
     again, none per failing step between. The others in the delivery carry on regardless."""
@@ -163,6 +166,7 @@ class Rig:
         self._node_observers = {}
         self._requested = {}
         self._limit_held = set()
+        self._stale_held = set()
         self._failing = set()
         self._touched = None
         self.entries = {}
@@ -489,10 +493,11 @@ class Rig:
         recorded -- every key a W signal, none driven by an active
         controller, every limit known -- then clamped to `limits` and
         fanned out to `device.apply`. A limit that follows a signal with no
-        value yet fails closed: a manual demand is refused whole, and a
-        controller's is held (nothing applied, `{}` returned) with a
-        `limit_unknown` event on entering the hold and `limit_known` on
-        leaving it. A demand
+        value yet fails closed: a manual demand is refused whole. A
+        controller's demand is held (nothing applied, `{}` returned) for
+        any reason [hold_reason][flyball.rig.rig.Rig.hold_reason] gives --
+        that limit, or a stale source -- which the controller has already
+        asked before stepping its law. A demand
         from outside a delivery is committed now and its states returned;
         one from inside a delivery (a controller's, a command's) is
         committed with everything else at its end, and this returns nothing.
@@ -515,20 +520,8 @@ class Rig:
         device = node.device
         if not isinstance(device, Committable):
             raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
-        if by is not None and (stale_after := by.source.spec.stale_after) is not None:
-            source = by.source
-            reading = self.router.latest.get(source)
-            age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
-            if age_s is None or age_s > stale_after:
-                self.event(
-                    Level.WARNING,
-                    Scope.CONTROLLER,
-                    by.name,
-                    Kind.STALE_INPUT,
-                    f"'{source.address}' has not been read in over {stale_after:g}s: held",
-                    {"age_s": age_s},
-                )
-                return {}
+        if by is not None and self.hold_reason(by) is not None:
+            return {}
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
             if isinstance(key, Signal):
@@ -566,31 +559,13 @@ class Rig:
             except LimitNotKnownError as e:
                 if by is None:
                     raise
-                if by.name not in self._limit_held:
-                    self._limit_held.add(by.name)
-                    self.event(
-                        Level.WARNING,
-                        Scope.CONTROLLER,
-                        by.name,
-                        Kind.LIMIT_UNKNOWN,
-                        f"{e}: held",
-                        {"signal": signal.address, "unknown": e.unknown},
-                    )
+                self._limit_unknown(by, e)
                 return {}
             if (max_rate := signal.spec.max_rate) is not None:
                 value = self._rate_clamped(signal, value, max_rate, now_ns)
             if value != original:
                 requested[signal] = original
             clamped[signal] = value
-        if by is not None and by.name in self._limit_held:
-            self._limit_held.discard(by.name)
-            self.event(
-                Level.INFO,
-                Scope.CONTROLLER,
-                by.name,
-                Kind.LIMIT_KNOWN,
-                "every limit on its target is known: writing again",
-            )
         with self.lock:
             time_ns = self.clock.now_ns()
             writer = self._writer_for(device)
@@ -612,6 +587,64 @@ class Rig:
                 self.recorder.record((), (), states, time_ns=time_ns)
             self._flush_pushed()
             return states
+
+    def hold_reason(self, controller: Controller) -> Kind | None:
+        """Why a write by `controller` would be held now, or None if it would go through.
+
+        `stale_input`: its source has not been read within `stale_after`.
+        `limit_unknown`: a limit on its target follows a signal with no value
+        yet, or a non-finite one (D-030). Each is one event on entering the
+        hold, not one per call; `limit_known` marks leaving the second. The
+        controller asks this before it steps its law, so a held write freezes
+        the law as well as the target; `demand` asks it again for its own
+        writes.
+        """
+        name = controller.name
+        if (stale_after := controller.source.spec.stale_after) is not None:
+            source = controller.source
+            reading = self.router.latest.get(source)
+            age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
+            if age_s is None or age_s > stale_after:
+                if name not in self._stale_held:
+                    self._stale_held.add(name)
+                    self.event(
+                        Level.WARNING,
+                        Scope.CONTROLLER,
+                        name,
+                        Kind.STALE_INPUT,
+                        f"'{source.address}' has not been read in over {stale_after:g}s: held",
+                        {"age_s": age_s},
+                    )
+                return Kind.STALE_INPUT
+            self._stale_held.discard(name)
+        try:
+            controller.target.clamp(0.0)
+        except LimitNotKnownError as e:
+            self._limit_unknown(controller, e)
+            return Kind.LIMIT_UNKNOWN
+        if name in self._limit_held:
+            self._limit_held.discard(name)
+            self.event(
+                Level.INFO,
+                Scope.CONTROLLER,
+                name,
+                Kind.LIMIT_KNOWN,
+                "every limit on its target is known: writing again",
+            )
+        return None
+
+    def _limit_unknown(self, controller: Controller, error: LimitNotKnownError) -> None:
+        """Enter a `limit_unknown` hold: the event once, not per step."""
+        if controller.name not in self._limit_held:
+            self._limit_held.add(controller.name)
+            self.event(
+                Level.WARNING,
+                Scope.CONTROLLER,
+                controller.name,
+                Kind.LIMIT_UNKNOWN,
+                f"{error}: held",
+                {"signal": error.address, "unknown": error.unknown},
+            )
 
     def _rate_clamped(self, signal: Signal, value: float, max_rate: Rate, now_ns: int) -> float:
         """`value`, held to at most `max_rate` away from the last commit's, over the elapsed time.
@@ -1079,6 +1112,7 @@ class Rig:
                 feedforward=feedforward,
                 min_period_s=min_period_s,
                 write=write,
+                hold=lambda: self.hold_reason(controller),
             )
             self.controllers.add(controller, default=default)
             self._changed(f"attached controller {controller.name}")
@@ -1095,8 +1129,10 @@ class Rig:
         with self.lock:
             controller = self.controllers.remove(name)
             self._limit_held.discard(name)
+            self._stale_held.discard(name)
             controller.manual()
             controller.write = Controller._unwired
+            controller.hold = Controller._never_held
             # A watcher primes from this cell; a name the rig no longer has must not be in it.
             self.controller_states.discard(name)
             self._changed(f"detached controller {name}")
