@@ -72,10 +72,18 @@ client sends the token as a header:
 ```
 
 The stdio server takes `--token` or `FLYBALL_TOKEN`. With neither a token
-nor a password on the runner there is no authentication at all: anyone who
-can reach the port can drive the rig, over `/api` as much as over `/mcp`.
-Put a token on any runner a model can drive; the read tier is what
-`auth.anonymous: read` lets through without one.
+nor a password on the runner there is no authentication at all: anyone on
+the runner's own machine can drive the rig, over `/api` as much as over
+`/mcp`. Such an open runner answers only to `localhost`, `127.0.0.1` and
+`[::1]`, and its MCP transport checks the same itself (the MCP SDK's DNS
+rebinding protection: `Host` and any `Origin` on a loopback name, else
+`421` / `403`), so `http://localhost:8000/mcp/author` works and
+`http://pi:8000/mcp/author` needs the token. On a runner with a door the
+transport's check is off -- the runner does not know every name it is
+reached by -- and the door refuses a foreign `Origin` instead (see
+[Authentication](api.md#authentication)). Put a token on any runner a
+model can drive; the read tier is what `auth.anonymous: read` lets
+through without one.
 
 ## What the model sees
 

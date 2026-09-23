@@ -368,6 +368,37 @@ class TestMounted:
         ).json()["result"]
         assert not called.get("isError") and "heaters" in called["content"][0]["text"]
 
+    def test_an_open_runner_s_mcp_refuses_a_rebound_name_itself(self, rig):
+        """DNS rebinding protection is on in the MCP transport too, not only at the door.
+
+        A bare app (no door in front) so the transport's own check is what answers.
+        """
+        from fastapi import FastAPI
+
+        from flyball.interfaces.mcp.http import mount
+
+        rig.name = "t"
+        set_rig(rig)
+        app = FastAPI()
+        http = TestClient(app)
+        mount(app, InProcess(http))
+        body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}}
+        accept = {"Accept": "application/json, text/event-stream"}
+        try:
+            with http:
+                rebound = http.post(
+                    "/mcp/read", json=body, headers={**accept, "Host": "evil.example"}
+                )
+                assert rebound.status_code == 421, rebound.text
+                foreign = http.post(
+                    "/mcp/read", json=body, headers={**accept, "Origin": "http://evil.example"}
+                )
+                assert foreign.status_code == 403, foreign.text
+                own = {**accept, "Host": "127.0.0.1:8000", "Origin": "http://127.0.0.1:8000"}
+                assert http.post("/mcp/read", json=body, headers=own).status_code != 421
+        finally:
+            set_rig(None)
+
     def test_each_mode_has_a_route(self, http):
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
