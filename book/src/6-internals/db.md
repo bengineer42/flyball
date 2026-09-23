@@ -114,6 +114,19 @@ Migrations are numbered SQL files in `flyball/record/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
 database brings it forward. `":memory:"` for tests.
 
+Every statement goes through one of two helpers, `_query` (reads) and
+`_transaction` (writes), and they classify what sqlite raises: an
+`IntegrityError` becomes `ConstraintError` (a `ConflictError`, 409), an
+`OperationalError` `StoreUnavailableError` (a `HardwareError`, 503), with
+sqlite's error kept as `__cause__`. Anything else -- a `ProgrammingError`
+from a closed store -- passes through unchanged, because it is a bug and an
+honest 500 beats an outage nobody can wait out. `OperationalError` also
+covers a transaction begun inside another, which is a bug too; sqlite's
+message in `detail` tells the two apart. A failed `ROLLBACK` is swallowed so
+it cannot replace the error that caused it. `used_bytes` reads the page
+counts directly and raises raw; its only caller, retention's sweep, catches
+everything.
+
 The rig's history is `rig_version`: one row per version, the whole document
 each time (never a diff, so any row stands alone), `parent_id` the version
 it was made from, and a one-row `rig_head` naming where the running rig

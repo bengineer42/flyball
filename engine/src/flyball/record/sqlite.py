@@ -12,10 +12,10 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 from pydantic_core import to_jsonable_python
 
@@ -23,11 +23,13 @@ from flyball.foundation.device import Access, Band, Device, Limit, Sample, Signa
 from flyball.foundation.errors import ConflictError, NotFoundError
 
 from .errors import (
+    ConstraintError,
     DashboardNotFoundError,
     NotDeclaredError,
     ProgramNotFoundError,
     SessionEndedError,
     SessionNotFoundError,
+    StoreUnavailableError,
     TuningNotFoundError,
 )
 from .migrate import migrate
@@ -224,6 +226,21 @@ def _rig_version_row(row: sqlite3.Row) -> RigVersionRow:
 
 
 # endregion
+
+
+def _raise_classified(error: sqlite3.Error, path: str | Path) -> NoReturn:
+    """Raise `error` as the store error it is, or as itself if it is not one.
+
+    `IntegrityError` is a write the store refuses; `OperationalError` a store it
+    cannot reach. Anything else (a closed connection, a bad parameter) is a bug,
+    and stays one: dressed as an outage it would have someone wait out a retry
+    that can never work.
+    """
+    if isinstance(error, sqlite3.IntegrityError):
+        raise ConstraintError(str(error), path) from error
+    if isinstance(error, sqlite3.OperationalError):
+        raise StoreUnavailableError(str(error), path) from error
+    raise error
 
 
 class SqliteSessionWriter:
@@ -522,18 +539,40 @@ class SqliteStore:
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
+        """One transaction. Its sqlite errors, and its body's, leave classified.
+
+        `BEGIN` stays outside the body's `try`: if it fails there is nothing to roll back.
+        """
         with self._lock:
-            self._connection.execute("BEGIN")
+            try:
+                self._connection.execute("BEGIN")
+            except sqlite3.Error as e:
+                _raise_classified(e, self.path)
             try:
                 yield self._connection
-            except BaseException:
-                self._connection.execute("ROLLBACK")
+            except BaseException as e:
+                self._rollback()
+                if isinstance(e, sqlite3.Error):
+                    _raise_classified(e, self.path)
                 raise
-            self._connection.execute("COMMIT")
+            try:
+                self._connection.execute("COMMIT")
+            except sqlite3.Error as e:
+                self._rollback()
+                _raise_classified(e, self.path)
+
+    def _rollback(self) -> None:
+        # A ROLLBACK that fails (the connection closed, or sqlite already rolled
+        # back) must not replace the error that caused it.
+        with suppress(sqlite3.Error):
+            self._connection.execute("ROLLBACK")
 
     def _query(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
         with self._lock:
-            return self._connection.execute(sql, tuple(params)).fetchall()
+            try:
+                return self._connection.execute(sql, tuple(params)).fetchall()
+            except sqlite3.Error as e:
+                _raise_classified(e, self.path)
 
     def close(self) -> None:
         with self._lock:
@@ -883,6 +922,8 @@ class SqliteStore:
         return total
 
     def used_bytes(self) -> int:
+        # Bypasses _query, so its sqlite errors come out raw. Its one caller,
+        # retention's sweep, catches everything and tries again.
         with self._lock:
             page_size = self._connection.execute("PRAGMA page_size").fetchone()[0]
             pages = self._connection.execute("PRAGMA page_count").fetchone()[0]

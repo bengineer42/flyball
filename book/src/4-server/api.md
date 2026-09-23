@@ -53,6 +53,14 @@ a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
 `HardwareError`; 401 with `WWW-Authenticate: Bearer` from the door
 ([authentication](#authentication)), 429 for too many wrong passwords.
 
+The store's own failures take the same map. A write it refuses -- a tuning
+whose `session_id` names no session, a duplicate of a unique row -- is 409
+`ConstraintError`; a store it cannot reach -- locked by another writer, out
+of disk -- is 503 `StoreUnavailableError`. Both carry sqlite's message in
+`detail`. Anything else from the store is a bug and answers 500, never 503,
+so a 500 is not worth retrying. A 503 usually is, though sqlite files a
+transaction begun inside another under the same error; `detail` says which.
+
 ## Rig
 
 | | | |

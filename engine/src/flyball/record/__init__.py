@@ -6,11 +6,13 @@ it for series, write states, ticks, events and spans to draw.
 """
 
 from .errors import (
+    ConstraintError,
     NotDeclaredError,
     SchemaError,
     SessionEndedError,
     SessionNotFoundError,
     StoreError,
+    StoreUnavailableError,
     TuningNotFoundError,
 )
 from .sqlite import SqliteSessionWriter, SqliteStore
@@ -40,6 +42,7 @@ from .types import (
 )
 
 __all__ = [
+    "ConstraintError",
     "ControllerRow",
     "DashboardRow",
     "DeviceRow",
@@ -65,6 +68,7 @@ __all__ = [
     "SqliteStore",
     "Store",
     "StoreError",
+    "StoreUnavailableError",
     "Tick",
     "TuningNotFoundError",
     "TuningRow",
