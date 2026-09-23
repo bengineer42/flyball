@@ -29,10 +29,11 @@ from __future__ import annotations
 from .cli import parser, settle
 from .entrypoint import main
 from .serving import Handle, serve
-from .starting import START_REASONS, keep_versions, resumed, start, start_with_store
+from .starting import START_REASONS, BuildFailed, keep_versions, resumed, start, start_with_store
 
 __all__ = [
     "START_REASONS",
+    "BuildFailed",
     "Handle",
     "keep_versions",
     "main",

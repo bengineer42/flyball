@@ -15,7 +15,10 @@ warning, unless that run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`)
 -- [the door](access.md#the-door-a-password-a-token-or-open).
 
 The file is validated first (`flyball rig check rig.yaml` does the same
-without serving); a bad file is a one-line message and exit code 2. With
+without serving); a bad file is a one-line message and exit code 2, and so
+is a rig that validates but cannot be built -- a driver that refuses its
+config, a device that is not there -- so a supervisor can tell a config to
+fix from a crash. With
 `recording: true` in the file, or `--record`, a session is opened in
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
 shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd

@@ -24,7 +24,7 @@ from flyball.runtime.overlay import resolve_layers
 from . import locking
 from .cli import parser, settle
 from .serving import serve
-from .starting import resumed, start_with_store
+from .starting import BuildFailed, resumed, start_with_store
 
 log = logging.getLogger("flyball.runner")
 
@@ -87,9 +87,12 @@ def _run(
     except Exception as e:  # a bad file is the user's problem, not a traceback
         return _refuse(args, e)
     settings.store.parent.mkdir(parents=True, exist_ok=True)  # a store_dir that is not there yet
-    rig, store = start_with_store(
-        config, record=True if args.record else None, store_path=settings.store
-    )
+    try:
+        rig, store = start_with_store(
+            config, record=True if args.record else None, store_path=settings.store
+        )
+    except BuildFailed as e:  # a driver refused its config, a device is not there
+        return _refuse(args, e)
     simulation = None
     if config.simulated and args.rig:
         try:

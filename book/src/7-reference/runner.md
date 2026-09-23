@@ -43,7 +43,8 @@ Durations `D`: a number with `ns`/`us`/`ms`/`s`/`m`/`h`/`d`/`w`, bare is
 seconds. Sizes `S`: `kB`/`MB`/`GB`/`TB`, `KiB`/`MiB`/`GiB`, bare is bytes.
 
 Exit codes: 0 on a clean stop (Ctrl-C or SIGTERM); 2 for a rig file that
-does not load (one line on stderr, no traceback); 3 when another runner
+does not load or a rig that cannot be built (one line on stderr, no
+traceback); 3 when another runner
 already runs this rig (it holds `<store>.lock`; the message names it). A restart asked over the API replaces the
 process with the same command line.
 

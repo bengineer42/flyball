@@ -155,3 +155,36 @@ def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path):
         assert _open_sessions(store) == before, "the live runner's session was touched"
         assert live.poll() is None
         assert _get(f"http://127.0.0.1:{PORT}/api/health")["recording"] is True
+
+
+BOOM = """
+from flyball.foundation.device import DriverConfig, Output, Readable
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
+
+
+class Boom(Readable):
+    temperature = Output("temperature", "Temperature", Quantity("temperature", Celsius))
+
+    def read(self, time_ns, node=None):
+        yield self.sample(time_ns, temperature=20.0)
+
+
+class BoomConfig(DriverConfig[Boom], tag="test_boom"):
+    def build(self, name, label=None):
+        raise OSError("no such device: /dev/i2c-9")
+"""
+
+
+def test_a_rig_that_fails_to_build_exits_once_with_a_message(tmp_path):
+    # Under flyballd a traceback exit is a crash, restarted forever; a config that
+    # cannot be built is the user's to fix, like one that does not validate.
+    (tmp_path / "drivers").mkdir()
+    (tmp_path / "drivers" / "boom.py").write_text(BOOM)
+    (tmp_path / "rig.yaml").write_text("name: boom\ndevices:\n  probe: {driver: test_boom}\n")
+    with runner(tmp_path, "rig.yaml", "--port", str(PORT)) as proc:
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 2, err[-2000:]
+    assert "Traceback" not in err
+    lines = [line for line in err.splitlines() if line.startswith("flyball-runner:")]
+    assert len(lines) == 1 and "rig.yaml" in lines[0] and "/dev/i2c-9" in lines[0], err
