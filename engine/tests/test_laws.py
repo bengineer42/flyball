@@ -189,9 +189,18 @@ def test_on_off_holds_a_band_around_the_setpoint():
     loop = Loop(law, oven_plant(), 1.0, 0.0, 1.0, smart=False)  # the raw heater: 0 or 1
     loop.run(1800, 50.0)
     tail = loop.trace[-600:]
-    assert min(tail) > 50.0 - 1.0 - 4.0 and max(tail) < 50.0 + 1.0 + 4.0, (
-        "within the band plus what the dead time lets through"
-    )
+    # Past a band edge the heater stays as it was for the dead time (5 s) plus
+    # up to one sample (1 s) before the switch is seen, and a first-order lag
+    # turns round the instant its input does. So the reading runs on towards
+    # where it was heading, 100 °C on (20 + 80) or 20 °C off, for at most
+    # 6 s of the 60 s lag: 51 + (100 - 51)(1 - e^(-6/60)) = 55.66 on top,
+    # 49 - (49 - 20)(1 - e^(-6/60)) = 46.24 below (54.92 / 46.68 with no
+    # sampling delay: the floor of the overshoot). The noise (σ = 0.05) moves
+    # both the reading that trips the switch and the one recorded: 3σ each.
+    run_on = 1.0 - exp(-(5.0 + 1.0) / 60.0)
+    noise = 6 * 0.05
+    assert max(tail) < 51.0 + (100.0 - 51.0) * run_on + noise, "55.96: the dead time's overshoot"
+    assert min(tail) > 49.0 - (49.0 - 20.0) * run_on - noise, "45.94: the dead time's undershoot"
     assert set(loop.demands[-600:]) == {0.0, 1.0}, "it switches, never modulates"
     switches = sum(a != b for a, b in zip(loop.demands[-600:], loop.demands[-599:], strict=False))
     assert 2 <= switches <= 60
