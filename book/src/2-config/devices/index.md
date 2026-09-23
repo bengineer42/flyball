@@ -41,7 +41,7 @@ null`, which drops only the file's narrowing, never the driver's limits.
 | `label` | string | |
 | `range` | `[lo, hi]` | the axis and gauge extent |
 | `precision` | int | decimal places shown |
-| `warning`, `alarm` | `[lo, hi]` | bands outside which a condition is raised |
+| `warning`, `alarm` | `[lo, hi]` | bands outside which the rig raises a condition on the signal, [below](#bands) |
 | `limits` | `[lo, hi]` | narrows what a writable signal may be commanded to; it never widens the driver's. A demand is clamped to the intersection of the driver's limits and these, worked out at each demand; a signal the driver left unlimited takes these as they are. An end reaching past a driver end that is a number is refused at load (`limits (0, 5000) reach outside the driver's (0, 2500)`). A driver may declare an end that follows another of the device's signals (a supply's humidity, a max flow read from the device): it is intersected with that signal's value at each demand, and until that signal has a finite value (none yet, or NaN or infinite, counts as not known), a demand is refused (503, "limit not known yet") and a controller's write is held -- never passed unclamped, nor clamped to the other end. If the limits come out inverted at a demand (a dry supply read wetter than the wet one, or these clear of the driver's live band), the demand is refused (`LimitsInvertedError`, 422) and a controller's write is held. `null`: no narrowing -- the driver's limits stay |
 | `max_rate` | `{per_second: N}` | how fast a demand may move; a faster one is clamped to the largest step the elapsed time allows, not refused. The elapsed time counts up to one update period -- the signal's `poll_s`, else the driving controller's `min_period_s`, else 1 s -- so a demand after a hold or a quiet spell moves one period's worth, not everything banked meanwhile. Unset: unlimited |
 | `poll_s` | number | this signal's own rate; finite and above zero |
@@ -49,6 +49,45 @@ null`, which drops only the file's narrowing, never the driver's limits.
 | `tags` | `{key: value}` | added to the driver's: `{line: dry}` groups signals across devices in the UI |
 | `access` | `"r"`, `"rp"`, … | keep only these of the flags the driver declared |
 | `readable`, `published`, `writable` | `false` | drop one flag each; only `false` is accepted |
+
+### Bands
+
+The rig judges each reading of a banded signal as it is delivered, and
+holds the result as a condition on the signal -- not the dashboard, whose
+limits only colour a widget:
+
+| the reading is | the signal holds | severity |
+| --- | --- | --- |
+| outside `alarm` | `band_alarm` | `error` |
+| else outside `warning` | `band_warning` | `warning` |
+| inside both | nothing | |
+
+- **At most one.** Raising `band_alarm` clears `band_warning`; falling back
+  from alarm to warning swaps them.
+- **Raised at once**, on the first reading beyond the band.
+- **Cleared with hysteresis**: only once readings have stayed back inside
+  (or back down to the warning band) for `max(2 × poll_s, 1 s)` on the rig
+  clock. A signal without `poll_s` (a pushed one) waits 1 s. A value hovering
+  at the edge raises once and stays raised; it does not flap.
+- **Details**: `{side: "low" | "high", value, bounds: [lo, hi]}`, the reading
+  that raised it and the band it crossed.
+- **Only finite numbers** are judged. A reading that is `null`, NaN, an
+  infinity or not a number leaves the condition and the hold as they were.
+- **Removing** the band (`warning: null`, `alarm: null`) or the device
+  clears the condition at once.
+
+Each raise and clear is an event (`raised`, `cleared`) like any other
+condition's, and the device's `conditions` carry it with `scope: signal`
+and the signal's address as `subject`. `/api/health` counts the signals
+holding each in `alarms` ([API](../../4-server/api.md)). A band alarm is not
+a fault: it does not make the rig unhealthy.
+
+```yaml
+devices:
+  thermocouple:
+    signals:
+      temperature: { warning: [30, 90], alarm: [10, 110], poll_s: 1.0 }   # clears after 2 s inside
+```
 
 ## Binding one device to another
 

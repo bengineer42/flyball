@@ -100,8 +100,9 @@ live with no gap, since the live samples kept arriving underneath.
 A condition summary sits in the app bar, built from `/api/health` (falling
 back to a client-side count from the samples stream on an older runner):
 
-- an always-present **alarm** chip — the count of active device conditions
-  plus signals outside their warning/alarm bands, coloured by the worst one
+- an always-present **alarm** chip — the count of signals the rig holds in
+  alarm (`band_warning` or `band_alarm`, [Bands](../../2-config/devices/index.md#bands)),
+  coloured by the worst one
   (amber for warn, red for alarm; otherwise the neutral outline every
   healthy state uses — colour is reserved for abnormal conditions), held to
   one width across its own states so it doesn't reflow its neighbours as the
