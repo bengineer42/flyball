@@ -10,6 +10,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -36,12 +37,14 @@ type Server struct {
 	probe   *http.Client
 	doorsMu sync.Mutex
 	doors   map[string]time.Time // /api/auth URL -> when it last said it had a door
+	known   *exposure.Doors      // what the proxy asks before translating (exposure.Front)
 }
 
 func New(reg *registry.Registry, daemon config.DaemonConfig) *Server {
 	s := &Server{
 		reg: reg, daemon: daemon, mux: http.NewServeMux(),
 		probe: &http.Client{Timeout: 2 * time.Second}, doors: map[string]time.Time{},
+		known: exposure.NewDoors(),
 	}
 	s.routes()
 	return s
@@ -195,7 +198,9 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 // convenience pass-through routing to that runner, forwarding the FULL
 // prefixed path unchanged -- the bug dev-serve/proxy.py hit and fixed
 // this session (a runner expects its root_path kept, not stripped).
-// Beyond loopback an open runner is not proxied to (guard).
+// Beyond loopback an open runner is not proxied to (guard). What reaches
+// an open runner is translated (exposure.Front): loopback names, and with
+// auth.insecure_open beyond loopback any name, become the runner's own.
 func (s *Server) handleLandingOrProxy(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		s.requireAuth(s.handleLanding)(w, r)
@@ -217,6 +222,15 @@ func (s *Server) handleLandingOrProxy(w http.ResponseWriter, r *http.Request) {
 			// Full path kept as-is: NewSingleHostReverseProxy already
 			// preserves r.URL.Path unless a Director rewrites it, which
 			// this doesn't -- deliberately, matching the fix from today.
+			auth := "http://" + e.Endpoint + e.Manifest.RootPath + "/api/auth"
+			front := &exposure.Front{
+				Upstream:    target,
+				OpenNetwork: s.daemon.Auth.InsecureOpen && !exposure.IsLoopback(s.daemon.Listen),
+				Door: func(ctx context.Context) (exposure.Door, error) {
+					return s.known.Get(ctx, auth)
+				},
+			}
+			proxy.Director = front.Director(proxy.Director)
 			proxy.ServeHTTP(w, r)
 			return
 		}

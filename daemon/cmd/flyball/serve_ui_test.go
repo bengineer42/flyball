@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"flyballd/internal/exposure"
 )
 
 // newRefusingProxy builds a reverse proxy pointed at a port nothing is
@@ -470,6 +472,12 @@ func TestRunUVDeliversTheStopToTheRunner(t *testing.T) {
 // on 127.0.0.1:fakeRunnerPort, until the test ends.
 func startUI(t *testing.T, handler http.Handler) {
 	t.Helper()
+	startUIPlan(t, handler, nil)
+}
+
+// startUIPlan is startUI with the front's own exposure plan.
+func startUIPlan(t *testing.T, handler http.Handler, plan *exposure.Plan) {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:"+fakeRunnerPort)
 	if err != nil {
 		t.Fatal(err)
@@ -478,7 +486,7 @@ func startUI(t *testing.T, handler http.Handler) {
 	go upstream.Serve(ln)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { defer close(done); serveUI(ctx, "127.0.0.1:"+frontPort, fakeRunnerPort, nil) }()
+	go func() { defer close(done); serveUI(ctx, "127.0.0.1:"+frontPort, fakeRunnerPort, plan) }()
 	t.Cleanup(func() { cancel(); <-done; upstream.Close() })
 	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 		if c, err := net.Dial("tcp", "127.0.0.1:"+frontPort); err == nil {
@@ -582,6 +590,134 @@ func TestServeUIWebsocketOutlivesTheTimeouts(t *testing.T) {
 		n, err := c.Read(buf)
 		if err != nil || string(buf[:n]) != "ping" {
 			t.Fatalf("echo %d: %q, %v", i, buf[:n], err)
+		}
+	}
+}
+
+// doorRunner stands in for a runner's door (engine auth.py): an open one
+// refuses a Host that is not loopback, and any refuses a request that acts
+// (not GET, HEAD or OPTIONS, or a websocket) with an Origin that is not
+// its Host's. Past the door it answers the Host it saw, or 101 to a
+// websocket.
+func doorRunner(open bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth" {
+			json.NewEncoder(w).Encode(map[string]any{"password": !open, "token": false})
+			return
+		}
+		if open && !exposure.LoopbackName(r.Host) {
+			http.Error(w, "loopback names only", http.StatusForbidden)
+			return
+		}
+		upgrade := r.Header.Get("Upgrade") == "websocket"
+		acts := upgrade || (r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS")
+		if origin := r.Header.Values("Origin"); acts && len(origin) > 0 && !exposure.SameSite(origin[0], r.Host, "http") {
+			http.Error(w, "foreign Origin", http.StatusForbidden)
+			return
+		}
+		if upgrade {
+			conn, rw, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			rw.Flush()
+			return
+		}
+		io.WriteString(w, r.Host)
+	})
+}
+
+// through sends method path to the front as if addressed to host, with
+// origin (none for ""), and returns the status and body.
+func through(t *testing.T, method, path, host, origin string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, "http://127.0.0.1:"+frontPort+path, nil)
+	req.Host = host
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
+// upgradeThrough opens a websocket through the front as if addressed to
+// host from origin, and returns the status line.
+func upgradeThrough(t *testing.T, host, origin string) string {
+	t.Helper()
+	c, err := net.Dial("tcp", "127.0.0.1:"+frontPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	fmt.Fprintf(c, "GET /ws/samples HTTP/1.1\r\nHost: %s\r\nOrigin: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n", host, origin)
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	line := make([]byte, 12)
+	if _, err := io.ReadFull(c, line); err != nil {
+		t.Fatalf("no answer to the upgrade: %v", err)
+	}
+	return string(line)
+}
+
+// --insecure-open: the front serves an open runner by any name, so it
+// hands the runner its own loopback Host, and the page's same-site Origin
+// as the runner's own; another site's Origin still reaches the runner as
+// it was, and is refused.
+func TestServeUIInsecureOpenTranslatesForAnOpenRunner(t *testing.T) {
+	plan := exposure.Decide("0.0.0.0:"+frontPort, exposure.Door{}, true)
+	startUIPlan(t, doorRunner(true), &plan)
+	lan := "192.168.1.3:" + frontPort
+	if code, body := through(t, "GET", "/api/health", lan, ""); code != 200 || body != "127.0.0.1:"+fakeRunnerPort {
+		t.Fatalf("GET by the LAN name: %d %q, want 200 from the runner's own Host", code, body)
+	}
+	if code, body := through(t, "POST", "/api/runner/shutdown", lan, "http://"+lan); code != 200 {
+		t.Fatalf("same-site POST: %d %q, want accepted", code, body)
+	}
+	if code, _ := through(t, "POST", "/api/runner/shutdown", lan, "http://evil.example"); code != 403 {
+		t.Fatalf("another site's POST: %d, want 403", code)
+	}
+	if line := upgradeThrough(t, lan, "http://"+lan); line != "HTTP/1.1 101" {
+		t.Fatalf("same-site websocket: %q, want 101", line)
+	}
+	if line := upgradeThrough(t, lan, "http://evil.example"); line != "HTTP/1.1 403" {
+		t.Fatalf("another site's websocket: %q, want 403", line)
+	}
+}
+
+// A front on loopback, not opted in: its own loopback names are
+// translated, any other name reaches the open runner as it is and is
+// refused -- a page whose name was pointed at 127.0.0.1 (DNS rebinding).
+func TestServeUILoopbackFrontKeepsTheRebindingProtection(t *testing.T) {
+	startUI(t, doorRunner(true))
+	if code, _ := through(t, "GET", "/api/health", "evil.example", ""); code != 403 {
+		t.Fatalf("Host evil.example: %d, want 403", code)
+	}
+	if code, _ := through(t, "GET", "/api/health", "192.168.1.3:"+frontPort, ""); code != 403 {
+		t.Fatalf("a LAN name without the opt-in: %d, want 403", code)
+	}
+	own := "localhost:" + frontPort
+	if code, body := through(t, "POST", "/api/runner/shutdown", own, "http://"+own); code != 200 {
+		t.Fatalf("the front's own page: %d %q, want accepted", code, body)
+	}
+	if code, _ := through(t, "POST", "/api/runner/shutdown", own, "http://evil.example"); code != 403 {
+		t.Fatalf("another site's POST: %d, want 403", code)
+	}
+}
+
+// A runner with a password sees the Host it was reached by, as without
+// the front.
+func TestServeUIPasswordRunnerKeepsTheHost(t *testing.T) {
+	plan := exposure.Decide("0.0.0.0:"+frontPort, exposure.Door{Password: true}, true)
+	startUIPlan(t, doorRunner(false), &plan)
+	for _, host := range []string{"pi.lab:" + frontPort, "localhost:" + frontPort} {
+		if code, body := through(t, "GET", "/api/health", host, ""); code != 200 || body != host {
+			t.Errorf("Host %s: %d, the runner saw %q", host, code, body)
 		}
 	}
 }

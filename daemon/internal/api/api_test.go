@@ -10,6 +10,7 @@ import (
 
 	"flyballd/internal/backend"
 	"flyballd/internal/config"
+	"flyballd/internal/exposure"
 	"flyballd/internal/registry"
 )
 
@@ -331,5 +332,98 @@ func TestStartupWarnings(t *testing.T) {
 	cfg.Auth.InsecureOpen = true
 	if w := StartupWarnings(cfg); len(w) != 2 || !strings.Contains(w[1], "open") {
 		t.Errorf("opted in: %v, want the cleartext and the open warning", w)
+	}
+}
+
+// doorRunner is a runner at /oven with a door like the engine's (auth.py):
+// open, it refuses a Host that is not loopback; any refuses a request that
+// acts with an Origin that is not its Host's. Past the door it answers the
+// Host it saw.
+func doorRunner(t *testing.T, open bool) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oven/api/auth" {
+			json.NewEncoder(w).Encode(map[string]any{"password": !open, "token": false})
+			return
+		}
+		if open && !exposure.LoopbackName(r.Host) {
+			http.Error(w, "loopback names only", http.StatusForbidden)
+			return
+		}
+		acts := r.Header.Get("Upgrade") != "" || (r.Method != "GET" && r.Method != "HEAD")
+		if o := r.Header.Values("Origin"); acts && len(o) > 0 && !exposure.SameSite(o[0], r.Host, "http") {
+			http.Error(w, "foreign Origin", http.StatusForbidden)
+			return
+		}
+		io.WriteString(w, r.Host)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// proxied sends method path to s as if addressed to host, from origin
+// (none for "").
+func proxied(s *Server, method, path, host, origin string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, nil)
+	req.Host = host
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	if method == "GET" && strings.HasSuffix(path, "/ws/samples") {
+		req.Header.Set("Upgrade", "websocket")
+		req.Header.Set("Connection", "Upgrade")
+	}
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	return rec
+}
+
+// auth.insecure_open beyond loopback: an open runner is reached by any
+// name, so flyballd hands it its own loopback Host and a same-site Origin
+// as its own; another site's Origin is left for the runner to refuse.
+func TestProxyInsecureOpenTranslatesForAnOpenRunner(t *testing.T) {
+	runner := doorRunner(t, true)
+	s := proxyingServer(t, "0.0.0.0:9000", true, runner)
+	lan := "192.168.1.3:9000"
+	upstream := strings.TrimPrefix(runner.URL, "http://")
+	if rec := proxied(s, "GET", "/oven/api/devices", lan, ""); rec.Code != 200 || rec.Body.String() != upstream {
+		t.Fatalf("GET by the LAN name: %d %q, want 200 from the runner's own Host", rec.Code, rec.Body.String())
+	}
+	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", lan, "http://"+lan); rec.Code != 200 {
+		t.Fatalf("same-site POST: %d %q, want accepted", rec.Code, rec.Body.String())
+	}
+	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", lan, "http://evil.example"); rec.Code != 403 {
+		t.Fatalf("another site's POST: %d, want 403", rec.Code)
+	}
+	if rec := proxied(s, "GET", "/oven/ws/samples", lan, "http://evil.example"); rec.Code != 403 {
+		t.Fatalf("another site's websocket: %d, want 403", rec.Code)
+	}
+}
+
+// flyballd on loopback: its own loopback names are translated; any other
+// name reaches the open runner unchanged and is refused (DNS rebinding).
+func TestProxyOnLoopbackKeepsTheRebindingProtection(t *testing.T) {
+	s := proxyingServer(t, "127.0.0.1:9000", false, doorRunner(t, true))
+	if rec := proxied(s, "GET", "/oven/api/devices", "evil.example", ""); rec.Code != 403 {
+		t.Fatalf("Host evil.example: %d %q, want 403", rec.Code, rec.Body.String())
+	}
+	own := "localhost:9000"
+	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", own, "http://"+own); rec.Code != 200 {
+		t.Fatalf("flyballd's own page: %d %q, want accepted", rec.Code, rec.Body.String())
+	}
+	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", own, "http://evil.example"); rec.Code != 403 {
+		t.Fatalf("another site's POST: %d, want 403", rec.Code)
+	}
+}
+
+// A runner with a password sees the Host it was reached by.
+func TestProxyPasswordRunnerKeepsTheHost(t *testing.T) {
+	for _, listen := range []string{"127.0.0.1:9000", "0.0.0.0:9000"} {
+		s := proxyingServer(t, listen, true, doorRunner(t, false))
+		for _, host := range []string{"pi.lab:9000", "localhost:9000"} {
+			if rec := proxied(s, "GET", "/oven/api/devices", host, ""); rec.Code != 200 || rec.Body.String() != host {
+				t.Errorf("listen %s, Host %s: %d, the runner saw %q", listen, host, rec.Code, rec.Body.String())
+			}
+		}
 	}
 }

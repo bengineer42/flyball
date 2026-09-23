@@ -42,7 +42,9 @@ var (
 // (runDirect cancels it once the runner itself exits). A non-nil plan is
 // the front's own exposure beyond what the runner knows (it listens on
 // loopback): it replaces `exposure` in the runner's GET /api/auth, so the
-// dashboard warns about the front, not the runner behind it.
+// dashboard warns about the front, not the runner behind it. What reaches
+// an open runner is translated (exposure.Front): the front's own loopback
+// names, and with --insecure-open any name, become the runner's own.
 func serveUI(ctx context.Context, addr string, port string, plan *exposure.Plan) error {
 	dist, err := fs.Sub(webui.Dist, "dist")
 	if err != nil {
@@ -54,6 +56,15 @@ func serveUI(ctx context.Context, addr string, port string, plan *exposure.Plan)
 		return fmt.Errorf("invalid runner port %q: %w", port, err)
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	doors := exposure.NewDoors()
+	front := &exposure.Front{
+		Upstream:    target,
+		OpenNetwork: plan != nil && plan.OpenNetwork(),
+		Door: func(ctx context.Context) (exposure.Door, error) {
+			return doors.Get(ctx, target.String()+"/api/auth")
+		},
+	}
+	proxy.Director = front.Director(proxy.Director)
 
 	// The runner takes a couple of seconds to start listening, during
 	// which every proxied request dials a refused connection -- noisy on

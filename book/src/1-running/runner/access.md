@@ -141,6 +141,22 @@ runner it proxies to when its `listen` is beyond loopback: an open runner's
 routes answer 503 unless `auth.insecure_open` is set in `flyballd.yaml`
 ([the daemon](../../7-reference/cli.md#the-daemon)).
 
+The browser addresses the front, not the runner, and an open runner behind
+it answers only a loopback `Host` and an `Origin` of its own. So both fronts
+translate what they pass an open runner, where the name has been vouched
+for: when the request came in on a loopback name (`localhost`, `127.0.0.1`,
+`[::1]`), or when the front serves an open runner beyond loopback by choice
+(`--insecure-open`, `auth.insecure_open`), the runner is sent its own
+loopback address as `Host`, and an `Origin` that is the front's own site
+(the same host, any case, and port, or `https` in front of `http`) as its
+own origin. Any other `Origin` is passed on as it came, and the runner
+refuses it: another site's page still cannot act through the front. A
+request that came in on any other name, to a front not opted in, is passed
+on untouched and refused -- the DNS-rebinding protection. With the opt-in
+there is none: any name that reaches the front is served, as it is by a
+runner given `--insecure-open` itself. A runner with a password or a token
+sees the `Host` and `Origin` the browser sent, as it would directly.
+
 For the usual Pi setup, that means a password in the file:
 
 ```yaml
