@@ -199,9 +199,9 @@ the recent readings -- see [the API reference](../4-server/api.md#simulation)
 for the full shape and the rest of `/api/sim/*`.
 
 `clock: { stepped: true }` gives a clock that moves only when stepped:
-`POST /api/sim/clock/step` (`flyball sim step 60`), or a program's own holds
+`POST /api/sim/clock/step` (`flyball sim step 60`), or a program's own waits
 and ramps. Polled devices are scheduled *on* the clock rather than on
-threads, so stepping runs every poll due on the way, in order; a hold steps
+threads, so stepping runs every poll due on the way, in order; a wait steps
 the clock past itself with the physics integrated underneath. A two-hour
 firing on the furnace example runs that way in a quarter of a second, and
 identically every time — which is how it is tested.
@@ -328,9 +328,9 @@ simulated rig. `blender.humidity`'s controller entry needs no override in
 
 ## What speed does
 
-Everything that waits -- a device's polling, a program's holds, a signal's
-timeout, the "slow device" condition -- goes through the rig's clock, so at
-60× a device on `poll_s: 1` reads sixty times a second and a ten-minute hold
-takes ten seconds. The ceiling is the slowest real step: when polls start to
+Everything that waits -- a device's polling, a program's `wait` steps, a
+signal's timeout, the "slow device" condition -- goes through the rig's
+clock, so at 60× a device on `poll_s: 1` reads sixty times a second and a
+ten-minute `wait` takes ten seconds. The ceiling is the slowest real step: when polls start to
 overlap, the device's `slow` condition appears. A few hundred× is
 comfortable on a laptop for a handful of plants; beyond that, step.

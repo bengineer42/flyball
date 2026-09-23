@@ -54,7 +54,7 @@ served. Start with a simulated one, then swap the links for real ones.
 | --- | --- |
 | **Devices** | a sensor, an actuator, a bench instrument, a composite: each a tree of **signals** with an address (`furnace.zone1`), a unit, a role and what may be done with it (read, watch, write). SCPI, Modbus, QCoDeS and PyMeasure instruments need no code: a few lines in the config file |
 | **Controllers** | one published signal regulated through one writable signal by a law (P, PI, PID, or your own) with feedforward, limits, bumpless handover between manual and automatic, autotune from a step or a relay test |
-| **Programs** | a sequence of commands -- regulate, ramp, hold, arrive, set, wait -- written as a file, validated in an editor, run and interrupted from the API |
+| **Programs** | a sequence of commands -- regulate, ramp, wait, settle, set, prompt -- written as a file, validated in an editor, run and interrupted from the API |
 | **Recording** | every reading, demand and controller tick into SQLite as sessions; export as CSV, JSON or a zip; rig versions beside the data so a session always has its rig |
 | **Simulation** | plants (lags, furnaces, tanks) and a clock that runs at 60× or in steps, so a rig, a program and a dashboard are built and tested with nothing plugged in, then run unchanged on hardware |
 | **The server** | one runner per rig: an HTTP and websocket API, a browser UI rendered from the rig's own schema, a command line, a Python client, and an MCP server so a model can read or drive the rig |

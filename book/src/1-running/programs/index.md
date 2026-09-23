@@ -16,14 +16,14 @@ derived from its constructor. The vocabulary shipped with the library:
 | --- | --- |
 | `regulate` | aim a controller at a setpoint and hand control to the law |
 | `ramp` | walk a controller's setpoint to a target at a pace, and wait until it arrives |
-| `hold` | keep everything as it is for a duration; controllers go on regulating |
-| `arrive` | wait until named controllers have settled within a band of their setpoints |
+| `wait` | keep everything as it is for a duration; controllers go on regulating |
+| `settle` | wait until named controllers have settled within a band of their setpoints |
 | `manual` | stop a controller regulating; its target keeps its last demand |
 | `set` | put values on one device's writable signals, as one demand |
 | `command` | call one of a device's own commands |
-| `wait` | pause until someone fires a named signal |
+| `prompt` | pause until someone fires a named signal |
 
-`regulate`/`ramp`/`hold`/`arrive`/`manual` name a **controller** by the
+`regulate`/`ramp`/`wait`/`settle`/`manual` name a **controller** by the
 address of the signal it drives (or a list, or none for the rig's default) --
 not the device itself, since a writable signal has at most one controller.
 Device commands (`@command` methods on a device) are reachable as `command`
@@ -66,7 +66,7 @@ name: bake
 steps:
   - regulate: {loop: heaters.heater1, setpoint: 100}
   - ramp: {loop: heaters.heater1, to: 150, per_minute: 2}
-  - wait: "Open the door and load the sample"
+  - prompt: "Open the door and load the sample"
 ```
 
 The file form is translated into the request form before it is validated, and

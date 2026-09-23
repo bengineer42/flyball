@@ -55,8 +55,8 @@ or JSON signal (a mode, a device's blend) shows what was recorded at that
 moment, read from the session.
 
 What is **not** a sample stays live: a controller's mode, target and demand,
-a demand's write state, device runs and conditions, program state, waits and
-events. The only signs of the paused state are the bar's amber `HH:MM:SS ·
+a demand's write state, device runs and conditions, program state,
+activities and events. The only signs of the paused state are the bar's amber `HH:MM:SS ·
 read-only` stamp and its section's faint tint on the Simulation page, and
 the app bar's paused chip everywhere else; there is no badge on the panels.
 Scrubbing never writes a demand or a setpoint, so it is read-only by
@@ -79,8 +79,8 @@ back to a client-side count from the samples stream on an older runner):
   states, not three: green when every stream is open, red otherwise — a
   dropped stream is shown as reconnecting (not yet red) for a few seconds
   before it escalates, so a brief reconnect doesn't read as an outage.
-  Hovering names which stream (readings, controllers, waits, events) is the
-  problem, when it's known;
+  Hovering names which stream (readings, controllers, activities, events) is
+  the problem, when it's known;
 - a **recording** dot (a filled circle in a ring, the standard record
   symbol): the open session's name, or "not recording";
 - a **program** chip, only while one is running: its name and step;

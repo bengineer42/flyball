@@ -19,7 +19,7 @@ knows anything the API does not publish.
 
 | page | |
 | --- | --- |
-| [HTTP and websocket API](api.md) | every route, by area: the runner, the rig and its composition, devices, reading, controllers, waits, history and export, programs, dashboards, simulation, events; the websockets |
+| [HTTP and websocket API](api.md) | every route, by area: the runner, the rig and its composition, devices, reading, controllers, activities, history and export, programs, dashboards, simulation, events; the websockets |
 | [Wire format](wire.md) | how a time, a signal, a unit, a device, a controller and an error are spelled in JSON |
 | [The MCP server](mcp.md) | the three tiers a model may be given, and what each sees |
 | [How the server is built](internals.md) | assembly, resolution at request time, the wire models, telemetry, the program dialect |

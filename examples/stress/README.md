@@ -42,7 +42,7 @@ Every stress rig has at least one program in `programs/`, except `sparse.yaml`
 and `bare.yaml`, which deliberately have none. `chaos.yaml`'s mid-run
 disturbance (failing a thermocouple, kicking a heater) is a `command` step
 in `chaos-run.yaml` on the `furnace` and `heaters` devices (`fail`/`restore`
-with a `signal`, `disturb` with a `signal` and an `offset`), plus a `hold`
+with a `signal`, `disturb` with a `signal` and an `offset`), plus a `wait`
 whose own `timeout` gives up before its `duration` -- see
 [Programs, "Commands"](../../book/src/1-running/programs/index.md#commands)
 for both. Run it on its own:

@@ -35,7 +35,7 @@ Five programs in `programs/`, each a different lesson:
 | `gradient.yaml` | 4 h | 800 / 600 / 400 along the tube — conduction makes the hot end saturate and the cold end's heater idle |
 | `anneal.yaml` | 8 h | a driven 2 °C/min cooldown — the drive falls smoothly until the programmed rate exceeds the natural one |
 | `step-test.yaml` | 5 h | identification steps on zone 2 at 300 and at 700 — the same 30 °C step, a different response: the case for a gain schedule |
-| `load-sample.yaml` | a few minutes | the operator in the loop: two `wait` steps with a timeout, for trying the go button |
+| `load-sample.yaml` | a few minutes | the operator in the loop: two `prompt` steps with a timeout, for trying the go button |
 
 ```bash
 uv run flyball-runner rig.yaml                # clock at 60x from the file
@@ -48,10 +48,10 @@ flyball watch controllers
 ```
 
 `flyball program run programs/firing.yaml` starts a firing; `flyball
-program status` says where it is; `flyball wait fire wait` answers the
+program status` says where it is; `flyball activity fire prompt` answers the
 operator prompt at the end. With `clock: { stepped: true }` instead of a
 speed, the same firing runs to completion in the time the arithmetic takes
-— every poll, tick and hold in order — which is how
+— every poll, tick and wait in order — which is how
 `tests/test_plant.py` tests it.
 
 ## Editing the file

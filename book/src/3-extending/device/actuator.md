@@ -156,8 +156,8 @@ rig.event(Level.WARNING, "device", self.name, "clamped", f"{demand} limited to {
 
 The rig keeps the last few hundred, streams them on `/ws/events`, and
 writes them to the session when recording. The rig raises its own: a device
-going offline or reading slowly, a program step failing or a wait timing
-out.
+going offline or reading slowly, a program step failing or an activity
+timing out.
 
 ## What you get
 

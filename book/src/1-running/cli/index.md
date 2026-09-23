@@ -13,7 +13,7 @@ pages point back here.
 | --- | --- | --- |
 | [Devices and signals](devices.md) | `status`, `devices`, `read`, `demand`, `watch`, `view`, `device-schema`, `invoke` | [Devices](../ui/devices.md) |
 | [Controllers and tuning](controllers.md) | `controllers`, regulate / manual (via the API today), tunings | [Controllers](../ui/controllers.md), [Tuning](../autotune.md) |
-| [Programs and waits](programs.md) | `program check / run / status / stop`, `waits`, `wait fire / interrupt` | [Programs](../programs/writing.md#running-one) |
+| [Programs and activities](programs.md) | `program check / run / status / stop`, `activities`, `activity fire / cancel` | [Programs](../programs/writing.md#running-one) |
 | [Sessions and export](sessions.md) | `sessions`, `export`, downloads by URL | [Sessions](../ui/sessions.md) |
 | [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, `stop`, `run`, save / versions / restart (via the API today) | [The Config page](../ui/rig.md), the **Software stop** button |
 | [Without a rig](offline.md) | `rig check`, `rig schema`, `program schema`, `new` | -- |

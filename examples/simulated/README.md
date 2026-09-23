@@ -33,7 +33,7 @@ For the runner and everything on top of it:
 
 ```bash
 uv run flyball-runner ../examples/simulated/oven.yaml --record
-flyball status                   # devices, controllers, waits at a glance
+flyball status                   # devices, controllers, activities at a glance
 flyball sim clock 60             # a simulated minute per second; `flyball sim` for the knobs
 flyball invoke heater disturb signal=drive offset=-0.3    # open the door
 flyball watch controllers

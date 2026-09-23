@@ -33,16 +33,16 @@ no per-device subcommand tree built from the schema -- those were `cli.py`'s
 
 | command | reads/writes | |
 | --- | --- | --- |
-| `status [--json]` | `GET /api/health` + devices/controllers/waits | devices, controllers, waits, recording, in one screen |
+| `status [--json]` | `GET /api/health` + devices/controllers/activities | devices, controllers, activities, recording, in one screen |
 | `schema` | `GET /api/schema` | the whole document |
 | `devices` | `GET /api/devices` | name, label, driver, signal tree per device |
 | `controllers` | `GET /api/controllers` | every controller's view |
 | `demand ADDRESS VALUE` | `PUT /api/signals/ADDRESS` | put a value on a writable signal |
 | `read ADDRESS [--fresh]` | `GET /api/read/ADDRESS` | a signal's reading, a namespace's sample, or a device's samples |
 | `clock` | `GET /api/clock` | `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed` |
-| `waits` | `GET /api/waits` | what the rig is waiting on |
-| `wait fire NAME` | `POST /api/waits/NAME/fire` | settle the wait as met |
-| `wait interrupt NAME` | `POST /api/waits/NAME/interrupt` | cancel it |
+| `activities` | `GET /api/activities` | what the rig is waiting on |
+| `activity fire NAME` | `POST /api/activities/NAME/fire` | settle the activity as met |
+| `activity cancel NAME` | `POST /api/activities/NAME/interrupt` | cancel it |
 | `watch STREAM` | `/ws/STREAM` | one JSON line per frame; `samples`, `controllers`, `writes`, `signals` |
 | `view DEVICE` | `GET /api/devices/DEVICE` | one device's signal tree |
 | `device-schema DEVICE` | `GET /api/schema` (the `devices.DEVICE` branch) | one device's config/signal/command schemas |

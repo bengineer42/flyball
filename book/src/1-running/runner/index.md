@@ -163,7 +163,7 @@ so, and the API still works.
 
 | | |
 | --- | --- |
-| `GET /api/health` | one look: uptime, devices, controllers, conditions, alarms, waits, recording |
+| `GET /api/health` | one look: uptime, devices, controllers, conditions, alarms, activities, recording |
 | `GET /api/schema` | every device's config, signal and command schemas |
 | `/api/devices` | each device's signal tree, schema, and a `POST` per command |
 | `/api/read`, `/api/signals` | a signal's reading, a namespace's sample, or a device's samples; put a demand on a writable signal |
@@ -173,7 +173,7 @@ so, and the API still works.
 | `/api/rig/schema`, `/api/rig/config`, `/api/rig/check` | the rig file's schema, the file as loaded, validate a document without building |
 | `/api/drivers`, `/api/drivers/reload`, `/api/probe`, `/api/links/{name}/query` | what the runner can build, load the drivers directory again, what the board has, one raw exchange on a link |
 | `/mcp/read`, `/mcp/author`, `/mcp/operate` | the rig for a model: [the MCP server](../../4-server/mcp.md) |
-| `/api/waits` | what a program is waiting on; fire or interrupt one |
+| `/api/activities` | what a program is waiting on; fire or interrupt one |
 | `/api/rig/stop` | the [software stop](access.md#stopping-the-rig): the program interrupted, every controller to manual |
 | `/api/auth` | who the caller is and what the door takes (a bare runner's; behind a front, the front answers it) |
 | `/api/programs` | check a program file, run one, see what is running |
@@ -181,7 +181,7 @@ so, and the API still works.
 | `/api/events`, `/ws/events` | what has happened: a step failed, a device went offline |
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
-| `/ws/controllers`, `/ws/waits` | a snapshot on connect, then what changed |
+| `/ws/controllers`, `/ws/activities` | a snapshot on connect, then what changed |
 | `/docs` | OpenAPI in Swagger UI, served by the runner itself, so it works offline (`/openapi.json` is the document); not passed on by a front |
 
 Full list: [HTTP and websocket API](../../4-server/api.md).

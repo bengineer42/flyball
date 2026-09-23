@@ -6,8 +6,8 @@ restrict it -- unless the driver also names a **ceiling**, up to which the
 rig file may widen it instead. `P` implies `R`.
 
 **activity** — the ongoing part of a program step: a signal a program waits
-on, that knows how to attach itself to the rig (a prompt, a settle test, a
-timed hold).
+on, that knows how to attach itself to the rig (a **prompt**, a **settle**
+test, a timed **wait**, a ramp's end).
 
 **address** — a signal's or node's path: `device[.namespace…].signal`; no
 dots inside a segment.
@@ -48,8 +48,13 @@ conditions.
 written `driver:` in the rig file (the Python side calls it the config
 *tag*).
 
+**dwell** — the setpoint generator's segment that holds a value for a
+duration (`{tag: dwell, value, duration}`), used in a profile's `segments`
+and in `POST /api/controllers/{c}/setpoint`'s `at`; the generator's
+equivalent of the program step **wait**.
+
 **event** — something that *happened*: a step failed, a device went
-offline, a wait timed out. A point in time with a level, a scope and a
+offline, an activity timed out. A point in time with a level, a scope and a
 subject; streamed on `/ws/events` and written to the session when
 recording.
 
@@ -116,6 +121,10 @@ and audience, valid for 60 s, in the `X-Flyball-Principal` header.
 
 **programmer** — runs a program against a rig, waiting where a step waits.
 
+**prompt** — a program step: pause until an operator fires it, or it times
+out. Registers as an **activity** under its `name`, `prompt` by default. Not
+the same thing as an MCP prompt.
+
 **quantity** — what is measured or set, independent of any device: a name
 and a unit, nothing else.
 
@@ -155,6 +164,10 @@ signal's unit; the faceplate's middle row (ISA's SP).
 **setting** — a signal re-set by a command while a device runs, shown but
 not driven by a controller (`Role.SETTING`, `RP`).
 
+**settle** — a program step: wait until the named controllers sit within a
+band of their setpoints for `count` consecutive readings, or time out.
+Registers as an **activity** named `settle:<controllers>`.
+
 **shape** — which door a front has, set by `auth:`: `local` (no sign-in,
 loopback only), `password` (an admin password and named tokens) or
 `proxy` (an identity proxy in front).
@@ -191,8 +204,11 @@ changed after the fact.
 **scope** grants a verb on one rig (`operate:furnace`) or every rig
 (`operate`).
 
-**wait** — a signal fired once, and says how it ended: fired, timed out,
-interrupted.
+**wait** — a program step: keep everything as it is for a `duration`,
+controllers going on regulating throughout, or time out. Registers as an
+**activity** named `wait`. Not to be confused with **activity**, the general
+thing a program step waits on (which also covers a **prompt**, a
+**settle** test, or a ramp's end).
 
 **write state** — what a device reports about one `W` signal after a
 demand: value after limits, what was requested, whether it sits on a

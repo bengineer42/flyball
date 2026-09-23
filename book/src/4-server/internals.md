@@ -79,9 +79,9 @@ the worker threads other routes share.
 | `devices.py` | `/api/devices*`: the tree, commands, demands |
 | `read.py` | `/api/read*`: readings, samples, fresh reads |
 | `controllers.py` | `/api/controllers*`: wiring, regulate/manual, reference |
-| `waits.py` | `/api/waits*` |
+| `activities.py` | `/api/activities*` |
 | `events.py` | `/api/events` |
-| `telemetry.py` | the websockets: `/ws/samples` (a demand's write record and a device's run ride along with it), `/ws/controllers`, `/ws/waits`, `/ws/events` |
+| `telemetry.py` | the websockets: `/ws/samples` (a demand's write record and a device's run ride along with it), `/ws/controllers`, `/ws/activities`, `/ws/events` |
 | `recording.py` | starting and stopping recording on the live rig — the one place the rig and the store meet |
 | `history.py` | reads the store: sessions, devices, signals, writes, controllers, series, ticks, events, spans, exports |
 | `export.py` | the file forms `history.py`'s export endpoints share |
@@ -139,7 +139,7 @@ do the same from their dataclass constructor.
 The rig publishes nothing itself; it only fills `Latest` cells (samples by
 node address, write states by signal address -- kept for the recorder and
 `device.written`, not streamed on its own any more -- controller states and
-device runs by name, waits by name) and a `Topic` of published samples,
+device runs by name, activities by name) and a `Topic` of published samples,
 each built only while something is watching. `telemetry.py`'s sockets read
 those cells directly — no separate observer is attached for them.
 
@@ -147,7 +147,7 @@ those cells directly — no separate observer is attached for them.
 | --- | --- | --- |
 | `/ws/samples` | `rig.samples` (newest published sample per node), `rig.latest` (for `writes`), `rig.polling.runs` (for `runs`) | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`; either key present only when something in it changed, at most one sample per node and one run per device per flush |
 | `/ws/controllers` | `rig.controller_states` joined to controller settings | `{controllers: [ControllerOut]}` of those that ticked |
-| `/ws/waits` | `rig.triggers.latest` | `{waits: [WaitState]}` as each registers or settles |
+| `/ws/activities` | `rig.triggers.latest` | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | `rig.recent` | `{events: [Event]}` as each happens |
 
 `/ws/samples` folds in what `/ws/writes` and `/ws/devices` used to carry

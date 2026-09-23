@@ -29,7 +29,7 @@ an *output* bar. It is in **manual** (holding whatever was last set) or
 ramp). The name of a controller is the address of the signal it drives.
 
 **A program** is a list of steps run against the rig -- *regulate this to
-400*, *ramp to 800 at 2 °C/min*, *hold 30 min*, *wait for the door* --
+400*, *ramp to 800 at 2 °C/min*, *wait 30 min*, *prompt for the door* --
 written as a file, shown as steps on the Programs page, run and stopped
 from there, the CLI or the API. A single command from the CLI is a program
 of one step.

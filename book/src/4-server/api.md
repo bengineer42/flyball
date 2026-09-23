@@ -145,7 +145,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
@@ -292,24 +292,25 @@ The generators, by `tag`:
 | tag | arguments | on the wire once started |
 |---|---|---|
 | `linear_ramp_setpoint` | `pace` (a rate, `{per_minute: 10}`, or a duration for the whole walk), `end` | `end_time`; starts from the current setpoint or reading and walks to `end`, so a ramp to where it already is finishes at once; a descending ramp's rate is negative |
-| `hold` | `value`, `duration?` | `end_time` when it has a duration; without one it never finishes |
-| `profile` | `segments`: a list of generator specs (this union, recursively) | `segments` as given, `active` (the index of the segment in force at the last tick), `end_time` unless the last segment is endless; each segment starts where the previous landed (a ramp's `end`, a hold's `value`), the first from the profile's own start; 422 if a segment before the last never ends, or there are none |
+| `dwell` | `value`, `duration?` | `end_time` when it has a duration; without one it never finishes |
+| `profile` | `segments`: a list of generator specs (this union, recursively) | `segments` as given, `active` (the index of the segment in force at the last tick), `end_time` unless the last segment is endless; each segment starts where the previous landed (a ramp's `end`, a dwell's `value`), the first from the profile's own start; 422 if a segment before the last never ends, or there are none |
 
-## Waits
+## Activities
 
-What the rig is waiting on: a program step's prompt, a settle test, a hold.
+What the rig is waiting on: a program step's prompt, a settle test, a
+timed wait, a ramp's end.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/waits` | `{name: WaitState}` |
-| `GET` | `/api/waits/{name}` | `WaitState` |
-| `POST` | `/api/waits/{name}/fire` | `{name, fired: bool}`; false if already settled |
-| `POST` | `/api/waits/{name}/interrupt` | `{name, interrupted: bool}` |
+| `GET` | `/api/activities` | `{name: ActivityOut}` |
+| `GET` | `/api/activities/{name}` | `ActivityOut` |
+| `POST` | `/api/activities/{name}/fire` | `{name, fired: bool}`; false if already settled |
+| `POST` | `/api/activities/{name}/interrupt` | `{name, interrupted: bool}` |
 
-A `WaitState` is `{name, message, outcome, since_ns, timeout_s, prompt}`
-with `prompt` true for a wait only a person answers (a program's `wait`),
-false for a hold or an arrival that settles by itself, and `outcome` one
-of `pending`, `fired`, `timeout`, `interrupted`.
+An `ActivityOut` is `{name, message, outcome, since_ns, timeout_s, prompt}`
+with `prompt` true only for a `prompt` step (an activity only a person
+answers), false for a timed `wait`, a `settle` or a ramp that settles by
+itself, and `outcome` one of `pending`, `fired`, `timeout`, `interrupted`.
 
 ## Recording
 
@@ -489,7 +490,7 @@ flush sends nothing.
 | --- | --- | --- |
 | `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
-| `/ws/waits` | every registered wait | `{waits: [WaitState]}` as each registers or settles |
+| `/ws/activities` | every registered activity | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |
 
 A `SampleOut` is `{node, time_ns, values, writes}`: only published signals,

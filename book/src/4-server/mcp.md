@@ -121,6 +121,11 @@ Every tool call is recorded like any other request that needs more than
 - `update_dashboard` changes a dashboard by its parts (add, remove, move,
   reconfigure a widget) rather than by rewriting the document. Programs are
   text and are saved whole.
+- `activities` lists what a running program is waiting on; `fire_activity`
+  answers one (the operator pressed the button, or wants a timer skipped)
+  and `cancel_activity` stops the program at that step. The program step
+  `prompt` -- the operator-answered activity -- is unrelated to an MCP
+  prompt; nothing here uses MCP's own prompts feature.
 - Streams have no equivalent: `read`, `read_many` and `events` are what a
   model polls. On `read` and `author` they answer from the latest poll only;
   `operate` has the same two tools with a `fresh` argument for a live device

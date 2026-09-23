@@ -183,12 +183,12 @@ demand may drive the output again.
 
 ## Triggers
 
-Anything a program waits on — a prompt, a settle test, a hold — is a
+Anything a program waits on — a prompt, a settle test, a timed wait — is a
 [Trigger][flyball.foundation.router.trigger.Trigger] registered by name in
-`rig.triggers` (`flyball.rig.triggers.Triggers`) for as long as the wait
+`rig.triggers` (`flyball.rig.triggers.Triggers`) for as long as the activity
 lasts. `fire` settles it as met; `interrupt` cancels it. Outcomes are pushed
 through `Latest` as they settle, from whichever thread settles them; on the
-wire these are "waits" (`/api/waits`, `/ws/waits`).
+wire these are "activities" (`/api/activities`, `/ws/activities`).
 
 ## The programmer
 
@@ -198,7 +198,7 @@ derives its wire model from its constructor. An `Activity` is the ongoing
 part of a command: the rig drives it, the programmer owns its lifetime, and
 attach/detach bracket the wait so teardown is one `finally` reached by
 completion, failure and cancellation alike. Steps that name a controller
-(`regulate`, `ramp`, `hold`, `arrive`, `manual`) still carry a field called
+(`regulate`, `ramp`, `wait`, `settle`, `manual`) still carry a field called
 `loop` in the Python dataclasses (`Regulate.loop`, `Ramp.loop`, ...) — the
 *concept* is a controller and the class is `Controller`, but the field takes
 a controller's target address (or a list, or `None` for the default), not a

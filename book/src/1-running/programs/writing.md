@@ -7,14 +7,14 @@ This page is how to write and run one.
 A program file is YAML (or JSON, or TOML): a name and a list of steps.
 
 !!! tip "At the terminal"
-    `flyball program check FILE`, `program run FILE`, `program status`, `program stop`; `flyball waits`, `wait fire NAME` -- [Programs and waits](../cli/programs.md).
+    `flyball program check FILE`, `program run FILE`, `program status`, `program stop`; `flyball activities`, `activity fire NAME` -- [Programs and activities](../cli/programs.md).
 
 ```yaml
 name: bake
 steps:
   - regulate: {loop: heaters.heater1, setpoint: 100}
   - ramp: {loop: heaters.heater1, to: 150, per_minute: 2}
-  - wait: "Open the door and load the sample"
+  - prompt: "Open the door and load the sample"
 ```
 
 ## A step
@@ -26,9 +26,9 @@ are how typos hide.
 The value under the command key is either:
 
 - **a mapping**: the command's arguments, verbatim;
-- **a scalar or list**: shorthand for the command's *primary* field. `wait`'s
-  primary is `message`, so `- wait: "Load the sample"` is
-  `- wait: {message: "Load the sample"}`. A command with no primary takes no
+- **a scalar or list**: shorthand for the command's *primary* field. `prompt`'s
+  primary is `message`, so `- prompt: "Load the sample"` is
+  `- prompt: {message: "Load the sample"}`. A command with no primary takes no
   shorthand.
 
 ## Time
@@ -38,17 +38,37 @@ A duration is written as a mapping of unit keys, which add:
 seconds. A rate is one key naming the unit: `{per_minute: 2}`,
 `{per_second: 0.01}`.
 
-When a command has **exactly one** duration-or-rate field, its keys may be
-written flat, beside the other arguments:
+`timeout` is always a `Duration`, written the same way (a bare number means
+seconds), and it is never one of the fields flattened below: a step's
+`timeout` is only ever written nested, `timeout: {minutes: 10}`.
+
+When a command has **exactly one** duration-or-rate field left once
+`timeout` is set aside, its keys may be written flat, beside the other
+arguments:
 
 ```yaml
 - ramp: {loop: heaters.heater1, to: 60, per_minute: 2}    # pace: {per_minute: 2}
 - ramp: {loop: heaters.heater1, to: 60, minutes: 10}      # pace: {minutes: 10}
-- hold: {minutes: 10}                                     # duration: {minutes: 10}
+- wait: {minutes: 10}                                     # duration: {minutes: 10}
+- wait: {minutes: 20, timeout: {minutes: 30}}             # duration: {minutes: 20}, timeout: {minutes: 30}
 ```
 
-With two such fields the flat keys would be ambiguous, so the nested form is
-required.
+With two such fields (`timeout` aside) the flat keys would be ambiguous, so
+the nested form is required. A step whose only time field *is* `timeout` --
+`prompt`, `settle` -- takes no flat keys at all: writing one gets
+"`<cmd>`: write the timeout inside it: `timeout: {minutes: 10}`".
+
+**`wait` with a `message` is the one exception.** Flat keys still fold into
+`duration` for a bare timed wait (`wait: {minutes: 20}`, or `wait: 300`),
+but once `message` is present the flat form is refused --
+`wait: {minutes: 20, message: "soak at 600"}` is exactly what an old
+operator prompt with a flat timeout used to look like, so it errors:
+"a prompt is now `prompt:`; for a timed wait with a message write
+`duration:` explicitly". Write `duration` out:
+
+```yaml
+- wait: {duration: {minutes: 20}, message: "soak at 600"}
+```
 
 ## Modifiers
 
@@ -92,8 +112,9 @@ an unapplicable command raises there rather than disappearing into a log.
 Over HTTP the same document goes to `POST /api/programs/run`;
 `POST /api/programs/check` normalises and validates it without running, and
 `flyball program check FILE` is that from the shell. A step that fails, or a
-wait or hold that times out, ends the program and is recorded as an event
-(`/api/events`, `/ws/events`) with the program name and step index.
+`wait`, `prompt` or `settle` that times out, ends the program and is recorded
+as an event (`/api/events`, `/ws/events`) with the program name and step
+index.
 
 A step that raises -- a controller, device or signal not found, a conflict
 with the rig's state, or any other exception from the step itself -- ends
@@ -112,12 +133,12 @@ same as it always has for a step that cannot even be applied.
 | --- | --- | --- |
 | `regulate` | `setpoint` (primary), `loop?`, `tuning?` | aim a controller at `setpoint` and let its law drive; returns at once |
 | `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `loop?`, `wait=True` | walk the setpoint to `to`; waits for arrival unless `wait: false` |
-| `hold` | `duration` (primary, `minutes: 10` flat), `message?`, `timeout?` | keep everything as it is; controllers go on regulating |
-| `arrive` | `loop?` (primary), `within=1.0`, `readings=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `readings` consecutive readings |
+| `wait` | `duration` (primary, `minutes: 10` flat *without* `message`), `message?`, `timeout?` | keep everything as it is; controllers go on regulating |
+| `settle` | `loop?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings |
 | `manual` | `loop?` (primary) | stop a controller regulating; its target keeps its last demand |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
 | `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would |
-| `wait` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/waits/{name}/fire`; a timeout ends the program |
+| `prompt` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/activities/{name}/fire`; a timeout ends the program |
 
 `loop` is a controller's name -- the address of the signal it drives -- a
 list of names, or absent for the rig's default. It stayed `loop` as a field
@@ -125,16 +146,19 @@ name through the device-model rewrite even though the concept is now called
 a controller (`flyball.control.Controller`): a writable signal has at most
 one controller, so naming it by the target's address is unambiguous. A ramp
 over several controllers returns when the longest arrives, unless
-`wait: false` starts every ramp and moves on at once -- `arrive` can wait for
+`wait: false` starts every ramp and moves on at once -- `settle` can wait for
 them later. Durations and rates count in the rig's clock: on a simulation at
-60× a ten-minute hold takes ten seconds, and on a stepped clock it takes no
+60× a ten-minute wait takes ten seconds, and on a stepped clock it takes no
 time at all with every poll in between still happening.
 
-`hold`'s `timeout` ends the program if `duration` itself never elapses (a
-stalled clock, say), exactly like `wait`'s -- but as a plain number of
-seconds, not a duration: `duration` is already the one field a program file
-may write flat (`hold: {minutes: 10}`), and a second duration-typed field
-would make that ambiguous.
+`wait`'s `timeout` ends the program if `duration` itself never elapses (a
+stalled clock, say), exactly like `prompt`'s and `settle`'s. Every timeout in
+a program file is a `Duration` named `timeout` (`timeout: {minutes: 10}`; a
+bare number means seconds), and `timeout` is never one of the flattened keys:
+it is set aside first, so `wait: {minutes: 20, timeout: {minutes: 30}}` folds
+only `duration` (`{minutes: 20}`) flat, and a step whose only time field is
+`timeout` -- `prompt`, `settle` -- takes no flat keys at all. `wait`'s flat
+folding stops the moment `message` is set: see [Time](#time) above.
 
 `set` reaches a device directly rather than through a controller: it is
 `rig.write` in a step, and fails the same way a demand does -- 409 for a
@@ -157,12 +181,12 @@ name: firing
 steps:
   - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 600, per_minute: 10 }
-  - hold: { minutes: 20, message: "soak at 600" }
+  - wait: { duration: { minutes: 20 }, message: "soak at 600" }
   - ramp: { loop: heaters.heater2, to: 900, per_minute: 5 }       # the middle only: the neighbours fight it
-  - hold: { minutes: 15, message: "soak at 900" }
+  - wait: { duration: { minutes: 15 }, message: "soak at 900" }
   - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 100, per_minute: 20 }
   - manual: [heaters.heater1, heaters.heater2, heaters.heater3]
-  - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }
+  - prompt: { message: "unload the sample, then press go", timeout: { minutes: 10 } }
 ```
 
 `heaters.heater1`/`heater2`/`heater3` are the controllers driving the
@@ -173,4 +197,4 @@ program check programs/firing.yaml` validates it against a running rig;
 file's body runs it, at the file's 60× clock a two-hour firing in two
 minutes. The same directory's `step-test.yaml` and `load-sample.yaml` are
 worked examples of `regulate` used as a step change (autotuning) and of
-`wait` used for an operator prompt.
+`prompt` used for an operator prompt.
