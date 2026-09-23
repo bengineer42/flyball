@@ -164,9 +164,8 @@ export class Ring {
    * the stride's phase by that many positions, and unless that count happens
    * to be an exact multiple of the stride, the kept set changes almost
    * completely -- anchoring to the newest row instead of the window's start
-   * was tried first and still had this flaw (see brain/plans/ui-fixes.md for
-   * the worked example). Bucketing by fixed time avoids it because a
-   * bucket's boundary is never relative to anything that moves.
+   * was tried first and still had this flaw. Bucketing by fixed time avoids
+   * it because a bucket's boundary is never relative to anything that moves.
    *
    * A short window (few rows since `fromS`) is never thinned to just its
    * first and last row: with fewer real samples than target buckets, most
