@@ -93,6 +93,12 @@ func (f *Front) authenticate(r *http.Request, lenient bool) (Caller, error) {
 		if strings.EqualFold(scheme, "Bearer") && store.IsToken(cred) {
 			return f.bearer(r, cred)
 		}
+		// Only the proxy shape has a use for another Authorization (a
+		// signed preset's own Bearer); elsewhere it is terminal, cookie
+		// or not.
+		if f.plan.Shape != ShapeProxy {
+			return Caller{}, &authError{status: 401, detail: "Unrecognised credential"}
+		}
 	}
 	if f.plan.Shape == ShapePassword {
 		if ck, err := r.Cookie(f.cookie); err == nil && ck.Value != "" {
@@ -472,6 +478,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func detail(w http.ResponseWriter, status int, msg string) {
+	if status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", "Bearer") // as the runner's own 401s
+	}
 	writeJSON(w, status, map[string]string{"detail": msg})
 }
 
@@ -727,16 +736,27 @@ func (f *Front) createToken(w http.ResponseWriter, r *http.Request, c Caller) {
 	writeJSON(w, http.StatusCreated, json.RawMessage(append(append([]byte(`{"token":`), secretJSON...), append([]byte(","), row[1:]...)...)))
 }
 
+// revokeToken revokes, then records how it ended: a revoke is the safe
+// direction, so one whose record cannot be written still happens (503
+// says so).
 func (f *Front) revokeToken(w http.ResponseWriter, r *http.Request, c Caller, id string) {
-	if err := f.o.Audit.Event("token.revoke", slog.String("by", c.Sub), slog.String("id", id)); err != nil {
-		detail(w, http.StatusServiceUnavailable, "The audit log cannot be written")
-		return
+	err := f.tokens.Revoke(id)
+	outcome := "revoked"
+	switch {
+	case errors.Is(err, store.ErrTokenNotFound):
+		outcome = "not found"
+	case err != nil:
+		outcome = "failed"
 	}
-	switch err := f.tokens.Revoke(id); {
+	auditErr := f.o.Audit.Event("token.revoke", slog.String("by", c.Sub), slog.String("id", id), slog.String("outcome", outcome))
+	switch {
 	case errors.Is(err, store.ErrTokenNotFound):
 		detail(w, http.StatusNotFound, "No token with that id")
 	case err != nil:
 		detail(w, http.StatusServiceUnavailable, "Named tokens are unavailable")
+	case auditErr != nil:
+		f.log.Error("front: audit", "err", auditErr)
+		detail(w, http.StatusServiceUnavailable, "The token is revoked, but the audit log cannot be written")
 	default:
 		frontHeaders(w)
 		w.WriteHeader(http.StatusNoContent)

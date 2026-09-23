@@ -252,6 +252,7 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 				return errOutOfStep
 			case resp.StatusCode == http.StatusForbidden && c.Scheme == SchemeAnonymous:
 				resp.StatusCode, resp.Status = http.StatusUnauthorized, "401 Unauthorized"
+				resp.Header.Set("WWW-Authenticate", "Bearer")
 			}
 			return nil
 		},

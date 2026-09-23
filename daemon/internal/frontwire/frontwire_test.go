@@ -3,12 +3,15 @@ package frontwire
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,6 +23,8 @@ import (
 	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 	"flyballd/internal/fronttest"
+
+	"golang.org/x/crypto/scrypt"
 )
 
 func TestDecodeReadsEveryKey(t *testing.T) {
@@ -228,5 +233,44 @@ func TestPresetsAreWired(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dir, AuditFile))
 	if !strings.Contains(string(b), `"event":"proxy.peer"`) || !strings.Contains(string(b), `"uid":"`+strconv.Itoa(os.Getuid())+`"`) {
 		t.Fatalf("no proxy.peer record with this uid:\n%s", b)
+	}
+}
+
+// An audit that cannot be opened: the front still serves (D-028), but a
+// sign-in, whose record cannot be written, does not happen -- 503 and no
+// cookie, as when a single write fails.
+func TestUnopenableAuditFailsSignInClosed(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, AuditFile), 0o700); err != nil { // a directory where the file goes
+		t.Fatal(err)
+	}
+	audit := OpenAudit(dir, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	salt := []byte("0123456789abcdef")
+	sum, err := scrypt.Key([]byte("pw"), salt, 16, 1, 1, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := base64.RawURLEncoding.EncodeToString
+	plan := front.Resolve(front.Config{Auth: "password", Password: fmt.Sprintf("$scrypt$n=16,r=1,p=1$%s$%s", enc(salt), enc(sum))}, false)
+	if plan.Shape != front.ShapePassword {
+		t.Fatalf("plan %+v", plan)
+	}
+	fo := Options(plan, nil, audit, dir, nil)
+	fo.Route = front.SingleRig(front.Rig{Name: "r", Target: func(context.Context) (front.Target, error) {
+		return front.Target{}, errors.New("no runner")
+	}})
+	f := front.New(fo)
+	defer Closer(f, plan, audit)()
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/auth/login", strings.NewReader(`{"password":"pw"}`))
+	req.Header.Set("Origin", srv.URL)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Set-Cookie") != "" {
+		t.Fatalf("sign-in with no audit log: %d, Set-Cookie %q; want 503 and none", resp.StatusCode, resp.Header.Get("Set-Cookie"))
 	}
 }

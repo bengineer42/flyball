@@ -176,13 +176,14 @@ func DaemonDir(dataDir string) string {
 }
 
 // OpenAudit opens the front's audit at dir/audit.jsonl. One that cannot be
-// opened is logged and the front runs without one (D-028: the rig is
-// still served); nil is a valid *front.Audit that writes nothing.
+// opened is logged and the front runs on (D-028: the rig is still served)
+// with a front.FailedAudit: sign-ins and token changes, which must be
+// recorded, answer 503.
 func OpenAudit(dir string, logger *slog.Logger) *front.Audit {
 	audit, err := front.OpenAudit(filepath.Join(dir, AuditFile))
 	if err != nil {
-		orDefault(logger).Error("front: no audit log", "err", err)
-		return nil
+		orDefault(logger).Error("front: no audit log; sign-ins and token changes are refused", "err", err)
+		return front.FailedAudit(err)
 	}
 	return audit
 }

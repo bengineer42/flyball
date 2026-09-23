@@ -378,16 +378,20 @@ func TestLoginLimits(t *testing.T) {
 		t.Fatalf("cip from an untrusted XFF: %q", c.Cip)
 	}
 
-	// The hashing semaphore: a slow line (n=2^15, r=8: 32 MiB) keeps both
-	// slots busy; a third check is refused at once.
-	slow := newHarness(t, Config{Auth: "password", Password: scryptLine(testPassword, 1<<15, 8)})
+	// The hashing semaphore: two checks that hold their slots until
+	// released keep both busy; a third check is refused at once.
+	slow := newHarness(t, Config{Auth: "password", Password: testScrypt})
+	entered, release := make(chan struct{}), make(chan struct{})
+	slow.front.hasher = store.NewHasherWith(store.HashingSlots, func(_, _ []byte, _, _, _, size int) ([]byte, error) {
+		entered <- struct{}{}
+		<-release
+		return make([]byte, size), nil
+	})
 	var wg sync.WaitGroup
-	start := make(chan struct{})
 	for i := 0; i < store.HashingSlots; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			<-start
 			req, _ := http.NewRequest("POST", slow.srv.URL+"/api/auth/login", strings.NewReader(`{"password":"x"}`))
 			req.Header.Set("Origin", slow.srv.URL)
 			if resp, err := noRedirect.Do(req); err == nil {
@@ -395,9 +399,15 @@ func TestLoginLimits(t *testing.T) {
 			}
 		}()
 	}
-	close(start)
-	time.Sleep(100 * time.Millisecond)
+	for i := 0; i < store.HashingSlots; i++ {
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%d of %d checks started", i, store.HashingSlots)
+		}
+	}
 	resp = slow.do("POST", "/api/auth/login", `{"password":"x"}`, slow.origin())
+	close(release)
 	wg.Wait()
 	if resp.StatusCode != 429 || resp.Header.Get("Retry-After") == "" || body(resp) != `{"detail":"Too many attempts; try again later"}` {
 		t.Fatalf("third concurrent check: %d", resp.StatusCode)
@@ -686,6 +696,23 @@ func TestAnonymous403Becomes401(t *testing.T) {
 	}
 	if !strings.Contains(body(resp), `"needed":"operate"`) {
 		t.Fatal("the runner's body was not kept")
+	}
+	// Every 401 the front answers says how to authenticate.
+	if got := resp.Header.Get("WWW-Authenticate"); got != "Bearer" {
+		t.Errorf("anonymous act: WWW-Authenticate %q, want Bearer", got)
+	}
+	for name, hdr := range map[string]http.Header{
+		"unknown token": bearer(store.TokenPrefix+strings.Repeat("A", 43), nil),
+		"not a token":   {"Authorization": {"Bearer not-a-token"}},
+		"stale cookie":  {"Cookie": {h.front.cookie + "=gone"}},
+	} {
+		resp := h.do("GET", "/api/guarded", "", hdr)
+		if resp.StatusCode != 401 || resp.Header.Get("WWW-Authenticate") != "Bearer" {
+			t.Errorf("%s: %d, WWW-Authenticate %q; want 401 Bearer", name, resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+		}
+	}
+	if resp := h.do("POST", "/api/auth/login", `{"password":"nope"}`, h.origin()); resp.StatusCode != 401 || resp.Header.Get("WWW-Authenticate") != "Bearer" {
+		t.Errorf("wrong password: %d, WWW-Authenticate %q; want 401 Bearer", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 	}
 	// A signed-in caller lacking the verb keeps the 403.
 	cookie := h.login()
@@ -1029,6 +1056,62 @@ func TestAuditJSONL(t *testing.T) {
 	}
 }
 
+// A revoke is recorded after it is tried, with how it ended; one whose
+// record cannot be written still revokes (the safe direction) and says so.
+func TestRevokeAudit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "front", "audit.jsonl")
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, Config{}, func(o *Options) { o.Audit = a })
+	cli, err := store.OpenTokens(h.opts.TokensPath, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tok, err := cli.Create(store.NewToken{Name: "t", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp := h.do("DELETE", "/api/auth/tokens/"+tok.ID, "", h.origin()); resp.StatusCode != 204 {
+		t.Fatalf("revoke: %d", resp.StatusCode)
+	}
+	if resp := h.do("DELETE", "/api/auth/tokens/0000000000000000", "", h.origin()); resp.StatusCode != 404 {
+		t.Fatalf("revoke unknown: %d", resp.StatusCode)
+	}
+	a.Close()
+	raw, _ := os.ReadFile(path)
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("line %q: %v", line, err)
+		}
+		if rec["event"] == "token.revoke" {
+			got = append(got, fmt.Sprint(rec["id"], " ", rec["outcome"]))
+		}
+	}
+	if want := []string{tok.ID + " revoked", "0000000000000000 not found"}; !slices.Equal(got, want) {
+		t.Fatalf("token.revoke records %q, want %q", got, want)
+	}
+
+	f := newHarness(t, Config{}, func(o *Options) { o.Audit = FailedAudit(errors.New("disk full")) })
+	cli, err = store.OpenTokens(f.opts.TokensPath, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, tok, err := cli.Create(store.NewToken{Name: "t", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp := f.do("DELETE", "/api/auth/tokens/"+tok.ID, "", f.origin()); resp.StatusCode != 503 {
+		t.Fatalf("revoke with no audit: %d, want 503", resp.StatusCode)
+	}
+	if resp := f.do("GET", "/api/echo", "", bearer(secret, nil)); resp.StatusCode != 401 {
+		t.Fatalf("the token after a revoke the audit could not record: %d, want 401", resp.StatusCode)
+	}
+}
+
 // Merge requirement 17: no credential in a URL.
 func TestNoCredentialInURL(t *testing.T) {
 	h := newHarness(t, Config{Auth: "password", Password: testScrypt})
@@ -1095,8 +1178,19 @@ func TestProviderChain(t *testing.T) {
 	if c := readJSON[echo](t, h.do("GET", "/api/echo", "", nil)).Claims; !reflect.DeepEqual(c.Scp, []string{"read"}) {
 		t.Fatalf("anonymous read: %+v", c)
 	}
-	// A store failure is 503, not anonymous.
+	// ... and terminal: a live session cookie beside it does not rescue
+	// the request (the password and local shapes; the proxy shape below
+	// lets it through, as oauth2-proxy sends its own Bearer).
 	cookie := h.login()
+	for _, auth := range []string{"Bearer not-a-token", "Basic YWRtaW46eA=="} {
+		if resp := h.do("GET", "/api/echo", "", withCookie(cookie, http.Header{"Authorization": {auth}})); resp.StatusCode != 401 {
+			t.Errorf("Authorization %q with a live session: %d, want 401", auth, resp.StatusCode)
+		}
+	}
+	if resp := newHarness(t, Config{}).do("GET", "/api/echo", "", http.Header{"Authorization": {"Bearer not-a-token"}}); resp.StatusCode != 401 {
+		t.Errorf("local shape, Authorization Bearer not-a-token: %d, want 401", resp.StatusCode)
+	}
+	// A store failure is 503, not anonymous.
 	secret := h.createToken(cookie, `{"name":"ci","scopes":["read"]}`)
 	if err := os.WriteFile(h.opts.TokensPath, []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1140,6 +1234,11 @@ func TestProviderChain(t *testing.T) {
 				}
 			}
 		})
+	}
+	// The proxy shape: a non-token Authorization is the proxy's business.
+	px := newProxyHarness(t, stubClient{id: Identity{Issuer: "idp", Subject: "ben"}, outcome: Accept}, map[string][]string{"all": {"ben"}}, "none")
+	if resp := px.do("GET", "/api/echo", "", http.Header{"Authorization": {"Bearer eyJ.id.token"}}); resp.StatusCode != 200 {
+		t.Fatalf("proxy shape with its own Bearer: %d, want 200", resp.StatusCode)
 	}
 	// An unmatched proxy user gets read.
 	p := newProxyHarness(t, stubClient{id: Identity{Subject: "dave"}, outcome: Accept}, map[string][]string{"all": {"ben"}}, "none")

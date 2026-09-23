@@ -185,7 +185,7 @@ ignored with one warning line and its default used.
 
 | key | type | default | |
 | --- | --- | --- | --- |
-| `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` (`flyballd`: `127.0.0.1:9000`) | where the front listens; `flyball run --listen` wins. A unix socket file nobody answers on is replaced; one another process answers on is left, and the front does not serve (the rig runs on). Unparseable: falls back |
+| `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` (`flyballd`: `127.0.0.1:9000`) | where the front listens; `flyball run --listen` wins. A unix socket file nobody answers on is replaced; one another process answers on is left, and the front does not serve (the rig runs on). The socket is made `0660`; a directory anyone may write to without the sticky bit, or the front's own directory with any permission for others, is refused the same way ([who may connect](../1-running/runner/access.md#behind-an-identity-proxy)). Unparseable: falls back |
 | `auth` | `local` / `password` / `proxy` / `sso` | `local` | the [shape](../1-running/runner/access.md#shapes-who-gets-in). `local` asked for a non-loopback `listen` falls back unless the run says `--insecure-open`; `sso` falls back (not in this release) |
 | `password` | string | none | `auth: password`'s admin password, as the `$scrypt$` line `flyball password` prints; missing or plain text falls back |
 | `anonymous` | `none` / `read` | `none` | what a caller with no credential may do under `password` and `proxy`; the `local` shape ignores it. Another value warns |
@@ -193,7 +193,7 @@ ignored with one warning line and its default used.
 | `tls` | `{cert, key}` | none | PEM files the front serves HTTPS from, TLS 1.2 at least; re-read every 10 s and on `SIGHUP`, the last good pair kept. Unreadable at start: falls back |
 | `proxy` | table | none | `auth: proxy`'s identity layer: [below](#proxy-presets). Missing, or one that cannot be vouched for: falls back |
 | `session` | duration | `12h` | a session's idle lifetime (`12h`, `2d`); it ends after 7 days whatever. Unparseable warns |
-| `trusted_proxies` | `[IP or CIDR, …]` | `[]` | peers whose `X-Forwarded-For` the front believes: when the connection comes from one, the client is the right-most address in that header not in the list. That address is what the sign-in limit counts and the audit and principal record. A bad entry warns and is dropped |
+| `trusted_proxies` | `[IP or CIDR, …]` | `[]` | peers whose `X-Forwarded-For` the front believes: when the connection comes from one, the client is the right-most address in that header not in the list. That address is what the sign-in limit counts and the audit and principal record. List the proxies themselves, not the network they share with clients: a client whose own address is in the list is believed too, so it can name any address it likes. A bad entry warns and is dropped |
 | `tokens` | `{default_lifetime, max_lifetime}` | 90 days, 365 days | [named-token lifetimes](#token-lifetimes) |
 | `uv` | bool | `false` | `flyball run` only: run `flyball-runner` via `uv run --project <the rig file's directory>` |
 

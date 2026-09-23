@@ -27,7 +27,14 @@ type Audit struct {
 	h    slog.Handler
 	seq  uint64
 	boot string
+	err  error // FailedAudit: every Event returns it
 }
+
+// FailedAudit is an audit log that could not be opened: the front still
+// serves (D-028), but every Event returns err, so the events that fail
+// closed (a sign-in, a token created or revoked) answer 503 as when a
+// single write fails.
+func FailedAudit(err error) *Audit { return &Audit{err: err} }
 
 // OpenAudit opens (creating) the audit file at path, e.g.
 // `<data_dir>/front/audit.jsonl` or
@@ -61,6 +68,9 @@ func (a *Audit) Event(event string, attrs ...slog.Attr) error {
 	if a == nil {
 		return nil
 	}
+	if a.err != nil {
+		return a.err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.seq++
@@ -75,7 +85,7 @@ func (a *Audit) Event(event string, attrs ...slog.Attr) error {
 
 // Close closes the file.
 func (a *Audit) Close() error {
-	if a == nil {
+	if a == nil || a.f == nil {
 		return nil
 	}
 	a.mu.Lock()
