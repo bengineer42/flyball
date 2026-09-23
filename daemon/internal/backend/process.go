@@ -3,10 +3,12 @@ package backend
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -158,7 +160,7 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 		args = append(args, "--root-path", spec.RootPath)
 	}
 	rp := &runnerProc{
-		endpoint:  fmt.Sprintf("%s:%d", spec.Host, spec.Port),
+		endpoint:  net.JoinHostPort(spec.Host, strconv.Itoa(spec.Port)),
 		rootPath:  spec.RootPath,
 		uvProject: spec.UvProject,
 		args:      args,

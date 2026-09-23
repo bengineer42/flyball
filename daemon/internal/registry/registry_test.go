@@ -39,7 +39,7 @@ func (f *fakeBackend) set(s backend.Status) {
 func TestStatusFollowsTheProcess(t *testing.T) {
 	be := &fakeBackend{status: backend.StatusStarting}
 	r := New(be)
-	m := config.Manifest{Name: "oven", ServerConfig: "oven.yaml", Port: 8101, RootPath: "/oven"}
+	m := config.Manifest{Name: "oven", ServerConfig: "oven.yaml", Host: "127.0.0.1", Port: 8101, RootPath: "/oven"}
 	if err := r.Start(m); err != nil {
 		t.Fatal(err)
 	}

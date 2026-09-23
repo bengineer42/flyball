@@ -165,7 +165,7 @@ func TestRegistryRefusesWhatValidateRefuses(t *testing.T) {
 	if len(be.started) != 0 {
 		t.Errorf("backend started %v", be.started)
 	}
-	good := config.Manifest{Name: "oven", ServerConfig: "a.yaml", Port: 8101, RootPath: "/oven"}
+	good := config.Manifest{Name: "oven", ServerConfig: "a.yaml", Host: "127.0.0.1", Port: 8101, RootPath: "/oven"}
 	if err := reg.Start(good); err != nil {
 		t.Fatal(err)
 	}
@@ -190,5 +190,16 @@ func TestLogsClosesTheLog(t *testing.T) {
 		if !l.closed {
 			t.Errorf("log %d left open", i)
 		}
+	}
+}
+
+func TestANonLoopbackHostIs400(t *testing.T) {
+	s, be := newServer("s3cret")
+	rec := do(t, s, "POST", "/api/runners", "s3cret", `{"name":"oven","server_config":"oven.yaml","port":8101,"host":"0.0.0.0"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "loopback") {
+		t.Errorf("host 0.0.0.0: %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if len(be.started) != 0 {
+		t.Errorf("started %v", be.started)
 	}
 }
