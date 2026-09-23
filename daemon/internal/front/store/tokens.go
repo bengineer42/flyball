@@ -80,19 +80,27 @@ type NewToken struct {
 	// Cleartext: the request came over plain HTTP (off loopback, without
 	// TLS). It caps the lifetime at TokenLifetimeCapped.
 	Cleartext bool
+	// Elevated: the request was made from the admin session asking for a
+	// scope above read (D-036 safeguard 3: an operate-or-above token
+	// `flyball login` mints lives at most 30 d, whatever the config
+	// says). It caps the lifetime the same as Cleartext/KindAgent, but is
+	// not itself persisted on the record -- it says why the cap applied
+	// at creation, not a fact about the token afterwards.
+	Elevated bool
 }
 
 // TokenLifetime is the lifetime a token of kind, created over cleartext or
-// not, gets when requested is asked for: requested (0 = lt.Default) capped
-// at min(TokenLifetimeCapped, lt.Max) for cleartext or KindAgent -- the
-// fixed 30-day cap, tightened further if lt.Max is smaller -- and at
-// lt.Max otherwise. There is no "never".
-func TokenLifetime(lt Lifetimes, kind string, cleartext bool, requested time.Duration) (time.Duration, error) {
+// not, or from an elevated admin session or not, gets when requested is
+// asked for: requested (0 = lt.Default) capped at min(TokenLifetimeCapped,
+// lt.Max) for cleartext, KindAgent or an elevated session -- the fixed
+// 30-day cap, tightened further if lt.Max is smaller -- and at lt.Max
+// otherwise. There is no "never".
+func TokenLifetime(lt Lifetimes, kind string, cleartext, elevated bool, requested time.Duration) (time.Duration, error) {
 	if requested < 0 {
 		return 0, fmt.Errorf("a token's lifetime must be positive, not %v", requested)
 	}
 	limit := lt.Max
-	if cleartext || kind == KindAgent {
+	if cleartext || kind == KindAgent || elevated {
 		limit = min(TokenLifetimeCapped, lt.Max)
 	}
 	if requested == 0 {
@@ -238,7 +246,7 @@ func (t *Tokens) Create(n NewToken) (secret string, _ Token, _ error) {
 	if n.Kind != KindHuman && n.Kind != KindService && n.Kind != KindAgent {
 		return "", Token{}, fmt.Errorf("token kind %q: want %s, %s or %s", n.Kind, KindHuman, KindService, KindAgent)
 	}
-	life, err := TokenLifetime(t.lifetimes, n.Kind, n.Cleartext, n.ExpiresIn)
+	life, err := TokenLifetime(t.lifetimes, n.Kind, n.Cleartext, n.Elevated, n.ExpiresIn)
 	if err != nil {
 		return "", Token{}, err
 	}
