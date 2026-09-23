@@ -1,8 +1,9 @@
 // Package api is the daemon's own external interface, per
 // brain/plans/rig-deployment/interface.md's "External: the daemon's own
-// HTTP API" table. Registration actions (start/stop/restart/logs) need
-// the daemon's bearer token; GET /api/runners is open, per plan.md's
-// "reading the list is fine open" note. Optional convenience routing
+// HTTP API" table. Every route of its own but GET /api/auth -- the runner
+// list, the landing page, start/stop/restart/logs -- needs the daemon's
+// bearer token; the per-runner proxy does not (the runner has its own
+// door). Optional convenience routing
 // (/{name}/*, pass-through to a runner) is also here, per the
 // Architecture revision -- no longer the daemon's core job, but kept as
 // a mode, per plan.md's still-open question on whether to split it out.
@@ -39,8 +40,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.Serve
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/auth", s.handleAuth)
-	s.mux.HandleFunc("GET /api/runners", s.handleListRunners)
-	s.mux.HandleFunc("GET /api/runners/{name}", s.handleGetRunner)
+	s.mux.HandleFunc("GET /api/runners", s.requireAuth(s.handleListRunners))
+	s.mux.HandleFunc("GET /api/runners/{name}", s.requireAuth(s.handleGetRunner))
 	s.mux.HandleFunc("POST /api/runners", s.requireAuth(s.handleStartRunner))
 	s.mux.HandleFunc("DELETE /api/runners/{name}", s.requireAuth(s.handleStopRunner))
 	s.mux.HandleFunc("POST /api/runners/{name}/restart", s.requireAuth(s.handleRestartRunner))
@@ -56,7 +57,7 @@ func (s *Server) routes() {
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.daemon.Auth.Token == "" {
-			http.Error(w, "flyballd has no auth.token: set one in its config to start, stop, restart or read runners over the API",
+			http.Error(w, "flyballd has no auth.token: set one in its config to list, start, stop, restart or read runners over the API",
 				http.StatusServiceUnavailable)
 			return
 		}
@@ -185,7 +186,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 // this session (a runner expects its root_path kept, not stripped).
 func (s *Server) handleLandingOrProxy(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
-		s.handleLanding(w, r)
+		s.requireAuth(s.handleLanding)(w, r)
 		return
 	}
 	for _, e := range s.reg.List() {

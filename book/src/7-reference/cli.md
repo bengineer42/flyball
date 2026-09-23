@@ -77,7 +77,7 @@ no local, offline-against-installed-commands mode as `cli.py` had.
 ## The daemon
 
 `flyballd` starts one `flyball-runner` per manifest and proxies each under
-its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
+its `root_path`; `/` lists them. `flyballd --config flyballd.yaml`; every key has a default:
 
 | key | default | |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
 | `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host` (default `127.0.0.1`; a loopback address only -- the runner is reached through `flyballd`'s proxy, and anything else, `0.0.0.0` included, is refused), `root_path` (default `/NAME`), `restart` (below), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
 | `data_dir` | `data` | captured runner logs, under `logs/`: `NAME.log`, and `NAME.log.1` once it has been capped. A log can hold secrets (a `?token=` in a request line), so `logs/` is made `0700` and each file `0600`, also when they already exist |
 | `log_max_size` | 10 MiB (`10485760`, in bytes) | per-runner captured-log cap; `0` for none. Checked every 2 s: past it, `NAME.log` is copied to `NAME.log.1` (replacing the last one) and emptied, so a runner's logs take at most about twice the cap. The runner keeps writing to the same file, so a daemon crash does not cut its output; a line written at the moment of the copy can be lost |
-| `auth.token` | none | the bearer token the registration routes below need. **With no token they answer 503**: the runners in `manifests_dir` still start, but nothing can start, stop, restart or read one over the API |
+| `auth.token` | none | the bearer token every route of the daemon's own needs -- the runner list, `/`, and the commands below; only `GET /api/auth` is open. **With no token they answer 503**: the runners in `manifests_dir` still start and are proxied, but nothing can list, start, stop, restart or read one over the API |
 
 A runner's `name` is lower-case letters, digits, `-` and `_` (it names the
 log file and the URL prefix); `root_path` is `/segments` of the same; `host`
@@ -118,16 +118,18 @@ runner in backoff, which does not come back.
 
 | command | | |
 | --- | --- | --- |
-| `daemon runners` | `GET /api/runners` | list registered runners; open |
+| `daemon runners` | `GET /api/runners` | list registered runners and their status |
 | `daemon start MANIFEST.json` | `POST /api/runners` | register and start one |
 | `daemon stop NAME` | `DELETE /api/runners/NAME` | stop and deregister it |
 | `daemon restart NAME` | `POST /api/runners/NAME/restart` | restart it |
 | `logs NAME` | `GET /api/runners/NAME/logs` | its captured stdout/stderr (`NAME.log`; not the capped-off `NAME.log.1`) |
 
-All but `daemon runners` send `Authorization: Bearer $FLYBALLD_TOKEN` --
-the daemon's token, not a runner's -- and are 401 without it. `GET
-/api/auth` says which you are: `level: read` anonymously, `operate` with
-the token.
+All of them send `Authorization: Bearer $FLYBALLD_TOKEN` -- the daemon's
+token, not a runner's -- and are 401 without it; so does picking the one
+registered runner when `-s` is omitted. The proxy under a runner's
+`root_path` does not ask for it: the runner behind it has its own access
+control. `GET /api/auth` says which you are: `level: read` anonymously,
+`operate` with the token.
 
 ## Exit codes
 

@@ -60,11 +60,24 @@ func Resolve(server string) (Target, error) {
 // runner registered, or one marked default (layer 1's default_server),
 // else error listing the names -- plan.md's "Default-runner precedence."
 func ResolveDefault(daemonURL string) (Target, error) {
-	resp, err := http.Get(strings.TrimRight(daemonURL, "/") + "/api/runners")
+	req, err := http.NewRequest("GET", strings.TrimRight(daemonURL, "/")+"/api/runners", nil)
+	if err != nil {
+		return Target{}, err
+	}
+	// The daemon's own token, not a runner's: the list is not open.
+	if t := os.Getenv("FLYBALLD_TOKEN"); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return Target{}, fmt.Errorf("reaching daemon at %s: %w", daemonURL, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return Target{}, fmt.Errorf("listing runners at %s (set FLYBALLD_TOKEN, or pass -s NAME): %s: %s",
+			daemonURL, resp.Status, strings.TrimSpace(string(body)))
+	}
 
 	var runners []struct {
 		Name string `json:"name"`
