@@ -681,12 +681,13 @@ def front_dir(root: Path, **files: str) -> Path:
     return root
 
 
-def test_a_front_dir_is_read(tmp_path):
+def test_a_front_dir_is_read(tmp_path, monkeypatch):
     from flyball.runner.frontdir import read
 
     got = read(front_dir(tmp_path / "f"))
     assert (got.key, got.aud) == (bytes.fromhex(KEY_HEX), "run-0a1b2c3d")
     assert (got.network, got.address) == ("unix", f"{tmp_path}/f/sock")
+    monkeypatch.setattr(sys, "platform", "win32")  # tcp is Windows-only (D-044)
     tcp = read(front_dir(tmp_path / "t", endpoint="tcp:127.0.0.1:8102\n"))
     assert (tcp.network, tcp.host, tcp.port) == ("tcp", "127.0.0.1", 8102)
     assert tcp.endpoint == "tcp:127.0.0.1:8102"
@@ -709,11 +710,23 @@ def test_a_front_dir_is_read(tmp_path):
         ({"endpoint": "http://127.0.0.1:1\n"}, "endpoint"),
     ],
 )
-def test_a_front_dir_missing_or_malformed_is_unusable(tmp_path, files, why):
+def test_a_front_dir_missing_or_malformed_is_unusable(tmp_path, monkeypatch, files, why):
     from flyball.runner.frontdir import Unusable, read
 
-    with pytest.raises(Unusable, match=why):
+    monkeypatch.setattr(sys, "platform", "win32")  # a malformed tcp endpoint, not D-044's refusal
+    with pytest.raises(Unusable, match=why) as refused:
         read(front_dir(tmp_path / "f", **files))
+    assert "D-044" not in str(refused.value)
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_a_tcp_front_dir_is_refused_off_windows(tmp_path, monkeypatch, platform):
+    from flyball.runner.frontdir import Unusable, read
+
+    monkeypatch.setattr(sys, "platform", platform)
+    with pytest.raises(Unusable, match=r"tcp is refused except on Windows .*D-044.*unix socket"):
+        read(front_dir(tmp_path / "f", endpoint="tcp:127.0.0.1:8102\n"))
+    assert read(front_dir(tmp_path / "u")).network == "unix"
 
 
 def test_an_unsafe_front_dir_is_unusable(tmp_path):
@@ -935,6 +948,7 @@ def test_serve_fronted_binds_the_endpoint_only(tmp_path, monkeypatch, capsys):
     assert config.app.state.door.fronted is not None and config.app.state.door.aud == front.aud
     lines = [line for line in capsys.readouterr().err.splitlines() if "WARNING" in line]
     assert len(lines) == 1 and "--front-dir" in lines[0] and "link?n=" not in lines[0]
+    monkeypatch.setattr(sys, "platform", "win32")  # tcp is Windows-only (D-044)
     tcp = read(front_dir(tmp_path / "t", endpoint="tcp:127.0.0.1:8102\n"))
     monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.update(config=self.config))
     runner.serve(Rig("t"), RunnerConfig(), front=tcp)
