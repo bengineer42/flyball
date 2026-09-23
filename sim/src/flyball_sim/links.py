@@ -23,27 +23,58 @@ from pydantic import Field
 class FakeI2c:
     """Registers per address, and scripted replies per address for raw reads.
 
-    `registers = {0x48: {0x00: [0x12, 0x34]}}` answers `read_register(0x48, 0, 2)`;
+    `registers = {0x48: {0x00: [0x12, 0x34]}}` answers `read_register(0x48, 0, 2)`.
+    The registers are one contiguous map: a block's bytes sit at consecutive
+    addresses, so a burst runs on into the next block and a read can start inside
+    one; a register scripted on its own wins over a block that covers it.
     `replies = {0x44: [[...6 bytes...]]}` answers successive `read(0x44, 6)`.
     Every write is kept.
+
+    A read longer than the script raises `OSError`, as a real bus does rather than
+    return fewer bytes; a longer script is cut to the length asked for.
+    `short_reads=True` returns the short data instead, for testing a driver's own
+    length check.
     """
 
     def __init__(
         self,
         registers: dict[int, dict[int, list[int]]] | None = None,
         replies: dict[int, list[list[int]]] | None = None,
+        short_reads: bool = False,
     ) -> None:
         self.registers = {a: dict(r) for a, r in (registers or {}).items()}
         self.replies = {a: list(r) for a, r in (replies or {}).items()}
+        self.short_reads = short_reads
         self.written: list[tuple[int, int | None, list[int]]] = []
         """`(address, register or None, data)` per write, in order."""
 
-    def read_register(self, address: int, register: int, length: int) -> bytes:
-        try:
-            data = self.registers[address][register]
-        except KeyError:
-            raise OSError(f"no device at 0x{address:02x} register 0x{register:02x}") from None
+    def _at(self, address: int, register: int) -> list[int] | None:
+        """The bytes from `register` to the end of the block holding it, or `None`."""
+        blocks = self.registers.get(address, {})
+        if register in blocks:
+            return blocks[register]
+        covering = [r for r, d in blocks.items() if r < register < r + len(d)]
+        if not covering:
+            return None
+        start = max(covering)
+        return blocks[start][register - start :]
+
+    def _exact(self, data: Sequence[int], length: int, what: str) -> bytes:
+        if len(data) < length and not self.short_reads:
+            raise OSError(f"{what}: {length} bytes asked for, {len(data)} scripted")
         return bytes(data[:length])
+
+    def read_register(self, address: int, register: int, length: int) -> bytes:
+        data = self._at(address, register)
+        if data is None:
+            raise OSError(f"no device at 0x{address:02x} register 0x{register:02x}")
+        out = list(data)
+        while len(out) < length and data:
+            data = self._at(address, register + len(out))
+            if data is None:
+                break
+            out += data
+        return self._exact(out, length, f"0x{address:02x} register 0x{register:02x}")
 
     def write_register(self, address: int, register: int, data: Sequence[int]) -> None:
         self.registers.setdefault(address, {})[register] = list(data)
@@ -57,7 +88,7 @@ class FakeI2c:
         if not queue:
             raise OSError(f"no reply scripted for 0x{address:02x}")
         reply = queue[0] if len(queue) == 1 else queue.pop(0)  # the last reply repeats
-        return bytes(reply[:length])
+        return self._exact(reply, length, f"0x{address:02x} read")
 
 
 class FakeI2cConfig(Config[I2cLink], tag="fake_i2c"):
@@ -75,22 +106,33 @@ class FakeI2cConfig(Config[I2cLink], tag="fake_i2c"):
 
 
 class FakeSpi:
-    """Answers each transfer from a list, or a function of the bytes sent; keeps every transfer."""
+    """Answers each transfer from a list, or a function of the bytes sent; keeps every transfer.
+
+    A transfer clocks in as many bytes as it sends: a reply shorter than that raises
+    `OSError` (`short_reads=True` pads it with zeros instead), a longer one is cut.
+    With no replies scripted at all, every transfer reads zeros.
+    """
 
     def __init__(
-        self, replies: list[list[int]] | Callable[[list[int]], Sequence[int]] | None = None
+        self,
+        replies: list[list[int]] | Callable[[list[int]], Sequence[int]] | None = None,
+        short_reads: bool = False,
     ) -> None:
         self.replies = replies if callable(replies) else list(replies or [])
+        self.short_reads = short_reads
         self.sent: list[list[int]] = []
 
     def transfer(self, data: Sequence[int]) -> bytes:
         sent = list(data)
         self.sent.append(sent)
         if callable(self.replies):
-            return bytes(self.replies(sent))
-        if not self.replies:
+            reply = list(self.replies(sent))
+        elif not self.replies:
             return bytes(len(sent))
-        reply = self.replies[0] if len(self.replies) == 1 else self.replies.pop(0)
+        else:
+            reply = self.replies[0] if len(self.replies) == 1 else self.replies.pop(0)
+        if len(reply) < len(sent) and not self.short_reads:
+            raise OSError(f"spi transfer: {len(sent)} bytes sent, {len(reply)} scripted")
         return bytes(reply[: len(sent)]).ljust(len(sent), b"\0")
 
 
