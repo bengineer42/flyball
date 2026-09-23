@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
 import tempfile
 import threading
 import time
@@ -19,7 +18,7 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
-from conftest import TestClient
+from conftest import TestClient, free_port
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.client import RigError
 from flyball.interfaces.mcp import Tier, tools_for
@@ -777,12 +776,6 @@ class Served:
         ]
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
 @pytest.fixture(params=["fronted", "bare"])
 def served(request, rig, tmp_path) -> Any:
     """`serve`'s app and MCP mount, fronted over a unix socket or bare over loopback TCP."""
@@ -808,7 +801,7 @@ def served(request, rig, tmp_path) -> Any:
         bind: dict[str, Any] = {"uds": sock}
         base, uds, token = "http://localhost", sock, None
     else:
-        front, token, port = None, "s3cret-token", _free_port()
+        front, token, port = None, "s3cret-token", free_port()
         settings = RunnerConfig(port=port, auth=AuthConfig(token=token))
         app = create_app(settings.auth, port=port, login_delay=0)
         bind = {"host": "127.0.0.1", "port": port}

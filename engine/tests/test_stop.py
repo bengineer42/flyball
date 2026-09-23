@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import threading
@@ -21,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from conftest import TestClient
+from conftest import TestClient, free_port
 from flyball.foundation.device import Access
 from flyball.interfaces.server import create_app, principal, set_programmer, set_rig
 from flyball.interfaces.server.deps import current_stopper, get_dialect, set_stopper
@@ -356,12 +355,6 @@ def test_break_glass_off_the_main_thread_is_a_no_op():
 # region The break-glass, in a real runner
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _call(port: int, method: str, path: str, body: Any = None) -> Any:
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
@@ -400,7 +393,7 @@ class Lines:
 
 
 def test_sigusr1_stops_without_exit(tmp_path):
-    port = _free_port()
+    port = free_port()
     env = {
         k: v
         for k, v in os.environ.items()
@@ -476,7 +469,7 @@ def test_sigusr1_while_starting_does_not_end_the_runner(tmp_path):
     would end it there, and `flyball run` would start it again -- a stop turned restart.
     Sent the moment `<store>.lock` names the runner, the signal finds no rig to stop yet.
     """
-    port = _free_port()
+    port = free_port()
     env = {
         k: v
         for k, v in os.environ.items()
