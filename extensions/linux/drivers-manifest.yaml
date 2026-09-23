@@ -126,7 +126,7 @@ sensors:
     loc_estimate: "100-150 (gas channel only)"
     loc_actual: 483
     status: done
-    datasheet_checked: partial
+    datasheet_checked: false
     hardware_tested: false
     price_approx: "~$8-15 [Unverified]"
     domains: [greenhouse, mushroom]
