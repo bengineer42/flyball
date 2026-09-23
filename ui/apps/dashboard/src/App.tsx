@@ -206,8 +206,9 @@ function SessionsPage({ name, navigate }: { name: string | null; navigate: (page
  */
 export function App({ onSignIn }: { onSignIn(): void }) {
   countRender("App");
+  const authInfo = useAuth().info;
   // Open to the network, or moved to loopback for want of a password: said on every page, never dismissed.
-  const exposure = useAuth().info?.exposure;
+  const exposure = authInfo?.exposure;
   const [route, navigate] = useRoute();
   const { page, name, params } = route;
   // A bare `#/` opens the home dashboard when one is set; the Overview stays a click away.
@@ -268,6 +269,17 @@ export function App({ onSignIn }: { onSignIn(): void }) {
           <Typography color="text.secondary" sx={{ m: 3 }}>
             starting…
           </Typography>
+        </>
+      );
+    // A signed-in caller with no `read` verb (a proxy identity mapped to nothing, say): the rig is
+    // reachable, this caller just is not allowed to see it. "Cannot reach the rig" would be a lie.
+    if (devices.error instanceof RigError && devices.error.status === 403 && authInfo?.user)
+      return (
+        <>
+          {settler}
+          <Alert severity="warning" sx={{ m: 3 }}>
+            Signed in as {authInfo.user.name}, but without permission to view this rig.
+          </Alert>
         </>
       );
     return (

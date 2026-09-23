@@ -108,6 +108,21 @@ describe("App: the runner starting", () => {
     expect(screen.queryByText(/^starting/i)).toBeNull();
   });
 
+  it("a 403 for a signed-in caller says they lack permission, not that the rig is unreachable (F5)", async () => {
+    const PROXY_VIEWER: AuthInfo = {
+      v: 2,
+      shape: "proxy",
+      scheme: "proxy",
+      user: { id: "proxy:example.com#bob", name: "bob", kind: "human" },
+      verbs: [],
+      anonymous: "none",
+      login: { password: false, token: false, passkey: false, sso: null },
+    };
+    withProviders(PROXY_VIEWER, () => ({ status: 403, json: { detail: "no read verb" } }));
+    await waitFor(() => expect(screen.getByText(/without permission to view this rig/i)).toBeTruthy());
+    expect(screen.getByText(/bob/)).toBeTruthy();
+    expect(screen.queryByText(/cannot reach the rig/i)).toBeNull();
+  });
 });
 
 describe("App: a page that throws during render (F3)", () => {
