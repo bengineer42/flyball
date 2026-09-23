@@ -2,14 +2,15 @@
 
 A `sim_plant` under `links` is one plant model shared by the devices that
 use it: a `sim_daq` reads chosen plant outputs as its signals and advances
-the plant by the time since the last read; a `sim_drive` sets chosen plant
-inputs from demands on its signals. Several of each may share one plant, so
-a multi-zone plant's zones interact through it (`examples/furnace`'s worked
-scenario, or an application's own [MultiPlant][flyball_sim.plant.MultiPlant]
-such as [humctrl](https://github.com/bengineer42/humctrl)'s chamber). A rig
-of these runs on a laptop, ticks like a real one, records, tunes and
-serves the same API -- with nothing plugged in -- and, laid over a real
-rig's file, stands in for its hardware under the same names.
+the plant to the read's instant -- once, however many devices read it; a
+`sim_drive` sets chosen plant inputs from demands on its signals. Several of
+each may share one plant, so a multi-zone plant's zones interact through it
+(`examples/furnace`'s worked scenario, or an application's own
+[MultiPlant][flyball_sim.plant.MultiPlant] such as
+[humctrl](https://github.com/bengineer42/humctrl)'s chamber). A rig of these
+runs on a laptop, ticks like a real one, records, tunes and serves the same
+API -- with nothing plugged in -- and, laid over a real rig's file, stands
+in for its hardware under the same names.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant
+from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant, advancer
 
 # A plant's drive is a fraction of full power: 0 is off, 1 is everything it has.
 Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
@@ -315,7 +316,10 @@ class DaqPort(BaseModel):
 
 
 class SimDaq(Readable):
-    """Reads a plant's outputs as its signals, advancing the plant by the time since the last read.
+    """Reads a plant's outputs as its signals, advancing the plant to each read's instant.
+
+    A plant is stepped once per instant however many devices read it, so two
+    `sim_daq`s on one bare `sim_plant` do not run its time at twice the rate.
 
     Every signal is an `[RP]` output. Each is read when its own `poll_s` is
     due, so a slow sample thermocouple beside fast zone ones costs one
@@ -364,6 +368,8 @@ class SimDaq(Readable):
         if not leaves:
             raise ValueError(f"{name}: a sim_daq reads at least one port")
         self.bind(_tree(name, leaves))
+        self._advancer = None if isinstance(plant, MultiPlant) else advancer(plant)
+        """A bare plant's stepper, shared with every other device reading the same plant."""
         self._last_ns: int | None = None
         self._last_read: dict[Signal, int] = {}
         self._broken: dict[Signal, int] = {}
@@ -393,11 +399,11 @@ class SimDaq(Readable):
         )
 
     def _advance(self, time_ns: int) -> None:
-        """Step the plant to `time_ns`; a multi-port plant steps once per instant, whoever asks."""
+        """Step the plant to `time_ns`: once per instant, whichever device reading it asks first."""
         if isinstance(self.plant, MultiPlant):
             self.plant.advance(time_ns)
-        elif self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
-            self.plant.step((time_ns - self._last_ns) / 1e9)
+        elif self._advancer is not None:
+            self._advancer.advance(time_ns)
         self._last_ns = time_ns
 
     def _due(self, signal: Signal, time_ns: int) -> bool:

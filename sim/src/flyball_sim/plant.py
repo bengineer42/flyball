@@ -16,6 +16,8 @@ object shaped this way will do, not only the worked furnace example
 from __future__ import annotations
 
 import random
+import threading
+import weakref
 from collections import deque
 from math import exp
 from typing import Protocol, runtime_checkable
@@ -45,7 +47,7 @@ class Lag:
     output settles at `ambient`; full input adds `gain`.
     """
 
-    __slots__ = ("ambient", "gain", "input", "tau_s", "value")
+    __slots__ = ("__weakref__", "ambient", "gain", "input", "tau_s", "value")
 
     def __init__(
         self,
@@ -89,7 +91,7 @@ class Lag:
 class Integrator:
     """`dy/dt = gain * u - leak * y`: a tank filling against a drain, a position under velocity."""
 
-    __slots__ = ("gain", "input", "leak", "value")
+    __slots__ = ("__weakref__", "gain", "input", "leak", "value")
 
     def __init__(
         self, gain: float = 1.0, leak: float = 0.0, value: float = 0.0, input: float = 0.0
@@ -120,7 +122,7 @@ class Integrator:
 class Fopdt:
     """First order plus dead time: a lag whose input arrives `dead_s` late. The autotune case."""
 
-    __slots__ = ("_lag", "_now", "_pipe", "dead_s", "input")
+    __slots__ = ("__weakref__", "_lag", "_now", "_pipe", "dead_s", "input")
 
     def __init__(
         self,
@@ -160,7 +162,7 @@ class Fopdt:
 class Noisy:
     """Any plant, read through Gaussian noise. The plant itself stays clean."""
 
-    __slots__ = ("_random", "plant", "sigma")
+    __slots__ = ("__weakref__", "_random", "plant", "sigma")
 
     def __init__(self, plant: Plant, sigma: float, seed: int | None = None) -> None:
         self.plant = plant
@@ -185,6 +187,59 @@ class Noisy:
     def step(self, dt_s: float) -> float:
         self.plant.step(dt_s)
         return self.output
+
+
+class Advancer:
+    """Steps one single-port plant to a time, once per instant however many devices read it.
+
+    The bare-[Plant][flyball_sim.plant.Plant] counterpart of
+    [MultiPlant.advance][flyball_sim.plant.MultiPlant.advance]: each reader
+    polls on its own thread, so the first to reach an instant steps the plant
+    and the rest find it there. An earlier instant than the last does
+    nothing. Get the one shared by every reader of a plant from
+    [advancer][flyball_sim.plant.advancer].
+    """
+
+    __slots__ = ("_last_ns", "_lock", "plant")
+
+    def __init__(self, plant: Plant) -> None:
+        self.plant = plant
+        self._lock = threading.Lock()
+        self._last_ns: int | None = None
+
+    def advance(self, time_ns: int) -> None:
+        """Step to `time_ns`; the same or an earlier instant does nothing."""
+        with self._lock:
+            if self._last_ns is not None and time_ns > self._last_ns:
+                self.plant.step((time_ns - self._last_ns) / 1e9)
+            if self._last_ns is None or time_ns > self._last_ns:
+                self._last_ns = time_ns
+
+
+_advancers: weakref.WeakKeyDictionary[Plant, Advancer] = weakref.WeakKeyDictionary()
+_pinned: dict[int, tuple[Plant, Advancer]] = {}  # plants that cannot be weakly referenced
+_advancers_lock = threading.Lock()
+
+
+def advancer(plant: Plant) -> Advancer:
+    """The one [Advancer][flyball_sim.plant.Advancer] for `plant`, shared by all its readers.
+
+    Keyed on the model itself, looking through [Noisy][flyball_sim.plant.Noisy]:
+    two readers that wrap one plant in noise of their own still share its time.
+    """
+    while isinstance(plant, Noisy):
+        plant = plant.plant
+    with _advancers_lock:
+        try:
+            found = _advancers.get(plant)
+        except TypeError:  # no __weakref__ slot: keep it alive with its advancer
+            held = _pinned.get(id(plant))
+            if held is None:
+                held = _pinned[id(plant)] = (plant, Advancer(plant))
+            return held[1]
+        if found is None:
+            found = _advancers[plant] = Advancer(plant)
+        return found
 
 
 @runtime_checkable
@@ -259,4 +314,14 @@ class Port:
         return self.plant.inverse_feedforward(self.input_name, drive)
 
 
-__all__ = ["Fopdt", "Integrator", "Lag", "MultiPlant", "Noisy", "Plant", "Port"]
+__all__ = [
+    "Advancer",
+    "Fopdt",
+    "Integrator",
+    "Lag",
+    "MultiPlant",
+    "Noisy",
+    "Plant",
+    "Port",
+    "advancer",
+]
