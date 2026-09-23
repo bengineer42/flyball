@@ -13,13 +13,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"flyballd/internal/endpoint/frontdir"
+	"flyballd/internal/front"
 	"flyballd/internal/front/store"
+	"flyballd/internal/frontwire"
 	"flyballd/internal/grants"
 
 	"gopkg.in/yaml.v3"
@@ -69,7 +70,14 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	lifetimes, warnings, err := lifetimesFor(config)
+	if err != nil {
+		return err
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "token create: "+w)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{Lifetimes: lifetimes})
 	if err != nil {
 		return err
 	}
@@ -160,38 +168,91 @@ func popAllValues(args []string, name string) ([]string, []string) {
 	return values, out
 }
 
-// parseExpires is time.ParseDuration plus a whole-days form ("30d"),
-// matching auth.md's examples (`--expires 30d`) -- Go's own duration
-// syntax has no unit past hours.
+// parseExpires is store.ParseDuration (Go durations plus a whole-days form,
+// "30d") with --expires-shaped errors, matching auth.md's examples
+// (`--expires 30d`).
 func parseExpires(s string) (time.Duration, error) {
-	if days, ok := strings.CutSuffix(s, "d"); ok {
-		n, err := strconv.Atoi(days)
-		if err != nil {
-			return 0, fmt.Errorf("--expires %q: %w", s, err)
-		}
-		if n < 0 {
-			return 0, fmt.Errorf("--expires %q: a token's lifetime must be positive", s)
-		}
-		return time.Duration(n) * 24 * time.Hour, nil
-	}
-	d, err := time.ParseDuration(s)
+	d, err := store.ParseDuration(s)
 	if err != nil {
 		return 0, fmt.Errorf("--expires %q: %w (also accepts a whole number of days, e.g. 30d)", s, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("--expires %q: a token's lifetime must be positive", s)
 	}
 	return d, nil
 }
 
-// tokensPathFor is where --config PATH's tokens.json lives (§WP0-4):
+// lifetimesFor reads config's tokens: block -- `runner.front.tokens` for a
+// rig file, flyballd.yaml's top-level `tokens:` for a daemon config -- and
+// resolves it the same way the front does (store.ResolveLifetimes), so
+// that an offline `flyball token create --config PATH` applies the same
+// effective default/max lifetimes a running front would.
+func lifetimesFor(config string) (store.Lifetimes, []string, error) {
+	tc, err := tokensConfigFor(config)
+	if err != nil {
+		return store.Lifetimes{}, nil, err
+	}
+	var defaultLifetime, maxLifetime string
+	if tc != nil {
+		defaultLifetime, maxLifetime = tc.DefaultLifetime, tc.MaxLifetime
+	}
+	lifetimes, warnings := store.ResolveLifetimes(defaultLifetime, maxLifetime)
+	return lifetimes, warnings, nil
+}
+
+// tokensConfigFor reads config's tokens: block without validating it
+// (store.ResolveLifetimes does that): the top level for a daemon config,
+// or runner.front.tokens for a rig file. A missing file or block is nil,
+// nil -- the same "not set" lifetimesFor treats as the built-ins.
+func tokensConfigFor(config string) (*front.TokensConfig, error) {
+	daemon, err := looksLikeDaemonConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(config)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading %s: %w", config, err)
+	}
+	if daemon {
+		var cfg struct {
+			Tokens *front.TokensConfig `yaml:"tokens"`
+		}
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", config, err)
+		}
+		return cfg.Tokens, nil
+	}
+	var cfg struct {
+		Runner struct {
+			Front struct {
+				Tokens *front.TokensConfig `yaml:"tokens"`
+			} `yaml:"front"`
+		} `yaml:"runner"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", config, err)
+	}
+	return cfg.Runner.Front.Tokens, nil
+}
+
+// tokensPathFor is where --config PATH's tokens.json lives (§WP0-4), using
+// the same directories the two fronts themselves use
+// (daemon/internal/frontwire), so a running front and this offline command
+// always agree on the file:
 //
-//   - PATH looks like flyballd.yaml (has a manifests_dir key, the layer-1
-//     key no rig file or `flyball run` config has) -> its data_dir
-//     ("data" by default, matching config.DefaultDaemonConfig, resolved
-//     the same way flyballd itself resolves it: relative to the process's
-//     cwd, not to PATH) + "front/tokens.json";
-//   - otherwise PATH is a rig file -> the `flyball run` front-id path,
-//     $XDG_STATE_HOME/flyball/front-<id>/tokens.json, id =
-//     frontdir.FrontID(the absolute rig path), the same id `flyball run`
-//     computes from its own first rig file.
+//   - PATH looks like flyballd.yaml (has one of its own top-level keys,
+//     none required alone -- see looksLikeDaemonConfig) -> its data_dir
+//     ("data" by default, matching config.DefaultDaemonConfig) ->
+//     frontwire.DaemonDir(dataDir), the same absolute directory
+//     `flyballd --config flyballd.yaml` opens its tokens file in,
+//     whatever the process's cwd is;
+//   - otherwise PATH is a rig file -> frontwire.RunDir(id), id =
+//     frontdir.FrontID(the absolute rig path), the same id and
+//     $XDG_STATE_HOME-relative directory `flyball run` uses for its
+//     front.
 //
 // This mirrors flyballd's own `--config` flag (cmd/flyballd/main.go) by
 // name and shape deliberately: `flyball token create --config
@@ -214,25 +275,24 @@ func tokensPathFor(config string) (string, error) {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return "", fmt.Errorf("parsing %s: %w", config, err)
 		}
-		return filepath.Join(cfg.DataDir, "front", "tokens.json"), nil
+		return filepath.Join(frontwire.DaemonDir(cfg.DataDir), frontwire.TokensFile), nil
 	}
 	id, err := frontdir.FrontID(config)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", config, err)
 	}
-	stateHome := os.Getenv("XDG_STATE_HOME")
-	if stateHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("finding a state directory: %w", err)
-		}
-		stateHome = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(stateHome, "flyball", "front-"+id, "tokens.json"), nil
+	return filepath.Join(frontwire.RunDir(id), frontwire.TokensFile), nil
 }
 
-// looksLikeDaemonConfig: config parses as YAML with a top-level
-// manifests_dir key, the layer-1-only marker (config.DaemonConfig).
+// daemonOnlyKeys are flyballd.yaml's own top-level keys
+// (config.daemonKeys, duplicated here: cmd/flyball does not import the
+// internal/config package). None is required, so a file with any one of
+// them, but none of a rig file's keys such as devices or runner, is a
+// daemon config; a rig file has none of them at its top level.
+var daemonOnlyKeys = []string{"manifests_dir", "data_dir", "default_server", "log_max_size"}
+
+// looksLikeDaemonConfig: config parses as YAML with any of daemonOnlyKeys
+// at the top level.
 func looksLikeDaemonConfig(config string) (bool, error) {
 	data, err := os.ReadFile(config)
 	if os.IsNotExist(err) {
@@ -249,6 +309,10 @@ func looksLikeDaemonConfig(config string) (bool, error) {
 	if err := yaml.Unmarshal(data, &top); err != nil {
 		return false, fmt.Errorf("parsing %s: %w", config, err)
 	}
-	_, has := top["manifests_dir"]
-	return has, nil
+	for _, k := range daemonOnlyKeys {
+		if _, has := top[k]; has {
+			return true, nil
+		}
+	}
+	return false, nil
 }

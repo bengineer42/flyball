@@ -83,19 +83,20 @@ type NewToken struct {
 }
 
 // TokenLifetime is the lifetime a token of kind, created over cleartext or
-// not, gets when requested is asked for: requested (0 = TokenLifetimeDefault)
-// capped at TokenLifetimeCapped for cleartext or KindAgent, and at
-// TokenLifetimeMax otherwise. There is no "never".
-func TokenLifetime(kind string, cleartext bool, requested time.Duration) (time.Duration, error) {
+// not, gets when requested is asked for: requested (0 = lt.Default) capped
+// at min(TokenLifetimeCapped, lt.Max) for cleartext or KindAgent -- the
+// fixed 30-day cap, tightened further if lt.Max is smaller -- and at
+// lt.Max otherwise. There is no "never".
+func TokenLifetime(lt Lifetimes, kind string, cleartext bool, requested time.Duration) (time.Duration, error) {
 	if requested < 0 {
 		return 0, fmt.Errorf("a token's lifetime must be positive, not %v", requested)
 	}
-	limit := TokenLifetimeMax
+	limit := lt.Max
 	if cleartext || kind == KindAgent {
-		limit = TokenLifetimeCapped
+		limit = min(TokenLifetimeCapped, lt.Max)
 	}
 	if requested == 0 {
-		requested = TokenLifetimeDefault
+		requested = lt.Default
 	}
 	return min(requested, limit), nil
 }
@@ -127,6 +128,10 @@ type TokensOptions struct {
 	// by another process: the CLI), or found expired by Sweep, the last once
 	// per token. The front cancels that token's websockets and streams.
 	OnEnd func(id string)
+	// Lifetimes is the effective default and max lifetime new tokens get
+	// (Create); the zero value uses the built-ins (DefaultLifetimes()). The
+	// caller resolves `tokens:` config with ResolveLifetimes before this.
+	Lifetimes Lifetimes
 }
 
 // tokensFile is the file's shape. Version 1; any other is refused.
@@ -167,10 +172,11 @@ type entry struct {
 // every call), so a token the CLI creates or revokes counts at the front's
 // next Lookup. It is safe for concurrent use.
 type Tokens struct {
-	path    string
-	now     func() time.Time
-	onEnd   func(string)
-	compare func(a, b []byte) int
+	path      string
+	now       func() time.Time
+	onEnd     func(string)
+	compare   func(a, b []byte) int
+	lifetimes Lifetimes
 
 	mu sync.Mutex
 	// held is the file the rows came from, kept open so that its inode
@@ -189,10 +195,14 @@ type Tokens struct {
 func OpenTokens(path string, o TokensOptions) (*Tokens, error) {
 	t := &Tokens{
 		path: path, now: o.Now, onEnd: o.OnEnd, compare: subtle.ConstantTimeCompare,
-		lastUsed: map[string]time.Time{}, expired: map[string]bool{},
+		lifetimes: o.Lifetimes,
+		lastUsed:  map[string]time.Time{}, expired: map[string]bool{},
 	}
 	if t.now == nil {
 		t.now = time.Now
+	}
+	if t.lifetimes == (Lifetimes{}) {
+		t.lifetimes = DefaultLifetimes()
 	}
 	t.mu.Lock()
 	_, err := t.refreshLocked()
@@ -228,7 +238,7 @@ func (t *Tokens) Create(n NewToken) (secret string, _ Token, _ error) {
 	if n.Kind != KindHuman && n.Kind != KindService && n.Kind != KindAgent {
 		return "", Token{}, fmt.Errorf("token kind %q: want %s, %s or %s", n.Kind, KindHuman, KindService, KindAgent)
 	}
-	life, err := TokenLifetime(n.Kind, n.Cleartext, n.ExpiresIn)
+	life, err := TokenLifetime(t.lifetimes, n.Kind, n.Cleartext, n.ExpiresIn)
 	if err != nil {
 		return "", Token{}, err
 	}

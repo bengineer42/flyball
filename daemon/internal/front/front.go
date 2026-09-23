@@ -161,7 +161,7 @@ func New(o Options) *Front {
 	f.cookie = cookieName(f.plan)
 	f.sessions = store.NewSessions(store.SessionOptions{Idle: f.plan.SessionIdle, OnEnd: f.cancels.end})
 	if o.TokensPath != "" {
-		f.tokens, f.tokErr = store.OpenTokens(o.TokensPath, store.TokensOptions{Now: o.TokensNow, OnEnd: f.cancels.end})
+		f.tokens, f.tokErr = store.OpenTokens(o.TokensPath, store.TokensOptions{Now: o.TokensNow, OnEnd: f.cancels.end, Lifetimes: f.plan.Lifetimes})
 		if f.tokErr != nil {
 			f.log.Error("front: named tokens unavailable; every bearer token will be answered 503", "err", f.tokErr)
 		}
