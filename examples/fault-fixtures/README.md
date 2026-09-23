@@ -18,12 +18,12 @@ config, same as every other example in `examples/`.
 
 ## Origin
 
-Built 18 Sep during `brain/tasks/anomaly-agent-test.md` (testing whether a monitor agent
-with system context catches faults a naive threshold check would miss). Promoted out of
-that experiment's throwaway `examples/anomaly-test/` directory because these two shapes —
-"an address pointed at the wrong device" and "two things that should agree, don't" — are
-genuinely reusable test fixtures beyond that one experiment, unlike the other five
-scenarios there (which stay in `brain/`, tied to that specific test).
+Built 18 Sep while testing whether a monitor agent with system context catches faults a
+naive threshold check would miss. Promoted out of that experiment's throwaway
+`examples/anomaly-test/` directory because these two shapes — "an address pointed at the
+wrong device" and "two things that should agree, don't" — are genuinely reusable test
+fixtures beyond that one experiment, unlike the other five scenarios tried there, which
+were specific to that one test and not kept.
 
 ## Running one
 
