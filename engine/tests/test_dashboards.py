@@ -51,7 +51,7 @@ def test_save_read_history_list(client):
     assert saved.status_code == 201
     body = saved.json()
     assert body["name"] == "main" and body["rig"] == "t" and body["body"]["name"] == "main"
-    assert body["body"]["schema_version"] == 2
+    assert body["body"]["schema_version"] == 3
     assert body["body"]["grid"] == {"cols": 24, "row_height": 24}
     assert body["body"]["widgets"][1]["config"] == {}
 
@@ -219,7 +219,7 @@ V1 = {
 
 def test_a_version_1_document_is_migrated_to_addresses_and_controllers():
     migrated = migrate(V1)
-    assert migrated["schema_version"] == 2
+    assert migrated["schema_version"] == 3
     configs = {w["id"]: (w["kind"], w["config"]) for w in migrated["widgets"]}
     assert configs == {
         "r": ("readout", {"address": "zone.zone1"}),
@@ -231,14 +231,15 @@ def test_a_version_1_document_is_migrated_to_addresses_and_controllers():
     }
     assert V1["widgets"][0]["config"] == {"channel": "zone.zone1"}, "a copy; the stored one stands"
     assert migrate(migrated) is migrated, "already current: untouched"
-    assert migrate({"widgets": []})["schema_version"] == 2, "no version is version 1"
+    assert migrate({"widgets": []})["schema_version"] == 3, "no version is version 1"
+    assert (migrated["readonly"], migrated["order"]) == (False, None)
 
 
 def test_a_stored_version_1_document_is_migrated_on_read(client, furnace_rig):
     c, store = client
     store.save_dashboard("old", "t", V1, 1)
     read = c.get("/api/dashboards/old").json()
-    assert read["body"]["schema_version"] == 2
+    assert read["body"]["schema_version"] == 3
     assert read["body"]["widgets"][0]["config"] == {"address": "zone.zone1"}
     assert read["body"]["widgets"][4]["kind"] == "device"
     assert store.dashboard("old").body["schema_version"] == 1, "what is stored is as saved"
@@ -246,8 +247,8 @@ def test_a_stored_version_1_document_is_migrated_on_read(client, furnace_rig):
         "a loop was named by its actuator; the controller is its target's address"
     )
     listed = c.get("/api/dashboards").json()
-    assert [r["body"]["schema_version"] for r in listed] == [2]
-    assert c.get("/api/dashboards/old/history").json()[0]["body"]["schema_version"] == 2
+    assert [r["body"]["schema_version"] for r in listed] == [3]
+    assert c.get("/api/dashboards/old/history").json()[0]["body"]["schema_version"] == 3
 
 
 def test_save_and_read_report_problems(client):
@@ -262,3 +263,45 @@ def test_save_and_read_report_problems(client):
     assert c.get("/api/dashboards/main").json()["problems"] == expected
     # Widget "b" (a chart with no `addresses` configured) has nothing to flag.
     assert all(p["widget_id"] != "b" for p in saved.json()["problems"])
+
+
+def test_a_version_2_document_becomes_writable_and_unordered_and_keeps_its_bindings():
+    v2 = {
+        "schema_version": 2,
+        "name": "d",
+        "rig": "t",
+        "widgets": [
+            {
+                "id": "r",
+                "kind": "readout",
+                "x": 0,
+                "y": 0,
+                "w": 1,
+                "h": 1,
+                "config": {"address": "p.t"},
+            }
+        ],
+    }
+    migrated = migrate(v2)
+    assert migrated == {**v2, "schema_version": 3, "readonly": False, "order": None}
+    assert v2["schema_version"] == 2, "a copy; the stored one stands"
+
+
+def test_readonly_and_order_round_trip_and_are_validated(client):
+    c, _ = client
+    saved = c.put(
+        "/api/dashboards/wall", json={**DOC, "name": "wall", "readonly": True, "order": 1.5}
+    )
+    assert saved.status_code == 201
+    body = c.get("/api/dashboards/wall").json()["body"]
+    assert (body["schema_version"], body["readonly"], body["order"]) == (3, True, 1.5)
+    plain = c.put("/api/dashboards/plain", json={**DOC, "name": "plain"}).json()["body"]
+    assert (plain["readonly"], plain["order"]) == (False, None), "the defaults"
+    assert (
+        c.put("/api/dashboards/bad", json={**DOC, "name": "bad", "readonly": "maybe"}).status_code
+        == 422
+    )
+    assert (
+        c.put("/api/dashboards/bad", json={**DOC, "name": "bad", "order": "first"}).status_code
+        == 422
+    )

@@ -6,11 +6,12 @@ import { Confirm } from "../Confirm.js";
 import { sessionName } from "../model.js";
 import { hashFor } from "../router.js";
 import { duration, useNow, when } from "../time.js";
-import { useRigData } from "../dashboard/context.js";
+import { useCanWrite, useRigData } from "../dashboard/context.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 const RecordingWidget = memo(function RecordingWidget({ config }: WidgetComponentProps) {
   const { recording } = useRigData();
+  const canWrite = useCanWrite();
   const now = useNow();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +56,7 @@ const RecordingWidget = memo(function RecordingWidget({ config }: WidgetComponen
         since {when(open.start_ns)} · {duration(((open.end_ns ?? now * 1e6) - open.start_ns) / 1e9)}
       </Typography>
       {controls && (
-        <Button size="small" variant="outlined" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setConfirmEnd(true)} disabled={busy} sx={{ flex: "none" }}>
+        <Button size="small" variant="outlined" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setConfirmEnd(true)} disabled={busy || !canWrite} sx={{ flex: "none" }}>
           End
         </Button>
       )}
@@ -72,9 +73,9 @@ const RecordingWidget = memo(function RecordingWidget({ config }: WidgetComponen
   ) : (
     <form className="dash-recording" onSubmit={start}>
       <Chip size="small" label={recording.loading && !recording.error ? "…" : "not recording"} />
-      {controls && <TextField size="small" label="name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "session name" }} sx={{ flex: "1 1 auto", minWidth: 0 }} />}
+      {controls && <TextField size="small" label="name" disabled={!canWrite} value={name} onChange={(e) => setName(e.target.value)} inputProps={{ "aria-label": "session name" }} sx={{ flex: "1 1 auto", minWidth: 0 }} />}
       {controls && (
-        <Button size="small" type="submit" variant="contained" disabled={busy} startIcon={<FiberManualRecordIcon />} sx={{ flex: "none" }}>
+        <Button size="small" type="submit" variant="contained" disabled={busy || !canWrite} startIcon={<FiberManualRecordIcon />} sx={{ flex: "none" }}>
           Start
         </Button>
       )}
