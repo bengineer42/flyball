@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import signal
 import sys
+import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -48,6 +50,24 @@ class Handle:
         """Stop serving, then start this process again with the same command line."""
         self.restarting = True
         self._stop()
+
+
+def _interrupt(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+def _terminate_as_interrupt() -> signal.Handlers | Callable[..., object] | int | None:
+    """Make SIGTERM stop the runner the way Ctrl-C does; the handler it replaced, if any.
+
+    uvicorn shuts down gracefully on either signal, then restores the handler it found
+    and raises the signal again. For SIGINT that is Python's KeyboardInterrupt, so
+    `serve`'s cleanup runs; for SIGTERM it was the default -- the process died by the
+    signal and the rig was never stopped (the session left open, the programmer not
+    interrupted). flyballd and systemd both stop with SIGTERM. Main thread only.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return None
+    return signal.signal(signal.SIGTERM, _interrupt)
 
 
 def serve(
@@ -161,6 +181,7 @@ def serve(
     set_retention(retention)
     if retention is not None:
         retention.start()
+    previous = _terminate_as_interrupt()
     try:
         server.run()
     finally:
@@ -178,6 +199,8 @@ def serve(
         set_programmer(None)
         set_rig(None)
         rig.stop()  # polling, writers, recording
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
     if handle.restarting:
         log.info("restarting: %s", " ".join(sys.argv))
         os.execv(sys.executable, [sys.executable, *sys.argv])

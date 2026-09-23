@@ -18,8 +18,9 @@ The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2. With
 `recording: true` in the file, or `--record`, a session is opened in
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
-shutdown the programmer is interrupted, the session closed and the polled
-devices stopped.
+shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd
+stop it -- the programmer is interrupted, the session closed and the polled
+devices stopped, and the runner exits 0.
 
 The rest of this section: [access and safety](access.md) -- the door, a
 sub-path behind a proxy, stopping and restarting from the API -- and

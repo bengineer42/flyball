@@ -107,3 +107,31 @@ def test_the_environment_opts_in_for_one_run(tmp_path):
         _wait_up(proc, PORT)
         exposure = _get(f"http://127.0.0.1:{PORT}/api/auth")["exposure"]
         assert exposure["open_network"] and exposure["host"] == "0.0.0.0"
+
+
+EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
+
+
+def _open_sessions(store: Path) -> list[int]:
+    from flyball.record.sqlite import SqliteStore
+
+    s = SqliteStore(store)
+    try:
+        return [row.id for row in s.sessions() if row.open]
+    finally:
+        s.close()
+
+
+@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT])
+def test_a_stop_signal_runs_the_cleanup(tmp_path, sig):
+    # flyballd and systemd stop with SIGTERM: the rig must be stopped and the session
+    # closed as on Ctrl-C, not left for the next start to find open.
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, PORT)
+        proc.send_signal(sig)
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 0, err[-2000:]
+    assert _open_sessions(store) == [], "the recording session was left open"
+    assert "Traceback" not in err
