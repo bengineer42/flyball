@@ -14,7 +14,9 @@ import time
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
+import anyio
 import httpx
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -215,6 +217,53 @@ def test_a_pasted_token_logs_in_and_logout_forgets_the_session(secured):
     assert secured.get("/api/health").status_code == 401
     secured.cookies.set("flyball-bare-8123", value)
     assert secured.get("/api/health").status_code == 401, "forgotten here, not only cleared"
+
+
+def _close_code(ws: Any, within: float) -> int | None:
+    """The code `ws` is closed with inside `within` seconds; None if it is still open."""
+
+    async def closing() -> int | None:
+        with anyio.move_on_after(within):
+            while True:
+                message = await ws._send_rx.receive()
+                if message["type"] == "websocket.close":
+                    return int(message.get("code", 1000))
+        return None
+
+    return ws.portal.call(closing)
+
+
+@pytest.mark.parametrize("path", ["/ws/events", "/ws/samples"])
+def test_logout_closes_the_sessions_open_sockets(secured, path):
+    """The book says a sign-out closes its sockets within a second; a bare runner kept them.
+
+    Only that session's: the token's socket, and another session's, stay open.
+    """
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 200
+    mine = secured.cookies["flyball-bare-8123"]
+    other = secured.post("/api/auth/login", json={"token": "s3cret"}).headers["set-cookie"]
+    theirs = other.split(";")[0].split("=", 1)[1]
+    secured.cookies.clear()
+    session = {"Cookie": f"flyball-bare-8123={mine}"}
+    with (
+        secured.websocket_connect(path, headers=session) as ws,
+        secured.websocket_connect("/ws/events", headers=BEARER) as machine,
+        secured.websocket_connect(
+            "/ws/events", headers={"Cookie": f"flyball-bare-8123={theirs}"}
+        ) as another,
+    ):
+        assert secured.post("/api/auth/logout", headers=session).status_code == 200
+        assert _close_code(ws, 1.0) == 4401
+        assert _close_code(machine, 0.2) is None
+        assert _close_code(another, 0.2) is None
+
+
+def test_a_sessions_socket_closes_when_the_session_expires(secured):
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 200
+    (found,) = secured.app.state.door._sessions.values()
+    found.expires = time.monotonic() + 0.3
+    with secured.websocket_connect("/ws/events") as ws:
+        assert _close_code(ws, 1.5) == 4401
 
 
 def test_the_old_login_body_is_refused(secured):

@@ -30,11 +30,13 @@ The runner's own MCP calls carry a principal it signed with its in-memory key.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import secrets
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from typing import Any, Final, Literal
@@ -199,6 +201,8 @@ class Door:
     attempts: Attempts = field(default_factory=Attempts, init=False)
     _sessions: dict[bytes, _Session] = field(default_factory=dict, init=False)
     _links: dict[bytes, float] = field(default_factory=dict, init=False)
+    _sockets: dict[str, set[Callable[[], None]]] = field(default_factory=dict, init=False)
+    """By session id: what closes each of its open websockets (thread-safe to call)."""
 
     def __post_init__(self) -> None:
         if self.fronted is not None:
@@ -235,7 +239,11 @@ class Door:
         return value
 
     def close_session(self, value: str) -> None:
-        self._sessions.pop(_digest(value), None)
+        """Forget the session, and close its open websockets (4401)."""
+        found = self._sessions.pop(_digest(value), None)
+        if found is not None:
+            for end in list(self._sockets.get(found.sid, ())):
+                end()
 
     def session(self, value: str) -> _Session | None:
         found = self._sessions.get(_digest(value))
@@ -408,7 +416,10 @@ class Door:
             await _refuse(scope, receive, send, 403, detail, needed=None, accept=accept)
             return
         if verbs.allows(claims.scp, scope):
-            await self.app(scope, receive, send)
+            if scheme == "session" and scope["type"] == "websocket":
+                await self._held(scope, receive, send, claims.sid)
+            else:
+                await self.app(scope, receive, send)
             return
         if scheme == "anonymous":
             detail = (
@@ -419,6 +430,47 @@ class Door:
             return
         detail = f"This needs {needed!r}, which the caller does not hold here"
         await _refuse(scope, receive, send, 403, detail, needed=needed, accept=accept)
+
+    async def _held(self, scope: Any, receive: Any, send: Any, sid: str) -> None:
+        """A session's websocket, closed with 4401 when the session ends: logout or expiry."""
+        found = next((s for s in list(self._sessions.values()) if s.sid == sid), None)
+        task = asyncio.current_task()
+        loop = asyncio.get_running_loop()
+        if found is None or task is None:
+            return
+        ended = False
+        closed = False
+
+        def end_here() -> None:
+            nonlocal ended
+            if not ended:
+                ended = True
+                task.cancel()
+
+        def end() -> None:  # called from logout, which runs on a worker thread
+            loop.call_soon_threadsafe(end_here)
+
+        async def sending(message: Any) -> None:
+            nonlocal closed
+            closed = closed or message["type"] == "websocket.close"
+            await send(message)
+
+        expiry = loop.call_later(max(0.0, found.expires - time.monotonic()), end_here)
+        held = self._sockets.setdefault(sid, set())
+        held.add(end)
+        try:
+            await self.app(scope, receive, sending)
+        except asyncio.CancelledError:
+            if not ended:
+                raise
+            task.uncancel()
+        finally:
+            expiry.cancel()
+            held.discard(end)
+            if not held:
+                self._sockets.pop(sid, None)
+        if ended and not closed:
+            await send({"type": "websocket.close", "code": 4401, "reason": "Signed out"})
 
 
 _UNSET: Any = object()
