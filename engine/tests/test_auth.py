@@ -411,6 +411,31 @@ def test_a_flood_blocks_until_it_ages_out():
     assert not attempts.blocked("a", now=70.1), "blocked() only lets the count fall"
 
 
+def test_rotating_addresses_cannot_grow_the_count_without_bound():
+    """One wrong token from each of 10 000 addresses (an IPv6 /64 has plenty): bounded."""
+    attempts = auth_module.Attempts()
+    for i in range(10_000):
+        attempts.failure(f"2001:db8::{i:x}", "guess", now=i * 0.001)
+    assert len(attempts.failed) <= 4096 and len(attempts.values) <= 4096
+
+
+def test_addresses_whose_minute_has_passed_are_swept():
+    attempts = auth_module.Attempts()
+    for i in range(100):
+        attempts.failure(f"10.0.0.{i}", "guess", now=0.0)
+    attempts.failure("10.0.1.1", "guess", now=120.0)
+    assert list(attempts.failed) == ["10.0.1.1"] and list(attempts.values) == ["10.0.1.1"]
+
+
+def test_at_the_cap_a_blocked_address_stays_blocked():
+    attempts = auth_module.Attempts()
+    for i in range(10):
+        attempts.failure("192.0.2.1", f"guess{i}", now=0.0)
+    for i in range(10_000):
+        attempts.failure(f"2001:db8::{i:x}", "guess", now=1.0 + i * 0.001)
+    assert attempts.blocked("192.0.2.1", now=20.0), "rotation must not unblock a guesser"
+
+
 @pytest.mark.parametrize(
     ("auth", "fronted", "warned"),
     [

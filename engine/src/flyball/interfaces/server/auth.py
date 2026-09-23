@@ -53,6 +53,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
+from itertools import islice
 from typing import Any, Final, Literal
 from urllib.parse import parse_qs, urlsplit
 
@@ -201,12 +202,19 @@ class Attempts:
 
     A blocked request is never counted (`blocked` only lets the counts fall, as they age),
     so a block lasts until the window has passed over enough of what caused it.
+
+    At most `cap` addresses are held, so a caller rotating addresses (an IPv6 prefix has
+    plenty) cannot grow it without bound: each failure sweeps the addresses whose window
+    has passed, and at the cap the least recently wrong address that is not blocked goes.
     """
 
-    def __init__(self, limit: int = 10, window: float = 60.0, flood: int = 100) -> None:
-        self.limit, self.window, self.flood = limit, window, flood
+    def __init__(
+        self, limit: int = 10, window: float = 60.0, flood: int = 100, cap: int = 4096
+    ) -> None:
+        self.limit, self.window, self.flood, self.cap = limit, window, flood, cap
         self.failed: dict[str, deque[float]] = {}
-        """By address: when each wrong attempt came, oldest first."""
+        """By address: when each wrong attempt came, oldest first; the least recently wrong
+        address first."""
         self.values: dict[str, dict[bytes, float]] = {}
         """By address: each different wrong token's digest, and when it last came."""
 
@@ -229,8 +237,36 @@ class Attempts:
     def failure(self, address: str, value: str, now: float | None = None) -> None:
         """Count a wrong token, `value`, from `address`; only its digest is kept."""
         now = time.monotonic() if now is None else now
-        self.failed.setdefault(address, deque()).append(now)
+        recent = self.failed.pop(address, None) or deque()
+        recent.append(now)
+        self.failed[address] = recent  # to the end: the most recently wrong
         self.values.setdefault(address, {})[_digest(value)] = now
+        self._sweep(now)
+
+    def _sweep(self, now: float) -> None:
+        """Forget the addresses whose window has passed, then one unblocked one over `cap`.
+
+        Oldest first, stopping at the first live address: the cost is what goes.
+        """
+        stale = []
+        for address, recent in self.failed.items():
+            if now - recent[-1] <= self.window:
+                break
+            stale.append(address)
+        for address in stale:
+            self._forget(address)
+        if len(self.failed) <= self.cap:
+            return
+        # Over by one at most: look at the oldest few for one that is not blocked.
+        for address in list(islice(self.failed, 64)):
+            if not self.blocked(address, now):
+                self._forget(address)
+                return
+        self._forget(next(iter(self.failed)))  # all of those blocked: the oldest still goes
+
+    def _forget(self, address: str) -> None:
+        self.failed.pop(address, None)
+        self.values.pop(address, None)
 
 
 def _needs_a_verb(scope: Any) -> bool:
