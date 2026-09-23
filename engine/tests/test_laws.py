@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import exp
+from typing import Any
 
 import pytest
 from flyball_sim.plant import Fopdt, Lag, Noisy
@@ -11,7 +13,7 @@ from flyball.autotune.rules import imc
 from flyball.autotune.types import FOPDT
 from flyball.control import IMC, PI, PID, OnOff, Scheduled, SlidingMode, SmithPredictor
 from flyball.control.laws import Weighted
-from flyball.model.catalog import get_catalog
+from flyball.model.catalog import Catalogs, get_catalog
 from flyball.model.law import ControlLaw
 
 
@@ -74,20 +76,39 @@ def settled(trace: list[float], target: float, tail: int = 60, within: float = 0
 # region The models every law generates
 
 
-@pytest.mark.parametrize(
-    "law",
-    [
-        PI(kp=1.0, ki=0.1, b=0.7),
-        PID(kp=1.0, ki=0.1, kd=2.0, b=0.7),
-        IMC(gain=1.0, tau=60.0, dead_time=5.0),
-        IMC(gain=2.0, tau=30.0, lam=10.0, derivative=False),
-        OnOff(high=1.0, low=0.0, hysteresis=0.5),
-        SmithPredictor(kp=1.0, ki=0.05, gain=1.0, tau=20.0, dead_time=20.0),
-        Scheduled(points=[[0, 1, 0.1, 0], [100, 2, 0.2, 1]], tt=5.0),
-        SlidingMode(k=10.0, lam=0.05, boundary=2.0),
+# A per-tag table of kwargs to build each registered law with, rather than a
+# fixed list of instances: a new law registered in the catalog and left out
+# here fails loudly (below) instead of silently going untested. A tag maps
+# to a *list* of kwargs so more than one configuration can be covered --
+# IMC appears twice on purpose, once with derivative action and once without.
+_LAW_KWARGS: dict[str, list[dict[str, Any]]] = {
+    "open_loop": [{}],
+    "P": [{"kp": 1.0}],
+    "PI": [{"kp": 1.0, "ki": 0.1, "b": 0.7}],
+    "PID": [{"kp": 1.0, "ki": 0.1, "kd": 2.0, "b": 0.7}],
+    "IMC": [
+        {"gain": 1.0, "tau": 60.0, "dead_time": 5.0},
+        {"gain": 2.0, "tau": 30.0, "lam": 10.0, "derivative": False},
     ],
-    ids=lambda law: law.tag,
-)
+    "on_off": [{"high": 1.0, "low": 0.0, "hysteresis": 0.5}],
+    "smith": [{"kp": 1.0, "ki": 0.05, "gain": 1.0, "tau": 20.0, "dead_time": 20.0}],
+    "scheduled": [{"points": [[0, 1, 0.1, 0], [100, 2, 0.2, 1]], "tt": 5.0}],
+    "sliding": [{"k": 10.0, "lam": 0.05, "boundary": 2.0}],
+}
+
+
+def _each_registered_law() -> list[ControlLaw]:
+    # A fresh Catalogs here, not `get_catalog()`: the session catalog is only
+    # set by a fixture, which has not run yet when parametrize builds this
+    # list at collection time.
+    catalog = Catalogs()
+    catalog.discover()
+    missing = set(catalog.laws) - set(_LAW_KWARGS)
+    assert not missing, f"no round-trip kwargs table entry for law(s): {missing}"
+    return [cls(**kwargs) for tag, cls in catalog.laws.items() for kwargs in _LAW_KWARGS[tag]]
+
+
+@pytest.mark.parametrize("law", _each_registered_law(), ids=lambda law: law.tag)
 def test_each_law_round_trips_through_its_config_and_view(law):
     assert get_catalog().laws[law.tag] is type(law)
     rebuilt = law.config.build()
@@ -224,6 +245,31 @@ def test_the_predictor_resumes_at_the_correction_in_force():
     assert law.step(0.0, 10.0, 10.0) == pytest.approx(3.0), "the next step reproduces it"
 
 
+def test_the_predictor_s_model_is_driven_by_what_was_actually_applied():
+    """ENG-12.
+
+    A clamp downstream must not leave the model believing its own unclamped
+    output reached the plant -- `last_applied` (what the target actually
+    delivered last tick) drives the model when it is given, overriding the
+    law's own last output.
+    """
+    law = SmithPredictor(kp=1.0, ki=0.0, gain=2.0, tau=10.0, dead_time=0.0, feedforward=0.0)
+    # dt is 0 on the very first step: the model does not move yet.
+    output = law.step(0.0, 0.0, 10.0)
+    assert output == pytest.approx(10.0)  # kp * error, no integral
+    assert law.predicted == 0.0
+
+    # The next tick reports that only 1.0 of that 10.0 was actually applied
+    # (e.g. the target clamped it). The model must move as if 1.0 drove it,
+    # not the 10.0 the law itself returned last step.
+    law.step(1.0, 0.0, 10.0, last_applied=1.0)
+    target = law.gain * (law.feedforward * 10.0 + 1.0)  # 2.0
+    assert law.predicted == pytest.approx(target + (0.0 - target) * exp(-1.0 / law.tau))
+    # Under the old last-output-driven model this would instead have moved
+    # towards gain * 10.0 = 20.0, a very different (and wrong) target.
+    assert law.predicted < 1.0
+
+
 # endregion
 
 # region Gain scheduling
@@ -290,6 +336,81 @@ def test_sliding_mode_resume_reproduces_the_correction_within_k():
     assert law.resume(50.0, 50.0, 25.0) == 10.0, "clipped to k: the bump is reported"
     with pytest.raises(ValueError):
         SlidingMode(k=1.0, lam=1.0, boundary=0.0)
+
+
+# endregion
+
+# region A step back in time (ENG-11)
+
+
+def test_step_integral_skips_a_step_back_in_time():
+    law = PI(kp=1.0, ki=1.0)
+    law.step(0.0, 10.0, 12.0)  # error 2, dt 0: adds nothing, integral 0
+    law.step(1.0, 10.0, 12.0)  # error 2, dt 1: integral -> 2
+    before = law.integral
+    out_of_order = law.step(0.5, 10.0, 12.0)  # elapsed goes backwards: skipped
+    assert law.integral == before, "a step back in time adds nothing"
+    assert out_of_order == pytest.approx(law.proportional(1.0, 10.0, 12.0) + before)
+    # last_elapsed was left where it was; the next forward step sees dt from there.
+    law.step(2.0, 10.0, 12.0)
+    assert law.integral == pytest.approx(before + 2.0 * 1.0)
+
+
+def test_sliding_mode_skips_a_step_back_in_time():
+    # error 0.5, well inside the boundary layer, so the integral is running.
+    law = SlidingMode(k=10.0, lam=0.1, boundary=2.0)
+    law.step(0.0, 9.5, 10.0)
+    law.step(1.0, 9.5, 10.0)
+    before = law.integral
+    law.step(0.5, 9.5, 10.0)  # elapsed goes backwards: skipped
+    assert law.integral == before, "a step back in time adds nothing to the surface's integral"
+    law.step(2.0, 9.5, 10.0)
+    assert law.integral != before, "a forward step still runs normally afterwards"
+
+
+# endregion
+
+# region Derivative filter (ENG-13)
+
+
+def test_n_omitted_leaves_the_derivative_exactly_as_before():
+    """Proves ENG-13 is a no-op when `n` is not set: the raw, unfiltered rate."""
+    law = PID(kp=0.0, ki=0.0, kd=2.0)
+    assert law.n is None
+    law.step(0.0, 10.0, 12.0)
+    output = law.step(1.0, 8.0, 12.0)  # reading fell by 2 over 1 s: rate = +2
+    assert output == pytest.approx(2.0 * 2.0), "kd * raw rate, no filtering"
+    output = law.step(2.0, 6.0, 12.0)  # another sharp step: an unfiltered law reacts fully
+    assert output == pytest.approx(2.0 * 2.0)
+
+
+def test_n_filters_the_derivative_towards_a_first_order_lag():
+    law = PID(kp=0.0, ki=0.0, kd=2.0, n=1.0)
+    assert law.n == 1.0
+    law.step(0.0, 10.0, 12.0)
+    first = law.step(1.0, 8.0, 12.0)  # a sharp step in the rate
+    raw = 2.0
+    alpha = 1.0 / (1.0 + 1.0)  # dt / (dt + 1/n), dt=1, n=1
+    expected_rate = alpha * raw
+    assert first == pytest.approx(law.kd * expected_rate)
+    assert first < 2.0 * raw, "filtered: reacts less than the raw rate would in one step"
+    # A steady rate afterwards: the filter catches up.
+    second = law.step(2.0, 6.0, 12.0)
+    assert second == pytest.approx(2.0 * 2.0, rel=0.4)
+
+
+def test_n_must_be_positive():
+    with pytest.raises(ValueError):
+        PID(kp=1.0, kd=1.0, n=0.0)
+    with pytest.raises(ValueError):
+        PID(kp=1.0, kd=1.0, n=-1.0)
+
+
+def test_imc_and_scheduled_pass_n_through_to_the_pid():
+    imc_law = IMC(gain=1.0, tau=60.0, dead_time=5.0, n=5.0)
+    assert imc_law.n == 5.0
+    scheduled_law = Scheduled(points=[[0, 1, 0.1, 0], [100, 2, 0.2, 1]], n=5.0)
+    assert scheduled_law.n == 5.0
 
 
 # endregion
