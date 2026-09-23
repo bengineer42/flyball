@@ -18,7 +18,7 @@ type Session struct {
 	Subject string   // who signed in, as the front names it (Phase 1: the admin password)
 	Scopes  []string // opaque (the vocabulary is pending D-034); stored and returned as given
 	Created time.Time
-	Seen    time.Time // the last Create, Lookup or Seen
+	Seen    time.Time // the last Create or Lookup: any request carrying the cookie
 }
 
 // SessionOptions configures a Sessions. The zero value is the design's
@@ -28,7 +28,7 @@ type SessionOptions struct {
 	Absolute time.Duration    // 0: SessionAbsolute
 	Now      func() time.Time // nil: time.Now, whose monotonic reading ignores wall-clock steps
 	// OnEnd is called, outside the store's lock, once for every session that
-	// ends: logout (Delete), and expiry found by Lookup, Seen or Sweep. The
+	// ends: logout (Delete), and expiry found by Lookup or Sweep. The
 	// front cancels that sid's websockets and streams from it.
 	OnEnd func(sid string)
 }
@@ -115,29 +115,6 @@ func (s *Sessions) Lookup(cookie string) (Session, bool) {
 	out := sess.copy()
 	s.mu.Unlock()
 	return out, true
-}
-
-// Seen marks a session used (a websocket frame, a streamed response) and
-// reports whether it is still live. It never recreates a session: after
-// Delete or expiry it is false and changes nothing.
-func (s *Sessions) Seen(sid string) bool {
-	now := s.now()
-	s.mu.Lock()
-	key, ok := s.bySid[sid]
-	if !ok {
-		s.mu.Unlock()
-		return false
-	}
-	sess := s.byHash[key]
-	if s.expired(sess, now) {
-		s.removeLocked(sid)
-		s.mu.Unlock()
-		s.end(sid)
-		return false
-	}
-	sess.Seen = now
-	s.mu.Unlock()
-	return true
 }
 
 // Delete ends a session (logout) and reports whether it existed. OnEnd is

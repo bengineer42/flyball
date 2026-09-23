@@ -143,34 +143,6 @@ func TestSessionsLogout(t *testing.T) {
 	}
 }
 
-func TestSessionsLateSeen(t *testing.T) {
-	s, _, _ := newTestSessions()
-	cookie, sess, _ := s.Create("password", nil)
-	s.Delete(sess.Sid)
-	if s.Seen(sess.Sid) {
-		t.Errorf("Seen after delete = true")
-	}
-	if _, ok := s.Lookup(cookie); ok {
-		t.Errorf("a late Seen revived the deleted session")
-	}
-	if n := s.Len(); n != 0 {
-		t.Errorf("Len = %d after a late Seen; want 0", n)
-	}
-}
-
-func TestSessionsSeenExtendsIdle(t *testing.T) {
-	s, clock, _ := newTestSessions()
-	cookie, sess, _ := s.Create("password", nil)
-	clock.Advance(SessionIdle - time.Minute)
-	if !s.Seen(sess.Sid) {
-		t.Fatalf("Seen = false on a live session")
-	}
-	clock.Advance(SessionIdle - time.Minute)
-	if _, ok := s.Lookup(cookie); !ok {
-		t.Errorf("Seen did not reset the idle clock")
-	}
-}
-
 func TestSessionsCopies(t *testing.T) {
 	s, _, _ := newTestSessions()
 	scopes := []string{"read", "operate"}
@@ -199,7 +171,6 @@ func TestSessionsConcurrent(t *testing.T) {
 					return
 				}
 				s.Lookup(cookie)
-				s.Seen(sess.Sid)
 				s.Sweep()
 				s.Delete(sess.Sid)
 				if _, ok := s.Lookup(cookie); ok {

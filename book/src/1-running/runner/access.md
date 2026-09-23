@@ -138,9 +138,13 @@ that cannot be dismissed. Not on a rig a model can drive.
 **People**, at a `password` front, sign in at the dashboard's login page
 with the admin password. The front keeps the session in memory and gives
 the browser an `HttpOnly` cookie (`flyball-<port>`, or `__Host-flyball`
-under HTTPS); the page keeps no secret. A session ends after 12 idle hours
-(`session:` changes that), 7 days at most, at **Sign out**, or when the
-front restarts. A wrong password is refused after half a second; ten wrong
+under HTTPS); the page keeps no secret. A session ends after 12 hours
+without a request from it (`session:` changes that), 7 days at most, at
+**Sign out**, or when the front restarts. An open, running dashboard polls
+the rig every few seconds, and each poll counts, so while a tab is open
+the session lasts to its 7 days whatever `session:` says; it idles out
+only once the tab is closed, or frozen by the browser or a sleeping
+laptop. A wrong password is refused after half a second; ten wrong
 in a minute from one address are refused until the oldest is a minute
 old. There is one admin password and no user accounts, so the record of an
 action says `local:admin` and a session id, not a person; per-person
