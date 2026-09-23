@@ -21,7 +21,7 @@ from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 
-from . import locking, logs
+from . import frontdir, locking, logs
 from .cli import parser, settle
 from .serving import serve
 from .starting import BuildFailed, resumed, start_with_store
@@ -32,6 +32,8 @@ BAD_CONFIG = 2
 """Exit code: the rig file or its config is wrong; starting again will not help."""
 RIG_BUSY = 3
 """Exit code: another runner holds this rig's lock."""
+FRONT_DIR = 4
+"""Exit code: `--front-dir` is unsafe or incomplete; the front writes it again."""
 
 
 def _refuse(args: Any, e: Exception) -> int:
@@ -43,6 +45,13 @@ def _refuse(args: Any, e: Exception) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     logs.configure(args.log_level or "info")
+    front = None
+    if args.front_dir is not None:  # before the lock, the drivers, the store: before anything
+        try:
+            front = frontdir.read(args.front_dir)
+        except frontdir.Unusable as e:
+            print(f"flyball-runner: --front-dir {args.front_dir}: {e}", file=sys.stderr)
+            return FRONT_DIR
     first = args.rig[0] if args.rig else Path("rig")
     try:
         catalog = Catalogs()
@@ -67,11 +76,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"flyball-runner: {e}", file=sys.stderr)
         return RIG_BUSY
     with lock:
-        return _run(args, settings, document, files, first)
+        if front is None:
+            return _run(args, settings, document, files, first)
+        try:
+            mine = locking.hold_front(front.path, name if isinstance(name, str) else first.stem)
+        except locking.RigBusy as e:
+            print(f"flyball-runner: {e}", file=sys.stderr)
+            return RIG_BUSY
+        with mine:
+            return _run(args, settings, document, files, first, front)
 
 
 def _run(
-    args: Any, settings: RunnerConfig, document: dict[str, Any], files: list[Path], first: Path
+    args: Any,
+    settings: RunnerConfig,
+    document: dict[str, Any],
+    files: list[Path],
+    first: Path,
+    front: frontdir.FrontDir | None = None,
 ) -> int:
     """Build the rig and serve it, the rig's lock held."""
     assert settings.store is not None and settings.drivers is not None
@@ -110,7 +132,8 @@ def _run(
         layered, _ = resolve_layers([Path(p) for p in args.rig], args.sets)
         simulation = Simulation(rig, config, layered, first)
         log.info("a simulation: %s plants, clock at %gx", len(simulation.plants), simulation.speed)
-    log.info("serving %s on %s:%d", config.name or first.name, settings.host, settings.port)
+    where = front.endpoint if front is not None else f"{settings.host}:{settings.port}"
+    log.info("serving %s on %s", config.name or first.name, where)
     # uvicorn's own graceful shutdown (its "Shutting down" / "Application shutdown
     # complete" logging) already runs by the time this is caught -- the interrupt
     # still escapes uvicorn's internals and would otherwise print a raw traceback
@@ -123,5 +146,6 @@ def _run(
             store=store,
             config=config,
             insecure_open=bool(args.insecure_open),
+            front=front,
         )
     return 0

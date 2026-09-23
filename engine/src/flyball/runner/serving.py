@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
 import signal
 import sys
 import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from flyball.record.store import Store
 from flyball.rig import Rig
@@ -24,6 +23,8 @@ if TYPE_CHECKING:
     # (see `flyball.interfaces.server.deps.Simulation`), so `runner`/`server` never
     # import the concrete `flyball_sim.simulation.Simulation` at module load.
     from flyball.interfaces.server.deps import Simulation
+
+    from .frontdir import FrontDir
 
 log = logging.getLogger("flyball.runner")
 
@@ -72,6 +73,20 @@ def _terminate_as_interrupt() -> signal.Handlers | Callable[..., object] | int |
     return signal.signal(signal.SIGTERM, _interrupt)
 
 
+def _print_link(nonce: str, host: str, settings: RunnerConfig) -> None:
+    """The one-time sign-in link, on stderr: open it once in the browser, within ten minutes."""
+    if host in ("", "0.0.0.0", "::"):
+        host = "127.0.0.1"
+    shown = f"[{host}]" if ":" in host else host
+    root = (settings.root_path or "").rstrip("/")
+    url = f"http://{shown}:{settings.port}{root}/api/auth/link?n={nonce}"
+    print(
+        f"flyball-runner: sign in to the UI once, within 10 minutes: {url}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def serve(
     rig: Rig,
     settings: RunnerConfig | None = None,
@@ -80,6 +95,7 @@ def serve(
     store: Store | None = None,
     config: RigConfig | None = None,
     insecure_open: bool = False,
+    front: FrontDir | None = None,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -98,11 +114,16 @@ def serve(
             and where the scratch record goes while nothing is being recorded;
             None leaves those routes answering 503 and keeps no scratch.
         config: What the rig was built from, for `/api/rig/config`.
-        insecure_open: Serve an open runner (no password, no token) on the address
+        insecure_open: Serve an open runner (no token) on the address
             asked for even beyond loopback (`--insecure-open`). Without it such a
             runner is served on 127.0.0.1, the same port, with one line on stderr
             saying why; `/api/auth` and `/api/health` report it either way
             ([settle_exposure][flyball.runtime.config.settle_exposure]).
+        front: The front-dir a front started this runner with (`--front-dir`): bind its
+            endpoint only, take only the principal it signs, serve no UI. `runner.auth`,
+            `host` and `port` are then ignored, with one line on stderr if they said
+            anything. None: a bare runner, whose token (if any) gets a one-time sign-in
+            link printed at start.
 
     A restart asked for over the API (`POST /api/runner/restart`) stops the
     rig and replaces this process with the same command line, once `serve`
@@ -113,7 +134,7 @@ def serve(
     from flyball.interfaces.client import Rig as Client
     from flyball.interfaces.mcp.http import mount
     from flyball.interfaces.server import create_app, set_programmer, set_rig, set_simulation
-    from flyball.interfaces.server.auth import signing_secret
+    from flyball.interfaces.server.auth import Fronted
     from flyball.interfaces.server.deps import (
         set_compose,
         set_drivers_dir,
@@ -129,8 +150,10 @@ def serve(
     from flyball.sequencing import Programmer
 
     settings = settings or RunnerConfig()
-    exposure = settle_exposure(settings, insecure_open)
-    if exposure.open and exposure.warning:  # moved to loopback, or open by choice: loudly
+    exposure = settle_exposure(
+        settings, insecure_open, endpoint=None if front is None else front.endpoint
+    )
+    if exposure.warning and (exposure.open or exposure.notes):  # loudly: exposure changed
         print(f"flyball-runner: WARNING: {exposure.warning}", file=sys.stderr, flush=True)
     elif exposure.warning:
         log.warning("%s", exposure.warning)
@@ -158,28 +181,35 @@ def serve(
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
     auth = settings.auth
-    # The MCP mount calls the runner back over loopback; on a password-only runner it
-    # needs a token of its own, made here and never shown.
-    internal = secrets.token_urlsafe(32) if auth.enabled and not auth.token else None
     app = create_app(
         auth,
         settings.root_path,
-        secret=signing_secret(auth, settings.store),
-        internal_token=internal,
+        front=None if front is None else Fronted(front.key, front.aud),
+        port=settings.port,
         open_network=exposure.open_network,
     )
+    if front is not None and front.network == "unix":
+        bind: dict[str, Any] = {"uds": front.address}
+    elif front is not None:
+        bind = {"host": front.host, "port": front.port}
+    else:
+        bind = {"host": settings.host, "port": settings.port}
     if settings.mcp:  # `/mcp/<mode>`: a model's way in
+        # The tools call the runner back over HTTP. Bare: loopback TCP, with the token. A
+        # fronted runner's inner calls need a principal minted per call over its endpoint:
+        # the MCP re-mint (package A6) supplies that; until then they are refused.
         base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
-        mount(app, Client(base, token=auth.token or internal), name=rig.name)
+        mount(app, Client(base, token=None if front is not None else auth.token), name=rig.name)
     server = uvicorn.Server(
         uvicorn.Config(
             app,
-            host=settings.host,
-            port=settings.port,
+            **bind,
             log_level=settings.log_level,
             proxy_headers=False,  # the peer is the peer: no X-Forwarded-For past the limiter
         )
     )
+    if front is None and auth.enabled:
+        _print_link(app.state.door.mint_link(), exposure.host, settings)
     logs.stamp_uvicorn()  # its handlers exist once the Config is made
 
     def stop() -> None:
@@ -212,5 +242,8 @@ def serve(
         if previous is not None:
             signal.signal(signal.SIGTERM, previous)
     if handle.restarting:
-        log.info("restarting: %s", " ".join(sys.argv))
-        os.execv(sys.executable, [sys.executable, *sys.argv])
+        # The interpreter's own argv, so `python -m flyball.runner` restarts as `-m` too (and
+        # `--front-dir` comes back with the rest: fronted stays fronted).
+        argv = [sys.executable, *sys.orig_argv[1:]]
+        log.info("restarting: %s", " ".join(argv))
+        os.execv(sys.executable, argv)

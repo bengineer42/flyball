@@ -1,218 +1,97 @@
 """Who is asking, and what they may do: the door in front of everything the runner serves.
 
-One *principal* per request or socket, resolved by [`Auth`][flyball.interfaces.server.auth.Auth]
-from, in order, a bearer token (a machine), a session cookie (a person who logged in),
-and nothing (anonymous); a token that is presented and wrong is refused, never taken as
-anonymous. Each principal has a *level* -- `none < read < operate` -- and each request
-*needs* one: a GET or a stream under `/api`, `/ws` or `/mcp` needs `read`, anything else
-there `operate` (no GET has a side effect: a bus probe is a POST); a GET outside them is
-the bundled UI, which the login page is part of, and needs nothing.
-`allows` compares the two; that one comparison is the only place a later scheme (several
-sign-ins with levels, a part of the rig locked) has to grow.
+Every admitted request carries a principal (`principal.Claims` on `request.state.principal`,
+and how it got in on `request.state.scheme`), and every request needs the verb
+`verbs.needed` names for its route. A route with no row is refused (403), never guessed.
 
-Two checks come before any of that, against other web pages rather than other people.
-An open runner (no password, no token) answers only a `Host` of `localhost`, `127.0.0.1`
-or `[::1]`, so a page whose name has been pointed at loopback (DNS rebinding) is refused --
-unless the run opted into serving it open on the network (`--insecure-open`: the exposure's
-`open_network`), whose users reach it by a network name the runner cannot know.
-And in every mode, a request that acts -- any method but GET, HEAD and OPTIONS, and every
-websocket -- is refused when it carries an `Origin` that is not the runner's own (or is
-`null`), unless it brings the bearer token, which a page on another site cannot have.
+The door works in one of two modes.
 
-The password is stored hashed (`$scrypt$…`, stdlib; `hash_password` makes the line) or
-in the clear, prefix-detected like htpasswd. A session is a signed, expiring note --
-`<issued>.<nonce>.<hmac>` -- so the runner keeps no table of them; the key that signs
-them is derived from the runner's secret *and* the stored password, so changing the
-password signs everyone out. Nothing secret is ever in a URL the UI builds; `?token=`
-stays accepted on a GET and a socket for the CLI's export links.
+**Fronted** (the runner was started with `--front-dir`): the signed `X-Flyball-Principal`
+the front mints is the only credential. `runner.auth`, a bearer token, a cookie, `?token=`
+and anonymous access are all ignored. A request with no principal, more than one, another
+`x-flyball-*` header (any spelling, `_` for `-` included) or one that does not verify is
+401 with `X-Flyball-Principal-Error: <code>`; a websocket is accepted and closed with 4401.
+A principal lacking the route's verb is 403 `{"detail", "needed"}` (4403). Host and Origin
+are the front's business: it sends `Host: localhost` and never forwards `Origin`.
+
+**Bare** (no front: a laptop, a container, the public demo): a *token* is the one
+credential. A machine sends it as `Authorization: Bearer`; a person trades it, or a one-time
+link the runner prints at start (`/api/auth/link?n=`), for a session cookie held in memory.
+With neither, a caller is anonymous and gets what `runner.auth.anonymous` says: nothing, or
+read. With no token at all the runner is *open*: whoever reaches it gets every verb, and it
+answers only a loopback `Host` (`localhost`, `127.0.0.1`, `[::1]`) so a page whose name was
+pointed at loopback (DNS rebinding) is refused -- unless the run opted into serving it open
+on the network (`--insecure-open`). In every bare mode a request that acts (any method but
+GET, HEAD and OPTIONS, and every websocket) with an `Origin` that is not the runner's own,
+or `null`, is refused -- unless it brings the token or a principal, which a page on another
+site cannot have. `?token=` is refused: nothing secret goes in a URL but the one-time nonce.
+The runner's own MCP calls carry a principal it signed with its in-memory key.
 """
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
-import logging
-import os
 import secrets
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi.responses import JSONResponse
+from starlette.routing import compile_path
 
+from flyball.interfaces.server import verbs
+from flyball.interfaces.server.principal import (
+    ERROR_HEADER,
+    HEADER,
+    LIFETIME,
+    Claims,
+    Refused,
+    verify,
+)
 from flyball.runtime.config import AuthConfig
 
-log = logging.getLogger(__name__)
+Scheme = Literal["local", "anonymous", "session", "token", "proxy"]
+"""How a caller got in: AuthInfo v2's `scheme`."""
 
-Level = Literal["none", "read", "operate"]
-Scheme = Literal["anonymous", "password", "token"]
-
-LEVELS: dict[Level, int] = {"none": 0, "read": 1, "operate": 2}
-COOKIE = "flyball_session"
-# Behind the door. A GET anywhere else is the bundled UI (the login page included) or the
-# API's own description of itself (`/docs`, `/openapi.json`), and needs nothing.
-GUARDED = ("/api", "/ws", "/mcp")
-# Reachable by anyone, whatever the method: the door itself.
-OPEN_PATHS = ("/api/auth",)
 # The names an open runner answers to: loopback, and nothing a page elsewhere can own.
-LOOPBACK = ("localhost", "127.0.0.1", "::1")
+LOOPBACK: Final = ("localhost", "127.0.0.1", "::1")
 # The methods that change nothing, so need no `Origin` check; everything else acts.
-SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+SAFE_METHODS: Final = ("GET", "HEAD", "OPTIONS")
+SESSION_S: Final = 12 * 3600
+"""How long a bare runner's session cookie lasts."""
+LINK_S: Final = 600
+"""How long a token-link nonce lasts."""
 _PORTS = {"http": 80, "https": 443}
-
-_SCRYPT = "$scrypt$"
-_N, _R, _P = 16384, 8, 1
-
-
-# region Passwords
+_FLYBALL = "x-flyball-"
+# Every path the verb table knows, whatever the method: a known path asked with a method it
+# does not have is 405, as the router would say, not a refusal.
+_KNOWN = tuple(compile_path(rule.path)[0] for rule in verbs.TABLE)
 
 
-def hash_password(plain: str) -> str:
-    """A `$scrypt$n=…,r=…,p=…$<salt>$<hash>` line for the rig file."""
-    salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(plain.encode(), salt=salt, n=_N, r=_R, p=_P)
-    return f"{_SCRYPT}n={_N},r={_R},p={_P}${_b64(salt)}${_b64(digest)}"
-
-
-def verify_password(plain: str, stored: str) -> bool:
-    """Whether `plain` is the password `stored` holds, hashed or in the clear."""
-    if not stored.startswith(_SCRYPT):
-        return hmac.compare_digest(plain.encode(), stored.encode())
-    try:
-        params, salt, digest = stored[len(_SCRYPT) :].split("$")
-        n, r, p = (int(item.split("=")[1]) for item in params.split(","))
-        expected = _unb64(digest)
-        got = hashlib.scrypt(plain.encode(), salt=_unb64(salt), n=n, r=r, p=p, dklen=len(expected))
-    except (ValueError, TypeError):
-        return False
-    return hmac.compare_digest(got, expected)
-
-
-def _b64(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
-
-
-def _unb64(text: str) -> bytes:
-    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-
-
-# endregion
-
-# region Sessions
-
-
-class Sessions:
-    """Mints and checks session cookies: `<issued>.<nonce>.<hmac>`, no table.
-
-    `secret` is the runner's; the signing key is `HMAC(secret, stored password)`,
-    so a changed password (or a changed secret) makes every cookie invalid at
-    once. `lifetime` is in seconds.
-    """
-
-    def __init__(self, secret: bytes, password: str | None, lifetime: float) -> None:
-        self.key = hmac.new(secret, (password or "").encode(), hashlib.sha256).digest()
-        self.lifetime = lifetime
-
-    def mint(self, now: float | None = None) -> str:
-        issued = int(now if now is not None else time.time())
-        body = f"{issued}.{secrets.token_urlsafe(12)}"
-        return f"{body}.{self._sign(body)}"
-
-    def verify(self, cookie: str, now: float | None = None) -> bool:
-        parts = cookie.split(".")
-        if len(parts) != 3:
-            return False
-        issued, nonce, signature = parts
-        if not hmac.compare_digest(self._sign(f"{issued}.{nonce}"), signature):
-            return False
-        try:
-            age = (now if now is not None else time.time()) - int(issued)
-        except ValueError:
-            return False
-        return 0 <= age <= self.lifetime
-
-    def _sign(self, body: str) -> str:
-        return _b64(hmac.new(self.key, body.encode(), hashlib.sha256).digest())
-
-
-def signing_secret(config: AuthConfig, store: Path | None) -> bytes:
-    """The key sessions are signed with.
-
-    `auth.secret`, else a key file beside the store (made on first use,
-    owner-readable), else one for this process alone.
-    """
-    if config.secret:
-        return config.secret.encode()
-    if store is not None and str(store) != ":memory:":
-        path = store.with_suffix(".key")
-        try:
-            if not path.exists():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                try:
-                    os.write(fd, secrets.token_urlsafe(32).encode())
-                finally:
-                    os.close(fd)
-            return path.read_text().strip().encode()
-        except OSError as e:
-            log.warning("no session key at %s (%s): sessions end with the process", path, e)
-    return secrets.token_bytes(32)
-
-
-# endregion
-
-# region Principals
+def _known_path(scope: Any) -> bool:
+    path: str = scope["path"]
+    root: str = scope.get("root_path") or ""
+    path = path[len(root) :] if root and path.startswith(root) else path
+    return any(pattern.match(path) for pattern in _KNOWN)
 
 
 @dataclass(frozen=True)
-class Principal:
-    scheme: Scheme
-    level: Level
+class Fronted:
+    """What the front-dir gave a fronted runner: the principal key and the audience."""
+
+    key: bytes
+    aud: str
 
 
-OPEN = Principal("anonymous", "operate")  # a runner with no password and no token
-ANONYMOUS_NONE = Principal("anonymous", "none")
-ANONYMOUS_READ = Principal("anonymous", "read")
-PERSON = Principal("password", "operate")
-MACHINE = Principal("token", "operate")
+@dataclass
+class _Session:
+    sid: str
+    expires: float  # time.monotonic()
 
-
-def needed(scope: Any) -> Level:
-    """The level a request must have: read for a GET or a stream, operate otherwise.
-
-    A GET or HEAD outside `/api`, `/ws` and `/mcp` needs nothing: it is the bundled UI,
-    whose login page must load before anyone has signed in.
-    """
-    path = _path(scope)
-    if _under(path, OPEN_PATHS):
-        return "none"
-    if scope["type"] == "websocket":
-        return "read"
-    if scope.get("method") in ("GET", "HEAD"):
-        return "read" if _under(path, GUARDED) else "none"
-    return "operate"
-
-
-def allows(principal: Principal, scope: Any) -> bool:
-    return LEVELS[principal.level] >= LEVELS[needed(scope)]
-
-
-def _path(scope: Any) -> str:
-    path: str = scope["path"]
-    root: str = scope.get("root_path") or ""
-    return path[len(root) :] if root and path.startswith(root) else path
-
-
-def _under(path: str, prefixes: tuple[str, ...]) -> bool:
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
-
-
-# endregion
 
 # region Other web pages
 
@@ -263,7 +142,7 @@ def same_origin(origin: str | None, host: str, scheme: str) -> bool:
 
 
 class Attempts:
-    """Slows a guesser: at most `limit` failed logins a minute from one address."""
+    """Slows a guesser: at most `limit` wrong tokens a minute from one address."""
 
     def __init__(self, limit: int = 10, window: float = 60.0) -> None:
         self.limit, self.window = limit, window
@@ -276,6 +155,8 @@ class Attempts:
             return False
         while recent and now - recent[0] > self.window:
             recent.popleft()
+        if not recent:
+            del self.failed[address]
         return len(recent) >= self.limit
 
     def failure(self, address: str, now: float | None = None) -> None:
@@ -283,78 +164,135 @@ class Attempts:
         self.failed.setdefault(address, deque()).append(now)
 
 
-class Auth:
-    """ASGI middleware: refuse other web pages, resolve the principal, refuse what it may not do.
+def _digest(value: str) -> bytes:
+    return hashlib.sha256(value.encode()).digest()
 
-    Installed on every runner; with neither a password nor a token in `config` the runner
-    is *open*: everyone is `OPEN` (operate), but only on a loopback `Host` -- any `Host`
-    with `open_network`, the run's `--insecure-open` (the `Origin` check still holds). Puts the
-    principal on `scope["state"]["auth"]` (so `request.state.auth`); on a runner with a door
-    the `Auth` itself is `app.state.auth`, the routes' way to it. Refusal is 401 with a
-    `detail` and `WWW-Authenticate: Bearer` like every other error, or 403 for a foreign
-    `Host` or `Origin`; a socket is closed with 4401 or 4403. `internal_token` is the one
-    the runner mints for its own MCP mount when there is a password but no token.
+
+@dataclass
+class Door:
+    """ASGI middleware: the door, fronted or bare (see the module's description).
+
+    `app.state.door` is the instance, the routes' way to it; `key` and `aud` are what the
+    runner signs its own principals with (MCP's inner calls): the front-dir's when
+    fronted, made in memory when bare. `port` names the bare session cookie
+    (`flyball-bare-<port>`); `delay` is the pause after a wrong token, before the 401.
     """
 
-    def __init__(
-        self,
-        app: Any,
-        config: AuthConfig,
-        secret: bytes,
-        *,
-        internal_token: str | None = None,
-        delay: float = 0.5,
-        open_network: bool = False,
-    ) -> None:
-        self.app = app
-        self.config = config
-        self.sessions = Sessions(secret, config.password, config.session_s)
-        self.internal_token = internal_token
-        self.delay = delay  # after a wrong password, before the 401
-        self.attempts = Attempts()
-        # Logins hashing a password right now, and how many may: a scrypt hash holds 16 MiB.
-        self.hashing = 0
-        self.max_hashing = 2
-        self.anonymous = ANONYMOUS_READ if config.anonymous == "read" else ANONYMOUS_NONE
-        self.open = not config.enabled
+    app: Any
+    config: AuthConfig = field(default_factory=AuthConfig)
+    fronted: Fronted | None = None
+    port: int | None = None
+    delay: float = 0.5
+    open_network: bool = False
+    key: bytes = field(default=b"", init=False)
+    aud: str = field(default="", init=False)
+    attempts: Attempts = field(default_factory=Attempts, init=False)
+    _sessions: dict[bytes, _Session] = field(default_factory=dict, init=False)
+    _links: dict[bytes, float] = field(default_factory=dict, init=False)
+
+    def __post_init__(self) -> None:
+        if self.fronted is not None:
+            self.key, self.aud = self.fronted.key, self.fronted.aud
+        else:
+            self.key = secrets.token_bytes(32)
+            self.aud = f"bare-{secrets.token_hex(4)}"
         # Open and served on the network by the user's choice: any `Host` is its own name.
-        self.open_network = self.open and open_network
+        self.open_network = self.open and self.open_network
+        self._token_sid = secrets.token_urlsafe(12)
 
-    # -- resolving --
+    @property
+    def open(self) -> bool:
+        """A bare runner with no token: whoever reaches it may do everything."""
+        return self.fronted is None and not self.config.enabled
 
-    def principal(self, scope: Any) -> Principal | None:
-        """Who is asking; `None` for a token that was presented and is wrong."""
-        if self.open:
-            return OPEN
-        headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
-        if (given := self._bearer(scope, headers)) is not None:
-            return MACHINE if self.is_token(given) else None
-        cookie = SimpleCookie()
-        cookie.load(headers.get(b"cookie", b"").decode(errors="replace"))
-        if COOKIE in cookie and self.sessions.verify(cookie[COOKIE].value):
-            return PERSON
-        return self.anonymous
+    @property
+    def cookie(self) -> str:
+        return "flyball-bare" if self.port is None else f"flyball-bare-{self.port}"
 
-    def _bearer(self, scope: Any, headers: dict[bytes, bytes]) -> str | None:
-        auth = headers.get(b"authorization", b"").decode(errors="replace")
-        if auth.lower().startswith("bearer "):
-            return auth[7:].strip()
-        if scope["type"] == "websocket" or scope.get("method") == "GET":
-            tokens: list[str] = parse_qs(scope.get("query_string", b"").decode()).get("token", [])
-            return tokens[0] if tokens else None
-        return None
+    # -- the bare runner's credentials --
 
     def is_token(self, given: str) -> bool:
-        for token in (self.config.token, self.internal_token):
-            if token and hmac.compare_digest(given, token):
-                return True
-        return False
+        token = self.config.token
+        return bool(token) and hmac.compare_digest(given.encode(), token.encode())  # type: ignore[union-attr]
 
-    def is_secret(self, given: str) -> bool:
-        """What the login page takes: the password, or the token (a person may paste one)."""
-        if self.config.password is not None and verify_password(given, self.config.password):
-            return True
-        return bool(self.config.token) and self.is_token(given)
+    def open_session(self) -> str:
+        """A new session cookie's value; only its hash is kept."""
+        value = secrets.token_urlsafe(32)
+        self._sweep()
+        self._sessions[_digest(value)] = _Session(
+            secrets.token_urlsafe(12), time.monotonic() + SESSION_S
+        )
+        return value
+
+    def close_session(self, value: str) -> None:
+        self._sessions.pop(_digest(value), None)
+
+    def session(self, value: str) -> _Session | None:
+        found = self._sessions.get(_digest(value))
+        if found is None or found.expires < time.monotonic():
+            return None
+        return found
+
+    def mint_link(self) -> str:
+        """A one-time nonce for `/api/auth/link?n=`, good for `LINK_S` seconds."""
+        nonce = secrets.token_urlsafe(24)
+        self._sweep()
+        self._links[_digest(nonce)] = time.monotonic() + LINK_S
+        return nonce
+
+    def take_link(self, nonce: str) -> bool:
+        """Whether `nonce` is a live link; it is spent either way."""
+        expires = self._links.pop(_digest(nonce), None)
+        return expires is not None and expires >= time.monotonic()
+
+    def _sweep(self) -> None:
+        now = time.monotonic()
+        for digest in [d for d, s in self._sessions.items() if s.expires < now]:
+            del self._sessions[digest]
+        for digest in [d for d, e in self._links.items() if e < now]:
+            del self._links[digest]
+
+    # -- principals --
+
+    def claims(self, scope: Any, sub: str, sid: str, scp: frozenset[str], kind: str) -> Claims:
+        """A principal for a bare runner's caller, in the shape the front's would have."""
+        now = int(time.time())
+        client = scope.get("client")
+        return Claims(
+            sub=sub,
+            sid=sid,
+            scp=scp,
+            kind=kind,
+            aud=self.aud,
+            cip=client[0] if client else "",
+            sch="https" if scope.get("scheme") in ("https", "wss") else "http",
+            iat=now,
+            exp=now + LIFETIME,
+        )
+
+    def _bare(self, scope: Any, headers: dict[bytes, bytes]) -> tuple[Claims, Scheme] | str:
+        """Who is asking a bare runner, or 401 for a presented and wrong credential."""
+        everything = verbs.VOCABULARY
+        if self.open:
+            return self.claims(
+                scope, "local:console", secrets.token_urlsafe(12), everything, "human"
+            ), "local"
+        auth = headers.get(b"authorization", b"").decode(errors="replace")
+        if auth.lower().startswith("bearer "):
+            if not self.is_token(auth[7:].strip()):
+                return "Wrong token"
+            return self.claims(scope, "token:bare", self._token_sid, everything, "service"), "token"
+        if "token" in parse_qs(scope.get("query_string", b"").decode(errors="replace")):
+            return (
+                "A token goes in the Authorization header (Bearer), never in the URL;"
+                " a browser signs in with it (POST /api/auth/login) or the runner's link"
+            )
+        cookie = SimpleCookie()
+        cookie.load(headers.get(b"cookie", b"").decode(errors="replace"))
+        if self.cookie in cookie and (found := self.session(cookie[self.cookie].value)):
+            return self.claims(scope, "token:bare", found.sid, everything, "human"), "session"
+        scp = frozenset({verbs.READ}) if self.config.anonymous == "read" else frozenset()
+        return self.claims(scope, "anon:", secrets.token_urlsafe(12), scp, "human"), "anonymous"
 
     # -- serving --
 
@@ -362,22 +300,57 @@ class Auth:
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
+        if self.fronted is not None:
+            await self._serve_fronted(scope, receive, send)
+        else:
+            await self._serve_bare(scope, receive, send)
+
+    async def _serve_fronted(self, scope: Any, receive: Any, send: Any) -> None:
+        given = [
+            (name, value)
+            for name, value in scope.get("headers") or []
+            if name.decode("latin-1").lower().replace("_", "-").startswith(_FLYBALL)
+        ]
+        tokens = [value for name, value in given if name == HEADER.encode()]
+        try:
+            if len(tokens) != 1 or len(given) != 1:
+                raise Refused("format")  # none, two, or a spelling the front never sends
+            claims = verify(tokens[0].decode("latin-1"), self.key, self.aud)
+        except Refused as e:
+            detail = f"No valid principal from the front ({e.code})"
+            await _refuse(scope, receive, send, 401, detail, code=e.code, accept=True)
+            return
+        await self._admit(scope, receive, send, claims, "proxy", accept=True)
+
+    async def _serve_bare(self, scope: Any, receive: Any, send: Any) -> None:
         headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
         host = headers.get(b"host", b"").decode(errors="replace")
         if self.open and not self.open_network and not loopback(host):
             detail = (
-                "This runner has no password or token, so it answers only to localhost,"
-                " 127.0.0.1 or [::1]; give it --password or --token to reach it by another name"
+                "This runner has no token, so it answers only to localhost, 127.0.0.1 or"
+                " [::1]; give it --token to reach it by another name, or run it under"
+                " `flyball run`"
             )
             await _refuse(scope, receive, send, 403, detail)
             return
-        principal = self.principal(scope)
-        if principal is None:
-            await _refuse(scope, receive, send, 401, "Wrong token")
+        signed = headers.get(HEADER.encode())
+        if signed is not None:  # the runner's own MCP call, signed with its in-memory key
+            try:
+                claims = verify(signed.decode("latin-1"), self.key, self.aud)
+            except Refused as e:
+                detail = f"Not a principal this runner signed ({e.code})"
+                await _refuse(scope, receive, send, 401, detail, code=e.code)
+                return
+            await self._admit(scope, receive, send, claims, "token")
             return
+        resolved = self._bare(scope, headers)
+        if isinstance(resolved, str):
+            await _refuse(scope, receive, send, 401, resolved)
+            return
+        claims, scheme = resolved
         origin = headers.get(b"origin")
         if (
-            principal.scheme != "token"
+            scheme != "token"
             and acts(scope)
             and not same_origin(
                 None if origin is None else origin.decode(errors="replace"),
@@ -388,22 +361,81 @@ class Auth:
             detail = "Refused: the request's Origin is another site's, not this runner's"
             await _refuse(scope, receive, send, 403, detail)
             return
-        scope.setdefault("state", {})["auth"] = principal
-        if allows(principal, scope):
+        await self._admit(scope, receive, send, claims, scheme)
+
+    async def _admit(
+        self,
+        scope: Any,
+        receive: Any,
+        send: Any,
+        claims: Claims,
+        scheme: Scheme,
+        *,
+        accept: bool = False,
+    ) -> None:
+        """Serve the request if `claims` holds the verb its route needs; refuse it otherwise."""
+        try:
+            needed = verbs.needed(scope)
+        except verbs.Unmapped:
+            if scope["type"] == "http" and _known_path(scope):
+                response = JSONResponse(status_code=405, content={"detail": "Method Not Allowed"})
+                await response(scope, receive, send)
+                return
+            detail = "No rule says who may do this, so no one may"
+            await _refuse(scope, receive, send, 403, detail, needed=None, accept=accept)
+            return
+        if verbs.allows(claims.scp, scope):
+            state = scope.setdefault("state", {})
+            state["principal"] = claims
+            state["scheme"] = scheme
             await self.app(scope, receive, send)
             return
-        detail = (
-            "Sign in first (POST /api/auth/login), or send the runner's bearer token"
-            " (Authorization: Bearer ...)"
-        )
-        await _refuse(scope, receive, send, 401, detail)
+        if scheme == "anonymous":
+            detail = (
+                "Sign in first (POST /api/auth/login with the token, or the link the runner"
+                " printed), or send the token (Authorization: Bearer ...)"
+            )
+            await _refuse(scope, receive, send, 401, detail)
+            return
+        detail = f"This needs {needed!r}, which the caller does not hold here"
+        await _refuse(scope, receive, send, 403, detail, needed=needed, accept=accept)
 
 
-async def _refuse(scope: Any, receive: Any, send: Any, status: int, detail: str) -> None:
-    """401 or 403 with a `detail`; a socket is closed with 4401 or 4403 before it opens."""
+_UNSET: Any = object()
+
+
+async def _refuse(
+    scope: Any,
+    receive: Any,
+    send: Any,
+    status: int,
+    detail: str,
+    *,
+    code: str | None = None,
+    needed: str | None = _UNSET,
+    accept: bool = False,
+) -> None:
+    """401 or 403 with a `detail`; a socket is closed with 4401 or 4403.
+
+    With `accept` the socket's handshake completes first, so the client sees the code (the
+    front passes it on); without, it is closed before it opens. `code` is the principal's
+    refusal code, sent as `X-Flyball-Principal-Error`; `needed` the verb that was missing.
+    """
     if scope["type"] == "websocket":
+        if accept:
+            message = await receive()
+            if message["type"] != "websocket.connect":
+                return
+            await send({"type": "websocket.accept"})
         await send({"type": "websocket.close", "code": 4000 + status, "reason": detail[:120]})
         return
-    headers = {"WWW-Authenticate": "Bearer"} if status == 401 else None
-    response = JSONResponse(status_code=status, content={"detail": detail}, headers=headers)
+    headers: dict[str, str] = {}
+    if status == 401:
+        headers["WWW-Authenticate"] = "Bearer"
+    if code is not None:
+        headers[ERROR_HEADER] = code
+    content: dict[str, Any] = {"detail": detail}
+    if needed is not _UNSET:
+        content["needed"] = needed
+    response = JSONResponse(status_code=status, content=content, headers=headers)
     await response(scope, receive, send)

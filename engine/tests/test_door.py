@@ -15,11 +15,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from conftest import FakeRunner, TestClient
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.auth import COOKIE, hash_password
 from flyball.interfaces.server.deps import set_runner
 from flyball.runtime.config import AuthConfig, RunnerConfig
 
 EVIL = "http://evil.example"
+COOKIE = "flyball-bare"
 FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 UNSAFE = (
     "/api/controllers/heaters.heater1/manual",
@@ -40,7 +40,7 @@ def runner():
 def _client(rig, auth: AuthConfig | None = None, host: str = "localhost:8000") -> TestClient:
     rig.name = "t"
     set_rig(rig)
-    return TestClient(create_app(auth, secret=b"k", login_delay=0), base_url=f"http://{host}")
+    return TestClient(create_app(auth, login_delay=0), base_url=f"http://{host}")
 
 
 @pytest.fixture
@@ -51,9 +51,9 @@ def open_runner(rig, runner):
 
 
 @pytest.fixture
-def password(rig, runner, monkeypatch):
+def guarded(rig, runner, monkeypatch):
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
-    auth = AuthConfig(password=hash_password("hunter2"), token="s3cret", anonymous="read")
+    auth = AuthConfig(token="s3cret", anonymous="read")
     with _client(rig, auth, host="pi.lab:8000") as http:
         yield http
     set_rig(None)
@@ -90,8 +90,8 @@ def test_an_open_runner_refuses_any_other_host(rig, runner, host):
     assert runner.asked == []
 
 
-def test_a_runner_with_a_door_answers_any_host(password):
-    assert password.get("/api/health").status_code == 200
+def test_a_runner_with_a_door_answers_any_host(guarded):
+    assert guarded.get("/api/health").status_code == 200
 
 
 LAN = "192.168.1.3:8000"
@@ -102,7 +102,7 @@ def insecure_open(rig, runner):
     """An open runner served on the network by `--insecure-open` (exposure `open_network`)."""
     rig.name = "t"
     set_rig(rig)
-    app = create_app(secret=b"k", login_delay=0, open_network=True)
+    app = create_app(login_delay=0, open_network=True)
     with TestClient(app, base_url=f"http://{LAN}") as http:
         yield http
     set_rig(None)
@@ -138,10 +138,10 @@ def test_without_the_opt_in_a_lan_name_is_still_refused(rig, runner):
 
 
 def test_the_opt_in_means_nothing_to_a_runner_with_a_door(rig, runner):
-    """`open_network` is for an open runner; one with a password is judged as before."""
+    """`open_network` is for an open runner; one with a token is judged as before."""
     rig.name = "t"
     set_rig(rig)
-    app = create_app(AuthConfig(password=hash_password("hunter2")), secret=b"k", open_network=True)
+    app = create_app(AuthConfig(token="s3cret"), open_network=True)
     with TestClient(app, base_url=f"http://{LAN}") as http:
         own = {"Origin": f"http://{LAN}"}
         assert http.post("/api/runner/shutdown", headers=own).status_code == 401, "sign in first"
@@ -205,35 +205,37 @@ def test_a_cross_site_websocket_is_refused(open_runner):
         pass
 
 
-def test_a_cookie_is_no_help_from_another_site(password, runner):
-    signed = password.post(
-        "/api/auth/login", json={"secret": "hunter2"}, headers={"Origin": "http://pi.lab:8000"}
+def test_a_cookie_is_no_help_from_another_site(guarded, runner):
+    signed = guarded.post(
+        "/api/auth/login", json={"token": "s3cret"}, headers={"Origin": "http://pi.lab:8000"}
     )
-    assert signed.status_code == 200 and COOKIE in password.cookies
-    refused = password.post("/api/runner/shutdown", headers={"Origin": EVIL, **FORM})
+    assert signed.status_code == 200 and COOKIE in guarded.cookies
+    refused = guarded.post("/api/runner/shutdown", headers={"Origin": EVIL, **FORM})
     assert refused.status_code == 403
     with (
         pytest.raises(WebSocketDisconnect) as closed,
-        password.websocket_connect("/ws/samples", headers={"Origin": EVIL}),
+        guarded.websocket_connect("/ws/samples", headers={"Origin": EVIL}),
     ):
         pass
     assert closed.value.code == 4403
     assert runner.asked == []
-    ok = password.post("/api/runner/shutdown", headers={"Origin": "http://pi.lab:8000"})
+    ok = guarded.post("/api/runner/shutdown", headers={"Origin": "http://pi.lab:8000"})
     assert ok.status_code == 202 and runner.asked == ["shutdown"]
 
 
-def test_a_login_from_another_site_is_refused(password):
-    refused = password.post("/api/auth/login", json={"secret": "hunter2"}, headers={"Origin": EVIL})
-    assert refused.status_code == 403 and COOKIE not in password.cookies
+def test_a_login_from_another_site_is_refused(guarded):
+    refused = guarded.post("/api/auth/login", json={"token": "s3cret"}, headers={"Origin": EVIL})
+    assert refused.status_code == 403 and COOKIE not in guarded.cookies
 
 
-def test_the_bearer_token_is_exempt(password, runner):
+def test_the_bearer_token_is_exempt(guarded, runner):
     """A token is never ambient: a page on another site cannot send it without knowing it."""
     headers = {"Origin": EVIL, "Authorization": "Bearer s3cret"}
-    assert password.post("/api/runner/shutdown", headers=headers).status_code == 202
+    assert guarded.post("/api/runner/shutdown", headers=headers).status_code == 202
     assert runner.asked == ["shutdown"]
-    with password.websocket_connect("/ws/samples?token=s3cret", headers={"Origin": EVIL}):
+    with guarded.websocket_connect(
+        "/ws/samples", headers={"Origin": EVIL, "Authorization": "Bearer s3cret"}
+    ):
         pass
 
 
@@ -248,14 +250,14 @@ def test_a_made_up_bearer_does_not_exempt_an_open_runner(open_runner, runner):
 # region A wrong token
 
 
-def test_a_wrong_bearer_is_401_not_anonymous(password):
-    assert password.get("/api/health").status_code == 200, "anonymous may read"
-    wrong = password.get("/api/health", headers={"Authorization": "Bearer WRONG"})
+def test_a_wrong_bearer_is_401_not_anonymous(guarded):
+    assert guarded.get("/api/health").status_code == 200, "anonymous may read"
+    wrong = guarded.get("/api/health", headers={"Authorization": "Bearer WRONG"})
     assert wrong.status_code == 401 and "token" in wrong.json()["detail"]
-    assert password.get("/api/health?token=WRONG").status_code == 401
+    assert guarded.get("/api/health?token=WRONG").status_code == 401
     with (
         pytest.raises(WebSocketDisconnect) as closed,
-        password.websocket_connect("/ws/samples?token=WRONG"),
+        guarded.websocket_connect("/ws/samples?token=WRONG"),
     ):
         pass
     assert closed.value.code == 4401
@@ -263,19 +265,19 @@ def test_a_wrong_bearer_is_401_not_anonymous(password):
 
 # endregion
 
-# region The bundled UI behind a password
+# region The bundled UI behind a token
 
 
 @pytest.fixture
 def locked(rig, monkeypatch, tmp_path):
-    """A password, nothing anonymous, and a built UI to serve."""
+    """A token, nothing anonymous, and a built UI to serve."""
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text("<html>flyball</html>")
     (dist / "assets" / "app.js").write_text("console.log(1)")
     monkeypatch.setattr(sys.modules["flyball.interfaces.server.app"], "DASHBOARD_DIST", dist)
-    with _client(rig, AuthConfig(password="hunter2"), host="pi.lab:8000") as http:
+    with _client(rig, AuthConfig(token="s3cret"), host="pi.lab:8000") as http:
         yield http
     set_rig(None)
 

@@ -33,3 +33,13 @@ def test_it_is_installed_once_however_many_apps(caplog):
     create_app()
     access = logging.getLogger("uvicorn.access")
     assert sum(type(f).__name__ == "QueryRedaction" for f in access.filters) == 1
+
+
+def test_the_token_link_nonce_stays_out_of_the_log(caplog):
+    """The one credential allowed in a URL (the bare runner's one-time link) is not logged."""
+    create_app()
+    with caplog.at_level(logging.INFO):
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d', "127.0.0.1:5000", "GET", "/api/auth/link?n=N0nce", "1.1", 302
+        )
+    assert "N0nce" not in caplog.text and "/api/auth/link?…" in caplog.text

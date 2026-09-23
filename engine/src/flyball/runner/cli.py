@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -30,8 +32,16 @@ def parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--host",
-        help="bind address (default: loopback only); beyond loopback an open runner (no password,"
-        " no token) is served on 127.0.0.1 instead, unless --insecure-open",
+        help="bind address (default: loopback only); beyond loopback an open runner (no token)"
+        " is served on 127.0.0.1 instead, unless --insecure-open. Ignored with --front-dir",
+    )
+    p.add_argument(
+        "--front-dir",
+        type=Path,
+        metavar="DIR",
+        help="started by a front (`flyball run`, flyballd): bind the endpoint DIR says and take"
+        " only the principal it signs; runner.auth, --token, --anonymous, --host and --port are"
+        " ignored. Unsafe or incomplete: exit 4. No environment variable",
     )
     p.add_argument(
         "--compose",
@@ -43,21 +53,29 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--password",
         default=os.environ.get("FLYBALL_PASSWORD") or None,
-        help="password the UI's login page takes: a $scrypt$ line from `flyball password`, or"
-        " plain text (env FLYBALL_PASSWORD); default: none",
+        help="removed: ignored with a warning (env FLYBALL_PASSWORD too). A bare runner takes a"
+        " token; for a password login run it under `flyball run`",
     )
-    p.add_argument(
+    token = p.add_mutually_exclusive_group()
+    token.add_argument(
         "--token",
         default=os.environ.get("FLYBALL_TOKEN") or None,
-        help="bearer token for the CLI, MCP clients and scripts (env FLYBALL_TOKEN); default: none."
-        " With neither this nor a password the runner is open, and served on loopback only",
+        help="bearer token for the CLI, MCP clients, scripts and the UI's login (env"
+        " FLYBALL_TOKEN); default: none. Without one the runner is open, and served on loopback"
+        " only",
+    )
+    token.add_argument(
+        "--token-file",
+        type=Path,
+        metavar="PATH",
+        help="read the token from this file (beats FLYBALL_TOKEN); unreadable: nobody gets in",
     )
     p.add_argument(
         "--insecure-open",
         action="store_const",
         const=True,
         default=True if _truthy(os.environ.get("FLYBALL_INSECURE_OPEN")) else None,
-        help="serve with no password and no token on the address asked for, even beyond"
+        help="serve with no token on the address asked for, even beyond"
         " loopback: anyone who reaches it may operate the rig (env FLYBALL_INSECURE_OPEN=1)."
         " Per run only; there is no rig-file key. Without it such a runner serves on 127.0.0.1",
     )
@@ -72,7 +90,7 @@ def parser() -> argparse.ArgumentParser:
         "--session",
         default=os.environ.get("FLYBALL_SESSION") or None,
         metavar="DURATION",
-        help="how long a login lasts, e.g. 12h (env FLYBALL_SESSION; default 12h)",
+        help="removed: ignored with a warning (env FLYBALL_SESSION too); a session lasts 12h",
     )
     p.add_argument(
         "--no-mcp",
@@ -206,6 +224,9 @@ def settle(
         for key in AuthConfig.model_fields
         if (value := getattr(args, key, None)) is not None
     }
+    token_file: Path | None = getattr(args, "token_file", None)
+    if token_file is not None:
+        auth["token"] = _read_token(token_file)
     if auth:
         settings.auth = settings.auth.model_copy(update=auth)
     for key in ("store", "store_dir", "programs", "tunings", "drivers"):
@@ -221,6 +242,25 @@ def settle(
         if getattr(settings, key) is None:
             setattr(settings, key, _find_beside(key, first, layers))
     return settings
+
+
+def _read_token(path: Path) -> str:
+    """The token in `path`; unreadable or empty, one no one knows (D-028: no one gets in)."""
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError) as e:
+        token, why = "", str(e)
+    else:
+        why = f"{path} is empty"
+    if token:
+        return token
+    print(
+        f"flyball-runner: WARNING: --token-file: {why}; serving with a token no one knows,"
+        " so nothing but a restart with a readable token gets in",
+        file=sys.stderr,
+        flush=True,
+    )
+    return secrets.token_urlsafe(32)
 
 
 def _find_beside(key: str, first: Path, layers: Sequence[Path]) -> Path:

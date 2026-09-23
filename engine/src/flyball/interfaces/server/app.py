@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import secrets
 from collections.abc import AsyncIterator
 from importlib import resources
 from pathlib import Path
@@ -24,7 +23,7 @@ from flyball.foundation.errors import (
     NotReadyError,
     UnachievableError,
 )
-from flyball.interfaces.server.auth import Auth
+from flyball.interfaces.server.auth import Door, Fronted
 from flyball.interfaces.server.deps import current_retention, current_rig
 from flyball.interfaces.server.redact import redact_access_logs
 from flyball.interfaces.server.routes import (
@@ -177,19 +176,20 @@ def create_app(
     auth: AuthConfig | None = None,
     root_path: str | None = None,
     *,
-    secret: bytes | None = None,
-    internal_token: str | None = None,
+    front: Fronted | None = None,
+    port: int | None = None,
     login_delay: float = 0.5,
     open_network: bool = False,
 ) -> FastAPI:
-    """The app.
+    """The app, behind its door (see [flyball.interfaces.server.auth][]).
 
-    With `auth` naming a password or a token, the API is behind the door (see
-    [flyball.interfaces.server.auth][]; `secret` signs the sessions, `internal_token`
-    is the runner's own way in for its MCP mount); without, the runner is open, to
-    loopback names only -- or to any name with `open_network`, an open runner the user
-    chose to serve on the network (`--insecure-open`). With `root_path`, everything it
-    serves is under that prefix (see `RootPath`).
+    With `front` (a runner the front started: the front-dir's key and audience) the signed
+    principal is the only credential, `auth` is ignored and no UI is served: the front
+    serves its own. Without, the runner is *bare*: `auth`'s token (and anonymous access)
+    decide, and with no token it is open, to loopback names only -- or to any name with
+    `open_network`, an open runner the user chose to serve on the network
+    (`--insecure-open`). `port` names the bare session cookie. With `root_path`,
+    everything it serves is under that prefix (see `RootPath`).
     """
     redact_access_logs()  # uvicorn's request lines would keep `?token=`
     app = FastAPI(
@@ -253,17 +253,18 @@ def create_app(
     app.include_router(telemetry_router)
     app.include_router(auth_router)
     app.include_router(stop_router)
-    # Every runner has the door: an open one (no password, no token) still refuses other
-    # names for itself and other sites' pages; `app.state.auth` is None there, which the
-    # routes read as "open".
-    door = Auth(
+    # Every runner has the door. An open one (no token) still refuses other names for itself
+    # and other sites' pages; `app.state.auth` is None there, which MCP's rebinding check
+    # reads as "open".
+    door = Door(
         app,
         auth if auth is not None else AuthConfig(),
-        secret if secret is not None else secrets.token_bytes(32),
-        internal_token=internal_token,
+        fronted=front,
+        port=port,
         delay=login_delay,
         open_network=open_network,
     )
+    app.state.door = door
     app.state.auth = None if door.open else door
     app.state.open_network = door.open_network  # the MCP transport's rebinding check reads it
     # `add_middleware` would build its own instance; the routes need this one.
@@ -273,8 +274,9 @@ def create_app(
             raise ValueError(f"root_path must start with '/': {root_path!r}")
         app.add_middleware(RootPath, prefix=root_path.rstrip("/"))
     # Registered last so it doesn't shadow the API routers above; a headless/no-UI
-    # install (no built dist) just keeps today's API-only behaviour.
-    if DASHBOARD_DIST.is_dir():
+    # install (no built dist) just keeps today's API-only behaviour, and so does a fronted
+    # runner: the front serves the UI.
+    if front is None and DASHBOARD_DIST.is_dir():
         app.mount("/", StaticFiles(directory=DASHBOARD_DIST, html=True), name="dashboard")
     return app
 

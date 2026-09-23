@@ -12,7 +12,7 @@ from starlette.routing import BaseRoute, Mount, Route, WebSocketRoute
 
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.mcp.http import mount
-from flyball.interfaces.server import auth, create_app, verbs
+from flyball.interfaces.server import create_app, verbs
 from flyball.interfaces.server.verbs import (
     MCP_MODES,
     OPERATE,
@@ -27,7 +27,7 @@ from flyball.interfaces.server.verbs import (
 VOCABULARY_JSON = Path(__file__).parents[2] / "daemon/internal/grants/vocabulary.json"
 GUARDED = ("/api", "/ws", "/mcp")
 MCP_METHODS = ("GET", "POST", "DELETE")
-# Rows whose verb is decided, not today's: everything else must match `auth.needed()`.
+# Rows whose verb is decided, not today's: everything else must match `_before()`.
 DECIDED = {
     ("POST", "/api/rig/check"): READ,
     ("POST", "/api/programs/check"): READ,
@@ -110,11 +110,24 @@ def test_every_route_has_a_row_bites():
     assert missing == {("GET", "/api/no/such/dummy")}
 
 
+def _before(scope: dict[str, Any]) -> str:
+    """The door's rule before the verb table (`auth.needed()` at `ac19996`), kept to compare."""
+    path = scope["path"]
+    if path == "/api/auth" or path.startswith("/api/auth/"):
+        return "none"
+    if scope["type"] == "websocket":
+        return "read"
+    if scope.get("method") in ("GET", "HEAD"):
+        guarded = any(path == p or path.startswith(p + "/") for p in ("/api", "/ws", "/mcp"))
+        return "read" if guarded else "none"
+    return "operate"
+
+
 def test_placeholder_matches_today():
     levels = {"none": None, "read": READ, "operate": OPERATE}
     for rule in TABLE:
         scope = _scope(rule.method, _concrete(rule.path))
-        want = DECIDED.get((rule.method, rule.path), levels[auth.needed(scope)])
+        want = DECIDED.get((rule.method, rule.path), levels[_before(scope)])
         assert rule.verb == want, rule
         assert needed(scope) == want, rule
 
