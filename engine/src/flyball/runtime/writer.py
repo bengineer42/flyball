@@ -84,10 +84,16 @@ class Writer:
             log.warning("%s: write failed: %s", self.device.name, message)
             self.rig.event(Level.ERROR, "device", self.device.name, "write_failed", message)
 
-    def stop(self) -> None:
+    def stop(self, join: bool = True) -> None:
+        """Stop the thread after the write in progress, if any.
+
+        `join=False` under the rig lock: a write completing reports through
+        [written][flyball.rig.rig.Rig.written], which takes that lock.
+        """
         self._stop.set()
         self._wake.set()
-        self._thread.join(timeout=1.0)
+        if join:
+            self._thread.join(timeout=1.0)
 
 
 __all__ = ["Writer"]

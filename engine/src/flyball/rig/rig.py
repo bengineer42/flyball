@@ -665,8 +665,14 @@ class Rig:
             self._deliver_samples(pushed, noted=True)
 
     def written(self, device: Committable, time_ns: int) -> None:
-        """A blocking device's writer finished a commit: publish, deliver and record its states."""
+        """A blocking device's writer finished a commit: publish, deliver and record its states.
+
+        A device removed while the write was in flight is not the rig's any
+        more: its states are dropped.
+        """
         with self.lock:
+            if self.devices.get(device.name) is not device:
+                return
             self._touched = {}  # the context for the readbacks `_states` pushes
             try:
                 filled = self._states(device, time_ns, {})
@@ -780,7 +786,12 @@ class Rig:
             self._changed(f"removed device {name}")
 
     def _drop_device(self, device: Device) -> None:
-        """Undo `add_device` and `bind_inputs`, stop its polling; controllers are the caller's."""
+        """Undo `add_device` and `bind_inputs`, stop its polling; controllers are the caller's.
+
+        Waits for no thread: the caller holds the lock, which a read or a
+        write in flight needs to report. Each finds the device gone and drops
+        what it has.
+        """
         self.polling.stop(device.name)
         for signal in list(self._observers):
             if signal.device is device:
@@ -807,7 +818,7 @@ class Rig:
             self.router.cuts.pop(node, None)
             self.samples.discard(node.address)
         if (writer := self._writers.pop(device, None)) is not None:
-            writer.stop()
+            writer.stop(join=False)  # a write in flight lands in `written`, which drops it
         self.release(device.name)
         device.router = Router()
 
