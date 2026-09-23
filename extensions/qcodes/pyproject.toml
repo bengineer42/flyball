@@ -7,9 +7,10 @@ name = "flyball-qcodes"
 version = "0.1.0"
 description = "A QCoDeS instrument's parameters as a flyball device"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball"]
-classifiers = ["Private :: Do Not Upload"]
 
 [project.optional-dependencies]
 # Nothing here imports qcodes at module load: QCoDeSConfig.build does, so

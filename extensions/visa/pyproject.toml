@@ -7,9 +7,10 @@ name = "flyball-visa"
 version = "0.1.0"
 description = "VISA and serial text-instrument links and the generic scpi device"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball"]
-classifiers = ["Private :: Do Not Upload"]
 
 [project.optional-dependencies]
 # VisaLink/SerialLink import their driver only when a real link is built;

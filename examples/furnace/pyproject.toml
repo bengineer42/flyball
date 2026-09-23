@@ -7,9 +7,10 @@ name = "furnace"
 version = "0.1.0"
 description = "A three-zone tube furnace: the complicated simulated rig, conducting zones and radiative losses, no hardware"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball", "flyball-sim"]
-classifiers = ["Private :: Do Not Upload"]
 
 # What `flyball rig check`, the runner and the schema load to make
 # `sim_furnace` a valid tag in a rig file.

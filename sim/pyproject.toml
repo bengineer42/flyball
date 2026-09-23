@@ -7,11 +7,12 @@ name = "flyball-sim"
 version = "0.1.0"
 description = "Rigs with nothing plugged in: plant models, clocks and the simulated sim_plant/sim_daq/sim_drive devices"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 # Zero third-party dependencies: the controller, the plant models and the
 # clocks are stdlib-only, same as engine's own core.
 dependencies = ["flyball"]
-classifiers = ["Private :: Do Not Upload"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.8"]

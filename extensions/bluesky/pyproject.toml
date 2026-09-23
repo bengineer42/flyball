@@ -7,9 +7,10 @@ name = "flyball-bluesky"
 version = "0.1.0"
 description = "Run flyball devices inside a Bluesky plan: Readable/Movable adapters and event-model export"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball"]
-classifiers = ["Private :: Do Not Upload"]
 
 [project.optional-dependencies]
 # The adapter is duck-typed against bluesky.protocols -- it imports nothing
