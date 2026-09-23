@@ -1,4 +1,4 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
 import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
@@ -7,21 +7,26 @@ import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip, PausedChip } from "./Status.js";
-import { Overview } from "./pages/Overview.js";
-import { Dashboards } from "./pages/Dashboards.js";
-import { DashboardSwitcher } from "./dashboard/DashboardSwitcher.js";
-import { Inputs, SignalDetail } from "./pages/Inputs.js";
-import { Graph } from "./pages/Graph.js";
-import { DevicePage } from "./pages/Devices.js";
-import { RigPage } from "./pages/Rig.js";
-import { Controllers } from "./pages/Controllers.js";
-import { Events } from "./pages/Events.js";
-import { Sessions } from "./pages/Sessions.js";
-import { Programs, ProgramDetail } from "./pages/Programs.js";
-import { Simulation } from "./pages/Simulation.js";
 import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
 import { readHome } from "./dashboard/home.js";
 import type { Programmer, Recording } from "./model.js";
+
+// Each page (and the dashboard switcher) is its own chunk, fetched only on first visit to that
+// route: the app shell, MUI and the telemetry store are the only things every route pays for.
+const Overview = lazy(() => import("./pages/Overview.js").then((m) => ({ default: m.Overview })));
+const Dashboards = lazy(() => import("./pages/Dashboards.js").then((m) => ({ default: m.Dashboards })));
+const DashboardSwitcher = lazy(() => import("./dashboard/DashboardSwitcher.js").then((m) => ({ default: m.DashboardSwitcher })));
+const Inputs = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.Inputs })));
+const SignalDetail = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.SignalDetail })));
+const Graph = lazy(() => import("./pages/Graph.js").then((m) => ({ default: m.Graph })));
+const DevicePage = lazy(() => import("./pages/Devices.js").then((m) => ({ default: m.DevicePage })));
+const RigPage = lazy(() => import("./pages/Rig.js").then((m) => ({ default: m.RigPage })));
+const Controllers = lazy(() => import("./pages/Controllers.js").then((m) => ({ default: m.Controllers })));
+const Events = lazy(() => import("./pages/Events.js").then((m) => ({ default: m.Events })));
+const Sessions = lazy(() => import("./pages/Sessions.js").then((m) => ({ default: m.Sessions })));
+const Programs = lazy(() => import("./pages/Programs.js").then((m) => ({ default: m.Programs })));
+const ProgramDetail = lazy(() => import("./pages/Programs.js").then((m) => ({ default: m.ProgramDetail })));
+const Simulation = lazy(() => import("./pages/Simulation.js").then((m) => ({ default: m.Simulation })));
 
 const SimulationPage = memo(Simulation);
 
@@ -112,6 +117,15 @@ function AppStatus({ onSignIn, playback, page }: { onSignIn(): void; playback: P
       {simulated && page !== "simulation" && <PausedChip playback={playback} />}
       <AuthChip onSignIn={onSignIn} />
     </>
+  );
+}
+
+/** Shown for the moment a page's own chunk is still downloading; same wording as the devices load. */
+function PageFallback() {
+  return (
+    <Typography color="text.secondary" sx={{ m: 3 }}>
+      loading…
+    </Typography>
   );
 }
 
@@ -257,29 +271,37 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                 devices={all.filter((d) => d.kind !== "simulation")}
                 current={name}
                 eventsUnread={unreadEvents.unreadCount}
-                startSlot={page === "dashboards" ? <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} /> : undefined}
+                startSlot={
+                  page === "dashboards" ? (
+                    <Suspense fallback={null}>
+                      <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} />
+                    </Suspense>
+                  ) : undefined
+                }
               >
                 <Waits />
-                {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
-                {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
-                {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
-                {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
-                {page === "graph" && <Graph devices={all} {...charts} />}
-                {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
-                {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
-                {page === "rig" && <RigPage />}
-                {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
-                {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
-                {page === "events" && (
-                  <EventsPage
-                    level={params.level}
-                    unread={unreadEvents.unread}
-                    onMarkRead={unreadEvents.markRead}
-                    onMarkAllRead={unreadEvents.markAllRead}
-                  />
-                )}
-                {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
-                {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
+                <Suspense fallback={<PageFallback />}>
+                  {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
+                  {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
+                  {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
+                  {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
+                  {page === "graph" && <Graph devices={all} {...charts} />}
+                  {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
+                  {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
+                  {page === "rig" && <RigPage />}
+                  {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
+                  {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
+                  {page === "events" && (
+                    <EventsPage
+                      level={params.level}
+                      unread={unreadEvents.unread}
+                      onMarkRead={unreadEvents.markRead}
+                      onMarkAllRead={unreadEvents.markAllRead}
+                    />
+                  )}
+                  {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
+                  {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
+                </Suspense>
               </Shell>
             )}
           </SimulatedContext.Consumer>
