@@ -20,11 +20,11 @@ from flyball.foundation.device import (
     Readable,
     Role,
     Sample,
-    Signal,
     SignalSpec,
 )
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import RegisterLink
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from ._links import FakeRegisterLink, RegisterLinkConfig
@@ -88,18 +88,11 @@ class Modbus(Readable, Committable):
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
         # per instance, at build.
         self.blocking = not isinstance(link, FakeRegisterLink)  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_read: dict[Signal, int] = {}
+        self._scan = Scan()
         self.bind([
             SignalSpec(name=key, quantity=Quantity(key, reg.unit), access=reg.access, role=reg.role)
             for key, reg in self.registers.items()
         ])
-
-    def _due(self, signal: Signal, time_ns: int) -> bool:
-        poll_s = signal.poll_s
-        if poll_s is None:
-            return True
-        last = self._last_read.get(signal)
-        return last is None or (time_ns - last) >= poll_s * 1e9
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One register read per due, publishing signal under `node`: each its own instant.
@@ -108,15 +101,13 @@ class Modbus(Readable, Committable):
         every device's tree now, and neither has a register behind it.
         """
         target = node if node is not None else self.root
-        for key, register in self.registers.items():
-            signal = self.signals[key]
-            if Access.P not in signal.access or not target.contains(signal):
-                continue
-            if not self._due(signal, time_ns):
-                continue
+        candidates = {
+            self.signals[key]: key for key in self.registers if target.contains(self.signals[key])
+        }
+        for signal in self._scan.due(candidates, time_ns, whole=False):
+            register = self.registers[candidates[signal]]
             (word,) = self.link.read_registers(register.address, 1, self.unit_id)
             value = word * register.scale
-            self._last_read[signal] = time_ns
             yield Sample(self.root, time_ns, {signal: value})
 
     def commit(self, time_ns: int) -> None:
