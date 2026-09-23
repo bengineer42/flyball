@@ -279,7 +279,6 @@
 .fb-loop-head > .fb-badge { flex: none; }
 .fb-loop-head > .fb-loop-warn { flex: none; }
 .fb-mode-manual { background: var(--fb-border-1); }
-.fb-mode-open { background: var(--fb-warning); color: var(--fb-warning-fg); }
 .fb-mode-regulating { background: var(--fb-accent); color: #fff; }
 /* PlantPAx-style banner for the faceplate's single top condition; shown only when one exists. */
 /* In the header, not its own grid row -- see ControllerPanel.tsx's comment: a row that

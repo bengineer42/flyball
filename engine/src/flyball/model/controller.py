@@ -60,12 +60,17 @@ OUTAGE_STEPS = 3
 
 
 class ControllerMode(Enum):
+    """Who drives the output: a person (`manual`) or the law (`regulating`).
+
+    A controller running the `open_loop` law is `regulating`: open loop is a
+    law, not a mode.
+    """
+
     MANUAL = "manual"
-    OPEN = "open"
     REGULATING = "regulating"
 
     def active(self) -> bool:
-        return self is not ControllerMode.MANUAL
+        return self is ControllerMode.REGULATING
 
 
 class ValueSource(Labelled):
@@ -482,7 +487,7 @@ class Controller:
                 return
             resumed, self.held = self.held is not None, None
             setpoint = self.setpoint_at(time_ns)
-            if reading is not None and self.mode is ControllerMode.REGULATING:
+            if reading is not None:
                 self._skip_outage(time_ns, resumed=resumed)
                 self._last_step_ns = time_ns
                 self.correction = self.required_law.step(

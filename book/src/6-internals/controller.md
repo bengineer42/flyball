@@ -39,7 +39,7 @@ name outlived the rename.
 | `output` | `feedforward(setpoint, rate) + correction`, what the output signal was last told |
 | `expected` | what the output signal committed to, or `None` while a commit is still pending |
 | `delivered_correction` | `expected − feedforward(setpoint, rate)`; fed back to the law as anti-windup |
-| `mode` | `manual`, `open`, `regulating` |
+| `mode` | `manual`, `regulating` |
 | `measured` | the last reading on the measured signal |
 
 `ControllerView` joins them (`ControllerView.of(settings, state)`); the wire
@@ -66,13 +66,13 @@ def tick(self, reading):
             and time_ns - self._last_step_ns < self.min_period_s * 1e9):
         return                                # too soon: reading recorded, nothing else runs this tick
 
-    if self.mode.active():                                  # open or regulating
+    if self.mode.active():                                  # regulating
         if (reason := self.hold()) is not None:           # the rig would refuse the write
             self.held = reason                            # frozen: no step, no write
             return
         resumed, self.held = self.held is not None, None
         setpoint = self.setpoint_at(time_ns)
-        if reading is not None and self.mode is ControllerMode.REGULATING:
+        if reading is not None:
             self._skip_outage(time_ns, resumed=resumed)   # a gap counts as one ordinary step
             self._last_step_ns = time_ns
             self.correction = self.required_law.step(
@@ -97,15 +97,13 @@ Seven things to note:
    most every `min_period_s` — so a slow integrator is not driven by noise
    from a signal that polls faster than it needs to settle, and does not
    spend extra writes reapplying an unchanged output between steps either.
-2. **`manual` mode does nothing.** `mode.active()` is false only for
-   `MANUAL`; both `OPEN` and `REGULATING` apply an output every tick, the
-   difference being whether the law steps first. `OPEN` freezes `correction`
-   at whatever it last was and just keeps re-applying the feedforward against
-   it; `open_loop` (the `ControlLaw` that always returns `0.0`) run under
-   `REGULATING` is close but not identical — it forces `correction` to
-   exactly zero every step rather than holding what was last there. `mode`
-   is how a demand is forced through with the law suspended, without
-   swapping laws.
+2. **`manual` mode does nothing.** `mode.active()` is true only for
+   `REGULATING`, which steps the law and applies an output every tick. Open
+   loop is a law, not a mode: `open_loop` (the `ControlLaw` that always
+   returns `0.0`) runs under `REGULATING` and forces `correction` to exactly
+   zero every step. (A mode that re-applied the feedforward against a held
+   correction without stepping the law, `OPEN`, was never entered and was
+   removed, D23.)
 3. **The output is `feedforward(setpoint, rate) + correction`** — never
    `setpoint + correction` as such. `Setpoint`, the default feedforward
    when the measured and output units agree, makes the two the same thing;

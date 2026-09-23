@@ -107,12 +107,11 @@ when there is none — an output with no static relationship to its measured sig
 The law produces an *offset from the setpoint*, and the output starts from
 the feedforward's own mapping of the setpoint. Two things follow:
 
-- **Open loop is a law that returns zero** (`OpenLoop`), run under
-  `REGULATING` — not to be confused with mode `OPEN` below, which instead
-  holds whatever correction was last there rather than forcing it to zero.
-  Either way the output ends up driven at (close to) the feedforward of
-  the setpoint alone — how an experiment or a manual hold is run through
-  the same path as regulation.
+- **Open loop is a law that returns zero** (`open_loop`, `OpenLoop`),
+  run under `REGULATING` like any other law; it is not a mode. The output
+  is then driven at the feedforward of the setpoint alone — how an
+  experiment or a manual hold is run through the same path as regulation.
+  The faceplate says "open loop" when a controller runs it.
 - **Handover is arithmetic.** Switching from manual to regulating, or
   swapping a tuning, means choosing what the correction should be at the
   instant of the switch — a `Transfer`: `none` (leave the law and its
@@ -126,8 +125,10 @@ the feedforward's own mapping of the setpoint. Two things follow:
 | mode | what a tick does |
 | --- | --- |
 | `MANUAL` | nothing; the output is driven by demands directly |
-| `OPEN` | write the feedforward against the held correction, law not stepped — an experiment or a manual hold run through the same path as regulation |
-| `REGULATING` | step the law, then write |
+| `REGULATING` | step the law, then write (under `open_loop` the law's correction is zero) |
+
+A frozen controller (a stale measured signal, a limit not known) is still
+`REGULATING`: frozen is a condition, not a mode.
 
 Mode says what the controller is *doing*. Who is *allowed* to change it —
 a program step, an operator, the API — is a separate question, answered

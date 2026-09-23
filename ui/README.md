@@ -107,7 +107,7 @@ palette, so an embedder with no MUI at all gets the same look from the styleshee
 | `--fb-text-xs`…`-2xl` | Type scale: 11/12/13/14/16/20px. |
 | `--fb-chart-min-h` | Density's floor for a chart's height clamp — declared for `panels/{MultiSeries,TimeSeries}.tsx` to read; **not yet wired in** (they still hard-code their clamp). |
 | `--fb-bg`, `--fb-panel`, `--fb-border`, `--fb-muted`, `--fb-error` | Legacy names from before this token set (§1.1): alias `bg-2`, `bg-1`, `border-1`, `fg-2`, `alarm` respectively so old rules keep resolving while they migrate. |
-| `--fb-warning`, `--fb-warning-fg`, `--fb-error-bg`, `--fb-error-fg` | Older badge aliases (`fb-mode-open`, `fb-event-level`): alias `warn-fill`/`warn`/`alarm-fill`/`alarm`. |
+| `--fb-warning`, `--fb-warning-fg`, `--fb-error-bg`, `--fb-error-fg` | Older badge aliases (`fb-event-level`): alias `warn-fill`/`warn`/`alarm-fill`/`alarm`. |
 
 ## Performance
 

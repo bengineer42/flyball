@@ -36,7 +36,7 @@ controller as three aligned rows, each with a bar:
   is pinned against gets a 2px alarm end-cap — colour on the bar, not a text
   badge — and a **"requested …"** caption names what was asked for.
 
-A banner above the rows reads "source offline", "output at limit" or "open
+A banner above the rows reads "measured offline", "output at limit" or "open
 loop" for the corresponding condition. Process and Drive mini trends (each
 with a minimal axis pair: 3-4 y ticks at the signal's precision, sparse time
 labels, no legend or toolbar) sit beside the rows; the Drive trend's y-range

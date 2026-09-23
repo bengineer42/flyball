@@ -77,7 +77,7 @@ Kelvin against a °C signal converts before it reports.
 | a law view | the config plus the law's state fields (`integral`, `last_raw`, …) |
 | `Tuning` | `{"tag": name, "config": law config}` |
 | `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured}` — `name` is `output_signal`; `measured` is a `ReadingOut`; see [Controllers](api.md#controllers) |
-| `mode` | `"manual"`, `"open"`, `"regulating"` |
+| `mode` | `"manual"`, `"regulating"` (open loop is the `open_loop` law under `"regulating"`) |
 | `Transfer` | `"none"`, `"carry"`, `"track"`, `"cold"` |
 | `ValueSource` | `"measured"`, `"setpoint"`, `"output"` |
 

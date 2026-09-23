@@ -352,7 +352,8 @@ export type ReadOut = { reading: ReadingOut } | { sample: SampleOut } | { sample
 
 // region Controllers
 
-export type ControllerMode = "manual" | "open" | "regulating";
+/** Who drives the output: a person, or the law. Open loop is the `open_loop` law under `regulating`, not a mode. */
+export type ControllerMode = "manual" | "regulating";
 
 export interface LawConfig {
   tag: string;

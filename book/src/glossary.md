@@ -82,7 +82,9 @@ name instead.
 **link** — a transport devices talk over, or a simulated plant they share;
 not a device, has no signals of its own.
 
-**mode** — what a controller is doing: `manual`, `open` or `regulating`.
+**mode** — who drives a controller's output: `manual` (a person) or
+`regulating` (the law). Open loop is a law (`open_loop`), and frozen a
+condition, not modes.
 
 **namespace** — a node inside a device that groups signals; may be read as
 one sample.

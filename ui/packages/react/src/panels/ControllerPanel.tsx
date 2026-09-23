@@ -509,19 +509,18 @@ export function ControllerPanel({
   // Which rail the output is pinned to, for the OP bar's highlighted end when clamped.
   const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.output ?? 0) > controller.expected! ? "hi" : "lo";
 
-  // The source device's run says whether anything is arriving at all; freshness catches a device that is
-  // nominally running but has gone quiet. `controller.mode === "open"` is a distinct wire state the backend
-  // does not currently emit; the real "no feedback" condition an operator meets is the `open_loop` law tag --
-  // present and "regulating" (it is still driving the target), just with nothing correcting for error.
+  // The measured signal's device run says whether anything is arriving at all; freshness catches a device
+  // that is nominally running but has gone quiet. Open loop is not a mode (D23): it is the `open_loop` law
+  // tag, under "regulating" (it is still driving the output), just with nothing correcting for error.
   const offline = !!run && (!run.running || run.conditions.some((c) => c.kind === "offline"));
   const stale = alarmLevel(reading, source, fresh) === "stale";
   const banner = offline
-    ? { text: "source offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.` }
+    ? { text: "measured offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.` }
     : stale
       ? { text: "no recent reading", hint: `No sample has arrived on ${controller.measured_signal} recently.` }
       : clamped
         ? { text: "output at limit", hint: `${controller.output_signal} cannot give the full output; it is clamped to what it can achieve.` }
-        : controller.mode === "open" || tag === "open_loop"
+        : tag === "open_loop"
           ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
           : null;
 
