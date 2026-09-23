@@ -240,7 +240,14 @@ def test_the_predictor_lets_a_pi_tuned_for_the_lag_alone_hold_a_long_dead_time()
         100,
     )
     with_model.run(600, 10.0)
-    assert max(with_model.trace) < 11.0 and settled(with_model.trace, 10.0, within=0.2)
+    # With the model exact, the loop is the delay-free one 20 s late. That one,
+    # the lag under the setpoint feedforward plus the PI (kp 2, ki 0.1), has
+    # the error obey 20e'' + (1 + kp)e' + ki e = 0: roots -0.05 and -0.1, so
+    # e(t) = -10e^(-t/20) + 20e^(-t/10) from e(0) = 10, e'(0) = -(1 + kp)10/20,
+    # least at e^(-t/20) = 1/4: -1.25. It overshoots to 11.25 (sampling at
+    # 1 s rounds it off to 11.11), plus 3σ of noise.
+    assert max(with_model.trace) < 10.0 + 1.25 + 3 * 0.01
+    assert settled(with_model.trace, 10.0, within=0.2)
     assert max(plain.trace) > 12.0 or not settled(plain.trace, 10.0, within=0.2), (
         "the same gains without the predictor ring or overshoot"
     )
