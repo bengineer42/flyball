@@ -16,7 +16,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const label = info?.password ? "Password" : "Token";
+  const label = info?.login.password ? "Password" : "Token";
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -41,7 +41,7 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
             Sign in
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {info?.password
+            {info?.login.password
               ? "This rig needs a password."
               : "This rig needs its token: the one the runner was started with (--token)."}
           </Typography>
@@ -62,6 +62,9 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
               {error}
             </Alert>
           )}
+          {/* Phase 3: a passkey button belongs here, guarded by `info?.login.passkey` (always false
+              in Phase 1). Left as its own row so it slots in beside the password/token field
+              without reshaping this form. */}
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             {onCancel && (
               <Button onClick={onCancel} data-testid="login-cancel">
@@ -83,11 +86,22 @@ export function LoginPage({ onCancel }: { onCancel?: () => void } = {}) {
  * anyone may read, "Read only" with a way to the login page. Where the token chip used to be.
  */
 export function AuthChip({ onSignIn }: { onSignIn(): void }) {
-  const { open, signedIn, canOperate, logout, info } = useAuth();
+  const { open, signedIn, canOperate, versionMismatch, logout, info } = useAuth();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const narrow = useMediaQuery(useTheme().breakpoints.down("sm"));
-  if (open || info === null) return null;
   const compact = narrow ? { "& .MuiChip-label": { display: "none" }, "& .MuiChip-icon": { m: 0 } } : undefined;
+
+  // Checked before everything else, including the open/local shape: a version disagreement means
+  // this client cannot trust its reading of *any* other field on `info`, so it says so rather than
+  // silently falling back to guessed behaviour.
+  if (versionMismatch) {
+    return (
+      <Tooltip title="This runner's auth answer is a different version than this UI expects; reload, or update whichever is stale">
+        <Chip variant="outlined" color="error" label={narrow ? "" : "version mismatch"} sx={compact} data-testid="auth-version-mismatch" />
+      </Tooltip>
+    );
+  }
+  if (open || info === null) return null;
 
   if (signedIn) {
     return (
