@@ -73,7 +73,7 @@ same without serving.
 | key | type | default | |
 | --- | --- | --- | --- |
 | `name` | string | the file's stem | the rig's name: in `/api/health`, session metadata, and the store's file name under `store_dir` |
-| `extends` | `[path, …]` | none | files this one is layered on top of, relative to this file, in order |
+| `extends` | `[path, …]` | none | files this one is layered on top of, relative to this file (an absolute path as it stands), in order |
 | `board` | string | none | a board profile (a name on the board path, or a path): its `links` go under yours, and `pin: LABEL` on a device resolves against it -- [Boards](boards.md) |
 | `recording` | bool | `false` | open a recording session when the runner starts (`--record` does the same once) |
 | `clock` | `{speed, stepped}` | real time | `speed`: rig seconds per wall second; `stepped: true`: time moves only when stepped. Refused unless every link is `sim_*`/`fake_*` |

@@ -75,9 +75,12 @@ func run(args []string, sigs <-chan os.Signal) error {
 		return errors.New(runUsage)
 	}
 	rig := o.rest[0]
-	doc := rigDocument(rig)
+	doc, docErr := rigDocument(rig)
 	runner, _ := doc["runner"].(map[string]any)
 	cfg, useUV, bad, warnings := runFront(runner, o.listen)
+	if docErr != nil {
+		bad = docErr // runner.front cannot be read: fall back, never serve open silently
+	}
 	useUV = useUV || o.uv
 
 	id, err := frontdir.FrontID(rig)

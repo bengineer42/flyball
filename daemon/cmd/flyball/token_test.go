@@ -371,3 +371,36 @@ func TestTokenDaemonFlag(t *testing.T) {
 		t.Errorf("token list --daemon: %q", listed)
 	}
 }
+
+// `flyball token create --config FILE` reads runner.front.tokens with
+// FILE's extends resolved, as the front does: a max_lifetime set in the
+// base still clamps a token made for the runner file.
+func TestTokenCreateReadsTokensConfigThroughExtends(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "base.yaml"), []byte("devices: {}\nrunner:\n  front:\n    tokens:\n      max_lifetime: 20d\n"), 0o644)
+	rig := filepath.Join(dir, "site.yaml")
+	os.WriteFile(rig, []byte("extends: [base.yaml]\nrunner:\n  front:\n    auth: password\n"), 0o644)
+
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "above-max", "--config", rig, "--expires", "100d"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	path, err := tokensPathFor(rig, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokens.Close()
+	list, err := tokens.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Expires.Sub(list[0].Created) != 20*24*time.Hour {
+		t.Fatalf("tokens = %+v, want one clamped to the base's max_lifetime 20d", list)
+	}
+}

@@ -176,8 +176,9 @@ lead compensator, a different job from the plant-capacity model this is.
 `runner.front` is read by the Go front `flyball run` starts; `flyballd`
 reads the same keys from the top level of `flyballd.yaml`, beside its own.
 `flyball-runner` never acts on it, and a block that does not validate is
-only a warning to it; `flyball rig check` holds it to this schema. An
-unknown key or a wrong type makes the front fall back to the `local` shape
+only a warning to it; `flyball rig check` holds it to this schema. The block
+is read with the file's `extends` resolved; a file whose `extends` cannot
+be, an unknown key or a wrong type makes the front fall back to the `local` shape
 on `127.0.0.1` ([Access](../1-running/runner/access.md#when-a-setting-is-wrong)),
 as does every error the table marks *falls back*; a key marked *warns* is
 ignored with one warning line and its default used.
