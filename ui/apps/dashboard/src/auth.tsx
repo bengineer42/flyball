@@ -52,6 +52,14 @@ export interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+/** A caller's identity, as far as a stream's authorisation is concerned: who, and with what verbs. Two
+ * answers with the same key see the same rig the same way; a different key means the streams held by
+ * the current `TelemetryStore` may no longer be this caller's to hold. */
+function identityKey(info: AuthInfo | null): string {
+  if (!info) return "";
+  return `${info.scheme}:${info.user?.id ?? ""}:${info.verbs.join(",")}`;
+}
+
 export function useAuth(): AuthState {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth: no <AuthProvider> above this component");
@@ -85,11 +93,22 @@ export function AuthProvider({ children, transport }: { children: ReactNode; tra
   // question left without the new cookie), and is dropped rather than undoing what the login just said.
   const changed = useRef(0);
 
+  // Who `refresh` last saw, so it can tell an out-of-band identity change (an outside revocation, a
+  // different cookie) from an answer that just repeats the same door. `login`/`loginWithPasskey`/`logout`
+  // already bump `epoch` themselves and keep this in step; `refresh` is the only path that would
+  // otherwise leave a stale `TelemetryStore` (and its dead sockets) behind a door nobody signed out of.
+  const identity = useRef(identityKey(null));
+
   const refresh = useCallback(async () => {
     const asked = changed.current;
     try {
       const answer = await client.auth();
       if (asked !== changed.current) return;
+      const next = identityKey(answer);
+      if (next !== identity.current) {
+        identity.current = next;
+        setEpoch((n) => n + 1);
+      }
       setInfo(answer);
       setError(null);
     } catch (e) {
@@ -104,6 +123,7 @@ export function AuthProvider({ children, transport }: { children: ReactNode; tra
       const body = info?.login.token && !info?.login.password ? { token: secret } : { password: secret };
       const answer = await client.login(body); // a wrong one throws RigError(401); the page shows it
       changed.current++;
+      identity.current = identityKey(answer);
       setInfo(answer);
       setError(null);
       setEpoch((n) => n + 1);
@@ -114,6 +134,7 @@ export function AuthProvider({ children, transport }: { children: ReactNode; tra
   const loginWithPasskey = useCallback(async () => {
     const answer = await client.loginWithPasskey(); // a wrong/cancelled ceremony throws; the page shows it
     changed.current++;
+    identity.current = identityKey(answer);
     setInfo(answer);
     setError(null);
     setEpoch((n) => n + 1);
@@ -122,6 +143,7 @@ export function AuthProvider({ children, transport }: { children: ReactNode; tra
   const logout = useCallback(async () => {
     const answer = await client.logout();
     changed.current++;
+    identity.current = identityKey(answer);
     setInfo(answer);
     setEpoch((n) => n + 1);
   }, [client]);
