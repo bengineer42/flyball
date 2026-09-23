@@ -29,7 +29,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` | datasheet-checked |
 | [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` | known issue |
 | [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` | partial |
-| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-chips` | unverified |
+| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-chips` | **disabled** |
 | [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
@@ -368,6 +368,16 @@ don't convert linearly.
 | `has_humidity` | `true` | `false` for a BMP280 (no humidity registers) |
 
 ### `bme680`
+
+!!! danger "Disabled: its register offsets are wrong"
+
+    Building this driver raises. Checked against Bosch's register map, the raw
+    pressure is taken from the wrong bytes of the `0x1D` burst, the `par_p*`
+    calibration words are read a byte early, and `res_heat_val`/`res_heat_range`
+    come from registers that do not hold them -- so every reading is wrong. Its
+    tests passed only because their fixtures were built with the same mistaken
+    layout. The offsets need re-deriving and checking against a real chip before
+    it can be used.
 
 Bosch BME680: `temperature`, `pressure`, `humidity`, `gas_resistance`, all
 `[RP]`. Its compensation formula genuinely differs from BME280's -- not

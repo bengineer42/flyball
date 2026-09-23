@@ -217,3 +217,14 @@ class TestBme680Device:
     def test_a_missing_chip_raises_at_construction(self):
         with pytest.raises(OSError):
             bme680.Bme680("gas", FakeI2c(), sleep=False)
+
+
+def test_the_driver_is_disabled_until_its_register_offsets_are_fixed():
+    """The offsets are wrong (see the module docstring), so building must refuse.
+
+    Deliberately not a skip or an xfail: a rig file naming `bme680` should get an
+    explanation, not a device that returns confident nonsense.
+    """
+    config = bme680.Bme680Config(link="bus", address=0x77)
+    with pytest.raises(NotImplementedError, match="register offsets are wrong"):
+        config.build("gas")

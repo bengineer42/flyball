@@ -464,6 +464,19 @@ class Bme680Config(DriverConfig[Bme680], tag="bme680"):
     gas_wait_ms: int = Field(default=150, ge=0, le=4032)
 
     def build(self, name: str, label: str | None = None) -> Bme680:
+        # Disabled rather than deleted: the tag still validates, so a rig file
+        # naming it gets this explanation instead of "unknown driver", and the
+        # decode maths stays under test for whoever fixes the offsets.
+        raise NotImplementedError(
+            "The bme680 driver is disabled: its register offsets are wrong, so every "
+            "reading it produces is wrong. The raw pressure is read from the wrong "
+            "bytes of the 0x1D burst, `par_p1` onwards are read a byte early, and "
+            "res_heat_val/res_heat_range come from the wrong registers entirely -- "
+            "see this module's docstring. Re-derive the offsets from Bosch's register "
+            "map and check them against a real chip before re-enabling this."
+        )
+
+    def _build(self, name: str, label: str | None = None) -> Bme680:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
         return Bme680(
