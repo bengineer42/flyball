@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2023 Bosch Sensortec GmbH
+# SPDX-License-Identifier: BSD-3-Clause
 """Bosch BME680: temperature, humidity, pressure and gas resistance over I2C.
 
 Decoded from Bosch's public `BME68x_SensorAPI` reference driver (the BME680
@@ -30,12 +32,19 @@ including the two 12-bit `par_h1`/`par_h2` sharing a byte the way BME280's
 `dig_h4`/`dig_h5` do) is `[Unverified]`: transcribed from long-standing
 public BME680 driver ports (Bosch's own and third-party), not re-derived
 from the raw datasheet table in this session, and not checked against a
-real chip. The temperature/pressure/humidity/gas-resistance compensation
-formulas themselves and the heater-control math (`calc_res_heat`,
-`calc_gas_wait`) are transcribed verbatim from Bosch's current
-`BME68x_SensorAPI` source (`bme68x.c`), which is a primary source, but this
-module has no real chip to check the *result* against, so `[Unverified]`
-applies to correctness end-to-end regardless.
+real chip. The temperature/pressure/humidity compensation follows the
+floating-point code Bosch publishes in the datasheet itself (BST-BME680-
+DS001-09 rev 1.9, sections 3.3.1-3.3.3), which is the same expression tree
+the API uses. `compensate_gas_resistance` (the `_K1_RANGE`/`_K2_RANGE`
+tables and the `0.000000125` scale), `calc_res_heat` and `calc_gas_wait`
+are transcribed from `bme68x.c` v4.4.8 in Bosch Sensortec's
+`BME68x_SensorAPI` -- the datasheet publishes a *different* gas formulation
+(section 3.4.1, `const_array1`/`const_array2`), so those three come from the
+source and not the datasheet. Copyright (c) 2023 Bosch Sensortec GmbH, used
+under BSD-3-Clause; the notice, conditions and disclaimer are in
+`LICENSES/BSD-3-Clause-BoschSensortec.txt`. This module has no real chip to
+check the *result* against, so `[Unverified]` applies to correctness
+end-to-end regardless.
 
 The gas channel needs a heater profile, not just a conversion: `res_heat_0`
 is loaded from a target plate temperature (needs an assumed ambient
