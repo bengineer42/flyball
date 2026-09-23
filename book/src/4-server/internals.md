@@ -8,11 +8,15 @@ simulation, or a database copied from another machine.
 ## Assembly
 
 `create_app(auth, root_path)` adds CORS, one exception handler per error
-base, the routers, and then -- outermost -- two plain ASGI middlewares as
-asked: `Auth` (`server/auth.py`: one principal per request -- cookie,
-bearer, or anonymous -- with a level `none < read < operate` that one
-`allows()` compares with what the request needs; 401 / 4401 otherwise) and
-`RootPath` (sets
+base, the routers, and then -- outermost -- two plain ASGI middlewares:
+`Auth`, always (`server/auth.py`: on an open runner, a `Host` that is not
+loopback is 403 / 4403; in every mode, a request that acts -- not
+`GET`/`HEAD`/`OPTIONS`, or a websocket -- with a foreign or `null` `Origin`
+and no valid bearer token is 403 / 4403; then one principal per request --
+bearer, cookie, or anonymous, a wrong token being 401 -- with a level
+`none < read < operate` that one `allows()` compares with what the request
+needs; 401 / 4401 otherwise; a `GET` outside `/api`, `/ws` and `/mcp` needs
+nothing) and, when asked, `RootPath` (sets
 `scope["root_path"]` under the prefix so Starlette routes and links as at
 the root; 404 / 4404 elsewhere; lifespan passes through). `app` is a
 module-level instance for `uvicorn flyball.interfaces.server:app`. Routes take the rig and store through

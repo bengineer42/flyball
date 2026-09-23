@@ -5,9 +5,9 @@ from __future__ import annotations
 import stat
 
 import pytest
-from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from conftest import TestClient
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.mcp.http import mount
 from flyball.interfaces.server import create_app, set_rig

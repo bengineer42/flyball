@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from fastapi.testclient import TestClient
 
-from conftest import FakeRunner
+from conftest import FakeRunner, TestClient
 from flyball.control import PI
 from flyball.foundation.device import Access, Committable, Node, Readable, Role, Sample, SignalSpec
 from flyball.foundation.quantities import Quantity

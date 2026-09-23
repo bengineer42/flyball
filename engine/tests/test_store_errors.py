@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.interfaces.server import create_app
 from flyball.interfaces.server.deps import set_store
 from flyball.record.errors import ConstraintError, StoreUnavailableError

@@ -13,8 +13,10 @@ import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 import pytest
+from fastapi.testclient import TestClient as _StarletteClient
 from flyball_sim.clock import SteppedClock
 
 import flyball.record.sqlite
@@ -100,6 +102,23 @@ def rig(clock: SteppedClock) -> Rig:
     rig = Rig()
     rig.clock = clock
     return rig
+
+
+class TestClient(_StarletteClient):
+    """The test client as a browser on the runner's own machine: `localhost`, not `testserver`.
+
+    An open runner answers only loopback names (`interfaces/server/auth.py`), and
+    Starlette's client sends `testserver` -- for its sockets whatever `base_url` says.
+    """
+
+    __test__ = False  # not a test class, whatever its name
+
+    def __init__(self, app: Any, base_url: str = "http://localhost", **kwargs: Any) -> None:
+        super().__init__(app, base_url=base_url, **kwargs)
+
+    def websocket_connect(self, url: str, subprotocols: Any = None, **kwargs: Any) -> Any:
+        base = str(self.base_url).replace("http", "ws", 1)
+        return super().websocket_connect(urljoin(base, url), subprotocols, **kwargs)
 
 
 class FakeRunner:

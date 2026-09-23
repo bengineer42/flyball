@@ -16,10 +16,24 @@ door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)),
 every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
 `flyball_session` a login set; `Authorization: Bearer T` with the token;
 `?token=T` on a websocket or a `GET`. Without: `401` with a `detail` and
-`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. With
+`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. A token
+that is sent and wrong is `401` too, never anonymous. With
 `auth.anonymous: read`, a `GET` or a stream passes without any of them
-(bar `/api/probe`). `/api/auth`, `/docs` and `/openapi.json` are always
-reachable.
+(bar `/api/probe`). `/api/auth` is always reachable, and so is a `GET`
+outside `/api`, `/ws` and `/mcp`: the bundled UI (its login page
+included), `/docs` and `/openapi.json`.
+
+Two refusals come first, both `403` (a socket: closed with 4403):
+
+- **An open runner** (no password, no token) answers only a `Host` of
+  `localhost`, `127.0.0.1` or `[::1]`, on any port.
+- **In every mode**, a request that acts -- any method but `GET`, `HEAD`
+  and `OPTIONS`, and every websocket -- is refused when its `Origin`
+  header is present and is not the runner's own: the same host and port
+  as the `Host` header, and the request's scheme (or `https` where the
+  runner itself is reached over plain HTTP, a TLS proxy in front of it).
+  `Origin: null` is refused. No `Origin` at all (the CLI, a script) is
+  not. A request with the right bearer token is exempt.
 
 | | route | |
 | --- | --- | --- |

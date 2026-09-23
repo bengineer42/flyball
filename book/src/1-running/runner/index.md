@@ -6,8 +6,12 @@ Python at all:
 
 ```
 flyball-runner rig.yaml                          # loopback, port 8000
-flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
+flyball-runner rig.yaml --host 0.0.0.0 --password P --record  # reachable, with a session open
 ```
+
+Without a password or a token the runner answers only to `localhost`,
+`127.0.0.1` and `[::1]`, whatever `--host` says ([the
+door](access.md#the-door-a-password-a-token-or-open)).
 
 The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2. With

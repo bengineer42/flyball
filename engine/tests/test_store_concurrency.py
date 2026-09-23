@@ -58,7 +58,7 @@ async def _timed(request) -> tuple[float, httpx.Response]:
 
 async def test_a_held_store_lock_does_not_stall_an_unrelated_request(store):
     transport = httpx.ASGITransport(app=create_app())
-    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
         held = threading.Event()
         holder = _hold(store, held)
         waiting = asyncio.create_task(_timed(client.get("/api/history/tunings")))
@@ -81,7 +81,7 @@ async def test_a_held_store_lock_does_not_stall_an_unrelated_request(store):
 async def test_requests_queued_on_the_store_leave_threads_for_the_rest(store):
     """More store requests than anyio has threads: a sync route elsewhere still gets one."""
     transport = httpx.ASGITransport(app=create_app())
-    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
         held = threading.Event()
         holder = _hold(store, held)
         queued = [asyncio.create_task(client.get("/api/history/tunings")) for _ in range(50)]

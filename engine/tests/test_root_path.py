@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball import runner
 from flyball.interfaces.mcp.http import mount
 from flyball.interfaces.server import create_app, set_rig

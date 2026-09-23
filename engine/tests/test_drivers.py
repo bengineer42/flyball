@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_drivers_dir
 from flyball.rig import Rig

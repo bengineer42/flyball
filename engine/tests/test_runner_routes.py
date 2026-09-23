@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
-from conftest import FakeRunner
+from conftest import FakeRunner, TestClient
 from flyball.interfaces.server import create_app
 from flyball.interfaces.server.deps import set_runner
 from flyball.runtime.config import RunnerConfig

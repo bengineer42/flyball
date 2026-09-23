@@ -7,8 +7,8 @@ from collections.abc import Iterator
 from enum import Enum
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.foundation.device import (
     Committable,
     Demand,

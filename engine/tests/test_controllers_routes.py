@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.control.laws import P
 from flyball.interfaces.server import create_app, set_rig
 from flyball.model.law import Transfer

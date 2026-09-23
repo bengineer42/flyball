@@ -7,8 +7,13 @@ Who may reach the runner, where, and what the API is allowed to do to the proces
 Three ways a runner can stand:
 
 - **Open** (the default): no password, no token; anyone who can reach the
-  port can read and drive the rig. Fine on loopback; not on `--host 0.0.0.0`,
-  and not on a rig a model can drive.
+  port can read and drive the rig. For one person on their own machine: an
+  open runner answers only when it is addressed as `localhost`,
+  `127.0.0.1` or `[::1]` (any port), and refuses every other name with
+  `403` -- so it cannot be reached across the network even on `--host
+  0.0.0.0`, and a web page that points its own name at your machine (DNS
+  rebinding) is refused too. To reach a runner by any other name, give it
+  a password or a token.
 - **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
   the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
   The login page trades it for a session -- an `HttpOnly` cookie the browser
@@ -28,8 +33,24 @@ Three ways a runner can stand:
   nothing in its storage.
 
 Either one shuts the door: everything under `/api`, `/ws` and `/mcp` needs a
-session or the token, bar `/api/auth` (the door itself) and `/docs`.
-Refused is `401` with a `detail` (a socket is closed with code 4401).
+session or the token, bar `/api/auth` (the door itself). The rest -- the
+bundled UI, whose login page has to load before anyone has signed in,
+`/docs` and `/openapi.json` -- is open to a `GET`. Refused is `401` with a
+`detail` (a socket is closed with code 4401). A token that is sent and
+wrong is refused the same way, even where anonymous callers may read.
+
+**Other web pages.** Whatever the door, a request that changes something
+(anything but `GET`, `HEAD` and `OPTIONS`) and every websocket is refused
+with `403` when the browser says it comes from another site: an `Origin`
+header that is not the runner's own address, or `Origin: null`. A page on
+another site therefore cannot drive the rig through your browser -- not
+with your session cookie, and not on an open runner. Tools that send no
+`Origin` (the CLI, the Python client, `curl`) are unaffected, and so is
+anything that sends the bearer token, which another site cannot know.
+Behind a proxy, pass the browser's `Host` through (nginx: `proxy_set_header
+Host $http_host;`), or the runner cannot tell its own address from
+another's; a TLS proxy (`https://` outside, plain HTTP to the runner) is
+recognised as the same site.
 
 **Who may look without either** is `auth.anonymous` (`--anonymous`,
 `FLYBALL_ANONYMOUS`): `none` (the default -- nothing until signed in) or
@@ -83,8 +104,10 @@ several rigs on one domain behind a proxy that passes the path through
 unchanged -- one runner and one `location` each, no rewriting:
 
 ```nginx
-location /flyball/humidity/api/ { proxy_pass http://127.0.0.1:8001; }
+location /flyball/humidity/api/ { proxy_pass http://127.0.0.1:8001;
+                                  proxy_set_header Host $http_host; }
 location /flyball/humidity/ws/  { proxy_pass http://127.0.0.1:8001;
+                                  proxy_set_header Host $http_host;
                                   proxy_http_version 1.1;
                                   proxy_set_header Upgrade $http_upgrade;
                                   proxy_set_header Connection "upgrade"; }

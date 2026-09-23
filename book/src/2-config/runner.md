@@ -9,11 +9,11 @@ relative to the first rig file's directory.
 
 | key | type | default | flag | |
 | --- | --- | --- | --- | --- |
-| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable |
+| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable -- which also takes a password or a token, since an open runner answers only to `localhost`, `127.0.0.1` and `[::1]` |
 | `port` | int | `8000` | `--port` | |
 | `root_path` | `/prefix` | none | `--root-path`, `FLYBALL_ROOT_PATH` | serve everything under a path: `/furnace/api`, `/furnace/ws`, … for several rigs on one origin -- [a sub-path](../1-running/runner/access.md#a-sub-path) |
 | `log_level` | string | `info` | `--log-level` | uvicorn's |
-| `auth` | table | open | | who may reach the runner -- [the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open); the keys below |
+| `auth` | table | open (loopback names only) | | who may reach the runner -- [the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open); the keys below |
 | `auth.password` | string | none | `--password`, `FLYBALL_PASSWORD` | what the UI's login page takes: the plain text, or the `$scrypt$` line from `flyball password` |
 | `auth.token` | string | none | `--token`, `FLYBALL_TOKEN` | bearer token for the CLI, MCP clients and scripts (`runner.token` at the top level still parses) |
 | `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with neither may do: nothing, or every `GET` and stream |

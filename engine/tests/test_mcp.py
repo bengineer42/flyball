@@ -8,11 +8,11 @@ from typing import Any
 
 import anyio
 import pytest
-from fastapi.testclient import TestClient
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
+from conftest import TestClient
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.client import RigError
 from flyball.interfaces.mcp import Tier, tools_for

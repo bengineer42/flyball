@@ -8,9 +8,9 @@ import json
 import zipfile
 
 import pytest
-from fastapi.testclient import TestClient
 from flyball_sim.clock import SteppedClock
 
+from conftest import TestClient
 from flyball.control import PI
 from flyball.foundation.device import Access, Device, Role, Sample, SignalSpec, WriteState
 from flyball.foundation.quantities import Quantity

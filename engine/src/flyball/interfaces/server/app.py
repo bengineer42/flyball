@@ -153,10 +153,11 @@ def create_app(
 ) -> FastAPI:
     """The app.
 
-    With `auth` naming a password or a token, everything it serves is behind
-    the door (see [flyball.interfaces.server.auth][]; `secret` signs the sessions,
-    `internal_token` is the runner's own way in for its MCP mount); with
-    `root_path`, everything it serves is under that prefix (see `RootPath`).
+    With `auth` naming a password or a token, the API is behind the door (see
+    [flyball.interfaces.server.auth][]; `secret` signs the sessions, `internal_token`
+    is the runner's own way in for its MCP mount); without, the runner is open, to
+    loopback names only. With `root_path`, everything it serves is under that prefix
+    (see `RootPath`).
     """
     app = FastAPI(
         title="flyball",
@@ -215,18 +216,19 @@ def create_app(
     app.include_router(library_router)
     app.include_router(telemetry_router)
     app.include_router(auth_router)
-    app.state.auth = None  # open: no password, no token
-    if auth is not None and auth.enabled:
-        door = Auth(
-            app,
-            auth,
-            secret if secret is not None else secrets.token_bytes(32),
-            internal_token=internal_token,
-            delay=login_delay,
-        )
-        app.state.auth = door
-        # `add_middleware` would build its own instance; the routes need this one.
-        app.add_middleware(_Installed, instance=door)
+    # Every runner has the door: an open one (no password, no token) still refuses other
+    # names for itself and other sites' pages; `app.state.auth` is None there, which the
+    # routes read as "open".
+    door = Auth(
+        app,
+        auth if auth is not None else AuthConfig(),
+        secret if secret is not None else secrets.token_bytes(32),
+        internal_token=internal_token,
+        delay=login_delay,
+    )
+    app.state.auth = None if door.open else door
+    # `add_middleware` would build its own instance; the routes need this one.
+    app.add_middleware(_Installed, instance=door)
     if root_path and root_path != "/":
         if not root_path.startswith("/"):
             raise ValueError(f"root_path must start with '/': {root_path!r}")
