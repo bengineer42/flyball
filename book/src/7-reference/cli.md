@@ -81,7 +81,7 @@ its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
 
 | key | default | |
 | --- | --- | --- |
-| `listen` | `127.0.0.1:9000` | the address it serves on |
+| `listen` | `127.0.0.1:9000` | the address it serves on. A client has 10 s to send its request headers, in at most 64 KiB, and an idle keep-alive connection is closed after 120 s; a response has no time limit, so log streaming and websockets proxied to a runner stay open |
 | `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (below), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
 | `data_dir` | `data` | captured runner logs, under `logs/`: `NAME.log`, and `NAME.log.1` once it has been capped. A log can hold secrets (a `?token=` in a request line), so `logs/` is made `0700` and each file `0600`, also when they already exist |
 | `log_max_size` | 10 MiB (`10485760`, in bytes) | per-runner captured-log cap; `0` for none. Checked every 2 s: past it, `NAME.log` is copied to `NAME.log.1` (replacing the last one) and emptied, so a runner's logs take at most about twice the cap. The runner keeps writing to the same file, so a daemon crash does not cut its output; a line written at the moment of the copy can be lost |

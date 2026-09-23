@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"flyballd/internal/api"
 	"flyballd/internal/backend"
@@ -53,7 +54,29 @@ func main() {
 		log.Printf("no auth.token in %s: runners from %s are up, but the API will refuse to start, stop, restart or read them", *configPath, daemonCfg.ManifestsDir)
 	}
 	log.Printf("flyballd listening on %s", daemonCfg.Listen)
-	if err := http.ListenAndServe(daemonCfg.Listen, srv); err != nil {
+	if err := newHTTPServer(daemonCfg.Listen, srv).ListenAndServe(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// Variables so a test can shorten them.
+var (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
+
+// newHTTPServer bounds what a client can hold open without doing
+// anything: request headers must arrive within readHeaderTimeout, in at
+// most 64 KiB, and an idle keep-alive connection is closed after
+// idleTimeout. There is deliberately no ReadTimeout or WriteTimeout --
+// those bound the whole request and response, and would cut off log
+// streaming and websockets proxied to a runner.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    64 << 10,
 	}
 }
