@@ -64,6 +64,9 @@ class Writer:
             try:
                 for signal, (applied_ns, value) in queued.items():
                     self.device.apply(signal, applied_ns, value)
+                # What the router has counted per signal until now: a signal
+                # pushed from here on is the commit's readback.
+                before = dict(self.rig.router.seq)
                 self.device.commit(time_ns)
             except Exception as error:
                 self._failure(error)
@@ -74,7 +77,7 @@ class Writer:
                 self.rig.event(
                     Level.INFO, "device", self.device.name, "write_recovered", "writes succeed"
                 )
-            self.rig.written(self.device, time_ns)
+            self.rig.written(self.device, time_ns, before)
 
     def _failure(self, error: Exception) -> None:
         message = f"{type(error).__name__}: {error}"
@@ -84,10 +87,16 @@ class Writer:
             log.warning("%s: write failed: %s", self.device.name, message)
             self.rig.event(Level.ERROR, "device", self.device.name, "write_failed", message)
 
-    def stop(self) -> None:
+    def stop(self, join: bool = True) -> None:
+        """Stop the thread after the write in progress, if any.
+
+        `join=False` under the rig lock: a write completing reports through
+        [written][flyball.rig.rig.Rig.written], which takes that lock.
+        """
         self._stop.set()
         self._wake.set()
-        self._thread.join(timeout=1.0)
+        if join:
+            self._thread.join(timeout=1.0)
 
 
 __all__ = ["Writer"]
