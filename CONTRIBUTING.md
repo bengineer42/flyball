@@ -29,7 +29,7 @@ first.
 That line is your agreement to the [Developer Certificate of Origin](https://developercertificate.org/)
 version 1.1 — in short, that you wrote the contribution or otherwise have the right to submit
 it under the project's licence, and that you understand it will be public and kept
-indefinitely. There is nothing to sign and no account to create.
+indefinitely. There is no separate agreement to sign and no account to create for it.
 
 The name and address need to be **stable and reachable**, so that a question about a
 contribution years from now reaches someone. They do not need to be a legal name: the DCO
@@ -39,22 +39,41 @@ If you forget, `git commit --amend -s` fixes the last commit and
 `git rebase --signoff <base>` fixes a branch. A pull request is checked automatically by
 [`.github/workflows/dco.yml`](.github/workflows/dco.yml).
 
-**Fixing a typo from the browser?** GitHub's web editor cannot add a sign-off. Open an issue
-with the fix in it instead and we will carry it in — a one-line documentation correction
-should not need a local clone.
+The check is on the sign-off matching **the commit's own author**, so a patch you received
+from someone else and are passing on under DCO clause (c) will not pass as-is. Add your own
+sign-off *and* keep theirs, and say in the pull request where the patch came from.
 
 ## Before you open a pull request
 
-Run the checks for whatever you touched. Nothing here needs hardware.
+Base your work on `dev`, not `main`.
+
+Set up once — a fresh clone has neither environment, and every command below assumes them:
 
 ```bash
-cd engine && make lint imports test && uvx pyright --pythonpath .venv/bin/python src/flyball
-cd extensions/linux && uv run pytest -q
-cd ui && npm run typecheck && npm run build && npm test
+cd engine && uv sync --all-extras
+cd ../ui && npm install
 ```
 
-Extensions each have their own suite (`bluesky`, `chips`, `linux`, `modbus`, `pymeasure`,
-`qcodes`, `visa`) — run the one you changed.
+Then run the checks for whatever you touched, each from the repository root. Nothing here
+needs hardware.
+
+```bash
+(cd engine && make check)
+(cd extensions/linux && uv run pytest -q)
+(cd ui && npm run typecheck && npm run build && npm test)
+```
+
+`make check` is lint, import contracts, pyright and pytest. Extensions each have their own
+suite (`bluesky`, `chips`, `linux`, `modbus`, `pymeasure`, `qcodes`, `visa`) — run the one you
+changed.
+
+Two things that are not your fault if you see them: `extensions/linux`, `extensions/modbus`
+and `extensions/visa` each have one schema test failing on a clean checkout, and the Go
+suite's `TestEmbeddedProgramSchemaIsCurrent` needs an interpreter it does not set up. All are
+known and none are caused by anything you did.
+
+CI checks the sign-off and builds the book. **It does not run the tests** — that run is on
+you.
 
 ## What makes a change easy to accept
 
@@ -62,8 +81,8 @@ Extensions each have their own suite (`bluesky`, `chips`, `linux`, `modbus`, `py
 - **Match the surrounding code.** Comment density, naming and idiom vary by layer; follow the
   file you are in rather than a global style.
 - **Update the documentation in the same change.** `book/src/` is organised by reader; a new
-  driver gets its own `##` in `book/src/2-config/drivers.md`, a new rig-file key goes in
-  `book/src/7-reference/rig-file.md`. Both books must still build strict:
+  driver gets its own `##` in `book/src/2-config/devices/drivers.md`, a new rig-file key goes
+  in `book/src/7-reference/rig-file.md`. The book must still build strict:
 
   ```bash
   cd engine && uv run --group docs mkdocs build -f ../book/mkdocs.yml --strict
