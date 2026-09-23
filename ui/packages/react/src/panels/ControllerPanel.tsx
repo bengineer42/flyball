@@ -8,7 +8,7 @@ import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
 import { useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
 import { thin } from "./thin.js";
-import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
+import { MultiSeries, toBreaks, type MultiSeriesTrace } from "./MultiSeries.js";
 import { axisValues, yRange, type YScale } from "./yscale.js";
 
 /** Same fallback order `MultiSeries` cycles through for a trace with no explicit colour. */
@@ -134,7 +134,9 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
           // line would draw a diagonal guess across the interval that never happened.
           paths: s.stepped ? uPlot.paths!.stepped!({ align: 1 }) : undefined,
           points: { show: false },
-          spanGaps: true,
+          // false, same reasoning and same `toBreaks` conversion as `MultiSeries`: a real gap
+          // (NaN, converted to null by the `setData` effect below) must still draw as a break.
+          spanGaps: false,
         })),
       ],
       scales: {
@@ -174,7 +176,7 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
 
   useEffect(() => {
     const t = series[0] ? thin(series[0].t, every) : [];
-    chart.current?.setData([t, ...series.map((s) => thin(s.v, every))] as uPlot.AlignedData);
+    chart.current?.setData([t, ...series.map((s) => toBreaks(thin(s.v, every)))] as uPlot.AlignedData);
   }, [series, every]);
 
   if (open) {

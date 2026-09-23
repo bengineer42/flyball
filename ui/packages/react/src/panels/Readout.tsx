@@ -47,15 +47,21 @@ export interface ReadoutProps {
   bare?: boolean;
 }
 
-/** The severity and stale age a `Readout` would show, for a caller that draws the frame itself (`bare`). */
-export function readoutLevel(signal: Pick<SignalOut, "warn" | "alarm">, last: number | undefined, fresh: Freshness | undefined) {
+/**
+ * The severity and stale age a `Readout` would show, for a caller that draws the frame itself
+ * (`bare`). The "over Ns" in the label uses the same threshold `alarmLevel` judged the level
+ * against -- the signal's own `poll_s` when it has one, `fresh.periodS` (the device's poll
+ * period) otherwise -- so the two never disagree (a signal polled slower than its device would
+ * otherwise show a threshold shorter than the one that actually decided "stale").
+ */
+export function readoutLevel(signal: Pick<SignalOut, "warn" | "alarm" | "poll_s">, last: number | undefined, fresh: Freshness | undefined) {
   const level = alarmLevel(last, signal, fresh);
   const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
   const stale = level === "stale";
   return {
     level,
     ageS,
-    label: stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : undefined,
+    label: stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(signal.poll_s ?? fresh?.periodS)} s)` : undefined,
     footer: stale ? `last sample ${ageS} s ago` : undefined,
   };
 }

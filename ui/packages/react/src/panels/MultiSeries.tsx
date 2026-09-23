@@ -108,12 +108,29 @@ const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.un
 const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string =>
   typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, s.precision ?? 2), s.unit) : "—";
 
-/** Align traces with different time bases onto one x array, nulls where a trace has no point. */
-function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
+/**
+ * A real dead-time break lands in a trace's own `v` as `NaN` (the ring's gap
+ * insertion, a controller setpoint's null-as-NaN) -- `null` is the sentinel
+ * uPlot itself treats as a break, so it is converted here before the array
+ * ever reaches uPlot. Left as `NaN`, uPlot draws a point at `pixelForY(NaN)`
+ * instead of breaking the line.
+ */
+export const toBreaks = (v: (number | null)[]): (number | null)[] =>
+  v.some((x) => typeof x === "number" && Number.isNaN(x)) ? v.map((x) => (typeof x === "number" && Number.isNaN(x) ? null : x)) : v;
+
+/**
+ * Align traces with different time bases onto one x array. A real gap
+ * (`null`, after `toBreaks`) draws as a break; a point only *missing because
+ * another trace's time won this alignment slot* comes out of `uPlot.join` as
+ * `undefined` (its default `nullMode` retains real nulls but leaves
+ * alignment artifacts undefined) and stays connected -- see `spanGaps: false`
+ * below, which relies on that distinction.
+ */
+export function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
   if (series.length === 0) return [[]];
   const shared = series.every((s) => s.t === series[0]!.t);
-  if (shared) return [series[0]!.t, ...series.map((s) => s.v)] as uPlot.AlignedData;
-  return uPlot.join(series.map((s) => [s.t, s.v] as uPlot.AlignedData));
+  if (shared) return [series[0]!.t, ...series.map((s) => toBreaks(s.v))] as uPlot.AlignedData;
+  return uPlot.join(series.map((s) => [s.t, toBreaks(s.v)] as uPlot.AlignedData));
 }
 
 const EMPTY: number[] = [];
@@ -224,7 +241,10 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         scale,
         stroke: strokeColor,
         width: s.width ?? 1.5,
-        spanGaps: true,
+        // false so a real gap (`align`'s `toBreaks`, a `null`) still draws a visible break;
+        // the alignment fill uPlot inserts for a trace with no point at another trace's time
+        // is `undefined`, which draws connected regardless of this setting.
+        spanGaps: false,
         points: { show: false }, // a thinned or sparse trace stays a line, not a row of dots
         value: (_u, raw) => displayValue(raw, s),
       };

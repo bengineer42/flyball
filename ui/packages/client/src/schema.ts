@@ -597,7 +597,15 @@ export function staleAfterS(periodS: number | null | undefined): number {
  * newest sample across the rig, never `Date.now()`).
  */
 export interface Freshness {
-  /** The poll period of the signal's device (`DeviceOut.run.period_s`); unknown treated as 0 (only the 5s floor applies). */
+  /**
+   * The device's poll period (`DeviceOut.run.period_s`), used only as a
+   * fallback for a signal that carries no `poll_s` of its own -- a device
+   * with signals polled at different rates (a multi-sensor rig reading one
+   * signal every 1 s and another every 5 s) is under-read by its fastest
+   * signal here, which is why `alarmLevel` prefers `signal.poll_s` when the
+   * signal passed to it has one. Unknown treated as 0 (only the 5s floor
+   * applies).
+   */
   periodS?: number | null;
   /** The last sample's time, in rig seconds; null/undefined skips the stale check. */
   lastSampleS?: number | null;
@@ -628,13 +636,21 @@ export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null 
  * arrived recently enough, in which case the level is "stale" regardless of
  * the last value (a stuck reading is not a healthy one). A signal with no
  * bands, or no value, is "ok" unless stale.
+ *
+ * The stale threshold uses `signal.poll_s` (`SignalOut.poll_s`, `wire.ts`)
+ * when the signal carries one, `fresh.periodS` (the device's poll period)
+ * otherwise -- a device whose signals poll at different rates (the humidity
+ * rig's chamber sensor at 1 s, dry/wet at 5 s) would otherwise judge every
+ * signal against the device's fastest one and call its slow signals stale
+ * while they are still well within their own period.
  */
 export function alarmLevel(
   value: number | null | undefined,
-  signal: { warn?: [number, number] | null; alarm?: [number, number] | null },
+  signal: { warn?: [number, number] | null; alarm?: [number, number] | null; poll_s?: number | null },
   fresh?: Freshness | null,
 ): AlarmLevel {
-  if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(fresh.periodS)) return "stale";
+  if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(signal.poll_s ?? fresh.periodS))
+    return "stale";
   if (value === null || value === undefined || Number.isNaN(value)) return "ok";
   const outside = (band: [number, number] | null | undefined) =>
     !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));
