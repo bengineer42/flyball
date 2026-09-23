@@ -6,10 +6,10 @@ the plant by the time since the last read; a `sim_drive` sets chosen plant
 inputs from demands on its signals. Several of each may share one plant, so
 a multi-zone plant's zones interact through it (`examples/furnace`'s worked
 scenario, or an application's own [MultiPlant][flyball_sim.plant.MultiPlant]
-such as `examples/humidity`'s chamber). A rig of these runs on a laptop,
-ticks like a real one, records, tunes and serves the same API -- with
-nothing plugged in -- and, laid over a real rig's file, stands in for its
-hardware under the same names (plan §1.6).
+such as [humctrl](https://github.com/bengineer42/humctrl)'s chamber). A rig
+of these runs on a laptop, ticks like a real one, records, tunes and
+serves the same API -- with nothing plugged in -- and, laid over a real
+rig's file, stands in for its hardware under the same names.
 """
 
 from __future__ import annotations
@@ -253,7 +253,7 @@ def _tree(device: str, leaves: Mapping[str, SignalSpec]) -> tuple[NodeSpec | Sig
     `{"dry.humidity": …, "dry.temperature": …, "wet.humidity": …}` becomes
     namespaces `dry` and `wet`, each read whole -- one plant advance yields
     everything at one instant -- so a sim overlay can mirror a namespaced
-    real device address for address (plan §1.6). A flat key is a leaf on
+    real device address for address. A flat key is a leaf on
     the root, as before.
 
     Raises:

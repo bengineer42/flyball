@@ -10,7 +10,7 @@ named inputs and outputs, stepped once per instant however many devices
 read it -- a multi-zone furnace, a chamber with several sensed lines. Any
 object shaped this way will do, not only the worked furnace example
 (`examples/furnace`); a rig's own `sim.py` may define one, the way
-`examples/humidity`'s `HumidityChamber` does.
+[humctrl](https://github.com/bengineer42/humctrl)'s `HumidityChamber` does.
 """
 
 from __future__ import annotations
