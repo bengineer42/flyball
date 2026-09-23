@@ -4,7 +4,8 @@ The types are [flyball.rig.stopping][]'s, re-exported here. `SIGUSR1` runs the s
 [Stopper][flyball.rig.stopping.Stopper] as `POST /api/rig/stop`, without exiting, so a
 stop works with no front and no credential; the OS's own signal permission (the same
 user, or root) is the check. `flyball stop` sends it to the pid in `runner.lock` or
-`<store>.lock` when the front cannot be reached.
+`<store>.lock` when the front cannot be reached. Each break-glass stop is a row in the
+action audit ([record_stop][flyball.interfaces.server.audit.record_stop]).
 """
 
 from __future__ import annotations
@@ -13,9 +14,11 @@ import json
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable
 from types import FrameType
 
+from flyball.interfaces.server.audit import record_stop
 from flyball.rig.stopping import Actor, DeviceStop, InterimStopper, Stopper, StopReport
 
 __all__ = ["Actor", "DeviceStop", "InterimStopper", "StopReport", "Stopper", "install_break_glass"]
@@ -61,9 +64,12 @@ def _stop(stopper: Callable[[], Stopper | None]) -> None:
     if target is None:
         log.warning("SIGUSR1: no rig attached; nothing to stop")
         return
+    at_ns = time.time_ns()
     try:
         report = target.stop(SIGNAL_ACTOR, "SIGUSR1")
     except Exception:
         log.exception("SIGUSR1: the stop failed")
+        record_stop(SIGNAL_ACTOR, "SIGUSR1", at_ns, done=False)
         return
+    record_stop(SIGNAL_ACTOR, "SIGUSR1", report.at_ns)
     log.warning("stop report: %s", json.dumps(report.as_dict()))

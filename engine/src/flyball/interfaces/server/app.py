@@ -23,6 +23,7 @@ from flyball.foundation.errors import (
     NotReadyError,
     UnachievableError,
 )
+from flyball.interfaces.server.audit import Audit
 from flyball.interfaces.server.auth import Door, Fronted
 from flyball.interfaces.server.deps import current_retention, current_rig
 from flyball.interfaces.server.redact import redact_access_logs
@@ -269,6 +270,7 @@ def create_app(
     app.state.open_network = door.open_network  # the MCP transport's rebinding check reads it
     # `add_middleware` would build its own instance; the routes need this one.
     app.add_middleware(_Installed, instance=door)
+    app.add_middleware(Audit)  # outside the door: it records who was refused, too
     if root_path and root_path != "/":
         if not root_path.startswith("/"):
             raise ValueError(f"root_path must start with '/': {root_path!r}")
