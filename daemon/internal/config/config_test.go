@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
+
+	"flyballd/internal/endpoint"
 )
 
 func valid() Manifest {
@@ -47,15 +48,22 @@ func TestHostMustBeLoopback(t *testing.T) {
 	}
 }
 
-// A runner fronted over a unix socket needs no port; one on TCP does.
+// setGOOS sets the platform D-044's tcp rule is decided for, for one test.
+func setGOOS(t *testing.T, goos string) {
+	t.Helper()
+	was := endpoint.GOOS
+	endpoint.GOOS = goos
+	t.Cleanup(func() { endpoint.GOOS = was })
+}
+
+// A runner fronted over a unix socket needs no port; one on TCP, which is
+// Windows only (D-044), does.
 func TestManifestPortOptional(t *testing.T) {
+	setGOOS(t, "linux")
 	m := valid()
 	m.Port = 0
 	for _, n := range []string{"", "unix"} {
 		m.Network = n
-		if runtime.GOOS == "windows" {
-			break
-		}
 		if err := m.Validate(); err != nil {
 			t.Errorf("network %q without a port: %v", n, err)
 		}
@@ -63,14 +71,27 @@ func TestManifestPortOptional(t *testing.T) {
 			t.Errorf("network %q resolves to %q", n, got)
 		}
 	}
-	m.Network = "tcp"
-	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "port") {
-		t.Errorf("tcp without a port accepted (%v)", err)
+
+	setGOOS(t, "windows")
+	m.Network = ""
+	if got := m.ResolvedNetwork(); got != "tcp" {
+		t.Errorf("windows: the default network resolves to %q", got)
 	}
-	m.Port = 8101
-	if err := m.Validate(); err != nil {
-		t.Errorf("tcp with a port: %v", err)
+	m.Network = "unix"
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "use tcp") {
+		t.Errorf("windows: network unix accepted (%v)", err)
 	}
+	for _, n := range []string{"", "tcp"} {
+		m.Network, m.Port = n, 0
+		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "port") {
+			t.Errorf("windows: network %q without a port accepted (%v)", n, err)
+		}
+		m.Port = 8101
+		if err := m.Validate(); err != nil {
+			t.Errorf("windows: network %q with a port: %v", n, err)
+		}
+	}
+
 	for _, p := range []int{-1, 65536} {
 		m := valid()
 		m.Port = p
@@ -82,6 +103,26 @@ func TestManifestPortOptional(t *testing.T) {
 	m.Network = "udp"
 	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "network") {
 		t.Errorf("network udp accepted (%v)", err)
+	}
+}
+
+// Off Windows a manifest's network: tcp still loads, port or no port:
+// the backend runs that runner on the unix socket in its front-dir and
+// logs why (D-044, D-028: a misconfiguration removes exposure, never
+// operation). The manifest keeps what was asked.
+func TestManifestTCPOffWindowsLoads(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin"} {
+		setGOOS(t, goos)
+		for _, port := range []int{0, 8101} {
+			m := valid()
+			m.Network, m.Port = "tcp", port
+			if err := m.Validate(); err != nil {
+				t.Errorf("%s: network tcp, port %d: %v", goos, port, err)
+			}
+			if got := m.ResolvedNetwork(); got != "tcp" {
+				t.Errorf("%s: network tcp resolves to %q", goos, got)
+			}
+		}
 	}
 }
 
@@ -137,8 +178,9 @@ func TestLoadManifestsReadsNetwork(t *testing.T) {
 	}
 
 	write("bad.yaml", "name: bad\nserver_config: bad.yaml\nnetwork: tcp\n")
+	setGOOS(t, "windows")
 	if _, err := LoadManifests(dir); err == nil || !strings.Contains(err.Error(), "bad.yaml") {
-		t.Errorf("a tcp manifest with no port loaded (%v)", err)
+		t.Errorf("windows: a tcp manifest with no port loaded (%v)", err)
 	}
 }
 

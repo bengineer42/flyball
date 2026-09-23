@@ -16,8 +16,8 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 
+	"flyballd/internal/endpoint"
 	"flyballd/internal/front"
 	"flyballd/internal/frontwire"
 
@@ -118,11 +118,12 @@ type Manifest struct {
 	Restart      string `yaml:"restart" json:"restart"`             // always | on-failure | never
 	// Network is how flyballd reaches the runner: "unix" (a socket in its
 	// 0700 front-dir) or "tcp" (loopback Host:Port). "" is unix, or tcp on
-	// Windows, where uvicorn has no unix sockets; say tcp explicitly for
-	// a runner in another network namespace.
+	// Windows, where uvicorn has no unix sockets. tcp is Windows only
+	// (D-044): elsewhere a manifest that asks for it loads, and the
+	// backend runs the runner on unix and logs why.
 	Network  string `yaml:"network" json:"network"`
 	Host     string `yaml:"host" json:"host"` // loopback only (default 127.0.0.1); meaningful only for tcp
-	Port     int    `yaml:"port" json:"port"` // required only when the network resolves to tcp
+	Port     int    `yaml:"port" json:"port"` // required only when the network resolves to tcp, on Windows
 	RootPath string `yaml:"root_path" json:"root_path"`
 	Store    string `yaml:"store" json:"store"`
 	Enabled  *bool  `yaml:"enabled" json:"enabled"`
@@ -139,12 +140,13 @@ type Manifest struct {
 }
 
 // ResolvedNetwork is Network with its default applied: "unix", or
-// "tcp" on Windows.
+// "tcp" on Windows. It is what was asked: off Windows the backend runs a
+// tcp runner on unix (D-044).
 func (m Manifest) ResolvedNetwork() string {
 	if m.Network != "" {
 		return m.Network
 	}
-	if runtime.GOOS == "windows" {
+	if endpoint.GOOS == "windows" {
 		return "tcp"
 	}
 	return "unix"
@@ -178,7 +180,7 @@ func (m Manifest) Validate() error {
 	switch m.Network {
 	case "", "tcp":
 	case "unix":
-		if runtime.GOOS == "windows" {
+		if endpoint.GOOS == "windows" {
 			return fmt.Errorf("runner %s: network unix: not on Windows, where the runner has no unix sockets; use tcp", m.Name)
 		}
 	default:
@@ -187,7 +189,7 @@ func (m Manifest) Validate() error {
 	if m.Port < 0 || m.Port > 65535 {
 		return fmt.Errorf("runner %s: port %d is not a TCP port", m.Name, m.Port)
 	}
-	if m.ResolvedNetwork() == "tcp" && m.Port == 0 {
+	if m.ResolvedNetwork() == "tcp" && endpoint.TCPAllowed() && m.Port == 0 {
 		return fmt.Errorf("runner %s: network tcp needs a port", m.Name)
 	}
 	if rp := m.RootPath; !rootPathPattern.MatchString(rp) || path.Clean(rp) != rp {

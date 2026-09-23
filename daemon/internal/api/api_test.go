@@ -348,7 +348,6 @@ func TestABadNameOrRootPathIs400NotAStart(t *testing.T) {
 		`{"name":"Oven","server_config":"a.yaml"}`,
 		`{"name":"","server_config":"a.yaml"}`,
 		`{"name":"oven","server_config":""}`,
-		`{"name":"oven","server_config":"a.yaml","network":"tcp","port":0}`,
 		`{"name":"oven","server_config":"a.yaml","root_path":"oven"}`,
 		`{"name":"oven","server_config":"a.yaml","root_path":"/oven/../x"}`,
 		`{"name":"oven","server_config":"a.yaml","root_path":"/"}`,
@@ -357,6 +356,15 @@ func TestABadNameOrRootPathIs400NotAStart(t *testing.T) {
 		if code, resp := d.do("POST", "/api/runners", cred{bearer: manage}, body); code != http.StatusBadRequest {
 			t.Errorf("%s: got %d %s, want 400", body, code, resp)
 		}
+	}
+	// tcp needs a port where tcp is allowed: Windows only (D-044), taken
+	// here by setting GOOS. Elsewhere tcp runs on unix and needs none.
+	was := endpoint.GOOS
+	endpoint.GOOS = "windows"
+	t.Cleanup(func() { endpoint.GOOS = was })
+	body := `{"name":"oven","server_config":"a.yaml","network":"tcp","port":0}`
+	if code, resp := d.do("POST", "/api/runners", cred{bearer: manage}, body); code != http.StatusBadRequest {
+		t.Errorf("windows: %s: got %d %s, want 400", body, code, resp)
 	}
 	if len(d.be.started) != 0 {
 		t.Errorf("started %v from bad manifests", d.be.started)

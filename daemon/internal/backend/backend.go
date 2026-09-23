@@ -48,7 +48,8 @@ const (
 type Spec struct {
 	ServerConfig string // the rig file
 	// Network: "unix" (a socket in the front-dir) or "tcp" (Host:Port on
-	// loopback). "" is unix, or tcp on Windows.
+	// loopback). "" is unix, or tcp on Windows. tcp is Windows only
+	// (D-044): elsewhere Start runs the runner on unix and logs why.
 	Network  string
 	Host     string // tcp only; "" is 127.0.0.1
 	Port     int    // tcp only, and required there
