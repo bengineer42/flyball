@@ -131,6 +131,9 @@ hardware and its wiring, not by flyball:
 
 ## Installing
 
+flyball runs on Linux and macOS today. Windows is planned, not yet
+supported.
+
 ```
 git clone git@github.com:bengineer42/flyball.git && cd flyball
 cd engine && uv sync --all-extras          # flyball's runner, every driver extra, the dev tools
