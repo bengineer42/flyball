@@ -252,7 +252,7 @@ def demand(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut
     once; the response is the write state of each signal set, by address.
     409 for a signal a controller drives,
     or a signal that is not writable; 404 for a name that is not under the
-    device.
+    device; 422 for a value that is not finite (NaN, infinity).
     """
     device = device_of(rig, name)
     values: dict[str | Signal, float] = {name: value for name, value in body.items()}

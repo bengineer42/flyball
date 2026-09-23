@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -811,3 +812,55 @@ def test_a_blocking_write_with_no_readback_reports_each_committed_value(rig, fre
         assert rig.router.value(heater) == value
     assert gated.committed == [1.0, 3.0]
     rig.stop()
+
+
+class TestNonFinite:
+    """NaN and infinity never reach a device: a demand refuses them, the rate clamp survives one."""
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_a_demand_refuses_a_value_that_is_not_finite(self, rig, furnace, bad):
+        rig.demand(furnace.root, {"heater1": 10.0})
+        with pytest.raises(ValueError, match=rf"'{furnace.name}.heater1' .* not finite"):
+            rig.demand(furnace.root, {"heater2": 5.0, "heater1": bad})
+        assert furnace.inputs == {"heater1": 10.0}, "nothing of the demand was applied"
+        assert furnace.commits == 1 and furnace.pending == {}
+
+    def test_a_non_finite_last_value_is_no_rate_reference(self, rig, fresh, clock):
+        dev = RateLimited(fresh("rated"))
+        rig.add_device(dev)
+        limited = dev.signals["limited"]
+        limited.push(math.nan, clock.now_ns())  # a driver's readback gone wrong
+        assert rig.demand(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        clock.advance(1.0)
+        states = rig.demand(dev.root, {limited: 100.0})
+        assert states == {limited: WriteState(value=15.0, requested=100.0)}, "5.0 is the reference"
+
+    def test_a_non_finite_demand_over_http_is_a_422(self, rig, furnace):
+        from fastapi.testclient import TestClient
+
+        from flyball.interfaces.server import create_app, set_rig
+
+        set_rig(rig)
+        try:
+            with TestClient(create_app()) as client:
+                put = client.put(
+                    f"/api/signals/{furnace.name}.heater1",
+                    content="NaN",
+                    headers={"content-type": "application/json"},
+                )
+                assert put.status_code == 422, put.text
+                put = client.put(
+                    f"/api/devices/{furnace.name}/demand",
+                    content='{"heater1": Infinity}',
+                    headers={"content-type": "application/json"},
+                )
+                assert put.status_code == 422, put.text
+                post = client.post(
+                    f"/api/devices/{furnace.name}/commands/set_heater1",
+                    content='{"value": NaN}',
+                    headers={"content-type": "application/json"},
+                )
+                assert post.status_code == 422, post.text
+        finally:
+            set_rig(None)
+        assert furnace.commits == 0

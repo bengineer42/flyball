@@ -11,6 +11,7 @@ bound objects.
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
@@ -480,7 +481,8 @@ class Rig:
             AddressNotFoundError: A name does not resolve under `node`.
             ConflictError: A key is not a writable signal under `node`, or
                 is driven by a controller.
-            ValueError: No values, or one signal named twice.
+            ValueError: No values, one signal named twice, or a value that is
+                not finite (NaN, infinity).
         """
         if not values:
             raise ValueError(f"Demand on '{node.address}' carries no values")
@@ -515,6 +517,9 @@ class Rig:
             if signal in resolved:
                 raise ValueError(f"Demand on '{node.address}' names '{signal.address}' twice")
             resolved[signal] = float(value)
+            if not math.isfinite(resolved[signal]):
+                # NaN slips through every comparison: the limits, the rate clamp.
+                raise ValueError(f"Demand on '{signal.address}' is not finite: {value!r}")
         clamped: dict[Signal, float] = {}
         requested: dict[Signal, float] = {}
         now_ns = self.clock.now_ns()
@@ -562,12 +567,12 @@ class Rig:
     def _rate_clamped(self, signal: Signal, value: float, max_rate: Rate, now_ns: int) -> float:
         """`value`, held to at most `max_rate` away from the last commit's, over the elapsed time.
 
-        Nothing to compare against yet (no prior commit): `value` passes
-        through unclamped, as the first demand on a signal has nothing to
-        ramp from.
+        Nothing to compare against yet (no prior commit), or a last value
+        that is not finite (a readback gone wrong): `value` passes through
+        unclamped, as the first demand on a signal has nothing to ramp from.
         """
         last = self.router.latest.get(signal)
-        if last is None:
+        if last is None or not math.isfinite(last.value):
             return value
         elapsed_s = (now_ns - last.time_ns) / 1e9
         if elapsed_s <= 0:
