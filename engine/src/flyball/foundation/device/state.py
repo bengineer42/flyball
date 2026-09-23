@@ -81,6 +81,11 @@ class Code(StrEnum):
     """A condition: the controller's measured signal is older than `stale_after_s`; held."""
     LIMIT_UNKNOWN = "limit_unknown"
     """A condition: a limit on the controller's output is not known; held."""
+    FROZEN = "frozen"
+    """A condition on a regulating controller whose measured signal has no value: the law is
+    not stepped and nothing is written. `info` for a benign no-value (`not_applicable`),
+    `warning` for a fault (`invalid`, `stale`); `details`: `{signal, quality, reason}`. Cleared
+    after `RESUME_AFTER` readings in a row with a value, when it regulates again."""
     # A signal.
     BAND_WARNING = "band_warning"
     """A condition on a signal (`warning`): its reading is outside its `warning` band but not
@@ -89,6 +94,12 @@ class Code(StrEnum):
     BAND_ALARM = "band_alarm"
     """A condition on a signal (`error`): its reading is outside its `alarm` band. A signal
     holds this or `band_warning`, never both; same edges and `details`."""
+    BAND_UNKNOWN = "band_unknown"
+    """A condition on a banded signal whose `on_no_value` is `fire`: it has had no value
+    because of a fault (`invalid`) for its grace, `max(2·poll_s, 1 s)`. An indication, counted
+    in health `alarms.unknown` and never in `alarm`; `error` with an `alarm` band, else
+    `warning`. Cleared after 3 readings in a row with a value. `details`: `{quality, reason,
+    side}`."""
     INTERRUPTED = "interrupted"
     # A program (`step_failed` too). It ends `succeeded`, `failed`, `cancelled` by a person,
     # or `interrupted` by the engine (a stop, a shutdown), with the reason.

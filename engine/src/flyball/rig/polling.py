@@ -298,6 +298,7 @@ class Polling:
             with self.rig.lock:
                 if not self._polled(device):
                     return  # removed while it was being read
+                self.rig.note_read(device, samples)
                 self.rig.on_samples(samples)
         except Exception as error:
             log.exception("delivering %s's samples", device.name)
@@ -377,7 +378,8 @@ class Polling:
             )
             return
         details = {"consecutive_failures": failures}
-        self.rig.conditions.set(device, Code.OFFLINE, Severity.ERROR, message, details)
+        if self.rig.conditions.set(device, Code.OFFLINE, Severity.ERROR, message, details):
+            self.rig.device_offline(device)  # what it read is stale(device_offline) at once
         if loop is None or not loop.running or not loop.runs_here():
             return  # stopped, or a newer loop a restart started: that one keeps its own time
         held = self.rig.conditions.get(device, Code.OFFLINE)

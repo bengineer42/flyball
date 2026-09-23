@@ -40,7 +40,7 @@ def _tick(controller: Controller, reading: Reading, start_ns: int) -> Tick:
         offset_ns=reading.time_ns - start_ns,
         mode=controller.mode.value,
         correction=controller.correction,
-        measured=reading.value,
+        measured=reading.value if reading.usable else None,
         setpoint=None if controller.reference is None else controller.setpoint_at(reading.time_ns),
         output=controller.output,
         expected=controller.expected,

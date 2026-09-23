@@ -7,10 +7,10 @@ them directly. Times inside a session are `offset_ns` from its `start_ns`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Any, Literal
 
-from flyball.foundation.device import Bounds, Limit
+from flyball.foundation.device import Bounds, Limit, NoValue, Quality, Reason
 from flyball.foundation.primitives import Labelled
 
 # region Declarations
@@ -181,22 +181,82 @@ class DashboardRow:
 # region Data
 
 
+class Flag(IntEnum):
+    """A stored reading's `flag`: what a row with no value was, or the mark on one with a value.
+
+    Codes 1-15 go with a NULL value (the no-value's quality), 16-31 with a value (a mark);
+    NULL is a plain value. Every stale reason but `device_offline` shares `STALE`: which it
+    was is in the device's condition edges, or not kept (`silent`, `never_read`, `last_read`).
+    """
+
+    INVALID = 1
+    NOT_APPLICABLE = 2
+    STALE = 3
+    STALE_DEVICE_OFFLINE = 4
+    AT_LIMIT_LOW = 16
+    AT_LIMIT_HIGH = 17
+
+    @classmethod
+    def of(cls, value: NoValue) -> Flag:
+        """The code a no-value is stored with."""
+        if value.quality is Quality.INVALID:
+            return cls.INVALID
+        if value.quality is Quality.NOT_APPLICABLE:
+            return cls.NOT_APPLICABLE
+        if value.reason == Reason.DEVICE_OFFLINE:
+            return cls.STALE_DEVICE_OFFLINE
+        return cls.STALE
+
+    @classmethod
+    def mark(cls, at_limit: Limit | None) -> Flag | None:
+        """The code a value at a limit is stored with; None with no mark."""
+        if at_limit is None:
+            return None
+        return cls.AT_LIMIT_HIGH if at_limit is Limit.HIGH else cls.AT_LIMIT_LOW
+
+    @property
+    def quality(self) -> Quality:
+        """The quality it records: a no-value's, or `ok` for a mark."""
+        return _FLAG_QUALITY.get(self, Quality.OK)
+
+
+_FLAG_QUALITY = {
+    Flag.INVALID: Quality.INVALID,
+    Flag.NOT_APPLICABLE: Quality.NOT_APPLICABLE,
+    Flag.STALE: Quality.STALE,
+    Flag.STALE_DEVICE_OFFLINE: Quality.STALE,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class Point:
-    """One reading. `value` is a float for a float signal, else whatever its dtype decodes to."""
+    """One reading. `value` is a float for a float signal, else whatever its dtype decodes to.
+
+    `value` is None for a reading with no value, and `flag` says what it was
+    ([Flag][flyball.record.types.Flag]: 1 invalid, 2 not_applicable, 3 stale, 4 stale because
+    the device was offline); on a value, `flag` is its mark (16 at_limit low, 17 high) or None.
+    A bucket of an averaged series is None, with the first no-value code in it, when any
+    reading in it had no value.
+    """
 
     offset_ns: int
     value: Any
+    flag: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class SampleRow:
-    """One stored sample: the values under `node` at one instant, by signal address."""
+    """One stored sample: the values under `node` at one instant, by signal address.
+
+    A value is None for a reading with none; `flags` holds the stored `flag` of the values
+    that have one (a no-value's code, or a mark), by address.
+    """
 
     seq: int
     offset_ns: int
     node: str
     values: dict[str, Any]
+    flags: dict[str, int] = field(default_factory=dict[str, int])
 
 
 @dataclass(frozen=True, slots=True)

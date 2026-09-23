@@ -74,7 +74,8 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
         hints: dict[str, Any] = {}
         for sample in samples:
             for address, value in sample.values.items():
-                hints.setdefault(address, value)
+                if value is not None:  # a reading with no value says nothing of the type
+                    hints.setdefault(address, value)
         keys = {
             s.address: {
                 "source": f"flyball:{s.address}",

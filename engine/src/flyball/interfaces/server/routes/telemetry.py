@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.foundation.device import Condition, Node, Sample, Signal
+from flyball.foundation.device import Condition, Limit, Node, Sample, Signal
 from flyball.foundation.router import Latest
 from flyball.interfaces.server.deps import current_rig
 from flyball.interfaces.server.schemas import ControllerOut, SampleOut, finite
@@ -137,14 +137,17 @@ def _prime(rig: Rig) -> None:
         for signal, state in list(device.written.items()):
             rig.write_states.set(signal.address, state)
         by_node: dict[Node, dict[Signal, Any]] = {}
+        marks: dict[Node, dict[Signal, Limit]] = {}
         newest: dict[Node, int] = {}
         for signal in list(device.published.values()):
             if (reading := rig.router.reading(signal)) is None:
                 continue
             by_node.setdefault(signal.node, {})[signal] = reading.value
+            if reading.at_limit is not None:
+                marks.setdefault(signal.node, {})[signal] = reading.at_limit
             newest[signal.node] = max(newest.get(signal.node, 0), reading.time_ns)
         for node, values in by_node.items():
-            rig.samples.set(node.address, Sample(node, newest[node], values))
+            rig.samples.set(node.address, Sample(node, newest[node], values, marks.get(node, {})))
     for name, run in rig.polling.snapshot().items():
         rig.polling.runs.set(name, run)
 

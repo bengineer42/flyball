@@ -11,7 +11,8 @@ with the write state. Until one is injected, the output value is recorded on
 the controller and nothing is written.
 
 A second injected callable, `hold`, says whether the rig would refuse the
-write now (a stale measured signal, a limit not yet known) and why. While it does,
+write now (a stale measured signal, a limit not yet known, a measured signal with no
+value: `frozen`) and why. While it does,
 the controller is frozen: the law does not step and nothing is written, so
 the integral cannot wind up against a write that never lands; the first
 step after the hold counts as one ordinary interval.
@@ -260,7 +261,9 @@ class Controller:
 
     @property
     def last_value(self) -> float | None:
-        return self.measured and self.measured.value
+        """The last measured value; None before one, or while the newest reading has none."""
+        measured = self.measured
+        return None if measured is None or not measured.usable else measured.value
 
     @property
     def required_last_value(self) -> float:
@@ -485,7 +488,10 @@ class Controller:
             # a demand that never lands winds the integral up (back-calculation
             # has no delivered value to pull against) and slams the output
             # when the hold ends. The law's clock skips the hold on return.
-            if (reason := self.hold()) is not None:
+            reason = self.hold()
+            if reason is None and reading is not None and not reading.usable:
+                reason = Code.FROZEN  # no value to step on, rig or not: never substituted
+            if reason is not None:
                 self.held = reason
                 return
             resumed, self.held = self.held is not None, None

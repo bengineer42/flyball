@@ -257,9 +257,10 @@ class BoundInput:
 
         Raises:
             NotReadyError: Nothing bound or read, and no default.
+            NoValueError: The source's newest reading has no value: never the default.
         """
-        if (signal := self.signal) is not None and (reading := signal.reading) is not None:
-            return reading.value
+        if (signal := self.signal) is not None and signal.reading is not None:
+            return signal.value
         default = self.input.default
         if isinstance(default, Descriptor):
             return self.device.signals[default.path].value

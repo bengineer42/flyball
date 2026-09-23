@@ -24,6 +24,7 @@ from ..errors import NotFoundError, NotReadyError, UnachievableError
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
+from .novalue import NoValue, OnNoValue, Quality, Railed, Readback, invalid
 from .state import Code
 
 if TYPE_CHECKING:
@@ -265,6 +266,13 @@ class SignalSpec:
     """How fast a demand may move, in the signal's unit per `Rate.per`: a demand that would
     move further than the elapsed time since the last commit allows is clamped to the
     largest step allowed, not refused. None (default): unlimited, today's behaviour."""
+    readback: Readback = Readback.ECHO
+    """A demand's: `echo` (default) when its reading is the value the rig committed, so it is
+    `stale(write_failed)` while its device's writes fail; `sensed` when the driver reads it back
+    from the hardware, so it is a measurement like any readout's."""
+    on_no_value: OnNoValue | None = None
+    """A banded signal's: whether a fault with no value (`invalid`) raises `band_unknown` after
+    its grace. None (default): `fire` with an `alarm` band, `ignore` with only `warning`."""
 
     def __post_init__(self) -> None:
         _check_segment(self.name)
@@ -488,7 +496,10 @@ type Followed = float | Signal | BoundInput
 
 
 def _value_of(bound: Followed) -> float | None:
-    """A limit's current value: the number, or what it follows now; None if that is not known."""
+    """A limit's current value: the number, or what it follows now; None if that is not known.
+
+    A followed signal whose newest reading is a no-value is not known: the limit fails closed.
+    """
     if isinstance(bound, (int, float)):
         return bound
     if isinstance(bound, Signal):
@@ -520,7 +531,7 @@ def _shown(limits: tuple[Bound, Bound]) -> str:
 
 def _finite(value: Any) -> float | None:
     """A referenced bound as a number, or None: not known -- no value, or not a finite one."""
-    if value is None:
+    if value is None or isinstance(value, NoValue):
         return None
     try:
         number = float(value)
@@ -781,13 +792,15 @@ class Signal:
         """Replace metadata fields of the spec in place; the bound object keeps its identity.
 
         A `warning` or `alarm` band removed takes its condition with it
-        (`band_warning`, `band_alarm`), cleared at once: there is no band
-        left for a reading to come back inside.
+        (`band_warning`, `band_alarm`; `band_unknown` with the last band),
+        cleared at once: there is no band left for a reading to come back inside.
         """
         before, self.spec = self.spec, replace(self.spec, **changes)
         for band, code in (("warning", Code.BAND_WARNING), ("alarm", Code.BAND_ALARM)):
             if getattr(before, band) is not None and getattr(self.spec, band) is None:
                 self.node.device.conditions.clear(self, code, message=f"{band} band removed")
+        if self.spec.warning is None and self.spec.alarm is None:
+            self.node.device.conditions.clear(self, Code.BAND_UNKNOWN, message="no band left")
 
     def restrict(self, access: Access) -> None:
         """Set `access` to a subset of what the driver declared, or up to its `ceiling`.
@@ -826,15 +839,35 @@ class Reading:
     signal: Signal
     time_ns: int
     value: Value
+    """The value, or a [NoValue][flyball.foundation.device.novalue.NoValue]: test `usable`."""
     requested: float | None = None
     """What was asked for, when the clamp changed it."""
     at_limit: Limit | None = None
+    """The caveat `at_limit`: the rig clamped this demand to an end of its limits, or the driver
+    reported the value railed at an end of what it can read."""
     controller: str | None = None
     """The controller driving the signal, if any."""
 
     @property
     def seconds(self) -> float:
         return self.time_ns / 1e9
+
+    @property
+    def usable(self) -> bool:
+        """Whether it has a value a consumer may use: not a no-value."""
+        return not isinstance(self.value, NoValue)
+
+    @property
+    def quality(self) -> Quality:
+        """`ok`, or the no-value's quality."""
+        value = self.value
+        return value.quality if isinstance(value, NoValue) else Quality.OK
+
+    @property
+    def reason(self) -> str:
+        """The no-value's reason; `""` for a usable value."""
+        value = self.value
+        return value.reason if isinstance(value, NoValue) else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -848,11 +881,17 @@ class Sample:
     relative to the node, never nested. Any readable signal under the node
     may appear and any may be missing -- not read at this instant -- but
     there is always at least one. Only what publishes leaves the rig.
+
+    A value may be a [NoValue][flyball.foundation.device.novalue.NoValue]: read, and none.
+    `marks` are the caveat `at_limit` of the values that carry it, sparse; a driver yields
+    `railed(value, "high")` and [normalised][flyball.foundation.device.signal.normalised]
+    moves it here.
     """
 
     node: Node
     time_ns: int
     values: Mapping[Signal, Value]
+    marks: Mapping[Signal, Limit] = field(default_factory=dict[Signal, Limit])
 
     @property
     def seconds(self) -> float:
@@ -861,7 +900,13 @@ class Sample:
     def readings(self) -> Iterator[Reading]:
         """One [Reading][flyball.foundation.device.signal.Reading] per value, its bound signal."""
         time_ns = self.time_ns
-        return (Reading(signal, time_ns, value) for signal, value in self.values.items())
+        marks = self.marks
+        if not marks:
+            return (Reading(signal, time_ns, value) for signal, value in self.values.items())
+        return (
+            Reading(signal, time_ns, value, at_limit=marks.get(signal))
+            for signal, value in self.values.items()
+        )
 
     def by_name(self, relative_to: Node | None = None) -> dict[str, Value]:
         """The wire form: each value by its dotted path relative to `relative_to` (default `node`).
@@ -877,7 +922,7 @@ class Sample:
         kept = {s: v for s, v in self.values.items() if Access.P in s.access}
         if len(kept) == len(self.values):
             return self
-        return Sample(self.node, self.time_ns, kept) if kept else None
+        return Sample(self.node, self.time_ns, kept, _kept(self.marks, kept)) if kept else None
 
     def under(self, node: Node) -> Sample | None:
         """The values under `node`, as a sample on it; None if there are none.
@@ -888,7 +933,53 @@ class Sample:
         if node is self.node:
             return self
         kept = {s: v for s, v in self.values.items() if node.contains(s)}
-        return Sample(node, self.time_ns, kept) if kept else None
+        return Sample(node, self.time_ns, kept, _kept(self.marks, kept)) if kept else None
+
+
+def _kept(marks: Mapping[Signal, Limit], kept: Mapping[Signal, Value]) -> Mapping[Signal, Limit]:
+    """The marks of the values `kept`: what a sample cut down to them carries."""
+    return {s: m for s, m in marks.items() if s in kept} if marks else marks
+
+
+def _gate(value: Value) -> tuple[Value, Limit | None, bool]:
+    """One value through the gate: the value (or a no-value), its mark, whether it changed."""
+    if value is None:
+        return invalid("no value"), None, True
+    if isinstance(value, float) and not math.isfinite(value):
+        return invalid("not finite"), None, True
+    if isinstance(value, Railed):
+        inner, _, _ = _gate(value.value)
+        if isinstance(inner, NoValue):
+            return inner, None, True
+        return inner, Limit(value.side), True
+    return value, None, False
+
+
+def normalised(sample: Sample) -> Sample:
+    """`sample` through the value gate: itself when every value is already a value or a no-value.
+
+    `None`, NaN and the infinities become `invalid` no-values (`"no value"`, `"not finite"`): a
+    number nobody can use is not passed on as one. A `railed(value, side)` becomes the value,
+    with its side in `marks`.
+    """
+    values: dict[Signal, Value] | None = None
+    marks: dict[Signal, Limit] | None = None
+    for signal, value in sample.values.items():
+        gated, mark, changed = _gate(value)
+        if not changed:
+            continue
+        if values is None:
+            values, marks = dict(sample.values), dict(sample.marks)
+        assert marks is not None
+        values[signal] = gated
+        if mark is None:
+            marks.pop(signal, None)
+        else:
+            marks[signal] = mark
+    if values is None:
+        return sample
+    assert marks is not None
+    return Sample(sample.node, sample.time_ns, values, marks)
 
 
 @dataclass(frozen=True, slots=True)

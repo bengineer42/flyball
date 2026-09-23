@@ -218,6 +218,7 @@ def device_out(rig: Rig, device: Device) -> DeviceOut:
             link=link_name(rig, device),
             run=run_of(rig, device.name),
             conditions=device.held_conditions(),
+            last_usable=rig.router.last_usable,
         )
 
 

@@ -82,27 +82,30 @@ class Writer:
             self.device.commit(time_ns)
         except Exception as error:
             self.device.staged.clear()
-            self._failure(error)
+            self._failure(error, queued)
             return
         self.writes += 1
         try:
             self.rig.written(self.device, time_ns, before)
         except Exception as error:
             log.exception("%s: reporting a write", self.device.name)
-            self._failure(error)
+            self._failure(error, queued)
             return
-        self.rig.conditions.clear(self.device, Code.WRITE_FAILED, message="writes succeed")
+        if self.rig.conditions.clear(self.device, Code.WRITE_FAILED, message="writes succeed"):
+            self.rig.writes_recovered(self.device)  # its echo demands are known again
 
     @property
     def failed(self) -> Condition | None:
         """The device's `write_failed` while the last write failed; None once one succeeds."""
         return self.rig.conditions.get(self.device, Code.WRITE_FAILED)
 
-    def _failure(self, error: Exception) -> None:
+    def _failure(self, error: Exception, queued: dict[Signal, tuple[int, float]]) -> None:
+        """Hold `write_failed`; the device's echo demands read `stale(write_failed)` meanwhile."""
         message = f"{type(error).__name__}: {error}"
         # Raised once per outage, not once per tick: a held condition is only updated.
         if self.rig.conditions.set(self.device, Code.WRITE_FAILED, Severity.ERROR, message):
             log.warning("%s: write failed: %s", self.device.name, message)
+        self.rig.writes_failed(self.device, queued)
 
     def stop(self, join: bool = True) -> None:
         """Stop the thread after the write in progress, if any.

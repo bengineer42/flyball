@@ -36,8 +36,11 @@ from flyball.foundation.device import (
     LimitNotKnownError,
     LimitsInvertedError,
     Node,
+    NoValue,
     Readable,
+    Readback,
     Reading,
+    Reason,
     Role,
     Sample,
     Scope,
@@ -45,6 +48,8 @@ from flyball.foundation.device import (
     Signal,
     Staged,
     WriteState,
+    normalised,
+    stale,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
@@ -66,6 +71,9 @@ if TYPE_CHECKING:
     from flyball.runtime.recorder import Recorder
 
 log = logging.getLogger("flyball.rig")
+
+RESUME_AFTER = 3
+"""Readings with a value, in a row, before a controller frozen on a no-value steps again."""
 
 FRESH_READ_WAIT_S = 5.0
 """How long a fresh read waits for a read of the same device already in flight (a poll,
@@ -137,6 +145,15 @@ class Rig:
     what its commits pushed; None outside one. A controller steps at most once in that chain:
     a commit that pushes back its own measured signal would otherwise step it again, for ever."""
     _running: dict[Device, str]
+    _write_lost: dict[Device, set[Signal]]
+    """Per device, the demands whose last commit failed and has not been made good since: they
+    stay `stale(write_failed)` after the device's writes recover, until a demand of theirs
+    commits."""
+    _read_path: dict[Device, set[Signal]]
+    """Per device, the signals its polled reads have delivered: what goes
+    `stale(device_offline)` when it goes offline."""
+    _fresh: dict[Controller, int]
+    """Per controller, how many readings in a row with a value its measured signal has had."""
     """The long command each device is running now, off the lock (`@command(long=True)`)."""
     _ignored: set[Signal]
     """Demands whose driver's `commit` did not read them: one event when a signal's demand
@@ -193,6 +210,9 @@ class Rig:
         self._stepped = None
         self._ignored = set()
         self._running = {}
+        self._write_lost = {}
+        self._read_path = {}
+        self._fresh = {}
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -689,10 +709,12 @@ class Rig:
             if self._touched is not None:  # inside a delivery: committed at its end
                 self._touched[device] = None
                 return {}
-            states = self._committing((device,), time_ns)
-            if states and self.recorder is not None:
-                self.recorder.record((), (), states, time_ns=time_ns)
-            self._flush_pushed()
+            try:
+                states = self._committing((device,), time_ns)
+                if states and self.recorder is not None:
+                    self.recorder.record((), (), states, time_ns=time_ns)
+            finally:  # a failed commit's stale demands are delivered too
+                self._flush_pushed()
             return states
 
     def hold_reason(self, controller: Controller) -> Code | None:
@@ -706,7 +728,34 @@ class Rig:
         The controller asks this before it steps its law, so a held write
         freezes the law as well as the output; `demand` asks it again for its
         own writes.
+
+        `frozen`: its measured signal's newest reading has no value (`invalid`,
+        `stale`, `not_applicable`); nothing is substituted. It stays frozen
+        until `RESUME_AFTER` readings in a row have a value, then steps on,
+        its law's clock skipping the freeze.
         """
+        measured = controller.measured_signal
+        latest = self.router.latest.get(measured)
+        if latest is not None and isinstance(value := latest.value, NoValue):
+            why = f": {value.reason}" if value.reason else ""
+            self.conditions.set(
+                controller,
+                Code.FROZEN,
+                Severity.WARNING if value.quality.fault else Severity.INFO,
+                f"'{measured.address}' has no value ({value.quality.value}{why}): frozen",
+                {
+                    "signal": measured.address,
+                    "quality": value.quality.value,
+                    "reason": value.reason,
+                },
+            )
+            return Code.FROZEN
+        if self.conditions.get(controller, Code.FROZEN) is not None:
+            if (fresh := self._fresh.get(controller, 0)) < RESUME_AFTER:
+                return Code.FROZEN
+            self.conditions.clear(
+                controller, Code.FROZEN, message=f"{fresh} readings with a value: stepping again"
+            )
         if (stale_after_s := controller.measured_signal.spec.stale_after_s) is not None:
             measured = controller.measured_signal
             reading = self.router.latest.get(measured)
@@ -763,9 +812,11 @@ class Rig:
         Nothing to compare against yet (no prior commit), or a last value
         that is not finite (a readback gone wrong): `value` passes through
         unclamped, as the first demand on a signal has nothing to ramp from.
+        A demand whose newest reading has no value (`stale(write_failed)`)
+        ramps from the last one that had.
         """
-        last = self.router.latest.get(signal)
-        if last is None or not math.isfinite(last.value):
+        last = self.router.last_usable.get(signal)
+        if last is None or not isinstance(last.value, int | float) or not math.isfinite(last.value):
             return value
         window_s = signal.poll_s or (by.min_period_s if by is not None else None) or 1.0
         elapsed_s = min((now_ns - last.time_ns) / 1e9, window_s)
@@ -826,8 +877,10 @@ class Rig:
                     raise
                 failed.update(dropped)
                 continue
-            self.conditions.clear(device, Code.COMMIT_FAILED, message="commits succeed")
+            recovered = self.conditions.clear(device, Code.COMMIT_FAILED, message="commits succeed")
             states.update(self._states(device, time_ns, before))
+            if recovered is not None:
+                self._writes_recovered(device)
         return states
 
     def _commit_failed(self, device: Committable, error: Exception) -> dict[Signal, WriteState]:
@@ -851,8 +904,95 @@ class Rig:
                 controller=None if holder is None else holder.name,
             )
             signal.at_limit = None
+        self._writes_failing(device, list(dict.keys(device.staged)))
         device.staged.clear()
         return dropped
+
+    def writes_failed(self, device: Device, signals: Iterable[Signal]) -> None:
+        """A blocking device's writer failed a write of `signals`: its echo demands go stale."""
+        with self.lock:
+            if self.devices.get(device.name) is device:
+                self._writes_failing(device, signals)
+
+    def writes_recovered(self, device: Device) -> None:
+        """A blocking device's writer wrote again after failing: its echo demands are known."""
+        with self.lock:
+            if self.devices.get(device.name) is device:
+                self._writes_recovered(device)
+
+    def _writes_failing(self, device: Device, signals: Iterable[Signal]) -> None:
+        """While `device`'s writes fail, every echo demand on it is `stale(write_failed)`.
+
+        What the device holds is not known. Each echo demand with a reading
+        gets a `stale(write_failed)` reading now -- a limit or a wait that
+        follows it fails closed, a chart breaks -- and its last value stays
+        its `last_usable`. One never read yet stays `pending`. `signals` (the
+        demands in the failed write) are remembered: they stay stale after
+        the device recovers, until a demand of theirs commits.
+        """
+        self._write_lost.setdefault(device, set()).update(
+            s for s in signals if s.role is Role.DEMAND
+        )
+        gone = stale(Reason.WRITE_FAILED)
+        by_node: dict[Node, dict[Signal, Any]] = {}
+        for signal in _echoes(device):
+            reading = self.router.latest.get(signal)
+            if reading is None or reading.value == gone:
+                continue
+            by_node.setdefault(signal.node, {})[signal] = gone
+        if by_node:
+            now = self.clock.now_ns()
+            self.on_samples([Sample(node, now, values) for node, values in by_node.items()])
+
+    def _writes_recovered(self, device: Device) -> None:
+        """`device` committed again: its echo demands return to their last value.
+
+        Every echo demand still `stale(write_failed)` gets its `last_usable`
+        value back as its reading, except those whose own write was lost
+        (in a failed commit, not committed since): nothing they asked for
+        reached the device, so they stay stale until a demand of theirs
+        commits.
+        """
+        lost = self._write_lost.get(device, set())
+        gone = stale(Reason.WRITE_FAILED)
+        by_node: dict[Node, dict[Signal, Any]] = {}
+        for signal in _echoes(device):
+            reading = self.router.latest.get(signal)
+            if reading is None or reading.value != gone or signal in lost:
+                continue
+            if (usable := self.router.last_usable.get(signal)) is not None:
+                by_node.setdefault(signal.node, {})[signal] = usable.value
+        if by_node:
+            now = self.clock.now_ns()
+            self.on_samples([Sample(node, now, values) for node, values in by_node.items()])
+
+    def note_read(self, device: Device, samples: Iterable[Sample]) -> None:
+        """What a poll of `device` delivered: its read path, for `stale(device_offline)`."""
+        path = self._read_path.setdefault(device, set())
+        for sample in samples:
+            path.update(sample.values)
+
+    def device_offline(self, device: Device) -> None:
+        """`device` went offline: what its reads delivered is `stale(device_offline)` at once.
+
+        Its readouts and sensed demands on its read path (what its polled
+        reads have delivered) get a `stale(device_offline)` reading; its
+        settings, configs and echo demands keep theirs. A signal never read
+        stays `pending`. Each returns to `ok` with its next read.
+        """
+        with self.lock:
+            if self.devices.get(device.name) is not device:
+                return
+            gone = stale(Reason.DEVICE_OFFLINE)
+            by_node: dict[Node, dict[Signal, Any]] = {}
+            for signal in self._read_path.get(device, ()):
+                if signal.role is Role.READOUT or (
+                    signal.role is Role.DEMAND and signal.spec.readback is Readback.SENSED
+                ):
+                    by_node.setdefault(signal.node, {})[signal] = gone
+            if by_node:
+                now = self.clock.now_ns()
+                self.on_samples([Sample(node, now, values) for node, values in by_node.items()])
 
     def _states(
         self, device: Committable, time_ns: int, before: Mapping[Signal, int]
@@ -885,11 +1025,14 @@ class Rig:
                 self._demand_ignored(device, signal, value)
                 requested = value if requested is None else requested
                 reading = self.router.latest.get(signal)
-                value = None if reading is None else reading.value
+                value = None if reading is None or not reading.usable else reading.value
             else:
                 self._ignored.discard(signal)
+                if (lost := self._write_lost.get(device)) is not None:
+                    lost.discard(signal)  # it committed: made good
             if pushed:
-                value = self.router.value(signal)
+                reading = self.router.latest.get(signal)
+                value = None if reading is None or not reading.usable else reading.value
             at_limit = signal.at_limit
             if at_limit is None and (limits := signal.limits) is not None and value is not None:
                 if value <= limits[0]:
@@ -907,8 +1050,12 @@ class Rig:
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
-            if not pushed and not ignored:  # no readback: the value stands
-                signal.push(value, time_ns)
+            if not pushed and not ignored:  # no readback: the value stands, with its mark
+                self.router.push(
+                    Sample(signal.node, time_ns, {signal: value}, _mark(signal, at_limit))
+                )
+            elif pushed and at_limit is not None:
+                self._mark_pushed(signal, at_limit)
             # Fold the write record into the reading itself, so it rides the samples stream
             # with the value instead of a separate `/ws/writes` cell.
             if (reading := self.router.latest.get(signal)) is not None:
@@ -920,6 +1067,16 @@ class Rig:
                 )
         device.staged.clear()
         return states
+
+    def _mark_pushed(self, signal: Signal, at_limit: Limit) -> None:
+        """Mark a driver's readback, still waiting in `_pushed`, with the rig's `at_limit`."""
+        for i in range(len(self._pushed) - 1, -1, -1):
+            sample = self._pushed[i]
+            if signal in sample.values:
+                if sample.marks.get(signal) is None:
+                    marks = {**sample.marks, signal: at_limit}
+                    self._pushed[i] = Sample(sample.node, sample.time_ns, sample.values, marks)
+                return
 
     def _demand_ignored(self, device: Committable, signal: Signal, value: float) -> None:
         if signal in self._ignored:
@@ -1103,8 +1260,11 @@ class Rig:
             for role, bound in list(other.bound.items()):
                 if bound.device is device:
                     del other.bound[role]
+        self._write_lost.pop(device, None)
+        self._read_path.pop(device, None)
         for signal in device.signals.values():
             self.router.latest.pop(signal, None)
+            self.router.last_usable.pop(signal, None)
             self.router.recent.pop(signal, None)
             self.router.seq.pop(signal, None)
             self.write_states.discard(signal.address)
@@ -1253,7 +1413,7 @@ class Rig:
                 )
             finally:
                 self._touched = None
-            self._flush_pushed()
+                self._flush_pushed()
         return result
 
     def _command_checks(
@@ -1317,8 +1477,7 @@ class Rig:
         finally:
             if outer is None:
                 self._touched = None
-        if outer is None:
-            self._flush_pushed()
+                self._flush_pushed()  # a failed commit's stale demands are delivered too
         return result
 
     def _command_ran(
@@ -1415,6 +1574,7 @@ class Rig:
         """
         with self.lock:
             controller = self.controllers.remove(name)
+            self._fresh.pop(controller, None)
             self.conditions.clear_owner(controller, reason="detached")
             controller.manual()
             controller.write = Controller._unwired
@@ -1439,9 +1599,15 @@ class Rig:
         streamed. Several controllers on one device, and a bound input
         beside them, cost that device one commit.
 
+        Every value goes through the value gate first
+        ([normalised][flyball.foundation.device.signal.normalised]): `None`,
+        NaN and the infinities become `invalid` no-values, a `railed` value
+        its number and its `at_limit` mark.
+
         Raises:
             ValueError: A sample carries a stray key, or none.
         """
+        samples = [normalised(sample) for sample in samples]
         for sample in samples:
             self._check_sample(sample)
         if not samples:
@@ -1481,10 +1647,14 @@ class Rig:
                         # replace: the newest value of every signal.
                         held = self.samples.get(sample.node.address)
                         if held is not None and held.time_ns <= streamed.time_ns:
+                            marks = {
+                                s: m for s, m in held.marks.items() if s not in streamed.values
+                            }
                             streamed = Sample(
                                 streamed.node,
                                 streamed.time_ns,
                                 {**held.values, **streamed.values},
+                                {**marks, **streamed.marks},
                             )
                         self.samples.set(sample.node.address, streamed)
                 messages: dict[tuple[Device, Node], None] = {}
@@ -1539,6 +1709,7 @@ class Rig:
         instead, and the controller's mode is left as it was -- what a
         faulted controller should do is a separate decision.
         """
+        self._fresh[controller] = self._fresh.get(controller, 0) + 1 if reading.usable else 0
         try:
             controller.on_reading(reading)
         except Exception as error:
@@ -1574,3 +1745,15 @@ class Rig:
                 )
 
     # endregion
+
+
+def _echoes(device: Device) -> Iterator[Signal]:
+    """`device`'s demands whose reading is the value the rig committed (`readback: echo`)."""
+    for signal in device.signals.values():
+        if signal.role is Role.DEMAND and signal.spec.readback is Readback.ECHO:
+            yield signal
+
+
+def _mark(signal: Signal, at_limit: Limit | None) -> dict[Signal, Limit]:
+    """The marks of a one-value sample: its `at_limit`, if any."""
+    return {} if at_limit is None else {signal: at_limit}

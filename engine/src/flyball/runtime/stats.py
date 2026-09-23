@@ -1,4 +1,7 @@
-"""Small statistics over a signal's recent readings, computed on request, off the process path."""
+"""Small statistics over a signal's recent readings, computed on request, off the process path.
+
+Readings with no value are left out: a statistic is of the values there were.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ def noise(readings: Sequence[Reading], window: int = 5) -> float | None:
     Detrended with a `window`-point moving mean, so a ramp does not read as
     noise. None with fewer than `window + 2` readings.
     """
-    values = [r.value for r in readings]
+    values = [r.value for r in readings if r.usable]
     if len(values) < window + 2:
         return None
     half = window // 2
@@ -37,6 +40,7 @@ def rate(readings: Sequence[Reading], per_s: float = 60.0) -> float | None:
 
     None with fewer than three readings or no time span.
     """
+    readings = [r for r in readings if r.usable]
     if len(readings) < 3:
         return None
     t0 = readings[0].time_ns

@@ -33,6 +33,8 @@ class Router:
     """The newest sample delivered on another node of the tree, cut down to this atomic one: a
     root sample carrying `dry.humidity` is the newest instant on `dry` too."""
     recent: dict[Signal, deque[Reading]]
+    last_usable: dict[Signal, Reading]
+    """The newest reading on each signal that had a value: what `latest` was before a no-value."""
     seq: dict[Signal, int]
     """How many readings each signal has had: what changed, when the clock did not move."""
     deliver: Callable[[Sequence[Sample]], None] | None
@@ -45,6 +47,7 @@ class Router:
         self.samples = {}
         self.cuts = {}
         self.recent = {}
+        self.last_usable = {}
         self.seq = {}
         self.deliver = None
         self.now_ns = time.time_ns
@@ -60,10 +63,16 @@ class Router:
 
         Raises:
             NotReadyError: Nothing has been read on it yet.
+            NoValueError: The newest reading has no value (`invalid`, `stale`, ...); a
+                `NotReadyError` too. Nothing substitutes the last one.
         """
+        from ..device.novalue import NoValue, NoValueError
+
         if (reading := self.latest.get(signal)) is None:
             raise NotReadyError(f"Nothing has been read on '{signal.address}' yet")
-        return reading.value
+        if isinstance(value := reading.value, NoValue):
+            raise NoValueError(signal.address, value)
+        return value
 
     def sample(self, node: Node) -> Sample | None:
         """The newest instant on `node`: delivered on it, or cut to it if atomic; else None."""
@@ -96,6 +105,8 @@ class Router:
         for reading in sample.readings():
             signal = reading.signal
             self.latest[signal] = reading
+            if reading.usable:
+                self.last_usable[signal] = reading
             self.seq[signal] = self.seq.get(signal, 0) + 1
             if (recent := self.recent.get(signal)) is None:
                 recent = self.recent[signal] = deque(maxlen=RECENT_READINGS)
@@ -116,10 +127,12 @@ class Router:
 
         batch = (samples,) if isinstance(samples, Sample) else samples
         if self.deliver is not None:
-            self.deliver(batch)
+            self.deliver(batch)  # the rig puts them through the value gate
         else:
+            from ..device.signal import normalised
+
             for sample in batch:
-                self.note(sample)
+                self.note(normalised(sample))
 
     def push_reading(self, signal: Signal, value: Value, time_ns: int | None = None) -> None:
         """One value on one signal, as a sample on its node, delivered."""

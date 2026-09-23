@@ -223,7 +223,11 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "role": "readout",
         "tags": {},
         "initial": None,
+        "quality": "pending",
+        "readback": None,
+        "on_no_value": "fire",
         "latest": None,
+        "last_usable": None,
         "write": None,
     }
     assert furnace["signals"][2]["access"] == "rpw", "a demand is readable, publishing and writable"
@@ -317,8 +321,16 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     sample = deliver(rig, daq, 5_000_000_000)
     rig.write(drive.root, {"heater1": 3000.0})
     one = client.get(f"/api/devices/{daq.name}").json()
-    assert one["signals"][0]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
-    assert one["signals"][2]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
+    assert one["signals"][0]["latest"] == {
+        "time_ns": sample.time_ns,
+        "value": 21.5,
+        "quality": "ok",
+    }
+    assert one["signals"][2]["latest"] == {
+        "time_ns": sample.time_ns,
+        "value": 0.0,
+        "quality": "ok",
+    }, "RW reads too"
     heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
     assert heater1["write"] == {
         "value": 2500.0,
@@ -417,7 +429,7 @@ def test_read_by_address(client, rig, daq, clock):
     assert client.get(f"/api/read/{daq.name}.zone9").status_code == 404
     sample = deliver(rig, daq, 5_000_000_000)
     assert client.get(f"/api/read/{zone1}").json() == {
-        "reading": {"signal": zone1, "time_ns": 5_000_000_000, "value": 21.5}
+        "reading": {"signal": zone1, "time_ns": 5_000_000_000, "value": 21.5, "quality": "ok"}
     }
     assert daq.reads == 1, "a plain read is what is known; the device was not asked"
     assert client.get(f"/api/read/{daq.name}").json() == {
@@ -434,7 +446,9 @@ def test_read_by_address(client, rig, daq, clock):
     daq.temps["zone1"] = 99.0
     clock.advance(1.0)
     fresh = client.get(f"/api/read/{zone1}?fresh=true").json()
-    assert fresh == {"reading": {"signal": zone1, "time_ns": clock.now_ns(), "value": 99.0}}
+    assert fresh == {
+        "reading": {"signal": zone1, "time_ns": clock.now_ns(), "value": 99.0, "quality": "ok"}
+    }
     assert daq.reads == 2 and rig.latest[daq.signals["zone1"]].value == 99.0, "delivered too"
 
     many = client.get(f"/api/read?at={zone1},{daq.name}.zone2,{daq.name}").json()
@@ -666,7 +680,12 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
 
     mode = client.get(f"/api/read/{typed.name}.mode").json()
     assert mode == {
-        "reading": {"signal": f"{typed.name}.mode", "time_ns": sample.time_ns, "value": "running"}
+        "reading": {
+            "signal": f"{typed.name}.mode",
+            "time_ns": sample.time_ns,
+            "value": "running",
+            "quality": "ok",
+        }
     }
     config = client.get(f"/api/read/{typed.name}.config").json()
     assert config["reading"]["value"] == {"gain": 2, "offset": 1}

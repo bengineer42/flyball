@@ -35,31 +35,36 @@ router = APIRouter(prefix="/api", tags=["rig"])
 # isn't `get_catalog()`/`Catalogs.discover()`.
 
 
-BANDS = frozenset({Code.BAND_WARNING, Code.BAND_ALARM})
-"""The conditions that are alarms, not faults: a reading outside a band."""
+BANDS = frozenset({Code.BAND_WARNING, Code.BAND_ALARM, Code.BAND_UNKNOWN})
+"""The conditions that are alarms, not faults: a reading outside a band, or a band unknown."""
+
+_RANK: dict[str, int] = {Code.BAND_WARNING: 1, Code.BAND_ALARM: 2, Code.BAND_UNKNOWN: 3}
+"""Which a signal counts under when caught holding two: `unknown` over `alarm` over `warn`."""
 
 
 def _alarm_summary(conditions: list[dict[str, Any]]) -> dict[str, int]:
-    """Signals holding `band_warning` (`warn`) and `band_alarm` (`alarm`): alarms, not faults.
+    """Signals holding `band_warning` (`warn`), `band_alarm` (`alarm`), `band_unknown` (`unknown`).
 
     Counted from the rig's band conditions, so the count keeps the rig's
     hysteresis; a fault condition (offline, write_failed) is never an alarm.
-    A signal holds at most one; one caught mid-swap counts as `alarm`.
-    `unknown` (a banded signal with no value) is always 0 yet. `max_level`
-    is 40 with any `alarm`, 30 with only `warn`, else 0.
+    Each signal counts once: one with no value counts in `unknown` only,
+    whatever band it held before; one caught mid-swap counts as `alarm`.
+    `max_level` is 40 with any `alarm`, 30 with only `warn`, else 0:
+    `unknown` does not raise it.
     """
     held: dict[str, str] = {}
     for c in conditions:
         if c["scope"] != Scope.SIGNAL or c["code"] not in BANDS:
             continue
-        if held.get(c["subject"]) != Code.BAND_ALARM:
+        if _RANK[c["code"]] > _RANK.get(held.get(c["subject"], ""), 0):
             held[c["subject"]] = c["code"]
     alarm = sum(1 for code in held.values() if code == Code.BAND_ALARM)
-    warn = len(held) - alarm
+    unknown = sum(1 for code in held.values() if code == Code.BAND_UNKNOWN)
+    warn = len(held) - alarm - unknown
     return {
         "warn": warn,
         "alarm": alarm,
-        "unknown": 0,
+        "unknown": unknown,
         "max_level": 40 if alarm else 30 if warn else 0,
     }
 

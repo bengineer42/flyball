@@ -23,7 +23,16 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 from pydantic_core import to_jsonable_python
 
-from flyball.foundation.device import Access, Bounds, Device, Limit, Sample, Signal, WriteState
+from flyball.foundation.device import (
+    Access,
+    Bounds,
+    Device,
+    Limit,
+    NoValue,
+    Sample,
+    Signal,
+    WriteState,
+)
 from flyball.foundation.errors import ConflictError, NotFoundError
 
 from .errors import (
@@ -43,6 +52,7 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
+    Flag,
     Point,
     ProgramFormat,
     ProgramRow,
@@ -90,13 +100,32 @@ def _encode_reading(dtype: str, value: Any) -> Any:
     return json.dumps(value)
 
 
+def _stored(dtype: str, value: Any, mark: Limit | None) -> tuple[Any, int | None]:
+    """A reading as its row takes it: `(value, flag)`.
+
+    A no-value is NULL with its code; a float that is not finite (a sample that did
+    not pass the value gate) is NULL and `invalid`, never dropped; a value is
+    `_encode_reading`'s, with its mark's code or NULL.
+    """
+    if isinstance(value, NoValue):
+        return None, int(Flag.of(value))
+    if value is None or (isinstance(value, float) and value != value):  # NaN
+        return None, int(Flag.INVALID)
+    if isinstance(value, float) and value in (float("inf"), float("-inf")):
+        return None, int(Flag.INVALID)
+    mark_flag = Flag.mark(mark)
+    return _encode_reading(dtype, value), None if mark_flag is None else int(mark_flag)
+
+
 def _decode_reading(dtype: str, raw: Any) -> Any:
-    """The column's value back to a reading: undoes `_encode_reading`.
+    """The column's value back to a reading: undoes `_encode_reading`. NULL is None.
 
     SQLite's REAL affinity turns numeric-looking JSON text (an int, a bare
     digit) into a number on the way in, so a non-float value may already be
     numeric here rather than the str `_encode_reading` wrote.
     """
+    if raw is None:
+        return None
     if dtype == "float":
         return raw
     if isinstance(raw, str):
@@ -400,7 +429,7 @@ class SqliteSessionWriter:
         self._open()
         session_id = self._session.id
         sample_rows: list[tuple[int, int, int, str, int]] = []
-        reading_rows: list[tuple[int, int, int, int, int, Any]] = []
+        reading_rows: list[tuple[int, int, int, int, int, Any, int | None]] = []
         seqs = dict(self._seq)
         for sample in samples:
             node = sample.node
@@ -409,22 +438,12 @@ class SqliteSessionWriter:
             offset = sample.time_ns - self._session.start_ns
             seq = seqs[did] = seqs.get(did, 0) + 1
             sample_rows.append((session_id, did, seq, node.address, offset))
+            marks = sample.marks
             for signal, value in sample.values.items():
                 if (sid := self._signals.get(signal)) is None:
                     raise NotDeclaredError("signal", signal.address)
-                dtype = signal.spec.dtype
-                if dtype == "float":
-                    if value == value:  # NaN is a fault, not a reading; the writer routes those
-                        reading_rows.append((session_id, did, seq, sid, offset, value))
-                else:
-                    reading_rows.append((
-                        session_id,
-                        did,
-                        seq,
-                        sid,
-                        offset,
-                        _encode_reading(dtype, value),
-                    ))
+                stored, flag = _stored(signal.spec.dtype, value, marks.get(signal))
+                reading_rows.append((session_id, did, seq, sid, offset, stored, flag))
         if not sample_rows:
             return
         with self._store._transaction() as connection:
@@ -434,8 +453,9 @@ class SqliteSessionWriter:
                 sample_rows,
             )
             connection.executemany(
-                "INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO reading"
+                " (session_id, device_id, seq, signal_id, offset_ns, value, flag)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 reading_rows,
             )
         self._seq = seqs
@@ -956,8 +976,8 @@ class SqliteStore:
             else ""
         )
         readings = connection.execute(
-            f"INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
-            f" SELECT ?, {device_map}, {seq}, {signal_map}, r.offset_ns + ?, r.value"
+            "INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value, flag)"
+            f" SELECT ?, {device_map}, {seq}, {signal_map}, r.offset_ns + ?, r.value, r.flag"
             " FROM reading r JOIN sample s ON s.session_id = r.session_id"
             f" AND s.device_id = r.device_id AND s.seq = r.seq{signal_joins}"
             " WHERE r.session_id = ? AND r.offset_ns >= ? AND r.offset_ns < ?",
@@ -1084,7 +1104,9 @@ class SqliteStore:
         shift = self._shift(session_id)
         where, params = _window_clause(window, "offset_ns", shift)
         # Every form below is one range scan of reading_by_signal: the index
-        # carries offset_ns and value, so neither the table nor sample is read.
+        # carries offset_ns, value and flag, so neither the table nor sample is read.
+        # A reading with no value is a NULL value with its flag: every form keeps it,
+        # so a chart breaks where it did.
         base = " FROM reading WHERE session_id = ? AND signal_id = ?" + where
         key = [session_id, signal.id, *params]
 
@@ -1093,23 +1115,25 @@ class SqliteStore:
             # is not an error -- a page asks for every signal the same way --
             # it just does not apply; the series says so with `downsample` None.
             rows = self._query(
-                "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
+                "SELECT offset_ns AS t, value AS v, flag AS f" + base + " ORDER BY offset_ns", key
             )
             points = tuple(
-                Point(r["t"] - shift, _decode_reading(signal.dtype, r["v"])) for r in rows
+                Point(r["t"] - shift, _decode_reading(signal.dtype, r["v"]), r["f"]) for r in rows
             )
             return Series(signal, points, None)
 
         match downsample:
             case None:
                 rows = self._query(
-                    "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
+                    "SELECT offset_ns AS t, value AS v, flag AS f" + base + " ORDER BY offset_ns",
+                    key,
                 )
             case Downsample(every=int(n)):
+                # Every nth, and every reading with no value: thinning never hides a break.
                 rows = self._query(
-                    "SELECT offset_ns AS t, value AS v"
+                    "SELECT offset_ns AS t, value AS v, flag AS f"
                     + base
-                    + " AND seq % ? = 0 ORDER BY offset_ns",
+                    + " AND (seq % ? = 0 OR value IS NULL) ORDER BY offset_ns",
                     [*key, n],
                 )
             case Downsample(max_points=int(max_points)):
@@ -1124,15 +1148,21 @@ class SqliteStore:
             case Downsample(bucket_ns=int(bucket_ns)):
                 # Buckets are laid from start_ns, not the origin, so a trimmed
                 # session's first bucket is not labelled before its start.
+                # A bucket with any reading that had no value is itself none, with
+                # the lowest no-value code in it: an average would bridge the break.
                 rows = self._query(
-                    "SELECT ((offset_ns - ?) / ?) * ? + ? AS t, AVG(value) AS v"
+                    "SELECT ((offset_ns - ?) / ?) * ? + ? AS t,"
+                    " CASE WHEN COUNT(value) < COUNT(*) THEN NULL ELSE AVG(value) END AS v,"
+                    " MIN(CASE WHEN value IS NULL THEN flag END) AS f"
                     + base
                     + " GROUP BY (offset_ns - ?) / ? ORDER BY t",
                     [shift, bucket_ns, bucket_ns, shift, *key, shift, bucket_ns],
                 )
             case _:
                 raise ValueError(f"{downsample!r} names none of every, bucket_ns or max_points")
-        return Series(signal, tuple(Point(r["t"] - shift, r["v"]) for r in rows), downsample)
+        return Series(
+            signal, tuple(Point(r["t"] - shift, r["v"], r["f"]) for r in rows), downsample
+        )
 
     def samples(
         self, session_id: int, address: str, window: Window | None = None
@@ -1147,7 +1177,7 @@ class SqliteStore:
         # A namespace's address selects the samples on it and under it.
         under = "" if address == name else " AND (node = ? OR node LIKE ?)"
         rows = self._query(
-            "SELECT s.seq, s.node, r.signal_id, r.offset_ns, r.value FROM sample s"
+            "SELECT s.seq, s.node, r.signal_id, r.offset_ns, r.value, r.flag FROM sample s"
             " JOIN reading r ON r.session_id = s.session_id AND r.device_id = s.device_id"
             " AND r.seq = s.seq WHERE s.session_id = ? AND s.device_id = ?"
             + under
@@ -1162,6 +1192,8 @@ class SqliteStore:
                 row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"] - shift, r["node"], {})
             signal = signals[r["signal_id"]]
             row.values[signal.address] = _decode_reading(signal.dtype, r["value"])
+            if r["flag"] is not None:
+                row.flags[signal.address] = r["flag"]
         return list(samples.values())
 
     def write_states(

@@ -14,6 +14,7 @@ from flyball.model.catalog import Catalogs, get_catalog
 from ..errors import NotFoundError
 from ..time.clock import Rate
 from .device import Device, DriverConfig
+from .novalue import OnNoValue
 from .signal import Access, Bounds, Node, NodeSpec, Signal, SignalSpec
 
 
@@ -106,6 +107,11 @@ class SignalMeta(BaseModel):
     stale_after_s: float | None = None
     limits: Bounds | None = None
     max_rate: Rate | None = None
+    on_no_value: OnNoValue | None = Field(
+        default=None,
+        description="A banded signal with no value because of a fault: fire (band_unknown) or"
+        " ignore. Default: fire with an alarm band, ignore with only a warning band.",
+    )
     tags: dict[str, str] | None = None
     """Groupings across the tree, `{axis: name}`, added to the driver's."""
     access: str | None = None
@@ -259,6 +265,7 @@ _SIGNAL_FIELDS = (
     "poll_s",
     "stale_after_s",
     "max_rate",
+    "on_no_value",
 )
 _NODE_FIELDS = ("label", "poll_s", "tags")
 

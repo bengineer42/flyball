@@ -188,7 +188,8 @@ READ: tuple[Tool, ...] = (
         "read",
         "The latest reading of a signal, the sample of a namespace, or every sample of a "
         "device. Answers from the last poll; `operate` also has a `fresh` flag for a live "
-        "device read.",
+        "device read. A reading with no value has `value: null` with its `quality` "
+        "(invalid, stale, not_applicable), `reason`, `last_usable` and `age_s`.",
         _object({"address": ADDRESS}, "address"),
         Tier.READ,
         lambda rig, a: rig.read(a["address"], False),
@@ -800,7 +801,8 @@ DRIVE: tuple[Tool, ...] = (
     Tool(
         "read",
         "The latest reading of a signal, the sample of a namespace, or every sample of a "
-        "device; with `fresh`, a live device read instead of the last poll.",
+        "device; with `fresh`, a live device read instead of the last poll. A reading with no "
+        "value has `value: null` with its `quality`, `reason`, `last_usable` and `age_s`.",
         _object({"address": ADDRESS, "fresh": FRESH}, "address"),
         Tier.DRIVE,
         lambda rig, a: rig.read(a["address"], bool(a.get("fresh", False))),
