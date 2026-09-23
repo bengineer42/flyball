@@ -2,6 +2,8 @@
  * The dashboards as tabs in the app bar (D-053): the generated overview first, then this rig's
  * saved dashboards in tab order (`byTabOrder`: the document's `order`, then newest first), then
  * `[+]` for a new, empty one. A tab is a link to its route, so a dashboard keeps its address.
+ * An operator drags a saved dashboard's tab to move it; the move is written to the documents
+ * (`order`), so every browser shows the same order. Options › Dashboards does the same by buttons.
  * Rendered by `Shell` on the dashboards page; it fetches the list itself so it does not need the
  * page's own (larger) state.
  */
@@ -13,6 +15,7 @@ import { invalidateDashboards, useDashboards, useRig } from "@flyball/react";
 import { useAuth } from "../auth.js";
 import { hashFor } from "../router.js";
 import { emptyDocument } from "./document.js";
+import { reorder, saveOrder } from "./order.js";
 import { GENERATED_NAME } from "./generate.js";
 import { readHome } from "./home.js";
 
@@ -40,6 +43,17 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const taken = saved.some((d) => d.name === newName.trim());
+  const [dragging, setDragging] = useState<number | null>(null);
+  const drop = async (to: number) => {
+    const from = dragging;
+    setDragging(null);
+    if (from === null || from === to) return;
+    try {
+      await saveOrder(rig, saved, reorder(saved, from, to));
+    } finally {
+      invalidateDashboards();
+    }
+  };
 
   const create = async () => {
     const as = newName.trim();
@@ -69,9 +83,20 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
         sx={{ minHeight: 40, minWidth: 0, "& .MuiTab-root": { minHeight: 40, py: 0, textTransform: "none" } }}
       >
         <Tab value={GENERATED} label={GENERATED_NAME} component="a" href={hashFor("dashboards", null, { generated: "" })} onClick={(e: React.MouseEvent) => e.preventDefault()} data-testid="dashboard-tab-generated" />
-        {saved.map((d) => (
+        {saved.map((d, i) => (
           <Tab
             key={d.name}
+            draggable={canOperate}
+            onDragStart={(e: React.DragEvent) => {
+              setDragging(i);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e: React.DragEvent) => dragging !== null && e.preventDefault()}
+            onDrop={(e: React.DragEvent) => {
+              e.preventDefault();
+              void drop(i);
+            }}
+            onDragEnd={() => setDragging(null)}
             value={d.name}
             label={d.name}
             icon={home === d.name ? <HomeIcon sx={{ fontSize: 16 }} /> : undefined}

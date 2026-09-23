@@ -1,11 +1,20 @@
 /**
  * Options (D-053): what the sidebar used to reach and the app bar has no room for, behind the gear.
- * One tab per concern, the tab in the route (`#/options/<tab>`), so each is linkable. For now:
- * the rig file (today's Config page, whole), appearance, and every page not reached from the bar.
- * The dashboards list, the runner and access get their own tabs in a later step of the redesign.
+ * One tab per concern, the tab in the route (`#/options/<tab>`), so each is linkable: this rig's
+ * dashboards (order, read-only, home), the rig file (today's Config page, whole), appearance, and
+ * every page not reached from the bar. The runner and access get their own tabs in a later step.
  */
-import { lazy, Suspense } from "react";
-import { Box, Card, CardActionArea, CardContent, FormControlLabel, Radio, RadioGroup, Tab, Tabs, Typography } from "@mui/material";
+import { lazy, Suspense, useState } from "react";
+import { Alert, Box, Card, CardActionArea, CardContent, FormControlLabel, IconButton, Link, Radio, RadioGroup, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Tooltip, Typography } from "@mui/material";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import HomeIcon from "@mui/icons-material/Home";
+import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
+import { invalidateDashboards, useDashboards, useRig } from "@flyball/react";
+import type { DashboardRow } from "@flyball/client";
+import { useAuth } from "../auth.js";
+import { readHome, writeHome } from "../dashboard/home.js";
+import { reorder, saveOrder } from "../dashboard/order.js";
 import { PAGE_ICONS } from "../icons.js";
 import { hashFor, PAGES, type Page } from "../router.js";
 import { useColorMode, type ColorChoice } from "../theme.js";
@@ -21,6 +30,7 @@ export function Options({ tab, simulated, onTab }: { tab: OptionTab; simulated: 
           <Tab key={t.id} value={t.id} label={t.label} data-testid={`options-tab-${t.id}`} sx={{ textTransform: "none" }} />
         ))}
       </Tabs>
+      {tab === "dashboards" && <DashboardList />}
       {tab === "rig" && (
         <Suspense fallback={<Typography color="text.secondary">loading…</Typography>}>
           <RigPage />
@@ -28,6 +38,100 @@ export function Options({ tab, simulated, onTab }: { tab: OptionTab; simulated: 
       )}
       {tab === "appearance" && <Appearance />}
       {tab === "pages" && <Pages simulated={simulated} />}
+    </Box>
+  );
+}
+
+/**
+ * This rig's saved dashboards in tab order: move one up or down (the same as dragging its tab),
+ * make it read-only, make it the one `#/` opens. Each change is saved at once, as a new version of
+ * that dashboard; home is this browser's alone. Renaming, deleting and editing stay on the
+ * dashboard's own page.
+ */
+function DashboardList() {
+  const rig = useRig();
+  const { canOperate } = useAuth();
+  const list = useDashboards();
+  const rows = list.data ?? [];
+  const [home, setHome] = useState(readHome);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (op: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await op();
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+      invalidateDashboards();
+    }
+  };
+  const move = (from: number, to: number) => run(() => saveOrder(rig, rows, reorder(rows, from, to)));
+  const setReadonly = (row: DashboardRow, readonly: boolean) => run(() => rig.saveDashboard(row.name, { ...row.body, readonly }));
+  const toggleHome = (name: string) => {
+    const next = home === name ? null : name;
+    writeHome(next);
+    setHome(next);
+  };
+  if (list.error) return <Alert severity="error">{list.error.message}</Alert>;
+  if (!list.data) return <Typography color="text.secondary">loading…</Typography>;
+  if (rows.length === 0)
+    return (
+      <Typography color="text.secondary">
+        No saved dashboards yet. The generated overview is always first; <Link href={hashFor("dashboards")}>open it</Link> and Save as… to keep one, or use [+] beside the tabs.
+      </Typography>
+    );
+  return (
+    <Box sx={{ maxWidth: 900 }}>
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      <Table size="small" data-testid="options-dashboards">
+        <TableHead>
+          <TableRow>
+            <TableCell>Dashboard</TableCell>
+            <TableCell>Place</TableCell>
+            <TableCell>Read-only</TableCell>
+            <TableCell>Home</TableCell>
+            <TableCell>Saved</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row, i) => (
+            <TableRow key={row.name} data-testid={`options-dashboard-${row.name}`}>
+              <TableCell>
+                <Link href={hashFor("dashboards", row.name)}>{row.name}</Link>
+              </TableCell>
+              <TableCell sx={{ whiteSpace: "nowrap" }}>
+                <IconButton size="small" aria-label={`move ${row.name} earlier`} disabled={!canOperate || busy || i === 0} onClick={() => void move(i, i - 1)}>
+                  <ArrowUpwardIcon fontSize="small" />
+                </IconButton>
+                <IconButton size="small" aria-label={`move ${row.name} later`} disabled={!canOperate || busy || i === rows.length - 1} onClick={() => void move(i, i + 1)}>
+                  <ArrowDownwardIcon fontSize="small" />
+                </IconButton>
+              </TableCell>
+              <TableCell>
+                <Switch size="small" checked={row.body.readonly ?? false} disabled={!canOperate || busy} onChange={(e) => void setReadonly(row, e.target.checked)} inputProps={{ "aria-label": `${row.name} read-only` }} />
+              </TableCell>
+              <TableCell>
+                <Tooltip title={home === row.name ? "Opened by #/ in this browser; click to unset" : "Open this at #/ in this browser"}>
+                  <IconButton size="small" aria-label={`${row.name} home`} aria-pressed={home === row.name} onClick={() => toggleHome(row.name)}>
+                    {home === row.name ? <HomeIcon fontSize="small" /> : <HomeOutlinedIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              </TableCell>
+              <TableCell sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>{new Date(row.created_ns / 1e6).toLocaleString()}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+        Order and read-only are saved on each dashboard, for everyone. Home is this browser's. Rename and delete a dashboard from its own page's ⋯ menu.
+      </Typography>
     </Box>
   );
 }

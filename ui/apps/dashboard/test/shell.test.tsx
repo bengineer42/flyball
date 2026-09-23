@@ -93,6 +93,17 @@ describe("the app bar is the navigation", () => {
   });
 });
 
+describe("Options", () => {
+  it("opens on the dashboards list, each saved dashboard with its place, read-only switch and home", async () => {
+    open("#/options");
+    const table = await screen.findByTestId("options-dashboards");
+    const wall = within(table).getByTestId("options-dashboard-wall");
+    expect(within(wall).getByRole("link", { name: "wall" }).getAttribute("href")).toBe("#/dashboards/wall");
+    expect(within(wall).getByRole("checkbox", { name: "wall read-only" })).toBeTruthy();
+    expect((within(wall).getByRole("button", { name: "move wall earlier" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe("the stop slot", () => {
   it("holds the stop button for an operator", async () => {
     open("#/events");

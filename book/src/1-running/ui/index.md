@@ -37,7 +37,8 @@ There is no sidebar: the app bar at the top of every page is how you move.
   connected.
 - **Software stop** keeps its place whether or not you may operate, so
   signing in does not move anything.
-- **The gear opens Options** (`#/options`): the **Rig file** (the running
+- **The gear opens Options** (`#/options`): **Dashboards** (each saved one's
+  place, read-only switch and home), the **Rig file** (the running
   document, versions, save, the runner; the old `#/rig` address lands here),
   **Appearance** (the theme), and **Pages**, a link to every page the bar
   does not reach directly (Inputs, Devices, Controllers, Graph, Overview).
@@ -55,7 +56,7 @@ There is no sidebar: the app bar at the top of every page is how you move.
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
-| **Options** | behind the gear. **Rig file** (`#/options/rig`; `#/rig` redirects here): the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
+| **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
 
 ### The playback bar
 

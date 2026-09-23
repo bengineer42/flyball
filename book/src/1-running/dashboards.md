@@ -104,7 +104,11 @@ idle view.
 The app bar shows this rig's dashboards as tabs, the generated overview
 first, then the saved ones in their `order`, the rest newest saved first
 (see [Getting around](ui/index.md#getting-around)); `[+]` makes a new, empty
-dashboard. `Save ▾` offers:
+dashboard. To move one, drag its tab, or use the arrows in **Options ›
+Dashboards**, which also has each dashboard's read-only switch and home
+button. A move is saved on the documents it changes, so every browser shows
+the same order: the first move numbers every dashboard in its place, later
+moves write only the one moved. `Save ▾` offers:
 
 - **Save** — a new version under the current name.
 - **Save as…** — under a new name; the generated overview must go through
