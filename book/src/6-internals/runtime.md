@@ -148,7 +148,7 @@ tick — is arithmetic under the lock. What leaves it:
 
 | work | where it runs |
 | --- | --- |
-| a blocking device's `commit` (`Device.blocking = True`: SCPI, Modbus, QCoDeS, PyMeasure) | a `Writer` thread per device; `rig.written` delivers its states, publishes and records them once the write completes |
+| a blocking device's `commit` (`Device.blocking = True`: SCPI, Modbus, QCoDeS, PyMeasure) | a `Writer` thread per device; `rig.written` delivers its states, publishes and records them once the write completes. A commit or a `rig.written` that raises is a `write_failed` condition and event, never the end of the thread |
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
 

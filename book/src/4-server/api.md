@@ -398,7 +398,8 @@ controller driving one hears `expected: null` for that tick, and the rest
 of the delivery -- other devices' commits, the recorder -- goes on. A
 manual demand or a command whose commit raises also gets the error back.
 `write_failed` / `write_recovered` are the same for a blocking device's
-writer thread.
+writer thread; a write that reached the device but whose report to the rig
+raised is a `write_failed` too (logged; the thread goes on writing).
 
 `demand_ignored` (`WARNING`) is a demand the driver's `commit` never read
 (`details: {signal, demand}`): nothing was set, so the demand is not

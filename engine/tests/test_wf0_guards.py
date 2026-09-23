@@ -6,6 +6,7 @@ read, a writer that outlives a bad report, and non-finite numbers on the wire.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -234,6 +235,52 @@ def test_a_driver_that_writes_pending_through_raises_nothing(rig, furnace):
     assert furnace.inputs == {"heater1": 100.0, "heater2": 200.0}
     assert rig.latest[furnace.signals["heater1"]].value == 100.0
     assert not _events(rig, Kind.DEMAND_IGNORED)
+
+
+# endregion
+
+# region 4. The writer outlives a report that raises
+
+
+class Blocking(Furnace):
+    blocking = True
+
+
+def _until(condition, timeout_s: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.005)
+
+
+def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
+    device = Blocking(fresh("blocking"))
+    rig.add_device(device)
+    real = rig.written
+    calls = []
+
+    def written(*args):
+        calls.append(args)
+        if len(calls) == 1:
+            raise RuntimeError("a bug downstream")
+        real(*args)
+
+    monkeypatch.setattr(rig, "written", written)
+    try:
+        rig.demand(device.root, {"heater1": 10.0})
+        writer = rig._writers[device]
+        _until(lambda: writer.failed is not None)
+        assert (
+            writer.failed.kind == Kind.WRITE_FAILED and "a bug downstream" in writer.failed.message
+        )
+        assert _events(rig, Kind.WRITE_FAILED)
+        assert writer._thread.is_alive()
+        rig.demand(device.root, {"heater1": 20.0})
+        _until(lambda: len(calls) == 2 and writer.failed is None)
+        assert _events(rig, Kind.WRITE_RECOVERED)
+        assert rig.latest[device.signals["heater1"]].value == 20.0
+    finally:
+        rig.stop()
 
 
 # endregion
