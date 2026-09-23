@@ -27,6 +27,11 @@ YAML loader that rejects duplicate keys (plain PyYAML keeps the last
 silently). Links are a separate namespace — a link may share a name with a
 device.
 
+Booleans are YAML 1.2's: only `true` and `false` (in any case). The YAML
+1.1 words `yes`, `no`, `on` and `off` stay strings, so a GPIO's `on`
+signal is a key and `on_stop: off` is the word `off`, not `false`. The same
+holds for a program file, a library upload and a `--set` value.
+
 ## Top level
 
 | key | type | |

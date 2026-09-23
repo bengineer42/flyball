@@ -28,7 +28,7 @@ from typing import Any, get_args, get_type_hints
 import yaml
 from pydantic import TypeAdapter
 
-from flyball.foundation.files import load_document
+from flyball.foundation.files import load_document, yaml_loader
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.interfaces.server.commands import command_request, request_for
 from flyball.sequencing.command import Command
@@ -201,7 +201,7 @@ def commands_from_yaml(text: str, dialect: Dialect) -> Program:
     Modifiers are validated but not attached: wrapping a command in a
     completion or duration is the programmer's job.
     """
-    return program_from_document(yaml.safe_load(text), dialect)
+    return program_from_document(yaml.load(text, Loader=yaml_loader()), dialect)
 
 
 def step_schema(dialect: Dialect) -> dict[str, Any]:

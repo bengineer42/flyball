@@ -18,6 +18,7 @@ from typing import Any, Literal, cast
 import yaml
 
 from flyball.foundation.errors import UnachievableError
+from flyball.foundation.files import yaml_loader
 
 Format = Literal["yaml", "toml", "json"]
 
@@ -54,7 +55,7 @@ def parse(text: str, format: Format) -> Any:
     """Text in `format` -> the document tree. Raises FormatError when it does not parse."""
     try:
         if format == "yaml":
-            return yaml.safe_load(text)
+            return yaml.load(text, Loader=yaml_loader())
         if format == "toml":
             return tomllib.loads(text)
         return json.loads(text)
