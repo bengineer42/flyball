@@ -110,8 +110,8 @@ flyball: front: the password is not a $scrypt$ line (…); plaintext passwords a
 flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 ```
 
-A plain `flyball stop` goes to that address too, and gets the `503`, so
-the `503` starts with the stops that work: Ctrl-C in the `flyball run`
+A plain `flyball stop` goes to that address too, over HTTP, and gets the
+`503`, so the `503` starts with the stops that work, all signals: Ctrl-C in the `flyball run`
 terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
 rig's host, or `systemctl stop` for `flyballd`. `flyball run`'s start notice
 then names `flyball stop --front-dir` with its own front-dir.
@@ -358,10 +358,12 @@ manual, for everyone at once. Anyone holding `operate` can do it:
 - `POST /api/rig/stop` with an optional `{"reason": "…"}`;
 - the MCP tool `stop_rig`, in `operate` mode;
 - `SIGUSR1` to the runner's process, which needs no front, no credential
-  and no network: when the front cannot be reached or does not answer
-  within 5 seconds, `flyball stop` sends
-  it to the pid in the runner's lock file (`--front-dir DIR`, `--pid N`, or
-  the rig file `flyball run` was started with).
+  and no network: `flyball stop --front-dir DIR`, `flyball stop RIG-FILE`
+  (the rig file `flyball run` was started with) and `flyball stop --pid N`
+  send it on the rig's host, to the pid in the runner's lock file or the
+  one given, and make no HTTP call -- so they cannot stop another rig that
+  answers at `$FLYBALL_URL`, and a `503` or `404` there does not block
+  them.
 
 It is never rate-limited, and it answers with a report: what happened to
 each device, whether a program was interrupted, which controllers are in

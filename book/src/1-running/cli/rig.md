@@ -32,14 +32,17 @@ unless the runner was started with `--allow-shutdown`
 flyball stop --reason "door open"           # the software stop: program interrupted, controllers to manual
 flyball -s furnace stop                     # one rig behind flyballd
 flyball stop --all                          # every rig flyballd runs that this credential may operate
-flyball stop --front-dir /run/flyball/furnace   # the front is down: SIGUSR1 to the runner
+flyball stop --front-dir /run/flyball/furnace   # on the rig's host: SIGUSR1 to the runner, no HTTP
+flyball stop furnace.yaml                   # the same, for a rig started with `flyball run furnace.yaml`
 ```
 
-It needs `operate`, prints what happened to each device, and in this
-release writes nothing to any device: outputs are left as they were
-([the software stop](../runner/access.md#stopping-the-rig)). With the front
-unreachable it signals the runner instead, which works with no credential
-and no network ([`flyball stop`](../../7-reference/cli.md#stopping-a-rig)).
+Over HTTP it needs `operate`, prints what happened to each device, and in
+this release writes nothing to any device: outputs are left as they were
+([the software stop](../runner/access.md#stopping-the-rig)). The
+`--front-dir` and rig-file forms signal the runner instead, which works
+with no front, no credential and no network; the report goes to the
+runner's log, or the run's `run.log`
+([`flyball stop`](../../7-reference/cli.md#stopping-a-rig)).
 
 ## Starting one: `flyball run`
 

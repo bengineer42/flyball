@@ -51,7 +51,8 @@ no per-device subcommand tree built from the schema -- those were `cli.py`'s
 | `export SESSION [--format csv\|json\|zip] [--out PATH]` | `GET /api/history/sessions/SESSION/export` | a session as a table; written to `PATH` or stdout |
 | `program check\|run\|status\|stop PATH` | `/api/programs/*` | validate, start, watch, stop a program (`run` takes `[--interrupt]`) |
 | `sim show\|clock\|step\|set\|reset\|config\|save` | `/api/sim/*` | a simulated rig's knobs |
-| `stop [NAME\|RIG-FILE] [--reason TEXT]` | `POST /api/rig/stop` | the [software stop](#stopping-a-rig); `SIGUSR1` to the runner when the front cannot be reached |
+| `stop [NAME] [--reason TEXT]` | `POST /api/rig/stop` | the [software stop](#stopping-a-rig) |
+| `stop RIG-FILE \| --front-dir DIR \| --pid N` | none: `SIGUSR1` | the [software stop](#stopping-a-rig) by signal, for a runner on this host |
 | `stop --all [--reason TEXT]` | `GET /api/rigs`, then `POST /api/rig/stop` on each | the software stop on every rig `flyballd` lists for this credential |
 | `login [URL] [--scope SCOPE]...` | `POST /api/auth/login`, `POST /api/auth/tokens` | [sign in](#signing-in): the admin password for a saved named token |
 | `logout` | | forget the saved token |
@@ -93,25 +94,35 @@ password: give the CLI its token (`--token`, `FLYBALL_TOKEN`).
 ### Stopping a rig
 
 `flyball stop` sends the [software stop](../1-running/runner/access.md#stopping-the-rig)
-(program interrupted, every controller in manual, nothing written) and
-prints the report. It needs `operate`. `NAME` addresses a rig behind
-`flyballd` as `-s` would. When the front answers -- even with a refusal --
-that answer stands. Only a `200` carrying a stop report counts as a stop;
-a redirect (a sign-in proxy in front, with no session for the CLI) is not
-followed and is refused with the address it pointed to, and any other
-answer is refused with its status and body, exit non-zero. When the front
-cannot be reached, or has not answered within 5 seconds (each HTTP call a
-stop makes is bounded so: connecting, and the whole answer), the CLI sends
-`SIGUSR1` to the runner's process instead, which needs only the OS's own permission (the same user, or root), and says
-so -- the report is then in the runner's log. A front that was only slow
-may still carry out its stop as well; a second stop changes nothing. With
-no pid to signal, `flyball stop` exits non-zero and says how to give one:
+(program interrupted, every controller in manual, nothing written). How it
+reaches the rig depends on how the rig is named (D-042):
 
-| | the pid comes from |
-| --- | --- |
-| `--pid N` | `N`, with no HTTP request first |
-| `--front-dir DIR` | `DIR/runner.lock` |
-| `RIG-FILE` | the front-dir `flyball run RIG-FILE` uses, when that is not a temporary directory |
+| | how | the report |
+| --- | --- | --- |
+| `flyball stop`, `flyball stop NAME`, `flyball -s NAME stop` | `POST /api/rig/stop` through the front at `$FLYBALL_URL` (or `flyballd` for a `NAME`); needs `operate` | printed |
+| `flyball stop --front-dir DIR` | `SIGUSR1` to the runner holding `DIR/runner.lock`; no HTTP call | in the runner's log |
+| `flyball stop RIG-FILE` | `SIGUSR1` to the runner holding `runner.lock` in the front-dir `flyball run RIG-FILE` uses (when that is not a temporary directory); no HTTP call | in that run's `run.log`, whose path the CLI prints |
+| `flyball stop --pid N` | `SIGUSR1` to `N` as given; no HTTP call | in the runner's log |
+
+An argument with a `/` or a `.yaml`/`.yml` ending is a rig file; anything
+else is a rig name. `--front-dir` with `-s NAME`, a `NAME` or a `RIG-FILE`
+is a usage error. A signal needs only the OS's own permission (the same
+user, or root) -- no front, credential or network -- and cannot reach
+another rig that happens to answer at `$FLYBALL_URL`. It carries no
+`--reason`: the runner records the stop as `local:signal`.
+
+Over HTTP, when the front answers -- even with a refusal -- that answer
+stands. Only a `200` carrying a stop report counts as a stop; a redirect (a
+sign-in proxy in front, with no session for the CLI) is not followed and is
+refused with the address it pointed to, and any other answer is refused
+with its status and body, exit non-zero. When the front cannot be reached,
+or has not answered within 5 seconds (each HTTP call a stop makes is
+bounded so: connecting, and the whole answer), `flyball stop` exits
+non-zero and names the signal forms above; a front that was only slow may
+still carry out its stop, and a second stop changes nothing. In the
+[D-028 refused state](../1-running/runner/access.md#when-a-setting-is-wrong)
+the front's listen address answers `503`, so a plain `flyball stop` cannot
+stop the rig there: use `--front-dir` or the rig file.
 
 A `runner.lock` outlives its runner, and the pid in it may since have been
 given to another process, so a pid read from one is signalled only while a

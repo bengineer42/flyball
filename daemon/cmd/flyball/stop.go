@@ -1,9 +1,11 @@
-// `flyball stop`: POST <root>/api/rig/stop through the front, or, when
-// the front can't be reached, SIGUSR1 straight to the runner (§WP0-9's
-// break-glass, installed by `install_break_glass` next to
-// `_terminate_as_interrupt`) -- a stop must work even with no front, no
-// credential and no network, the OS's own signal permission (same user,
-// or root) being the only check (merge requirement 25).
+// `flyball stop`: POST <root>/api/rig/stop through the front for a rig
+// addressed by name (-s NAME, NAME, or FLYBALL_URL/FLYBALLD_URL), or
+// SIGUSR1 straight to the runner for one named locally (--front-dir DIR,
+// a RIG-FILE, --pid N: D-042) -- the runner's break-glass (§WP0-9,
+// `install_break_glass` next to `_terminate_as_interrupt`). A signal needs
+// no front, no credential and no network, the OS's own signal permission
+// (same user, or root) being the only check (merge requirement 25), and
+// cannot reach another rig that happens to answer at FLYBALL_URL.
 package main
 
 import (
@@ -16,6 +18,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -25,6 +28,7 @@ import (
 	"time"
 
 	"flyballd/internal/client"
+	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/frontwire"
 )
 
@@ -52,7 +56,7 @@ func runStopCommand(server, token string, args []string) error {
 	all, args := popBool(args, "--all")
 	pidFlag, args, hasPID := popValue(args, "--pid")
 	frontDir, args, hasFrontDir := popValue(args, "--front-dir")
-	reason, args, _ := popValue(args, "--reason")
+	reason, args, hasReason := popValue(args, "--reason")
 	if all {
 		if len(args) > 0 || hasPID || hasFrontDir {
 			return fmt.Errorf("usage: flyball stop --all [--reason TEXT] (every rig flyballd lists; no NAME, --pid or --front-dir)")
@@ -60,85 +64,110 @@ func runStopCommand(server, token string, args []string) error {
 		return stopAllRigs(token, reason)
 	}
 	if len(args) > 1 {
-		return fmt.Errorf("usage: flyball stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT] | flyball stop --all [--reason TEXT]")
+		return fmt.Errorf("usage: flyball stop [NAME | RIG-FILE] [--pid N] [--front-dir DIR] [--reason TEXT] | flyball stop --all [--reason TEXT]")
 	}
 	var name string
 	if len(args) == 1 {
 		name = args[0]
 	}
+	// --front-dir names a runner on this host; -s NAME, a NAME or a
+	// RIG-FILE name one too, another way: both at once is ambiguous.
+	if hasFrontDir && (server != "" || name != "") {
+		return fmt.Errorf("usage: flyball stop --front-dir DIR takes no -s NAME, NAME or RIG-FILE: it signals the runner holding DIR/runner.lock")
+	}
 
-	var pid int
 	if hasPID {
-		n, err := strconv.Atoi(pidFlag)
+		pid, err := strconv.Atoi(pidFlag)
 		if err != nil {
 			return fmt.Errorf("--pid %q: %w", pidFlag, err)
 		}
-		pid = n
+		noReason(hasReason)
+		return signalStop(pid, "the runner's log")
 	}
 
-	var unreachable error
-	// --pid is the direct escape hatch (a bare runner has no front at
-	// all to try first, and no runner.lock either): skip the HTTP route
-	// and signal straight away.
-	if pid == 0 {
-		addressed := server
-		if name != "" {
-			addressed = name
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		target, err := resolveTargetContext(ctx, addressed)
-		if err == nil {
-			target = target.WithToken(token)
-			var refused bool
-			refused, err = postStop(ctx, target, reason)
-			switch {
-			case err == nil:
-				cancel()
-				return nil
-			case refused:
-				cancel()
-				return err
-			}
-		}
-		cancel()
-		// A network-level failure (dial, refused, no answer within
-		// stopTimeout): fall through to the signal fallback below rather
-		// than giving up.
-		unreachable = err
-	}
-
-	switch {
-	case pid != 0:
-		return signalStop(pid)
-	case hasFrontDir:
-		proc, p, err := lockHolder(frontDir + "/runner.lock")
+	// D-042: a runner named locally -- by its front-dir, or by the rig
+	// file `flyball run` was started with -- is stopped by a signal alone.
+	// No HTTP call: whatever answers at FLYBALL_URL may be another rig (a
+	// stop there would stop the wrong one), or a 404, a 502 or the D-028
+	// refusal 503, none of which would stop this one.
+	if hasFrontDir {
+		proc, p, err := lockHolder(filepath.Join(frontDir, frontdir.Lock))
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "the front could not be reached (%v); signalling the runner\n", unreachable)
-		return signalProcess(proc, p)
+		noReason(hasReason)
+		return signalProcess(proc, p, "the runner's log (for `flyball run`, the run.log its banner named; under flyballd, `flyball logs NAME`)")
+	}
+	if name != "" && isRigFileArg(name) {
+		return stopRigFile(name, hasReason)
 	}
 
-	// NAME may be the rig file `flyball run` was started with, addressed
-	// the same way here -- its front-dir is derivable (frontwire.
-	// RunFrontDir, the same rule `flyball run` itself uses) whenever it
-	// isn't a random temp dir, so a lock file there names the pid without
-	// requiring --front-dir to be spelled out by hand.
+	// -s NAME, a NAME, or nothing: the rig stop over HTTP, its report
+	// printed. Only a 200 with a stop report is success (postStop).
+	addressed := server
 	if name != "" {
-		if fi, err := os.Stat(name); err == nil && !fi.IsDir() {
-			if dir, ok := frontwire.RunFrontDir(name); ok {
-				proc, p, err := lockHolder(dir + "/runner.lock")
-				switch {
-				case err == nil:
-					fmt.Fprintf(os.Stderr, "the front could not be reached (%v); signalling the runner\n", unreachable)
-					return signalProcess(proc, p)
-				case !errors.Is(err, fs.ErrNotExist):
-					return err
-				}
-			}
+		addressed = name
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancel()
+	target, err := resolveTargetContext(ctx, addressed)
+	if err == nil {
+		var refused bool
+		refused, err = postStop(ctx, target.WithToken(token), reason)
+		if err == nil || refused {
+			return err // the report printed, or the front's refusal
 		}
 	}
-	return fmt.Errorf("the front could not be reached (%v); pass --front-dir DIR (its runner.lock names the pid) or --pid N to stop the runner directly", unreachable)
+	return fmt.Errorf("the front could not be reached (%v); on the rig's host, `flyball stop --front-dir DIR` (its runner.lock names the pid), `flyball stop RIG-FILE` or `flyball stop --pid N` signals the runner directly", err)
+}
+
+// isRigFileArg: a stop argument that names a rig file rather than a rig --
+// one with a path separator, or a .yaml/.yml ending (D-042).
+func isRigFileArg(arg string) bool {
+	if strings.ContainsRune(arg, '/') || strings.ContainsRune(arg, filepath.Separator) {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(arg))
+	return ext == ".yaml" || ext == ".yml"
+}
+
+// stopRigFile signals the runner `flyball run RIG-FILE` started: the one
+// holding runner.lock in the front-dir derived from the rig file
+// (frontwire.RunFrontDir, the rule `flyball run` itself uses).
+func stopRigFile(rig string, hasReason bool) error {
+	fi, err := os.Stat(rig)
+	if err != nil {
+		return fmt.Errorf("rig file %s: %w", rig, err)
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("rig file %s is a directory (for a front-dir, pass --front-dir DIR)", rig)
+	}
+	dir, ok := frontwire.RunFrontDir(rig)
+	if !ok {
+		return fmt.Errorf("the front-dir of %s cannot be derived here (no private XDG_RUNTIME_DIR): pass --front-dir DIR, as its `flyball run` banner printed, or --pid N", rig)
+	}
+	proc, p, err := lockHolder(filepath.Join(dir, frontdir.Lock))
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("no `flyball run %s` is running on this host as this user (%s does not exist)", rig, filepath.Join(dir, frontdir.Lock))
+	}
+	if err != nil {
+		return err
+	}
+	noReason(hasReason)
+	where := "the runner's log"
+	if id, err := frontdir.FrontID(rig); err == nil {
+		if state, err := frontwire.RunDir(id); err == nil {
+			where = filepath.Join(state, "run.log")
+		}
+	}
+	return signalProcess(proc, p, where)
+}
+
+// noReason says --reason goes nowhere on a signal.
+func noReason(given bool) {
+	if given {
+		fmt.Fprintln(os.Stderr, "flyball: --reason is not carried by a signal; the runner records the stop as local:signal")
+	}
 }
 
 // stopAllRigs is `flyball stop --all` (D-037): the rig stop -- POST
@@ -308,19 +337,21 @@ func printStopReport(r stopReport) {
 // (engine/src/flyball/runner/stopping.py's install_break_glass): it never
 // exits, and its report goes to the runner's own log, not to this
 // process, since nothing but the OS heard from us.
-func signalStop(pid int) error {
+func signalStop(pid int, where string) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return fmt.Errorf("pid %d: %w", pid, err)
 	}
-	return signalProcess(proc, pid)
+	return signalProcess(proc, pid, where)
 }
 
-func signalProcess(proc *os.Process, pid int) error {
+// signalProcess sends SIGUSR1 and says where the stop report goes: the
+// signal carries no answer back.
+func signalProcess(proc *os.Process, pid int, where string) error {
 	if err := proc.Signal(syscall.SIGUSR1); err != nil {
 		return fmt.Errorf("signalling pid %d: %w", pid, err)
 	}
-	fmt.Printf("sent SIGUSR1 to pid %d; see the runner's log for the stop report\n", pid)
+	fmt.Printf("sent SIGUSR1 to pid %d; the stop report goes to %s\n", pid, where)
 	return nil
 }
 
