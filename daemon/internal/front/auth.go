@@ -276,6 +276,18 @@ func (f *Front) knownHost(r *http.Request) bool {
 	return f.plan.HostAllow != nil || exposure.KnownHost(r.Host, f.names)
 }
 
+// HostRefusal is D-043's 403 for c on r, "" when c is served: a caller
+// with no credential (anonymous, with verbs to lose) is served only by a
+// name no page elsewhere can own (DNS rebinding); a credential passes any
+// Host. serveProxy uses it, and flyballd's GET /api/rigs.
+func (f *Front) HostRefusal(c Caller, r *http.Request) string {
+	if c.Scheme != SchemeAnonymous || len(c.Scopes) == 0 || f.knownHost(r) {
+		return ""
+	}
+	return "Without a credential this front answers only " + f.known() +
+		"; to reach it by another name, sign in, send a token (Authorization: Bearer ...), or set url: to that name"
+}
+
 // known says which names knownHost takes, for a 403.
 func (f *Front) known() string {
 	s := "an IP address, localhost or this machine's name"

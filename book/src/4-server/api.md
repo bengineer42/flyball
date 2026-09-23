@@ -93,7 +93,7 @@ sit under its `root_path` the same way.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/rigs` | the rigs the caller holds any verb on: `[{name, root_path, status}]`, sorted by name. Needs no credential: an anonymous caller gets the rigs `anonymous` lets it see (`[]` under `anonymous: none`); a credential that is presented and wrong is `401`. `flyball stop --all` uses it |
+| `GET` | `/api/rigs` | the rigs the caller holds any verb on: `[{name, root_path, status}]`, sorted by name. Needs no credential: an anonymous caller gets the rigs `anonymous` lets it see (`[]` under `anonymous: none`), and only by an IP address, a loopback name, the machine's own name or `url`'s host (`403` by another name: DNS rebinding); a credential that is presented and wrong is `401`. `flyball stop --all` uses it |
 | `GET` | `/api/runners` | every registered runner: `[{name, root_path, restart, status, endpoint, pid, adopted, reason}]` |
 | `GET` | `/api/runners/{name}` | one of them |
 | `POST` | `/api/runners` | a manifest as JSON: register and start it, `202`; `400` a bad manifest, `409` a name or root path taken |

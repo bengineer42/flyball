@@ -147,13 +147,24 @@ func (s *Server) verbs(c front.Caller, rig string) []string {
 // sorted by name -- {name, root_path, status}. Not a management route:
 // what it shows is what the caller could reach anyway, and `flyball stop
 // --all` needs it with only operate (D-037). A credential that does not
-// work is refused (401/503), as everywhere.
+// work is refused (401/503), as everywhere, and an anonymous caller by an
+// unknown Host is 403 (D-043).
 func (s *Server) handleRigs(w http.ResponseWriter, r *http.Request) {
 	c, err := s.auth.Authenticate(r)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="flyballd"`)
 		http.Error(w, err.Error(), front.Status(err))
 		return
+	}
+	// D-043: an anonymous reader by a name a page elsewhere can own (DNS
+	// rebinding) does not get the rig list; the front's rule, as its rigs'.
+	if h, ok := s.auth.(interface {
+		HostRefusal(front.Caller, *http.Request) string
+	}); ok {
+		if msg := h.HostRefusal(c, r); msg != "" {
+			http.Error(w, msg, http.StatusForbidden)
+			return
+		}
 	}
 	out := []map[string]any{}
 	entries := s.reg.List()

@@ -197,11 +197,8 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 		f.refuse(w, r, err)
 		return
 	}
-	// D-043: a caller with no credential is served only by a name no page
-	// elsewhere can own (DNS rebinding); a credential passes any Host.
-	if c.Scheme == SchemeAnonymous && len(c.Scopes) > 0 && !f.knownHost(r) {
-		detail(w, http.StatusForbidden, "Without a credential this front answers only "+f.known()+
-			"; to reach it by another name, sign in, send a token (Authorization: Bearer ...), or set url: to that name")
+	if msg := f.HostRefusal(c, r); msg != "" {
+		detail(w, http.StatusForbidden, msg)
 		return
 	}
 	if c.Scheme != SchemeToken && acts(r) && !f.CheckOrigin(r) {
