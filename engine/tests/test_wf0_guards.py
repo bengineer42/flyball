@@ -30,6 +30,7 @@ from flyball.foundation.device import (
 from flyball.interfaces.server import create_app, set_rig
 from test_rig import FakeRecorder, FakeStore, recorder_module  # noqa: F401  a fixture
 from test_rig_devices import POWER, TEMP, Furnace
+from test_server import Daq
 
 
 class Flaky(Committable):
@@ -340,6 +341,24 @@ def test_a_nan_in_an_event_crosses_as_null(rig, served):
     with served.websocket_connect("/ws/events") as ws:
         frame = _strict(ws.receive_text())
         assert frame["events"][-1]["details"] == {"value": None}  # type: ignore[index]
+
+
+# endregion
+
+# region 6. Health on values that are not numbers
+
+
+@pytest.mark.parametrize("value", [None, math.nan, math.inf, "open"])
+def test_health_counts_a_non_number_as_neither_in_nor_out_of_band(rig, fresh, served, value):
+    daq = Daq(fresh("daq"))
+    rig.add_device(daq)
+    zone1, zone2 = daq.signals["zone1"], daq.signals["zone2"]
+    rig.on_samples([Sample(daq.root, 1, {zone1: value, zone2: 50.0})])
+    response = served.get("/api/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "max_level": 0}
+    assert body["ok"] is True
 
 
 # endregion
