@@ -194,7 +194,13 @@ reference](../../7-reference/cli.md#signing-in).
 (`operate`) or one (`operate:furnace`), and `manage` for `flyballd`'s own
 routes. `read` is every `GET` and every stream, plus checking a rig or a
 program file; `operate` is everything else, stopping the rig included.
-These two verbs are a placeholder: which verbs there are, and what each
+Neither includes the other: a token holding `operate` alone can stop the
+rig but gets `403` from `flyball status` or any stream, even where
+anonymous callers may read. `flyball token create --scope operate` and
+`flyball login --scope operate` add `read` on the same rigs for you (the
+`bench` token above holds `operate:*` and `read:*`); a token made through
+`POST /api/auth/tokens` holds exactly the scopes it asks for, so ask for
+`["read", "operate"]` there. These two verbs are a placeholder: which verbs there are, and what each
 route needs, is still being decided (D-034, pending), so expect the list
 to change.
 
