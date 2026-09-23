@@ -40,7 +40,12 @@ export interface Transport {
   request(request: Request): Promise<Response>;
   /** Where requests go, when the transport has an origin: `""` for same-origin. A download link needs the URL, not a fetch. */
   readonly base?: string;
-  /** The bearer token every request and stream carries, when the runner was given one to start with `--token`. */
+  /**
+   * A bearer token carried as an `Authorization` header on every request, when the caller has one
+   * to start with. Never appears in a URL: not on a socket (a browser cannot set a header on one,
+   * which is why the bare runner trades a token for a cookie instead -- see `?token=`'s removal
+   * below) and not on a download link.
+   */
   readonly token?: string;
   /** `path` is under the base URL, e.g. `/ws/samples`. */
   stream(path: string, handlers: StreamHandlers): Subscription;
@@ -82,10 +87,11 @@ function buildUrl(base: string, path: string, query?: Request["query"]): string 
  * reconnection on drop (exponential backoff, capped). `base` is an absolute
  * origin, with the runner's `--root-path` if it has one; default: where the
  * page itself was served from (`pageBase`).
- * `token`: a runner started with `--token` refuses everything without it --
- * a header on a request, `?token=` on a socket (a browser cannot set headers
- * on one). A socket the runner closes for a wrong or missing token (4401) is
- * not retried: nothing about reconnecting would fix it.
+ * `token`: carried as an `Authorization` header on every request. Never on a socket or a download
+ * URL -- a browser cannot set a header on a socket, which is why a bare runner's token buys a
+ * session cookie instead (`POST /api/auth/login {token}`, or the one-time `/api/auth/link`), and
+ * the cookie then covers sockets and downloads by itself. A socket the runner closes for a wrong
+ * or missing credential (4401) is not retried: nothing about reconnecting would fix it.
  */
 export function browserTransport(base: string = pageBase(), token?: string): Transport {
   return {
@@ -112,7 +118,9 @@ export function browserTransport(base: string = pageBase(), token?: string): Tra
     },
 
     stream(path, handlers) {
-      const url = buildUrl(base, path, token ? { token } : undefined).replace(/^http/, "ws");
+      // No `?token=`: the session cookie (from a login or a token link) rides on the socket by
+      // itself, and a bearer token has no way onto one from a browser anyway.
+      const url = buildUrl(base, path).replace(/^http/, "ws");
       let socket: WebSocket | null = null;
       let closed = false;
       let attempt = 0;
