@@ -24,7 +24,8 @@ zone needs for the same step is several times larger at 900 than at 200.
 The two device names are the point of the shape: a real furnace's file
 would declare `furnace` (a thermocouple DAQ) and `heaters` (an SSR bank)
 with the same addresses, and a `sim.yaml` overlay would swap only the
-drivers for these (`temp-docs/DEVICE-MODEL-PLAN.md` §1.6, §2).
+drivers for these (see the book, *Writing a sensor* / *Writing an
+actuator*, `book/src/3-extending/device/{sensor,actuator}.md`).
 
 Five programs in `programs/`, each a different lesson:
 
