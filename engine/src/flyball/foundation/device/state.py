@@ -59,7 +59,11 @@ class Code(StrEnum):
 
     # A device: its reads, its deliveries, its writes.
     OFFLINE = "offline"
-    """A condition: its last read raised; polling stopped until a restart clears it."""
+    """A condition: `reads.fail_after` reads in a row raised. Polling retries with backoff, and
+    the first read that succeeds clears it."""
+    GAVE_UP = "gave_up"
+    """An event: an offline device's retries ran past `reads.give_up_after_s`, and its polling
+    stopped. `offline` stays until a restart's first good read."""
     SLOW = "slow"
     """A condition: its reads take longer than its period (de-flapped: see polling)."""
     DELIVERY_FAILED = "delivery_failed"

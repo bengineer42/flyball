@@ -536,8 +536,11 @@ class Readable(Device):
         published signal, but a slow bus may yield them at different
         instants, a buffered instrument a backlog, and per-signal `poll_s`
         means only some are due at a given call. Yield nothing if none are.
-        Raise HardwareError to go offline; the runtime records the condition
-        and retries on the next poll.
+        Raise HardwareError when the transport fails. The runtime delivers
+        what was yielded before the raise and counts it toward the device's
+        `reads.fail_after`: below it, polling carries on at its period; at
+        it, the device is `offline` and is retried after each wait of
+        `reads.backoff_s`, until a read succeeds and clears it.
         """
         raise NotImplementedError(f"{type(self).__name__} has nothing to read")
 
@@ -580,7 +583,7 @@ class Committable(Device):
         """Put one committed value on the hardware. Default: nothing -- the device just holds it."""
 
 
-ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "inputs", "config"})
+ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "inputs", "reads", "config"})
 """The keys of a device entry that are flyball's, the same for every driver; `config` is
 refused outright, so a driver field of that name could never be set."""
 

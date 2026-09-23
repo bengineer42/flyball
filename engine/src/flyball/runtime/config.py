@@ -68,12 +68,14 @@ from flyball.control import (
 )
 from flyball.foundation.config import Config, discover_paths, discriminated_union
 from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
+from flyball.foundation.device.entry import Reads
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
 from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.rig import Rig
+from flyball.rig.polling import BACKOFF_S, FAIL_AFTER, ReadPolicy
 
 log = logging.getLogger(__name__)
 
@@ -508,6 +510,30 @@ def settle_exposure(
     )
 
 
+class RunnerReads(BaseModel):
+    """`runner.reads`: the rig's default for when failed reads put a device offline.
+
+    A device's own `reads:` wins key by key. `give_up_after_s` is a device's
+    only: rig-wide, a device retries for ever.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fail_after: int = Field(
+        default=FAIL_AFTER, description="Reads that raise in a row before a device is offline."
+    )
+    backoff_s: list[float] = Field(
+        default_factory=lambda: list(BACKOFF_S),
+        description="Seconds between retries while offline, in turn; the last repeats.",
+    )
+
+    @field_validator("fail_after", "backoff_s")
+    @classmethod
+    def _as_a_device_s(cls, value: Any, info: Any) -> Any:
+        Reads.model_validate({info.field_name: value})  # the same rules, the same messages
+        return value
+
+
 class RunnerConfig(BaseModel):
     """The `runner:` section: how the process serves, not what the rig is.
 
@@ -554,6 +580,11 @@ class RunnerConfig(BaseModel):
     )
     allow_shutdown: bool = Field(
         default=False, description="Let the API stop or restart the runner."
+    )
+    reads: RunnerReads = Field(
+        default_factory=RunnerReads,
+        description="When failed reads put a device offline, and how it retries; a device's"
+        " own `reads:` wins.",
     )
     keep: str = Field(
         default="1h",
@@ -858,6 +889,9 @@ class RigConfig(BaseModel):
         }
         if clock is not None:
             rig.clock = clock
+        if self.runner is not None:
+            reads = self.runner.reads
+            rig.polling.defaults = ReadPolicy(reads.fail_after, tuple(reads.backoff_s))
         # Build everything before anything runs: a failure part-way leaves no
         # thread polling and no name claimed for a retry to trip on, and no
         # link (a serial port, a socket) held open behind it.

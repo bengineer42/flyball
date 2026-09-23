@@ -287,18 +287,20 @@ class TestProducers:
         assert _edges(rig, Code.COMMIT_FAILED) == [("raised", flaky.name), ("cleared", flaky.name)]
         assert not [e for e in rig.recent if e.code == "commit_recovered"]
 
-    def test_an_offline_device_is_cleared_by_its_restart(self, rig, clock, fresh):
+    def test_an_offline_device_is_cleared_by_its_first_good_read(self, rig, clock, fresh):
         furnace = Furnace(fresh("furnace"))
         furnace.poll_s = 1.0
         rig.add_device(furnace)
         rig.start_polling(furnace)
         clock.advance(1.0)
         furnace.fail = True
-        clock.advance(1.0)
+        clock.advance(3.0)
         (offline,) = rig.conditions.of(furnace)
         assert offline.code == Code.OFFLINE and "modbus timeout" in offline.message
         furnace.fail = False
         rig.polling.restart(furnace.name)
+        assert [c.code for c in rig.conditions.of(furnace)] == ["offline"], "not by the restart"
+        clock.advance(1.0)
         assert rig.conditions.of(furnace) == []
         assert _edges(rig, Code.OFFLINE) == [("raised", furnace.name), ("cleared", furnace.name)]
         assert not [e for e in rig.recent if e.code == Code.RESTARTED], "restarted is the runner's"

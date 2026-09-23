@@ -24,6 +24,63 @@ def _period(value: float | None, name: str | None) -> float | None:
     return value
 
 
+def _backoff(value: list[float] | None) -> list[float] | None:
+    """A backoff sequence: at least one wait, each finite and above zero."""
+    if value is None:
+        return value
+    if not value:
+        raise ValueError("backoff_s: give at least one wait")
+    for wait in value:
+        _period(wait, "backoff_s")
+    return value
+
+
+def _budget(value: int | None) -> int | None:
+    if value is not None and value < 1:
+        raise ValueError(f"fail_after {value!r}: must be at least 1")
+    return value
+
+
+class Reads(BaseModel):
+    """A device's `reads:`: when failed reads put it offline, and how it retries.
+
+    `fail_after` reads that raise in a row put the device `offline`; it is
+    then read again after each wait in `backoff_s` in turn, the last one
+    repeating, until a read succeeds. `give_up_after_s` stops the retries
+    that long after `offline` was raised (null: never). A key left out is
+    the runner's `reads:`, then the built-in default.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fail_after: int | None = Field(
+        default=None, description="Reads that raise in a row before the device is offline."
+    )
+    backoff_s: list[float] | None = Field(
+        default=None,
+        description="Seconds between retries while offline, in turn; the last repeats.",
+    )
+    give_up_after_s: float | None = Field(
+        default=None,
+        description="Stop retrying this long after the device went offline; null: never.",
+    )
+
+    @field_validator("fail_after")
+    @classmethod
+    def _at_least_one(cls, value: int | None) -> int | None:
+        return _budget(value)
+
+    @field_validator("backoff_s")
+    @classmethod
+    def _waits(cls, value: list[float] | None) -> list[float] | None:
+        return _backoff(value)
+
+    @field_validator("give_up_after_s")
+    @classmethod
+    def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
+        return _period(value, info.field_name)
+
+
 class SignalMeta(BaseModel):
     """A signal's metadata in the rig file, and the access to remove.
 
@@ -129,6 +186,8 @@ class DeviceEntry(BaseModel):
     signals: dict[str, SignalMeta | NamespaceMeta] = Field(default_factory=dict)
     inputs: dict[str, str] = Field(default_factory=dict)
     """Input name -> address on another device; the rig binds it."""
+    reads: Reads | None = None
+    """When failed reads put the device offline, and how it retries; the runner's otherwise."""
 
     @field_validator("poll_s")
     @classmethod

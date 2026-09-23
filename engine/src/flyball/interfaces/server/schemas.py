@@ -336,6 +336,12 @@ class RunOut(BaseModel):
     """How long the last read took (the driver's `read` alone), in seconds of rig time."""
     missed: int = 0
     """Reads that took longer than the period since polling began."""
+    reading_since_ns: int | None = None
+    """When the read in flight began, on the rig's clock; null: none is."""
+    consecutive_failures: int = 0
+    """Reads in a row that raised; 0 after one that succeeds."""
+    next_retry_ns: int | None = None
+    """While offline and retrying: when the next read is due, on the rig's clock."""
 
     @classmethod
     def of(cls, run: DeviceRun) -> RunOut:
@@ -345,6 +351,9 @@ class RunOut(BaseModel):
             last_read_ns=run.last_read_ns,
             read_s=run.read_s,
             missed=run.missed,
+            reading_since_ns=run.reading_since_ns,
+            consecutive_failures=run.consecutive_failures,
+            next_retry_ns=run.next_retry_ns,
         )
 
 

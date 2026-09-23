@@ -25,6 +25,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.router import Trigger
 from flyball.interfaces.server import create_app, set_rig
+from flyball.rig.polling import ReadPolicy
 from flyball.sequencing.devices import RunCommand
 
 TEMP = Quantity("temperature", Celsius)
@@ -573,9 +574,10 @@ def test_health_counts_signals_outside_their_warn_and_alarm_bands(client, rig, d
 def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig, daq):
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     rig.polling.stop_all()
-    rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+    rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
     body = client.get("/api/health").json()
     assert body["ok"] is False
     assert (
@@ -698,6 +700,7 @@ def test_writes_ride_the_samples_stream(client, rig, drive):
 def test_device_runs_ride_the_samples_stream(client, rig, daq):
     """`/ws/devices` is gone: a device's run rides beside its samples on `/ws/samples`."""
     daq.poll_s = 0.5
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     rig.polling.stop_all()
     with client.websocket_connect("/ws/samples") as ws:
@@ -987,14 +990,17 @@ class TestSimRoutes:
 def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     try:
         rig.polling.stop_all()
-        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
         assert rig.polling.run(daq.name).running is False
 
         RunCommand(device_command="restore", device=daq.name).run(rig)
         assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
+        assert [c.code for c in rig.conditions.of(daq)] == ["offline"], "until a good read"
+        rig.polling._read(daq)
         assert rig.conditions.of(daq) == []
     finally:
         rig.polling.stop_all()
@@ -1003,10 +1009,11 @@ def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
 def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     try:
         rig.polling.stop_all()
-        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
         assert rig.polling.run(daq.name).running is False
         body = client.get(f"/api/devices/{daq.name}").json()
         assert body["run"] == {
@@ -1015,11 +1022,15 @@ def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
             "last_read_ns": None,
             "read_s": None,
             "missed": 0,
+            "reading_since_ns": None,
+            "consecutive_failures": 1,
+            "next_retry_ns": body["run"]["next_retry_ns"],
         }
         assert body["conditions"][0]["code"] == "offline"
 
         assert client.post(f"/api/devices/{daq.name}/commands/restore").status_code == 200
         assert rig.polling.run(daq.name).running is True
+        rig.polling._read(daq)  # the first good read clears it, not the restart
         assert rig.conditions.of(daq) == []
         rig.polling.stop_all()
 

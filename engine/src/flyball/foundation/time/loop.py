@@ -64,6 +64,27 @@ class PeriodicLoop:
     def set_loop_time(self, loop_time: Positive) -> None:
         self._loop_time = loop_time
 
+    def defer(self, seconds: Positive) -> None:
+        """Run next `seconds` from now rather than on the period; the period resumes after that run.
+
+        Called from inside the loop's own function (`runs_here`), as a
+        retry that backs off does. `stop` still ends the wait at once.
+        """
+        schedule = getattr(self._clock, "schedule", None)
+        if schedule is not None:  # a stepped clock: a one-shot, then the period again
+            if self._handle is None:
+                return  # stopped
+            self._clock.cancel(self._handle)  # type: ignore[union-attr]
+            self._handle = schedule(seconds, self._deferred)
+            return
+        self._next_loop_time = self._now() + seconds
+
+    def _deferred(self) -> None:
+        if self._handle is not None and self._clock is not None:
+            self._clock.cancel(self._handle)  # type: ignore[attr-defined]
+            self._handle = self._clock.schedule(self._loop_time, self._once)  # type: ignore[attr-defined]
+        self._once()
+
     def start(self) -> None:
         schedule = getattr(self._clock, "schedule", None)
         if schedule is not None:  # a stepped clock runs the loop itself, as time is advanced
