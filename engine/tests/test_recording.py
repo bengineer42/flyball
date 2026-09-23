@@ -6,8 +6,8 @@ import threading
 import time
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import get_rig, set_store
 from flyball.record.sqlite import SqliteStore

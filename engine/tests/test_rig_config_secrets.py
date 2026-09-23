@@ -11,8 +11,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.interfaces.server import create_app
 from flyball.interfaces.server.deps import set_rig_config, set_simulation
 from flyball.interfaces.server.routes import rig as rig_routes

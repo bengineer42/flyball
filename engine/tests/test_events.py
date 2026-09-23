@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.foundation.device import Event, Level
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.routes import events as events_routes

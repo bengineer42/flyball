@@ -980,8 +980,7 @@ class TestNonFinite:
         assert states == {limited: WriteState(value=15.0, requested=100.0)}, "5.0 is the reference"
 
     def test_a_non_finite_demand_over_http_is_a_422(self, rig, furnace):
-        from fastapi.testclient import TestClient
-
+        from conftest import TestClient
         from flyball.interfaces.server import create_app, set_rig
 
         set_rig(rig)

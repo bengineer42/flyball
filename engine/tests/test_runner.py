@@ -93,6 +93,20 @@ def test_mcp_is_mounted_unless_switched_off(monkeypatch):
     assert not any(p.startswith("/mcp") for p in _routes_served(monkeypatch, mcp=False))
 
 
+def test_forwarded_headers_are_not_trusted(monkeypatch):
+    """The peer is the peer: a local caller could otherwise name a fresh address per guess.
+
+    With uvicorn's default, `X-Forwarded-For` from 127.0.0.1 is believed, so the login
+    limiter counted each made-up address separately.
+    """
+    from flyball.rig import Rig
+
+    seen = {}
+    monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.setdefault("config", self.config))
+    runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning"))
+    assert seen["config"].proxy_headers is False
+
+
 def test_no_mcp_flag_and_env(monkeypatch):
     monkeypatch.delenv("FLYBALL_NO_MCP", raising=False)
     assert runner.parser().parse_args([]).mcp is None, "unset: the file's value stands"

@@ -6,10 +6,10 @@ import time
 from collections.abc import Iterator
 
 import pytest
-from fastapi.testclient import TestClient
 from flyball_sim import DaqPort, PlantConfig, ScaledClock, SimDaq, SimDaqConfig
 from flyball_sim.simulation import Simulation
 
+from conftest import TestClient
 from flyball.foundation.device import Device, Setting, command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Second

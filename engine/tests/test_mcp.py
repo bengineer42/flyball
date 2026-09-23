@@ -8,11 +8,11 @@ from typing import Any
 
 import anyio
 import pytest
-from fastapi.testclient import TestClient
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
+from conftest import TestClient
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.client import RigError
 from flyball.interfaces.mcp import Tier, tools_for
@@ -144,6 +144,27 @@ class TestTools:
         assert "set_duty" in schema["commands"]
         kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
         assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
+
+    @pytest.mark.parametrize("name", ["..", ".", "", "../health", "heaters/../../health"])
+    def test_a_name_cannot_climb_to_another_route(self, client, name):
+        """Httpx collapses `..` in a path, so `/api/devices/../health` would be `/api/health`."""
+        from flyball.interfaces.client import SchemaError
+
+        for tool, arguments in (
+            ("view_device", {"name": name}),
+            ("describe_device", {"name": name}),
+            ("read", {"address": name}),
+            ("manual", {"target": name}),
+        ):
+            with pytest.raises(SchemaError, match="not a name"):
+                self.tool(client, tool).run(client, arguments)
+
+    def test_a_name_is_one_path_segment_whatever_it_holds(self, client):
+        """`?`, `#` and `%` are encoded: a name cannot add a query or cut the path short."""
+        for name in ("heaters?fresh=true", "heaters#x", "heaters%"):
+            with pytest.raises(RigError) as refused:
+                self.tool(client, "view_device").run(client, {"name": name})
+            assert refused.value.status == 404, name
 
     def test_a_device_command_runs_and_is_validated(self, client):
         from flyball.interfaces.client import SchemaError
@@ -368,6 +389,37 @@ class TestMounted:
         ).json()["result"]
         assert not called.get("isError") and "heaters" in called["content"][0]["text"]
 
+    def test_an_open_runner_s_mcp_refuses_a_rebound_name_itself(self, rig):
+        """DNS rebinding protection is on in the MCP transport too, not only at the door.
+
+        A bare app (no door in front) so the transport's own check is what answers.
+        """
+        from fastapi import FastAPI
+
+        from flyball.interfaces.mcp.http import mount
+
+        rig.name = "t"
+        set_rig(rig)
+        app = FastAPI()
+        http = TestClient(app)
+        mount(app, InProcess(http))
+        body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}}
+        accept = {"Accept": "application/json, text/event-stream"}
+        try:
+            with http:
+                rebound = http.post(
+                    "/mcp/read", json=body, headers={**accept, "Host": "evil.example"}
+                )
+                assert rebound.status_code == 421, rebound.text
+                foreign = http.post(
+                    "/mcp/read", json=body, headers={**accept, "Origin": "http://evil.example"}
+                )
+                assert foreign.status_code == 403, foreign.text
+                own = {**accept, "Host": "127.0.0.1:8000", "Origin": "http://127.0.0.1:8000"}
+                assert http.post("/mcp/read", json=body, headers=own).status_code != 421
+        finally:
+            set_rig(None)
+
     def test_each_mode_has_a_route(self, http):
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
@@ -440,6 +492,22 @@ class TestDriverTools:
         assert drivers["sim_drive"]["role"] == "driver" and "schema" in drivers["sim_drive"]
         with pytest.raises(RigError, match="no drivers directory"):
             self.tool(client, "reload_drivers").run(client, {})
+
+    def test_probe_hardware_posts_at_every_tier(self, client):
+        """A scan drives the bus, so `/api/probe` is a POST; the read tier never scans."""
+        seen: list[tuple[str, str]] = []
+
+        class Recorder:
+            def get(self, path: str) -> Any:
+                seen.append(("get", path))
+
+            def post(self, path: str, body: Any = None) -> Any:
+                seen.append(("post", path))
+
+        self.tool(client, "probe_hardware", "read").run(Recorder(), {})
+        self.tool(client, "probe_hardware").run(Recorder(), {"scan": True})
+        assert seen == [("post", "/api/probe?scan=false"), ("post", "/api/probe?scan=true")]
+        assert self.tool(client, "probe_hardware").route == ("post", "/api/probe")
 
     def test_guide_and_scaffold(self, client):
         guide = self.tool(client, "driver_guide", "read").run(client, {})

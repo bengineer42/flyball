@@ -171,7 +171,13 @@ def serve(
         base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
         mount(app, Client(base, token=auth.token or internal), name=rig.name)
     server = uvicorn.Server(
-        uvicorn.Config(app, host=settings.host, port=settings.port, log_level=settings.log_level)
+        uvicorn.Config(
+            app,
+            host=settings.host,
+            port=settings.port,
+            log_level=settings.log_level,
+            proxy_headers=False,  # the peer is the peer: no X-Forwarded-For past the limiter
+        )
     )
     logs.stamp_uvicorn()  # its handlers exist once the Config is made
 

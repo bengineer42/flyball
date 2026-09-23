@@ -15,7 +15,7 @@ paths in the file to the first rig file.
 | `--host ADDR` | | `host` | bind address; default `127.0.0.1`. Beyond loopback an open runner serves on `127.0.0.1` instead, with a warning: give a password or a token, or `--insecure-open` |
 | `--port N` | | `port` | default 8000 |
 | `--root-path /PREFIX` | `FLYBALL_ROOT_PATH` | `root_path` | serve everything under a prefix |
-| `--log-level LEVEL` | | `log_level` | uvicorn's; default `info` |
+| `--log-level LEVEL` | | `log_level` | uvicorn's; default `info`; request lines drop the query string |
 | `--password P` | `FLYBALL_PASSWORD` | `auth.password` | the login page's password: plain, or `flyball password`'s `$scrypt$` line |
 | `--token T` | `FLYBALL_TOKEN` | `auth.token` | bearer token for the CLI, MCP clients and scripts |
 | `--anonymous none\|read` | `FLYBALL_ANONYMOUS` | `auth.anonymous` | what a caller with neither may do; default `none` |

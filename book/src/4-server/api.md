@@ -1,7 +1,10 @@
 # HTTP and websocket API
 
 All routes are under `/api`; websockets under `/ws`. Bodies and responses
-are JSON. OpenAPI is served at `/docs`.
+are JSON. OpenAPI is `/openapi.json`, and `/docs` shows it in Swagger UI --
+bundled with the runner (npm `swagger-ui-dist`, Apache-2.0), so the page
+loads nothing from another host and works with no internet. There is no
+`/redoc`.
 
 Everything on the wire is named by **address**: a signal's
 (`furnace.zone1`), a namespace's (`hum_sensors.dry`), a device's
@@ -16,15 +19,29 @@ door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)),
 every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
 `flyball_session` a login set; `Authorization: Bearer T` with the token;
 `?token=T` on a websocket or a `GET`. Without: `401` with a `detail` and
-`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. With
-`auth.anonymous: read`, a `GET` or a stream passes without any of them
-(bar `/api/probe`). `/api/auth`, `/docs` and `/openapi.json` are always
-reachable.
+`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. A token
+that is sent and wrong is `401` too, never anonymous. With
+`auth.anonymous: read`, a `GET` or a stream passes without any of them;
+no `GET` changes anything. `/api/auth` is always reachable, and so is a `GET`
+outside `/api`, `/ws` and `/mcp`: the bundled UI (its login page
+included), `/docs` and `/openapi.json`.
+
+Two refusals come first, both `403` (a socket: closed with 4403):
+
+- **An open runner** (no password, no token) answers only a `Host` of
+  `localhost`, `127.0.0.1` or `[::1]`, on any port.
+- **In every mode**, a request that acts -- any method but `GET`, `HEAD`
+  and `OPTIONS`, and every websocket -- is refused when its `Origin`
+  header is present and is not the runner's own: the same host and port
+  as the `Host` header, and the request's scheme (or `https` where the
+  runner itself is reached over plain HTTP, a TLS proxy in front of it).
+  `Origin: null` is refused. No `Origin` at all (the CLI, a script) is
+  not. A request with the right bearer token is exempt.
 
 | | route | |
 | --- | --- | --- |
 | `GET` | `/api/auth` | `{scheme, level, anonymous, password, token, exposure}`: how this caller got in (`anonymous`, `password`, `token`), what they may do (`none`, `read`, `operate`), what anyone may do, and which of a password and a token the runner has. `exposure` is where it serves against where it was asked to -- `{requested, host, port, open, restricted, open_network, warning}`: `restricted` an open runner moved to `127.0.0.1`, `open_network` an open one on the network by `--insecure-open` ([the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)); `null` when not served by `flyball-runner`. `flyball run --serve-ui` replaces it with its own front's |
-| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` |
+| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https or with `X-Forwarded-Proto: https`) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address (the connection's peer; no forwarded header is trusted): `429`; `429` with `Retry-After: 1` too while two other logins are being checked (the hash runs off the event loop, two at a time) |
 | `POST` | `/api/auth/logout` | clears the cookie |
 
 Started with `--root-path /p`, every path below sits under `/p`
@@ -100,7 +117,7 @@ saving are never gated.
 | `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}`; a `rig`/`versions`/`restored` event marks it on the event stream |
 | `GET` | `/api/drivers` | every registered tag: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
-| `GET` | `/api/probe` | `{report}`: the board's buses, GPIO chips and, with `?scan=true`, I²C addresses (flyball-linux); 404 where it is not installed |
+| `POST` | `/api/probe` | `{report}`: the board's buses, GPIO chips and I²C addresses (flyball-linux); `?scan=false` for the list without a bus transaction; 404 where it is not installed. A `POST` because a scan drives every I²C bus |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
 | `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`; an existing file keeps its own `runner:` section, which is not returned; 409 if that section cannot be read); returns `{path, document}` |
 

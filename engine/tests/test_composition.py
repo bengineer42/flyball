@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 from flyball_sim import SteppedClock
 
-from conftest import FakeRunner
+from conftest import FakeRunner, TestClient
 from flyball.foundation.config import Config
 from flyball.foundation.files import load_document
 from flyball.interfaces.server import create_app, set_rig

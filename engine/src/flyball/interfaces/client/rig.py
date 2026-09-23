@@ -19,10 +19,25 @@ import json
 import os
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import quote
 
 from .validate import SchemaError, validate
 
-__all__ = ["Device", "Devices", "Rig", "RigError", "SchemaError", "Unreachable"]
+__all__ = ["Device", "Devices", "Rig", "RigError", "SchemaError", "Unreachable", "segment"]
+
+
+def segment(value: Any) -> str:
+    """`value` as one path segment of a URL, percent-encoded.
+
+    A name, an address or an id from a caller -- a model, a script -- goes into a path
+    as exactly one segment: `?`, `#`, `%` and the rest are encoded, and a value that is
+    empty, `.` or `..`, or holds a `/`, is refused, since the HTTP client collapses `..`
+    and a name could otherwise reach another route.
+    """
+    text = str(value)
+    if text in ("", ".", "..") or "/" in text:
+        raise SchemaError(f"{text!r} is not a name: no '/', and not empty, '.' or '..'")
+    return quote(text, safe="")
 
 
 class RigError(Exception):
@@ -52,7 +67,7 @@ class Device:
 
     def view(self) -> dict[str, Any]:
         """The device's tree with its current values, inputs, commands and conditions."""
-        return self._rig.get(f"/api/devices/{self.name}")
+        return self._rig.get(f"/api/devices/{segment(self.name)}")
 
     def run(self, command: str, **arguments: Any) -> Any:
         """Run a command, checking the arguments against its schema first."""
@@ -63,7 +78,9 @@ class Device:
                 f"{self.name} has no command {command!r}; it has {sorted(self.commands)}"
             ) from None
         validate(spec["arguments"], arguments, where=f"{self.name}.{command}")
-        return self._rig.post(f"/api/devices/{self.name}/commands/{command}", arguments)
+        return self._rig.post(
+            f"/api/devices/{segment(self.name)}/commands/{segment(command)}", arguments
+        )
 
     def __getattr__(self, command: str) -> Any:
         if command.startswith("_") or command not in self.schema.get("commands", {}):
@@ -185,21 +202,21 @@ class Rig:
     def read(self, address: str, fresh: bool = False) -> Any:
         """A signal's reading, a namespace's sample, or a device's samples."""
         query = "?fresh=true" if fresh else ""
-        return self.get(f"/api/read/{address}{query}")
+        return self.get(f"/api/read/{segment(address)}{query}")
 
     def demand(self, address: str, value: float) -> Any:
         """Put `value` on the single writable signal at `address`."""
-        return self.put(f"/api/signals/{address}", value)
+        return self.put(f"/api/signals/{segment(address)}", value)
 
     def waits(self) -> dict[str, Any]:
         """What the rig is waiting on, by name."""
         return self.get("/api/waits")
 
     def fire(self, name: str) -> bool:
-        return bool(self.post(f"/api/waits/{name}/fire")["fired"])
+        return bool(self.post(f"/api/waits/{segment(name)}/fire")["fired"])
 
     def interrupt(self, name: str) -> bool:
-        return bool(self.post(f"/api/waits/{name}/interrupt")["interrupted"])
+        return bool(self.post(f"/api/waits/{segment(name)}/interrupt")["interrupted"])
 
     def clock(self) -> dict[str, Any]:
         """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed`."""

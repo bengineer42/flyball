@@ -11,8 +11,9 @@ FLYBALL_PASSWORD=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachabl
 
 Reachable needs a password or a token: an open runner (neither) asked for
 any other address still runs the rig but serves on `127.0.0.1` only, with a
-warning, unless that run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`)
--- [the door](access.md#the-door-a-password-a-token-or-open).
+warning, and answers only to the names `localhost`, `127.0.0.1` and
+`[::1]`, unless that run says `--insecure-open` (or
+`FLYBALL_INSECURE_OPEN=1`) -- [the door](access.md#the-door-a-password-a-token-or-open).
 
 The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2, and so
@@ -108,7 +109,7 @@ says how it is configured and driven.
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
 | `/ws/controllers`, `/ws/waits` | a snapshot on connect, then what changed |
-| `/docs` | OpenAPI, from FastAPI |
+| `/docs` | OpenAPI in Swagger UI, served by the runner itself, so it works offline (`/openapi.json` is the document) |
 
 Full list: [HTTP and websocket API](../../4-server/api.md).
 
