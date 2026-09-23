@@ -280,6 +280,22 @@ func TestLoopbackWithSecret(t *testing.T) {
 	rg.mustStatus(map[string][]string{"Remote-User": {"ben"}, SecretHeader: {"s3cret-s3cret-s3cret", "x"}}, 401)
 }
 
+// D-047 4: secret_file works with from: unix too -- the documented guard
+// against other processes of the proxy's user, which can connect to the
+// socket: a connection without the secret is not believed.
+func TestUnixWithSecret(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "proxy-secret")
+	if err := os.WriteFile(secret, []byte("s3cret-s3cret-s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rg := newRig(t, front.Config{Listen: unixListen(t), Proxy: &front.ProxyConfig{
+		Preset: "authelia", SecretFile: secret,
+	}}, Options{})
+	rg.mustSub(h("Remote-User", "ben", SecretHeader, "s3cret-s3cret-s3cret"), "proxy:authelia#ben")
+	rg.mustAnonymous(h("Remote-User", "ben"))
+	rg.mustStatus(h("Remote-User", "ben", SecretHeader, "s3cret-s3cret-s3creT"), 401)
+}
+
 // Unit: a vouched non-loopback TCP peer needs no secret; the peer is the
 // TCP peer, never X-Forwarded-For.
 func TestPeerAllowList(t *testing.T) {

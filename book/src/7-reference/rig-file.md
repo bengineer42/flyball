@@ -263,7 +263,7 @@ proxy: {preset: custom, jwt: {header: X-Lab-Jwt, jwks_url: https://idp.lab.org/k
 | --- | --- |
 | `preset` | one of the above; required |
 | `from` | unsigned presets: whose headers are believed -- `unix` (the default: the front's own socket, so `listen` must be `unix:/path`; the local user behind each new identity is recorded as `proxy.peer`), or a list of the proxy's IPs or CIDRs (then `listen` must be TCP). `/0` is refused; a range wider than one host (`/32`, `/128`) without `secret_file` warns at start, since every host in it can assert any identity. A loopback address, or one of this host's own, stands for every local process, so it also needs `secret_file` |
-| `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused |
+| `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused. Works with `from: unix` too, against other processes of the proxy's user ([Access](../1-running/runner/access.md#behind-an-identity-proxy)) |
 | `issuer`, `audience` | signed presets: the exact `iss`, and a value `aud` must contain |
 | `team` | `cloudflare`: the Access team name (one DNS label) |
 | `grants` | role → entries. Roles: `all` (every verb) and `viewer` (read); names pending D-034, and an unknown role grants nothing (a warning says so). An entry is a subject, or `group:<id>`. Every grant is on every rig; an identity matching none gets `read` |

@@ -213,20 +213,35 @@ The front believes whoever can connect to that socket, so the file
 permissions are what keep another local process from posing as the proxy.
 The front makes the socket `0660` (its own user and group, never everyone)
 and will not listen in a directory anyone may write to without the sticky
-bit, or in one of its own that others may enter. A web server proxy
-usually runs as another user (`www-data`, `caddy`), so give the directory to
-the front's user and the proxy's group, setgid so the socket inherits that
-group, and put nobody else in the group (`tailscaled` runs as root and
-needs no group):
+bit, or in one of its own that others may enter. A web server proxy runs
+as another user: make it a user nothing else runs as -- not `www-data`,
+which PHP-FPM, Pi-hole and other web apps on the same machine often share --
+here `flyball-proxy`. Give the directory to the front's user and the proxy's
+group, setgid so the socket inherits that group, and put nobody else in the
+group (`tailscaled` runs as root and needs no group):
 
 ```sh
-sudo install -d -o flyball -g www-data -m 2750 /run/flyball
+sudo install -d -o flyball -g flyball-proxy -m 2750 /run/flyball
 ```
 
 A `systemd` unit can do the same with `RuntimeDirectory=flyball`,
-`RuntimeDirectoryMode=2750` and `Group=www-data`. Every member of that group
-can assert any identity; the audit records the local user behind each new
-one (`proxy.peer`), after the fact.
+`RuntimeDirectoryMode=2750` and `Group=flyball-proxy`. Every process of that
+group, and of the proxy's user, can assert any identity; the audit records
+the local user behind each new one (`proxy.peer`), after the fact. When a
+setting is wrong ([above](#when-a-setting-is-wrong)), the `local` shape is
+served on `front.sock.local`, beside the socket and with its group, so that
+group reaches the local console -- every verb, no sign-in -- until the
+setting is fixed.
+
+`secret_file` works with `from: unix` too: the front then believes a
+connection only when it also sends the secret as `X-Flyball-Proxy-Secret`,
+so where the proxy's user cannot be its own, keep the header in a
+configuration file only root reads (nginx reads its configuration as root:
+a `0640 root:root` include with `proxy_set_header X-Flyball-Proxy-Secret
+"…";`), and other processes of that user cannot pose as the proxy by
+connecting alone. It is a second layer, not the separation: a process can
+often read the memory of another of the same user, the proxy's included.
+A user of the proxy's own is the separation.
 
 Tailscale Serve is the same with `preset: tailscale` and
 `tailscale serve unix:/run/flyball/front.sock` on the Tailscale side
