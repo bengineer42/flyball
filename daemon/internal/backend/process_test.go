@@ -1,13 +1,20 @@
 package backend
 
 import (
+	"context"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"flyballd/internal/endpoint"
 )
 
 // A runner that exits 0 on SIGTERM, as flyball-runner does once it
@@ -23,7 +30,7 @@ func newTestBackend(t *testing.T, script string) *ProcessBackend {
 	}
 	b.command = func(string, []string) *exec.Cmd { return exec.Command("sh", "-c", script) }
 	b.minBackoff = 20 * time.Millisecond
-	b.ready = func(string, string) bool { return false }
+	b.ready = func(endpoint.Endpoint, string, string, [32]byte) bool { return false }
 	b.probeInterval = 10 * time.Millisecond
 	t.Cleanup(func() {
 		b.mu.Lock()
@@ -69,7 +76,7 @@ func mustStart(t *testing.T, b *ProcessBackend, name string) {
 
 func mustStartWith(t *testing.T, b *ProcessBackend, name, restart string) {
 	t.Helper()
-	if _, err := b.Start(name, Spec{ServerConfig: "rig.yaml", Host: "127.0.0.1", Port: 1, Restart: restart}); err != nil {
+	if _, err := b.Start(name, Spec{ServerConfig: "rig.yaml", Restart: restart}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -181,7 +188,7 @@ func TestStatusFollowsACrash(t *testing.T) {
 	b.minBackoff = 300 * time.Millisecond
 	var mu sync.Mutex
 	answering := false
-	b.ready = func(string, string) bool { mu.Lock(); defer mu.Unlock(); return answering }
+	b.ready = func(endpoint.Endpoint, string, string, [32]byte) bool { mu.Lock(); defer mu.Unlock(); return answering }
 	mustStart(t, b, "r")
 
 	time.Sleep(50 * time.Millisecond)
@@ -223,7 +230,7 @@ func countingCommand(b *ProcessBackend, script string) func() int {
 
 func TestRestartNeverLeavesACrashFailed(t *testing.T) {
 	b := newTestBackend(t, "")
-	spawned := countingCommand(b, `exit 3`)
+	spawned := countingCommand(b, `exit 1`)
 	mustStartWith(t, b, "r", RestartNever)
 	eventually(t, "failed", func() bool { return status(b, "r") == StatusFailed })
 	time.Sleep(5 * b.minBackoff)
@@ -253,7 +260,7 @@ func TestRestartOnFailureStopsAfterACleanExit(t *testing.T) {
 // A runner that has stopped or failed comes back on Restart.
 func TestRestartBringsBackAFailedRunner(t *testing.T) {
 	b := newTestBackend(t, "")
-	spawned := countingCommand(b, `sleep 0.1; exit 3`)
+	spawned := countingCommand(b, `sleep 0.1; exit 1`)
 	mustStartWith(t, b, "r", RestartNever)
 	eventually(t, "failed", func() bool { return status(b, "r") == StatusFailed })
 	if err := b.Restart("r"); err != nil {
@@ -313,7 +320,7 @@ func TestLogsAreOwnerOnly(t *testing.T) {
 	b.command = func(string, []string) *exec.Cmd {
 		return exec.Command("sh", "-c", `while :; do echo 0123456789012345678901234567890123456789; sleep 0.002; done`)
 	}
-	b.ready = func(string, string) bool { return false }
+	b.ready = func(endpoint.Endpoint, string, string, [32]byte) bool { return false }
 	b.maxLogSize = 1000
 	b.logCheckInterval = 20 * time.Millisecond
 	t.Cleanup(func() { b.Stop("new"); b.Stop("old") })
@@ -322,7 +329,7 @@ func TestLogsAreOwnerOnly(t *testing.T) {
 		t.Errorf("log dir %v, want 0700", m)
 	}
 	for _, name := range []string{"new", "old"} {
-		if _, err := b.Start(name, Spec{ServerConfig: "rig.yaml", Host: "127.0.0.1", Port: 1}); err != nil {
+		if _, err := b.Start(name, Spec{ServerConfig: "rig.yaml"}); err != nil {
 			t.Fatal(err)
 		}
 		if m := mode(t, filepath.Join(dir, name+".log")); m != 0o600 {
@@ -348,5 +355,399 @@ func TestABadConfigExitIsNotRestarted(t *testing.T) {
 		if n := spawned(); n != 1 {
 			t.Errorf("restart: %s started a runner with a bad config %d times", policy, n)
 		}
+	}
+}
+
+// --- the front-dir, fronted spawn and the exit codes of the channel ---
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// recorder runs a fake runner that writes its argv, env and front-dir key
+// to out/<n>.{argv,env,key} for its n-th incarnation, then runs script.
+func recorder(b *ProcessBackend, out, script string) func() int {
+	var mu sync.Mutex
+	n := 0
+	b.command = func(_ string, args []string) *exec.Cmd {
+		mu.Lock()
+		n++
+		i := n
+		mu.Unlock()
+		rec := fmt.Sprintf(`o=%s/%d; printf '%%s\n' "$@" > $o.argv; env > $o.env; cat "$3/key" > $o.key 2>/dev/null; `, out, i)
+		return exec.Command("sh", append([]string{"-c", rec + script, "sh"}, args...)...)
+	}
+	return func() int { mu.Lock(); defer mu.Unlock(); return n }
+}
+
+func frontDirOf(t *testing.T, b *ProcessBackend, name string) string {
+	t.Helper()
+	ch, err := b.Channel(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ch.Dir
+}
+
+func TestSpawnWritesFrontDir(t *testing.T) {
+	b := newTestBackend(t, "")
+	out := t.TempDir()
+	recorder(b, out, `while :; do sleep 0.02; done`)
+	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", RootPath: "/r", Env: []string{"FLYBALL_TEST_EXTRA=kept"}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := frontDirOf(t, b, "r")
+	eventually(t, "the runner's record", func() bool { _, err := os.Stat(out + "/1.env"); return err == nil })
+	time.Sleep(50 * time.Millisecond)
+
+	if m := mode(t, dir); m != 0o700 {
+		t.Errorf("front-dir %v, want 0700", m)
+	}
+	for _, f := range []string{"key", "aud", "endpoint"} {
+		if m := mode(t, filepath.Join(dir, f)); m != 0o600 {
+			t.Errorf("%s %v, want 0600", f, m)
+		}
+	}
+	key := strings.TrimSpace(readFile(t, filepath.Join(dir, "key")))
+	if len(key) != 64 {
+		t.Fatalf("key %q", key)
+	}
+	if a := readFile(t, filepath.Join(dir, "aud")); a != "r\n" {
+		t.Errorf("aud %q, want the runner's name", a)
+	}
+	if e := readFile(t, filepath.Join(dir, "endpoint")); e != "unix:"+filepath.Join(dir, "sock")+"\n" {
+		t.Errorf("endpoint %q", e)
+	}
+	argv := strings.Split(strings.TrimSpace(readFile(t, out+"/1.argv")), "\n")
+	want := []string{"rig.yaml", "--front-dir", dir, "--root-path", "/r"}
+	if strings.Join(argv, " ") != strings.Join(want, " ") {
+		t.Errorf("argv %q, want %q", argv, want)
+	}
+	env := readFile(t, out+"/1.env")
+	for what, s := range map[string]string{"argv": strings.Join(argv, " "), "env": env} {
+		if strings.Contains(s, key) {
+			t.Errorf("the key is in the runner's %s", what)
+		}
+	}
+	if !strings.Contains(env, "FLYBALL_TEST_EXTRA=kept") {
+		t.Error("Spec.Env did not reach the runner")
+	}
+	if got := readFile(t, out+"/1.key"); strings.TrimSpace(got) != key {
+		t.Errorf("the runner read key %q from its front-dir, the front wrote %q", got, key)
+	}
+	if ch, _ := b.Channel("r"); fmt.Sprintf("%x", ch.Key) != key || ch.Aud != "r" || ch.Endpoint.Network != "unix" {
+		t.Errorf("Channel: %+v", ch)
+	}
+}
+
+// A kill -9'd runner is respawned with a fresh key, the same aud and the
+// same argv and env -- supervise() rebuilds the whole command, not just
+// Path and Args.
+func TestRespawnFreshKey(t *testing.T) {
+	b := newTestBackend(t, "")
+	out := t.TempDir()
+	spawned := recorder(b, out, `while :; do sleep 0.02; done`)
+	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", RootPath: "/r", Env: []string{"FLYBALL_TEST_EXTRA=kept"}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := frontDirOf(t, b, "r")
+	eventually(t, "the first record", func() bool { _, err := os.Stat(out + "/1.env"); return err == nil })
+	first := b.pid("r")
+	firstKey := readFile(t, filepath.Join(dir, "key"))
+
+	syscall.Kill(first, syscall.SIGKILL)
+	eventually(t, "a respawn", func() bool { _, err := os.Stat(out + "/2.env"); return err == nil && spawned() == 2 })
+	time.Sleep(50 * time.Millisecond)
+
+	if k := readFile(t, filepath.Join(dir, "key")); k == firstKey {
+		t.Error("the respawn kept the dead runner's key")
+	}
+	if k1, k2 := readFile(t, out+"/1.key"), readFile(t, out+"/2.key"); k1 == k2 || k1 != firstKey {
+		t.Errorf("keys the runners read: %q then %q", k1, k2)
+	}
+	if a := readFile(t, filepath.Join(dir, "aud")); a != "r\n" {
+		t.Errorf("aud after respawn %q", a)
+	}
+	if a1, a2 := readFile(t, out+"/1.argv"), readFile(t, out+"/2.argv"); a1 != a2 {
+		t.Errorf("argv changed across a respawn: %q -> %q", a1, a2)
+	}
+	if !strings.Contains(readFile(t, out+"/2.env"), "FLYBALL_TEST_EXTRA=kept") {
+		t.Error("the respawn lost Spec.Env")
+	}
+}
+
+// holdLock flocks dir/runner.lock as a live runner would.
+func holdLock(t *testing.T, dir string) (release func()) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }
+}
+
+func shortDir(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("", "fb-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(d) })
+	return d
+}
+
+// A front-dir whose runner.lock is held belongs to a live runner: its key
+// is not rewritten and no second runner is spawned into it.
+func TestLiveLockKeepsKey(t *testing.T) {
+	b := newTestBackend(t, "")
+	spawned := countingCommand(b, `while :; do sleep 0.02; done`)
+	dir := filepath.Join(shortDir(t), "r")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live := strings.Repeat("ab", 32) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "key"), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release := holdLock(t, dir)
+
+	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", FrontDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if st := status(b, "r"); st != StatusBusy {
+		t.Errorf("status %s, want busy", st)
+	}
+	time.Sleep(5 * b.minBackoff)
+	if n := spawned(); n != 0 {
+		t.Errorf("%d runners spawned into a live front-dir", n)
+	}
+	if k := readFile(t, filepath.Join(dir, "key")); k != live {
+		t.Errorf("the live key was rewritten: %q", k)
+	}
+	if err := b.Restart("r"); err == nil {
+		t.Error("Restart spawned into a live front-dir")
+	}
+
+	// The live runner goes; a Restart takes the dir over with a fresh key.
+	release()
+	if err := b.Restart("r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a spawn after the lock went", func() bool { return spawned() == 1 })
+	if k := readFile(t, filepath.Join(dir, "key")); k == live {
+		t.Error("the key was not rewritten once the lock was free")
+	}
+}
+
+// A runner that was busy from the start (never spawned) stops at once.
+func TestStopABusyRunner(t *testing.T) {
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	dir := filepath.Join(shortDir(t), "r")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defer holdLock(t, dir)()
+	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", FrontDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan error, 1)
+	go func() { stopped <- b.Stop("r") }()
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Error(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop hung on a runner that was never spawned")
+	}
+}
+
+// Exit 3 is RIG_BUSY: another runner has the rig. Restarting would only
+// hit the same lock, so no policy does.
+func TestExit3Busy(t *testing.T) {
+	for _, policy := range []string{RestartOnFailure, RestartAlways} {
+		b := newTestBackend(t, "")
+		spawned := countingCommand(b, `exit 3`)
+		mustStartWith(t, b, "r", policy)
+		eventually(t, "busy", func() bool { return status(b, "r") == StatusBusy })
+		time.Sleep(5 * b.minBackoff)
+		if n := spawned(); n != 1 {
+			t.Errorf("restart: %s started a busy runner %d times", policy, n)
+		}
+	}
+}
+
+// Exit 4 is FRONT_DIR: the runner found its front-dir unsafe or
+// incomplete. The front rewrites it and respawns once, whatever the
+// policy; a second exit 4 leaves it failed.
+func TestExit4Respawn(t *testing.T) {
+	for _, policy := range []string{RestartNever, RestartOnFailure} {
+		b := newTestBackend(t, "")
+		out := t.TempDir()
+		spawned := recorder(b, out, `exit 4`)
+		mustStartWith(t, b, "r", policy)
+		eventually(t, "failed", func() bool { return status(b, "r") == StatusFailed })
+		time.Sleep(5 * b.minBackoff)
+		if n := spawned(); n != 2 {
+			t.Errorf("restart: %s: %d spawns after exit 4, want 2", policy, n)
+			continue
+		}
+		if k1, k2 := readFile(t, out+"/1.key"), readFile(t, out+"/2.key"); k1 == k2 || len(k2) != 65 {
+			t.Errorf("restart: %s: the dir was not rewritten (%q, %q)", policy, k1, k2)
+		}
+	}
+}
+
+// A temp front-dir goes with its runner.
+func TestStopRemovesATempFrontDir(t *testing.T) {
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	mustStart(t, b, "r")
+	dir := frontDirOf(t, b, "r")
+	if err := b.Stop("r"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("front-dir %s still there after Stop: %v", dir, err)
+	}
+}
+
+// --- a real fronted runner: this test binary, re-executed ---
+
+const helperEnv = "FLYBALLD_TEST_FAKE_RUNNER"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(helperEnv) == "1" {
+		fakeRunnerMain(os.Args[1:])
+		return
+	}
+	os.Exit(m.Run())
+}
+
+// fakeSign stands in for principal.Mint.
+func fakeSign(r *http.Request, key [32]byte, aud string) error {
+	r.Header.Set("X-Flyball-Principal", fmt.Sprintf("%x/%s", key, aud))
+	return nil
+}
+
+// fakeRunnerMain is a fronted runner: it reads key/aud/endpoint from
+// --front-dir, exits 4 without them, binds the endpoint, and answers GET
+// <root>/api/auth/front as §WP0-8 says.
+func fakeRunnerMain(args []string) {
+	var dir, root string
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--front-dir":
+			dir = args[i+1]
+		case "--root-path":
+			root = args[i+1]
+		}
+	}
+	key, err1 := os.ReadFile(filepath.Join(dir, "key"))
+	aud, err2 := os.ReadFile(filepath.Join(dir, "aud"))
+	ep, err3 := os.ReadFile(filepath.Join(dir, "endpoint"))
+	if dir == "" || err1 != nil || err2 != nil || err3 != nil {
+		os.Exit(4)
+	}
+	e, err := endpoint.Parse(strings.TrimSpace(string(ep)))
+	if err != nil {
+		os.Exit(4)
+	}
+	want := strings.TrimSpace(string(key)) + "/" + strings.TrimSpace(string(aud))
+	l, err := net.Listen(e.Network, e.Address)
+	if err != nil {
+		os.Exit(1)
+	}
+	http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != root+"/api/auth/front" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("X-Flyball-Principal") != want {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprintf(w, `{"protocol":1,"aud":%q,"pid":%d,"flyball":"test"}`, strings.TrimSpace(string(aud)), os.Getpid())
+	}))
+}
+
+func helperCommand(_ string, args []string) *exec.Cmd {
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Env = append(os.Environ(), helperEnv+"=1")
+	return cmd
+}
+
+// A fronted runner on a real unix socket is running only once the
+// handshake passes; kill -9 brings a respawn with a fresh key that the
+// front's Channel follows, and the handshake passes again with it.
+func TestFrontedRunnerOverUnix(t *testing.T) {
+	b := newTestBackend(t, "")
+	b.command = helperCommand
+	b.ready = b.handshake
+	b.SetFront(FrontOptions{Sign: fakeSign})
+	if _, err := b.Start("oven", Spec{ServerConfig: "rig.yaml", RootPath: "/oven"}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "running", func() bool { return status(b, "oven") == StatusRunning })
+	ch, _ := b.Channel("oven")
+	if _, err := endpoint.Handshake(context.Background(), ch.Endpoint, "/oven", "oven", ch.Key, fakeSign); err != nil {
+		t.Fatalf("handshake with Channel's key: %v", err)
+	}
+
+	first := b.pid("oven")
+	syscall.Kill(first, syscall.SIGKILL)
+	eventually(t, "running again, a new process", func() bool {
+		return status(b, "oven") == StatusRunning && b.pid("oven") != first
+	})
+	again, _ := b.Channel("oven")
+	if again.Key == ch.Key {
+		t.Error("Channel kept the dead runner's key")
+	}
+	if _, err := endpoint.Handshake(context.Background(), again.Endpoint, "/oven", "oven", ch.Key, fakeSign); err == nil {
+		t.Error("the respawned runner accepted the old key")
+	}
+	if _, err := endpoint.Handshake(context.Background(), again.Endpoint, "/oven", "oven", again.Key, fakeSign); err != nil {
+		t.Errorf("handshake after respawn: %v", err)
+	}
+}
+
+// Without a signer the signed half of the handshake cannot be made, so a
+// runner never shows running.
+func TestNoSignerNeverRunning(t *testing.T) {
+	b := newTestBackend(t, "")
+	b.command = helperCommand
+	b.ready = b.handshake
+	if _, err := b.Start("oven", Spec{ServerConfig: "rig.yaml", RootPath: "/oven"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if st := status(b, "oven"); st != StatusStarting {
+		t.Errorf("status %s with no signer, want starting", st)
+	}
+}
+
+// network: tcp puts the endpoint on loopback Host:Port.
+func TestTCPEndpoint(t *testing.T) {
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	ep, err := b.Start("r", Spec{ServerConfig: "rig.yaml", Network: "tcp", Port: 8123})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep != "tcp:127.0.0.1:8123" {
+		t.Errorf("Start returned %q", ep)
+	}
+	dir := frontDirOf(t, b, "r")
+	if e := readFile(t, filepath.Join(dir, "endpoint")); e != "tcp:127.0.0.1:8123\n" {
+		t.Errorf("endpoint file %q", e)
+	}
+	if _, err := b.Start("s", Spec{ServerConfig: "rig.yaml", Network: "tcp"}); err == nil {
+		t.Error("tcp with no port started")
 	}
 }
