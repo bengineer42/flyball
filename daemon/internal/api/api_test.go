@@ -160,7 +160,7 @@ func TestABadNameOrRootPathIs400NotAStart(t *testing.T) {
 		`{"name":"Oven","server_config":"a.yaml","port":8101}`,
 		`{"name":"","server_config":"a.yaml","port":8101}`,
 		`{"name":"oven","server_config":"","port":8101}`,
-		`{"name":"oven","server_config":"a.yaml","port":0}`,
+		`{"name":"oven","server_config":"a.yaml","network":"tcp","port":0}`,
 		`{"name":"oven","server_config":"a.yaml","port":8101,"root_path":"oven"}`,
 		`{"name":"oven","server_config":"a.yaml","port":8101,"root_path":"/oven/../x"}`,
 		`{"name":"oven","server_config":"a.yaml","port":8101,"root_path":"/"}`,

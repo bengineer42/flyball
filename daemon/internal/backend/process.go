@@ -1,17 +1,22 @@
 package backend
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
+	"flyballd/internal/endpoint"
+	"flyballd/internal/endpoint/frontdir"
 )
 
 // ProcessBackend is the only backend (Docker/option 2 dropped, per Ben's
@@ -34,24 +39,37 @@ type ProcessBackend struct {
 	// logCheckInterval.
 	maxLogSize       int64
 	logCheckInterval time.Duration
-	// ready says whether a runner answers yet; probed every probeInterval
-	// after each start until it does.
-	ready         func(endpoint, rootPath string) bool
+	// ready says whether a runner has passed the readiness handshake yet;
+	// probed every probeInterval after each start until it does.
+	ready         func(ep endpoint.Endpoint, rootPath, aud string, key [32]byte) bool
 	probeInterval time.Duration
+
+	// front: where front-dirs go and how the probe is signed (SetFront).
+	front FrontOptions
 
 	mu      sync.Mutex
 	runners map[string]*runnerProc
 }
 
-// runnerProc is one registered runner. The fixed fields (endpoint,
-// rootPath, uvProject, args, policy, wake) are set once at Start; logFile
-// and logClosed are guarded by logMu; everything else by ProcessBackend.mu.
+// runnerProc is one registered runner. The fixed fields (ep, dir,
+// tempDir, aud, rootPath, uvProject, args, env, policy, wake) are set
+// once at Start; logFile and logClosed are guarded by logMu; everything
+// else by ProcessBackend.mu.
 type runnerProc struct {
-	endpoint  string
+	ep        endpoint.Endpoint
+	dir       string // the front-dir
+	tempDir   bool   // dir was made by os.MkdirTemp: removed at Stop
+	aud       string
 	rootPath  string
 	uvProject string
 	args      []string
+	env       []string
 	policy    string
+
+	key [32]byte // the current incarnation's key
+	// frontRetried: an exit 4 has had its one respawn; cleared once an
+	// incarnation reaches running, and by Restart.
+	frontRetried bool
 
 	cmd      *exec.Cmd // the current incarnation
 	alive    bool      // cmd is running (not yet reaped by supervise)
@@ -87,7 +105,7 @@ func NewProcessBackend(logDir string, maxLogSize int64) (*ProcessBackend, error)
 	if err := os.Chmod(logDir, 0o700); err != nil {
 		return nil, fmt.Errorf("restricting log dir: %w", err)
 	}
-	return &ProcessBackend{
+	b := &ProcessBackend{
 		logDir:           logDir,
 		runners:          map[string]*runnerProc{},
 		command:          runnerCommand,
@@ -95,22 +113,53 @@ func NewProcessBackend(logDir string, maxLogSize int64) (*ProcessBackend, error)
 		stopTimeout:      10 * time.Second,
 		maxLogSize:       maxLogSize,
 		logCheckInterval: 2 * time.Second,
-		ready:            answersAuth,
 		probeInterval:    500 * time.Millisecond,
-	}, nil
+	}
+	b.ready = b.handshake
+	return b, nil
 }
 
-// answersAuth: the runner answers GET /api/auth under its root path -- it
-// only does so once started with --root-path, so an unprefixed probe
-// would 404 against a root_path-aware runner.
-func answersAuth(endpoint, rootPath string) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://" + endpoint + rootPath + "/api/auth")
-	if err != nil {
-		return false
+// FrontOptions configure the front's side of every runner's channel.
+type FrontOptions struct {
+	// Root is the parent of the runners' front-dirs (frontdir.Root: under
+	// systemd /run/flyball, else $XDG_RUNTIME_DIR/flyball/<front-id>).
+	// "" gives each runner an os.MkdirTemp dir, removed at Stop.
+	Root string
+	// Sign signs the readiness probe (principal.Mint under the key and
+	// aud given). nil: the signed half of the handshake cannot be made,
+	// so no runner ever shows running.
+	Sign endpoint.Signer
+}
+
+// SetFront sets the front options for runners started afterwards (Root)
+// and for every probe from now on (Sign). Call it before Start.
+func (b *ProcessBackend) SetFront(o FrontOptions) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.front = o
+}
+
+// handshake is the default readiness check: endpoint.Handshake with the
+// front's signer.
+func (b *ProcessBackend) handshake(ep endpoint.Endpoint, rootPath, aud string, key [32]byte) bool {
+	b.mu.Lock()
+	sign := b.front.Sign
+	b.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*endpoint.ProbeTimeout)
+	defer cancel()
+	_, err := endpoint.Handshake(ctx, ep, rootPath, aud, key, sign)
+	return err == nil
+}
+
+// Channel hands a front what it needs to reach runner name.
+func (b *ProcessBackend) Channel(name string) (Channel, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	rp, ok := b.runners[name]
+	if !ok {
+		return Channel{}, fmt.Errorf("no runner named %q", name)
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return Channel{Endpoint: rp.ep, Dir: rp.dir, Aud: rp.aud, Key: rp.key}, nil
 }
 
 // runnerCommand is the real flyball-runner, bare or via `uv run --project`
@@ -139,21 +188,72 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 		return "", fmt.Errorf("runner %s: restart %q: use always, on-failure or never", name, policy)
 	}
 
+	network := spec.Network
+	if network == "" {
+		network = "unix"
+		if runtime.GOOS == "windows" {
+			network = "tcp"
+		}
+	}
+	switch network {
+	case "unix":
+	case "tcp":
+		if spec.Port <= 0 || spec.Port > 65535 {
+			return "", fmt.Errorf("runner %s: network tcp needs a port, not %d", name, spec.Port)
+		}
+	default:
+		return "", fmt.Errorf("runner %s: network %q: use unix or tcp", name, network)
+	}
+	aud := spec.Aud
+	if aud == "" {
+		aud = name
+	}
+
+	dir, tempDir := spec.FrontDir, false
+	if dir != "" {
+		if err := frontdir.Prepare(dir); err != nil {
+			return "", fmt.Errorf("runner %s: %w", name, err)
+		}
+	} else {
+		d, err := frontdir.Dir(b.front.Root, name)
+		if err != nil {
+			return "", fmt.Errorf("runner %s: %w", name, err)
+		}
+		dir, tempDir = d, b.front.Root == "" || filepath.Dir(d) != filepath.Clean(b.front.Root)
+	}
+	ep := endpoint.Endpoint{Network: "unix", Address: filepath.Join(dir, frontdir.Sock)}
+	if network == "tcp" {
+		host := spec.Host
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		ep = endpoint.Endpoint{Network: "tcp", Address: net.JoinHostPort(host, strconv.Itoa(spec.Port))}
+	}
+	if err := ep.Validate(); err != nil {
+		if tempDir {
+			os.RemoveAll(dir)
+		}
+		return "", fmt.Errorf("runner %s: %w", name, err)
+	}
+
 	logPath := filepath.Join(b.logDir, name+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
+		if tempDir {
+			os.RemoveAll(dir)
+		}
 		return "", fmt.Errorf("opening log file for %s: %w", name, err)
 	}
 	if err := logFile.Chmod(0o600); err != nil {
 		logFile.Close()
+		if tempDir {
+			os.RemoveAll(dir)
+		}
 		return "", fmt.Errorf("restricting log file for %s: %w", name, err)
 	}
 
-	args := []string{
-		spec.ServerConfig,
-		"--host", spec.Host,
-		"--port", fmt.Sprintf("%d", spec.Port),
-	}
+	// No --host/--port: the runner binds what <front-dir>/endpoint says.
+	args := []string{spec.ServerConfig, "--front-dir", dir}
 	if spec.RootPath != "" {
 		// The runner needs its own root_path to recognise the full,
 		// un-stripped prefixed path the daemon's proxy forwards
@@ -161,33 +261,67 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 		args = append(args, "--root-path", spec.RootPath)
 	}
 	rp := &runnerProc{
-		endpoint:  net.JoinHostPort(spec.Host, strconv.Itoa(spec.Port)),
+		ep:        ep,
+		dir:       dir,
+		tempDir:   tempDir,
+		aud:       aud,
 		rootPath:  spec.RootPath,
 		uvProject: spec.UvProject,
 		args:      args,
+		env:       append([]string(nil), spec.Env...),
 		policy:    policy,
 		wake:      make(chan struct{}, 1),
 		logFile:   logFile,
 	}
 	cmd, err := b.spawn(rp)
-	if err != nil {
+	switch {
+	case errors.Is(err, frontdir.ErrLive):
+		// Another runner is alive in this front-dir: registered busy, not
+		// spawned, its key untouched. (Adopting it is Phase 2.)
+		b.runners[name] = rp
+	case err != nil:
 		logFile.Close()
+		if tempDir {
+			os.RemoveAll(dir)
+		}
 		return "", fmt.Errorf("starting runner %s: %w", name, err)
+	default:
+		b.runners[name] = rp
+		b.superviseFrom(rp, cmd)
 	}
-	b.runners[name] = rp
-	b.superviseFrom(rp, cmd)
 	if b.maxLogSize > 0 {
 		go b.capLog(rp, logPath)
 	}
-	return rp.endpoint, nil
+	return rp.ep.String(), nil
 }
 
 // spawn starts a new incarnation of rp and its readiness probe. b.mu held.
 //
 // Deliberately no death-of-parent signal: a daemon crash must not kill its
 // runners, so default Unix reparenting is what we want.
+//
+// Every incarnation starts from the whole command: the front-dir is
+// re-checked and rewritten with a fresh key (never while its runner.lock
+// is held: then rp is busy and frontdir.ErrLive is returned), and the
+// command is rebuilt with the same argv and env.
 func (b *ProcessBackend) spawn(rp *runnerProc) (*exec.Cmd, error) {
+	key, err := frontdir.Write(rp.dir, rp.aud, rp.ep)
+	if errors.Is(err, frontdir.ErrLive) {
+		rp.status = StatusBusy
+		fmt.Fprintf(rp.logFile, "flyballd: %s: a runner already holds %s; not spawning another\n", rp.dir, frontdir.Lock)
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	rp.key = key
 	cmd := b.command(rp.uvProject, rp.args)
+	if len(rp.env) > 0 {
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = append(cmd.Env, rp.env...)
+	}
 	cmd.Stdout = rp.logFile
 	cmd.Stderr = rp.logFile
 	if err := cmd.Start(); err != nil {
@@ -197,15 +331,25 @@ func (b *ProcessBackend) spawn(rp *runnerProc) (*exec.Cmd, error) {
 	rp.alive = true
 	rp.status = StatusStarting
 	rp.reachedRunning = false
-	go b.probe(rp, cmd)
+	go b.probe(rp, cmd, key)
 	return cmd, nil
 }
 
-// exitBadConfig is flyball-runner's exit code for a rig file that does not
-// validate or a rig that cannot be built (and argparse's, and uv's, for a
-// bad command line or project). Restarting cannot fix it, so under any
-// policy the runner is left failed until someone Restarts it.
-const exitBadConfig = 2
+// flyball-runner's exit codes that no restart policy applies to.
+const (
+	// exitBadConfig: a rig file that does not validate or a rig that
+	// cannot be built (and argparse's, and uv's, for a bad command line or
+	// project -- including a runner too old to know --front-dir).
+	// Restarting cannot fix it: failed until someone Restarts it.
+	exitBadConfig = 2
+	// exitRigBusy: another runner holds the rig's <store>.lock.
+	// Restarting would hit the same lock: busy until someone Restarts it.
+	exitRigBusy = 3
+	// exitFrontDir: the runner found its front-dir unsafe or incomplete.
+	// The front rewrites it and respawns once, whatever the policy; a
+	// second exit 4 in a row leaves it failed.
+	exitFrontDir = 4
+)
 
 // superviseFrom hands rp to a new supervise() goroutine. b.mu held.
 func (b *ProcessBackend) superviseFrom(rp *runnerProc, cmd *exec.Cmd) {
@@ -237,17 +381,30 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 		}
 		restart := rp.restartRequested
 		rp.restartRequested = false
+		code := cmd.ProcessState.ExitCode()
+		if !restart && code == exitFrontDir && !rp.frontRetried {
+			rp.frontRetried = true
+			fmt.Fprintf(rp.logFile, "flyballd: exit 4: the runner refused its front-dir %s; rewriting it and respawning once\n", rp.dir)
+			restart = true
+		}
 		if !restart {
 			crashed := err != nil
 			again := rp.policy == RestartAlways || (crashed && rp.policy == RestartOnFailure)
-			if cmd.ProcessState.ExitCode() == exitBadConfig {
+			final := StatusStopped
+			if crashed {
+				final = StatusFailed
+			}
+			switch code {
+			case exitBadConfig:
+				again = false
+				fmt.Fprintf(rp.logFile, "flyballd: exit 2: a bad rig file, or a flyball-runner too old for --front-dir; not restarting\n")
+			case exitRigBusy:
+				again, final = false, StatusBusy
+			case exitFrontDir:
 				again = false
 			}
 			if !again {
-				rp.status = StatusStopped
-				if crashed {
-					rp.status = StatusFailed
-				}
+				rp.status = final
 				rp.supervising = false
 				b.mu.Unlock()
 				return
@@ -277,6 +434,11 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 		}
 		rp.restarts++
 		cmd, err = b.spawn(rp)
+		if errors.Is(err, frontdir.ErrLive) {
+			rp.supervising = false // busy, set by spawn
+			b.mu.Unlock()
+			return
+		}
 		if err != nil {
 			fmt.Fprintf(rp.logFile, "flyballd: restarting: %v\n", err)
 			rp.status = StatusFailed
@@ -290,7 +452,7 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 
 // probe marks one incarnation running once it answers, and gives up when
 // that incarnation is no longer the live one.
-func (b *ProcessBackend) probe(rp *runnerProc, cmd *exec.Cmd) {
+func (b *ProcessBackend) probe(rp *runnerProc, cmd *exec.Cmd, key [32]byte) {
 	for {
 		b.mu.Lock()
 		current := rp.cmd == cmd && rp.alive
@@ -298,11 +460,12 @@ func (b *ProcessBackend) probe(rp *runnerProc, cmd *exec.Cmd) {
 		if !current {
 			return
 		}
-		if b.ready(rp.endpoint, rp.rootPath) {
+		if b.ready(rp.ep, rp.rootPath, rp.aud, key) {
 			b.mu.Lock()
 			if rp.cmd == cmd && rp.alive && rp.status == StatusStarting {
 				rp.status = StatusRunning
 				rp.reachedRunning = true
+				rp.frontRetried = false
 			}
 			b.mu.Unlock()
 			return
@@ -384,16 +547,21 @@ func (b *ProcessBackend) Stop(name string) error {
 	done := rp.done
 	b.mu.Unlock()
 
-	select {
-	case <-done:
-	case <-time.After(b.stopTimeout):
-		b.killIfStill(rp, cmd)
-		<-done
+	if done != nil { // nil: never spawned (busy from the start)
+		select {
+		case <-done:
+		case <-time.After(b.stopTimeout):
+			b.killIfStill(rp, cmd)
+			<-done
+		}
 	}
 	rp.logMu.Lock()
 	rp.logClosed = true
 	rp.logFile.Close()
 	rp.logMu.Unlock()
+	if rp.tempDir {
+		os.RemoveAll(rp.dir)
+	}
 	return nil
 }
 
@@ -411,8 +579,12 @@ func (b *ProcessBackend) Restart(name string) error {
 	if !ok {
 		return fmt.Errorf("no runner named %q", name)
 	}
+	rp.frontRetried = false
 	if !rp.supervising {
 		cmd, err := b.spawn(rp)
+		if errors.Is(err, frontdir.ErrLive) {
+			return fmt.Errorf("restarting runner %s: %w", name, err)
+		}
 		if err != nil {
 			rp.status = StatusFailed
 			return fmt.Errorf("restarting runner %s: %w", name, err)

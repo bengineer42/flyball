@@ -16,6 +16,9 @@ import (
 
 // Entry is one registered runner. Status is read from the backend each
 // time an entry is fetched -- it follows the process, it is not kept here.
+// Endpoint is the backend's string form of where the runner listens
+// ("unix:/run/flyball/oven/sock", "tcp:127.0.0.1:8102"; endpoint.Parse
+// reads it) -- what GET /api/runners reports.
 type Entry struct {
 	Manifest config.Manifest
 	Endpoint string
@@ -34,8 +37,9 @@ func New(be backend.Backend) *Registry {
 }
 
 // Start spawns a runner via the backend. The backend reports it starting
-// until it answers /api/auth, so a process that is up but not yet serving
-// is not shown as running.
+// until it passes the readiness handshake, so a process that is up but
+// not yet serving is not shown as running. The runner's aud is the
+// manifest's name.
 func (r *Registry) Start(m config.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
@@ -47,8 +51,8 @@ func (r *Registry) Start(m config.Manifest) error {
 		return fmt.Errorf("a runner named %q is already registered", m.Name)
 	}
 	endpoint, err := r.be.Start(m.Name, backend.Spec{
-		ServerConfig: m.ServerConfig, Host: m.Host, Port: m.Port,
-		RootPath: m.RootPath, UvProject: m.UvProject, Restart: m.Restart,
+		ServerConfig: m.ServerConfig, Network: m.ResolvedNetwork(), Host: m.Host, Port: m.Port,
+		RootPath: m.RootPath, Aud: m.Name, UvProject: m.UvProject, Restart: m.Restart,
 	})
 	if err != nil {
 		return err
@@ -78,6 +82,24 @@ func (r *Registry) Restart(name string) error {
 // accessor rather than exposing the whole backend.Backend.
 func (r *Registry) Logs(name string) (io.ReadCloser, error) {
 	return r.be.Logs(name)
+}
+
+// Channel is what a front needs to reach runner name: its endpoint, aud
+// and current key. It comes from the same registered entry the front
+// routes by, so aud and route cannot disagree. An error if name is not
+// registered or the backend is not backend.Fronted.
+func (r *Registry) Channel(name string) (backend.Channel, error) {
+	r.mu.RLock()
+	_, ok := r.entries[name]
+	r.mu.RUnlock()
+	if !ok {
+		return backend.Channel{}, fmt.Errorf("no runner named %q", name)
+	}
+	f, ok := r.be.(backend.Fronted)
+	if !ok {
+		return backend.Channel{}, fmt.Errorf("runner %q: the backend hands out no channels", name)
+	}
+	return f.Channel(name)
 }
 
 // Get returns a copy of the entry, its status read from the backend.
