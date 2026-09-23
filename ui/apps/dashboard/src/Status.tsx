@@ -127,6 +127,20 @@ export const PausedChip = ({ playback }: { playback: PlaybackHook }) => {
   );
 };
 
+/** Where a condition's line in the chip's tooltip leads: the thing it is on, by its scope; the rig's own, to Events. */
+export function conditionHref(c: { scope: string; subject: string }): string {
+  switch (c.scope) {
+    case "device":
+      return hrefFor({ kind: "device", name: c.subject }) ?? hashFor("events");
+    case "signal":
+      return hrefFor({ kind: "signal", name: c.subject }) ?? hashFor("events");
+    case "controller":
+      return hrefFor({ kind: "controller", name: c.subject }) ?? hashFor("events");
+    default:
+      return hashFor("events");
+  }
+}
+
 export interface StatusProps {
   recording: Recording;
   programmer: Programmer;
@@ -183,7 +197,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
       colour={alarmColour}
       minWidth="7rem"
       lines={[
-        ...active.map((c) => ({ name: `${c.subject} ${c.code}`, href: hrefFor({ kind: "device", name: c.subject }), state: c.message })),
+        ...active.map((c) => ({ name: `${c.subject} ${c.code}`, href: conditionHref(c), state: c.message })),
         ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
         ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
       ]}
