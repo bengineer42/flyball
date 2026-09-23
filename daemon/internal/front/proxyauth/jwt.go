@@ -1,14 +1,19 @@
 package proxyauth
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -56,7 +61,7 @@ type jwtClient struct {
 
 func newJWT(o Options, s jwtSpec) (front.Client, error) {
 	c := &jwtClient{spec: s, now: o.Now,
-		keys: &keySet{url: s.jwks, discover: s.discover, client: o.HTTPClient, now: o.Now}}
+		keys: &keySet{url: s.jwks, discover: s.discover, client: o.HTTPClient, now: o.Now, log: o.Logger}}
 	for _, a := range s.algs {
 		c.algs = append(c.algs, jose.SignatureAlgorithm(a))
 	}
@@ -157,6 +162,7 @@ type keySet struct {
 	client   *http.Client
 	now      func() time.Time
 	discover string
+	log      *slog.Logger // nil: nothing logged
 
 	mu        sync.Mutex
 	url       string
@@ -165,7 +171,8 @@ type keySet struct {
 	refetched time.Time // the last refetch for an unknown kid
 	failedAt  time.Time
 	failErr   error
-	inflight  *flight // the fetch under way, if any
+	downSince time.Time // the first failed fetch since the last good one
+	inflight  *flight   // the fetch under way, if any
 }
 
 // flight is one fetch; the callers that need it wait on done.
@@ -242,8 +249,18 @@ func (ks *keySet) fetch(now time.Time) error {
 		ks.url = u
 	}
 	if err != nil {
+		if ks.downSince.IsZero() {
+			ks.downSince = now
+			ks.logf(slog.LevelWarn, "front: the identity provider's keys cannot be fetched; every request carrying its signed assertion answers 503 until they can",
+				"class", fetchErrorClass(err), "host", ks.host(u))
+		}
 		ks.failedAt, ks.failErr = now, err
 	} else {
+		if !ks.downSince.IsZero() {
+			ks.logf(slog.LevelInfo, "front: the identity provider's keys are fetched again",
+				"host", ks.host(u), "after", now.Sub(ks.downSince).Round(time.Second).String())
+			ks.downSince = time.Time{}
+		}
 		ks.keys = keys
 		ks.failedAt, ks.failErr = time.Time{}, nil
 		ks.fetched = now
@@ -251,6 +268,56 @@ func (ks *keySet) fetch(now time.Time) error {
 	f.err = err
 	close(f.done)
 	return err
+}
+
+func (ks *keySet) logf(level slog.Level, msg string, args ...any) {
+	if ks.log != nil {
+		ks.log.Log(context.Background(), level, msg, args...)
+	}
+}
+
+// host is u's host (or, before discovery found u, the issuer's): the
+// only part of the URL logged, so nothing in a path or query is.
+func (ks *keySet) host(u string) string {
+	if u == "" {
+		u = ks.discover
+	}
+	if p, err := url.Parse(u); err == nil {
+		return p.Host
+	}
+	return ""
+}
+
+// statusError is a fetch the IdP answered with a status other than 200.
+type statusError struct{ url, status string }
+
+func (e *statusError) Error() string { return fmt.Sprintf("GET %s: %s", e.url, e.status) }
+
+// fetchErrorClass is the kind of a failed fetch, for the log: the error's
+// own text may carry a URL's path and query.
+func fetchErrorClass(err error) string {
+	var (
+		status *statusError
+		dns    *net.DNSError
+		netErr net.Error
+		cert   *tls.CertificateVerificationError
+		alert  tls.AlertError
+		op     *net.OpError
+	)
+	switch {
+	case errors.As(err, &status):
+		return "status " + status.status
+	case errors.As(err, &dns):
+		return "dns"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	case errors.As(err, &cert), errors.As(err, &alert):
+		return "tls"
+	case errors.As(err, &op):
+		return "connect"
+	default:
+		return "response" // an answer that is not a usable discovery document or JWKS
+	}
 }
 
 // fetchNow fetches the JWKS at u (discovering u first when it is ""),
@@ -317,7 +384,7 @@ func (ks *keySet) getJSON(u string, v any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", u, resp.Status)
+		return &statusError{url: u, status: resp.Status}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxJWKSBytes+1))
 	if err != nil {
