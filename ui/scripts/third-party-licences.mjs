@@ -33,13 +33,25 @@ const tree = JSON.parse(
 
 /** Every distinct package in the production closure, by name@version. */
 const seen = new Map();
+/** Listed by npm but with no directory on disk -- reported, never dropped. */
+const unresolved = new Set();
 const walk = (node) => {
   for (const [name, dep] of Object.entries(node.dependencies ?? {})) {
     // Our own workspace packages are covered by the root LICENSE, not here.
     // npm symlinks them into node_modules, so the path does not give them away.
-    if (dep.path && !name.startsWith("@flyball/")) {
-      const key = `${name}@${dep.version}`;
-      if (!seen.has(key)) seen.set(key, dep);
+    if (!name.startsWith("@flyball/")) {
+      const key = `${name}@${dep.version ?? "?"}`;
+      // No path means npm knows of it but it is not installed -- an unmet
+      // optional peer, reported as a bare {} with no flag to tell it apart.
+      // Rather than re-deriving which of those matter, lean on npm's own
+      // verdict: `npm ls` exits non-zero when a *required* dependency is
+      // missing, and execFileSync turns that into a throw that fails the
+      // build. So anything still here is npm saying "known, not installed,
+      // fine" -- and it is listed in the file rather than silently dropped,
+      // because a notices file that looks complete and is not is worse than
+      // no notices file.
+      if (!dep.path) unresolved.add(key);
+      else if (!seen.has(key)) seen.set(key, dep);
     }
     walk(dep);
   }
@@ -84,6 +96,16 @@ const header = [
   "",
 ];
 
+if (unresolved.size) {
+  header.push(
+    "Listed by npm but not installed here (unmet optional peers), so nothing of",
+    "theirs is in the bundle and no licence of theirs is reproduced:",
+    "",
+    ...[...unresolved].sort().map((k) => `  ${k}`),
+    "",
+  );
+}
+
 if (missing.length) {
   header.push(
     "These ship no licence file of their own; their declared licence is noted and",
@@ -96,5 +118,6 @@ if (missing.length) {
 
 writeFileSync(out, `${header.join("\n")}\n${blocks.join("\n")}`);
 console.log(
-  `third-party-licences.txt: ${entries.length} packages, ${blocks.length} texts, ${missing.length} without a file`,
+  `third-party-licences.txt: ${entries.length} packages, ${blocks.length} texts, ` +
+    `${missing.length} without a file, ${unresolved.size} not installed`,
 );
