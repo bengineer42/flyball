@@ -24,33 +24,32 @@ devices:
     driver: ezo_ph
     label: pH probe
     poll_s: 5
-    config: { link: ph_uart }
+    link: ph_uart
 
   ec:                                      # ec.ec [RP]
     driver: ezo_ec
     label: Conductivity probe
     poll_s: 5
-    config: { link: ec_uart }
+    link: ec_uart
 
   orp:                                     # orp.orp [RP]
     driver: ezo_orp
     label: ORP probe
     poll_s: 5
-    config: { link: orp_uart }
+    link: orp_uart
 
   do:                                      # do.do [RP]
     driver: ezo_do
     label: Dissolved-oxygen probe
     poll_s: 5
-    config: { link: do_uart }
+    link: do_uart
 
   doser:                                   # doser.dispensed_ml [RP], dispense(volume_ml)/stop commands
     driver: dosing_pump
     label: pH-down dosing pump
-    config:
-      pump: { type: pwm_channel, link: pump_pwm, channel: 0, frequency_hz: 200 }
-      ml_per_s: 0.5
-      max_dispense_ml: 20.0                # a single dose is capped; no continuous/unattended dosing loop
+    pump: { type: pwm_channel, link: pump_pwm, channel: 0, frequency_hz: 200 }
+    ml_per_s: 0.5
+    max_dispense_ml: 20.0                # a single dose is capped; no continuous/unattended dosing loop
 
 # No `controllers:` here on purpose: dosing is a discrete, capped
 # `dispense()` command driven by a program's threshold checks, not a

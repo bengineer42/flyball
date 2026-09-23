@@ -37,33 +37,29 @@ devices:
     driver: sim_daq
     label: Chamber climate (simulated)
     poll_s: 5
-    config:
-      link: humidity_plant
-      ports:
-        chamber.humidity: { port: output, quantity: humidity, unit: "%" }
-        chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
+    link: humidity_plant
+    ports:
+      chamber.humidity: { port: output, quantity: humidity, unit: "%" }
+      chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
 
   co2:
     driver: sim_daq
     label: CO2 sensor (simulated)
     poll_s: 10
-    config:
-      link: co2_plant
-      ports:
-        co2: { port: output, quantity: co2, unit: ppm }
+    link: co2_plant
+    ports:
+      co2: { port: output, quantity: co2, unit: ppm }
 
   fogger:
     driver: sim_drive
     label: Ultrasonic fogger (simulated)
-    config:
-      link: humidity_plant
-      ports:
-        drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }
+    link: humidity_plant
+    ports:
+      drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }
 
   fan:
     driver: sim_drive
     label: Exhaust fan (simulated)
-    config:
-      link: co2_plant
-      ports:
-        drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }
+    link: co2_plant
+    ports:
+      drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }

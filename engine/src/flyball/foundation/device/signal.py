@@ -229,7 +229,7 @@ class SignalRef:
 class SignalSpec:
     """A device's declaration of one signal.
 
-    From the driver; the rig file may restrict `access` and override the
+    From the driver; the rig file may restrict `access` and set the
     metadata, never add access the driver cannot honour -- except up to
     `ceiling`, when the driver names one.
     """
@@ -256,7 +256,7 @@ class SignalSpec:
     shape: tuple[int, ...] = ()
     """The dimensions of a value: `()` a scalar. Only scalars are carried yet."""
     label: str = ""
-    """The display text; `""` shows the titlecased name. The rig file may override it."""
+    """The display text; `""` shows the titlecased name. The rig file may set it."""
     # read side (R / P)
     range: Bounds | None = None
     """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
@@ -495,10 +495,10 @@ class Node:
             raise ValueError(f"'{signal.address}' is not under '{self.address}'")
         return str(Path(signal.path[len(self.path) :]))
 
-    def override(self, **changes: Any) -> None:
+    def set_meta(self, **changes: Any) -> None:
         """Replace fields of the spec in place; the bound object keeps its identity."""
         if self.spec is None:
-            raise ValueError(f"Node '{self.address}' is a device root; override the device")
+            raise ValueError(f"Node '{self.address}' is a device root; set the device's own")
         self.spec = replace(self.spec, **changes)
 
 
@@ -610,7 +610,7 @@ class Signal:
     _bounds: tuple[Followed, Followed] | None = field(default=None, repr=False)
     """`spec.limits` with each `SignalRef` resolved to what it follows; see `bind_limits`."""
     _bounds_for: SignalSpec | None = field(default=None, repr=False)
-    """The spec `_bounds` came from: an override replaces the spec, and they resolve again."""
+    """The spec `_bounds` came from: `set_meta` replaces the spec, and they resolve again."""
 
     def __repr__(self) -> str:
         return f"Signal({self.address} [{self.access}])"
@@ -707,7 +707,7 @@ class Signal:
     def bind_limits(self) -> tuple[Followed, Followed] | None:
         """The spec's limits with each reference resolved to the signal or input it follows.
 
-        Resolved once, when the device binds, and again only if an override
+        Resolved once, when the device binds, and again only if `set_meta`
         replaces the spec; reading a limit then costs no lookup by name.
         None if the signal has no limits.
 
@@ -796,7 +796,7 @@ class Signal:
         """
         self.node.device.push_one(self, value, time_ns)
 
-    def override(self, **changes: Any) -> None:
+    def set_meta(self, **changes: Any) -> None:
         """Replace metadata fields of the spec in place; the bound object keeps its identity."""
         self.spec = replace(self.spec, **changes)
 

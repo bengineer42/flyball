@@ -18,7 +18,7 @@ from flyball.foundation.device import (
     Readout,
     Sample,
 )
-from flyball.foundation.device.entry import NamespaceOverride, SignalOverride, _override_signal
+from flyball.foundation.device.entry import NamespaceMeta, SignalMeta, _set_signal_meta
 from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Percent, Watt
@@ -93,8 +93,8 @@ class TestYamlBooleans:
 
     def test_the_other_yaml_readers_agree(self):
         assert parse("on_stop: off", "yaml") == {"on_stop": "off"}
-        assert parse_set("devices.x.config.on_stop=off") == (
-            ["devices", "x", "config", "on_stop"],
+        assert parse_set("devices.x.on_stop=off") == (
+            ["devices", "x", "on_stop"],
             "off",
         )
         assert parse_set("a=true")[1] is True
@@ -114,8 +114,8 @@ class TestExplicitNull:
 
     def test_a_null_clears_a_driver_value(self, build):
         device = build({})
-        device.signals["free"].override(warning=(0.0, 10.0), stale_after_s=5.0)
-        _override_signal(device.signals["free"], SignalOverride.model_validate({"warning": None}))
+        device.signals["free"].set_meta(warning=(0.0, 10.0), stale_after_s=5.0)
+        _set_signal_meta(device.signals["free"], SignalMeta.model_validate({"warning": None}))
         assert device.signals["free"].spec.warning is None, "explicit null clears"
         assert device.signals["free"].spec.stale_after_s == 5.0, "absent key leaves alone"
 
@@ -215,7 +215,7 @@ class TestNamespaceAndDevicePeriods:
         with pytest.raises(ValidationError, match="poll_s"):
             DeviceEntry.model_validate({"driver": blender_tag, "poll_s": value})
         with pytest.raises(ValidationError, match="poll_s"):
-            NamespaceOverride.model_validate({"poll_s": value})
+            NamespaceMeta.model_validate({"poll_s": value})
 
 
 class TestOverridePeriods:
@@ -223,12 +223,12 @@ class TestOverridePeriods:
     @pytest.mark.parametrize("value", [math.nan, math.inf, 0.0, -1.0])
     def test_non_positive_or_non_finite_is_refused(self, field, value):
         with pytest.raises(ValidationError, match=field):
-            SignalOverride.model_validate({field: value})
+            SignalMeta.model_validate({field: value})
 
     @pytest.mark.parametrize("field", ["stale_after_s", "poll_s"])
     def test_a_positive_value_and_null_are_accepted(self, field):
-        assert getattr(SignalOverride.model_validate({field: 0.5}), field) == 0.5
-        assert getattr(SignalOverride.model_validate({field: None}), field) is None
+        assert getattr(SignalMeta.model_validate({field: 0.5}), field) == 0.5
+        assert getattr(SignalMeta.model_validate({field: None}), field) is None
 
 
 class TestActivityRouteNamed:

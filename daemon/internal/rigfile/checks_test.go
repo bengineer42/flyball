@@ -12,7 +12,7 @@ func TestCheckUndeclaredLink(t *testing.T) {
 		"links": map[string]any{"chamber": map[string]any{}},
 		"devices": map[string]any{
 			"thermocouple": map[string]any{
-				"config": map[string]any{"link": "nonexistent"},
+				"link": "nonexistent",
 			},
 		},
 	}
@@ -30,7 +30,7 @@ func TestCheckUndeclaredLink_declaredIsFine(t *testing.T) {
 		"links": map[string]any{"chamber": map[string]any{}},
 		"devices": map[string]any{
 			"thermocouple": map[string]any{
-				"config": map[string]any{"link": "chamber"},
+				"link": "chamber",
 			},
 		},
 	}

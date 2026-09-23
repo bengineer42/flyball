@@ -35,9 +35,9 @@ def test_the_period_is_the_smallest_in_the_tree(fresh):
     assert poll_period(furnace) is None
     furnace.poll_s = 1.0
     assert poll_period(furnace) == 1.0
-    furnace.signals["sample"].override(poll_s=0.5)
+    furnace.signals["sample"].set_meta(poll_s=0.5)
     assert poll_period(furnace) == 0.5
-    furnace.signals["setpoint"].override(poll_s=0.1)
+    furnace.signals["setpoint"].set_meta(poll_s=0.1)
     assert poll_period(furnace) == 0.5, "a non-publishing signal's period means nothing"
     heaters = Heaters(fresh("heaters"))
     heaters.signals["conditions"].restrict(Access.R)  # genuinely nothing publishing here
@@ -46,7 +46,7 @@ def test_the_period_is_the_smallest_in_the_tree(fresh):
 
 
 def test_start_polling_reads_on_the_period_and_delivers(rig, clock, furnace):
-    furnace.signals["sample"].override(poll_s=0.5)
+    furnace.signals["sample"].set_meta(poll_s=0.5)
     rig.start_polling(furnace)
     run = rig.polling.run(furnace.name)
     assert run.period_s == 0.5 and run.running is True and run.last_read_ns is None

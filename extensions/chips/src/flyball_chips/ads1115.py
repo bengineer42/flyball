@@ -58,7 +58,7 @@ class Channel(BaseModel):
     """One input as a signal: which pin, what it measures, and how volts become that.
 
     Range, precision and bands are not here -- they are the envelope's
-    `signals:` overrides, the same for every driver.
+    `signals:` metadata, the same for every driver.
     """
 
     model_config = ConfigDict(extra="forbid")

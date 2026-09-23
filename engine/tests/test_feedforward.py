@@ -151,7 +151,7 @@ class TestController:
         assert isinstance(loop.feedforward, NoFeedforward), "°C to W: nothing to pass through"
         assert loop.settings.feedforward.model_dump() == {"type": "none"}
         bath = Oven("bath")
-        bath.signals["heater"].override(quantity=Quantity("temperature", Celsius))
+        bath.signals["heater"].set_meta(quantity=Quantity("temperature", Celsius))
         same = Controller(SteppedClock(), bath.signals["heater"], bath.signals["zone"])
         assert isinstance(same.feedforward, Setpoint)
         assert same.settings.feedforward.model_dump() == {"type": "setpoint"}

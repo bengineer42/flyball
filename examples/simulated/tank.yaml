@@ -19,10 +19,9 @@ devices:
     driver: sim_daq
     label: Tank level
     poll_s: 0.5
-    config:
-      link: tank
-      ports:
-        volume: { port: output, quantity: volume, unit: L }
+    link: tank
+    ports:
+      volume: { port: output, quantity: volume, unit: L }
     signals:
       volume: { range: [0, 100], precision: 1 }
   valve:
@@ -33,10 +32,9 @@ devices:
     # inverse: demand * leak / gain (plant.py:106-109). `limits` still caps
     # it at 0..40 L, the steady state at gain / leak -- the valve cannot
     # open past fully open.
-    config:
-      link: tank
-      ports:
-        drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
+    link: tank
+    ports:
+      drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
 
 # The drive takes a demand straight in L, so the controller hands it the
 # setpoint untouched and the law's gains are the old L-per-L tuning.

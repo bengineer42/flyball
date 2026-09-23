@@ -35,10 +35,8 @@ def bench_document() -> dict:
             "hum": {
                 "driver": "sht4x_set",
                 "poll_s": 1,
-                "config": {
-                    "link": "i2c1",
-                    "sensors": {"dry": {"address": 0x45}, "wet": {"address": 0x46}},
-                },
+                "link": "i2c1",
+                "sensors": {"dry": {"address": 0x45}, "wet": {"address": 0x46}},
                 "signals": {
                     "wet": {"poll_s": 5},
                     "dry": {"signals": {"humidity": {"warning": [0, 10]}}},
@@ -124,7 +122,7 @@ def test_the_document_validates_against_every_registered_tag():
         "heater",
         "soil",
     }
-    assert config.devices["adc"].config["channels"] == {
+    assert config.devices["adc"].driver_config["channels"] == {
         "pressure": {"channel": 1, "scale": 25.0, "unit": "kPa"}
     }, "flat driver settings land under config"
 
@@ -228,14 +226,14 @@ def test_the_entry_point_registers_every_tag():
         assert fresh.links[tag].type_name == tag
 
 
-def test_the_schema_describes_every_driver_flat_and_layered():
+def test_the_schema_describes_every_driver():
     by_driver = rig_schema()["properties"]["devices"]["additionalProperties"]
     tags = {
         shape["properties"]["driver"]["const"]
-        for variant in by_driver["oneOf"]
+        for shape in by_driver["oneOf"]
         # The last variants are the layer forms -- an entry that only adds to a device a base
         # declared, and `null` to remove one -- neither of which names a driver.
-        for shape in variant.get("oneOf", [])
+        if "driver" in shape.get("properties", {})
     }
     assert {
         "sht4x",

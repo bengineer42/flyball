@@ -51,16 +51,14 @@ class TestFakeBlockingGoesThroughTheWriter:
             "devices": {
                 "chiller": {
                     "driver": "modbus",
-                    "config": {
-                        "link": "chiller",
-                        "registers": {
-                            "setpoint": {
-                                "address": 100,
-                                "unit": "°C",
-                                "scale": 0.1,
-                                "write": True,
-                            }
-                        },
+                    "link": "chiller",
+                    "registers": {
+                        "setpoint": {
+                            "address": 100,
+                            "unit": "°C",
+                            "scale": 0.1,
+                            "write": True,
+                        }
                     },
                 }
             },

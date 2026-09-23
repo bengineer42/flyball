@@ -1,21 +1,20 @@
 # Devices
 
 What is on the rig, keyed by name. Every entry is the same **envelope**
-around the driver's own config. The driver's fields may sit flat beside the
-envelope or under `config:`; both mean the same.
+with the driver's own config flat beside it: every key that is not the
+envelope's is the driver's.
 
 ```yaml
 devices:
-  dmm:                                   # layered
+  dmm:
     driver: scpi
     label: Bench DMM
     poll_s: 0.5
-    config:
-      link: dmm
-      channels: { voltage: { query: "MEAS:VOLT:DC?", unit: V } }
+    link: dmm
+    channels: { voltage: { query: "MEAS:VOLT:DC?", unit: V } }
     signals:
       voltage: { range: [0, 30], precision: 3, warning: [0, 25] }
-  wet_supply: { driver: sht4x, link: i2c1, address: 0x46, poll_s: 5 }   # flat
+  wet_supply: { driver: sht4x, link: i2c1, address: 0x46, poll_s: 5 }
 ```
 
 | key | type | |
@@ -23,13 +22,13 @@ devices:
 | `driver` | string | which driver builds it -- one of the [supported drivers](drivers.md), a board driver, or one from the runner's `drivers/` directory |
 | `label` | string | shown instead of the name |
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
-| `config` | object | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board` |
-| `signals` | `{name: override}` | per-signal metadata, [below](#signals) |
+| `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
 | `bound` | `{role: address}` | inputs this device follows on another: `{dry_humidity: hum_sensors.dry.humidity}` |
+| any other key | | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board`. A nested `config:` is refused |
 
 ## `signals`
 
-Overrides on the tree the driver declared -- what to show and what to
+Metadata on the tree the driver declared -- what to show and what to
 guard, never new access. A key that is a namespace takes `label`,
 `poll_s`, `tags` and its own `signals:`; a key that is a signal takes the
 keys below. A key left out keeps the driver's value; a key set to `null`

@@ -51,27 +51,25 @@ than as a side effect of importing the module.
 
 ## Envelope keys are reserved
 
-`driver label poll_s signals bound config` belong to the rig file's
-envelope, the same for every driver (§1.5 of the plan). A `DriverConfig`
+`driver label poll_s signals bound` belong to the rig file's envelope, the
+same for every driver, and an entry refuses `config`. A `DriverConfig`
 subclass may not declare a field with one of those names — checked at
-import, the same way a duplicate type is — so a driver's own settings mean
-the same thing whether they sit flat beside the envelope or nested under
-`config:`:
+import, the same way a duplicate type is — so every other key of an entry
+is the driver's own, flat beside the envelope:
 
 ```yaml
 devices:
-  furnace: { driver: sim_daq, label: Tube furnace, poll_s: 1, link: tube, ports: {...} }   # flat
-
-  furnace:                                                                                  # layered
+  furnace:
     driver: sim_daq
     label: Tube furnace
     poll_s: 1
-    config: { link: tube, ports: {...} }
+    link: tube
+    ports: {...}
 ```
 
 This is why a generic driver whose tree is *part of* its config (`scpi`'s
 `channels:`, `sim_daq`'s `ports:`, `sht4x_set`'s `sensors:`) cannot call
-that field `signals:` — that name is the envelope's, for overrides only.
+that field `signals:` — that name is the envelope's, for signal metadata only.
 
 ## `ConfigOr`
 

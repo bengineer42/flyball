@@ -1,7 +1,7 @@
 """Runs each device's `read` on its period and keeps what the runtime knows of the run.
 
 A device is polled at the smallest `poll_s` in its tree: the device's own,
-inherited down, or any namespace's or signal's override. Which signals are
+inherited down, or any namespace's or signal's own. Which signals are
 due at a given call is the driver's business inside `read`; the runtime
 only knocks often enough. What the runtime knows -- period, last delivery,
 whether the device is stopped on an error -- lives here, beside the
@@ -34,7 +34,7 @@ def poll_period(device: Device) -> float | None:
     """The period the runtime polls `device` on: the smallest over its published signals.
 
     Each signal's `poll_s` is already the nearest one up the tree, so the
-    device's own and any namespace override are counted through it. None
+    device's own and any namespace's own are counted through it. None
     when nothing publishes on a period: the device is never polled.
     """
     periods = [s.poll_s for s in device.published.values() if s.poll_s is not None]

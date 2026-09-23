@@ -57,7 +57,7 @@ value on demand), **P**ublishing (emitted on the device's own schedule;
 implies R), **W**ritable (accepts a demand) — and `Access.check` refuses `P`
 without `R` the moment a set is built, an `Access.parse`d, or a
 `SignalSpec` constructed, not later at first use. The rig file may only
-*narrow* a signal's access (`SignalOverride.readable`/`published`/`writable`
+*narrow* a signal's access (`SignalMeta.readable`/`published`/`writable`
 take only `false`) — never add what the driver did not declare.
 
 `Device.bind` turns a spec tree into bound [Node][flyball.foundation.device.signal.Node]
@@ -93,7 +93,7 @@ A device's own signal roles echo the same split at finer grain (below): a
 `Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings are the values
 tier. Two rules
 keep "mutable" from meaning "anything goes": after startup, mutation goes
-through the rig, under its lock, and is an event — `Signal.override(...)`
+through the rig, under its lock, and is an event — `Signal.set_meta(...)`
 and `restrict(...)` are the primitives, but the only caller once the rig
 runs is a `Rig` method that takes the lock, applies the change,
 re-validates what depends on it, and emits an event; and declared and

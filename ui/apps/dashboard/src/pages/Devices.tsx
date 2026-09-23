@@ -99,7 +99,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
     setBusy(true);
     setError(null);
     try {
-      const body: NewDevice = { name: name.trim(), driver, config };
+      const body: NewDevice = { ...config, name: name.trim(), driver };
       if (label.trim()) body.label = label.trim();
       if (pollS.trim() && Number.isFinite(Number(pollS))) body.poll_s = Number(pollS);
       const boundEntries = bound.filter((r) => r.role.trim() && r.address.trim());

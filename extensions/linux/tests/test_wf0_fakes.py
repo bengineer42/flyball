@@ -42,11 +42,9 @@ class TestFakeBlockingGoesThroughTheWriter:
             "devices": {
                 "dac": {
                     "driver": "i2c_table",
-                    "config": {
-                        "link": "i2c1",
-                        "address": 0x60,
-                        "registers": {"out": {"address": 0, "write": True}},
-                    },
+                    "link": "i2c1",
+                    "address": 0x60,
+                    "registers": {"out": {"address": 0, "write": True}},
                 }
             },
         }

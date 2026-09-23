@@ -74,7 +74,7 @@ class Foo200(Readable, Committable):
 
 
 class Foo200Config(DriverConfig[Foo200], type="foo200"):
-    """The rig-file entry: `driver: foo200`, settings flat beside it or under `config:`."""
+    """The rig-file entry: `driver: foo200`, its fields flat beside it."""
 
     link: TextLinkConfig | str  # a link declared under `links:` by name, or inline
 
@@ -141,7 +141,7 @@ line what it does, then what the arguments mean.
 
 `DriverConfig[Device]` with `type="..."` is a pydantic model: its fields are
 the rig-file settings, validated and schema-published. It may not use an
-envelope key (`driver`, `label`, `poll_s`, `signals`, `bound`, `config`).
+envelope key (`driver`, `label`, `poll_s`, `signals`, `bound`) or `config`.
 `build(name, label)` makes the device. A transport is a *link*: declare
 the field as `SomeLinkConfig | str`; a string names an entry under
 `links:` that the rig resolves to the config before `build`. Existing

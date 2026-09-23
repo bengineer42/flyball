@@ -458,4 +458,23 @@ def test_a_stored_rig_version_spells_the_discriminator_type(tmp_path, monkeypatc
     assert document["devices"]["note"]["label"] == "a tag: stays a value"
 
 
+def test_a_stored_rig_version_has_its_device_fields_flat(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        15,
+        {
+            "devices": {
+                "zone": {"driver": "sim_daq", "label": "Zone", "config": {"link": "p", "zones": 2}},
+                "flat": {"driver": "sim_daq", "link": "p"},
+            }
+        },
+    )
+    assert document["devices"] == {
+        "zone": {"driver": "sim_daq", "label": "Zone", "link": "p", "zones": 2},
+        "flat": {"driver": "sim_daq", "link": "p"},
+    }
+    assert list(document["devices"]) == ["zone", "flat"], "the devices keep their order"
+
+
 # endregion

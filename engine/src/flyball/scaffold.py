@@ -46,7 +46,7 @@ class ${Title}(Readable):
 
 
 class ${Title}Config(DriverConfig[${Title}], type="${type}"):
-    """The rig-file entry: `driver: ${type}` (flat) or its settings under `config:` (layered)."""
+    """The rig-file entry: `driver: ${type}`, its fields flat beside it."""
 
     def build(self, name: str, label: str | None = None) -> ${Title}:
         return ${Title}(name, label)

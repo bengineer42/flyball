@@ -317,9 +317,9 @@ def test_without_a_ceiling_restrict_cannot_widen_at_all():
 def test_override_keeps_the_bound_object():
     probe = Probe("p")
     signal = probe.signals["dry.humidity"]
-    signal.override(label="Dry", range=(0.0, 100.0), precision=1)
+    signal.set_meta(label="Dry", range=(0.0, 100.0), precision=1)
     assert probe.signals["dry.humidity"] is signal
     assert signal.label == "Dry" and signal.spec.range == (0.0, 100.0)
     assert signal.spec.precision == 1 and signal.name == "humidity"
     with pytest.raises(ValueError, match="device root"):
-        probe.root.override(label="x")
+        probe.root.set_meta(label="x")

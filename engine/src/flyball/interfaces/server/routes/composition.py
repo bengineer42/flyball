@@ -104,7 +104,7 @@ def add_device(rig: RigDep, body: dict[str, Any]) -> DeviceOut:
     """Build a device on the rig's links and put it on the rig: bound, polling, recorded.
 
     The body is the file's device entry with its `name` beside it:
-    `{name, driver, config | flat settings, label, poll_s, signals, bound}`.
+    `{name, driver, label, poll_s, signals, bound, ...the driver's fields}`.
     409 for a name in use, 404 for an unknown link or a bound address that
     does not resolve, 422 for an unknown driver or a config it refuses.
     """

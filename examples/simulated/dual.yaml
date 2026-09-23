@@ -30,36 +30,32 @@ devices:
     driver: sim_daq
     label: Oven thermocouple
     poll_s: 1.0
-    config:
-      link: chamber
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 120], precision: 2 }
   heater:
     driver: sim_drive
     label: Oven heater
-    config:
-      link: chamber
-      ports:
-        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
   dual_level:
     driver: sim_daq
     label: Tank level
     poll_s: 0.5
-    config:
-      link: tank
-      ports:
-        volume: { port: output, quantity: volume, unit: L }
+    link: tank
+    ports:
+      volume: { port: output, quantity: volume, unit: L }
     signals:
       volume: { range: [0, 100], precision: 1 }
   valve:
     driver: sim_drive
     label: Inlet valve
-    config:
-      link: tank
-      ports:
-        drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
+    link: tank
+    ports:
+      drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
 
 # Each drive takes its demand straight in the plant's output unit -- see
 # oven.yaml and tank.yaml -- so the law gains are the old per-unit tunings.

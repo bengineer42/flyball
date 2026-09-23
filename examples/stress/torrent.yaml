@@ -89,89 +89,80 @@ devices:
     driver: sim_daq
     label: Channel 1
     poll_s: 0.02
-    config:
-      link: t1
-      ports:
-        signal1: { port: output, quantity: signal1, unit: V }
+    link: t1
+    ports:
+      signal1: { port: output, quantity: signal1, unit: V }
     signals:
       signal1: { range: [-20, 20], precision: 3 }
   channel2:
     driver: sim_daq
     label: Channel 2
     poll_s: 0.025
-    config:
-      link: t2
-      ports:
-        signal2: { port: output, quantity: signal2, unit: V }
+    link: t2
+    ports:
+      signal2: { port: output, quantity: signal2, unit: V }
     signals:
       signal2: { range: [-20, 20], precision: 3 }
   channel3:
     driver: sim_daq
     label: Channel 3
     poll_s: 0.03
-    config:
-      link: t3
-      ports:
-        signal3: { port: output, quantity: signal3, unit: V }
+    link: t3
+    ports:
+      signal3: { port: output, quantity: signal3, unit: V }
     signals:
       signal3: { range: [-20, 20], precision: 3 }
   channel4:
     driver: sim_daq
     label: Channel 4
     poll_s: 0.04
-    config:
-      link: t4
-      ports:
-        signal4: { port: output, quantity: signal4, unit: V }
+    link: t4
+    ports:
+      signal4: { port: output, quantity: signal4, unit: V }
     signals:
       signal4: { range: [-20, 20], precision: 3 }
   channel5:
     driver: sim_daq
     label: Channel 5
     poll_s: 0.05
-    config:
-      link: t5
-      ports:
-        signal5: { port: output, quantity: signal5, unit: V }
+    link: t5
+    ports:
+      signal5: { port: output, quantity: signal5, unit: V }
     signals:
       signal5: { range: [-20, 20], precision: 3 }
   channel6:
     driver: sim_daq
     label: Channel 6
     poll_s: 0.02
-    config:
-      link: t6
-      ports:
-        signal6: { port: output, quantity: signal6, unit: V }
+    link: t6
+    ports:
+      signal6: { port: output, quantity: signal6, unit: V }
     signals:
       signal6: { range: [-20, 20], precision: 3 }
   channel7:
     driver: sim_daq
     label: Channel 7
     poll_s: 0.025
-    config:
-      link: t7
-      ports:
-        signal7: { port: output, quantity: signal7, unit: V }
+    link: t7
+    ports:
+      signal7: { port: output, quantity: signal7, unit: V }
     signals:
       signal7: { range: [-20, 20], precision: 3 }
   channel8:
     driver: sim_daq
     label: Channel 8
     poll_s: 0.03
-    config:
-      link: t8
-      ports:
-        signal8: { port: output, quantity: signal8, unit: V }
+    link: t8
+    ports:
+      signal8: { port: output, quantity: signal8, unit: V }
     signals:
       signal8: { range: [-20, 20], precision: 3 }
   drive1:
     driver: sim_drive
     label: Channel 1 drive
-    config:
-      link: t1
-      ports:
-        drive: { port: input, quantity: drive, unit: V, limits: [-10.0, 10.0] }
+    link: t1
+    ports:
+      drive: { port: input, quantity: drive, unit: V, limits: [-10.0, 10.0] }
 
 controllers:
   drive1.drive:

@@ -20,7 +20,7 @@ file is read:
 | top level | this page | the rig's name, what it builds on, the clock, recording |
 | `runner:` | [The runner section](runner.md) | how the process serves: port, path, who may reach it, what the API may do, where files go |
 | `links:` | [Links](links.md) | the buses, instrument connections and simulated plants devices are built on |
-| `devices:` | [Devices](devices/index.md) | what is on the rig: the envelope every device shares, and per-signal overrides |
+| `devices:` | [Devices](devices/index.md) | what is on the rig: the envelope every device shares, and per-signal metadata |
 | | [Supported drivers](devices/drivers.md) | every driver's own fields, one section each |
 | | [Where a device's options come from](devices/generated.md) | why those fields exist, and where else they appear |
 | `controllers:` | [Controllers](controllers.md) | who regulates what, with which law |
@@ -51,12 +51,14 @@ devices:                       # what is on the rig, keyed by name
     driver: sim_daq
     label: Tube furnace
     poll_s: 1
-    config: { link: tube, ports: { zone1: zone1 } }     # the plant's port, as the signal `furnace.zone1`
+    link: tube
+    ports: { zone1: zone1 }  # the plant's port, as the signal `furnace.zone1`
     signals:
       zone1: { warning: [0, 1100], precision: 1 }
   heaters:
     driver: sim_drive
-    config: { link: tube, ports: { heater1: heater1 } }
+    link: tube
+    ports: { heater1: heater1 }
 
 controllers:                   # who drives what, keyed by the target signal
   heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15 }, default: true }

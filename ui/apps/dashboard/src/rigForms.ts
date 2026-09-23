@@ -1,6 +1,6 @@
 /**
  * Reading `GET /api/rig/schema` for the "Add device" / "Add link" dialogs:
- * the tags a driver or a link may take, and each one's own config schema,
+ * the types a driver or a link may take, and each one's own config schema,
  * with the whole schema's `$defs` still needed to resolve its `$ref`s.
  */
 import { deref, type JsonSchema } from "@flyball/client";
@@ -16,13 +16,19 @@ export interface DriverVariant {
 export function deviceDrivers(schema: JsonSchema): DriverVariant[] {
   const additional = schema.properties?.devices?.additionalProperties as JsonSchema | undefined;
   const variants = additional?.oneOf ?? [];
+  // The layer's overlay (properties, no `driver`) lists the envelope's keys; the rest of a
+  // driver's variant is the driver's own config, flat beside them.
+  const overlay = variants.find((v) => v.properties && !v.properties.driver);
+  const envelope = new Set(["driver", ...Object.keys(overlay?.properties ?? {})]);
   const out: DriverVariant[] = [];
   for (const variant of variants) {
-    // Each entry is `{oneOf: [layered, flat]}`; the layered branch has `config` as the driver's own schema.
-    const layered = variant.oneOf?.[0];
-    const type = layered?.properties?.driver?.const;
-    const configSchema = layered?.properties?.config as JsonSchema | undefined;
-    if (typeof type === "string" && configSchema) out.push({ type, configSchema });
+    const type = variant.properties?.driver?.const;
+    if (typeof type !== "string") continue;
+    const properties = Object.fromEntries(Object.entries(variant.properties ?? {}).filter(([k]) => !envelope.has(k)));
+    const required = (variant.required ?? []).filter((k) => !envelope.has(k));
+    const configSchema: JsonSchema = { type: "object", title: variant.title, description: variant.description, properties };
+    if (required.length) configSchema.required = required;
+    out.push({ type, configSchema });
   }
   return out;
 }

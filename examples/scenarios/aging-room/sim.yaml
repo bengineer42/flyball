@@ -25,16 +25,14 @@ devices:
     driver: sim_daq
     label: Cave climate (simulated)
     poll_s: 30
-    config:
-      link: room
-      ports:
-        chamber.humidity: { port: output, quantity: humidity, unit: "%" }
-        chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
+    link: room
+    ports:
+      chamber.humidity: { port: output, quantity: humidity, unit: "%" }
+      chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
 
   humidifier:
     driver: sim_drive
     label: Humidifier (simulated)
-    config:
-      link: room
-      ports:
-        drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }
+    link: room
+    ports:
+      drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }

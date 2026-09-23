@@ -70,7 +70,7 @@ class TestI2cTable:
         bus = FakeI2c(registers={0x48: {0x00: [0, 1], 0x01: [0, 2]}})
         chip = I2cTable("c", bus, 0x48, {"a": Register(address=0), "b": Register(address=1)})
         chip.poll_s = 1.0
-        chip.signals["b"].override(poll_s=10.0)
+        chip.signals["b"].set_meta(poll_s=10.0)
         assert [s.by_name() for s in chip.read(0)] == [{"a": 1.0, "b": 2.0}]
         assert [s.by_name() for s in chip.read(1 * NS)] == [{"a": 1.0}]
 

@@ -46,7 +46,7 @@ class ScpiSignal(BaseModel):
     `query` alone: an output, `[RP]`. `write`, with or without `query`: a
     demand, `[RPW]` -- its readback is the value last committed. Metadata
     such as range, precision and limits are not here -- they are the
-    envelope's `signals:` overrides, which apply to any driver's
+    envelope's `signals:` metadata, which applies to any driver's
     tree.
     """
 
@@ -171,7 +171,7 @@ class ScpiConfig(DriverConfig[Scpi], type="scpi"):
     """`driver: scpi`. `channels` is the driver's own tree -- see `ScpiSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is
-    reserved for overrides (range, precision, limits, ...), the same for
+    reserved for signal metadata (range, precision, limits, ...), the same for
     every driver, so a driver's own config may not use that name.
     """
 

@@ -627,12 +627,11 @@ export interface LinkEntry {
 /**
  * A device entry with its name, as `POST /api/devices` takes it: the file's
  * envelope (`driver`, `label`, `poll_s`, `bound`) plus the driver's own
- * settings, either under `config` or flat beside the envelope.
+ * fields, flat beside the envelope.
  */
 export interface NewDevice {
   name: string;
   driver: string;
-  config?: Record<string, unknown>;
   label?: string;
   poll_s?: number;
   bound?: Record<string, string>;

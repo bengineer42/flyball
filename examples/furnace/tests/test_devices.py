@@ -68,7 +68,7 @@ class TestSimDaq:
             SimDaqConfig(link="tube", ports={"z1": "zone1", "sample": "sample"}), "f", tube
         )
         daq.poll_s = 1.0
-        daq.signals["sample"].override(poll_s=2.0)
+        daq.signals["sample"].set_meta(poll_s=2.0)
         second = 1_000_000_000
         assert list(daq.read(0))[0].by_name() == {"z1": 20.0, "sample": 20.0}
         (sample,) = daq.read(second)
@@ -189,7 +189,7 @@ class TestNamespaces:
                 "hum_sensors": {
                     "driver": "sim_daq",
                     "poll_s": 1,
-                    "config": {"link": "plant", "ports": {"dry.t": "zone1", "wet.t": "zone2"}},
+                    "link": "plant", "ports": {"dry.t": "zone1", "wet.t": "zone2"},
                     "signals": {
                         "dry": {"signals": {"t": {"warning": [0, 100]}}},
                         "wet": {"poll_s": 5},
@@ -315,7 +315,7 @@ class TestRigFile:
                 "furnace": {
                     "driver": "sim_daq",
                     "poll_s": 1,
-                    "config": {"link": "plant", "ports": {"zone1": "zone1", "zone2": "zone2"}},
+                    "link": "plant", "ports": {"zone1": "zone1", "zone2": "zone2"},
                     "signals": {"zone1": {"range": [0, 1200], "warning": [0, 1100]}},
                 },
                 "heaters": {

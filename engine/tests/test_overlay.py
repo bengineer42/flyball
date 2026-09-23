@@ -38,8 +38,8 @@ class TestMerge:
 
 class TestParseSet:
     def test_splits_the_path_on_dots(self):
-        path, value = parse_set("devices.furnace.config.noise=0.3")
-        assert path == ["devices", "furnace", "config", "noise"]
+        path, value = parse_set("devices.furnace.noise=0.3")
+        assert path == ["devices", "furnace", "noise"]
         assert value == 0.3 and isinstance(value, float)
 
     def test_types_a_bool(self):

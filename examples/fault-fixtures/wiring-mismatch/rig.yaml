@@ -3,8 +3,8 @@
 # anything. This is a wiring-mistake fixture, not a working example: it
 # never reaches its own setpoint by design. Do not copy this shape.
 #
-# `zone.temperature`'s DAQ (`config.link: unrelated`) reads a different
-# plant than the one `heater.drive` actually drives (`config.link: driven`)
+# `zone.temperature`'s DAQ (`link: unrelated`) reads a different
+# plant than the one `heater.drive` actually drives (`link: driven`)
 # -- a config/wiring mistake shape (an address pointed at the wrong
 # device), not a plant-physics fault. The controller, seeing no progress
 # toward its setpoint, winds its integral up while the heater stays pinned
@@ -22,12 +22,14 @@ devices:
     driver: sim_daq
     label: Zone temperature
     poll_s: 1
-    config: { link: unrelated, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
+    link: unrelated
+    ports: { temperature: { port: output, quantity: temperature, unit: "°C" } }
     signals: { temperature: { range: [0, 100], warning: [0, 60], alarm: [0, 80], precision: 1 } }
   heater:
     driver: sim_drive
     label: Zone heater
-    config: { link: driven, ports: { drive: { port: input, demand: output, quantity: temperature, unit: "°C" } } }
+    link: driven
+    ports: { drive: { port: input, demand: output, quantity: temperature, unit: "°C" } }
 
 controllers:
   heater.drive:

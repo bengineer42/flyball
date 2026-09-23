@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from pydantic import ValidationError
 
 from flyball.foundation.device import (
     Access,
@@ -17,7 +18,7 @@ from flyball.foundation.device import (
     Signal,
     SignalSpec,
 )
-from flyball.foundation.device.entry import SignalOverride
+from flyball.foundation.device.entry import SignalMeta
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
@@ -205,12 +206,13 @@ def blender_tag(fresh, _catalog) -> str:
 
 
 class TestParsing:
-    def test_flat_and_layered_devices_parse_to_the_same_entry(self, daq_tag):
-        flat = RigConfig.model_validate({"devices": {"f": {"driver": daq_tag, "zones": 2}}})
-        layered = RigConfig.model_validate({
-            "devices": {"f": {"driver": daq_tag, "config": {"zones": 2}}}
-        })
-        assert flat.devices == layered.devices
+    def test_a_device_takes_its_driver_fields_flat(self, daq_tag):
+        config = RigConfig.model_validate({"devices": {"f": {"driver": daq_tag, "zones": 2}}})
+        assert config.devices["f"].driver_config == {"zones": 2}
+        with pytest.raises(ValidationError, match="the driver's fields sit flat"):
+            RigConfig.model_validate({
+                "devices": {"f": {"driver": daq_tag, "config": {"zones": 2}}}
+            })
 
     def test_the_plan_s_furnace_example_parses(self, daq_tag, heaters_tag):
         document = {
@@ -348,30 +350,29 @@ class TestChecks:
         document = {"name": "x", "devices": {"f": {"driver": daq_tag, "zones": 2}}}
         config = RigConfig.model_validate(document)
         dumped = canonical(config)
-        assert dumped["devices"]["f"]["config"] == {"zones": 2}
+        assert dumped["devices"]["f"]["zones"] == 2 and "config" not in dumped["devices"]["f"]
         assert RigConfig.model_validate(dumped) == config
 
-    def test_schema_describes_flat_and_layered_per_driver(self, daq_tag, heaters_tag):
+    def test_schema_describes_each_driver(self, daq_tag, heaters_tag):
         schema = rig_schema()
         by_driver = schema["properties"]["devices"]["additionalProperties"]
         assert "oneOf" in by_driver
         tags = {
             shape["properties"]["driver"]["const"]
-            for variant in by_driver["oneOf"]
-            for shape in variant.get("oneOf", [])  # the last variant is `null`: removed by a layer
+            for shape in by_driver["oneOf"]
+            if "driver" in shape.get("properties", {})  # the last is a layer's overlay: no driver
         }
         assert {daq_tag, heaters_tag} <= tags
 
-    def test_schema_flat_and_layered_are_exclusive(self, daq_tag):
-        """A flat entry matches only the flat shape, a layered one only the layered."""
+    def test_schema_takes_a_flat_entry_and_refuses_a_nested_config(self, daq_tag):
+        """A flat entry matches its driver's shape; one with `config:` matches none."""
         import jsonschema
 
         schema = rig_schema()
         shapes = {
             shape["title"]: {"$defs": schema["$defs"], **shape}
-            for variant in schema["properties"]["devices"]["additionalProperties"]["oneOf"]
-            for shape in variant.get("oneOf", [])
-            if shape["properties"]["driver"]["const"] == daq_tag
+            for shape in schema["properties"]["devices"]["additionalProperties"]["oneOf"]
+            if shape.get("properties", {}).get("driver", {}).get("const") == daq_tag
         }
         flat_entry = {"driver": daq_tag, "zones": 2}
         layered_entry = {"driver": daq_tag, "config": {"zones": 2}}
@@ -380,8 +381,8 @@ class TestChecks:
             valid = jsonschema.Draft202012Validator
             return {title for title, shape in shapes.items() if valid(shape).is_valid(entry)}
 
-        assert matches(flat_entry) == {f"{daq_tag} (flat)"}
-        assert matches(layered_entry) == {f"{daq_tag} (layered)"}
+        assert matches(flat_entry) == {daq_tag}
+        assert matches(layered_entry) == set()
 
     def test_schema_accepts_a_layer_file(self, daq_tag):
         """An overlay file names its bases and deletes with `null`: both validate in an editor."""
@@ -393,7 +394,7 @@ class TestChecks:
             "devices": {
                 "f": None,
                 "g": {"driver": daq_tag, "zones": 1},
-                "h": {"bound": {"dry": "g.zone1"}, "config": {"zones": 3}},
+                "h": {"bound": {"dry": "g.zone1"}, "zones": 3},
             },
         }
         jsonschema.Draft202012Validator(rig_schema()).validate(layer)
@@ -457,14 +458,14 @@ class TestBuild:
         assert "heaters.heater1" in rig.controllers
 
 
-class TestSignalOverride:
+class TestSignalMeta:
     def test_an_inverted_range_override_is_refused(self):
         with pytest.raises(ValueError, match="range"):
-            SignalOverride(range=(100.0, 0.0))
+            SignalMeta(range=(100.0, 0.0))
 
     def test_a_non_finite_limits_override_is_refused(self):
         with pytest.raises(ValueError, match="limits"):
-            SignalOverride(limits=(0.0, float("nan")))
+            SignalMeta(limits=(0.0, float("nan")))
 
     def test_rig_build_refuses_an_inverted_override_band(self, daq_tag):
         document = {

@@ -19,10 +19,9 @@ devices:
     driver: sht4x_set
     label: Chamber climate
     poll_s: 5
-    config:
-      link: i2c1
-      sensors:
-        chamber: { address: 0x44 }
+    link: i2c1
+    sensors:
+      chamber: { address: 0x44 }
     signals:
       chamber:
         label: Chamber
@@ -34,27 +33,24 @@ devices:
     driver: scd30
     label: CO2 sensor
     poll_s: 10                             # SCD30's own measurement interval floor is ~2s; no need to poll faster
-    config:
-      link: i2c1
-      address: 0x61
+    link: i2c1
+    address: 0x61
     signals:
       co2: { label: Chamber CO2, warning: [400, 5000] }
 
   fogger:                                  # fogger.drive [W]
     driver: pwm_channel
     label: Ultrasonic fogger
-    config:
-      link: fogger_pwm
-      channel: 0
-      frequency_hz: 1000
+    link: fogger_pwm
+    channel: 0
+    frequency_hz: 1000
 
   fan:                                     # fan.drive [W]
     driver: pwm_channel
     label: Exhaust fan (fresh-air exchange)
-    config:
-      link: fan_pwm
-      channel: 0
-      frequency_hz: 1000
+    link: fan_pwm
+    channel: 0
+    frequency_hz: 1000
 
 controllers:
   fogger.drive:

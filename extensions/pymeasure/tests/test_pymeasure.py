@@ -149,7 +149,7 @@ class TestPyMeasure:
         device = PyMeasure(
             fresh("smu"), inst, {"voltage": PyMeasureSignal(property="voltage", publish=True)}
         )
-        device.signals["voltage"].override(poll_s=1.0)
+        device.signals["voltage"].set_meta(poll_s=1.0)
         list(device.read(0))
         samples = list(device.read(int(0.95e9)))
         assert [s.by_name() for s in samples] == [{"voltage": 1.5}]
@@ -177,11 +177,9 @@ def test_a_rig_file_names_the_driver(fresh):
         "devices": {
             "k2400": {
                 "driver": "pymeasure",
-                "config": {
-                    "instrument": f"{__name__}.FakePyMeasureInstrumentWithAdapter",
-                    "adapter": "GPIB::24",
-                    "channels": {"voltage": {"property": "voltage", "publish": True}},
-                },
+                "instrument": f"{__name__}.FakePyMeasureInstrumentWithAdapter",
+                "adapter": "GPIB::24",
+                "channels": {"voltage": {"property": "voltage", "publish": True}},
             }
         }
     }

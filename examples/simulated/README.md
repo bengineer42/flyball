@@ -44,8 +44,8 @@ flyball watch controllers
 A rig file is `links:` (transports, or here simulated plants), `devices:`
 keyed by name, and `controllers:` keyed by the address of the signal each
 one drives. A device entry is the envelope every driver shares (`driver`,
-`label`, `poll_s`, `signals:` overrides) around the driver's own `config:`,
-which may also sit flat beside the envelope. The simulated drivers:
+`label`, `poll_s`, `signals:` metadata) with the driver's own fields flat
+beside it. The simulated drivers:
 
 | driver | config | signals |
 | --- | --- | --- |

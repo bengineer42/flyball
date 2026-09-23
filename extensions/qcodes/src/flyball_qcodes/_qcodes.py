@@ -191,7 +191,7 @@ class QCoDeSConfig(DriverConfig[QCoDeS], type="qcodes"):
     """`driver: qcodes`. `channels` is the driver's own tree -- see `QCoDeSSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is
-    reserved for overrides, the same for every driver.
+    reserved for signal metadata, the same for every driver.
     """
 
     instrument: str = Field(

@@ -216,7 +216,7 @@ class PyMeasureConfig(DriverConfig[PyMeasure], type="pymeasure"):
     """`driver: pymeasure`. `channels` is the driver's own tree -- see `PyMeasureSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is
-    reserved for overrides, the same for every driver.
+    reserved for signal metadata, the same for every driver.
     """
 
     instrument: str = Field(

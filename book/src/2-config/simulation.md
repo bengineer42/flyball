@@ -126,19 +126,17 @@ devices:
     driver: sim_daq
     label: Oven thermocouple
     poll_s: 1.0
-    config:
-      link: chamber
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 120], precision: 2, warning: [30, 90], alarm: [10, 110] }
   heater:
     driver: sim_drive
     label: Oven heater
-    config:
-      link: chamber
-      ports:
-        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
 controllers:
   heater.drive:
@@ -235,10 +233,12 @@ devices:
   furnace:                               # the thermocouples: furnace.zone1..3, furnace.sample [RP] °C
     driver: sim_daq
     poll_s: 1.0
-    config: { link: tube, ports: { zone1: zone1, zone2: zone2, zone3: zone3, sample: sample } }
+    link: tube
+    ports: { zone1: zone1, zone2: zone2, zone3: zone3, sample: sample }
   heaters:                               # heaters.heater1..3 [W] in watts, limits 0..power_w
     driver: sim_drive
-    config: { link: tube, ports: { heater1: heater1, heater2: heater2, heater3: heater3 } }
+    link: tube
+    ports: { heater1: heater1, heater2: heater2, heater3: heater3 }
 ```
 
 `examples/furnace`'s `sim_furnace` is the example to read for a plant of
@@ -288,8 +288,8 @@ simulated](../3-extending/model.md#overlays-real-vs-simulated)).
 ```yaml
 # examples/humidity/rig-multi-sensor.yaml (real hardware)
 devices:
-  hum_sensors: { driver: sht4x_set, config: { link: i2c1, sensors: { chamber: {...}, dry: {...}, wet: {...} } } }
-  blender: { driver: dual_pump_blender, config: { link: pwm0, ... } }
+  hum_sensors: { driver: sht4x_set, link: i2c1, sensors: { chamber: {...}, dry: {...}, wet: {...} } }
+  blender: { driver: dual_pump_blender, link: pwm0, ... }
 ```
 
 ```yaml
@@ -301,16 +301,16 @@ links:
 devices:
   hum_sensors:
     driver: sim_daq
-    config:
-      link: chamber
-      ports:
-        chamber.humidity: { port: chamber_humidity, quantity: humidity, unit: "%RH" }
-        dry.humidity: { port: dry_humidity, quantity: humidity, unit: "%RH" }
-        # ... one entry per signal; a dotted key puts it in a namespace
+    link: chamber
+    ports:
+      chamber.humidity: { port: chamber_humidity, quantity: humidity, unit: "%RH" }
+      dry.humidity: { port: dry_humidity, quantity: humidity, unit: "%RH" }
+      # ... one entry per signal; a dotted key puts it in a namespace
   blender:
     driver: sim_drive
     bound: null
-    config: { link: chamber, ports: { humidity: { port: wet_fraction, quantity: humidity, unit: "%RH", limits: [0, 100] } } }
+    link: chamber
+    ports: { humidity: { port: wet_fraction, quantity: humidity, unit: "%RH", limits: [0, 100] } }
 ```
 
 `flyball-runner rig.yaml` runs the hardware; `flyball-runner rig.yaml

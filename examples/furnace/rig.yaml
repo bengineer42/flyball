@@ -48,7 +48,8 @@ devices:
     driver: sim_daq
     label: Tube furnace
     poll_s: 1.0
-    config: { link: tube, ports: { zone1: zone1, zone2: zone2, zone3: zone3, sample: sample } }
+    link: tube
+    ports: { zone1: zone1, zone2: zone2, zone3: zone3, sample: sample }
     signals:
       zone1:  { label: Zone 1 (entry),  range: [0, 1200], precision: 1 }
       zone2:  { label: Zone 2 (centre), range: [0, 1200], precision: 1 }
@@ -57,7 +58,8 @@ devices:
   heaters:                               # plain heaters: heaters.heater1..3 [W] in watts, limits 0..power_w
     driver: sim_drive
     label: Zone heaters
-    config: { link: tube, ports: { heater1: heater1, heater2: heater2, heater3: heater3 } }
+    link: tube
+    ports: { heater1: heater1, heater2: heater2, heater3: heater3 }
     signals:
       heater1: { label: Zone 1 heater }
       heater2: { label: Zone 2 heater }

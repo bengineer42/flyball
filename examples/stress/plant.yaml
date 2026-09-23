@@ -206,60 +206,54 @@ devices:
     driver: sim_daq
     label: Oven 1 thermocouple
     poll_s: 0.2
-    config:
-      link: oven1
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: oven1
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 250], precision: 2 }
   temp2:
     driver: sim_daq
     label: Oven 2 thermocouple
     poll_s: 1.0
-    config:
-      link: oven2
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: oven2
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 250], precision: 2 }
   temp3:
     driver: sim_daq
     label: Oven 3 thermocouple
     poll_s: 5.0
-    config:
-      link: oven3
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: oven3
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 250], precision: 2 }
   level1:
     driver: sim_daq
     label: Tank 1 level
     poll_s: 0.5
-    config:
-      link: tank1
-      ports:
-        volume: { port: output, quantity: volume, unit: L }
+    link: tank1
+    ports:
+      volume: { port: output, quantity: volume, unit: L }
     signals:
       volume: { range: [0, 100], precision: 1, warning: [15, 100] }   # starts in warning: 12 L is below 15
   level2:
     driver: sim_daq
     label: Tank 2 level
     poll_s: 2.0
-    config:
-      link: tank2
-      ports:
-        volume: { port: output, quantity: volume, unit: L }
+    link: tank2
+    ports:
+      volume: { port: output, quantity: volume, unit: L }
     signals:
       volume: { range: [0, 100], precision: 1 }
   pressure:
     driver: sim_daq
     label: Vessel pressure
     poll_s: 1.0
-    config:
-      link: vessel
-      ports:
-        pressure: { port: output, quantity: pressure, unit: kPa }
+    link: vessel
+    ports:
+      pressure: { port: output, quantity: pressure, unit: kPa }
     signals:
       pressure: { range: [0, 500], precision: 1, warning: [110, 600], alarm: [105, 600] }
   # ------------------------------------------------------------ SCPI bench --
@@ -269,11 +263,10 @@ devices:
     driver: scpi
     label: Bench DMM
     poll_s: 0.5
-    config:
-      link: dmm
-      channels:
-        voltage: { query: "MEAS:VOLT:DC?", unit: V }
-        current: { query: "MEAS:CURR:DC?", unit: A }
+    link: dmm
+    channels:
+      voltage: { query: "MEAS:VOLT:DC?", unit: V }
+      current: { query: "MEAS:CURR:DC?", unit: A }
     signals:
       voltage: { range: [0, 300], precision: 3 }
       current: { range: [0, 5], precision: 3 }
@@ -281,11 +274,10 @@ devices:
     driver: scpi
     label: Bench frequency counter
     poll_s: 1.0
-    config:
-      link: freqctr
-      channels:
-        frequency: { query: "MEAS:FREQ?", unit: Hz }
-        duty: { query: "MEAS:DUTY?", unit: "%" }
+    link: freqctr
+    channels:
+      frequency: { query: "MEAS:FREQ?", unit: Hz }
+      duty: { query: "MEAS:DUTY?", unit: "%" }
     signals:
       frequency: { range: [0, 100000], precision: 1 }
       duty: { range: [0, 100], precision: 1 }
@@ -293,25 +285,23 @@ devices:
     driver: scpi
     label: Bench PSU
     poll_s: 1.0
-    config:
-      link: psu
-      channels:
-        set_voltage: { write: "SOUR:VOLT {value:.3f}", unit: V }   # [W]
-        output_voltage: { query: "MEAS:VOLT?", unit: V }            # [RP], the readback
+    link: psu
+    channels:
+      set_voltage: { write: "SOUR:VOLT {value:.3f}", unit: V }   # [W]
+      output_voltage: { query: "MEAS:VOLT?", unit: V }            # [RP], the readback
   # --------------------------------------------------- Modbus register bank --
   plc:
     driver: modbus
     label: PLC registers
     poll_s: 2.0
-    config:
-      link: plc
-      registers:
-        pressure2: { address: 0, scale: 0.1, unit: kPa }
-        flow: { address: 1, scale: 0.1, unit: L/min }
-        tank_pct: { address: 2, scale: 0.01, unit: "%" }
-        motor_speed: { address: 3, scale: 1.0, unit: 1/min }
-        power: { address: 4, scale: 1.0, unit: W }
-        current2: { address: 5, scale: 0.01, unit: A }
+    link: plc
+    registers:
+      pressure2: { address: 0, scale: 0.1, unit: kPa }
+      flow: { address: 1, scale: 0.1, unit: L/min }
+      tank_pct: { address: 2, scale: 0.01, unit: "%" }
+      motor_speed: { address: 3, scale: 1.0, unit: 1/min }
+      power: { address: 4, scale: 1.0, unit: W }
+      current2: { address: 5, scale: 0.01, unit: A }
     signals:
       pressure2: { range: [0, 500], precision: 1 }
       flow: { range: [0, 100], precision: 1 }
@@ -327,120 +317,108 @@ devices:
     driver: sim_daq
     label: Shaker table
     poll_s: 0.2
-    config:
-      link: shaker
-      ports:
-        speed: { port: output, quantity: speed, unit: m/s }
+    link: shaker
+    ports:
+      speed: { port: output, quantity: speed, unit: m/s }
     signals:
       speed: { range: [0, 2], precision: 3 }
   humidity:
     driver: sim_daq
     label: "Spare: humidity"
     poll_s: 0.5
-    config:
-      link: humidity_cell
-      ports:
-        humidity: { port: output, quantity: humidity, unit: "%" }
+    link: humidity_cell
+    ports:
+      humidity: { port: output, quantity: humidity, unit: "%" }
     signals:
       humidity: { range: [0, 100], precision: 1 }
   count_rate:
     driver: sim_daq
     label: "Spare: count rate"
     poll_s: 1.0
-    config:
-      link: tach
-      ports:
-        frequency: { port: output, quantity: frequency, unit: Hz }
+    link: tach
+    ports:
+      frequency: { port: output, quantity: frequency, unit: Hz }
     signals:
       frequency: { range: [0, 100], precision: 1 }
   torque:
     driver: sim_daq
     label: "Spare: torque"
     poll_s: 2.0
-    config:
-      link: wrench
-      ports:
-        torque: { port: output, quantity: torque, unit: N·m }
+    link: wrench
+    ports:
+      torque: { port: output, quantity: torque, unit: N·m }
     signals:
       torque: { range: [-20, 20], precision: 2 }
   mass:
     driver: sim_daq
     label: "Spare: mass"
     poll_s: 5.0
-    config:
-      link: hopper
-      ports:
-        mass: { port: output, quantity: mass, unit: kg }
+    link: hopper
+    ports:
+      mass: { port: output, quantity: mass, unit: kg }
     signals:
       mass: { range: [0, 200], precision: 2 }
   length:
     driver: sim_daq
     label: "Spare: length"
     poll_s: 0.2
-    config:
-      link: rail
-      ports:
-        length: { port: output, quantity: length, unit: m }
+    link: rail
+    ports:
+      length: { port: output, quantity: length, unit: m }
     signals:
       length: { range: [-1, 1], precision: 4 }
   energy:
     driver: sim_daq
     label: "Spare: energy"
     poll_s: 0.5
-    config:
-      link: cell
-      ports:
-        energy: { port: output, quantity: energy, unit: J }
+    link: cell
+    ports:
+      energy: { port: output, quantity: energy, unit: J }
     signals:
       energy: { range: [0, 1000], precision: 1 }
   charge:
     driver: sim_daq
     label: "Spare: charge"
     poll_s: 1.0
-    config:
-      link: capacitor
-      ports:
-        charge: { port: output, quantity: charge, unit: C }
+    link: capacitor
+    ports:
+      charge: { port: output, quantity: charge, unit: C }
     signals:
       charge: { range: [-1, 1], precision: 4 }
   amount:
     driver: sim_daq
     label: "Spare: amount of substance"
     poll_s: 2.0
-    config:
-      link: reactor
-      ports:
-        amount: { port: output, quantity: amount, unit: mol }
+    link: reactor
+    ports:
+      amount: { port: output, quantity: amount, unit: mol }
     signals:
       amount: { range: [0, 10], precision: 3 }
   drive_fraction:
     driver: sim_daq
     label: "Spare: drive fraction"
     poll_s: 5.0
-    config:
-      link: knob
-      ports:
-        fraction: { port: output, quantity: fraction, unit: of full }
+    link: knob
+    ports:
+      fraction: { port: output, quantity: fraction, unit: of full }
     signals:
       fraction: { range: [0, 1], precision: 3 }
   big_volume:
     driver: sim_daq
     label: "Spare: volume (m³)"
     poll_s: 0.2
-    config:
-      link: silo
-      ports:
-        volume_m3: { port: output, quantity: volume_m3, unit: m³ }
+    link: silo
+    ports:
+      volume_m3: { port: output, quantity: volume_m3, unit: m³ }
     signals:
       volume_m3: { range: [0, 5], precision: 3 }
   angle:
     driver: sim_daq
     label: "Spare: angle"
     poll_s: 0.5
-    config:
-      link: turntable
-      ports:
-        angle: { port: output, quantity: angle, unit: rad }
+    link: turntable
+    ports:
+      angle: { port: output, quantity: angle, unit: rad }
     signals:
       angle: { range: [-10, 10], precision: 3 }
   # ---------------------------------------------------------------- furnace --
@@ -450,22 +428,21 @@ devices:
     driver: sim_daq
     label: Furnace thermocouples
     poll_s: 0.2
-    config:
-      link: tube
-      ports:
-        zone1: zone1
-        zone2: zone2
-        zone3: zone3
-        zone4: zone4
-        zone5: zone5
-        zone6: zone6
-        zone7: zone7
-        zone8: zone8
-        zone9: zone9
-        zone10: zone10
-        zone11: zone11
-        zone12: zone12
-        sample: sample
+    link: tube
+    ports:
+      zone1: zone1
+      zone2: zone2
+      zone3: zone3
+      zone4: zone4
+      zone5: zone5
+      zone6: zone6
+      zone7: zone7
+      zone8: zone8
+      zone9: zone9
+      zone10: zone10
+      zone11: zone11
+      zone12: zone12
+      sample: sample
     signals:
       zone1: { label: Zone 1, range: [0, 1300], precision: 1, warning: [25, 1300] }
       zone2: { label: Zone 2, range: [0, 1300], precision: 1, poll_s: 0.5 }
@@ -483,50 +460,56 @@ devices:
   burner1:
     driver: sim_drive
     label: Oven 1 heater
-    config: { link: oven1, ports: { drive: input } }
+    link: oven1
+    ports: { drive: input }
   burner2:
     driver: sim_drive
     label: Oven 2 heater
-    config: { link: oven2, ports: { drive: input } }
+    link: oven2
+    ports: { drive: input }
   burner3:
     driver: sim_drive
     label: Oven 3 heater
-    config: { link: oven3, ports: { drive: input } }
+    link: oven3
+    ports: { drive: input }
   valve1:
     driver: sim_drive
     label: Tank 1 inlet valve
-    config: { link: tank1, ports: { drive: input } }
+    link: tank1
+    ports: { drive: input }
   valve2:
     driver: sim_drive
     label: Tank 2 inlet valve
-    config: { link: tank2, ports: { drive: input } }
+    link: tank2
+    ports: { drive: input }
   # vent is a plain drive: no controller, a manual/simulation-only knob.
   vent:
     driver: sim_drive
     label: Vessel vent
-    config: { link: vessel, ports: { drive: input } }
+    link: vessel
+    ports: { drive: input }
   shaker_drive:
     driver: sim_drive
     label: Shaker drive
-    config: { link: shaker, ports: { drive: input } }
+    link: shaker
+    ports: { drive: input }
   heaters:
     driver: sim_drive
     label: Zone heaters
-    config:
-      link: tube
-      ports:
-        heater1: heater1
-        heater2: heater2
-        heater3: heater3
-        heater4: heater4
-        heater5: heater5
-        heater6: heater6
-        heater7: heater7
-        heater8: heater8
-        heater9: heater9
-        heater10: heater10
-        heater11: heater11
-        heater12: heater12
+    link: tube
+    ports:
+      heater1: heater1
+      heater2: heater2
+      heater3: heater3
+      heater4: heater4
+      heater5: heater5
+      heater6: heater6
+      heater7: heater7
+      heater8: heater8
+      heater9: heater9
+      heater10: heater10
+      heater11: heater11
+      heater12: heater12
     signals:
       heater1: { label: Zone 1 heater }
       heater2: { label: Zone 2 heater }

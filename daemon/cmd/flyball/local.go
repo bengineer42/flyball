@@ -180,7 +180,7 @@ class %[1]s(Readable):
 
 
 class %[1]sConfig(DriverConfig[%[1]s], type="%[2]s"):
-    """The rig-file entry: ` + "`driver: %[2]s`" + ` (flat) or its settings under ` + "`config:`" + ` (layered)."""
+    """The rig-file entry: ` + "`driver: %[2]s`" + `, its fields flat beside it."""
 
     def build(self, name: str, label: str | None = None) -> %[1]s:
         return %[1]s(name, label)

@@ -114,7 +114,7 @@ class TestQCoDeS:
         """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
         inst = FakeInstrument("smu")
         device = QCoDeS(fresh("smu"), inst, {"volt": QCoDeSSignal(property="volt", publish=True)})
-        device.signals["volt"].override(poll_s=1.0)
+        device.signals["volt"].set_meta(poll_s=1.0)
         list(device.read(0))
         samples = list(device.read(int(0.95e9)))
         assert [s.by_name() for s in samples] == [{"volt": 1.25}]
@@ -167,11 +167,9 @@ def test_a_rig_file_names_the_driver(fresh):
         "devices": {
             "smu": {
                 "driver": "qcodes",
-                "config": {
-                    "instrument": f"{__name__}.FakeInstrument",
-                    "instrument_name": qcodes_name,
-                    "channels": {"volt": {"property": "volt", "publish": True}},
-                },
+                "instrument": f"{__name__}.FakeInstrument",
+                "instrument_name": qcodes_name,
+                "channels": {"volt": {"property": "volt", "publish": True}},
             }
         }
     }

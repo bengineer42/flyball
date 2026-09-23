@@ -184,7 +184,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help="override a value after loading, e.g. devices.furnace.config.noise=0.3; repeatable",
+        help="override a value after loading, e.g. devices.furnace.noise=0.3; repeatable",
     )
     return p
 

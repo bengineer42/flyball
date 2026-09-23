@@ -43,7 +43,7 @@ holds for a program file, a library upload and a `--set` value.
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
 | `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
-| `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat or layered](#devices) |
+| `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat beside it](#devices) |
 | `controllers` | `{output-address: ControllerEntry}` | keyed by the demand driven, the controller's output |
 
 ## Several files: overlays
@@ -53,7 +53,7 @@ docker-compose `-f` / kustomize / Hydra pattern:
 
 ```
 flyball-runner furnace.yaml sim.yaml
-flyball rig check furnace.yaml sim.yaml --set devices.furnace.config.noise=0.3
+flyball rig check furnace.yaml sim.yaml --set devices.furnace.noise=0.3
 ```
 
 `merge(base, overlay)` (`flyball.runtime.overlay`) is the one rule:
@@ -78,29 +78,28 @@ layer: a file per deployment holding only `extends` and `runner:`.
 ## Devices
 
 Every device entry has an **envelope** — flyball's own keys, the same for
-every driver — around the driver's own config, which may sit **flat**
-beside the envelope or **layered** under `config:`; both parse to the same
-thing (checked at import: a driver's config may not declare a field named
-like an envelope key).
+every driver — with the driver's own config flat beside it: every other
+key is the driver's (checked at import: a driver's config may not declare a
+field named like an envelope key). A nested `config:` is refused.
 
 | envelope key | type | |
 | --- | --- | --- |
 | `driver` | string | which driver builds this device; a type registered in the driver catalog |
 | `label` | string, optional | shown instead of the name |
-| `poll_s` | number, optional | inherited down the tree; a namespace or signal override wins |
-| `signals` | `{name: SignalOverride \| NamespaceOverride}` | per-signal metadata overrides and access restriction — never adds access the driver did not declare |
+| `poll_s` | number, optional | inherited down the tree; a namespace's or signal's own wins |
+| `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
 | `bound` | `{role: address}` | inputs this device follows on another device: a `role` on the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
-| `config` | object | the driver's own settings, if not given flat |
 
 ```yaml
 devices:
-  wet_supply: { driver: sht4x, label: Wet supply, poll_s: 5, link: i2c1, address: 0x46 }   # flat
+  wet_supply: { driver: sht4x, label: Wet supply, poll_s: 5, link: i2c1, address: 0x46 }
 
-  hum_sensors:                                                                       # layered
+  hum_sensors:
     driver: sht4x_set
     label: Humidity sensors
     poll_s: 1
-    config: { link: i2c1, sensors: { chamber: { address: 0x44 }, dry: { address: 0x45 }, wet: { address: 0x46 } } }
+    link: i2c1
+    sensors: { chamber: { address: 0x44 }, dry: { address: 0x45 }, wet: { address: 0x46 } }
     signals:
       chamber: { signals: { humidity: { warning: [20, 80] } } }
       dry:     { poll_s: 5 }
@@ -109,7 +108,7 @@ devices:
 (from the plan's worked example — `examples/humidity/rig-multi-sensor.yaml` is the real
 file this became).
 
-A `SignalOverride` is `{label, range, precision, warning, alarm, poll_s,
+A `SignalMeta` is `{label, range, precision, warning, alarm, poll_s,
 stale_after_s, limits, max_rate, tags, access, readable, published, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
@@ -127,11 +126,11 @@ demand, and a file bound past a numeric driver bound is refused at load);
 `false` — the driver declares what it can honour, the file cannot add to
 it, unless the driver also names a ceiling for that signal (a Python-level
 option, not a rig-file key), in which case `access` may ask for anything up
-to and including it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
+to and including it. A `NamespaceMeta` is `{label, poll_s, tags, signals}`, recursing
 the same way into a namespace's own children; its `tags` apply to every
 signal under it, a signal's own winning.
 
-A key left out of an override leaves the driver's value; a key given as
+A key left out of the metadata leaves the driver's value; a key given as
 `null` clears it to the unset default (`label` the titlecased name, a band
 none, `poll_s` inherited) -- `limits: null` clears only the file's
 narrowing, never the driver's limits. `poll_s` (on a device, namespace or
@@ -141,18 +140,18 @@ number or `.nan` is refused at load.
 ## Links
 
 Every link is a typed config, declared once under `links:` and referred
-to by name from a device's `link` field. The tags and every field, one
-section each: [Links](../2-config/links.md); the board tags
+to by name from a device's `link` field. The types and every field, one
+section each: [Links](../2-config/links.md); the board types
 (`i2c`, `spi`, `gpio`, `pwm`, `onewire` and their fakes):
 [Boards and Linux I/O](../2-config/boards.md).
 
 ## Drivers
 
 `driver:` names a type registered in the driver catalog; the driver's
-own fields sit flat beside the envelope or under `config:`. Every shipped
+own fields sit flat beside the envelope. Every shipped
 driver with its fields and an example entry: [Supported drivers](../2-config/devices/drivers.md);
 why those fields and where else they appear: [Where a device's options come from](../2-config/devices/generated.md).
-Any device entry may say `pin: "LABEL"` (flat, or under `config`) instead
+Any device entry may say `pin: "LABEL"` instead
 of the link/line fields, when the file has a `board`: the board's fields
 for that label fill in, and anything the entry already gives wins.
 

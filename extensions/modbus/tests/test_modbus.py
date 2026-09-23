@@ -95,8 +95,8 @@ class TestModbus:
             link,
             {"a": ModbusRegister(address=1, unit="1"), "b": ModbusRegister(address=2, unit="1")},
         )
-        dev.signals["a"].override(poll_s=10.0)
-        dev.signals["b"].override(poll_s=1.0)
+        dev.signals["a"].set_meta(poll_s=10.0)
+        dev.signals["b"].set_meta(poll_s=1.0)
         assert [s.by_name() for s in dev.read(0)] == [{"a": 10.0}, {"b": 20.0}]
         assert [s.by_name() for s in dev.read(2 * NS)] == [{"b": 20.0}]
 
@@ -104,7 +104,7 @@ class TestModbus:
         """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
         link = FakeRegisterLink({1: 10})
         dev = Modbus("d", link, {"a": ModbusRegister(address=1, unit="1")})
-        dev.signals["a"].override(poll_s=1.0)
+        dev.signals["a"].set_meta(poll_s=1.0)
         list(dev.read(0))
         assert [s.by_name() for s in dev.read(int(0.95 * NS))] == [{"a": 10.0}]
 
@@ -123,11 +123,9 @@ def bench_document() -> dict:
             "chiller": {
                 "driver": "modbus",
                 "label": "Bench chiller",
-                "config": {
-                    "link": "chiller",
-                    "registers": {
-                        "temperature": {"address": 100, "unit": "°C", "scale": 0.1},
-                    },
+                "link": "chiller",
+                "registers": {
+                    "temperature": {"address": 100, "unit": "°C", "scale": 0.1},
                 },
             },
         },
@@ -141,7 +139,7 @@ class TestBenchRig:
 
     def test_an_undeclared_link_is_refused(self):
         document = bench_document()
-        document["devices"]["chiller"]["config"]["link"] = "nowhere"
+        document["devices"]["chiller"]["link"] = "nowhere"
         with pytest.raises(ValueError, match="link 'nowhere' is not declared"):
             RigConfig.model_validate(document)
 
@@ -154,10 +152,10 @@ class TestBenchRig:
         by_driver = schema["properties"]["devices"]["additionalProperties"]
         tags = {
             shape["properties"]["driver"]["const"]
-            for variant in by_driver["oneOf"]
-            # `.get`: the layer variants (an entry that only adds to a base's device, and `null`
-            # to remove one) have no nested `oneOf` and name no driver.
-            for shape in variant.get("oneOf", [])
+            for shape in by_driver["oneOf"]
+            # The layer variants (an entry that only adds to a base's device, and `null` to
+            # remove one) name no driver.
+            if "driver" in shape.get("properties", {})
         }
         assert "modbus" in tags
 

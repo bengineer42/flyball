@@ -22,7 +22,7 @@ def test_the_real_file_resolves_its_pins_from_the_board():
     assert document["devices"]["heater"]["link"] == "pwm"
     config = load_rig_config(REAL)
     assert config.board == "rpi5" and len(config.links) == 5
-    assert config.devices["heater"].config == {
+    assert config.devices["heater"].driver_config == {
         "link": "pwm",
         "channel": 0,
         "frequency_hz": 1000,

@@ -806,7 +806,7 @@ class RigConfig(BaseModel):
                 raise ValueError(
                     f"device {name!r}: {entry.driver!r} is a {driver.__name__}, not a device driver"
                 )
-            link = entry.config.get("link")
+            link = entry.driver_config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
         for output, controller in self.controllers.items():
@@ -944,16 +944,15 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     """The `devices` property's schema, and the `$defs` it needs.
 
     Built by hand from the installed `Catalogs` rather than inferred: a
-    device entry's driver settings sit flat beside the envelope or under
-    `config` (`DeviceEntry`'s own before-validator normalises this, not a
-    pydantic discriminated union), so pydantic alone cannot describe the two
-    shapes as one type. `oneOf` per registered driver, each with a flat and a
-    layered variant; before any driver registers, `devices` is
-    just a plain `DeviceEntry` map.
+    device entry's driver fields sit flat beside the envelope, keyed on
+    `driver:` (`DeviceEntry` keeps them as its extra keys, not a pydantic
+    discriminated union), so pydantic alone cannot describe them. One
+    variant per registered driver; before any driver registers, `devices`
+    is just a plain `DeviceEntry` map.
     """
     base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
     defs: dict[str, Any] = dict(base.get("$defs", {}))
-    envelope = {k: v for k, v in base["properties"].items() if k not in ("driver", "config")}
+    envelope = {k: v for k, v in base["properties"].items() if k != "driver"}
     drivers = _driver_configs(catalogs)
     if not drivers:
         defs["DeviceEntry"] = base
@@ -962,42 +961,35 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     for driver in drivers:
         driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
         defs.update(driver_schema.pop("$defs", {}))
-        driver_properties = driver_schema.get("properties", {})
-        driver_envelope = {**envelope, "driver": {"const": driver.type_name}}
-        # Exactly one shape may match (`oneOf`): layered needs `config`, flat forbids it,
-        # else a flat entry with no required driver fields satisfies both and an
-        # editor reports "matches multiple schemas".
-        layered = {
+        variants.append({
             "type": "object",
-            "title": f"{driver.type_name} (layered)",
-            "properties": {**driver_envelope, "config": driver_schema},
-            "required": ["driver", "config"],
-        }
-        flat = {
-            "type": "object",
-            "title": f"{driver.type_name} (flat)",
-            "properties": {**driver_envelope, **driver_properties},
+            "title": driver.type_name,
+            **({"description": d} if (d := driver_schema.get("description")) else {}),
+            "properties": {
+                **envelope,
+                "driver": {"const": driver.type_name},
+                **driver_schema.get("properties", {}),
+            },
             "required": ["driver", *driver_schema.get("required", [])],
             "not": {"required": ["config"]},
-        }
-        variants.append({"oneOf": [layered, flat]})
-    # A layer may add to a device a base declared (`bound`, a label, one `config` key) without
-    # repeating its driver: envelope keys only, `config` unconstrained, and no `driver`.
+        })
+    # A layer may add to a device a base declared (`bound`, a label, one driver field)
+    # without repeating its driver: envelope keys and any driver field, and no `driver`.
     overlay = {
         "type": "object",
         "title": "overlay of a device declared in a base",
-        "properties": {**envelope, "config": {"type": "object"}},
+        "properties": envelope,
         "not": {"required": ["driver"]},
     }
     return {"additionalProperties": {"oneOf": [*variants, overlay]}}, defs
 
 
 def canonical(config: RigConfig) -> dict[str, Any]:
-    """`config` as the canonical layered document -- what `rig check` prints.
+    """`config` as the canonical document -- what `rig check` prints.
 
-    Every device entry already carries `config:` after `DeviceEntry`'s own
-    flat-or-layered normalisation, in envelope-key order; dumping drops every
-    `null`, since a format like TOML has no way to write one.
+    Every device entry is its envelope keys, then its driver's fields flat
+    beside them; dumping drops every `null`, since a format like TOML has no
+    way to write one.
     """
     return config.model_dump(mode="json", exclude_none=True)
 
@@ -1076,10 +1068,9 @@ def load_board(path: str | Path) -> Board:
 def apply_board(document: dict[str, Any], board: Board) -> dict[str, Any]:
     """The document with the board's links underneath its own and its pins resolved.
 
-    A device entry with `pin = "LABEL"` -- flat beside the envelope, or
-    under `config` -- gets the driver-config fields the board gives that
-    label, where the entry keeps its driver config; fields the entry
-    already has win. Unknown labels are an error.
+    A device entry with `pin = "LABEL"` gets the driver fields the board
+    gives that label, flat beside the envelope; fields the entry already
+    has win. Unknown labels are an error.
     """
     out = dict(document)
     out["links"] = {**board.links, **document.get("links", {})}
@@ -1095,13 +1086,6 @@ def apply_board(document: dict[str, Any], board: Board) -> dict[str, Any]:
             ) from None
 
     def resolved(entry: dict[str, Any], where: str) -> dict[str, Any]:
-        config = entry.get("config")
-        if isinstance(config, dict):
-            if (fields := fields_of(config.get("pin"), where)) is not None:
-                config = {**fields, **{k: v for k, v in config.items() if k != "pin"}}
-            if (fields := fields_of(entry.get("pin"), where)) is not None:
-                config = {**fields, **config}
-            return {**{k: v for k, v in entry.items() if k != "pin"}, "config": config}
         if (fields := fields_of(entry.get("pin"), where)) is not None:
             return {**fields, **{k: v for k, v in entry.items() if k != "pin"}}
         return entry

@@ -36,7 +36,7 @@ becomes a bound [`Signal`][flyball.foundation.device.signal.Signal] with its add
 (`weather.temperature`) fixed for the device's life, reachable as
 `self.temperature` or `self.signals["temperature"]`. Everything declared
 here lands in the schema, so a UI or a CLI knows how to draw the signal
-without being told; a rig file may narrow it (`signals:` overrides) but
+without being told; a rig file may narrow it (`signals:` metadata) but
 never widen it.
 
 A driver whose tree depends on its config -- a table of SCPI queries, a

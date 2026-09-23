@@ -40,7 +40,7 @@ func asMap(v any) map[string]any {
 
 // checkUndeclaredLinks mirrors RigConfig._consistent's per-device check:
 //
-//	link = entry.config.get("link")
+//	link = entry.driver_config.get("link")
 //	if isinstance(link, str) and link not in self.links:
 //	    raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
 func checkUndeclaredLinks(document map[string]any) []string {
@@ -61,8 +61,7 @@ func checkUndeclaredLinks(document map[string]any) []string {
 	var messages []string
 	for _, name := range deviceNames {
 		entry := asMap(devices[name])
-		config := asMap(entry["config"])
-		link, ok := config["link"].(string)
+		link, ok := entry["link"].(string)
 		if !ok {
 			continue
 		}

@@ -40,7 +40,7 @@ def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_set(expr: str) -> tuple[list[str], Any]:
-    """`"devices.furnace.config.noise=0.3"` -> `(["devices", "furnace", "config", "noise"], 0.3)`.
+    """`"devices.furnace.noise=0.3"` -> `(["devices", "furnace", "noise"], 0.3)`.
 
     The value is parsed as a YAML scalar, so `0.3` is a float, `true` a
     bool, `null` is `None` (meaning delete, once applied), `[1, 2]` a list,

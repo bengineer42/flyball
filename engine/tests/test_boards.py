@@ -100,15 +100,13 @@ def test_find_board_by_name_and_by_path(tmp_path, monkeypatch):
         find_board("nowhere.toml", rig_dir)
 
 
-def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
+def test_apply_board_merges_links_and_resolves_pins():
     board = Board.model_validate(__import__("tomllib").loads(BOARD))
     document = {
         "links": {"bus": {"type": "fake_registers", "registers": {"1": 5}}},
         "devices": {
             "flat": {"driver": "relay", "pin": "OUT1", "label": "Flat"},
             "own": {"driver": "relay", "pin": "OUT1", "unit_id": 2},
-            "layered": {"driver": "relay", "config": {"pin": "OUT1"}},
-            "beside": {"driver": "relay", "pin": "OUT1", "config": {"unit_id": 3}},
             "plain": {"driver": "relay", "unit_id": 4},
         },
     }
@@ -122,11 +120,6 @@ def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
         "unit_id": 7,
     }
     assert out["devices"]["own"]["unit_id"] == 2, "an entry's own field wins over the pin's"
-    assert out["devices"]["layered"] == {"driver": "relay", "config": {"link": "bus", "unit_id": 7}}
-    assert out["devices"]["beside"] == {
-        "driver": "relay",
-        "config": {"link": "bus", "unit_id": 3},
-    }, "a pin beside `config` resolves into it, so the entry stays layered"
     assert out["devices"]["plain"] == {"driver": "relay", "unit_id": 4}
     assert document["devices"]["flat"]["pin"] == "OUT1", "the input is untouched"
     with pytest.raises(NotFoundError, match="devices.x: pin 'NOPE' is not on this board"):
@@ -143,7 +136,7 @@ def test_a_rig_file_with_a_board_validates_builds_and_reports_it(tmp_path, monke
     assert board_path == tmp_path / "profiles" / "test.toml"
     config = RigConfig.model_validate(document)
     assert config.board == "test" and set(config.links) == {"bus", "plant"}
-    assert config.devices["valve"].config == {"link": "bus", "unit_id": 7}
+    assert config.devices["valve"].driver_config == {"link": "bus", "unit_id": 7}
     rig = config.build(start=False)
     valve = rig.devices["valve"]
     assert isinstance(valve, Relay) and valve.unit_id == 7

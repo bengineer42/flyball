@@ -47,7 +47,7 @@ func TestParseSet(t *testing.T) {
 		path []string
 		val  any
 	}{
-		{"devices.furnace.config.noise=0.3", []string{"devices", "furnace", "config", "noise"}, 0.3},
+		{"devices.furnace.noise=0.3", []string{"devices", "furnace", "noise"}, 0.3},
 		{"a.b=true", []string{"a", "b"}, true},
 		{"a.b=null", []string{"a", "b"}, nil},
 		{"a=hello", []string{"a"}, "hello"},
@@ -73,23 +73,23 @@ func TestParseSet_noEquals(t *testing.T) {
 }
 
 func TestApplySet_setsAndDeletes(t *testing.T) {
-	doc := map[string]any{"devices": map[string]any{"furnace": map[string]any{"config": map[string]any{"noise": 0.1}}}}
-	out, err := ApplySet(doc, []string{"devices", "furnace", "config", "noise"}, 0.3)
+	doc := map[string]any{"devices": map[string]any{"furnace": map[string]any{"noise": 0.1}}}
+	out, err := ApplySet(doc, []string{"devices", "furnace", "noise"}, 0.3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := out["devices"].(map[string]any)["furnace"].(map[string]any)["config"].(map[string]any)["noise"]
+	got := out["devices"].(map[string]any)["furnace"].(map[string]any)["noise"]
 	if got != 0.3 {
 		t.Fatalf("got %v", got)
 	}
 
-	out2, err := ApplySet(out, []string{"devices", "furnace", "config", "noise"}, nil)
+	out2, err := ApplySet(out, []string{"devices", "furnace", "noise"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := out2["devices"].(map[string]any)["furnace"].(map[string]any)["config"].(map[string]any)
-	if _, ok := config["noise"]; ok {
-		t.Fatalf("expected noise deleted, got %#v", config)
+	furnace := out2["devices"].(map[string]any)["furnace"].(map[string]any)
+	if _, ok := furnace["noise"]; ok {
+		t.Fatalf("expected noise deleted, got %#v", furnace)
 	}
 }
 
@@ -144,12 +144,12 @@ func TestResolveLayers_extendsCycleDetected(t *testing.T) {
 func TestResolveLayers_setsAppliedLast(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "rig.yaml")
-	mustWrite(t, f, "name: original\ndevices:\n  furnace:\n    config:\n      noise: 0.1\n")
-	doc, _, err := ResolveLayers([]string{f}, []string{"devices.furnace.config.noise=0.5"})
+	mustWrite(t, f, "name: original\ndevices:\n  furnace:\n    noise: 0.1\n")
+	doc, _, err := ResolveLayers([]string{f}, []string{"devices.furnace.noise=0.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	noise := doc["devices"].(map[string]any)["furnace"].(map[string]any)["config"].(map[string]any)["noise"]
+	noise := doc["devices"].(map[string]any)["furnace"].(map[string]any)["noise"]
 	if noise != 0.5 {
 		t.Fatalf("got %v", noise)
 	}

@@ -22,10 +22,9 @@ devices:
     driver: sim_daq
     label: Oven thermocouple
     poll_s: 1.0
-    config:
-      link: chamber
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature:
         range: [0, 120]
@@ -38,10 +37,9 @@ devices:
     # heater.drive [W] °C, smart: a demand is the temperature to hold, and
     # commit() inverts the plant to find the drive; `limits` defaults to the
     # plant's own static range (20..100 °C, ambient to ambient + gain).
-    config:
-      link: chamber
-      ports:
-        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
 # The drive takes a demand straight in °C, so the controller hands it the
 # setpoint untouched (the default `setpoint` feedforward, since the units

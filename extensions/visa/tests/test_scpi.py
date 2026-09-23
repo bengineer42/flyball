@@ -73,8 +73,8 @@ class TestScpi:
             link,
             {"a": ScpiSignal(query="A?", unit="V"), "b": ScpiSignal(query="B?", unit="V")},
         )
-        dev.signals["a"].override(poll_s=10.0)
-        dev.signals["b"].override(poll_s=1.0)
+        dev.signals["a"].set_meta(poll_s=10.0)
+        dev.signals["b"].set_meta(poll_s=1.0)
         first = list(dev.read(0))
         assert [s.by_name() for s in first] == [{"a": 1.0}, {"b": 2.0}]
         second = list(dev.read(2 * NS))
@@ -86,7 +86,7 @@ class TestScpi:
         """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
         link = FakeTextLink({"A?": "1"})
         dev = Scpi("d", link, {"a": ScpiSignal(query="A?", unit="V")})
-        dev.signals["a"].override(poll_s=1.0)
+        dev.signals["a"].set_meta(poll_s=1.0)
         list(dev.read(0))
         assert [s.by_name() for s in dev.read(int(0.95 * NS))] == [{"a": 1.0}]
 
@@ -129,12 +129,10 @@ def bench_document() -> dict:
             "psu": {
                 "driver": "scpi",
                 "label": "Bench PSU",
-                "config": {
-                    "link": "psu",
-                    "channels": {
-                        "set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"},
-                        "output_voltage": {"query": "MEAS:VOLT?", "unit": "V"},
-                    },
+                "link": "psu",
+                "channels": {
+                    "set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"},
+                    "output_voltage": {"query": "MEAS:VOLT?", "unit": "V"},
                 },
                 "signals": {
                     "set_voltage": {"limits": [0, 30]},
@@ -145,10 +143,8 @@ def bench_document() -> dict:
                 "driver": "scpi",
                 "label": "Bench DMM",
                 "poll_s": 0.5,
-                "config": {
-                    "link": "dmm",
-                    "channels": {"voltage": {"query": "MEAS:VOLT:DC?", "unit": "V"}},
-                },
+                "link": "dmm",
+                "channels": {"voltage": {"query": "MEAS:VOLT:DC?", "unit": "V"}},
             },
         },
     }
@@ -198,7 +194,7 @@ class TestBenchRig:
 
     def test_an_undeclared_link_is_refused(self):
         document = bench_document()
-        document["devices"]["psu"]["config"]["link"] = "nowhere"
+        document["devices"]["psu"]["link"] = "nowhere"
         with pytest.raises(ValueError, match="link 'nowhere' is not declared"):
             RigConfig.model_validate(document)
 
@@ -211,10 +207,10 @@ class TestBenchRig:
         by_driver = schema["properties"]["devices"]["additionalProperties"]
         tags = {
             shape["properties"]["driver"]["const"]
-            for variant in by_driver["oneOf"]
-            # `.get`: the layer variants (an entry that only adds to a base's device, and `null`
-            # to remove one) have no nested `oneOf` and name no driver.
-            for shape in variant.get("oneOf", [])
+            for shape in by_driver["oneOf"]
+            # The layer variants (an entry that only adds to a base's device, and `null` to
+            # remove one) name no driver.
+            if "driver" in shape.get("properties", {})
         }
         assert "scpi" in tags
 

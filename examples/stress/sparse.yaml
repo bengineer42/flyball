@@ -21,9 +21,8 @@ devices:
     driver: sim_daq
     label: The only channel
     poll_s: 1.0
-    config:
-      link: cell
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: cell
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 100], precision: 1 }

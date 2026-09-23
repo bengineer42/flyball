@@ -31,10 +31,11 @@ PLANT = {"name": "t1", "type": "sim_plant", "model": "lag", "tau_s": 1.0, "gain"
 DAQ = {
     "name": "probe",
     "driver": "sim_daq",
-    "config": {"link": "t1", "ports": {"signal": {"port": "output", "quantity": "x", "unit": "1"}}},
+    "link": "t1",
+    "ports": {"signal": {"port": "output", "quantity": "x", "unit": "1"}},
     "poll_s": 0.1,
 }
-DRIVE = {"name": "drive", "driver": "sim_drive", "config": {"link": "t1", "ports": {"u": "input"}}}
+DRIVE = {"name": "drive", "driver": "sim_drive", "link": "t1", "ports": {"u": "input"}}
 CONTROLLER = {"drive.u": {"measured": "probe.signal", "law": {"type": "P", "kp": 0.5}}}
 
 
@@ -135,7 +136,7 @@ class TestRoutes:
         assert (
             client.post(
                 "/api/devices",
-                json={**DAQ, "name": "y", "config": {**DAQ["config"], "link": "nope"}},
+                json={**DAQ, "name": "y", "link": "nope"},
             ).status_code
             == 404
         )

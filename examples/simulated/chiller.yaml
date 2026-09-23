@@ -25,10 +25,9 @@ devices:
     driver: sim_daq
     label: Bath probe
     poll_s: 1.0
-    config:
-      link: bath
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: bath
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature:
         range: [-20, 40]
@@ -40,10 +39,9 @@ devices:
     label: Chiller compressor
     # compressor.drive [W] °C, smart: `limits` defaults to the plant's own
     # static range, -8..22 °C (ambient + gain to ambient, sorted rising).
-    config:
-      link: bath
-      ports:
-        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
+    link: bath
+    ports:
+      drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
 # The old °C-per-°C tuning: positive, since the plant's negative gain does
 # the inverting.

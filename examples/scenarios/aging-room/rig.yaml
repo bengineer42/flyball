@@ -18,10 +18,9 @@ devices:
     driver: sht4x_set
     label: Cave climate
     poll_s: 30                              # a curing room moves slowly; no need to poll fast
-    config:
-      link: i2c1
-      sensors:
-        chamber: { address: 0x44 }
+    link: i2c1
+    sensors:
+      chamber: { address: 0x44 }
     signals:
       chamber:
         label: Chamber
@@ -32,10 +31,9 @@ devices:
   humidifier:                              # humidifier.drive [W]
     driver: pwm_channel
     label: Humidifier
-    config:
-      link: humidifier_pwm
-      channel: 0
-      frequency_hz: 1000
+    link: humidifier_pwm
+    channel: 0
+    frequency_hz: 1000
 
 controllers:
   humidifier.drive:

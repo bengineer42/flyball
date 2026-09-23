@@ -33,8 +33,8 @@ func Merge(base, overlay map[string]any) map[string]any {
 	return result
 }
 
-// ParseSet parses "devices.furnace.config.noise=0.3" into
-// (["devices","furnace","config","noise"], 0.3). The value is parsed as a
+// ParseSet parses "devices.furnace.noise=0.3" into
+// (["devices","furnace","noise"], 0.3). The value is parsed as a
 // YAML scalar: "0.3" -> float64, "true" -> bool, "null" -> nil (delete,
 // once applied), "[1, 2]" -> []any, a bare word -> string. Matches
 // flyball.runtime.overlay.parse_set.

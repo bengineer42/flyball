@@ -38,8 +38,8 @@ steps; a plain `move(steps=200)` still works with no calibration configured.
 declared `[R]`, not `[RP]`: it is an internal detail of the move command (like a stepper's own
 phase state), not a quantity a rig author normally wants trended on a dashboard or written to
 the recorder by default. It stays readable on demand for debugging, but is not published on
-schedule. A rig's `signals:` override can only *narrow* a driver's declared access (see
-`flyball.foundation.device._override_signal`, which only clears flags via `Signal.restrict` and
+schedule. A rig's `signals:` metadata can only *narrow* a driver's declared access (see
+`flyball.foundation.device._set_signal_meta`, which only clears flags via `Signal.restrict` and
 never sets them) -- so turning `position` into a recorded `[RP]` signal is not something a
 rig file can do; it needs a driver code change.
 """

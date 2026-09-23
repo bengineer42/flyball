@@ -3,8 +3,8 @@
 Every driver a rig file can name with `driver:`, one section each: what it
 is for, the link it sits on, its own fields, and an entry as it is written.
 The fields under each are the driver's *own* config -- they sit flat beside
-the [envelope](index.md) (`driver`, `label`, `poll_s`, `signals`, `bound`)
-or under `config:`. Where they come from, and where else they show up, is
+the [envelope](index.md) (`driver`, `label`, `poll_s`, `signals`, `bound`).
+Where they come from, and where else they show up, is
 [the next page](generated.md).
 
 Most bench instruments need one of the first four; a chip on a Raspberry Pi
@@ -589,7 +589,7 @@ story to trust an absolute target against) clocks out a pulse train at
 `position` -- the raw step count -- is `[R]` only (readable on demand,
 never published/recorded by default): internal plumbing for the move
 command, not a quantity a rig cares to trend. A rig-file `signals:`
-override cannot widen this to `[RP]` unless the driver names it a
+entry cannot widen this to `[RP]` unless the driver names it a
 [ceiling](../../7-reference/rig-file.md) -- `stepper` doesn't, on
 purpose, so upgrading it needs a driver code change, not a config
 change.

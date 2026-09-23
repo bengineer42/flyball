@@ -238,7 +238,7 @@ class Device:
         """Make the bound tree from `tree`: `root`, `signals` and `nodes`.
 
         Once, at build: readings, samples and demands hold these objects by
-        identity, and the rig file's overrides are applied onto them. The
+        identity, and the rig file's signal metadata is applied onto them. The
         tree is static for the life of the device; a device whose signals
         change is replaced, not rebound. A driver that computes its tree
         from config binds it once, on top of the class's; `Namespace` and
@@ -496,16 +496,16 @@ class Committable(Device):
 
 
 ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "bound", "config"})
-"""The keys of a device entry that are flyball's, the same for every driver."""
+"""The keys of a device entry that are flyball's, the same for every driver; `config` is
+refused outright, so a driver field of that name could never be set."""
 
 
 class DriverConfig[D: Device](Config[D]):
-    """A driver's own settings: what sits flat beside the envelope, or under `config`.
+    """A driver's own config: the fields that sit flat beside the envelope.
 
     The typed model `driver:` selects (its type is the driver name). It may
-    not declare a field named like an envelope key, so flat and layered
-    entries always mean the same thing; that is checked at import, like type
-    clashes.
+    not declare a field named like an envelope key, so every key of an entry
+    means one thing; that is checked at import, like type clashes.
     """
 
     link: str | None = Field(

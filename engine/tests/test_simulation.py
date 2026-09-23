@@ -141,7 +141,7 @@ class TestSimulation:
         assert document["links"]["chamber"]["type"] == "sim_plant"
         heater = document["devices"]["heater"]
         assert heater["driver"] == "sim_drive" and heater["label"] == "Oven heater"
-        assert heater["config"] == {
+        assert {k: heater[k] for k in ("link", "ports")} == {
             "link": "chamber",
             "ports": {
                 "drive": {

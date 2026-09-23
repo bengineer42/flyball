@@ -210,11 +210,11 @@ class TestPollPeriod:
         assert sensors.root.poll_s == 1.0
         assert sensors.nodes["dry"].poll_s == 1.0
         assert sensors.signals["dry.humidity"].poll_s == 1.0
-        sensors.nodes["dry"].override(poll_s=5.0)
+        sensors.nodes["dry"].set_meta(poll_s=5.0)
         assert sensors.signals["dry.humidity"].poll_s == 5.0
         assert sensors.signals["dry.temperature"].poll_s == 5.0
         assert sensors.signals["wet.humidity"].poll_s == 1.0
-        sensors.signals["dry.temperature"].override(poll_s=0.5)
+        sensors.signals["dry.temperature"].set_meta(poll_s=0.5)
         assert sensors.signals["dry.temperature"].poll_s == 0.5
         assert sensors.signals["dry.humidity"].poll_s == 5.0
 
@@ -320,32 +320,28 @@ def sensors_tag(fresh, _catalog) -> str:
 
 
 class TestDeviceEntry:
-    def test_flat_and_layered_parse_to_the_same_thing(self):
-        flat = DeviceEntry.model_validate({
+    def test_the_driver_config_sits_flat_beside_the_envelope(self):
+        entry = DeviceEntry.model_validate({
             "driver": "sht4x",
             "label": "Wet supply",
             "poll_s": 5,
             "link": "i2c1",
             "address": 0x46,
         })
-        layered = DeviceEntry.model_validate({
+        assert entry.driver_config == {"link": "i2c1", "address": 70}
+        assert entry.driver == "sht4x" and entry.poll_s == 5.0 and entry.label == "Wet supply"
+        assert entry.signals == {} and entry.bound == {}
+        assert entry.model_dump(exclude_defaults=True) == {
             "driver": "sht4x",
             "label": "Wet supply",
-            "poll_s": 5,
-            "config": {"link": "i2c1", "address": 0x46},
-        })
-        assert flat == layered
-        assert flat.config == {"link": "i2c1", "address": 70}
-        assert flat.driver == "sht4x" and flat.poll_s == 5.0 and flat.label == "Wet supply"
-        assert flat.signals == {} and flat.bound == {}
+            "poll_s": 5.0,
+            "link": "i2c1",
+            "address": 70,
+        }, "dumped as it was written: flat"
 
-    def test_config_plus_a_leftover_key_is_an_error(self):
-        with pytest.raises(ValidationError, match="address beside `config`"):
-            DeviceEntry.model_validate({
-                "driver": "sht4x",
-                "config": {"link": "i2c1"},
-                "address": 0x46,
-            })
+    def test_a_nested_config_key_is_refused(self):
+        with pytest.raises(ValidationError, match="the driver's fields sit flat beside `driver:`"):
+            DeviceEntry.model_validate({"driver": "sht4x", "config": {"link": "i2c1"}})
 
     def test_envelope_keys_are_reserved_in_a_driver_config(self):
         with pytest.raises(TypeError, match="Clashing: signals is an envelope key"):
@@ -365,17 +361,15 @@ class TestDeviceEntry:
             "driver": "sht4x_set",
             "label": "Humidity sensors",
             "poll_s": 1,
-            "config": {
-                "link": "i2c1",
-                "sensors": {"chamber": {"address": 0x44}, "dry": {"address": 0x45}},
-            },
+            "link": "i2c1",
+            "sensors": {"chamber": {"address": 0x44}, "dry": {"address": 0x45}},
             "signals": {
                 "chamber": {"signals": {"humidity": {"warning": [20, 80]}}},
                 "dry": {"poll_s": 5},
                 "wet": {"poll_s": 5},
             },
         })
-        assert entry.config["sensors"]["chamber"] == {"address": 0x44}
+        assert entry.driver_config["sensors"]["chamber"] == {"address": 0x44}
         chamber = entry.signals["chamber"]
         assert chamber.signals["humidity"].warning == (20.0, 80.0)  # type: ignore[union-attr]
         with pytest.raises(ValidationError, match="config"):  # a namespace has no driver config
