@@ -17,7 +17,7 @@ the top of each `.mjs` if they move. Working files go to `$FLYBALL_CHECK_DIR` (d
 | `programForm-roundtrip.mjs <api-url>` | text ⇄ builder-form fidelity for every example program against the runner's rig, a rig-less model and an empty rig |
 | `programText-roundtrip.mjs` | parses every example program with the app's `programText.ts`, round-trips yaml/toml/json, cross-checks PyYAML |
 | `sweep.sh <rig file> <api> <ui>` | one rig through every page at 1440 light, dark, 400 px, plus a channel and a loop detail page |
-| `auth-e2e.mjs <ui-url> <secret> [--shots --anonymous-read --token-link]` | password/token login door end to end: wrong secret refused, right one opens sockets with an HttpOnly cookie, sign out; `--anonymous-read`/`--token-link` cover those modes |
+| `auth-e2e.mjs --flyball <binary> [--shots <dir>] [--only password\|none\|starting\|local\|bare]` | the door end to end against real processes it starts and stops itself (`flyball run` on port 0 with private XDG dirs in a temp dir; a bare `flyball-runner` on a port in 18470-18499): the password shape (anonymous read-only, wrong password refused, sign in with an HttpOnly cookie and nothing in localStorage, the stop button only with operate and its interim report, sign out closing the sockets, a session revoked from outside turning the page read-only with no reload loop), `anonymous: none` (the login page, and back to it on revocation), a page opened while the runner starts, the local shape, and the bare runner's one-time link; must print `ALL PASS` with `errors=0 warnings=0 pageerrors=0`. Needs a `flyball` built with the UI: see below |
 | `events-e2e.mjs <ui-url> <api-url> [--shots]` | proactive event notifications end to end, against `examples/simulated/furnace.yaml`: a real WARNING+/ERROR event (via the furnace's own `fail`/`restore` simulation commands) toasts while off the Events page, the nav badge tracks the unread count, dismissing a toast marks it read, "Mark all read" and revisiting the page clear the badge; must print `ALL PASS` |
 
 Typical session:
@@ -53,3 +53,32 @@ rig=$(realpath examples/simulated/furnace.yaml)   # from the worktree root
 `rig-down.sh` still works to tear these down by rig name. Confirm you actually killed the prior
 runner before assuming a store is empty -- `kill $(cat pids)` can miss the `uv run` wrapper's
 child; `fuser -k <port>/tcp` and a `ss -ltnp | grep <port>` check are more reliable.
+
+## `auth-e2e.mjs`: a flyball binary with the UI
+
+The front serves the dashboard embedded in the Go binary (`daemon/internal/webui`, `go:embed`); a plain
+`go build` embeds only a placeholder page, which the front refuses to pass off as the app. Either:
+
+```bash
+daemon/build-with-ui.sh -o /tmp/flyball-ui      # builds ui/, copies its dist into daemon/internal/webui/dist (in the tree)
+```
+
+or, leaving the tree untouched, the same steps in a copy of `daemon/`:
+
+```bash
+(cd ui && npm ci && npm run build)
+d=$(mktemp -d) && cp -r daemon "$d/" && rm -rf "$d/daemon/internal/webui/dist/"* \
+  && cp -r ui/apps/dashboard/dist/. "$d/daemon/internal/webui/dist/" \
+  && (cd "$d/daemon" && go build -o /tmp/flyball-ui ./cmd/flyball) && rm -rf "$d"
+```
+
+Then, from the repository root, with `engine/.venv` synced (`cd engine && UV_FROZEN=1 uv sync --all-extras`):
+
+```bash
+node scripts/ui-check/auth-e2e.mjs --flyball /tmp/flyball-ui --shots /tmp/flyball-check/auth-shots
+```
+
+`CHROMIUM_PATH` picks the browser if playwright-core's own is not installed (for instance
+`~/.cache/ms-playwright/chromium-1169/chrome-linux/chrome`). The one console line the script expects
+and does not count is the 401 of its own wrong-password attempt; in the `starting` phase, the front's
+503s while the runner starts.
