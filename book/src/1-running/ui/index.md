@@ -12,10 +12,36 @@ with no front-end change. This section is what the app does, a page per area:
 | [Controllers](controllers.md) | the faceplate: reading, target, output, trends, the law |
 | [Charts and the Graph page](charts.md) | Inputs, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
 | [Sessions](sessions.md) | recording, the rolling record, keep, pin, export, delete |
-| [The Config page](rig.md) | the running document, versions and restore, save, restart, connect a model |
+| [The rig file](rig.md) | Options › Rig file: the running document, versions and restore, save, restart, connect a model |
 | [Dashboards](../dashboards.md) | saved and generated layouts of widgets |
 
 The visual language is *Design rationale* below and `ui/README.md`.
+
+## Getting around
+
+There is no sidebar: the app bar at the top of every page is how you move.
+
+```
+ Overview (generated) · furnace · wall  [+]     ⚠ 0 conditions ³  ⏺ session #4  ▷ no program  ✓ server  ⚗ sim   [■ Software stop]  ⚙
+```
+
+- **Dashboards are tabs.** On the dashboards page the bar shows one tab per
+  saved dashboard, after the generated overview; `[+]` makes a new, empty
+  one. Each tab is a link (`#/dashboards/<name>`). On a phone the tabs sit
+  on a second row. On any other page the bar shows that page's title.
+- **The chips are the way to the running pages.** Each is always there, grey
+  when nothing is happening: the conditions chip opens **Events** (and
+  carries the count of unread warnings), the recording chip **Sessions**,
+  the program chip **Programs**; on a simulated rig the sim chip opens
+  **Simulation**. The server chip says whether the live streams are
+  connected.
+- **Software stop** keeps its place whether or not you may operate, so
+  signing in does not move anything.
+- **The gear opens Options** (`#/options`): **Dashboards** (each saved one's
+  place, read-only switch and home), the **Rig file** (the running
+  document, versions, save, the runner; the old `#/rig` address lands here),
+  **Appearance** (the theme), and **Pages**, a link to every page the bar
+  does not reach directly (Inputs, Devices, Controllers, Graph, Overview).
 
 ## Pages
 
@@ -30,7 +56,7 @@ The visual language is *Design rationale* below and `ui/README.md`.
 | **Events** | the rig's event log, live, filterable by level |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
-| **Config** | the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. Last in the navigation; the route is still `#/rig` |
+| **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): the running rig as a file would show it, what has changed since the runner started, its version history (the current one marked), saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
 
 ### The playback bar
 
@@ -104,9 +130,9 @@ fails says so; it never reports a stop that did not happen.
 
 ## Density and theme
 
-One toggle in the app bar, **theme** (`flyball.theme` in `localStorage`):
-light/dark, defaulting to the OS preference (`prefers-color-scheme`) until
-chosen explicitly. It is applied as `data-theme` on `<html>` so the whole app
+**Options › Appearance** sets the theme: follow the system (the default,
+from `prefers-color-scheme`), light or dark, kept per browser
+(`flyball.theme` in `localStorage`; following the system clears it). It is applied as `data-theme` on `<html>` so the whole app
 (MUI and the plain-CSS `packages/react` components alike) reads it from the
 same CSS custom properties.
 

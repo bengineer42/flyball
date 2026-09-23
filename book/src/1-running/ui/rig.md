@@ -1,13 +1,13 @@
-# The Config page
+# The rig file
 
-**Config** (`#/rig`) is the running rig as a file would show it, its history, and how to reach the runner from outside the browser. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
+**Options › Rig file** (`#/options/rig`, behind the gear in the app bar; the old `#/rig` address opens it) is the running rig as a file would show it, its history, and how to reach the runner from outside the browser. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
 
 !!! tip "At the terminal"
     `flyball rig check FILE…` validates a file without a runner; `flyball sim …` drives a simulated rig's knobs; save, versions, restart and shut down are routes for now -- [The rig and the runner](../cli/rig.md).
 
 ## Config
 
-**Config** (`#/rig`) is the running rig as a file would show it, alongside its
+The **Rig file** tab (`#/options/rig`) is the running rig as a file would show it, alongside its
 history and how to reach it from outside the browser:
 
 - **Running document** (`GET /api/rig/document`) — links, devices and

@@ -8,6 +8,7 @@ import { AuthChip, LoginPage } from "./Login.js";
 import { useAuth } from "./auth.js";
 import { StopButton } from "./StopButton.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
+import { optionTab } from "./pages/optionTabs.js";
 import { Status, SimChip, PausedChip } from "./Status.js";
 import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
 import { readHome } from "./dashboard/home.js";
@@ -18,12 +19,12 @@ import { useStartingRetry } from "./useStartingRetry.js";
 // route: the app shell, MUI and the telemetry store are the only things every route pays for.
 const Overview = lazy(() => import("./pages/Overview.js").then((m) => ({ default: m.Overview })));
 const Dashboards = lazy(() => import("./pages/Dashboards.js").then((m) => ({ default: m.Dashboards })));
-const DashboardSwitcher = lazy(() => import("./dashboard/DashboardSwitcher.js").then((m) => ({ default: m.DashboardSwitcher })));
+const DashboardTabs = lazy(() => import("./dashboard/DashboardTabs.js").then((m) => ({ default: m.DashboardTabs })));
+const Options = lazy(() => import("./pages/Options.js").then((m) => ({ default: m.Options })));
 const Inputs = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.Inputs })));
 const SignalDetail = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.SignalDetail })));
 const Graph = lazy(() => import("./pages/Graph.js").then((m) => ({ default: m.Graph })));
 const DevicePage = lazy(() => import("./pages/Devices.js").then((m) => ({ default: m.DevicePage })));
-const RigPage = lazy(() => import("./pages/Rig.js").then((m) => ({ default: m.RigPage })));
 const Controllers = lazy(() => import("./pages/Controllers.js").then((m) => ({ default: m.Controllers })));
 const Events = lazy(() => import("./pages/Events.js").then((m) => ({ default: m.Events })));
 const Sessions = lazy(() => import("./pages/Sessions.js").then((m) => ({ default: m.Sessions })));
@@ -58,7 +59,7 @@ function WindowSettler({ telemetry, onSettle }: { telemetry: ReturnType<typeof u
   return null;
 }
 
-const PAGE_LABEL: Record<Page, string> = { ...(Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>), devices: "Devices", inputs: "Inputs" };
+const PAGE_LABEL = Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>;
 
 /**
  * What is polled rather than streamed, held once for the app bar and the
@@ -109,20 +110,15 @@ function LiveProvider({ children }: { children: ReactNode }) {
  * itself is: pausing there freezes every page's samples, and a page with no
  * transport in sight still needs a way back to live.
  */
-function AppStatus({ onSignIn, playback, page }: { onSignIn(): void; playback: PlaybackHook; page: Page }) {
+function AppStatus({ playback, page, eventsUnread }: { playback: PlaybackHook; page: Page; eventsUnread: number }) {
   const { recording, programmer, simulationSpeed } = useLive();
   const simulated = useContext(SimulatedContext);
   const { streams, byStream } = useStreamStatus();
   return (
     <>
-      <Status recording={recording} programmer={programmer} streams={streams} byStream={byStream} />
+      <Status recording={recording} programmer={programmer} streams={streams} byStream={byStream} eventsUnread={eventsUnread} />
       {simulated && <SimChip speed={simulationSpeed} />}
       {simulated && page !== "simulation" && <PausedChip playback={playback} />}
-      {/* Self-contained: renders nothing without OPERATE, so it costs nothing to mount everywhere.
-          Reachable from every page by living in the app bar, ahead of the UI split (brain/plans/ui-split.md)
-          that will move this row into a redesigned shell. */}
-      <StopButton />
-      <AuthChip onSignIn={onSignIn} />
     </>
   );
 }
@@ -157,7 +153,7 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: Error | n
     if (!this.state.error) return this.props.children;
     return (
       <Alert severity="error" sx={{ m: 3 }}>
-        This page failed to render ({this.state.error.message}). Pick another page from the sidebar, or reload.
+        This page failed to render ({this.state.error.message}). Pick another page from the app bar, or reload.
       </Alert>
     );
   }
@@ -215,6 +211,10 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   useEffect(() => {
     if (/^#?\/?$/.test(window.location.hash) && readHome()) window.location.replace(hashFor("dashboards"));
   }, []);
+  // The Config page's old address: now the Options page's Rig file tab.
+  useEffect(() => {
+    if (page === "rig") window.location.replace(hashFor("options", "rig"));
+  }, [page]);
   // A fixed 5 min undershoots a rig with hours of history (`longrun`); a fixed 1 h is just as
   // wrong the other way for one that started a minute ago. So the default fits whatever has
   // actually loaded, capped at an hour -- settled once, the first time both ends of that are
@@ -304,7 +304,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   const all = devices.data;
   // A detail page is titled by the thing's label, as everywhere else on the page: the address stays in the crumbs and hints.
   const titled = (): string => {
-    if (name === null) return PAGE_LABEL[page];
+    if (name === null || page === "options") return PAGE_LABEL[page];
     if (page === "sessions") return `Session #${name}`;
     if (page === "devices") return deviceTitle(all.find((d) => d.name === name) ?? { name });
     if (page === "inputs" || page === "controllers") {
@@ -326,17 +326,15 @@ export function App({ onSignIn }: { onSignIn(): void }) {
             {(simulated) => (
               <Shell
                 page={page}
-                onNavigate={navigate}
                 title={title}
-                status={<AppStatus onSignIn={onSignIn} playback={playback} page={page} />}
-                simulated={simulated}
-                devices={all.filter((d) => d.kind !== "simulation")}
-                current={name}
-                eventsUnread={unreadEvents.unreadCount}
+                status={<AppStatus playback={playback} page={page} eventsUnread={unreadEvents.unreadCount} />}
+                // Self-contained: renders nothing without OPERATE; its slot in the bar keeps its width either way.
+                stop={<StopButton />}
+                account={<AuthChip onSignIn={onSignIn} />}
                 startSlot={
                   page === "dashboards" ? (
                     <Suspense fallback={null}>
-                      <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} />
+                      <DashboardTabs name={name} generated={"generated" in params} onOpen={openDashboard} />
                     </Suspense>
                   ) : undefined
                 }
@@ -352,7 +350,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                     {page === "graph" && <Graph devices={all} {...charts} />}
                     {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
                     {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
-                    {page === "rig" && <RigPage />}
+                    {page === "options" && <Options tab={optionTab(name)} simulated={simulated} onTab={(t) => navigate("options", t)} />}
                     {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
                     {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
                     {page === "events" && (

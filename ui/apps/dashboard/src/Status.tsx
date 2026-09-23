@@ -1,4 +1,4 @@
-import { Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
+import { Badge, Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } from "@mui/material";
 import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import PauseIcon from "@mui/icons-material/Pause";
 import { useHealth, type PlaybackHook, type StreamStatus, type SocketStream } from "@flyball/react";
@@ -18,11 +18,13 @@ interface Line {
 }
 
 /** A status chip: icon, a short label (count only on narrow screens), a tooltip listing the names.
+ * Exported as the app bar's one chip shape: a later chip (a rig-health status, a stop latch) takes
+ * the same props rather than a new component.
  * `minWidth`: when a chip's own label text varies by state (not by open-ended data like a name),
  * pass the widest of its own possible labels so it holds one size across its states and doesn't
  * reflow its neighbours every time it changes -- chips should be a single size
  * "within reason" (a genuinely unbounded value, like a session name, is out of scope for this). */
-function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth }: { icon: IconComponent; full: string; short: string; colour: Colour; lines: Line[]; href?: string; minWidth?: string }) {
+export function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth, testId }: { icon: IconComponent; full: string; short: string; colour: Colour; lines: Line[]; href?: string; minWidth?: string; testId?: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("md"));
   const title = lines.length ? (
@@ -53,6 +55,7 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth }: 
         component={href ? "a" : "div"}
         href={href}
         clickable={Boolean(href)}
+        data-testid={testId}
         sx={{
           maxWidth: narrow ? 180 : 360,
           minWidth: narrow ? undefined : minWidth,
@@ -65,7 +68,7 @@ function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth }: 
 }
 
 /** A chip with its own coloured record symbol (a filled circle in a ring), for a state no MUI `color` reads as "quiet": recording. */
-function DotChip({ dotColour, label, short, href, title }: { dotColour: string; label: string; short?: string; href?: string; title: string }) {
+function DotChip({ dotColour, label, short, href, title, testId }: { dotColour: string; label: string; short?: string; href?: string; title: string; testId?: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("sm"));
   return (
@@ -79,18 +82,22 @@ function DotChip({ dotColour, label, short, href, title }: { dotColour: string; 
         component={href ? "a" : "div"}
         href={href}
         clickable={Boolean(href)}
+        data-testid={testId}
       />
     </Tooltip>
   );
 }
 
-/** The simulated clock's speed when it is not real time; a link to the Simulation page. */
+/**
+ * The rig is simulated: always shown then, since it is the way to the Simulation page (there is no
+ * sidebar). Says the clock's speed when it is not real time.
+ */
 export const SimChip = ({ speed }: { speed: number | undefined }) => {
-  if (speed === undefined || speed === 1) return null;
-  const label = `sim ×${Number.isInteger(speed) ? speed : speed.toFixed(1).replace(/\.0$/, "")}`;
+  const scaled = speed !== undefined && speed !== 1;
+  const label = scaled ? `sim ×${Number.isInteger(speed) ? speed : speed.toFixed(1).replace(/\.0$/, "")}` : "sim";
   return (
-    <Tooltip title={`simulated clock runs at ${label.slice(4)} real time`}>
-      <Chip variant="outlined" color="default" icon={<PAGE_ICONS.simulation fontSize="small" />} label={label} component="a" href={hashFor("simulation")} clickable />
+    <Tooltip title={scaled ? `simulated clock runs at ${label.slice(4)} real time` : "simulated rig: the Simulation page"}>
+      <Chip variant="outlined" color="default" icon={<PAGE_ICONS.simulation fontSize="small" />} label={label} component="a" href={hashFor("simulation")} clickable data-testid="sim-chip" />
     </Tooltip>
   );
 };
@@ -126,20 +133,23 @@ export interface StatusProps {
   streams: StreamStatus[];
   /** The same streams, by name, so the chip's tooltip can say which one is the problem. */
   byStream: Readonly<Record<SocketStream, StreamStatus | "idle">>;
+  /** Unread WARNING+ events (`useUnreadEvents`): a badge on the conditions chip, which leads to Events. */
+  eventsUnread?: number;
 }
 
 const STREAM_LABEL: Record<SocketStream, string> = { samples: "readings", controllers: "controllers", activities: "activities", events: "events" };
 
 /**
- * The app bar's condition summary: an always-present alarm chip, one folded
- * server-connection chip, recording, the running program, and polled devices
- * only when one is not running. Every healthy state is `color="default"`
+ * The app bar's condition summary, and with no sidebar also its navigation (D-053): an
+ * always-present alarm chip (→ Events, carrying the unread badge), recording (→ Sessions),
+ * the program (→ Programs, grey "no program" when idle), one folded server-connection chip,
+ * and polled devices only when one is not running. Every healthy state is `color="default"`
  * outlined — colour is reserved for abnormal conditions (ISA-101 §0) — except
  * the server-connection chip, deliberately `color="success"` (green) when
  * live: it is the one state where "still connected" is worth a positive,
  * not just quiet, signal.
  */
-export function Status({ recording, programmer, streams, byStream }: StatusProps) {
+export function Status({ recording, programmer, streams, byStream, eventsUnread = 0 }: StatusProps) {
   const health = useHealth(5000);
   const h = health.data;
 
@@ -164,30 +174,42 @@ export function Status({ recording, programmer, streams, byStream }: StatusProps
   const deviceLines: Line[] = devices.map(([name, d]) => ({ name, href: hrefFor({ kind: "device", name }), state: d.running ? "running" : "stopped" }));
 
   const open = recording.data;
+  const conditions = (
+    <StatusChip
+      icon={WarnIcon}
+      full={`${conditionCount} condition${conditionCount === 1 ? "" : "s"}`}
+      short={`${conditionCount}`}
+      colour={alarmColour}
+      minWidth="7rem"
+      lines={[
+        ...active.map((c) => ({ name: `${c.device} ${c.kind}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
+        ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
+        ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
+      ]}
+      href={hashFor("events")}
+      testId="conditions-chip"
+    />
+  );
 
   return (
     <>
-      <StatusChip
-        icon={WarnIcon}
-        full={`${conditionCount} condition${conditionCount === 1 ? "" : "s"}`}
-        short={`${conditionCount}`}
-        colour={alarmColour}
-        minWidth="7rem"
-        lines={[
-          ...active.map((c) => ({ name: `${c.device} ${c.kind}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
-          ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
-          ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
-        ]}
-        href={hashFor("events")}
-      />
+      {eventsUnread > 0 ? (
+        /* Pulled in onto the chip's corner: the chip row scrolls sideways, and a scroller clips whatever pokes out above it. */
+        <Badge badgeContent={eventsUnread} max={99} color="warning" slotProps={{ badge: { "data-testid": "events-unread-badge" } as object }} sx={{ "& .MuiBadge-badge": { top: 6, right: 6 } }}>
+          {conditions}
+        </Badge>
+      ) : (
+        conditions
+      )}
       <DotChip
         dotColour={open ? "error.main" : "text.disabled"}
         label={open ? sessionName(open) : "not recording"}
         short={open ? `#${open.id}` : ""}
         title={open ? `recording ${sessionName(open)}` : "not recording"}
         href={hashFor("sessions")}
+        testId="recording-chip"
       />
-      {(programmer.data?.running || programmer.data?.failed) && (
+      {programmer.data?.running || programmer.data?.failed ? (
         <StatusChip
           icon={PAGE_ICONS.programs}
           full={
@@ -199,7 +221,10 @@ export function Status({ recording, programmer, streams, byStream }: StatusProps
           colour={programmer.data.failed ? "error" : "default"}
           lines={!programmer.data.running && programmer.data.error ? [{ name: "error", state: programmer.data.error }] : []}
           href={hashFor("programs")}
+          testId="program-chip"
         />
+      ) : (
+        <StatusChip icon={PAGE_ICONS.programs} full="no program" short="idle" colour="default" lines={[]} href={hashFor("programs")} testId="program-chip" />
       )}
       <StatusChip
         icon={liveIcon}

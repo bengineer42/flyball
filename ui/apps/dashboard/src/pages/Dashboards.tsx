@@ -344,7 +344,14 @@ export function Dashboards({ name, generated, devices, events, recording: record
       setBusy(false);
     }
   };
-  const documentFor = (as: string): DashboardDocument => normalise({ ...(doc ?? emptyDocument(as, rigName)), name: as, rig: doc?.rig || rigName });
+  // A tab moved since this page loaded the document (drag, or Options › Dashboards) changed `order`
+  // on the server only: keep that, not the stale copy, so saving an edit does not move the tab back.
+  // A copy under a new name (Save as) starts unordered, after the ordered ones.
+  const serverOrder = (as: string) => (list.data ?? []).find((d) => d.name === as)?.body.order;
+  const documentFor = (as: string): DashboardDocument => {
+    const base = doc ?? emptyDocument(as, rigName);
+    return normalise({ ...base, name: as, rig: doc?.rig || rigName, order: serverOrder(as) ?? (as === wanted ? base.order ?? null : null) });
+  };
   const save = async (as: string) => {
     const body = documentFor(as);
     const ok = await act(async () => {
@@ -458,8 +465,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
     setMenu(null);
   };
 
-  // The dashboard switcher itself lives in the app bar (`DashboardSwitcher`, via `Shell`'s
-  // `startSlot` -- DESIGN-SPEC.md §2: "dashboard identity at the top, not in the sidebar").
+  // Switching dashboards is the app bar's tabs (`DashboardTabs`, via `Shell`'s `startSlot`, D-053).
 
   const canUndo = hist.canUndo;
   const canRedo = hist.canRedo;

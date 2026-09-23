@@ -1,6 +1,6 @@
 # Devices
 
-Every device on the rig. Adding or removing a device or a link is done from [Config](rig.md),
+Every device on the rig. Adding or removing a device or a link is done from [Options › Rig file](rig.md),
 not here. Where a device's fields come from is [Where a device's options come from](../../2-config/devices/generated.md); what an entry looks like in the file, [Devices](../../2-config/devices/index.md).
 
 !!! tip "At the terminal"
@@ -22,7 +22,7 @@ description is not printed under it: an ⓘ beside the label carries it on
 hover (and for a screen reader). A choice of two kinds is two equal halves,
 of three or more a stacked list.
 
-In [Config](rig.md), **Add link** builds a link — a bus, a simulated plant, anything a rig
+In [Options › Rig file](rig.md), **Add link** builds a link — a bus, a simulated plant, anything a rig
 file's `links:` takes — from the rig's schema (`GET /api/rig/schema`): a kind picker, then a
 `SchemaForm` for its config. **Add device** builds a device on the rig the same way: a name, a
 driver picker, that driver's config as a `SchemaForm` (a `link` field the schema names becomes

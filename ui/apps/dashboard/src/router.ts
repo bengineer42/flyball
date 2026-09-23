@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
-export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "rig" | "programs" | "events" | "sessions" | "simulation";
-/** The pages in the navigation; `inputs` only exists as the signal detail page (`#/inputs/<address>`) reached from readouts. Dashboards leads (spec §2: dashboard identity comes first), Overview second; Config (`rig`: the running rig's document, versions and the runner) last. */
-export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
+export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "rig" | "programs" | "events" | "sessions" | "simulation" | "options";
+/**
+ * Every route and the title its app bar shows. There is no sidebar (D-053): dashboards are tabs in
+ * the app bar, the status chips lead to Events, Sessions, Programs and Simulation, and the gear to
+ * Options, whose Pages tab links the rest. `rig` is kept only as an old address: it redirects to
+ * the Options page's Rig file tab (`#/options/rig`).
+ */
+export const PAGES: Array<{ id: Page; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
   { id: "overview", label: "Overview" },
+  { id: "inputs", label: "Inputs" },
   { id: "devices", label: "Devices" },
   { id: "graph", label: "Graph" },
   { id: "controllers", label: "Controllers" },
@@ -13,9 +19,10 @@ export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
   { id: "events", label: "Events" },
   { id: "sessions", label: "Sessions" },
   { id: "simulation", label: "Simulation" },
-  { id: "rig", label: "Config" },
+  { id: "options", label: "Options" },
+  { id: "rig", label: "Rig file" },
 ];
-const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "inputs"];
+const ALL_PAGES: Page[] = PAGES.map((p) => p.id);
 
 /**
  * `#/inputs` → every publishing signal; `#/inputs/furnace.zone1` → one signal

@@ -7,7 +7,7 @@ The **Controllers** page (`#/controllers`) is one card per writable signal: with
 
 ## Adding a controller
 
-In [Config](rig.md), **Add controller** opens a four-step dialog: the
+In [Options › Rig file](rig.md), **Add controller** opens a four-step dialog: the
 **Output** (the demand the controller drives — its `output`), the
 **Measured** signal (the published signal it regulates — its `measured`),
 the law (a stored tuning, one configured here, or none) and the

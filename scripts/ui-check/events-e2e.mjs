@@ -64,7 +64,7 @@ await step('the app loads on the overview page, streams live, no badge with no u
   // The events websocket takes a moment to open after load; firing a fault before it does would
   // be missed until the next reconnect (no periodic re-seed, only the initial GET + live push).
   await page.getByText('live', { exact: true }).first().waitFor({ timeout: 15000 });
-  if (await T('events-nav-badge').count()) throw new Error('badge present with no unread events yet');
+  if (await T('events-unread-badge').count()) throw new Error('badge present with no unread events yet');
   await shot('overview-no-badge');
 });
 
@@ -86,13 +86,13 @@ await step('prime the event stream (one real event, needed to arm the toast queu
   await restore('zone2');
   // The fail's ERROR event counts as unread the moment the store delivers it -- wait for that
   // (the badge appearing), not a fixed sleep, before navigating to the page that lists it.
-  await T('events-nav-badge').waitFor({ state: 'visible', timeout: 10000 });
+  await T('events-unread-badge').waitFor({ state: 'visible', timeout: 10000 });
   await goTo('#/events');
   await T('events-mark-all-read').waitFor({ timeout: 10000 });
   await T('events-mark-all-read').click();
   await page.waitForTimeout(300);
   await goTo('#/overview');
-  if (await T('events-nav-badge').count()) throw new Error('badge should be clear after priming + mark all read');
+  if (await T('events-unread-badge').count()) throw new Error('badge should be clear after priming + mark all read');
 });
 
 await step('a fresh WARNING+ event produces a toast while off the Events page', async () => {
@@ -104,8 +104,8 @@ await step('a fresh WARNING+ event produces a toast while off the Events page', 
 });
 
 await step('the nav badge shows the unread count (1)', async () => {
-  await T('events-nav-badge').waitFor({ state: 'visible', timeout: 5000 });
-  const label = await T('events-nav-badge').innerText();
+  await T('events-unread-badge').waitFor({ state: 'visible', timeout: 5000 });
+  const label = await T('events-unread-badge').innerText();
   if (label.trim() !== '1') throw new Error(`badge says ${JSON.stringify(label)}, expected 1`);
 });
 
@@ -113,7 +113,7 @@ await step('dismissing the toast removes it AND marks it read (badge drops to 0)
   await T('event-toast-dismiss').click();
   await T('event-toast').waitFor({ state: 'hidden', timeout: 5000 });
   await page.waitForTimeout(300);
-  if (await T('events-nav-badge').count()) throw new Error('badge still present after dismissing the only unread toast');
+  if (await T('events-unread-badge').count()) throw new Error('badge still present after dismissing the only unread toast');
   await shot('toast-dismissed');
 });
 
@@ -121,8 +121,8 @@ await step('a second fault toasts again and raises the badge to 1', async () => 
   await restore('zone3'); // an INFO event: does not toast, does not count as unread
   await fail('zone1');
   await T('event-toast').waitFor({ state: 'visible', timeout: 10000 });
-  await T('events-nav-badge').waitFor({ state: 'visible', timeout: 5000 });
-  const label = await T('events-nav-badge').innerText();
+  await T('events-unread-badge').waitFor({ state: 'visible', timeout: 5000 });
+  const label = await T('events-unread-badge').innerText();
   if (label.trim() !== '1') throw new Error(`badge says ${JSON.stringify(label)}, expected 1`);
 });
 
@@ -132,14 +132,14 @@ await step('visiting the Events page and "Mark all read" clears the badge', asyn
   await shot('events-page');
   await T('events-mark-all-read').click();
   await page.waitForTimeout(500);
-  if (await T('events-nav-badge').count()) throw new Error('badge still present after mark all read');
+  if (await T('events-unread-badge').count()) throw new Error('badge still present after mark all read');
   await shot('events-marked-read');
 });
 
 await step('navigating away and back stays read (badge stays clear, no stale re-toast)', async () => {
   await goTo('#/overview');
   await page.waitForTimeout(1000);
-  if (await T('events-nav-badge').count()) throw new Error('badge reappeared after navigating away and back with nothing new');
+  if (await T('events-unread-badge').count()) throw new Error('badge reappeared after navigating away and back with nothing new');
   if (await T('event-toast').count()) throw new Error('a toast reappeared for already-read events');
 });
 
