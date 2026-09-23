@@ -166,6 +166,7 @@ def serve(
         settings.root_path,
         secret=signing_secret(auth, settings.store),
         internal_token=internal,
+        open_network=exposure.open_network,
     )
     if settings.mcp:  # `/mcp/<mode>`: a model's way in
         base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"

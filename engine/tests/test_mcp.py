@@ -420,6 +420,26 @@ class TestMounted:
         finally:
             set_rig(None)
 
+    def test_an_insecure_open_runner_s_mcp_answers_its_network_name(self, rig):
+        """`--insecure-open`: the transport's loopback-only check is off, as the door's is."""
+        from flyball.interfaces.mcp.http import mount
+
+        rig.name = "t"
+        set_rig(rig)
+        app = create_app(open_network=True)
+        http = TestClient(app, base_url="http://192.168.1.3:8000")
+        mount(app, InProcess(http))
+        body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}}
+        headers = {"Accept": "application/json, text/event-stream"}
+        try:
+            with http:
+                lan = http.post("/mcp/read", json=body, headers=headers)
+                assert lan.status_code not in (403, 421), lan.text
+                foreign = {**headers, "Origin": "http://evil.example"}
+                assert http.post("/mcp/read", json=body, headers=foreign).status_code == 403
+        finally:
+            set_rig(None)
+
     def test_each_mode_has_a_route(self, http):
         for mode in ("read", "author", "operate"):
             assert self.rpc(http, mode, "ping").status_code in (200, 400), mode

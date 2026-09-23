@@ -12,7 +12,9 @@ sign-ins with levels, a part of the rig locked) has to grow.
 
 Two checks come before any of that, against other web pages rather than other people.
 An open runner (no password, no token) answers only a `Host` of `localhost`, `127.0.0.1`
-or `[::1]`, so a page whose name has been pointed at loopback (DNS rebinding) is refused.
+or `[::1]`, so a page whose name has been pointed at loopback (DNS rebinding) is refused --
+unless the run opted into serving it open on the network (`--insecure-open`: the exposure's
+`open_network`), whose users reach it by a network name the runner cannot know.
 And in every mode, a request that acts -- any method but GET, HEAD and OPTIONS, and every
 websocket -- is refused when it carries an `Origin` that is not the runner's own (or is
 `null`), unless it brings the bearer token, which a page on another site cannot have.
@@ -285,7 +287,8 @@ class Auth:
     """ASGI middleware: refuse other web pages, resolve the principal, refuse what it may not do.
 
     Installed on every runner; with neither a password nor a token in `config` the runner
-    is *open*: everyone is `OPEN` (operate), but only on a loopback `Host`. Puts the
+    is *open*: everyone is `OPEN` (operate), but only on a loopback `Host` -- any `Host`
+    with `open_network`, the run's `--insecure-open` (the `Origin` check still holds). Puts the
     principal on `scope["state"]["auth"]` (so `request.state.auth`); on a runner with a door
     the `Auth` itself is `app.state.auth`, the routes' way to it. Refusal is 401 with a
     `detail` and `WWW-Authenticate: Bearer` like every other error, or 403 for a foreign
@@ -301,6 +304,7 @@ class Auth:
         *,
         internal_token: str | None = None,
         delay: float = 0.5,
+        open_network: bool = False,
     ) -> None:
         self.app = app
         self.config = config
@@ -313,6 +317,8 @@ class Auth:
         self.max_hashing = 2
         self.anonymous = ANONYMOUS_READ if config.anonymous == "read" else ANONYMOUS_NONE
         self.open = not config.enabled
+        # Open and served on the network by the user's choice: any `Host` is its own name.
+        self.open_network = self.open and open_network
 
     # -- resolving --
 
@@ -358,7 +364,7 @@ class Auth:
             return
         headers: dict[bytes, bytes] = dict(scope.get("headers") or [])
         host = headers.get(b"host", b"").decode(errors="replace")
-        if self.open and not loopback(host):
+        if self.open and not self.open_network and not loopback(host):
             detail = (
                 "This runner has no password or token, so it answers only to localhost,"
                 " 127.0.0.1 or [::1]; give it --password or --token to reach it by another name"

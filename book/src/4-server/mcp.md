@@ -78,7 +78,9 @@ the runner's own machine can drive the rig, over `/api` as much as over
 `[::1]`, and its MCP transport checks the same itself (the MCP SDK's DNS
 rebinding protection: `Host` and any `Origin` on a loopback name, else
 `421` / `403`), so `http://localhost:8000/mcp/author` works and
-`http://pi:8000/mcp/author` needs the token. On a runner with a door the
+`http://pi:8000/mcp/author` needs the token -- unless the runner was served
+open on the network by `--insecure-open`, which lifts both loopback-name
+checks (the door's `Origin` check stays). On a runner with a door the
 transport's check is off -- the runner does not know every name it is
 reached by -- and the door refuses a foreign `Origin` instead (see
 [Authentication](api.md#authentication)). Put a token on any runner a

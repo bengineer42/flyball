@@ -23,8 +23,12 @@ Three ways a runner can stand:
   environment. There is no rig-file key for it: a file can be copied from
   anywhere, and `extends:` would pass it on. The runner then prints a
   warning each start, `exposure.open_network` is `true`, and the dashboard
-  shows a banner on every page that cannot be dismissed. Not on a rig a
-  model can drive.
+  shows a banner on every page that cannot be dismissed. It also answers to
+  whatever name it is reached by (`http://pi:8000`, `http://192.168.1.3:8000`),
+  so the DNS-rebinding refusal is gone with it -- a page elsewhere that
+  points its name at the rig can read it -- and the MCP transport's own
+  loopback-only check is off too; the `Origin` check below still refuses
+  another site's page anything that acts. Not on a rig a model can drive.
 - **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
   the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
   The login page trades it for a session -- an `HttpOnly` cookie the browser

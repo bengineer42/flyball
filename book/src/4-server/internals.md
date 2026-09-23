@@ -12,7 +12,8 @@ simulation, or a database copied from another machine.
 `/docs/assets`, no CDN), CORS, one exception handler per error
 base, the routers, and then -- outermost -- two plain ASGI middlewares:
 `Auth`, always (`server/auth.py`: on an open runner, a `Host` that is not
-loopback is 403 / 4403; in every mode, a request that acts -- not
+loopback is 403 / 4403, unless `create_app(open_network=True)` -- the
+runner's `--insecure-open`; in every mode, a request that acts -- not
 `GET`/`HEAD`/`OPTIONS`, or a websocket -- with a foreign or `null` `Origin`
 and no valid bearer token is 403 / 4403; then one principal per request --
 bearer, cookie, or anonymous, a wrong token being 401 -- with a level

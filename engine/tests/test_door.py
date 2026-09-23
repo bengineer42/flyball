@@ -94,6 +94,60 @@ def test_a_runner_with_a_door_answers_any_host(password):
     assert password.get("/api/health").status_code == 200
 
 
+LAN = "192.168.1.3:8000"
+
+
+@pytest.fixture
+def insecure_open(rig, runner):
+    """An open runner served on the network by `--insecure-open` (exposure `open_network`)."""
+    rig.name = "t"
+    set_rig(rig)
+    app = create_app(secret=b"k", login_delay=0, open_network=True)
+    with TestClient(app, base_url=f"http://{LAN}") as http:
+        yield http
+    set_rig(None)
+
+
+def test_an_insecure_open_runner_answers_its_network_name(insecure_open, runner):
+    """The user opted in: the loopback-Host rule is lifted, the Origin check is not."""
+    assert insecure_open.get("/api/health").status_code == 200
+    with insecure_open.websocket_connect("/ws/samples", headers={"Origin": f"http://{LAN}"}):
+        pass
+    own = insecure_open.post("/api/runner/shutdown", headers={"Origin": f"http://{LAN}"})
+    assert own.status_code == 202 and runner.asked == ["shutdown"]
+
+
+@pytest.mark.parametrize("origin", [EVIL, "null", "http://localhost:8000"])
+def test_an_insecure_open_runner_still_refuses_other_sites(insecure_open, runner, origin):
+    refused = insecure_open.post("/api/runner/shutdown", headers={"Origin": origin, **FORM})
+    assert refused.status_code == 403 and "Origin" in refused.json()["detail"]
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        insecure_open.websocket_connect("/ws/samples", headers={"Origin": origin}),
+    ):
+        pass
+    assert closed.value.code == 4403
+    assert runner.asked == []
+
+
+def test_without_the_opt_in_a_lan_name_is_still_refused(rig, runner):
+    with _client(rig, host=LAN) as http:
+        assert http.get("/api/health").status_code == 403
+        assert http.post("/api/runner/shutdown", headers={"Origin": EVIL}).status_code == 403
+    assert runner.asked == []
+
+
+def test_the_opt_in_means_nothing_to_a_runner_with_a_door(rig, runner):
+    """`open_network` is for an open runner; one with a password is judged as before."""
+    rig.name = "t"
+    set_rig(rig)
+    app = create_app(AuthConfig(password=hash_password("hunter2")), secret=b"k", open_network=True)
+    with TestClient(app, base_url=f"http://{LAN}") as http:
+        own = {"Origin": f"http://{LAN}"}
+        assert http.post("/api/runner/shutdown", headers=own).status_code == 401, "sign in first"
+    set_rig(None)
+
+
 # endregion
 
 # region Origin, on anything that acts

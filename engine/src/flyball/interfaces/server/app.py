@@ -179,14 +179,16 @@ def create_app(
     secret: bytes | None = None,
     internal_token: str | None = None,
     login_delay: float = 0.5,
+    open_network: bool = False,
 ) -> FastAPI:
     """The app.
 
     With `auth` naming a password or a token, the API is behind the door (see
     [flyball.interfaces.server.auth][]; `secret` signs the sessions, `internal_token`
     is the runner's own way in for its MCP mount); without, the runner is open, to
-    loopback names only. With `root_path`, everything it serves is under that prefix
-    (see `RootPath`).
+    loopback names only -- or to any name with `open_network`, an open runner the user
+    chose to serve on the network (`--insecure-open`). With `root_path`, everything it
+    serves is under that prefix (see `RootPath`).
     """
     redact_access_logs()  # uvicorn's request lines would keep `?token=`
     app = FastAPI(
@@ -258,8 +260,10 @@ def create_app(
         secret if secret is not None else secrets.token_bytes(32),
         internal_token=internal_token,
         delay=login_delay,
+        open_network=open_network,
     )
     app.state.auth = None if door.open else door
+    app.state.open_network = door.open_network  # the MCP transport's rebinding check reads it
     # `add_middleware` would build its own instance; the routes need this one.
     app.add_middleware(_Installed, instance=door)
     if root_path and root_path != "/":

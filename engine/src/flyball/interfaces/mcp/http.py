@@ -39,9 +39,11 @@ def _security(app: FastAPI) -> TransportSecuritySettings:
     whatever name it has on the network, which it does not know; there the door checks
     `Origin` against the request's own `Host`, and a rebound page has no credential to
     send -- the cookie belongs to the real name and the token is never ambient -- so the
-    transport's check is left off.
+    transport's check is left off. So it is on an open runner served on the network by
+    `--insecure-open` (`app.state.open_network`): its names are not known either, the user
+    chose to let anyone who reaches it in, and the door still checks `Origin`.
     """
-    if getattr(app.state, "auth", None) is not None:
+    if getattr(app.state, "auth", None) is not None or getattr(app.state, "open_network", False):
         return TransportSecuritySettings(enable_dns_rebinding_protection=False)
     hosts = [f"{host}{port}" for host in _LOOPBACK for port in ("", ":*")]
     origins = [f"{scheme}://{host}" for scheme in ("http", "https") for host in hosts]

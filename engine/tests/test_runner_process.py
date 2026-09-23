@@ -107,6 +107,12 @@ def test_the_environment_opts_in_for_one_run(tmp_path):
         _wait_up(proc, PORT)
         exposure = _get(f"http://127.0.0.1:{PORT}/api/auth")["exposure"]
         assert exposure["open_network"] and exposure["host"] == "0.0.0.0"
+        # Asked for by a network name, it answers: the loopback-Host rule is lifted.
+        lan = urllib.request.Request(
+            f"http://127.0.0.1:{PORT}/api/health", headers={"Host": f"192.0.2.7:{PORT}"}
+        )
+        with urllib.request.urlopen(lan, timeout=1.0) as r:
+            assert r.status == 200
 
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
