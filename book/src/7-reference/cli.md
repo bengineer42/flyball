@@ -224,7 +224,11 @@ config:
   `--daemon`.
 
 `create` prints the token alone on stdout and its details on stderr, so
-`flyball token create … > token.txt` keeps just the token.
+`flyball token create … > token.txt` keeps just the token. `create` and
+`revoke` are recorded in the front's audit beside the tokens file
+(`audit.jsonl`, by `local:cli`); a token whose record cannot be written is
+not created, and a revoke that cannot be recorded still happens and exits
+non-zero ([what is recorded](../1-running/runner/access.md#what-is-recorded)).
 
 | flag | default | |
 | --- | --- | --- |

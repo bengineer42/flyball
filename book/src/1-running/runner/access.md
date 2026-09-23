@@ -334,7 +334,10 @@ as `local:signal`; the signal's sender is not recorded.
   record cannot be written does not happen (`503`); a revoke still happens,
   and its `503` says so. If the file cannot be opened at all, the front
   still serves the rig and says so at start, but refuses every sign-in and
-  new token.
+  new token. `flyball token create` and `flyball token revoke`, which work
+  on the files directly, append their `token.create` and `token.revoke` to
+  the same file, by `local:cli`, under the same rule: no record, no new
+  token; a revoke still happens and exits non-zero saying so.
 - **The runner's audit**, the `audit` table in the rig's store: one row for
   every request that needs more than `read` from a caller who is not
   anonymous -- refused ones included -- and every stop, `SIGUSR1` included:
