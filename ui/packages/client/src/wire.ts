@@ -253,6 +253,12 @@ export interface RunOut {
   read_s: number | null;
   /** Reads that took longer than the period since polling began. */
   missed: number;
+  /** When the read in flight began, on the rig's clock; null when none is. */
+  reading_since_ns: Nanoseconds | null;
+  /** Reads in a row that raised; 0 after one that succeeds. */
+  consecutive_failures: number;
+  /** When an offline device is next read, on the rig's clock; null unless it is offline and backing off. An offline device keeps `running: true` while it retries. */
+  next_retry_ns: Nanoseconds | null;
 }
 
 /**
