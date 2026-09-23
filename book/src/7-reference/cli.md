@@ -110,6 +110,12 @@ no pid to signal, `flyball stop` exits non-zero and says how to give one:
 | `--front-dir DIR` | `DIR/runner.lock` |
 | `RIG-FILE` | the front-dir `flyball run RIG-FILE` uses, when that is not a temporary directory |
 
+A `runner.lock` outlives its runner, and the pid in it may since have been
+given to another process, so a pid read from one is signalled only while a
+runner holds that lock and, on Linux (`/proc/locks`), only when the pid it
+names is the one holding it. A stale lock is refused with an error naming
+the pid, and nothing is signalled; `--pid N` is signalled as given.
+
 `flyball stop --all` asks `flyballd` (`$FLYBALLD_URL`) for the rigs this
 credential holds a verb on (`GET /api/rigs`, no `manage` needed) and stops
 each, printing each report under its name. The runner processes stay up.

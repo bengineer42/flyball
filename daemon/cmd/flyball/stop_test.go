@@ -218,14 +218,14 @@ func TestStopExitsNonZeroOnRefusal(t *testing.T) {
 
 // TestStopFallsBackToFrontDirWhenUnreachable: nothing is listening at
 // FLYBALL_URL, so the HTTP attempt fails at the network level, and
-// --front-dir's runner.lock supplies the pid to signal instead.
+// --front-dir's runner.lock -- held by the pid it names, as a live
+// runner's is -- supplies the pid to signal instead.
 func TestStopFallsBackToFrontDirWhenUnreachable(t *testing.T) {
 	t.Setenv("FLYBALL_URL", "http://127.0.0.1:1") // nothing listens on port 1
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	dir := t.TempDir()
-	lock := filepath.Join(dir, "runner.lock")
-	os.WriteFile(lock, []byte("pid "+strconv.Itoa(os.Getpid())+" rig blender\n"), 0o600)
+	holdRunnerLock(t, dir, "pid "+strconv.Itoa(os.Getpid())+" rig blender\n")
 
 	ch := make(chan os.Signal, 1)
 	notifyUSR1(t, ch)
@@ -293,10 +293,7 @@ func TestStopDerivesFrontDirFromARigFilePath(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	lock := filepath.Join(dir, "runner.lock")
-	if err := os.WriteFile(lock, []byte("pid "+strconv.Itoa(os.Getpid())+" rig blender\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	holdRunnerLock(t, dir, "pid "+strconv.Itoa(os.Getpid())+" rig blender\n")
 
 	ch := make(chan os.Signal, 1)
 	notifyUSR1(t, ch)
