@@ -87,14 +87,17 @@ func (a *Audit) open(path string) error {
 		f.Close()
 		return fmt.Errorf("audit: %w", err)
 	}
-	if err := endLine(f, path); err != nil {
+	release := lockAudit(f)
+	err = endLine(f, path)
+	release()
+	if err != nil {
 		f.Close()
 		return fmt.Errorf("audit: %w", err)
 	}
 	boot := make([]byte, 8)
 	rand.Read(boot)
 	a.f, a.boot = f, hex.EncodeToString(boot)
-	a.h = slog.NewJSONHandler(f, &slog.HandlerOptions{
+	a.h = slog.NewJSONHandler(lockedFile{f}, &slog.HandlerOptions{
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if len(groups) == 0 && (a.Key == slog.LevelKey || a.Key == slog.MessageKey) {
 				return slog.Attr{}
@@ -103,6 +106,16 @@ func (a *Audit) open(path string) error {
 		},
 	})
 	return nil
+}
+
+// lockedFile writes each record under the audit's flock: slog's handler
+// writes a record in one Write, so no other writer's torn-line check or
+// record lands inside it.
+type lockedFile struct{ f *os.File }
+
+func (l lockedFile) Write(p []byte) (int, error) {
+	defer lockAudit(l.f)()
+	return l.f.Write(p)
 }
 
 // endLine ends a torn last line (a crash or a full disk mid-append, here
