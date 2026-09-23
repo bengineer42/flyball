@@ -64,7 +64,10 @@ Every time a reading arrives on the controller's source, it ticks:
    yet), or the source has gone stale (`stale_after`), the write is
    **held**: nothing is applied, `expected` is `None`, and an event says
    why (`limit_unknown` once, then `limit_known` when writes resume;
-   `stale_input`).
+   `stale_input`). A law that raises (no law set, say) is a `step_failed`
+   event, once, and `step_recovered` when it steps again; the other
+   controllers on the rig are not held up by it. A setpoint that is NaN or
+   infinite is refused (422) before the controller changes.
 5. **Remember** the reading, the demand and what was delivered, so the next
    tick's anti-windup and any `attach_on_tick` observer can see them.
 
