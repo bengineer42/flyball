@@ -63,6 +63,26 @@ func TestLoginScopeOperateBecomesRigScoped(t *testing.T) {
 	}
 }
 
+// TestLoginScopeBareOperateFetchesRigFromAuthInfo: the Pi case -- a
+// `flyball run`-style front reached at a bare URL, no `/<name>` in the
+// path and no -s NAME to give a Prefix. bareVerbRig now falls back to
+// GET .../api/auth's "rig" field (added to front/auth.go's AuthInfo for
+// this) rather than refusing outright.
+func TestLoginScopeBareOperateFetchesRigFromAuthInfo(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	er := newEchoRunner(t, "run-test")
+	srv, _ := newTestFront(t, er) // SingleRig, Name "blender", root "/"
+
+	target := Target{BaseURL: srv.URL} // no Prefix, no path: the bare-URL case
+	tok, err := Login(target, testPassword, LoginOptions{Scopes: []string{"operate"}})
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if len(tok.Scopes) != 1 || tok.Scopes[0] != "operate:blender" {
+		t.Errorf("scopes = %v, want [operate:blender]", tok.Scopes)
+	}
+}
+
 // TestLoginScopeOperateStarIsKept: `operate:*` must never be widened or
 // narrowed -- it is only ever used when spelled out (safeguard 2).
 func TestLoginScopeOperateStarIsKept(t *testing.T) {

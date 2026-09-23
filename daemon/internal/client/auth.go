@@ -312,19 +312,53 @@ func resolveLoginScopes(t Target, raw []string) (scopes []string, elevated bool,
 // bareVerbRig is what a bare, elevated --scope verb resolves against
 // (safeguard 2): the rig name from a flyballd path, either `/<name>` in
 // t.Prefix (an -s-resolved Target) or in the base URL's own path (an
-// explicit `flyball login http://host/<name>`). "" when t addresses a
-// rig with no name in the path at all (a bare `flyball run` front) --
-// nothing here can tell two such rigs apart, so the caller refuses the
-// bare verb rather than guess.
+// explicit `flyball login http://host/<name>`). When the path carries no
+// name at all -- the Pi case, a bare `flyball run` front reached at
+// `http://host:8000/` with no `-s` -- it asks the front itself instead:
+// GET .../api/auth's "rig" field (front/auth.go's AuthInfo.Rig) names
+// the one rig such a front serves. "" only when neither the path nor
+// the front names one (a flyballd root, or the front is unreachable),
+// so the caller refuses the bare verb rather than guess.
 func bareVerbRig(t Target) string {
 	if p := strings.Trim(t.Prefix, "/"); p != "" {
 		return p
 	}
 	u, err := url.Parse(t.BaseURL)
+	if err == nil {
+		if p := strings.Trim(u.Path, "/"); p != "" {
+			return p
+		}
+	}
+	return fetchAuthRig(t)
+}
+
+// authInfoRig mirrors the one field of front/auth.go's AuthInfo this
+// package needs, the same way tokenRow mirrors store.Token above --
+// reading it directly rather than importing the front package into the
+// CLI build.
+type authInfoRig struct {
+	Rig string `json:"rig"`
+}
+
+// fetchAuthRig asks GET t's /api/auth for the rig it routes to. "" on
+// any failure (unreachable front, non-2xx, bad JSON) or when the front
+// names none (a flyballd root) -- the caller treats that the same as no
+// name at all.
+func fetchAuthRig(t Target) string {
+	base := strings.TrimRight(t.BaseURL, "/") + t.Prefix
+	resp, err := http.Get(base + "/api/auth")
 	if err != nil {
 		return ""
 	}
-	return strings.Trim(u.Path, "/")
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return ""
+	}
+	var info authInfoRig
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return ""
+	}
+	return info.Rig
 }
 
 // loginTokenName names the token flyball login mints: `cli:<user>@<host>`
