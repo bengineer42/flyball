@@ -20,7 +20,7 @@ interface Line {
 /** A status chip: icon, a short label (count only on narrow screens), a tooltip listing the names.
  * `minWidth`: when a chip's own label text varies by state (not by open-ended data like a name),
  * pass the widest of its own possible labels so it holds one size across its states and doesn't
- * reflow its neighbours every time it changes -- Ben's ask, 18 Sep: chips should be a single size
+ * reflow its neighbours every time it changes -- chips should be a single size
  * "within reason" (a genuinely unbounded value, like a session name, is out of scope for this). */
 function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth }: { icon: IconComponent; full: string; short: string; colour: Colour; lines: Line[]; href?: string; minWidth?: string }) {
   const theme = useTheme();
@@ -136,8 +136,8 @@ const STREAM_LABEL: Record<SocketStream, string> = { samples: "readings", contro
  * only when one is not running. Every healthy state is `color="default"`
  * outlined — colour is reserved for abnormal conditions (ISA-101 §0) — except
  * the server-connection chip, deliberately `color="success"` (green) when
- * live, per Ben's explicit ask: it is the one state where "still connected"
- * is worth a positive, not just quiet, signal.
+ * live: it is the one state where "still connected" is worth a positive,
+ * not just quiet, signal.
  */
 export function Status({ recording, programmer, streams, byStream }: StatusProps) {
   const health = useHealth(5000);
@@ -152,8 +152,8 @@ export function Status({ recording, programmer, streams, byStream }: StatusProps
   const worst = h?.alarms.max_level ?? 0;
   const alarmColour: Colour = red > 0 || worst >= 40 ? "error" : amber > 0 || worst >= 30 ? "warning" : "default";
 
-  // Two states, not three: Ben's word, 18 Sep, after seeing a mid-outage "reconnecting" read as
-  // less serious than it was. Anything not fully open is red -- no amber middle ground.
+  // Two states, not three: a mid-outage "reconnecting" reads as less serious than it is.
+  // Anything not fully open is red -- no amber middle ground.
   const live = streams.length > 0 && streams.every((s) => s === "open");
   const liveIcon = live ? OkIcon : ErrorIcon;
   const liveColour: Colour = live ? "success" : "error";
