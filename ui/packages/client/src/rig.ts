@@ -680,6 +680,15 @@ export class RigClient {
     return this.call({ method: "POST", path: `/api/programs/library/${enc(name)}/run${query ? `?${query}` : ""}` });
   }
 
+  /**
+   * `POST /api/programs/run`: start a program document that is not stored -- one step run on its
+   * own, or a few -- without saving it to the library. `cancel` cancels whatever is running
+   * instead of the 409 a busy programmer gives.
+   */
+  runProgram(document: unknown, options: { cancel?: boolean } = {}): Promise<ProgrammerState> {
+    return this.call({ method: "POST", path: `/api/programs/run${options.cancel ? "?cancel=true" : ""}`, body: document });
+  }
+
   /** Validate a document (the dialect tree, already parsed) without running it: `ProgramCheck` with a warning per step naming something the rig lacks; 422 names a step that fails to parse. */
   checkProgram(document: unknown): Promise<ProgramCheck> {
     return this.call({ method: "POST", path: "/api/programs/check", body: document });
