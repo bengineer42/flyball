@@ -49,6 +49,8 @@ type ProcessBackend struct {
 
 	mu      sync.Mutex
 	runners map[string]*runnerProc
+	// detached: Detach was called; nothing is respawned or probed again.
+	detached bool
 }
 
 // runnerProc is one registered runner. The fixed fields (ep, dir,
@@ -298,7 +300,9 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 // spawn starts a new incarnation of rp and its readiness probe. b.mu held.
 //
 // Deliberately no death-of-parent signal: a daemon crash must not kill its
-// runners, so default Unix reparenting is what we want.
+// runners, so default Unix reparenting is what we want. Each runner has
+// a process group of its own (ownGroup), so a signal to flyballd's group
+// -- Ctrl-C in a terminal -- does not reach it either (D-037).
 //
 // Every incarnation starts from the whole command: the front-dir is
 // re-checked and rewritten with a fresh key (never while its runner.lock
@@ -324,6 +328,7 @@ func (b *ProcessBackend) spawn(rp *runnerProc) (*exec.Cmd, error) {
 	}
 	cmd.Stdout = rp.logFile
 	cmd.Stderr = rp.logFile
+	ownGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -374,6 +379,11 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 		err := cmd.Wait()
 		b.mu.Lock()
 		rp.alive = false
+		if b.detached {
+			rp.supervising = false
+			b.mu.Unlock()
+			return
+		}
 		if rp.stopping {
 			rp.status = StatusStopped
 			b.mu.Unlock()
@@ -425,8 +435,9 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 			}
 
 			b.mu.Lock()
-			if rp.stopping {
+			if rp.stopping || b.detached {
 				rp.status = StatusStopped
+				rp.supervising = false
 				b.mu.Unlock()
 				return
 			}
@@ -455,7 +466,7 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 func (b *ProcessBackend) probe(rp *runnerProc, cmd *exec.Cmd, key [32]byte) {
 	for {
 		b.mu.Lock()
-		current := rp.cmd == cmd && rp.alive
+		current := rp.cmd == cmd && rp.alive && !b.detached
 		b.mu.Unlock()
 		if !current {
 			return
@@ -485,6 +496,12 @@ func (b *ProcessBackend) capLog(rp *runnerProc, path string) {
 	t := time.NewTicker(b.logCheckInterval)
 	defer t.Stop()
 	for range t.C {
+		b.mu.Lock()
+		detached := b.detached
+		b.mu.Unlock()
+		if detached {
+			return
+		}
 		rp.logMu.Lock()
 		if rp.logClosed {
 			rp.logMu.Unlock()
@@ -613,6 +630,20 @@ func (b *ProcessBackend) killIfStill(rp *runnerProc, cmd *exec.Cmd) {
 	defer b.mu.Unlock()
 	if rp.alive && rp.cmd == cmd {
 		cmd.Process.Kill()
+	}
+}
+
+// Detach lets go of every runner without ending any (D-037): flyballd is
+// exiting, and its runners carry on for the next flyballd to adopt. No
+// runner is respawned, probed or signalled afterwards; a runner that exits
+// meanwhile is the next flyballd's to respawn. The processes' log files
+// are theirs (each holds its own descriptor), so nothing is closed.
+func (b *ProcessBackend) Detach() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.detached = true
+	for _, rp := range b.runners {
+		b.nudge(rp)
 	}
 }
 

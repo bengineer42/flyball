@@ -751,3 +751,37 @@ func TestTCPEndpoint(t *testing.T) {
 		t.Error("tcp with no port started")
 	}
 }
+
+// Detach (flyballd exiting, D-037) leaves the runner running and no
+// longer respawns it.
+func TestDetachLeavesTheRunnerAndRespawnsNothing(t *testing.T) {
+	b := newTestBackend(t, "")
+	spawned := countingCommand(b, `while :; do sleep 0.02; done`)
+	mustStart(t, b, "r")
+	pid := b.pid("r")
+	b.Detach()
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("runner %d gone after Detach: %v", pid, err)
+	}
+	syscall.Kill(pid, syscall.SIGKILL)
+	time.Sleep(10 * b.minBackoff)
+	if n := spawned(); n != 1 {
+		t.Errorf("%d spawns: a detached backend respawned its runner", n)
+	}
+}
+
+// Every runner has a process group of its own, so a signal to flyballd's
+// group (Ctrl-C in its terminal) does not reach it.
+func TestARunnerHasItsOwnProcessGroup(t *testing.T) {
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	mustStart(t, b, "r")
+	pid := b.pid("r")
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pgid != pid || pgid == syscall.Getpgrp() {
+		t.Errorf("runner %d in process group %d (flyballd's is %d); want its own", pid, pgid, syscall.Getpgrp())
+	}
+}

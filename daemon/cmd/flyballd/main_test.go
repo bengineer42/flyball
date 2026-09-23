@@ -32,6 +32,13 @@ func TestMain(m *testing.M) {
 	if os.Getenv("FLYBALLD_FAKE_RUNNER") != "" && filepath.Base(os.Args[0]) == "flyball-runner" {
 		os.Exit(fakeRunner())
 	}
+	if cfg := os.Getenv(daemonEnv); cfg != "" {
+		if err := daemonMain(cfg, false); err != nil {
+			fmt.Fprintln(os.Stderr, "flyballd:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 
@@ -84,25 +91,12 @@ type testDaemon struct {
 }
 
 // startDaemon runs flyballd (run) on 127.0.0.1:0 with extra flyballd.yaml
-// lines and one manifest, oven, for rig; stopped at the test's end.
+// lines and one manifest, oven, for rig; stopped at the test's end, and
+// its runners with it (flyballd itself leaves them running, D-037).
 func startDaemon(t *testing.T, extra, rig string) *testDaemon {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "fd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	os.Mkdir(filepath.Join(dir, "rt"), 0o700)
-	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "rt"))
-	t.Setenv("RUNTIME_DIRECTORY", "")
-	for _, sub := range []string{"manifests", "rig"} {
-		os.Mkdir(filepath.Join(dir, sub), 0o700)
-	}
-	rigPath := filepath.Join(dir, "rig", "oven.yaml")
-	os.WriteFile(rigPath, []byte(rig), 0o600)
-	os.WriteFile(filepath.Join(dir, "manifests", "oven.yaml"), []byte("name: oven\nserver_config: "+rigPath+"\n"), 0o600)
-	cfg := filepath.Join(dir, "flyballd.yaml")
-	os.WriteFile(cfg, []byte(fmt.Sprintf("manifests_dir: %s\ndata_dir: %s\n%s", filepath.Join(dir, "manifests"), filepath.Join(dir, "data"), extra)), 0o600)
+	dir, cfg := daemonFixture(t, extra, rig)
+	t.Cleanup(func() { killRunners(t, dir) })
 
 	logs := &logBuffer{}
 	log.SetOutput(logs)
@@ -128,6 +122,33 @@ func startDaemon(t *testing.T, extra, rig string) *testDaemon {
 		t.Fatalf("flyballd never listened\n%s", logs)
 	}
 	return nil
+}
+
+// daemonFixture is a flyballd.yaml at dir/flyballd.yaml, its manifests
+// and data under dir, one manifest, oven, for rig, and XDG_RUNTIME_DIR at
+// dir/rt, so the runners' front-dirs are dir/rt/flyball/<id>/<name>.
+func daemonFixture(t *testing.T, extra, rig string) (dir, cfg string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	os.Mkdir(filepath.Join(dir, "rt"), 0o700)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "rt"))
+	t.Setenv("RUNTIME_DIRECTORY", "")
+	for _, sub := range []string{"manifests", "rig"} {
+		os.Mkdir(filepath.Join(dir, sub), 0o700)
+	}
+	rigPath := filepath.Join(dir, "rig", "oven.yaml")
+	os.WriteFile(rigPath, []byte(rig), 0o600)
+	os.WriteFile(filepath.Join(dir, "manifests", "oven.yaml"), []byte("name: oven\nserver_config: "+rigPath+"\n"), 0o600)
+	cfg = filepath.Join(dir, "flyballd.yaml")
+	if !strings.Contains(extra, "listen:") {
+		extra = "listen: 127.0.0.1:0\n" + extra
+	}
+	os.WriteFile(cfg, []byte(fmt.Sprintf("manifests_dir: %s\ndata_dir: %s\n%s", filepath.Join(dir, "manifests"), filepath.Join(dir, "data"), extra)), 0o600)
+	return dir, cfg
 }
 
 // token makes a named token in flyballd's tokens file, as `flyball token

@@ -35,25 +35,33 @@ func main() {
 		" anyone who reaches it may operate every rig (env FLYBALL_INSECURE_OPEN=1). Per run only; never a file key")
 	flag.Parse()
 
+	if err := daemonMain(*configPath, *insecureOpen || frontwire.InsecureOpenEnv()); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// daemonMain is flyballd until SIGINT or SIGTERM. Neither stops a runner
+// (D-037): flyballd exits and its runners carry on, to be adopted by the
+// next flyballd. `flyball runners stop` ends them.
+func daemonMain(configPath string, insecureOpen bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// SIGHUP does not stop flyballd: the TLS reloader re-reads its files on
 	// it (tlsfile), and nothing else reloads.
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
 	go func() {
 		for range hup {
 			log.Printf("SIGHUP: TLS certificates (if any) are re-read; nothing else reloads -- restart flyballd for other changes")
 		}
 	}()
-
-	if err := run(ctx, *configPath, *insecureOpen || frontwire.InsecureOpenEnv(), nil); err != nil {
-		log.Fatal(err)
-	}
+	return run(ctx, configPath, insecureOpen, nil)
 }
 
 // run is flyballd: it starts every enabled manifest's runner behind the
-// front and serves until ctx is done, then stops its runners. ready, if
+// front and serves until ctx is done, then lets go of its runners, which
+// carry on (D-037). ready, if
 // not nil, is told where the front listens.
 func run(ctx context.Context, configPath string, insecureOpen bool, ready func(net.Addr)) error {
 	cfg, err := config.LoadDaemonConfig(configPath)
@@ -104,7 +112,10 @@ func run(ctx context.Context, configPath string, insecureOpen bool, ready func(n
 			log.Printf("failed to start runner %q: %v", m.Name, err)
 		}
 	}
-	defer stopAll(reg)
+	// D-037: flyballd's exit, however it comes, leaves every runner
+	// running; the next flyballd adopts them. `flyball runners stop` ends
+	// them.
+	defer be.Detach()
 
 	f := api.NewFront(reg, frontwire.Options(plan, proxy, audit, state, logger))
 	defer frontwire.Closer(f, plan, audit)()
@@ -114,15 +125,4 @@ func run(ctx context.Context, configPath string, insecureOpen bool, ready func(n
 			ready(a)
 		}
 	})
-}
-
-// stopAll stops every registered runner (SIGTERM, then SIGKILL after the
-// backend's timeout), as the documented unit's KillMode=control-group
-// would: a flyballd restart restarts its rigs until adoption lands.
-func stopAll(reg *registry.Registry) {
-	for _, e := range reg.List() {
-		if err := reg.Stop(e.Manifest.Name); err != nil {
-			log.Printf("stopping runner %q: %v", e.Manifest.Name, err)
-		}
-	}
 }
