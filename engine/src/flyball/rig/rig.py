@@ -55,6 +55,7 @@ from flyball.model.feedforward import FeedforwardLike
 from flyball.model.law import ControlLawLike
 from flyball.runtime.writer import Writer
 
+from .bands import Bands
 from .controllers import Controllers
 from .polling import Polling, poll_period
 from .triggers import Triggers
@@ -90,6 +91,8 @@ class Rig:
     """What is true now of each device, signal, controller and the rig itself, keyed by the
     object: offline, slow, a failing write, a held controller. Each start and end is an event
     (`raised`, `cleared`); in-process subscribers hear them too."""
+    bands: Bands
+    """Each banded signal's `band_warning` / `band_alarm`, kept from its readings on delivery."""
     tunings: Tunings
     recorder: Recorder | None
     controllers: Controllers
@@ -159,6 +162,7 @@ class Rig:
         self.conditions = Conditions(
             now_ns=lambda: self.clock.now_ns(), describe=self._describe, emit=self._publish
         )
+        self.bands = Bands(self.conditions, lambda: self.clock.now_ns())
         self.tunings = Tunings()
         self.recorder = None
         self.controllers = Controllers()
@@ -274,8 +278,9 @@ class Rig:
     def _publish(self, event: Event) -> None:
         """Log, keep, stream and record one event.
 
-        A condition's edge on a device also refreshes the device's run, so a
-        watcher of `runs` sees its conditions change.
+        A condition's edge on a device, or on one of its signals (a band),
+        also refreshes the device's run, so a watcher of `runs` sees its
+        conditions change.
         """
         edge = f" {event.edge}" if event.edge is not None else ""
         log.log(
@@ -293,6 +298,8 @@ class Rig:
             recorder.event(event)
         if event.edge is not None and event.scope == Scope.DEVICE:
             self.polling.touch(event.subject)
+        elif event.edge is not None and event.scope == Scope.SIGNAL:
+            self.polling.touch(event.subject.partition(".")[0])  # its device's run carries it
 
     def _describe(self, owner: object) -> tuple[str, str]:
         """A condition owner's scope and name: a device, a signal, a controller, or this rig."""
@@ -1063,6 +1070,7 @@ class Rig:
             self._ignored.discard(signal)
         for signal in device.signals.values():
             self.conditions.clear_owner(signal)
+            self.bands.forget(signal)
         self.conditions.clear_owner(device)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)
@@ -1368,6 +1376,7 @@ class Rig:
                 messages: dict[tuple[Device, Node], None] = {}
                 for reading in sample.readings():
                     signal = reading.signal
+                    self.bands.check(reading)  # noted: its band condition, raised or cleared
                     for device in self._observers.get(signal, ()):
                         touched[device] = None  # it reads the router in `commit`
                     # Every node on the way up from the signal, not just

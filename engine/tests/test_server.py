@@ -552,7 +552,7 @@ def test_health_is_one_look_at_the_rig(client, rig, daq):
     body = client.get("/api/health").json()
     assert body["ok"] is True and body["recording"] is False
     assert body["devices"] == {} and body["controllers"] == {} and body["conditions"] == []
-    assert body["alarms"] == {"warn": 0, "alarm": 0, "max_level": 0}
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "unknown": 0, "max_level": 0}
     assert body["activities"] == []
     daq.poll_s = 0.5
     rig.start_polling(daq)
@@ -567,10 +567,11 @@ def test_health_counts_signals_outside_their_warn_and_alarm_bands(client, rig, d
     zone1, zone2 = daq.signals["zone1"], daq.signals["zone2"]
     rig.on_samples([Sample(daq.root, 1, {zone1: 1160.0, zone2: 1120.0})])
     body = client.get("/api/health").json()
-    assert body["alarms"] == {"warn": 1, "alarm": 1, "max_level": 40}
+    assert body["alarms"] == {"warn": 1, "alarm": 1, "unknown": 0, "max_level": 40}
 
 
-def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig, daq):
+def test_health_alarms_never_count_a_device_condition(client, rig, daq):
+    """One offline device is one fault and zero alarms: `ok` says it, `alarms` does not."""
     daq.poll_s = 0.5
     daq.broken = True
     rig.start_polling(daq)
@@ -581,7 +582,7 @@ def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig
     assert (
         body["conditions"][0]["subject"] == daq.name and body["conditions"][0]["code"] == "offline"
     )
-    assert body["alarms"] == {"warn": 0, "alarm": 1, "max_level": 40}
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "unknown": 0, "max_level": 0}
 
 
 def test_health_without_a_rig_says_so():

@@ -359,7 +359,7 @@ def test_health_counts_a_non_number_as_neither_in_nor_out_of_band(rig, fresh, se
     response = served.get("/api/health")
     assert response.status_code == 200
     body = response.json()
-    assert body["alarms"] == {"warn": 0, "alarm": 0, "max_level": 0}
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "unknown": 0, "max_level": 0}
     assert body["ok"] is True
 
 

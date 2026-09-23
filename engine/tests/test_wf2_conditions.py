@@ -412,7 +412,8 @@ def test_health_conditions_come_from_the_store_with_scope_and_subject(rig, fresh
         ("controller", controller.name, "stale_input", "warning"),
         ("device", furnace.name, "offline", "error"),
     ]
-    assert body["ok"] is False and body["alarms"]["alarm"] == 1 and body["alarms"]["warn"] == 1
+    assert body["ok"] is False, "a fault condition at error"
+    assert body["alarms"]["alarm"] == 0 and body["alarms"]["warn"] == 0, "faults are not alarms"
 
 
 # endregion

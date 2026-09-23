@@ -598,10 +598,12 @@ export interface Health {
   /** Every condition held now, on any device, signal, controller or the rig (`scope`, `subject`). */
   conditions: Condition[];
   /**
-   * Signals outside their warn/alarm band (not double-counted), plus
-   * conditions at WARNING (warn) or ERROR (alarm); `max_level` is 40/30/0.
+   * Signals holding the rig's `band_warning` (warn) or `band_alarm` (alarm)
+   * condition, each counted once; fault conditions are never alarms.
+   * `unknown` (a banded signal with no value) is 0 until that rule lands.
+   * `max_level` is 40/30/0.
    */
-  alarms: { warn: number; alarm: number; max_level: number };
+  alarms: { warn: number; alarm: number; unknown: number; max_level: number };
   /** The names of the registered activities. */
   activities: string[];
   recording: boolean;

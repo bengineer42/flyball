@@ -1,4 +1,4 @@
-"""Warn and alarm bands: declared on a signal, set from a rig file, counted when a value strays."""
+"""Warning and alarm bands: declared on a signal, set from a rig file, counted when it strays."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def test_oven_rig_file_sets_bands_on_the_thermocouple():
 
 
 def test_the_bands_fire_on_the_oven_s_readings():
-    """Cold (20 °C) is outside `warn`; put the chamber at 5 °C and it is outside `alarm` too."""
+    """Cold (20 °C) is outside `warning`; put the chamber at 5 °C and it is outside `alarm` too."""
     config = load_rig_config(EXAMPLES / "oven.yaml")
     rig = config.build(start=False)
     simulation = Simulation(rig, config)
@@ -46,13 +46,14 @@ def test_the_bands_fire_on_the_oven_s_readings():
         with TestClient(create_app()) as client:
             rig.read(signal, fresh=True)
             alarms = client.get("/api/health").json()["alarms"]
-            assert alarms == {"warn": 1, "alarm": 0, "max_level": 30}
+            assert alarms == {"warn": 1, "alarm": 0, "unknown": 0, "max_level": 30}
             simulation.reset_plant("chamber", output=5.0)
             rig.read(signal, fresh=True)
             alarms = client.get("/api/health").json()["alarms"]
-            assert alarms == {"warn": 0, "alarm": 1, "max_level": 40}
+            assert alarms == {"warn": 0, "alarm": 1, "unknown": 0, "max_level": 40}
             simulation.reset_plant("chamber", output=50.0)
             rig.read(signal, fresh=True)
-            assert client.get("/api/health").json()["alarms"]["max_level"] == 0
+            # Back inside, but the rig's alarm waits out its hold (2·poll_s) before it clears.
+            assert client.get("/api/health").json()["alarms"]["max_level"] == 40
     finally:
         set_rig(None)
