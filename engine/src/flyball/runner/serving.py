@@ -67,7 +67,7 @@ class Handle:
         self._stop()
 
 
-GRACEFUL_SHUTDOWN_S = 5.0
+GRACEFUL_SHUTDOWN_S = 5
 """How long uvicorn waits for open connections at shutdown before cancelling them."""
 
 
