@@ -246,6 +246,7 @@ const (
 	exitBadConfig = 2 // a bad rig file, or a runner too old to know --front-dir
 	exitRigBusy   = 3 // another runner holds the rig's <store>.lock
 	exitFrontDir  = 4 // the front-dir is unsafe or incomplete: rewrite, respawn once
+	// 5, it could not serve (socket or server), is a crash: started again.
 )
 
 // supervisor runs one rig's runner for `flyball run`: each incarnation gets
@@ -423,13 +424,15 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// exitRunnerKilled is `flyball run`'s exit code when the run ended with
-// its runner killed rather than stopped: the third Ctrl-C's SIGKILL, or
-// any signal but the stop's own SIGINT/SIGTERM. Its recording may not
-// have been closed cleanly; a wrapper can tell that from a clean stop (0).
-const exitRunnerKilled = 3
+// A run that ended with its runner killed rather than stopped -- the
+// third Ctrl-C's SIGKILL, or any signal but the stop's own SIGINT/SIGTERM
+// -- exits 128+N, N the signal (137 for SIGKILL), as a shell reports a
+// process a signal ended: a wrapper can tell it from a clean stop (0), and
+// no number of flyball's or flyball-runner's own means something else
+// (book/src/7-reference/cli.md#exit-codes). Its recording may not have
+// been closed cleanly.
 
-// errRunnerKilled: the run ended with the runner killed (exitRunnerKilled).
+// errRunnerKilled: the run ended with the runner killed by sig (exit 128+sig).
 type errRunnerKilled struct{ sig syscall.Signal }
 
 func (e errRunnerKilled) Error() string {
@@ -437,14 +440,14 @@ func (e errRunnerKilled) Error() string {
 }
 
 // runExitCode is flyball's exit code for runDirect's result: 0, 1, or
-// exitRunnerKilled.
+// 128+N for a runner killed by signal N.
 func runExitCode(err error) int {
 	var killed errRunnerKilled
 	switch {
 	case err == nil:
 		return 0
 	case errors.As(err, &killed):
-		return exitRunnerKilled
+		return 128 + int(killed.sig)
 	}
 	return 1
 }

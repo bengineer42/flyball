@@ -401,6 +401,9 @@ const (
 	// The front rewrites it and respawns once, whatever the policy; a
 	// second exit 4 in a row leaves it failed.
 	exitFrontDir = 4
+	// Exit 5, the runner could not serve (its socket not bound, its
+	// server not started), is not among them: a crash, restarted by the
+	// policy. It was uvicorn's own 3 before, taken for busy for good.
 )
 
 // superviseFrom hands rp to a new supervise() goroutine. b.mu held. cmd

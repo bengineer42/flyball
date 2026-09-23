@@ -108,6 +108,13 @@ def _ignore_hangup() -> None:
     signal.signal(hup, handler)
 
 
+class ServeFailed(Exception):
+    """The runner could not serve: its socket or port was not bound, or its server not started.
+
+    Not a busy rig (no lock is held by another), so another try may work.
+    """
+
+
 def _owner_socket(path: str) -> tuple[socket.socket, str, int]:
     """A unix socket bound at `path`, mode 0600, not yet listening; `path` and its inode.
 
@@ -329,7 +336,10 @@ def serve(
     bound = None
     if front is not None and front.network == "unix":
         # uvicorn would make the socket itself, 0666; bound here, it is 0600 before it listens.
-        bound = _owner_socket(front.address)
+        try:
+            bound = _owner_socket(front.address)
+        except OSError as e:
+            raise ServeFailed(f"binding {front.address}: {e}") from None
         bind: dict[str, Any] = {"fd": bound[0].fileno()}
     elif front is not None:
         bind = {"host": front.host, "port": front.port}
@@ -367,8 +377,16 @@ def serve(
     install_break_glass(current_stopper)  # SIGUSR1: stop the rig, without exiting
     previous = _terminate_as_interrupt()
     _ignore_hangup()  # SIGHUP: log it, keep running (D-038)
+    from uvicorn.config import STARTUP_FAILURE
+
     try:
         server.run()
+    except SystemExit as e:
+        # uvicorn's exit when it cannot start (a port taken, its app's startup failed) is 3,
+        # which is flyball's "rig busy": said as what it is instead.
+        if e.code != STARTUP_FAILURE:
+            raise
+        raise ServeFailed("the server could not start; its error is logged above") from None
     finally:
         if bound is not None:
             _remove_socket(*bound)

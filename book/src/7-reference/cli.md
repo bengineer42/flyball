@@ -215,19 +215,21 @@ websocket or a download is not cut short. A page opened before the runner
 answers gets `503` with `Retry-After: 1`, and the dashboard says
 *starting…* until it does.
 
-A runner that crashes is started again with a fresh key (1 s backoff,
-doubling to 30 s, back to 1 s after 10 s up). The run ends when the runner
-exits cleanly, or with exit 2 (a bad rig file, or a `flyball-runner` too old
-for `--front-dir`), 3 (another runner holds the rig), or 4 twice (its
-front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run,
+A runner that crashes, or cannot serve (exit 5), is started again with a
+fresh key (1 s backoff, doubling to 30 s, back to 1 s after 10 s up). The
+run ends when the runner exits cleanly, or with exit 2 (a bad rig file, or a
+`flyball-runner` too old for `--front-dir`), 3 (another runner holds the
+rig), or 4 twice (its front-dir refused): `flyball` then exits 1, naming
+it ([exit codes](#exit-codes)). Ctrl-C or SIGTERM stops the runner and ends the run,
 and says what the next presses do (D-045): a second Ctrl-C (or SIGTERM)
 sends the runner SIGINT again, which makes it cut its shutdown short, and a
 third kills its process group (SIGKILL). `flyball` exits only once the
 runner has, so no press leaves it running. Only the first gives the runner
 its whole shutdown; after the second or third, the recording may not be
 closed cleanly. A run whose runner was killed rather than stopped (the
-third press, or any signal but the stop's own SIGINT or SIGTERM) exits 3,
-not 0, so a wrapper can tell a forced kill from a clean stop. A dropped terminal or SSH session
+third press, or any signal but the stop's own SIGINT or SIGTERM) exits
+128+N for signal N -- 137 for the third press's SIGKILL -- not 0, so a
+wrapper can tell a forced kill from a clean stop. A dropped terminal or SSH session
 does not (D-038): the front and the runner ignore the hangup and keep the
 rig running, their output also goes to `run.log` in the front's state
 directory (below; mode 0600, rotated once to `run.log.1` past 4 MiB), and a
@@ -454,9 +456,18 @@ the caller's own credential.
 
 ## Exit codes
 
-| | |
-| --- | --- |
-| 0 | done |
-| 1 | the rig, the daemon, or a local check refused; the message is theirs |
-| 2 | no command given |
-| 3 | `flyball run`: the runner was killed (the third Ctrl-C's SIGKILL, or another signal) rather than stopped; its recording may not be closed cleanly |
+One table for `flyball` and `flyball-runner`: a number means the same
+thing wherever it appears. `flyballd` reads the runner's codes as its
+[runner status](#a-runners-status) says; `flyball run` ends with 1 on the
+runner's 2, 3 or a second 4, naming it, and starts the runner again on
+any other failure.
+
+| code | `flyball` | `flyball-runner` |
+| --- | --- | --- |
+| 0 | done | stopped cleanly (Ctrl-C, SIGTERM, a shutdown asked over the API) |
+| 1 | the rig, the daemon, or a local check refused; the message is theirs | an unexpected error (a traceback) |
+| 2 | no command given | the rig file does not load, the rig cannot be built, or a flag is unknown: one line on stderr; starting again will not help |
+| 3 | -- | the rig is busy: another runner holds its `<store>.lock`, or the front-dir's `runner.lock` (the message names it) |
+| 4 | -- | `--front-dir` is unsafe or incomplete, found before the rig's lock is taken or any hardware touched; the front writes it again |
+| 5 | -- | it could not serve: its socket or port could not be bound, or its server did not start (uvicorn's own exit 3, said as what it is). Not busy: starting again may work |
+| 128+N | `flyball run`: its runner was killed by signal N rather than stopped (137: the third Ctrl-C's SIGKILL); its recording may not be closed cleanly | -- |

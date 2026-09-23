@@ -224,6 +224,26 @@ def test_a_rig_that_fails_to_build_exits_once_with_a_message(tmp_path, port):
     assert len(lines) == 1 and "rig.yaml" in lines[0] and "/dev/i2c-9" in lines[0], err
 
 
+def test_a_port_it_cannot_listen_on_is_not_a_busy_rig(tmp_path, port):
+    # uvicorn exits 3 when it cannot start, and 3 is flyball's "rig busy": under flyballd a
+    # busy rig is never restarted. A runner that could not serve says so, with 5.
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", port))
+        taken.listen()
+        argv = [
+            str(EXAMPLES / "oven.yaml"),
+            "--port",
+            str(port),
+            "--store",
+            str(tmp_path / "s.sqlite"),
+        ]
+        with runner(tmp_path, *argv) as proc:
+            _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 5, err[-2000:]
+    lines = [line for line in err.splitlines() if line.startswith("flyball-runner:")]
+    assert len(lines) == 1 and "could not serve" in lines[0] and "busy" not in lines[0], err
+
+
 def test_every_log_line_has_a_timestamp(tmp_path, port):
     # Under flyballd stdout and stderr are a log file: an untimed line matches nothing.
     import re
@@ -343,6 +363,22 @@ def test_an_endpoint_outside_the_front_dir_exits_4(tmp_path, front_dir):
         assert not store.exists()
     finally:
         shutil.rmtree(elsewhere, ignore_errors=True)
+
+
+def test_a_socket_it_cannot_bind_exits_5(tmp_path, front_dir):
+    folder = front_dir()
+    (folder / "sock").mkdir()  # something that is not a socket holds the path
+    argv = [
+        str(EXAMPLES / "oven.yaml"),
+        "--store",
+        str(tmp_path / "s.sqlite"),
+        "--front-dir",
+        str(folder),
+    ]
+    with runner(tmp_path, *argv) as proc:
+        _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 5, err[-2000:]
+    assert "could not serve" in err and "Traceback" not in err
 
 
 def test_a_fronted_runner_takes_only_the_principal(tmp_path, front_dir):

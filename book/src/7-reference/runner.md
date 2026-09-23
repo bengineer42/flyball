@@ -44,9 +44,11 @@ Durations `D`: a number with `ns`/`us`/`ms`/`s`/`m`/`h`/`d`/`w`, bare is
 seconds. Sizes `S`: `kB`/`MB`/`GB`/`TB`, `KiB`/`MiB`/`GiB`, bare is bytes.
 
 Exit codes: 0 on a clean stop (Ctrl-C or SIGTERM); 2 for a rig file that
-does not load or a rig that cannot be built (one line on stderr, no
-traceback), and for an unknown flag; 3 when another runner
-already runs this rig (it holds `<store>.lock`, or the front-dir's `runner.lock`; the message names it); 4 when `--front-dir` is unsafe or incomplete, before the rig's lock is taken or any hardware touched. A restart asked over the API replaces the
+does not load or a rig that cannot be built; 3 when another runner already
+runs this rig; 4 when `--front-dir` is unsafe or incomplete; 5 when it
+could not serve (its socket or port not bound, its server not started).
+[The exit codes](cli.md#exit-codes) has the whole table, `flyball`'s own
+codes beside them. A restart asked over the API replaces the
 process with the same command line. `SIGUSR1` [stops the rig](../1-running/runner/access.md#stopping-the-rig) without ending the process.
 
 What each does in practice: [Starting a rig](../1-running/runner/index.md);

@@ -25,7 +25,7 @@ from flyball.runtime.overlay import resolve_layers
 
 from . import frontdir, locking, logs
 from .cli import parser, settle
-from .serving import serve
+from .serving import ServeFailed, serve
 from .starting import BuildFailed, resumed, start_with_store
 from .stopping import install_break_glass
 
@@ -37,6 +37,11 @@ RIG_BUSY = 3
 """Exit code: another runner holds this rig's lock."""
 FRONT_DIR = 4
 """Exit code: `--front-dir` is unsafe or incomplete; the front writes it again."""
+SERVE_FAILED = 5
+"""Exit code: the runner could not serve -- its socket or port could not be bound, or its
+server failed to start. Not busy (that is 3, a lock held): starting again may work.
+
+The whole table, with `flyball`'s own codes: book/src/7-reference/cli.md#exit-codes."""
 
 
 def _refuse(args: Any, e: Exception) -> int:
@@ -190,14 +195,19 @@ def _run(
     # complete" logging) already runs by the time this is caught -- the interrupt
     # still escapes uvicorn's internals and would otherwise print a raw traceback
     # here on top of that, for no reason: the process is exiting cleanly either way.
-    with contextlib.suppress(KeyboardInterrupt):
-        serve(
-            rig,
-            settings,
-            simulation=simulation,
-            store=store,
-            config=config,
-            insecure_open=bool(args.insecure_open),
-            front=front,
-        )
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            serve(
+                rig,
+                settings,
+                simulation=simulation,
+                store=store,
+                config=config,
+                insecure_open=bool(args.insecure_open),
+                front=front,
+            )
+    except ServeFailed as e:
+        names = ", ".join(str(p) for p in args.rig) or "(no rig file)"
+        print(f"flyball-runner: {names}: could not serve on {where}: {e}", file=sys.stderr)
+        return SERVE_FAILED
     return 0
