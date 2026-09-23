@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // alone -- stubbed out, same as `canOperate.test.tsx`.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     cursor = { idx: null };
     data = [[]];
     setData() {}

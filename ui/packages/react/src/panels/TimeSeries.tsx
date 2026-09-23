@@ -241,7 +241,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         // rows than the target point count, so comparing bucketed spacing against
         // `maxGapS` would flag every bucket boundary as dead time and erase the line.
         const maxPoints = pointCap(u?.width ?? host.current?.clientWidth ?? 400);
-        source.store.read(key, view.current, { every: everyRef.current, maxPoints, maxGapS });
+        source.store.read(key, view.current, { every: everyRef.current, maxPoints, maxGapS, spanS: windowS });
         latest.current = view.current;
         u?.setData([latest.current.t, latest.current.v]);
       } else {

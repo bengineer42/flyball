@@ -66,6 +66,14 @@ export interface ReadOptions {
   maxPoints?: number;
   /** Break the line across raw gaps wider than this (seconds); no breaking when omitted. */
   maxGapS?: number;
+  /**
+   * The chart's own visible span (seconds), used to size the thinning bucket
+   * width instead of the ring's full retained `windowS`. Without it, a chart
+   * showing a narrower window than the store keeps (e.g. a 60s sparkline fed
+   * by a 3600s ring) buckets by the full retained span and drops most of the
+   * points actually on screen.
+   */
+  spanS?: number;
 }
 
 export interface TelemetryStoreOptions {

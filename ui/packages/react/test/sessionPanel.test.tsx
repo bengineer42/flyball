@@ -12,6 +12,7 @@ import type { SessionDetail } from "../src/hooks/useSession.js";
 // `controllerTrendExpand.test.tsx` and `canOperate.test.tsx` do.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     cursor = { idx: null };
     data = [[]];
     setData() {}

@@ -1,4 +1,4 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
 import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
@@ -7,21 +7,26 @@ import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip, PausedChip } from "./Status.js";
-import { Overview } from "./pages/Overview.js";
-import { Dashboards } from "./pages/Dashboards.js";
-import { DashboardSwitcher } from "./dashboard/DashboardSwitcher.js";
-import { Inputs, SignalDetail } from "./pages/Inputs.js";
-import { Graph } from "./pages/Graph.js";
-import { DevicePage } from "./pages/Devices.js";
-import { RigPage } from "./pages/Rig.js";
-import { Controllers } from "./pages/Controllers.js";
-import { Events } from "./pages/Events.js";
-import { Sessions } from "./pages/Sessions.js";
-import { Programs, ProgramDetail } from "./pages/Programs.js";
-import { Simulation } from "./pages/Simulation.js";
 import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
 import { readHome } from "./dashboard/home.js";
 import type { Programmer, Recording } from "./model.js";
+
+// Each page (and the dashboard switcher) is its own chunk, fetched only on first visit to that
+// route: the app shell, MUI and the telemetry store are the only things every route pays for.
+const Overview = lazy(() => import("./pages/Overview.js").then((m) => ({ default: m.Overview })));
+const Dashboards = lazy(() => import("./pages/Dashboards.js").then((m) => ({ default: m.Dashboards })));
+const DashboardSwitcher = lazy(() => import("./dashboard/DashboardSwitcher.js").then((m) => ({ default: m.DashboardSwitcher })));
+const Inputs = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.Inputs })));
+const SignalDetail = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.SignalDetail })));
+const Graph = lazy(() => import("./pages/Graph.js").then((m) => ({ default: m.Graph })));
+const DevicePage = lazy(() => import("./pages/Devices.js").then((m) => ({ default: m.DevicePage })));
+const RigPage = lazy(() => import("./pages/Rig.js").then((m) => ({ default: m.RigPage })));
+const Controllers = lazy(() => import("./pages/Controllers.js").then((m) => ({ default: m.Controllers })));
+const Events = lazy(() => import("./pages/Events.js").then((m) => ({ default: m.Events })));
+const Sessions = lazy(() => import("./pages/Sessions.js").then((m) => ({ default: m.Sessions })));
+const Programs = lazy(() => import("./pages/Programs.js").then((m) => ({ default: m.Programs })));
+const ProgramDetail = lazy(() => import("./pages/Programs.js").then((m) => ({ default: m.ProgramDetail })));
+const Simulation = lazy(() => import("./pages/Simulation.js").then((m) => ({ default: m.Simulation })));
 
 const SimulationPage = memo(Simulation);
 
@@ -30,6 +35,25 @@ const SimulationPage = memo(Simulation);
 const DEFAULT_WINDOW_S = 300;
 const MIN_WINDOW_S = 60;
 const MAX_WINDOW_S = 3600;
+
+/**
+ * Settles the default chart window once telemetry has both ends of what it holds, then goes
+ * away: `useNowS()` re-renders its host on every tick, so keeping it mounted in `App` itself
+ * re-rendered the whole app forever after the one-time settle it exists for. Isolated here and
+ * unmounted by the parent once `onSettle` fires, it takes the ticking with it.
+ */
+function WindowSettler({ telemetry, onSettle }: { telemetry: ReturnType<typeof useTelemetry>; onSettle(windowS: number): void }) {
+  countRender("WindowSettler");
+  const tickS = useNowS();
+  useEffect(() => {
+    const now = telemetry.nowS();
+    const earliest = telemetry.earliestS();
+    if (now === null || earliest === null) return;
+    onSettle(Math.min(Math.max(now - earliest, MIN_WINDOW_S), MAX_WINDOW_S));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickS]);
+  return null;
+}
 
 const PAGE_LABEL: Record<Page, string> = { ...(Object.fromEntries(PAGES.map((p) => [p.id, p.label])) as Record<Page, string>), devices: "Devices", inputs: "Inputs" };
 
@@ -96,6 +120,15 @@ function AppStatus({ onSignIn, playback, page }: { onSignIn(): void; playback: P
   );
 }
 
+/** Shown for the moment a page's own chunk is still downloading; same wording as the devices load. */
+function PageFallback() {
+  return (
+    <Typography color="text.secondary" sx={{ m: 3 }}>
+      loading…
+    </Typography>
+  );
+}
+
 /** A program waiting on a person shows on every page: nobody should have to go looking for the Go button. */
 function Waits() {
   const waits = useWaits();
@@ -152,18 +185,12 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // window under a running chart the operator hasn't touched). An explicit choice (`onWindow`)
   // always overrides this; a widget's own saved `window_s` never reaches this default at all.
   const [windowS, setWindowS] = useState(DEFAULT_WINDOW_S);
-  const settledWindow = useRef(false);
+  const [windowSettled, setWindowSettled] = useState(false);
   const telemetry = useTelemetry();
-  const tickS = useNowS();
-  useEffect(() => {
-    if (settledWindow.current) return;
-    const now = telemetry.nowS();
-    const earliest = telemetry.earliestS();
-    if (now === null || earliest === null) return;
-    settledWindow.current = true;
-    setWindowS(Math.min(Math.max(now - earliest, MIN_WINDOW_S), MAX_WINDOW_S));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickS]);
+  const onSettleWindow = useCallback((w: number) => {
+    setWindowS(w);
+    setWindowSettled(true);
+  }, []);
   const [yScale, setYScaleState] = useState<YScale>(readYScale);
   const setYScale = useCallback((s: YScale) => {
     setYScaleState(s);
@@ -179,22 +206,37 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   // Paused, the store serves the page the past instead of the live rings: as much of it as the widest chart shows.
   // The transport lives on the Simulation page; the app bar's paused chip is the way back from any other.
   const playback = usePlayback({ windowS });
+  // Kept mounted across every branch below (error, loading, the full page) until it settles
+  // once; after that it is gone from the tree for the rest of App's life.
+  const settler = windowSettled ? null : <WindowSettler telemetry={telemetry} onSettle={onSettleWindow} />;
 
   if (devices.error) {
     // The session ended (or a runner refuses everything and the door has not yet said so): the first
     // request the app makes is what discovers it, so the login page stands in for the usual error.
-    if (devices.error instanceof RigError && devices.error.status === 401) return <LoginPage />;
+    if (devices.error instanceof RigError && devices.error.status === 401)
+      return (
+        <>
+          {settler}
+          <LoginPage />
+        </>
+      );
     return (
-      <Alert severity="error" sx={{ m: 3 }}>
-        Cannot reach the rig: {devices.error.message}
-      </Alert>
+      <>
+        {settler}
+        <Alert severity="error" sx={{ m: 3 }}>
+          Cannot reach the rig: {devices.error.message}
+        </Alert>
+      </>
     );
   }
   if (!devices.data)
     return (
-      <Typography color="text.secondary" sx={{ m: 3 }}>
-        loading…
-      </Typography>
+      <>
+        {settler}
+        <Typography color="text.secondary" sx={{ m: 3 }}>
+          loading…
+        </Typography>
+      </>
     );
 
   const all = devices.data;
@@ -214,47 +256,58 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   const openDashboard = (n: string | null, generated?: boolean) => (window.location.hash = hashFor("dashboards", n, generated ? { generated: "" } : {}));
 
   return (
-    <LinksProvider hrefFor={hrefFor}>
-      <LiveProvider>
-        <SimulatedContext.Consumer>
-          {(simulated) => (
-            <Shell
-              page={page}
-              onNavigate={navigate}
-              title={title}
-              status={<AppStatus onSignIn={onSignIn} playback={playback} page={page} />}
-              simulated={simulated}
-              devices={all.filter((d) => d.kind !== "simulation")}
-              current={name}
-              eventsUnread={unreadEvents.unreadCount}
-              startSlot={page === "dashboards" ? <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} /> : undefined}
-            >
-              <Waits />
-              {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
-              {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
-              {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
-              {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
-              {page === "graph" && <Graph devices={all} {...charts} />}
-              {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
-              {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
-              {page === "rig" && <RigPage />}
-              {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
-              {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
-              {page === "events" && (
-                <EventsPage
-                  level={params.level}
-                  unread={unreadEvents.unread}
-                  onMarkRead={unreadEvents.markRead}
-                  onMarkAllRead={unreadEvents.markAllRead}
-                />
-              )}
-              {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
-              {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
-            </Shell>
-          )}
-        </SimulatedContext.Consumer>
-      </LiveProvider>
-      <EventToasts toasts={unreadEvents.toasts} onDismiss={unreadEvents.dismissToast} />
-    </LinksProvider>
+    <>
+      {settler}
+      <LinksProvider hrefFor={hrefFor}>
+        <LiveProvider>
+          <SimulatedContext.Consumer>
+            {(simulated) => (
+              <Shell
+                page={page}
+                onNavigate={navigate}
+                title={title}
+                status={<AppStatus onSignIn={onSignIn} playback={playback} page={page} />}
+                simulated={simulated}
+                devices={all.filter((d) => d.kind !== "simulation")}
+                current={name}
+                eventsUnread={unreadEvents.unreadCount}
+                startSlot={
+                  page === "dashboards" ? (
+                    <Suspense fallback={null}>
+                      <DashboardSwitcher name={name} generated={"generated" in params} onOpen={openDashboard} />
+                    </Suspense>
+                  ) : undefined
+                }
+              >
+                <Waits />
+                <Suspense fallback={<PageFallback />}>
+                  {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
+                  {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
+                  {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
+                  {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
+                  {page === "graph" && <Graph devices={all} {...charts} />}
+                  {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
+                  {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
+                  {page === "rig" && <RigPage />}
+                  {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
+                  {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
+                  {page === "events" && (
+                    <EventsPage
+                      level={params.level}
+                      unread={unreadEvents.unread}
+                      onMarkRead={unreadEvents.markRead}
+                      onMarkAllRead={unreadEvents.markAllRead}
+                    />
+                  )}
+                  {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
+                  {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
+                </Suspense>
+              </Shell>
+            )}
+          </SimulatedContext.Consumer>
+        </LiveProvider>
+        <EventToasts toasts={unreadEvents.toasts} onDismiss={unreadEvents.dismissToast} />
+      </LinksProvider>
+    </>
   );
 }

@@ -19,6 +19,10 @@ interface MiniTrace {
   v: (number | null)[];
   color?: string;
   dash?: boolean;
+  /** Draws as a step (holds the previous value until the next point, then jumps) rather than
+   * interpolating a line between points: for a value that only actually changes at a tick --
+   * a written setpoint, a fixed clamp limit -- not a `dash` style choice. */
+  stepped?: boolean;
   width?: number;
   precision?: number;
   /** This trace's name and what it means; carried through to the expanded full chart's legend/hover. Not shown on the mini trend itself. */
@@ -91,6 +95,7 @@ const asMultiSeriesTrace = (s: MiniTrace, i: number, unit: string | undefined): 
   v: s.v,
   color: s.color,
   dash: s.dash,
+  stepped: s.stepped,
   width: s.width,
   precision: s.precision,
 });
@@ -98,7 +103,7 @@ const asMultiSeriesTrace = (s: MiniTrace, i: number, unit: string | undefined): 
 function MiniTrend({ series, height, every, yScale, range, windowS, settledBand: settled, title, unit, exportHref }: MiniTrendProps) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
-  const shape = JSON.stringify(series.map((s) => [s.color ?? null, s.dash ?? null, s.width ?? null]));
+  const shape = JSON.stringify(series.map((s) => [s.color ?? null, s.dash ?? null, s.stepped ?? null, s.width ?? null]));
   // A caller-computed settled band stands in for a plain data-fit under "auto"; "range" and fixed bounds still win outright.
   const y = yScale && yScale !== "auto" ? yRange(yScale, range ?? null) : settled ? () => settled : undefined;
   const yKey = y ? y().join(":") : "auto";
@@ -123,6 +128,11 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
           stroke: s.color ?? palette[i % palette.length],
           width: s.width ?? 1.5,
           dash: s.dash ? [4, 3] : undefined,
+          // Holds the previous value until the next tick's x, then jumps: how a written setpoint
+          // or a fixed clamp limit actually moves, confirmed against a sim rig's controller ticks
+          // (a `regulate` write lands as an instant step between two ticks, not a ramp) -- a plain
+          // line would draw a diagonal guess across the interval that never happened.
+          paths: s.stepped ? uPlot.paths!.stepped!({ align: 1 }) : undefined,
           points: { show: false },
           spanGaps: true,
         })),
@@ -419,6 +429,12 @@ export function ControllerPanel({
       t: history.t,
       v: history.reference,
       dash: true,
+      // Holds between ticks rather than interpolating a line to the next one: a written setpoint
+      // moves in a single instant step, not a diagonal ramp across the poll interval (confirmed
+      // against a sim rig's controller ticks -- a `regulate` write shows up as a flat value that
+      // jumps between two adjacent ticks). A generator's own ramp still reads as smooth: it moves
+      // in many small steps, one per tick, close enough together to look like a line.
+      stepped: true,
       color: "var(--fb-series-setpoint)",
       precision,
     },
@@ -447,6 +463,7 @@ export function ControllerPanel({
             t: history.t,
             v: clampedTrace,
             dash: true,
+            stepped: true, // a fixed physical limit, not a value that ramps
             color: "var(--fb-series-setpoint)",
             precision,
           },
