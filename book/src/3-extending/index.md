@@ -32,7 +32,7 @@ API, the CLI — needs to change. The extension points are:
 
 | to add | write | you get |
 | --- | --- | --- |
-| a device | a `Readable` and/or `Committable` subclass, its tree as descriptors (`Demand`, `Output`, `Setting`, `ConfigSignal`) in the class body or built from config, `read` and/or `write_signal`/`commit`, `@command` methods | routes under `/api/devices`, telemetry, CLI subcommands, its signals in the schema |
+| a device | a `Readable` and/or `Committable` subclass, its tree as descriptors (`Demand`, `Readout`, `Setting`, `ConfigSignal`) in the class body or built from config, `read` and/or `write_signal`/`commit`, `@command` methods | routes under `/api/devices`, telemetry, CLI subcommands, its signals in the schema |
 | a control law | a class with `step` | a tag usable in files and requests, config/state/view models |
 | a trajectory | a class with `generate` | the same |
 | a program command | a frozen dataclass with `run` | a request model, a spelling in program files |

@@ -192,13 +192,13 @@ def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path, po
 
 
 BOOM = """
-from flyball.foundation.device import DriverConfig, Output, Readable
+from flyball.foundation.device import DriverConfig, Readout, Readable
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius
 
 
 class Boom(Readable):
-    temperature = Output("temperature", "Temperature", Quantity("temperature", Celsius))
+    temperature = Readout("temperature", "Temperature", Quantity("temperature", Celsius))
 
     def read(self, time_ns, node=None):
         yield self.sample(time_ns, temperature=20.0)

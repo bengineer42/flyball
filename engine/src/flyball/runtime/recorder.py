@@ -7,7 +7,7 @@ produced and what each write set. The rig holds at most one and calls it last.
 What is recorded follows a signal's access: readings on publishing signals
 (`P` is recorded; a fresh read of a setting is for whoever asked for it),
 write states on writable ones (a write to a setting is in the history as
-what was set), and a controller's ticks with its source always included.
+what was set), and a controller's ticks with its measured signal always included.
 
 Deliveries are buffered and written in one transaction every `flush_s`, since
 a transaction costs milliseconds on an SD card regardless of size. The
@@ -40,9 +40,9 @@ def _tick(controller: Controller, reading: Reading, start_ns: int) -> Tick:
         offset_ns=reading.time_ns - start_ns,
         mode=controller.mode.value,
         correction=controller.correction,
-        reading=reading.value,
+        measured=reading.value,
         setpoint=None if controller.reference is None else controller.setpoint_at(reading.time_ns),
-        demand=controller.demand,
+        output=controller.output,
         expected=controller.expected,
         delivered_correction=controller.delivered_correction,
     )
@@ -57,7 +57,7 @@ class Recorder:
     Args:
         writer: The open session.
         signals: What to record: readings of the publishing ones, write
-            states of the writable ones. A controller's source and target
+            states of the writable ones. A controller's measured signal and output
             are always included.
         controllers: The controllers whose ticks to record.
         flush_s: How often the writer thread writes what has accumulated.
@@ -115,7 +115,9 @@ class Recorder:
         controllers = tuple(controllers)
         self.controllers = frozenset(controllers)
         # A controller's variables are always recorded, asked for or not.
-        self.signals = frozenset(signals).union(*((c.source, c.target) for c in controllers))
+        self.signals = frozenset(signals).union(
+            *((c.measured_signal, c.output_signal) for c in controllers)
+        )
         self.published = frozenset(s for s in self.signals if Access.P in s.access)
         self.writes = frozenset(s for s in self.signals if Access.W in s.access)
         for signal in sorted(self.signals, key=lambda s: s.address):

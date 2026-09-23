@@ -13,8 +13,8 @@ from flyball.foundation.device import (
     Committable,
     Demand,
     Namespace,
-    Output,
     Readable,
+    Readout,
     Role,
     Sample,
     Section,
@@ -41,11 +41,11 @@ class Heater(Committable):
     """Two banks driven together by hand, or one demand a controller drives."""
 
     banks = Namespace("banks", "Banks")
-    max_duty = Output("max_duty", "Max duty", DUTY, access=Access.R, initial=80.0)
+    max_duty = Readout("max_duty", "Max duty", DUTY, access=Access.R, initial=80.0)
     power = Demand("power", "Power", DUTY, limits=(0.0, 100.0))
     a = banks.demand(A, "Bank A duty", DUTY, limits=(0.0, max_duty))
     b = banks.demand(B, "Bank B duty", DUTY, limits=(0.0, max_duty))
-    mode = Output("mode", "Mode", vtype=Mode, initial=Mode.AUTO)
+    mode = Readout("mode", "Mode", vtype=Mode, initial=Mode.AUTO)
     writes: list[tuple[str, float]]
 
     def __init__(self, name: str) -> None:
@@ -83,7 +83,7 @@ class Heater(Committable):
 
 
 class Probe(Readable):
-    temperature = Output("temperature", "Temperature", TEMP)
+    temperature = Readout("temperature", "Temperature", TEMP)
 
     def read(self, time_ns, node=None):
         yield self.sample(time_ns, temperature=20.0)

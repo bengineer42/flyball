@@ -60,7 +60,7 @@ class SessionWriter(Protocol):
         ...
 
     def declare_controller(self, controller: Controller) -> None:
-        """`controller.target` and `.source` must already be declared."""
+        """`controller.output_signal` and `.measured_signal` must already be declared."""
         ...
 
     # endregion

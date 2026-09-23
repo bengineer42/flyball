@@ -73,10 +73,11 @@ writable signal; the signal knows which one, so the committed state's
 `controller` names it and a manual demand against a controlled signal is
 refused.
 
-## Demand, output and setting
+## Demand, readout and setting
 
 A device declares what each of its signals is with a **role**: `Demand`
-(settable, `RPW`), `Output` (produced, `RP`), `Setting` (re-set by a
+(settable, `RPW`; the only thing a controller drives), `Readout` (produced
+by the device, never written from outside, `RP`), `Setting` (re-set by a
 command, `RP`) and `ConfigSignal` (effective at build, `R`). On the class a
 descriptor is its spec; on an instance it is the bound signal. Checked on
 subclassing: pydantic must be able to describe every `vtype`.

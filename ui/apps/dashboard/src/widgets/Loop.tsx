@@ -8,7 +8,7 @@ import { controllerSchema, SELECTS } from "./schema.js";
 import { useFrozen } from "./size.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
-const EMPTY: ControllerTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
+const EMPTY: ControllerTrace = { t: [], reference: [], measured: [], output: [], expected: [], correction: [] };
 
 // The faceplate's own container query stacks rows above trends below this width
 // (packages/react styles.css: `@container (max-width: 39.99rem)`); matched here so the trends get
@@ -48,7 +48,7 @@ function useBox(ref: React.RefObject<HTMLElement | null>): { w: number; h: numbe
 }
 
 /**
- * A controller's faceplate at a widget's size (§3.4): Reading/Target/Output
+ * A controller's faceplate at a widget's size (§3.4): Measured/Setpoint/Output
  * rows always, the Process/Drive trends beside them (or below, once the
  * faceplate's own container query stacks at a narrow width) when the `full`
  * view is asked for AND the tile's measured box actually has room --
@@ -72,10 +72,10 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   const { show: trends, height: trendHeight } = trendBudget(box, wantsTrends);
   const trace = useFrozen(history[name] ?? EMPTY, visible);
   // The source signal (units, bands) from the bindings; the target (limits) from its device's tree, which may not publish.
-  const source = controller ? bindings.signalAt(controller.source) : undefined;
-  const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.target) : undefined;
+  const source = controller ? bindings.signalAt(controller.measured_signal) : undefined;
+  const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.output_signal) : undefined;
   // Source-offline (B-3): the source signal's own staleness, its device's period against its last sample.
-  const fresh = useFreshness(controller?.source);
+  const fresh = useFreshness(controller?.measured_signal);
   const offline = alarmLevel(null, {}, fresh) === "stale";
   // A controller is named by its target's label; a target with none is titled like any signal, never by its address.
   const title = useMemo(
@@ -83,13 +83,13 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
     [controller?.name, controller?.label, target, bindings], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const subtitle = useMemo(
-    () => (controller ? <Ref kind="signal" name={controller.source}>{source ? `regulates ${signalTitle(source, bindings.devices)}` : controller.source}</Ref> : undefined),
-    [controller?.source, source, bindings], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (controller ? <Ref kind="signal" name={controller.measured_signal}>{source ? `regulates ${signalTitle(source, bindings.devices)}` : controller.measured_signal}</Ref> : undefined),
+    [controller?.measured_signal, source, bindings], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const status = useMemo(() => (controller ? <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span> : undefined), [controller?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useWidgetChrome(controller ? { title, subtitle, status, severity: offline ? "stale" : undefined } : null);
   if (!controller) return <Missing what="controller" name={name} hint={bindings.controllers.length ? "Configure the widget to pick one of this rig's controllers." : "This rig has no controllers."} />;
-  if (!source) return <Missing what="signal" name={controller.source} hint="The controller's source does not publish on this rig." />;
+  if (!source) return <Missing what="signal" name={controller.measured_signal} hint="The controller's source does not publish on this rig." />;
   return (
     <div ref={host} className="fb-fill fb-loop-host">
       <ControllerPanel controller={controller} source={source} target={target} history={trace} trends={trends} trendHeight={trendHeight} windowS={charts.windowS} yScale={charts.yScale} exportHref={exports.ticks(controller.name)} bare />
@@ -100,7 +100,7 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
 export const loop: WidgetKind = {
   kind: "loop",
   label: "Controller",
-  description: "A controller's faceplate: reading, target and output rows, with the Process/Drive trends beside them.",
+  description: "A controller's faceplate: measured, setpoint and output rows, with the Process/Drive trends beside them.",
   category: "control",
   defaultSize: { w: 8, h: 8 },
   minSize: { w: 6, h: 4 },
@@ -114,7 +114,7 @@ export const loop: WidgetKind = {
         title: "View",
         default: "full",
         oneOf: [
-          { const: "compact", title: "compact: reading/target/output rows only" },
+          { const: "compact", title: "compact: measured/setpoint/output rows only" },
           { const: "full", title: "full: rows and the Process/Drive trends" },
         ],
       },

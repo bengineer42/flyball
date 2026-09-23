@@ -6,7 +6,7 @@ from .descriptors import (
     Descriptor,
     Input,
     Namespace,
-    Output,
+    Readout,
     Setting,
 )
 from .device import Committable, Device, DriverConfig, Pending, Readable
@@ -61,11 +61,11 @@ __all__ = [
     "Namespace",
     "Node",
     "NodeSpec",
-    "Output",
     "Path",
     "Pending",
     "Readable",
     "Reading",
+    "Readout",
     "Role",
     "Sample",
     "Scope",

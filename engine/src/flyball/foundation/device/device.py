@@ -2,9 +2,10 @@
 
 A device has a tree of [signals][flyball.foundation.device.signal.Signal] (namespaces
 group them), each with a [Role][flyball.foundation.device.signal.Role]: a **demand** is
-settable and has a current value, an **output** is produced, a **config** is
-effective at build, an **input** is another device's signal the rig binds
-to a role. Structure is declared once -- as descriptors in the class body
+settable and has a current value, a **readout** is produced, a **setting** is
+re-set by a command, a **config** is effective at build; an **input** is not
+a signal of the device but another device's, which the rig binds to it.
+Structure is declared once -- as descriptors in the class body
 (`flows = Namespace(...)`, `dry_flow = flows.demand(...)`), or built from
 config in `__init__` with the same factories and bound with
 [bind][flyball.foundation.device.device.Device.bind]. On the class a descriptor is its
@@ -27,7 +28,7 @@ polling it. The rig file wraps every device in the same
 Split across this package by concern: [state][flyball.foundation.device.state]
 (`Condition`/`Event`), [commands][flyball.foundation.device.commands] (`@command`,
 `CommandSpec`), [descriptors][flyball.foundation.device.descriptors] (`Namespace`,
-`Demand`, `Output`, ...), [building][flyball.foundation.device.building] (the
+`Demand`, `Readout`, ...), [building][flyball.foundation.device.building] (the
 `__init_subclass__` helpers that turn descriptors into a tree and commands),
 [entry][flyball.foundation.device.entry] (the rig file's envelope, `DeviceEntry`).
 `DriverConfig` stays here rather than in `entry`: its generic bound
@@ -52,7 +53,7 @@ from flyball.model.config import Config
 from ..router.router import Router
 from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
-from .descriptors import Descriptor, Input, Namespace, Output, _descriptors
+from .descriptors import Descriptor, Input, Namespace, Readout, _descriptors
 from .signal import (
     Access,
     Node,
@@ -189,7 +190,7 @@ class Device:
     writable: ClassVar[bool] = False
     """Implements `commit`: a [Committable][flyball.foundation.device.device.Committable]."""
 
-    conditions = Output(
+    conditions = Readout(
         "conditions", "Conditions", vtype=tuple[Condition, ...], access=Access.RP, initial=()
     )
     """What the driver says is true of the device now; the runtime's `offline` / `slow` are

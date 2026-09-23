@@ -442,8 +442,8 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
   const { controllers } = useControllers();
   const tags = useMemo(() => Object.entries(schema.data?.commands ?? {}).filter(([, c]) => !c.simulation).map(([tag]) => tag), [schema.data]);
   if (!device) return <Alert severity="warning">No device named {name}.</Alert>;
-  const drives = Object.values(controllers).filter((c) => deviceOf(c.target) === name);
-  const regulates = Object.values(controllers).filter((c) => deviceOf(c.source) === name && deviceOf(c.target) !== name);
+  const drives = Object.values(controllers).filter((c) => deviceOf(c.output_signal) === name);
+  const regulates = Object.values(controllers).filter((c) => deviceOf(c.measured_signal) === name && deviceOf(c.output_signal) !== name);
   return (
     <>
       <PageBar>
@@ -488,7 +488,7 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
                 </Link>{" "}
                 <Typography component="span" variant="body2" color="text.secondary">
                   {c.label && `${c.name} · `}
-                  {deviceOf(c.target) === name ? `drives ${c.target} from ${c.source}` : `regulates ${c.source} through ${c.target}`} · {c.mode}
+                  {deviceOf(c.output_signal) === name ? `drives ${c.output_signal} from ${c.measured_signal}` : `regulates ${c.measured_signal} through ${c.output_signal}`} · {c.mode}
                 </Typography>
               </Typography>
             ))

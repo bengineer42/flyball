@@ -41,6 +41,6 @@ devices:
 
 controllers:
   psu.set_voltage:
-    signal: dmm.voltage
+    measured: dmm.voltage
     law: { tag: PI, kp: 0.5, ki: 0.1 }
     default: true

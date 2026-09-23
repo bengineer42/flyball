@@ -372,20 +372,20 @@ class SqliteSessionWriter:
         name = controller.name
         if name in self._controllers:
             return
-        if controller.target not in self._writes:
-            raise NotDeclaredError("write", controller.target.address)
-        if controller.source not in self._signals:
-            raise NotDeclaredError("signal", controller.source.address)
+        if controller.output_signal not in self._writes:
+            raise NotDeclaredError("write", controller.output_signal.address)
+        if controller.measured_signal not in self._signals:
+            raise NotDeclaredError("signal", controller.measured_signal.address)
         law = None if controller.law is None else controller.law.config.model_dump(mode="json")
         feedforward = controller.feedforward.config.model_dump(mode="json")
         with self._store._transaction() as connection:
             connection.execute(
-                "INSERT INTO controller (session_id, name, source, law, feedforward)"
+                "INSERT INTO controller (session_id, name, measured, law, feedforward)"
                 " VALUES (?, ?, ?, ?, ?)",
                 (
                     self._session.id,
                     name,
-                    controller.source.address,
+                    controller.measured_signal.address,
                     _dumps(law),
                     _dumps(feedforward),
                 ),
@@ -481,10 +481,10 @@ class SqliteSessionWriter:
                 tick.controller,
                 tick.offset_ns,
                 tick.mode,
-                tick.reading,
+                tick.measured,
                 tick.setpoint,
                 tick.correction,
-                tick.demand,
+                tick.output,
                 tick.expected,
                 tick.delivered_correction,
             ))
@@ -492,8 +492,8 @@ class SqliteSessionWriter:
             return
         with self._store._transaction() as connection:
             connection.executemany(
-                "INSERT INTO tick (session_id, controller, offset_ns, mode, reading, setpoint,"
-                " correction, demand, expected, delivered_correction)"
+                "INSERT INTO tick (session_id, controller, offset_ns, mode, measured, setpoint,"
+                " correction, output, expected, delivered_correction)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
@@ -871,7 +871,7 @@ class SqliteStore:
                     " range, precision, warn, alarm, limits",
                 ),
                 ("write", "signal_id, driver, limits"),
-                ("controller", "name, source, law, feedforward"),
+                ("controller", "name, measured, law, feedforward"),
             ):
                 connection.execute(
                     f"INSERT INTO {table} (session_id, {columns})"
@@ -975,10 +975,10 @@ class SqliteStore:
             " JOIN controller tc ON tc.session_id = ? AND tc.name = t.controller" if mapped else ""
         )
         connection.execute(
-            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, reading,"
-            " setpoint, correction, demand, expected, delivered_correction)"
-            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.reading, t.setpoint,"
-            " t.correction, t.demand, t.expected, t.delivered_correction"
+            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured,"
+            " setpoint, correction, output, expected, delivered_correction)"
+            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured, t.setpoint,"
+            " t.correction, t.output, t.expected, t.delivered_correction"
             f" FROM tick t{controller_map}"
             " WHERE t.session_id = ? AND t.offset_ns >= ? AND t.offset_ns < ?",
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
@@ -1060,7 +1060,7 @@ class SqliteStore:
 
     def controllers(self, session_id: int) -> list[ControllerRow]:
         return [
-            ControllerRow(r["name"], r["source"], _loads(r["law"]), _loads(r["feedforward"]))
+            ControllerRow(r["name"], r["measured"], _loads(r["law"]), _loads(r["feedforward"]))
             for r in self._query(
                 "SELECT * FROM controller WHERE session_id = ? ORDER BY name", (session_id,)
             )
@@ -1196,9 +1196,9 @@ class SqliteStore:
                 offset_ns=r["offset_ns"] - shift,
                 mode=r["mode"],
                 correction=r["correction"],
-                reading=r["reading"],
+                measured=r["measured"],
                 setpoint=r["setpoint"],
-                demand=r["demand"],
+                output=r["output"],
                 expected=r["expected"],
                 delivered_correction=r["delivered_correction"],
             )

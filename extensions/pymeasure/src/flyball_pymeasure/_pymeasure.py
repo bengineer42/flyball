@@ -172,7 +172,7 @@ class PyMeasure(Readable, Committable):
             if settable:
                 role, access = Role.DEMAND, Access.RPW
             else:
-                role, access = Role.OUTPUT, (Access.RP if channel.publish else Access.R)
+                role, access = Role.READOUT, (Access.RP if channel.publish else Access.R)
             unit = Unit.get(channel.unit) if channel.unit else unit_from_doc(prop.__doc__)
             tree.append(
                 SignalSpec(name=key, quantity=Quantity(key, unit), access=access, role=role)

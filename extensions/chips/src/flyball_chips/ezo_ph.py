@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.dimensions import Fraction
@@ -73,7 +73,7 @@ class EzoPhProbe:
 class EzoPh(Readable):
     """One EZO-pH probe on the device root: `ph [RP]`, one UART round trip."""
 
-    ph = Output("ph", quantity=PH, range=(0.0, 14.0), precision=3)
+    ph = Readout("ph", quantity=PH, range=(0.0, 14.0), precision=3)
 
     def __init__(
         self,

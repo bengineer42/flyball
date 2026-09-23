@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 from flyball.control import PI
 from flyball.foundation.device.descriptors import Demand
-from flyball.foundation.device.device import Committable, Output, Readable
+from flyball.foundation.device.device import Committable, Readable, Readout
 from flyball.foundation.quantities.quantity import Quantity
 from flyball.foundation.device.signal import Sample
 from flyball.foundation.quantities.si import Celsius
@@ -18,7 +18,7 @@ TEMPERATURE = Quantity("temperature", Celsius)
 class Probe(Readable):
     """Reads the oven: one signal, readable and publishing."""
 
-    temperature = Output("temperature", "Temperature", TEMPERATURE, range=(0.0, 300.0), precision=1)
+    temperature = Readout("temperature", "Temperature", TEMPERATURE, range=(0.0, 300.0), precision=1)
 
     def __init__(self, name: str, oven: Lag) -> None:
         super().__init__(name)
@@ -81,5 +81,5 @@ if __name__ == "__main__":
         clock.advance(1.0)
         rig.read(rig.devices["probe"].root, fresh=True)
     reading = rig.read(rig.devices["probe"].temperature)
-    print(f"after 2 min: {reading.value:.1f} °C, demand {controller.demand:.1f}")
+    print(f"after 2 min: {reading.value:.1f} °C, output {controller.output:.1f}")
     # --8<-- [end:main]

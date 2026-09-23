@@ -170,7 +170,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
 
   // Bindings change when the rig's shape does, not per tick: key them on names, labels and ends.
   const controllerKey = Object.values(beatControllers.controllers)
-    .map((c) => `${c.name}|${c.label ?? ""}|${c.source}`)
+    .map((c) => `${c.name}|${c.label ?? ""}|${c.measured_signal}`)
     .join(",");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const bindings = useMemo(() => makeBindings(devices, beatControllers.controllers), [devices, controllerKey]);

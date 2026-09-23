@@ -88,7 +88,7 @@ def bench_document() -> dict:
         },
         "controllers": {
             "heater.drive": {
-                "signal": "air.temperature",
+                "measured": "air.temperature",
                 "law": {"tag": "PI", "kp": 1.0, "ki": 0.0},
                 "default": True,
             }
@@ -191,7 +191,7 @@ def test_a_controller_drives_the_heater_and_a_manual_demand_is_refused(rig):
     heater = rig.devices["heater"]
     drive = _signal(rig, "heater.drive")
     controller = rig.controllers.resolve(None)
-    assert controller.name == "heater.drive" and controller.demand_unit == "°C"
+    assert controller.name == "heater.drive" and controller.output_unit == "°C"
     controller.regulate(25.0)
     rig.on_samples(list(rig.devices["air"].read(1 * NS)))
     assert heater.written[drive].controller == "heater.drive"

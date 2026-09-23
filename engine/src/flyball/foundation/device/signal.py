@@ -157,8 +157,9 @@ class Role(Enum):
     """What a signal is to its device: given, set, produced, or built from.
 
     - `DEMAND`: settable, with a current value (its readback) that updates;
-      what a controller drives. Access `RPW`.
-    - `OUTPUT`: produced, never set; a measurement, a derived value, a mode. `RP`.
+      the only thing a controller drives (its output). Access `RPW`.
+    - `READOUT`: produced by the device, never written from outside; a
+      measurement, a derived value, a mode. `RP`.
     - `SETTING`: re-set by a command while the device runs, shown; not a
       scalar a controller could drive (a blend flow, a PWM frequency). `RP`.
     - `CONFIG`: effective at build, shown, never set at run time. `R`.
@@ -168,7 +169,7 @@ class Role(Enum):
     """
 
     DEMAND = "demand"
-    OUTPUT = "output"
+    READOUT = "readout"
     SETTING = "setting"
     CONFIG = "config"
 
@@ -179,7 +180,7 @@ class Role(Enum):
 
 _ROLE_ACCESS.update({
     Role.DEMAND: Access.RPW,
-    Role.OUTPUT: Access.RP,
+    Role.READOUT: Access.RP,
     Role.SETTING: Access.RP,
     Role.CONFIG: Access.R,
 })
@@ -242,7 +243,7 @@ class SignalSpec:
     set `access` to anything from the driver's declared value up to and including `ceiling` --
     a driver opting a signal into being widened (an internal detail's `R` raised to `RP` for
     recording) without ever sanctioning access it did not name here."""
-    role: Role = Role.OUTPUT
+    role: Role = Role.READOUT
     section: Section | None = None
     tags: dict[str, str] = field(default_factory=dict)
     """Groupings across the tree, `{axis: name}`: the section's, plus any a driver or the rig

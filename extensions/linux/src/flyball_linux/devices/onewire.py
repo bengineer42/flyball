@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius
@@ -40,7 +40,7 @@ class Ds18b20(Readable):
     faster than once a second.
     """
 
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-55.0, 125.0), precision=3)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-55.0, 125.0), precision=3)
 
     def __init__(self, name: str, link: OneWireLink, device: str, label: str | None = None) -> None:
         super().__init__(name, label)

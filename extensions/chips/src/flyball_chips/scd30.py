@@ -17,7 +17,7 @@ import time
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, PartsPerMillion
@@ -119,9 +119,9 @@ class Scd30Sensor:
 class Scd30(Readable):
     """One chip on the device root: `co2`, `temperature`, `humidity` [RP], one I2C transaction."""
 
-    co2 = Output("co2", quantity=CO2, range=(0.0, 40000.0), precision=0)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 70.0), precision=2)
-    humidity = Output("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
+    co2 = Readout("co2", quantity=CO2, range=(0.0, 40000.0), precision=0)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-40.0, 70.0), precision=2)
+    humidity = Readout("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
 
     def __init__(
         self,

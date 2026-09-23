@@ -146,11 +146,11 @@
     },
     "ControllerEntry": {
       "additionalProperties": false,
-      "description": "A controller and how it regulates its target; keyed by the target's address in the file.",
+      "description": "A controller and how it regulates its output; keyed by the output's address in the file.",
       "properties": {
-        "signal": {
-          "description": "The source signal's address (a P signal).",
-          "title": "Signal",
+        "measured": {
+          "description": "The measured signal's address (a P signal).",
+          "title": "Measured",
           "type": "string"
         },
         "law": {
@@ -239,7 +239,7 @@
             }
           ],
           "default": null,
-          "description": "Maps the source's unit to the target's; the law adds to it. Omit for the setpoint itself when the units agree, else none.",
+          "description": "Maps the measured signal's unit to the output's; the law adds to it. Omit for the setpoint itself when the units agree, else none.",
           "title": "Feedforward"
         },
         "default": {
@@ -263,7 +263,7 @@
         }
       },
       "required": [
-        "signal"
+        "measured"
       ],
       "title": "ControllerEntry",
       "type": "object"
@@ -10937,7 +10937,7 @@
           }
         ]
       },
-      "description": "Keyed by the target signal's address.",
+      "description": "Keyed by the output signal's address.",
       "title": "Controllers",
       "type": "object"
     },

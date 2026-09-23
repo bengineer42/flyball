@@ -325,7 +325,7 @@ class TestRigFile:
                     "signals": {"heater2": {"limits": [0, 3000]}},
                 },
             },
-            "controllers": {"heaters.heater1": {"signal": "furnace.zone1"}},
+            "controllers": {"heaters.heater1": {"measured": "furnace.zone1"}},
         })
         assert config.simulated
         rig = config.build(start=False)

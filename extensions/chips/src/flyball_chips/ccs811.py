@@ -20,7 +20,7 @@ import time
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import Access, DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import PartsPerBillion, PartsPerMillion
@@ -143,8 +143,8 @@ class Ccs811Sensor:
 class Ccs811(Readable):
     """One chip on the device root: `co2eq`, `tvoc` [RP], booted once, a register read per read."""
 
-    co2eq = Output("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 8192.0), precision=0)
-    tvoc = Output("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 1187.0), precision=0)
+    co2eq = Readout("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 8192.0), precision=0)
+    tvoc = Readout("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 1187.0), precision=0)
 
     def __init__(
         self,

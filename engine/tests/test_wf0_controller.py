@@ -12,7 +12,7 @@ from flyball.foundation.device import (
     Access,
     Committable,
     Demand,
-    Output,
+    Readout,
     Role,
     Sample,
     SignalSpec,
@@ -40,8 +40,8 @@ class Thermostat(Committable):
 class Supplied(Committable):
     """A humidity demand bounded by a supply line's reading."""
 
-    supply = Output("supply", "Supply humidity", HUMIDITY)
-    chamber = Output("chamber", "Chamber humidity", HUMIDITY)
+    supply = Readout("supply", "Supply humidity", HUMIDITY)
+    chamber = Readout("chamber", "Chamber humidity", HUMIDITY)
     humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
 
 

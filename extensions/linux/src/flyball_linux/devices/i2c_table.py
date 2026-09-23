@@ -60,7 +60,7 @@ class Register(BaseModel):
 
     @property
     def role(self) -> Role:
-        return Role.DEMAND if self.write else Role.OUTPUT
+        return Role.DEMAND if self.write else Role.READOUT
 
     def decode(self, data: bytes) -> float:
         if len(data) != self.length:

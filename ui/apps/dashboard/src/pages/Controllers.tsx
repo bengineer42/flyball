@@ -34,7 +34,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
-import { signalTitle, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
+import { signalTitle, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type SetpointSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useAuth } from "../auth.js";
 import { useRecordingExports } from "../model.js";
@@ -53,19 +53,19 @@ type LawChoice = "stored" | "configure" | "none";
 
 /** What the dialog sends: `law` is a tuning's name, a config, or null for no law; `feedforward` a config. */
 interface Draft {
-  /** The writable signal to drive: the controller's name. */
-  target: SignalChoice | null;
-  /** The publishing signal to regulate, by address. */
-  source: string | null;
+  /** The demand to drive, its output: the controller's name. */
+  output: SignalChoice | null;
+  /** The published signal to regulate, its measured signal, by address. */
+  measured: string | null;
   lawChoice: LawChoice;
   tuning: string;
   config: LawConfig | null;
-  /** Null until a target and source are chosen (the default depends on their units). */
+  /** Null until an output and a measured signal are chosen (the default depends on their units). */
   feedforward: FeedforwardConfig | null;
   isDefault: boolean;
 }
 
-const EMPTY_DRAFT: Draft = { target: null, source: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false };
+const EMPTY_DRAFT: Draft = { output: null, measured: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false };
 
 /**
  * What the rig would pick when no feedforward is given: `setpoint` when the
@@ -104,10 +104,10 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
 }
 
 /**
- * Make a controller in four steps: the writable signal to drive (the
- * target, labelled "Actuator"), a publishing signal to regulate (the
- * source, labelled "Sensor"), the law, and the feedforward that maps the
- * setpoint into the target's unit (defaulted from the units, as the rig
+ * Make a controller in four steps: the demand to drive (its output,
+ * labelled "Output"), a published signal to regulate (labelled
+ * "Measured"), the law, and the feedforward that maps the
+ * setpoint into the output's unit (defaulted from the units, as the rig
  * would). Sources another controller already regulates and targets already
  * driven are disabled; sources in the target's own unit that nothing
  * regulates yet are listed first as "Suggested". Opened either from the
@@ -146,15 +146,15 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   useEffect(() => {
     if (open && initialTarget && openedFor.current !== initialTarget.address) {
       openedFor.current = initialTarget.address;
-      setDraft({ ...EMPTY_DRAFT, target: initialTarget });
+      setDraft({ ...EMPTY_DRAFT, output: initialTarget });
       setActive(1);
     } else if (!open) {
       openedFor.current = null;
     }
   }, [open, initialTarget]);
 
-  const source = useMemo(() => schema?.sources.find((c) => c.address === draft.source) ?? null, [schema, draft.source]);
-  const demandUnit = draft.target?.unit ?? null;
+  const source = useMemo(() => schema?.measured.find((c) => c.address === draft.measured) ?? null, [schema, draft.measured]);
+  const demandUnit = draft.output?.unit ?? null;
   const unitsAgree = source !== null && demandUnit === source.unit;
 
   // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
@@ -167,7 +167,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
       for (const c of choices) (groups[c.device] ??= []).push(c);
       return groups;
     };
-    const all = schema?.sources ?? [];
+    const all = schema?.measured ?? [];
     const suggested = demandUnit === null ? [] : all.filter((c) => c.unit === demandUnit && !schema?.regulated[c.address]);
     if (suggested.length === 0) return [{ title: null, byDevice: group(all) }];
     const rest = all.filter((c) => !suggested.includes(c));
@@ -176,23 +176,23 @@ export const AddControllerDialog = memo(function AddControllerDialog({
       { title: "All signals", byDevice: group(rest) },
     ];
   }, [schema, demandUnit]);
-  const hasSources = (schema?.sources.length ?? 0) > 0;
+  const hasSources = (schema?.measured.length ?? 0) > 0;
   // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
-  const feedforward = draft.feedforward ?? defaultFeedforward(draft.target, source);
+  const feedforward = draft.feedforward ?? defaultFeedforward(draft.output, source);
   const feedforwardSchema = useMemo(
     () => (schema?.feedforwards ? titledByTag(unitsAgree ? schema.feedforwards : withoutSetpoint(schema.feedforwards)) : undefined),
     [schema, unitsAgree],
   );
 
   const lawReady = draft.lawChoice === "none" || (draft.lawChoice === "stored" ? draft.tuning !== "" : draft.config !== null);
-  const canCreate = Boolean(draft.target && draft.source && lawReady && feedforward);
+  const canCreate = Boolean(draft.output && draft.measured && lawReady && feedforward);
 
   const create = async () => {
-    if (!draft.target || !draft.source) return;
+    if (!draft.output || !draft.measured) return;
     setBusy(true);
     try {
       const law = draft.lawChoice === "none" ? null : draft.lawChoice === "stored" ? draft.tuning : draft.config;
-      const controller = await rig.createController({ target: draft.target.address, source: draft.source, law, feedforward, default: draft.isDefault });
+      const controller = await rig.createController({ output: draft.output.address, measured: draft.measured, law, feedforward, default: draft.isDefault });
       setError(null);
       onCreated(controller);
     } catch (e) {
@@ -212,25 +212,25 @@ export const AddControllerDialog = memo(function AddControllerDialog({
         {!schema && <Typography color="text.secondary">loading what the rig can regulate…</Typography>}
         {schema && (
           <Stepper activeStep={active} orientation="vertical" nonLinear>
-            <Step completed={draft.target !== null}>
+            <Step completed={draft.output !== null}>
               <StepLabel onClick={() => setActive(0)} sx={{ cursor: "pointer" }}>
-                Actuator{draft.target && active !== 0 ? `: ${draft.target.address}` : ""}
+                Output{draft.output && active !== 0 ? `: ${draft.output.address}` : ""}
                 <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  the writable signal being commanded
+                  the demand the controller drives
                 </Typography>
               </StepLabel>
               <StepContent>
-                {schema.targets.length === 0 && <Typography color="text.secondary">This rig has no writable signal to command.</Typography>}
+                {schema.outputs.length === 0 && <Typography color="text.secondary">This rig has no writable signal to command.</Typography>}
                 <List dense disablePadding>
-                  {schema.targets.map((t) => {
+                  {schema.outputs.map((t) => {
                     const taken = schema.driven[t.address];
                     return (
                       <ListItemButton
                         key={t.address}
-                        selected={draft.target?.address === t.address}
+                        selected={draft.output?.address === t.address}
                         disabled={Boolean(taken)}
                         onClick={() => {
-                          patch({ target: t, feedforward: null });
+                          patch({ output: t, feedforward: null });
                           setActive(1);
                         }}
                         data-target={t.address}
@@ -245,15 +245,15 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                 </List>
               </StepContent>
             </Step>
-            <Step completed={draft.source !== null}>
-              <StepLabel onClick={() => draft.target && setActive(1)} sx={{ cursor: draft.target ? "pointer" : "default" }}>
-                Sensor{draft.source && active !== 1 ? `: ${draft.source}` : ""}
+            <Step completed={draft.measured !== null}>
+              <StepLabel onClick={() => draft.output && setActive(1)} sx={{ cursor: draft.output ? "pointer" : "default" }}>
+                Measured{draft.measured && active !== 1 ? `: ${draft.measured}` : ""}
                 <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  the published signal used to correct it
+                  the published signal the controller regulates
                 </Typography>
               </StepLabel>
               <StepContent>
-                {!hasSources && <Typography color="text.secondary">{draft.target ? "No signal on this rig publishes." : "Pick an actuator first."}</Typography>}
+                {!hasSources && <Typography color="text.secondary">{draft.output ? "No signal on this rig publishes." : "Pick an output first."}</Typography>}
                 {sourceGroups.map(({ title, byDevice }) => (
                   <Box key={title ?? "all"} data-testid={title === null ? "sources" : `sources-${title.split(" ")[0]!.toLowerCase()}`}>
                     {title !== null && (
@@ -261,7 +261,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                         {title}
                         {title === "Suggested" && (
                           <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1, textTransform: "none", letterSpacing: 0 }}>
-                            in {demandUnit}, the actuator's unit, and not yet regulated
+                            in {demandUnit}, the output's unit, and not yet regulated
                           </Typography>
                         )}
                       </Typography>
@@ -283,10 +283,10 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                               return (
                                 <ListItemButton
                                   key={c.address}
-                                  selected={draft.source === c.address}
+                                  selected={draft.measured === c.address}
                                   disabled={Boolean(by)}
                                   onClick={() => {
-                                    patch({ source: c.address, feedforward: null });
+                                    patch({ measured: c.address, feedforward: null });
                                     setActive(2);
                                   }}
                                   data-source={c.address}
@@ -304,7 +304,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
               </StepContent>
             </Step>
             <Step completed={lawReady && draft.lawChoice !== "none"}>
-              <StepLabel onClick={() => draft.source && setActive(2)} sx={{ cursor: draft.source ? "pointer" : "default" }}>
+              <StepLabel onClick={() => draft.measured && setActive(2)} sx={{ cursor: draft.measured ? "pointer" : "default" }}>
                 Law
                 {active !== 2 && (draft.lawChoice === "none" ? ": none (manual only)" : draft.lawChoice === "stored" ? `: tuning ${draft.tuning || "…"}` : draft.config ? `: ${String(draft.config.tag)}` : "")}
               </StepLabel>
@@ -355,26 +355,26 @@ export const AddControllerDialog = memo(function AddControllerDialog({
               </StepContent>
             </Step>
             <Step completed={feedforward !== null}>
-              <StepLabel onClick={() => draft.source && setActive(3)} sx={{ cursor: draft.source ? "pointer" : "default" }}>
+              <StepLabel onClick={() => draft.measured && setActive(3)} sx={{ cursor: draft.measured ? "pointer" : "default" }}>
                 Feedforward{feedforward && active !== 3 ? `: ${feedforward.tag}` : ""}
               </StepLabel>
               <StepContent>
                 <Stack spacing={1.5}>
-                  {!(draft.target && source) && <Typography color="text.secondary">Pick an actuator and a sensor first.</Typography>}
-                  {draft.target && source && (
+                  {!(draft.output && source) && <Typography color="text.secondary">Pick an output and a measured signal first.</Typography>}
+                  {draft.output && source && (
                     <Typography variant="body2" color="text.secondary" data-testid="feedforward-help">
                       {unitsAgree
-                        ? `${draft.target.address} takes demands in ${demandUnit}, the same as ${source.address} — "setpoint" passes the setpoint straight through and the law corrects in ${demandUnit}.`
-                        : `${draft.target.address} takes ${demandUnit}; ${source.address} is ${source.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "setpoint" is not offered: the units differ. "none" leaves all of it to the law.`}
+                        ? `${draft.output.address} takes demands in ${demandUnit}, the same as ${source.address} — "setpoint" passes the setpoint straight through and the law corrects in ${demandUnit}.`
+                        : `${draft.output.address} takes ${demandUnit}; ${source.address} is ${source.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "setpoint" is not offered: the units differ. "none" leaves all of it to the law.`}
                     </Typography>
                   )}
                   {feedforward && (
                     <Chip label={`feedforward set: ${feedforward.tag}${draft.feedforward === null ? " (the rig's default)" : ""}`} color="success" variant="outlined" sx={{ alignSelf: "flex-start" }} data-testid="feedforward-set" />
                   )}
-                  {draft.target && source && feedforwardSchema && (
+                  {draft.output && source && feedforwardSchema && (
                     <Box data-testid="feedforward-form">
                       <SchemaForm
-                        key={`${formKey}-${draft.target.address}-${draft.source}`}
+                        key={`${formKey}-${draft.output.address}-${draft.measured}`}
                         schema={feedforwardSchema}
                         value={feedforward ?? undefined}
                         uiSchema={TAG_HIDDEN}
@@ -412,15 +412,15 @@ export const AddControllerDialog = memo(function AddControllerDialog({
 });
 
 /** Where a generator starts from: the controller's setpoint, its reading, or a value typed here. */
-type From = "setpoint" | "process" | "value";
+type From = "setpoint" | "measured" | "value";
 
 /**
  * The target entry and its verb button, rendered inline in the faceplate's
- * Target row (DESIGN-SPEC §3.4). A kind picker offers a plain value or any
+ * Setpoint row (DESIGN-SPEC §3.4). A kind picker offers a plain value or any
  * set-point generator the rig registers (`GET /api/controllers/schema` →
  * `generators`, never a list kept here). A plain value: one box, and
  * "Regulate" hands control to the law at it (a bumpless start) while stopped,
- * "Move target" changes it and leaves the law running while regulating. A
+ * "Move setpoint" changes it and leaves the law running while regulating. A
  * generator: its config as a form built from its own JSON schema
  * (`generatorFormSchema`), a "from" choice for where it starts (the setpoint,
  * the reading, or a value -- the request's `start`), and one "Start <kind>"
@@ -461,11 +461,11 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
   };
   const value = setpoint.trim() === "" ? null : Number(setpoint);
   const valid = value !== null && Number.isFinite(value);
-  const send = (at: ReferenceSpec, start?: StartSpec | null) => act(() => (regulating ? rig.setReference(name, at, start) : rig.regulate(name, start == null ? { at } : { at, start })));
+  const send = (at: SetpointSpec, start?: StartSpec | null) => act(() => (regulating ? rig.setSetpoint(name, at, start) : rig.regulate(name, start == null ? { at } : { at, start })));
 
   // Where a generator starts: the server's own rule (the setpoint while regulating, else the
   // reading) unless the operator says otherwise, which is what is shown as chosen.
-  const fromNow: From = from ?? (regulating ? "setpoint" : "process");
+  const fromNow: From = from ?? (regulating ? "setpoint" : "measured");
   const typedStart = fromValue.trim() === "" ? null : Number(fromValue);
   const start: StartSpec | null = fromNow === "value" ? (typedStart !== null && Number.isFinite(typedStart) ? typedStart : null) : fromNow;
   const startValid = fromNow !== "value" || start !== null;
@@ -511,7 +511,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
             <Tooltip title="Change the target; the law keeps running as it is">
               <span>
                 <Button variant="contained" size="small" disabled={!valid || busy} onClick={() => void send(value!)} data-testid={`set-reference-${name}`} sx={button}>
-                  Move target
+                  Move setpoint
                 </Button>
               </span>
             </Tooltip>
@@ -537,7 +537,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
                   </MenuItem>
                 </span>
               </Tooltip>
-              <MenuItem value="process">from reading</MenuItem>
+              <MenuItem value="measured">from measured</MenuItem>
               <MenuItem value="value">from a value</MenuItem>
             </Select>
           </FormControl>
@@ -585,7 +585,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
 
 /**
  * Stop and remove, rendered in the faceplate's header (DESIGN-SPEC §3.4)
- * even though the panel places them after the Target row in the DOM, so Tab
+ * even though the panel places them after the Setpoint row in the DOM, so Tab
  * reaches target -> Move -> Stop in that order.
  */
 const StopControl = memo(function StopControl({ name, mode, onEvent }: { name: string; mode: ControllerOut["mode"]; onEvent(name: string, kind: "changed" | "removed"): void }) {
@@ -762,7 +762,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const only = shown.length === 1 ? controllerOf(shown[0]!.address) : undefined;
   const driven = shown.flatMap((target) => {
     const c = controllerOf(target.address);
-    const source = c ? signals.get(c.source) : undefined;
+    const source = c ? signals.get(c.measured_signal) : undefined;
     return c && source ? [{ target, c, source }] : [];
   });
   // For now, a device with a driven demand hides its other demands: a composite (the humidity blender)
@@ -771,7 +771,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const drivenDevices = new Set(driven.map((d) => d.target.address.split(".")[0]));
   const undriven = shown.filter((target) => !driven.some((d) => d.target === target) && !drivenDevices.has(target.address.split(".")[0]));
   const toolbar = (
-    <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.source)?.unit : undefined} />}>
+    <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.measured_signal)?.unit : undefined} />}>
       {name !== null && <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />}
       {controllerSchema.error && <Typography color="error">{controllerSchema.error.message}</Typography>}
     </PageBar>

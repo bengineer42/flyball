@@ -152,7 +152,7 @@ class TestSimulation:
                 }
             },
         }
-        assert document["controllers"]["heater.drive"]["signal"] == "thermocouple.temperature"
+        assert document["controllers"]["heater.drive"]["measured"] == "thermocouple.temperature"
         assert "readers" not in document and "actuators" not in document
         assert RigConfig.model_validate(document).build(start=False).devices.keys() == {
             "thermocouple",

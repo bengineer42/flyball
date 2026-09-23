@@ -232,11 +232,11 @@ class TestParsing:
             },
             "controllers": {
                 "heaters.heater1": {
-                    "signal": "furnace.zone1",
+                    "measured": "furnace.zone1",
                     "law": {"tag": "PI", "kp": 100, "ki": 0.15, "tt": 30},
                 },
                 "heaters.heater2": {
-                    "signal": "furnace.zone2",
+                    "measured": "furnace.zone2",
                     "law": {"tag": "PI", "kp": 100, "ki": 0.15, "tt": 30},
                     "default": True,
                 },
@@ -260,7 +260,7 @@ class TestParsing:
             },
             "controllers": {
                 "blender.humidity": {
-                    "signal": "hum_sensors.chamber.humidity",
+                    "measured": "hum_sensors.chamber.humidity",
                     "law": {"tag": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
                     "default": True,
                 }
@@ -300,8 +300,8 @@ class TestChecks:
         document = {
             "devices": {"f": {"driver": daq_tag}, "h": {"driver": heaters_tag}},
             "controllers": {
-                "h.heater1": {"signal": "f.zone1", "default": True},
-                "h.heater2": {"signal": "f.zone2", "default": True},
+                "h.heater1": {"measured": "f.zone1", "default": True},
+                "h.heater2": {"measured": "f.zone2", "default": True},
             },
         }
         with pytest.raises(ValueError, match="only one controller can be the default"):
@@ -326,12 +326,12 @@ class TestChecks:
     def test_a_controller_address_without_a_dot_is_refused(self, daq_tag):
         document = {
             "devices": {"f": {"driver": daq_tag, "zones": 1}},
-            "controllers": {"heater1": {"signal": "f.zone1"}},
+            "controllers": {"heater1": {"measured": "f.zone1"}},
         }
         with pytest.raises(ValueError, match="'heater1' must be a 'node.signal' address"):
             RigConfig.model_validate(document)
-        document["controllers"] = {"f.zone1": {"signal": "nodot"}}
-        with pytest.raises(ValueError, match="signal 'nodot' must be a 'node.signal' address"):
+        document["controllers"] = {"f.zone1": {"measured": "nodot"}}
+        with pytest.raises(ValueError, match="measured 'nodot' must be a 'node.signal' address"):
             RigConfig.model_validate(document)
 
     def test_two_controllers_on_one_target_is_refused_by_the_strict_loader(self):
@@ -340,7 +340,7 @@ class TestChecks:
         Caught before a `RigConfig` ever sees it, exactly like a duplicate
         device or reader name.
         """
-        text = "controllers:\n  f.heater1: {signal: g.zone1}\n  f.heater1: {signal: g.zone2}\n"
+        text = "controllers:\n  f.heater1: {measured: g.zone1}\n  f.heater1: {measured: g.zone2}\n"
         with pytest.raises(ValueError, match="duplicate key"):
             loads(text, ".yaml")
 
@@ -408,7 +408,7 @@ class TestBuild:
             },
             "controllers": {
                 "blender.humidity": {
-                    "signal": "hum_sensors.chamber.humidity",
+                    "measured": "hum_sensors.chamber.humidity",
                     "law": {"tag": "PI", "kp": 0.8, "ki": 0.02},
                 }
             },
@@ -418,15 +418,15 @@ class TestBuild:
         assert isinstance(target, Signal)
         assert "blender.humidity" in rig.controllers
         controller = rig.controllers["blender.humidity"]
-        assert controller.target is target
-        assert controller.source is rig.resolve("hum_sensors.chamber.humidity")
+        assert controller.output_signal is target
+        assert controller.measured_signal is rig.resolve("hum_sensors.chamber.humidity")
         dry = rig.resolve("hum_sensors.dry.humidity")
         assert rig.devices["blender"].bound["dry"] is dry
 
     def test_build_refuses_a_controller_on_an_unknown_address(self, daq_tag):
         document = {
             "devices": {"f": {"driver": daq_tag, "zones": 1}},
-            "controllers": {"f.nope": {"signal": "f.zone1"}},
+            "controllers": {"f.nope": {"measured": "f.zone1"}},
         }
         with pytest.raises(NotFoundError, match="nope"):
             RigConfig.model_validate(document).build(start=False)
@@ -436,7 +436,7 @@ class TestBuild:
         document = {
             "links": {"l1": {"tag": link_tag}},
             "devices": {"f": {"driver": daq_tag, "zones": 1}},
-            "controllers": {"f.nope": {"signal": "f.zone1"}},
+            "controllers": {"f.nope": {"measured": "f.zone1"}},
         }
         with pytest.raises(NotFoundError, match="nope"):
             RigConfig.model_validate(document).build(start=False)
@@ -449,7 +449,7 @@ class TestBuild:
                 "heaters": {"driver": heaters_tag, "zones": 2, "limits": [2500, 6000]},
             },
             "controllers": {
-                "heaters.heater1": {"signal": "furnace.zone1", "law": {"tag": "PI", "kp": 1.0}}
+                "heaters.heater1": {"measured": "furnace.zone1", "law": {"tag": "PI", "kp": 1.0}}
             },
         }
         rig = RigConfig.model_validate(document).build(start=False)

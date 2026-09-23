@@ -152,10 +152,10 @@ def add_document(rig: RigDep, document: dict[str, Any]) -> dict[str, Any]:
             rig.add_link(name, link)
         for name, entry in config.devices.items():
             rig.add_entry(name, entry)
-        for target, controller in config.controllers.items():
+        for output, controller in config.controllers.items():
             rig.attach_controller(
-                _signal(rig, target),
-                _signal(rig, controller.signal),
+                _signal(rig, output),
+                _signal(rig, controller.measured),
                 law=controller.law,
                 feedforward=controller.feedforward,
                 default=controller.default,
@@ -312,10 +312,10 @@ def _apply(rig: Rig, target: dict[str, Any]) -> None:
     for name, entry in config.devices.items():
         if name not in rig.devices:
             rig.add_entry(name, entry)
-    for target_address, controller in config.controllers.items():
+    for output, controller in config.controllers.items():
         rig.attach_controller(
-            _signal(rig, target_address),
-            _signal(rig, controller.signal),
+            _signal(rig, output),
+            _signal(rig, controller.measured),
             law=controller.law,
             feedforward=controller.feedforward,
             default=controller.default,

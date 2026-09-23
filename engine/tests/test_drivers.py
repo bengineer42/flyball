@@ -13,13 +13,13 @@ from flyball.rig import Rig
 from flyball.runtime.drivers import load_drivers
 
 DRIVER = """
-from flyball.foundation.device import DriverConfig, Output, Readable
+from flyball.foundation.device import DriverConfig, Readout, Readable
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius
 
 
 class Probe(Readable):
-    temperature = Output("temperature", "Temperature", Quantity("temperature", Celsius))
+    temperature = Readout("temperature", "Temperature", Quantity("temperature", Celsius))
 
     def read(self, time_ns, node=None):
         yield self.sample(time_ns, temperature={value})

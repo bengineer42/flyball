@@ -107,7 +107,7 @@ def test_read_controller_schema_lists_a_snapshot(client, rig, furnace, fresh):
     response = client.get("/api/controllers/schema")
     assert response.status_code == 200, response.text
     assert added in rig.devices
-    assert not any(t["address"].startswith(f"{added}.") for t in response.json()["targets"])
+    assert not any(t["address"].startswith(f"{added}.") for t in response.json()["outputs"])
 
 
 @pytest.mark.parametrize("call", ["document", "attach_controller"])

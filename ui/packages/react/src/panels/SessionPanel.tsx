@@ -42,7 +42,7 @@ function asSignal(row: SignalRow): SignalOut {
     dimension: null,
     dtype: asDtype(row.dtype),
     shape: row.shape,
-    role: "output",
+    role: "readout",
     tags: {},
     initial: null,
     range: row.range,
@@ -486,7 +486,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                     {exports && <Download what={`${c.name}'s ticks`} href={(f) => exports.ticks(c.name, f)} />}
                   </dt>
                   <dd>
-                    <Ref kind="signal" name={c.source} /> → <Ref kind="signal" name={c.name} />
+                    <Ref kind="signal" name={c.measured} /> → <Ref kind="signal" name={c.name} />
                     {tag && <> · <span className="fb-tag">{tag}</span></>}
                     {gains && <span className="fb-muted"> · {gains}</span>}
                   </dd>

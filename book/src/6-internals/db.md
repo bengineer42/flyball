@@ -20,8 +20,8 @@ another, and either can be replaced without the other noticing.
 | `write` | the signals whose writes this session records, with the driver behind them |
 | `sample` | every reading, by signal, under one node's instant |
 | `write_state` | what a writable signal was set to: one row per commit that touched it |
-| `controller` | what was driven, named by its target's address, with its source, law and feedforward |
-| `tick` | one controller step: reading, setpoint, correction, demand, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
+| `controller` | what was driven, named by its output's address, with its `measured` signal, law and feedforward |
+| `tick` | one controller step: `measured` (the reading it stepped on), setpoint, correction, `output`, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
 | `event` | something non-numeric that happened: a fault, a retune, a flag |
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |
@@ -76,7 +76,7 @@ device's deferred write states reach it the same way, through
 What is recorded follows a signal's access: readings of publishing (`P`)
 signals go in as samples — a fresh read of an `RW` setting is for whoever
 asked for it, not the record — and write states of writable (`W`) ones go
-in as `write_state` rows; a controller's source and target are always
+in as `write_state` rows; a controller's measured signal and output are always
 included, asked for or not. Declaring (`declare_device`, `declare_signal`,
 `declare_controller`) is idempotent and happens once, at construction, over
 the signals and controllers given — which the rig defaults to every signal
@@ -152,7 +152,13 @@ it was made from, and a one-row `rig_head` naming where the running rig
 is. Saving a version chains it to the head and moves the head to it;
 restoring moves the head and writes nothing; so after a restore the next
 change branches from what was restored. Migration 0009 chained the rows an
-older store held as the line they were.
+older store held as the line they were. Migration 0013 renamed a stored
+controller's `signal` key to `measured` in every `rig_version.document`,
+since `ControllerEntry` refuses unknown keys and an older version would not
+load again (`--resume`, a restart from the head, a restore); in the same
+migration `tick.reading`/`tick.demand` became `measured`/`output` and
+`controller.source` became `measured`. A session's `config` keeps the
+spelling it was recorded with: it is never loaded again.
 
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session

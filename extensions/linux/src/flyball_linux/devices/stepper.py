@@ -123,7 +123,7 @@ class Stepper(Readable, Committable):
                 name="position",
                 quantity=POSITION,
                 access=Access.R,
-                role=Role.OUTPUT,
+                role=Role.READOUT,
                 precision=0,
                 initial=0.0,
             ),

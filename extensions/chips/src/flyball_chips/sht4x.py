@@ -19,8 +19,8 @@ from flyball.foundation.device import (
     DriverConfig,
     Node,
     NodeSpec,
-    Output,
     Readable,
+    Readout,
     Sample,
     SignalSpec,
 )
@@ -110,8 +110,8 @@ def _tree() -> tuple[SignalSpec, ...]:
 class Sht4x(Readable):
     """One chip on the device root: `humidity`, `temperature [RP]`, one I2C transaction."""
 
-    humidity = Output("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
+    humidity = Readout("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
 
     def __init__(
         self,

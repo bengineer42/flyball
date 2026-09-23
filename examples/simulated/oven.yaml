@@ -48,6 +48,6 @@ devices:
 # agree) and the law's gains are the old °C-per-°C tuning.
 controllers:
   heater.drive:
-    signal: thermocouple.temperature
+    measured: thermocouple.temperature
     law: { tag: PI, kp: 0.02, ki: 0.0005 }
     default: true

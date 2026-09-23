@@ -48,13 +48,18 @@ def furnace() -> Furnace:
 def test_named_by_its_target(furnace):
     controller = Controller(SteppedClock(), furnace.signals["heater1"], furnace.signals["zone1"])
     assert controller.name == "furnace.heater1"
-    assert controller.target is furnace.signals["heater1"]
-    assert controller.source is furnace.signals["zone1"]
-    assert controller.demand_unit == "W"
+    assert controller.output_signal is furnace.signals["heater1"]
+    assert controller.measured_signal is furnace.signals["zone1"]
+    assert controller.output_unit == "W"
     settings = controller.settings
-    assert settings.name == "furnace.heater1" and settings.demand_unit == "W"
-    assert settings.target == "furnace.heater1" and settings.source == "furnace.zone1"
-    assert controller.view.target == "furnace.heater1" and controller.view.source == "furnace.zone1"
+    assert settings.name == "furnace.heater1" and settings.output_unit == "W"
+    assert (
+        settings.output_signal == "furnace.heater1" and settings.measured_signal == "furnace.zone1"
+    )
+    assert (
+        controller.view.output_signal == "furnace.heater1"
+        and controller.view.measured_signal == "furnace.zone1"
+    )
 
 
 def test_the_target_must_be_writable_and_the_source_publishing(furnace):
@@ -106,7 +111,7 @@ def test_on_reading_ticks_and_writes(furnace):
     )
     zone1 = furnace.signals["zone1"]
     controller.on_reading(Reading(zone1, clock.now_ns(), 20.0))
-    assert controller.reading is not None and controller.reading.value == 20.0
+    assert controller.measured is not None and controller.measured.value == 20.0
     assert writes == [], "manual: nothing written"
     controller.regulate(50.0, transfer=Transfer.RESET)
     assert controller.setpoint == 50.0 and writes == [500.0]
@@ -115,7 +120,7 @@ def test_on_reading_ticks_and_writes(furnace):
     sample = Sample(furnace.root, clock.now_ns(), {zone1: 30.0})
     controller.on_reading(next(sample.readings()))
     assert writes == [500.0, 500.0 + 100.0 * 20.0]
-    assert controller.demand == 2500.0 and controller.expected == 2500.0
+    assert controller.output == 2500.0 and controller.expected == 2500.0
     assert controller.delivered_correction == 2000.0
 
     with pytest.raises(AssertionError, match="is not"):
@@ -127,9 +132,9 @@ def test_unwired_records_the_demand_and_writes_nothing(furnace):
     controller = Controller(clock, furnace.signals["bath"], furnace.signals["zone1"], law=P(kp=2.0))
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 40.0))
     controller.regulate(50.0, transfer=Transfer.RESET)
-    assert controller.demand == 50.0, "the setpoint itself: same unit, correction reset"
+    assert controller.output == 50.0, "the setpoint itself: same unit, correction reset"
     controller.on_reading(Reading(furnace.signals["zone1"], 1_000_000_000, 40.0))
-    assert controller.demand == 50.0 + 2.0 * 10.0
+    assert controller.output == 50.0 + 2.0 * 10.0
     assert controller.expected is None and controller.delivered_correction is None
 
 
@@ -146,7 +151,7 @@ def test_delivered_closes_a_deferred_write(furnace):
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 30.0))
     controller.regulate(50.0, transfer=Transfer.RESET)
     controller.on_reading(Reading(furnace.signals["zone1"], 1_000_000_000, 30.0))
-    assert controller.demand == 500.0 + 100.0 * 20.0
+    assert controller.output == 500.0 + 100.0 * 20.0
     assert controller.expected is None and controller.delivered_correction is None
 
     controller.delivered(WriteState(value=2500.0, requested=2500.0, at_limit="high"))
@@ -217,7 +222,7 @@ def test_min_period_caps_how_often_the_law_steps(furnace):
     for i in range(10):
         clock.advance(0.01)
         controller.on_reading(Reading(zone1, clock.now_ns(), float(i)))
-    assert controller.reading is not None and controller.reading.value == 9.0
+    assert controller.measured is not None and controller.measured.value == 9.0
     assert len(writes) == before + 1
 
     clock.advance(0.1)
@@ -244,7 +249,7 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
     assert result.bump == pytest.approx(0.0), "TRACK seeds the law to hold the output"
     assert writes[-1] == pytest.approx(held)
     reset = controller.regulate(50.0, transfer=Transfer.RESET)
-    assert reset.demand == 50.0 and reset.bump == pytest.approx(50.0 - held)
+    assert reset.output == 50.0 and reset.bump == pytest.approx(50.0 - held)
 
 
 @pytest.mark.parametrize("aim", [float("nan"), float("inf"), float("-inf")])
@@ -260,7 +265,7 @@ def test_a_non_finite_aim_is_refused_before_anything_changes(furnace, aim):
     with pytest.raises(ValueError, match="not finite"):
         controller.regulate(aim)
     with pytest.raises(ValueError, match="not finite"):
-        controller.set_reference(aim)
+        controller.set_setpoint(aim)
     assert (controller.mode, controller.reference, controller.correction, len(writes)) == before
 
 
@@ -351,7 +356,7 @@ def test_a_ramp_starts_where_the_setpoint_is_and_lands_at_its_end(furnace):
 
     # Descending: the pace says how fast, the span says which way.
     down = LinearRampSetpoint(Speed(10.0, TimeUnit.MINUTE), 40.0)
-    controller.set_reference(100.0, generator=down)
+    controller.set_setpoint(100.0, generator=down)
     now = clock.now_ns()
     assert controller.rate_at(now) == pytest.approx(-10.0 / 60)
     assert controller.setpoint_at(now + 60_000_000_000) == pytest.approx(90.0)
@@ -359,7 +364,7 @@ def test_a_ramp_starts_where_the_setpoint_is_and_lands_at_its_end(furnace):
 
     # To where the setpoint already is: nothing to walk, so it has landed at once.
     flat = LinearRampSetpoint(Speed(10.0, TimeUnit.MINUTE), 100.0)
-    controller.set_reference(100.0, generator=flat)
+    controller.set_setpoint(100.0, generator=flat)
     assert flat.finished(clock.from_start_s(clock.now_ns())) is True
     assert controller.arrived is True and controller.rate_at(clock.now_ns()) == 0.0
 
@@ -391,7 +396,7 @@ def test_arrived_follows_the_reference(furnace):
         def generate(self, time: float) -> float:
             return 1.0
 
-    controller.set_reference(50.0, generator=Endless())
+    controller.set_setpoint(50.0, generator=Endless())
     assert controller.arrived is False, "the base finished() is never"
 
 

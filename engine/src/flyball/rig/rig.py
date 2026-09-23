@@ -117,7 +117,7 @@ class Rig:
     """Controllers whose writes are held because a limit follows a signal with no value yet:
     one event on entering the hold, one on leaving it, none per step between."""
     _stale_held: set[str]
-    """Controllers whose writes are held because their source is past `stale_after`:
+    """Controllers whose writes are held because their measured signal is past `stale_after`:
     one event on entering the hold, none per step while it lasts."""
     _failing: set[str]
     """Controllers whose step raised: one event on the first failure, one when a step succeeds
@@ -127,7 +127,7 @@ class Rig:
     _stepped: set[Controller] | None
     """The controllers stepped since the outermost delivery began, through every delivery of
     what its commits pushed; None outside one. A controller steps at most once in that chain:
-    a commit that pushes back its own source would otherwise step it again, for ever."""
+    a commit that pushes back its own measured signal would otherwise step it again, for ever."""
     _ignored: set[Signal]
     """Demands whose driver's `commit` did not read them: one event when a signal's demand
     first goes unread, none per demand after, until one is read again."""
@@ -512,7 +512,7 @@ class Rig:
         value yet fails closed: a manual demand is refused whole. A
         controller's demand is held (nothing applied, `{}` returned) for
         any reason [hold_reason][flyball.rig.rig.Rig.hold_reason] gives --
-        that limit, or a stale source -- which the controller has already
+        that limit, or a stale measured signal -- which the controller has already
         asked before stepping its law. A demand
         from outside a delivery is committed now and its states returned;
         one from inside a delivery (a controller's, a command's) is
@@ -610,18 +610,18 @@ class Rig:
     def hold_reason(self, controller: Controller) -> Kind | None:
         """Why a write by `controller` would be held now, or None if it would go through.
 
-        `stale_input`: its source has not been read within `stale_after`.
-        `limit_unknown`: a limit on its target follows a signal with no value
+        `stale_input`: its measured signal has not been read within `stale_after`.
+        `limit_unknown`: a limit on its output follows a signal with no value
         yet, or a non-finite one (D-030), or the limits resolve inverted
         (D-040). Each is one event on entering the hold, not one per call;
         `limit_known` marks leaving the second. The controller asks this
         before it steps its law, so a held write freezes the law as well as
-        the target; `demand` asks it again for its own writes.
+        the output; `demand` asks it again for its own writes.
         """
         name = controller.name
-        if (stale_after := controller.source.spec.stale_after) is not None:
-            source = controller.source
-            reading = self.router.latest.get(source)
+        if (stale_after := controller.measured_signal.spec.stale_after) is not None:
+            measured = controller.measured_signal
+            reading = self.router.latest.get(measured)
             age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
             if age_s is None or age_s > stale_after:
                 if name not in self._stale_held:
@@ -631,13 +631,13 @@ class Rig:
                         Scope.CONTROLLER,
                         name,
                         Kind.STALE_INPUT,
-                        f"'{source.address}' has not been read in over {stale_after:g}s: held",
+                        f"'{measured.address}' has not been read in over {stale_after:g}s: held",
                         {"age_s": age_s},
                     )
                 return Kind.STALE_INPUT
             self._stale_held.discard(name)
         try:
-            controller.target.clamp(0.0)
+            controller.output_signal.clamp(0.0)
         except (LimitNotKnownError, LimitsInvertedError) as e:
             self._limit_unknown(controller, e)
             return Kind.LIMIT_UNKNOWN
@@ -648,7 +648,7 @@ class Rig:
                 Scope.CONTROLLER,
                 name,
                 Kind.LIMIT_KNOWN,
-                "every limit on its target is known: writing again",
+                "every limit on its output is known: writing again",
             )
         return None
 
@@ -868,8 +868,8 @@ class Rig:
         """Deliver what commits pushed, each batch as one more delivery, until nothing is left.
 
         One chain: a controller already stepped in it is not stepped again
-        on a reading its own commit pushed (its target's device reading its
-        source back). The reading still lands; the controller steps on the
+        on a reading its own commit pushed (its output's device reading its
+        measured signal back). The reading still lands; the controller steps on the
         next delivery that starts a chain.
         """
         outer = self._stepped
@@ -1002,7 +1002,10 @@ class Rig:
             if device is None:
                 raise NotFoundError(f"Device {name!r} not found")
             for cname, controller in list(self.controllers.items()):
-                if controller.target.device is device or controller.source.device is device:
+                if (
+                    controller.output_signal.device is device
+                    or controller.measured_signal.device is device
+                ):
                     self.detach_controller(cname)
             self._drop_device(device)
             self.entries.pop(name, None)
@@ -1059,7 +1062,7 @@ class Rig:
         with self.lock:  # a consistent view: nothing added or removed while it is read
             controllers = {
                 name: ControllerEntry(
-                    signal=c.source.address,
+                    measured=c.measured_signal.address,
                     law=c.law.config if c.law is not None else None,
                     # The file's default: the setpoint itself. Left out, as a file would.
                     feedforward=None
@@ -1204,30 +1207,30 @@ class Rig:
 
     def attach_controller(
         self,
-        target: Signal,
-        source: Signal,
+        output: Signal,
+        measured: Signal,
         *,
         law: ControlLawLike | str | None = None,
         feedforward: FeedforwardLike | str | None = None,
         default: bool = False,
         min_period_s: float | None = None,
     ) -> Controller:
-        """Regulate `source` through `target`; the controller is named by `target`'s address.
+        """Regulate `measured` through `output`; the controller is named by `output`'s address.
 
         Args:
-            target: The W signal driven.
-            source: The P signal regulated.
+            output: The demand driven.
+            measured: The P signal regulated.
             law: The control law, a config, or a stored tuning's name.
-            feedforward: What maps the setpoint to a demand in the target's
+            feedforward: What maps the setpoint to a value in the output's
                 unit: an instance, a config, or a tag. Default: the setpoint
                 itself when the units agree, else none.
             default: Make this the controller commands address when they name none.
             min_period_s: Step the law at most this often.
 
         Raises:
-            SourceClaimedError: `target` is already driven, or `source`
+            SignalClaimedError: `output` is already driven, or `measured`
                 already regulated, by another controller.
-            ConflictError: `target` is not writable, `source` not publishing,
+            ConflictError: `output` is not writable, `measured` not publishing,
                 or the feedforward cannot map the units.
         """
         if isinstance(law, str):
@@ -1235,15 +1238,15 @@ class Rig:
         if isinstance(feedforward, str):
             feedforward = get_catalog().feedforwards[feedforward]()
 
-        def write(demand: float) -> float | None:
-            states = self.demand(target.node, {target: demand}, by=controller)
-            return None if (state := states.get(target)) is None else state.value
+        def write(value: float) -> float | None:
+            states = self.demand(output.node, {output: value}, by=controller)
+            return None if (state := states.get(output)) is None else state.value
 
         with self.lock:  # not while a delivery is looking controllers up
             controller = Controller(
                 self.clock,
-                target,
-                source,
+                output,
+                measured,
                 law=law,
                 feedforward=feedforward,
                 min_period_s=min_period_s,
@@ -1255,7 +1258,7 @@ class Rig:
             return controller
 
     def detach_controller(self, name: str) -> Controller:
-        """Take the controller off its target: manual demands may drive it again.
+        """Take the controller off its output: manual demands may drive it again.
 
         The controller is left in manual with nothing to write to.
 

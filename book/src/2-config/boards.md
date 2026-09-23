@@ -104,7 +104,7 @@ devices:
 
 controllers:
   heater.drive:
-    signal: air.temperature
+    measured: air.temperature
     law: { tag: PI, kp: 0.5, ki: 0.01 }
     default: true
 ```

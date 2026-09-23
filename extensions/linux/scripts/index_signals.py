@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Every registered driver's signals, by unit symbol and dimension -- auto, not hand-maintained.
 
-Every `Output`/`Signal` a driver declares already carries a `Quantity`, and a `Quantity`
+Every `Readout`/`Signal` a driver declares already carries a `Quantity`, and a `Quantity`
 already carries its `Unit` (symbol) and the unit's `Dimension` (label) -- see
 `flyball.foundation.quantities.Quantity`. So "search by unit" or "search by dimension" doesn't need
 a hand-maintained field in `drivers-manifest.yaml`; it needs one read of what every driver

@@ -48,14 +48,17 @@ device's life. The role sets the signal's default access:
 
 | role | access | meaning |
 | --- | --- | --- |
-| `Role.DEMAND` | `RPW` | settable, with a current value (its readback) that updates — what a controller drives |
-| `Role.OUTPUT` | `RP` | produced, never set: a measurement, a derived value, a mode |
+| `Role.DEMAND` | `RPW` | settable, with a current value (its readback) that updates — the only thing a controller drives |
+| `Role.READOUT` | `RP` | produced by the device, never written from outside: a measurement, a derived value, a mode |
 | `Role.SETTING` | `RP` | re-set by a command while the device runs, shown; not driven by a controller |
 | `Role.CONFIG` | `R` | effective at build, shown, never set at run time |
-| `Role.INPUT` | — | another device's signal, bound by the rig to a role; not in the tree |
+
+An **input** is not a role: it is another device's signal, bound by the rig
+(`bound:`), and not in this device's tree; an `Input` descriptor is told
+apart by its type.
 
 Structure is declared once, as descriptors in the class body (`Namespace`,
-`Demand`, `Output`, `Setting`, `ConfigSignal`, `Input`), or built from config
+`Demand`, `Readout`, `Setting`, `ConfigSignal`, `Input`), or built from config
 in `__init__` with the same factories and bound with `Device.bind`.
 `Section("dry", "Dry line")` in place of a name tags a second grouping axis
 across the tree, orthogonal to the namespace. On the class a descriptor is
@@ -76,7 +79,7 @@ file may only narrow:
 | **P** publishing | the device emits it on its own schedule (poll or push): samples, `/ws/samples`, the store, the recorder | readouts, charts, dashboards, history |
 | **W** writable | accepts a demand; a controller may target it; has `limits` (a demand is refused while a limit that follows another signal has no value yet, or a non-finite one; what an end follows -- a signal of the device, or one of its inputs by role -- is resolved once, when the device is added, and a name that matches neither refuses the device); keeps its last *set* value beside its read value | target entry, controllers, program steps |
 
-`P` implies `R`. Typical: a thermocouple is `RP` (`Role.OUTPUT`); a heater's
+`P` implies `R`. Typical: a thermocouple is `RP` (`Role.READOUT`); a heater's
 demand is `RPW` (`Role.DEMAND`) — the readback is the committed value, so
 the target and what it settled to share one address; a setting such as a
 blender's `blend` is `RP` (`Role.SETTING`, read on demand, changed only by
@@ -124,18 +127,19 @@ delivery touched.
 
 ## Controller
 
-A **controller** binds one publishing signal to one writable signal
-through a law (and an optional feedforward). It is named by the address of
-the signal it drives, since a writable signal has at most one controller:
+A **controller** regulates one publishing signal, its **measured** signal,
+by writing one demand, its **output**, through a law (and an optional
+feedforward). It is named by the output's address, since a demand has at
+most one controller:
 
 ```
-heaters.heater1: { signal: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15, tt: 30 } }
+heaters.heater1: { measured: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15, tt: 30 } }
 ```
 
 Reader/actuator and channel/loop have merged into device/signal and
 signal/controller: a device page shows its signals, their controllers and
-its commands together, and a controller's config is a `source` address and
-a `target` address, nothing more. [How a controller works](../2-config/controllers.md#how-a-controller-works) covers the tick
+its commands together, and a controller's config is a `measured` address,
+keyed by its output's address, nothing more. [How a controller works](../2-config/controllers.md#how-a-controller-works) covers the tick
 in detail.
 
 ## Overlays: real vs simulated
@@ -169,7 +173,7 @@ link.
 A device's own signals echo the same split at finer grain: a role's *access*
 is the declaration tier, a `Role.CONFIG` signal is effective at the
 structure tier (merged from class defaults, config and the rig file at
-build), and a `Role.DEMAND`/`Role.SETTING`/`Role.OUTPUT` signal's readings
+build), and a `Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings
 are the values tier. `Signal.spec` is what the driver declared;
 `Signal.access` and its overridden metadata are what is in force —
 `rig check`, the wire and the UI can show both ("driver says RPW, file made

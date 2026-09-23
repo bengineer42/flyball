@@ -175,7 +175,7 @@ devices:
 
 controllers:
   drive1.drive:
-    signal: channel1.signal1
+    measured: channel1.signal1
     law: { tag: P, kp: 0.5 }
     feedforward: { tag: affine, gain: 1.0, bias: 0.0 }
     default: true

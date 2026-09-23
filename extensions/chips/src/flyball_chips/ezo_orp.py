@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity, Unit
 from flyball.hardware.uart import UartLink
@@ -72,7 +72,7 @@ class EzoOrpProbe:
 class EzoOrp(Readable):
     """One EZO-ORP probe on the device root: `orp [RP]`, one UART round trip."""
 
-    orp = Output("orp", quantity=ORP, range=(-1020.0, 1020.0), precision=1)
+    orp = Readout("orp", quantity=ORP, range=(-1020.0, 1020.0), precision=1)
 
     def __init__(
         self,

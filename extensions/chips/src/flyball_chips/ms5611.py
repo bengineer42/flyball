@@ -24,7 +24,7 @@ from collections.abc import Iterator
 from typing import Literal
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Pascal
@@ -137,8 +137,8 @@ class Ms5611Sensor:
 class Ms5611(Readable):
     """One chip on the device root: `pressure`, `temperature [RP]`."""
 
-    pressure = Output("pressure", quantity=PRESSURE, range=(10000.0, 120000.0), precision=1)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 85.0), precision=2)
+    pressure = Readout("pressure", quantity=PRESSURE, range=(10000.0, 120000.0), precision=1)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-40.0, 85.0), precision=2)
 
     def __init__(
         self,

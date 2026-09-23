@@ -21,8 +21,8 @@ from flyball.foundation.device import (
     Kind,
     Level,
     Node,
-    Output,
     Readable,
+    Readout,
     Sample,
     Scope,
     WriteState,
@@ -153,7 +153,7 @@ class TestCommitFailure:
 class Looped(Readable, Committable):
     """A zone and a heater on one device; every commit reads the zone back and pushes it."""
 
-    zone = Output("zone", "Zone", TEMP)
+    zone = Readout("zone", "Zone", TEMP)
     heater = Demand("heater", "Heater", POWER, limits=(0.0, 1000.0))
 
     def __init__(self, name: str) -> None:

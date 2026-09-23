@@ -15,8 +15,8 @@ from flyball.foundation.device import (
     Level,
     Namespace,
     Node,
-    Output,
     Readable,
+    Readout,
     Sample,
     Signal,
     command,
@@ -38,7 +38,7 @@ HUMIDITY = Quantity("humidity", Percent)
 class Daq(Readable, Committable):
     """Two thermocouple zones `[RP]` and a demand `[RPW]`; counts the reads asked of it."""
 
-    zone1 = Output(
+    zone1 = Readout(
         "zone1",
         "Zone 1",
         TEMP,
@@ -47,7 +47,7 @@ class Daq(Readable, Committable):
         warn=(0.0, 1100.0),
         alarm=(-10.0, 1150.0),
     )
-    zone2 = Output("zone2", "", TEMP, warn=(0.0, 1100.0))
+    zone2 = Readout("zone2", "", TEMP, warn=(0.0, 1100.0))
     setpoint = Demand("setpoint", "", TEMP)
 
     def __init__(self, name: str, label: str | None = None) -> None:
@@ -77,7 +77,7 @@ class Drive(Committable):
 
     heater1 = Demand("heater1", "Heater 1", POWER, limits=(0.0, 2500.0))
     heater2 = Demand("heater2", "", POWER, limits=(0.0, 6000.0))
-    duty = Output("duty", "Duty", initial=0.0)
+    duty = Readout("duty", "Duty", initial=0.0)
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
@@ -107,10 +107,10 @@ class Sensors(Readable):
 
     chamber = Namespace("chamber", atomic=True)
     dry = Namespace("dry", atomic=True)
-    chamber_humidity = chamber.output("humidity", "", HUMIDITY)
-    chamber_temperature = chamber.output("temperature", "", TEMP)
-    dry_humidity = dry.output("humidity", "", HUMIDITY)
-    dry_temperature = dry.output("temperature", "", TEMP)
+    chamber_humidity = chamber.readout("humidity", "", HUMIDITY)
+    chamber_temperature = chamber.readout("temperature", "", TEMP)
+    dry_humidity = dry.readout("humidity", "", HUMIDITY)
+    dry_temperature = dry.readout("temperature", "", TEMP)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         nodes = self.root.descendants() if node is None or node is self.root else (node,)
@@ -121,7 +121,7 @@ class Sensors(Readable):
 class Supplied(Committable):
     """A demand bounded by a supply humidity that may not have been read yet."""
 
-    supply = Output("supply", "Supply humidity", HUMIDITY)
+    supply = Readout("supply", "Supply humidity", HUMIDITY)
     humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
 
     def __init__(self, name: str, label: str | None = None) -> None:
@@ -140,8 +140,8 @@ class Mode(Enum):
 class Typed(Readable):
     """One enum-valued output and one JSON-valued output, both `[RP]`."""
 
-    mode = Output("mode", "", TEMP, vtype=Mode)
-    config = Output("config", "", TEMP, vtype=dict)
+    mode = Readout("mode", "", TEMP, vtype=Mode)
+    config = Readout("config", "", TEMP, vtype=dict)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         yield self.sample(time_ns, mode=Mode.RUNNING, config={"gain": 2, "offset": 1})
@@ -220,7 +220,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "alarm": [-10.0, 1150.0],
         "poll_s": None,
         "limits": None,
-        "role": "output",
+        "role": "readout",
         "tags": {},
         "initial": None,
         "latest": None,
@@ -609,7 +609,7 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
     from flyball.foundation.device import ConfigSignal
 
     class Mixed(Readable):
-        zone = Output("zone", "", TEMP)
+        zone = Readout("zone", "", TEMP)
         static = ConfigSignal("static", "", TEMP)
 
         def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:

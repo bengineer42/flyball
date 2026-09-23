@@ -95,7 +95,7 @@ devices:
     span: [10, 40]
   fan:    { driver: gpio_line, label: Fan, pin: GPIO18 }     # fan.on [W]; `flyball fan on`
 controllers:
-  heater.drive: { signal: air.temperature, law: { tag: PI, kp: 0.5, ki: 0.01 }, default: true }
+  heater.drive: { measured: air.temperature, law: { tag: PI, kp: 0.5, ki: 0.01 }, default: true }
 ```
 
 [examples/sim.yaml](examples/sim.yaml) overlays it with `board: sim`, every

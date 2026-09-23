@@ -37,7 +37,7 @@ import type {
   ProgramRow,
   ProgrammerState,
   ReadOut,
-  ReferenceSpec,
+  SetpointSpec,
   RegulateRequest,
   RigDocument,
   RigSchema,
@@ -445,11 +445,11 @@ export class RigClient {
 
   /**
    * Move the setpoint, or start following a generator spec, without touching the mode or the
-   * law's state. `start` says where a generator begins (a value, `setpoint`, `process`);
+   * law's state. `start` says where a generator begins (a value, `setpoint`, `measured`);
    * omitted, the current setpoint while regulating, else the last reading.
    */
-  setReference(address: Address, at: ReferenceSpec, start?: StartSpec | null): Promise<ControllerOut> {
-    return this.call({ method: "PUT", path: `/api/controllers/${enc(address)}/reference`, body: start == null ? { at } : { at, start } });
+  setSetpoint(address: Address, at: SetpointSpec, start?: StartSpec | null): Promise<ControllerOut> {
+    return this.call({ method: "PUT", path: `/api/controllers/${enc(address)}/setpoint`, body: start == null ? { at } : { at, start } });
   }
 
   // endregion

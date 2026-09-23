@@ -122,7 +122,7 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     assert setpoint_write.signal.access == "rw" and setpoint_write.limits is None
     (row,) = store.controllers(session.id)
     assert row.name == controller.name == heater.address
-    assert row.source == zone1.address and row.law["tag"] == "PI" and row.feedforward is not None
+    assert row.measured == zone1.address and row.law["tag"] == "PI" and row.feedforward is not None
 
 
 def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):
@@ -368,7 +368,7 @@ def test_migration_maps_a_0006_session_onto_the_device_model(tmp_path):
     assert [p.value for p in store.series(1, "probe.temperature").points] == [20.5, 21.0]
     assert store.samples(1, "meter")[0].values == {"meter.power": 100.0}
     (controller,) = store.controllers(1)
-    assert (controller.name, controller.source, controller.law) == (
+    assert (controller.name, controller.measured, controller.law) == (
         "heater",
         "probe.temperature",
         {"tag": "PI"},

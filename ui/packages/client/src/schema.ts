@@ -229,16 +229,16 @@ export function invertFeedforward(feedforward: FeedforwardConfig | null | undefi
 }
 
 /**
- * A controller's current setpoint, in the source's unit: `setpoint` as the
+ * A controller's current setpoint, in the measured unit: `setpoint` as the
  * server resolved it at the last tick (a ramp's current value); else the
  * reference when it is a number; else recovered by inverting the
- * feedforward on `demand − correction`, which is exact for `setpoint` and
+ * feedforward on `output − correction`, which is exact for `setpoint` and
  * `affine` and for a monotone `table`, and null for `none`.
  */
-export function setpointOf(controller: Pick<ControllerOut, "reference" | "demand" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
+export function setpointOf(controller: Pick<ControllerOut, "reference" | "output" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
   if (typeof controller.setpoint === "number") return controller.setpoint;
   if (typeof controller.reference === "number") return controller.reference;
-  if (controller.demand != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.demand - controller.correction);
+  if (controller.output != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.output - controller.correction);
   return null;
 }
 

@@ -57,7 +57,7 @@ function stdDev(values: (number | null)[]): number {
  * settles onto a flat setpoint, and a hold with a millikelvin of noise reads
  * as a storm. The floor is whichever is widest of the warn band, 2% of the
  * signal's declared range, or 5x the reading's own noise; widened further
- * to cover the reading itself, so a real excursion (a target at limit,
+ * to cover the reading itself, so a real excursion (an output at limit,
  * say) still shows instead of being clipped to the floor.
  */
 function settledBand(center: number, warn: [number, number] | null | undefined, range: [number, number] | null | undefined, reading: (number | null)[]): [number, number] | null {
@@ -243,7 +243,7 @@ export interface ControllerPanelProps {
   canOperate?: boolean;
 }
 
-const EMPTY: ControllerTrace = { t: [], reference: [], reading: [], demand: [], expected: [], correction: [] };
+const EMPTY: ControllerTrace = { t: [], reference: [], measured: [], output: [], expected: [], correction: [] };
 /** Default trend height on the Controllers page, which has room; a dashboard tile passes its own (`trendHeight`), computed from what it actually has. */
 const TREND_HEIGHT = 150;
 
@@ -403,25 +403,25 @@ export function ControllerPanel({
   extra,
   canOperate = true,
 }: ControllerPanelProps) {
-  const point = useSignal(controller.source);
+  const point = useSignal(controller.measured_signal);
   const nowS = useNowS();
   const startS = useRigStartS();
-  const write = useWriteState(controller.target) ?? target?.write ?? null;
-  const run = useDeviceRun(deviceOf(controller.source));
-  const fresh = useFreshness(controller.source);
+  const write = useWriteState(controller.output_signal) ?? target?.write ?? null;
+  const run = useDeviceRun(deviceOf(controller.measured_signal));
+  const fresh = useFreshness(controller.measured_signal);
   const unit = source.unit;
-  const dUnit = target?.unit ?? controller.demand_unit ?? unit;
+  const dUnit = target?.unit ?? controller.output_unit ?? unit;
   const precision = source.precision ?? 2;
   const fmt = (value: number | string | null | undefined, u: string) =>
     value == null ? "—" : typeof value === "number" ? `${fixed(value, precision)} ${u}` : value;
 
   const process = [
     {
-      label: "reading",
-      hint: `What ${controller.source} measures: the value the controller is trying to hold.`,
+      label: "measured",
+      hint: `What ${controller.measured_signal} measures: the value the controller is trying to hold.`,
       unit,
       t: history.t,
-      v: history.reading,
+      v: history.measured,
       precision,
     },
     {
@@ -443,24 +443,24 @@ export function ControllerPanel({
   ];
   const feedforward = controller.feedforward as FeedforwardConfig | undefined;
   const ffTag = typeof feedforward?.tag === "string" ? feedforward.tag : null;
-  // Under no feedforward the correction *is* the demand; drawing it twice says nothing.
+  // Under no feedforward the correction *is* the output; drawing it twice says nothing.
   const showCorrection = ffTag !== "none";
-  const clampedTrace = history.expected.map((e, i) => (e != null && differs(history.demand[i] ?? null, e) ? e : null));
+  const clampedTrace = history.expected.map((e, i) => (e != null && differs(history.output[i] ?? null, e) ? e : null));
   const drive = [
     {
-      label: "demand",
-      hint: showCorrection ? `What the controller asks of ${controller.target}: feedforward(setpoint) plus the law's correction.` : `What the controller asks of ${controller.target}: the law's correction alone (no feedforward).`,
+      label: "output",
+      hint: showCorrection ? `What the controller asks of ${controller.output_signal}: feedforward(setpoint) plus the law's correction.` : `What the controller asks of ${controller.output_signal}: the law's correction alone (no feedforward).`,
       unit: dUnit,
       t: history.t,
-      v: history.demand,
+      v: history.output,
       precision,
     },
-    // Achievable is drawn only where it differs from the demand (the target clamped); elsewhere the two coincide.
+    // Achievable is drawn only where it differs from the output (the output signal clamped); elsewhere the two coincide.
     ...(clampedTrace.some((v) => v != null)
       ? [
           {
             label: "achievable (clamped)",
-            hint: `What ${controller.target} could actually give while the demand was beyond its limit.`,
+            hint: `What ${controller.output_signal} could actually give while the output was beyond its limit.`,
             unit: dUnit,
             t: history.t,
             v: clampedTrace,
@@ -475,7 +475,7 @@ export function ControllerPanel({
       ? [
           {
             label: "correction",
-            hint: "The law's share of the demand: what it adds to feedforward(setpoint) to close the error.",
+            hint: "The law's share of the output: what it adds to feedforward(setpoint) to close the error.",
             unit: dUnit,
             t: history.t,
             v: history.correction,
@@ -491,12 +491,12 @@ export function ControllerPanel({
   // Under a generator the setpoint is the resolved value; failing that, recovered through the feedforward, or read off
   // the latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
   const setpoint = setpointOf(controller) ?? (following ? latest(history.reference) : null);
-  // PV: the source's newest sample from the store, else what the controller saw at its last tick.
-  const reading = point?.v ?? (typeof controller.reading?.value === "number" ? controller.reading.value : null);
-  // OP: the target's write state (after limits) from `/ws/writes`, else what the controller expects it to give.
-  const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.demand, controller.expected);
-  const output = write?.value ?? controller.expected ?? controller.demand;
-  const requested = write?.requested ?? controller.demand;
+  // PV: the measured signal's newest sample from the store, else what the controller saw at its last tick.
+  const reading = point?.v ?? (typeof controller.measured?.value === "number" ? controller.measured.value : null);
+  // OP: the output signal's write state (after limits) from `/ws/writes`, else what the controller expects it to give.
+  const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.output, controller.expected);
+  const output = write?.value ?? controller.expected ?? controller.output;
+  const requested = write?.requested ?? controller.output;
   const deviation = reading != null && setpoint != null ? reading - setpoint : null;
   const deviationWarn = alarmLevel(reading, source) !== "ok";
 
@@ -507,7 +507,7 @@ export function ControllerPanel({
   const outputRange = target?.limits ?? null;
   const opFraction = fractionOf(output, outputRange);
   // Which rail the output is pinned to, for the OP bar's highlighted end when clamped.
-  const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.demand ?? 0) > controller.expected! ? "hi" : "lo";
+  const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.output ?? 0) > controller.expected! ? "hi" : "lo";
 
   // The source device's run says whether anything is arriving at all; freshness catches a device that is
   // nominally running but has gone quiet. `controller.mode === "open"` is a distinct wire state the backend
@@ -516,11 +516,11 @@ export function ControllerPanel({
   const offline = !!run && (!run.running || run.conditions.some((c) => c.kind === "offline"));
   const stale = alarmLevel(reading, source, fresh) === "stale";
   const banner = offline
-    ? { text: "source offline", hint: `${deviceOf(controller.source)} is not being read; the controller has nothing to regulate on.` }
+    ? { text: "source offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.` }
     : stale
-      ? { text: "no recent reading", hint: `No sample has arrived on ${controller.source} recently.` }
+      ? { text: "no recent reading", hint: `No sample has arrived on ${controller.measured_signal} recently.` }
       : clamped
-        ? { text: "target at limit", hint: `${controller.target} cannot give the full demand; it is clamped to what it can achieve.` }
+        ? { text: "output at limit", hint: `${controller.output_signal} cannot give the full output; it is clamped to what it can achieve.` }
         : controller.mode === "open" || tag === "open_loop"
           ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
           : null;
@@ -540,8 +540,8 @@ export function ControllerPanel({
       {!bare && (
         <header className="fb-loop-head">
           <h3><Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? describeSignal(target) : controller.name}</Ref></h3>
-          <span className="fb-muted" title={`${controller.name} regulates ${controller.source}`}>
-            regulates <Ref kind="signal" name={controller.source}>{describeSignal(source)}</Ref>
+          <span className="fb-muted" title={`${controller.name} regulates ${controller.measured_signal}`}>
+            regulates <Ref kind="signal" name={controller.measured_signal}>{describeSignal(source)}</Ref>
             {controller.default && " · default"}
           </span>
           <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span>
@@ -556,7 +556,7 @@ export function ControllerPanel({
       )}
       <dl className="fb-loop-rows">
         <div className="fb-loop-row">
-          <dt title="process value — PV">Reading</dt>
+          <dt title="measured value — PV">Measured</dt>
           <dd>{fmt(reading, unit)}</dd>
           {pvFraction !== null && (
             <div className="fb-range" title={`${range![0]} – ${range![1]} ${unit}`}>
@@ -568,17 +568,17 @@ export function ControllerPanel({
             </div>
           )}
           <span className="fb-loop-caption" style={deviation != null ? { color: deviationWarn ? "var(--fb-warn)" : "var(--fb-fg-2)" } : undefined}>
-            {deviation != null ? `${fixed(Math.abs(deviation), precision)} ${unit} ${deviation >= 0 ? "above" : "below"} target` : " "}
+            {deviation != null ? `${fixed(Math.abs(deviation), precision)} ${unit} ${deviation >= 0 ? "above" : "below"} setpoint` : " "}
           </span>
         </div>
         <div className="fb-loop-row">
-          <dt title="setpoint — SP">Target</dt>
+          <dt title="setpoint — SP">Setpoint</dt>
           <dd>{fmt(setpoint, unit)}</dd>
           {controls && <span className="fb-loop-sp-controls">{gated(controls)}</span>}
           <span className="fb-loop-caption" data-testid="following">{following ? `→ ${following}` : " "}</span>
         </div>
         <div className="fb-loop-row">
-          <dt title="what the target was set to, after limits — OP">Output</dt>
+          <dt title="what the output signal was set to, after limits — OP">Output</dt>
           <dd style={clamped ? { color: "var(--fb-alarm)" } : undefined}>{fmt(output, dUnit)}</dd>
           {opFraction !== null && (
             <div
@@ -605,17 +605,17 @@ export function ControllerPanel({
               yScale={yScale}
               range={source.range}
               windowS={windowS}
-              settledBand={setpoint != null ? settledBand(setpoint, source.warn, source.range, history.reading) : null}
+              settledBand={setpoint != null ? settledBand(setpoint, source.warn, source.range, history.measured) : null}
               title={`${describeController(controller)} · process`}
               unit={unit}
               exportHref={exportHref}
             />
           </div>
           <div>
-            <h4 className="fb-loop-chart-title" title={`What the controller asks of ${controller.target}, and what it can give back`}>
-              Drive <span className="fb-muted">{[target ? describeSignal(target) : controller.target, dUnit].filter((part) => part && part.toLowerCase() !== "drive").join(" · ")}</span>
+            <h4 className="fb-loop-chart-title" title={`What the controller asks of ${controller.output_signal}, and what it can give back`}>
+              Drive <span className="fb-muted">{[target ? describeSignal(target) : controller.output_signal, dUnit].filter((part) => part && part.toLowerCase() !== "drive").join(" · ")}</span>
             </h4>
-            {/* The target's limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
+            {/* The output signal's limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
             <MiniTrend
               series={drive}
               height={trendHeight}

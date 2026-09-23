@@ -43,7 +43,7 @@ called `channels`). Everything else in the entry is the driver's.
 
 A driver's *signals* are as generated as its config. A chip with a fixed
 set of readings declares them as descriptors on the class
-(`humidity = Output("humidity", …)`); a generic driver builds them from its
+(`humidity = Readout("humidity", …)`); a generic driver builds them from its
 own config at build time (`scpi`'s `channels`, `modbus`'s `registers`,
 `i2c_table`'s `registers`). Either way the result is the same tree, and the
 envelope's `signals:` overrides sit on top of it. What a driver may declare

@@ -207,10 +207,10 @@ def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh,
             name: {"driver": daq_tag, "poll_s": 0.01},
             "h": {"driver": relay_tag, "unit_id": 1},
         },
-        "controllers": {"h.power": {"signal": f"{name}.t"}},
+        "controllers": {"h.power": {"measured": f"{name}.t"}},
     }
     config = RigConfig.model_validate(document)
-    document["controllers"] = {"h.power": {"signal": f"{name}.nope"}}  # fails after the devices
+    document["controllers"] = {"h.power": {"measured": f"{name}.nope"}}  # fails after the devices
     broken = RigConfig.model_validate(document)
     with pytest.raises(NotFoundError, match="nope"):
         broken.build()

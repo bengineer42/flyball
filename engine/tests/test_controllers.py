@@ -11,7 +11,7 @@ from flyball.rig import (
     ControllerNotFoundError,
     Controllers,
     NoDefaultControllerError,
-    SourceClaimedError,
+    SignalClaimedError,
 )
 from test_rig_devices import Furnace
 
@@ -40,7 +40,7 @@ def test_keyed_by_target_address_with_the_first_as_default(furnace):
     assert controllers.find(furnace.signals["sample"]) is None
     assert controllers.driving(furnace.signals["heater1"]) is c1
     assert controllers.driving(furnace.signals["setpoint"]) is None
-    assert controllers.source("furnace.heater1") is furnace.signals["zone1"]
+    assert controllers.measured("furnace.heater1") is furnace.signals["zone1"]
     assert list(controllers.entries()) == [
         (furnace.signals["zone1"], c1),
         (furnace.signals["zone2"], c2),
@@ -78,12 +78,12 @@ def test_one_controller_per_target_and_one_per_source(furnace):
     controllers.add(c1)  # the same one again is a no-op
     assert len(controllers) == 1
     with pytest.raises(
-        SourceClaimedError,
+        SignalClaimedError,
         match="furnace.heater1 is already driven by controller 'furnace.heater1'",
     ):
         controllers.add(_controller(furnace, "heater1", "zone2"))
     with pytest.raises(
-        SourceClaimedError,
+        SignalClaimedError,
         match="furnace.zone1 is already regulated by controller 'furnace.heater1'",
     ):
         controllers.add(_controller(furnace, "heater2", "zone1"))

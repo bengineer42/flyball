@@ -31,6 +31,6 @@ devices:
 
 controllers:
   heater.drive:
-    signal: zone.temperature
+    measured: zone.temperature
     law: { tag: PI, kp: 1.0, ki: 0.05 }
     default: true

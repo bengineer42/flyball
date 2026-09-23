@@ -160,7 +160,7 @@ class TestTools:
             ("view_device", {"name": name}),
             ("describe_device", {"name": name}),
             ("read", {"address": name}),
-            ("manual", {"target": name}),
+            ("manual", {"controller": name}),
         ):
             with pytest.raises(SchemaError, match="not a name"):
                 self.tool(client, tool).run(client, arguments)

@@ -19,7 +19,7 @@ def run(name: str, setpoint: float, seconds: float) -> tuple[float, list[float]]
     clock = SteppedClock(0)
     rig = config.build(clock=clock, start=False)
     ((_, controller),) = rig.controllers.items()
-    source = controller.source
+    source = controller.measured_signal
     period = source.poll_s or 1.0
     rig.read(source, fresh=True)
     controller.regulate(setpoint)
@@ -27,8 +27,8 @@ def run(name: str, setpoint: float, seconds: float) -> tuple[float, list[float]]
     for _ in range(int(seconds / period)):
         clock.advance(period)
         rig.read(source, fresh=True)
-        assert controller.state.reading is not None
-        trace.append(controller.state.reading.value)
+        assert controller.state.measured is not None
+        trace.append(controller.state.measured.value)
     return trace[-1], trace
 
 
@@ -69,9 +69,9 @@ def test_dual_settles_both_controllers():
     for _ in range(1200):
         clock.advance(0.5)
         rig.read(sources, fresh=True)
-    assert heater.state.reading is not None and valve.state.reading is not None
-    assert heater.state.reading.value == pytest.approx(50.0, abs=0.5)
-    assert valve.state.reading.value == pytest.approx(40.0, abs=1.0)
+    assert heater.state.measured is not None and valve.state.measured is not None
+    assert heater.state.measured.value == pytest.approx(50.0, abs=0.5)
+    assert valve.state.measured.value == pytest.approx(40.0, abs=1.0)
 
 
 def test_every_example_validates_builds_and_names_a_default_controller():

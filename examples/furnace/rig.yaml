@@ -83,10 +83,10 @@ devices:
 # plain PI.
 controllers:
   heaters.heater1:
-    signal: furnace.zone1
+    measured: furnace.zone1
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
   heaters.heater2:
-    signal: furnace.zone2
+    measured: furnace.zone2
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward:
       tag: table
@@ -106,5 +106,5 @@ controllers:
         - [1100, 3229.4]
     default: true
   heaters.heater3:
-    signal: furnace.zone3
+    measured: furnace.zone3
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }

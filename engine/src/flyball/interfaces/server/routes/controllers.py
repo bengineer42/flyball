@@ -1,10 +1,10 @@
 """Controllers: reading them, and making, driving and removing them on the live rig.
 
-A controller binds one publishing signal (`source`) to one writable signal
-(`target`) through a law and a feedforward, and is named by its target's
+A controller binds one published signal (`measured`) to one demand (its
+`output`) through a law and a feedforward, and is named by its output's
 address, so `/{address}` carries dots (`heaters.heater1`). `schema` says
-what a form needs: every P signal a controller may regulate and every W
-signal it may drive, with units and dimensions, the law and feedforward
+what a form needs: every P signal a controller may regulate and every
+demand it may drive, with units and dimensions, the law and feedforward
 unions, the stored tunings, and which signals are already spoken for.
 """
 
@@ -46,9 +46,9 @@ FeedforwardConfig = discriminated_union(
 class NewController(BaseModel):
     """What makes a controller: two addresses, and a law as a config or a tuning's name."""
 
-    target: str
-    """The W signal to drive; the controller's name."""
-    source: str
+    output: str
+    """The demand to drive; the controller's name."""
+    measured: str
     """The P signal to regulate."""
     law: LawConfig | str | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | str | None = None  # type: ignore[valid-type]
@@ -62,13 +62,13 @@ class Regulate(BaseModel):
 
     at: float | ValueSource | GeneratorConfig  # type: ignore[valid-type]
     start: float | ValueSource | None = None
-    """Where a generator starts from: a value, `setpoint`, `process` (the reading) or `demand`.
+    """Where a generator starts from: a value, `setpoint`, `measured` (the reading) or `output`.
     Omitted: the current setpoint while regulating, else the last reading."""
     tuning: LawConfig | str | None = None  # type: ignore[valid-type]
     transfer: Transfer = Transfer.TRACK
 
 
-class Reference(BaseModel):
+class NewSetpoint(BaseModel):
     at: float | ValueSource | GeneratorConfig  # type: ignore[valid-type]
     start: float | ValueSource | None = None
     """Where a generator starts from; see `Regulate.start`."""
@@ -85,7 +85,7 @@ class SignalChoice(BaseModel):
     range: tuple[float, float] | None = None
     """A P signal's plausible values, for a setpoint entry."""
     limits: tuple[float, float] | None = None
-    """A W signal's clamp, for a demand entry."""
+    """A demand's clamp, for an output entry."""
 
     @classmethod
     def of(cls, signal: Signal) -> SignalChoice:
@@ -110,10 +110,10 @@ class TuningChoice(BaseModel):
 class ControllerSchema(BaseModel):
     """Everything a form needs to make a controller on this rig, right now."""
 
-    sources: list[SignalChoice]
-    """Every publishing signal."""
-    targets: list[SignalChoice]
-    """Every writable signal."""
+    measured: list[SignalChoice]
+    """Every published signal: what a controller may regulate."""
+    outputs: list[SignalChoice]
+    """Every writable signal: what a controller may drive."""
     laws: dict[str, Any]
     """JSON Schema of the law config union, discriminated on ``tag``."""
     feedforwards: dict[str, Any]
@@ -123,9 +123,9 @@ class ControllerSchema(BaseModel):
     tunings: list[TuningChoice]
     """Stored tunings a controller may name instead of a config."""
     regulated: dict[str, str]
-    """Sources already regulated, and by which controller."""
+    """Measured signals already regulated, and by which controller."""
     driven: dict[str, str]
-    """Targets already driven, and by which controller."""
+    """Outputs already driven, and by which controller."""
 
 
 def _out(rig: Rig, name: str | None = None) -> ControllerOut:
@@ -135,10 +135,10 @@ def _out(rig: Rig, name: str | None = None) -> ControllerOut:
 
 def _signal(rig: Rig, address: str) -> Signal:
     """The signal at `address`, or 404. Whether it may be bound is the rig's to refuse."""
-    target = rig.resolve(address)
-    if not isinstance(target, Signal):
+    found = rig.resolve(address)
+    if not isinstance(found, Signal):
         raise NotFoundError(f"'{address}' is a namespace, not a signal")
-    return target
+    return found
 
 
 def _start(controller: Controller, start: float | ValueSource | None) -> float | ValueSource:
@@ -182,8 +182,8 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
     controllers = list(rig.controllers.items())
     signals = [s for device in devices for s in list(device.signals.values())]
     return ControllerSchema(
-        sources=[SignalChoice.of(s) for s in signals if Access.P in s.access],
-        targets=[SignalChoice.of(s) for s in signals if Access.W in s.access],
+        measured=[SignalChoice.of(s) for s in signals if Access.P in s.access],
+        outputs=[SignalChoice.of(s) for s in signals if Access.W in s.access],
         laws=TypeAdapter(LawConfig).json_schema(),
         feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
         generators=TypeAdapter(GeneratorConfig).json_schema(),
@@ -191,7 +191,7 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
             TuningChoice(name=name, law=config.tag, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()
         ],
-        regulated={c.source.address: c.name for _, c in controllers},
+        regulated={c.measured_signal.address: c.name for _, c in controllers},
         driven={name: name for name, _ in controllers},
     )
 
@@ -203,20 +203,20 @@ async def read_default_controller(rig: RigDep) -> ControllerOut:
 
 @router.get("/{address}")
 async def read_controller(rig: RigDep, address: str) -> ControllerOut:
-    """`address` is the controller's name: its target's."""
+    """`address` is the controller's name: its output's."""
     return _out(rig, address)
 
 
 @router.post("", status_code=201)
 def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
     """Attach a controller. 409 if a signal is already spoken for or the units disagree."""
-    target = _signal(rig, body.target)
-    source = _signal(rig, body.source)
+    output = _signal(rig, body.output)
+    measured = _signal(rig, body.measured)
     law = body.law.build() if isinstance(body.law, BaseModel) else body.law  # type: ignore[union-attr]
     with rig.lock:
         controller = rig.attach_controller(
-            target,
-            source,
+            output,
+            measured,
             law=law,
             feedforward=body.feedforward,
             default=body.default,
@@ -227,7 +227,7 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
 
 @router.delete("/{address}", status_code=204)
 def remove_controller(rig: RigDep, address: str) -> None:
-    """Detach a controller. It is put in manual first so the target holds its last demand."""
+    """Detach a controller. It is put in manual first so the output holds its last value."""
     with rig.lock:
         rig.controllers.resolve(address).manual()
         rig.detach_controller(address)
@@ -237,9 +237,9 @@ def remove_controller(rig: RigDep, address: str) -> None:
 def regulate(rig: RigDep, address: str, body: Regulate) -> ControllerOut:
     """Aim at ``at`` and let the law drive.
 
-    ``at`` is a value, ``process``/``setpoint``/``demand``, or a generator
+    ``at`` is a value, ``measured``/``setpoint``/``output``, or a generator
     spec, which starts from the controller's current setpoint or reading.
-    The handover's demand is committed to the target's device at once.
+    The handover's output is committed to the output's device at once.
     """
     controller = rig.controllers.resolve(address)
     tuning = body.tuning.build() if isinstance(body.tuning, BaseModel) else body.tuning  # type: ignore[union-attr]
@@ -254,18 +254,18 @@ def regulate(rig: RigDep, address: str, body: Regulate) -> ControllerOut:
 
 @router.post("/{address}/manual")
 def manual(rig: RigDep, address: str) -> ControllerOut:
-    """Stop regulating; the target keeps its last demand and takes demands directly."""
+    """Stop regulating; the output keeps its last value and takes demands directly."""
     with rig.lock:
         rig.controllers.resolve(address).manual()
     return _out(rig, address)
 
 
-@router.put("/{address}/reference")
-def set_reference(rig: RigDep, address: str, body: Reference) -> ControllerOut:
+@router.put("/{address}/setpoint")
+def set_setpoint(rig: RigDep, address: str, body: NewSetpoint) -> ControllerOut:
     """Move the setpoint, or start following a generator, without touching the mode."""
     controller = rig.controllers.resolve(address)
     generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
     at = _start(controller, body.start) if generator is not None else body.at
     with rig.lock:
-        controller.set_reference(at, generator=generator)  # type: ignore[arg-type]
+        controller.set_setpoint(at, generator=generator)  # type: ignore[arg-type]
     return _out(rig, address)

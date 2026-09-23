@@ -76,10 +76,10 @@ Kelvin against a °C signal converts before it reports.
 | a law config | `{"tag": "PI", "kp": 0.5, "ki": 0.05, "tt": 0.0}`; the union discriminates on `tag` |
 | a law view | the config plus the law's state fields (`integral`, `last_raw`, …) |
 | `Tuning` | `{"tag": name, "config": law config}` |
-| `ControllerOut` | `{name, label, target, source, default, mode, law, feedforward, demand_unit, reference, setpoint, correction, demand, expected, delivered_correction, reading}` — `name` is `target`; see [Controllers](api.md#controllers) |
+| `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured}` — `name` is `output_signal`; `measured` is a `ReadingOut`; see [Controllers](api.md#controllers) |
 | `mode` | `"manual"`, `"open"`, `"regulating"` |
 | `Transfer` | `"none"`, `"carry"`, `"track"`, `"reset"` |
-| `ValueSource` | `"process"`, `"setpoint"`, `"demand"` |
+| `ValueSource` | `"measured"`, `"setpoint"`, `"output"` |
 
 A running law cannot cross the wire; a request that takes one takes a
 config or the name of a stored tuning instead.

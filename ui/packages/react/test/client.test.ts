@@ -73,13 +73,13 @@ describe("RigClient.read", () => {
 });
 
 describe("RigClient routes by address", () => {
-  it("puts a demand on a signal and on a device, and drives a controller by its target", async () => {
+  it("puts a demand on a signal and on a device, and drives a controller by its output", async () => {
     const write = { value: 500, requested: null, at_limit: null, controller: null };
     const { transport, asked } = fakeTransport({
       "PUT /api/signals/heaters.heater1": { "heaters.heater1": write },
       "PUT /api/devices/heaters/demand": { "heaters.heater1": write, "heaters.heater2": write },
       "POST /api/controllers/heaters.heater1/regulate": {},
-      "PUT /api/controllers/heaters.heater1/reference": {},
+      "PUT /api/controllers/heaters.heater1/setpoint": {},
       "POST /api/devices/furnace/commands/fail": null,
       "POST /api/waits/step-1/fire": { name: "step-1", fired: true },
     });
@@ -87,14 +87,14 @@ describe("RigClient routes by address", () => {
     expect(await rig.demand("heaters.heater1", 500)).toEqual({ "heaters.heater1": write });
     expect(Object.keys(await rig.demandNode("heaters", { heater1: 500, heater2: 500 }))).toEqual(["heaters.heater1", "heaters.heater2"]);
     await rig.regulate("heaters.heater1", { at: 100 });
-    await rig.setReference("heaters.heater1", "process");
+    await rig.setSetpoint("heaters.heater1", "measured");
     await rig.command("furnace", "fail", { signal: "zone1" });
     expect(await rig.fireWait("step-1")).toEqual({ name: "step-1", fired: true });
     expect(asked.map((r) => [r.method, r.path, r.body])).toEqual([
       ["PUT", "/api/signals/heaters.heater1", 500],
       ["PUT", "/api/devices/heaters/demand", { heater1: 500, heater2: 500 }],
       ["POST", "/api/controllers/heaters.heater1/regulate", { at: 100 }],
-      ["PUT", "/api/controllers/heaters.heater1/reference", { at: "process" }],
+      ["PUT", "/api/controllers/heaters.heater1/setpoint", { at: "measured" }],
       ["POST", "/api/devices/furnace/commands/fail", { signal: "zone1" }],
       ["POST", "/api/waits/step-1/fire", undefined],
     ]);

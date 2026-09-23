@@ -139,8 +139,8 @@ def writes_table(store: Store, session_id: int, address: str) -> tuple[list[str]
 TICK_FIELDS = (
     "mode",
     "setpoint",
-    "reading",
-    "demand",
+    "measured",
+    "output",
     "expected",
     "correction",
     "delivered_correction",
@@ -241,7 +241,7 @@ def export_session(
                     "controllers": [
                         {
                             "name": c.name,
-                            "source": c.source,
+                            "measured": c.measured,
                             "law": c.law,
                             "feedforward": c.feedforward,
                         }

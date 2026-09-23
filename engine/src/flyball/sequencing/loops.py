@@ -1,6 +1,6 @@
 """The controller commands every rig has: regulate, ramp, hold, arrive, manual.
 
-Each names a controller by its target address -- or a list of them, or none
+Each names a controller by its output address -- or a list of them, or none
 for the rig's default -- and does what the controller's own methods do, as a
 program step and as `POST /api/programs/command`.
 """
@@ -19,7 +19,7 @@ from .activities import Arrived, Timed
 from .command import Activity, Command
 
 ControllerNames = str | list[str] | None
-"""One controller by target address, several, or None for the rig's default."""
+"""One controller by output address, several, or None for the rig's default."""
 
 
 def _controllers(rig: Rig, which: ControllerNames) -> list[Controller]:
@@ -169,7 +169,7 @@ class Arrive(Command, tag="arrive", primary="loop"):
 
 @dataclass(frozen=True)
 class Manual(Command, tag="manual", primary="loop"):
-    """Stop a controller regulating; its target keeps its last demand and takes demands directly."""
+    """Stop a controller regulating; its output keeps its last value and takes demands directly."""
 
     loop: ControllerNames = None
 

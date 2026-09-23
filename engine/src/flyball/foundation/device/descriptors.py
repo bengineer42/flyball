@@ -33,8 +33,8 @@ class Namespace:
     """A namespace declared in a class body, or built from config: a builder for a NodeSpec.
 
     `flows = Namespace("flows", "Flows")` on the class; `self.flows` is the
-    bound [Node][flyball.foundation.device.signal.Node]. Its `demand`, `output`, `config`
-    and `input` make the signals under it.
+    bound [Node][flyball.foundation.device.signal.Node]. Its `demand`, `readout`,
+    `setting`, `config` and `input` make the signals under it.
     """
 
     def __init__(
@@ -71,9 +71,9 @@ class Namespace:
         """A settable signal under this namespace, with a readback; what a controller drives."""
         return Demand(name, label, *args, parent=self, **meta)
 
-    def output(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Output:
+    def readout(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Readout:
         """A produced signal under this namespace: a measurement, a derived value, a mode."""
-        return Output(name, label, *args, parent=self, **meta)
+        return Readout(name, label, *args, parent=self, **meta)
 
     def setting(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Setting:
         """A signal under this namespace that a command re-sets; shown, not driven."""
@@ -226,10 +226,10 @@ class Demand(Descriptor[Signal]):
     role = Role.DEMAND
 
 
-class Output(Descriptor[Signal]):
-    """Produced, never set: a measurement, a derived value, a mode. `RP`."""
+class Readout(Descriptor[Signal]):
+    """Produced by the device, never written from outside: a measurement, a derived value. `RP`."""
 
-    role = Role.OUTPUT
+    role = Role.READOUT
 
 
 class Setting(Descriptor[Signal]):

@@ -70,11 +70,12 @@ export type Value = number | boolean | string | null | Value[] | { [key: string]
 export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
 
 /**
- * What a signal is to its device: `demand` (settable, with a readback; what
- * a controller drives), `output` (produced), `setting` (re-set by a command),
- * `config` (effective at build). Inputs are bound roles, not signals.
+ * What a signal is to its device: `demand` (settable, with a readback; the
+ * only thing a controller drives), `readout` (produced by the device, never
+ * written from outside), `setting` (re-set by a command), `config`
+ * (effective at build). Inputs are bindings, not signals.
  */
-export type Role = "demand" | "output" | "setting" | "config";
+export type Role = "demand" | "readout" | "setting" | "config";
 
 /** One value on one signal at one instant. */
 export interface ReadingOut {
@@ -359,11 +360,11 @@ export interface LawConfig {
 }
 
 /**
- * What maps the setpoint into the target's unit before the law corrects:
- * `demand = feedforward(setpoint) + correction`. `setpoint` passes it
+ * What maps the setpoint into the output's unit before the law corrects:
+ * `output = feedforward(setpoint) + correction`. `setpoint` passes it
  * through (the units agree), `none` gives 0 (the law does all the work),
  * `affine` is `gain * setpoint + bias`, `table` interpolates `(setpoint,
- * demand)` breakpoints, held flat beyond the ends. `affine`/`table` take an
+ * output)` breakpoints, held flat beyond the ends. `affine`/`table` take an
  * optional `rate_gain` for a ramp's rate of change.
  */
 export type FeedforwardConfig =
@@ -416,39 +417,41 @@ export interface ProfileSpec {
   segments: Array<LinearRampSpec | HoldSpec>;
 }
 
-/** A set-point generator as `PUT .../reference` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
+/** A set-point generator as `PUT .../setpoint` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
 export type GeneratorSpec = LinearRampSpec | HoldSpec | ProfileSpec | { tag: string; [k: string]: unknown };
 
 /**
- * A controller as a client sees it: it binds one publishing signal
- * (`source`) to one writable signal (`target`), and is named by `target`.
+ * A controller as a client sees it: it regulates one published signal
+ * (`measured_signal`) through one demand (`output_signal`), and is named by
+ * its output. The faceplate reads `measured`, `setpoint` and `output`.
  */
 export interface ControllerOut {
-  /** The target's address. */
+  /** The output's address. */
   name: Address;
-  /** The target signal's display name; null when it has none, in which case show `name`. */
+  /** The output signal's display name; null when it has none, in which case show `name`. */
   label: string | null;
-  target: Address;
-  source: Address;
+  output_signal: Address;
+  measured_signal: Address;
   default: boolean;
   mode: ControllerMode;
   /** The law's config and state flattened, `tag` first; null when there is no law. */
   law: Record<string, unknown> | null;
   feedforward: FeedforwardConfig;
-  /** The unit `demand`, `expected` and `correction` are in: the target's. */
-  demand_unit: string;
+  /** The unit `output`, `expected` and `correction` are in: the output signal's. */
+  output_unit: string;
   /** A fixed setpoint, or the trajectory being followed (a ramp, a hold, a profile). */
   reference: number | GeneratorOut | null;
-  /** The reference resolved at the last tick, in the source's unit: a ramp's current value. */
+  /** The reference resolved at the last tick, in the measured unit: a ramp's current value. */
   setpoint: number | null;
   /** Whether the reference has landed: a number has; a trajectory once it finishes. */
   arrived?: boolean;
   correction: number;
-  demand: number | null;
+  /** The last value asked of the output signal. */
+  output: number | null;
   expected: number | null;
   delivered_correction: number | null;
-  /** On the source at the last tick. */
-  reading: ReadingOut | null;
+  /** The measured signal's reading at the last tick. */
+  measured: ReadingOut | null;
 }
 
 /** A signal a controller may bind to, with what a form shows beside it. */
@@ -458,9 +461,9 @@ export interface SignalChoice {
   label: string;
   unit: string;
   dimension: string | null;
-  /** A publishing signal's plausible values, for a setpoint entry. */
+  /** A published signal's plausible values, for a setpoint entry. */
   range: Band | null;
-  /** A writable signal's clamp, for a demand entry. */
+  /** A demand's clamp, for an output entry. */
   limits: Band | null;
 }
 
@@ -474,10 +477,10 @@ export interface TuningChoice {
 
 /** `GET /api/controllers/schema`: what a form needs to make a controller on this rig right now. */
 export interface ControllerSchema {
-  /** Every publishing signal. */
-  sources: SignalChoice[];
-  /** Every writable signal. */
-  targets: SignalChoice[];
+  /** Every published signal: what a controller may regulate. */
+  measured: SignalChoice[];
+  /** Every signal a controller may drive. */
+  outputs: SignalChoice[];
   /** JSON Schema of the law config union, discriminated on `tag`. */
   laws: JsonSchema;
   /** JSON Schema of the feedforward config union, discriminated on `tag`. */
@@ -485,17 +488,17 @@ export interface ControllerSchema {
   /** JSON Schema of the set-point generator config union (`GeneratorSpec`), discriminated on `tag`. */
   generators: JsonSchema;
   tunings: TuningChoice[];
-  /** source address → the controller already regulating it. */
+  /** measured signal address → the controller already regulating it. */
   regulated: Record<Address, Address>;
-  /** target address → the controller already driving it (its own name). */
+  /** output address → the controller already driving it (its own name). */
   driven: Record<Address, Address>;
 }
 
 export interface NewController {
-  /** The writable signal to drive; the controller's name. */
-  target: Address;
-  /** The publishing signal to regulate. */
-  source: Address;
+  /** The demand to drive, its output; the controller's name. */
+  output: Address;
+  /** The published signal to regulate, its measured signal. */
+  measured: Address;
   /** A config, or a stored tuning's name. */
   law?: LawConfig | string | null;
   /**
@@ -507,17 +510,17 @@ export interface NewController {
   min_period_s?: number | null;
 }
 
-export type ValueSource = "process" | "setpoint" | "demand";
+export type ValueSource = "measured" | "setpoint" | "output";
 export type Transfer = "none" | "carry" | "track" | "reset";
 
-/** Where a controller is sent: a value, where it already is (`process`/`setpoint`/`demand`), or a trajectory to follow. */
-export type ReferenceSpec = number | ValueSource | GeneratorSpec;
+/** Where a controller is sent: a value, where it already is (`measured`/`setpoint`/`output`), or a trajectory to follow. */
+export type SetpointSpec = number | ValueSource | GeneratorSpec;
 
-/** Where a generator starts from: a value, or the controller's `setpoint`, `process` (the reading) or `demand`. */
+/** Where a generator starts from: a value, or the controller's `setpoint`, `measured` (the reading) or `output`. */
 export type StartSpec = number | ValueSource;
 
 export interface RegulateRequest {
-  at: ReferenceSpec;
+  at: SetpointSpec;
   /** For a generator in `at`: where it starts. Omitted, the current setpoint while regulating, else the last reading. */
   start?: StartSpec | null;
   tuning?: LawConfig | string | null;
@@ -913,10 +916,10 @@ export interface WriteRow {
   limits: Band | null;
 }
 
-/** A controller is named by the signal it drives; `source` is the one it regulates. */
+/** A controller is named by the demand it drives; `measured` is the signal it regulates. */
 export interface ControllerRow {
   name: Address;
-  source: Address;
+  measured: Address;
   law: unknown;
   /** The feedforward's config; null in sessions recorded before there was one. */
   feedforward: unknown;
@@ -943,16 +946,16 @@ export interface Series {
 
 /** One controller step, for control plots. */
 export interface Tick {
-  /** The controller's name: the address of the signal it drives. */
+  /** The controller's name: the address of the demand it drives. */
   controller: Address;
   offset_ns: Nanoseconds;
   mode: string;
-  /** The law's share of the demand, in the target's unit; null when it was not a number (a NaN integral). */
+  /** The law's share of the output, in the output's unit; null when it was not a number (a NaN integral). */
   correction: number | null;
-  reading: number | null;
-  /** The setpoint resolved at this tick, in the source's unit (a ramp's value, not its name). */
+  measured: number | null;
+  /** The setpoint resolved at this tick, in the measured unit (a ramp's value, not its name). */
   setpoint: number | null;
-  demand: number | null;
+  output: number | null;
   expected: number | null;
   delivered_correction: number | null;
 }

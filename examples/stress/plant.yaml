@@ -548,71 +548,71 @@ devices:
 # modelled the plant itself. The furnace's are in watts, as before.
 controllers:
   heaters.heater1:
-    signal: furnace.zone1
+    measured: furnace.zone1
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { tag: none }
   heaters.heater2:
-    signal: furnace.zone2
+    measured: furnace.zone2
     law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
     feedforward: { tag: affine, gain: 2.0, bias: 50 }
   heaters.heater3:
-    signal: furnace.zone3
+    measured: furnace.zone3
     law: { tag: P, kp: 120 }
     feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   heaters.heater4:
-    signal: furnace.zone4
+    measured: furnace.zone4
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { tag: none }
   heaters.heater5:
-    signal: furnace.zone5
+    measured: furnace.zone5
     law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
     feedforward: { tag: affine, gain: 2.0, bias: 80 }
   heaters.heater6:
-    signal: furnace.zone6
+    measured: furnace.zone6
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
     default: true
   heaters.heater7:
-    signal: furnace.zone7
+    measured: furnace.zone7
     law: { tag: P, kp: 120 }
     feedforward: { tag: none }
   heaters.heater8:
-    signal: furnace.zone8
+    measured: furnace.zone8
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { tag: affine, gain: 1.8, bias: 60 }
   heaters.heater9:
-    signal: furnace.zone9
+    measured: furnace.zone9
     law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
     feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   heaters.heater10:
-    signal: furnace.zone10
+    measured: furnace.zone10
     law: { tag: P, kp: 120 }
     feedforward: { tag: none }
   heaters.heater11:
-    signal: furnace.zone11
+    measured: furnace.zone11
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { tag: affine, gain: 1.5, bias: 40 }
   heaters.heater12:
-    signal: furnace.zone12
+    measured: furnace.zone12
     law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
     feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   burner1.drive:
-    signal: temp1.temperature
+    measured: temp1.temperature
     law: { tag: P, kp: 0.00045 }
     feedforward: { tag: affine, gain: 0.016666667, bias: -0.33333333 }
   burner2.drive:
-    signal: temp2.temperature
+    measured: temp2.temperature
     law: { tag: PI, kp: 0.00016, ki: 6e-06 }
     feedforward: { tag: affine, gain: 0.01, bias: -0.2 }
   burner3.drive:
-    signal: temp3.temperature
+    measured: temp3.temperature
     law: { tag: PID, kp: 7.1333333e-05, ki: 2.6666667e-06, kd: 0.0066666667 }
     feedforward: { tag: affine, gain: 0.0066666667, bias: -0.13333333 }
   valve1.drive:
-    signal: level1.volume
+    measured: level1.volume
     law: { tag: PI, kp: 0.025, ki: 0.005 }
     feedforward: { tag: affine, gain: 0.025 }
   valve2.drive:
-    signal: level2.volume
+    measured: level2.volume
     law: { tag: PID, kp: 0.013333333, ki: 0.0026666667, kd: 0.066666667 }
     feedforward: { tag: affine, gain: 0.026666667 }

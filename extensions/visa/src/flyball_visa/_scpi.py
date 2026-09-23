@@ -73,7 +73,7 @@ class ScpiSignal(BaseModel):
 
     @property
     def role(self) -> Role:
-        return Role.DEMAND if self.write is not None else Role.OUTPUT
+        return Role.DEMAND if self.write is not None else Role.READOUT
 
     @property
     def access(self) -> Access:

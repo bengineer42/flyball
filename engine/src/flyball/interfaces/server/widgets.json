@@ -239,7 +239,7 @@
     {
       "kind": "loop",
       "label": "Controller",
-      "description": "A controller's faceplate: reading, target and output rows, with the Process/Drive trends beside them.",
+      "description": "A controller's faceplate: measured, setpoint and output rows, with the Process/Drive trends beside them.",
       "category": "control",
       "default_size": {
         "w": 8,
@@ -266,7 +266,7 @@
             "oneOf": [
               {
                 "const": "compact",
-                "title": "compact: reading/target/output rows only"
+                "title": "compact: measured/setpoint/output rows only"
               },
               {
                 "const": "full",

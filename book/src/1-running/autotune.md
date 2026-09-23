@@ -38,9 +38,9 @@ gentler experiment: the rig only moves between two steady targets.
 ```python
 test = StepTest(base=50.0, size=10.0, window=120.0, band=0.3, timeout=1800.0)
 while not test.done:
-    reading = ...                                  # the latest on the controller's source signal
-    target = test.step(reading.time_ns / 1e9, reading.value)
-    controller.set_reference(target)
+    reading = ...                                  # the latest on the controller's measured signal
+    setpoint = test.step(reading.time_ns / 1e9, reading.value)
+    controller.set_setpoint(setpoint)
 model = test.result                                # an FOPDT
 ```
 

@@ -4,7 +4,7 @@ import random
 from collections.abc import Iterator
 
 from flyball.foundation import Quantity, Sample
-from flyball.foundation.device.device import Output, Readable
+from flyball.foundation.device.device import Readable, Readout
 from flyball.foundation.quantities.si import Celsius, Pascal
 
 # --8<-- [start:quantities]
@@ -20,9 +20,9 @@ class PolledWeather(Readable):
 
     # The tree: one descriptor per signal. Range and precision are the
     # *signal's*, declared here: two stations may report `temperature`
-    # with different bounds. `Output` is RP -- produced, never set.
-    temperature = Output("temperature", "Air temperature", TEMPERATURE, range=(-40.0, 125.0), precision=2)
-    pressure = Output("pressure", "Barometric pressure", PRESSURE, range=(30_000.0, 110_000.0), precision=0)
+    # with different bounds. `Readout` is RP -- produced, never set.
+    temperature = Readout("temperature", "Air temperature", TEMPERATURE, range=(-40.0, 125.0), precision=2)
+    pressure = Readout("pressure", "Barometric pressure", PRESSURE, range=(30_000.0, 110_000.0), precision=0)
     # --8<-- [end:polled-signals]
 
     # --8<-- [start:polled-read]
@@ -39,8 +39,8 @@ class PolledWeather(Readable):
 class PushedWeather(Readable):
     """Something else produces values; this device hands them to the rig as they arrive."""
 
-    temperature = Output("temperature", "Air temperature", TEMPERATURE, range=(-40.0, 125.0), precision=2)
-    pressure = Output("pressure", "Barometric pressure", PRESSURE, range=(30_000.0, 110_000.0), precision=0)
+    temperature = Readout("temperature", "Air temperature", TEMPERATURE, range=(-40.0, 125.0), precision=2)
+    pressure = Readout("pressure", "Barometric pressure", PRESSURE, range=(30_000.0, 110_000.0), precision=0)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
         yield from ()  # nothing to poll: every value arrives by push

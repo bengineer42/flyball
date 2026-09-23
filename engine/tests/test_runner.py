@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -488,17 +489,26 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
             db.execute(f"ALTER TABLE session DROP COLUMN {column}")
         db.execute("DROP TABLE rig_head")
         db.execute("ALTER TABLE rig_version DROP COLUMN parent_id")
+        # 0013's renames, undone: the columns as 0011 knew them
+        db.execute("ALTER TABLE tick RENAME COLUMN measured TO reading")
+        db.execute("ALTER TABLE tick RENAME COLUMN output TO demand")
+        db.execute("ALTER TABLE controller RENAME COLUMN measured TO source")
+        old = {"controllers": {"h.power": {"signal": "p.t", "default": True}, "h.fan": {}}}
         for i in (1, 2, 3):
             db.execute(
-                "INSERT INTO rig_version (time_ns, reason, files, document)"
-                " VALUES (?, ?, '[]', '{}')",
-                (i, f"v{i}"),
+                "INSERT INTO rig_version (time_ns, reason, files, document) VALUES (?, ?, '[]', ?)",
+                (i, f"v{i}", json.dumps(old if i == 3 else {})),
             )
         db.execute("UPDATE schema_version SET version = 8")
     store = SqliteStore(path)
     rows = store.rig_versions()
     assert [(r.id, r.parent) for r in rows] == [(3, 2), (2, 1), (1, None)]
     assert store.head_rig_version().id == 3
+    # 0013: a stored controller's `signal` is its `measured` now, so the version still loads
+    assert rows[0].document == {
+        "controllers": {"h.power": {"default": True, "measured": "p.t"}, "h.fan": {}}
+    }
+    assert rows[2].document == {}
     store.close()
 
 

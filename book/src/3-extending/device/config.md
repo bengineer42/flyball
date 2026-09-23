@@ -19,7 +19,7 @@ tells the three apart by what they build.
 
 Config arrives from outside — a YAML file, a `PUT` request — so it is
 validated on the way in. Pydantic gives that, plus a JSON schema the UI and
-CLI build forms from. A device's other signals (`Output`, `Setting`,
+CLI build forms from. A device's other signals (`Readout`, `Setting`,
 `Demand`) are readings in the router, not a returned model: they are built
 in-process and only ever leave.
 

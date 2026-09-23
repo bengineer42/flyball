@@ -59,9 +59,9 @@ class PulseCounter(Readable):
         self._count = 0.0
         self._last_time_ns: int | None = None
         self.bind((
-            SignalSpec(name="rate", quantity=RATE, access=Access.RP, role=Role.OUTPUT),
+            SignalSpec(name="rate", quantity=RATE, access=Access.RP, role=Role.READOUT),
             SignalSpec(
-                name="count", quantity=COUNT, access=Access.RP, role=Role.OUTPUT, precision=0
+                name="count", quantity=COUNT, access=Access.RP, role=Role.READOUT, precision=0
             ),
         ))
         link.claim_edge(line, debounce_s, pull_up)

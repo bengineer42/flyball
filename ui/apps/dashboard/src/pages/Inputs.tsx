@@ -229,8 +229,8 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
   const value = useValueReadout(streams && !numeric ? signal : undefined);
   if (!signal) return <Alert severity="warning">No signal at {address}.</Alert>;
   const device = deviceOf(address);
-  const regulating = Object.values(controllers).filter((c) => c.source === address);
-  const driving = Object.values(controllers).find((c) => c.target === address);
+  const regulating = Object.values(controllers).filter((c) => c.measured_signal === address);
+  const driving = Object.values(controllers).find((c) => c.output_signal === address);
   const users = driving ? [driving, ...regulating] : regulating;
   return (
     <>
@@ -266,7 +266,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
                   </Link>{" "}
                   <Typography component="span" variant="body2" color="text.secondary">
                     {c.label && `${c.name} · `}
-                    {c.target === address ? "drives this signal" : "regulates this signal"} · {c.mode}
+                    {c.output_signal === address ? "drives this signal" : "regulates this signal"} · {c.mode}
                     {c.setpoint !== null && c.setpoint !== undefined && ` · target ${c.setpoint}`}
                   </Typography>
                 </Typography>

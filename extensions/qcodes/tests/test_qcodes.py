@@ -68,7 +68,7 @@ class TestQCoDeS:
     def test_a_read_only_parameter_is_an_output(self, fresh):
         inst = FakeInstrument("smu")
         device = QCoDeS(fresh("smu"), inst, {"temp": QCoDeSSignal(property="temp")})
-        assert device.signals["temp"].role is Role.OUTPUT
+        assert device.signals["temp"].role is Role.READOUT
         assert device.signals["temp"].access is Access.R
         assert "temp" not in device.publishing, "not streamed unless published"
 

@@ -35,8 +35,8 @@ from flyball.foundation.device import (
     Demand,
     DriverConfig,
     Node,
-    Output,
     Readable,
+    Readout,
     Sample,
     command,
 )
@@ -51,7 +51,7 @@ TEMP = Quantity("temperature", Celsius)
 class Foo200(Readable, Committable):
     """What it measures and drives, in one line; the rest of the docstring is for people."""
 
-    bath = Output("bath", "Bath temperature", TEMP, range=(-20.0, 200.0), precision=2)
+    bath = Readout("bath", "Bath temperature", TEMP, range=(-20.0, 200.0), precision=2)
     setpoint = Demand("setpoint", "Bath setpoint", TEMP, limits=(-20.0, 200.0))
 
     def __init__(self, name: str, link: TextLink, label: str | None = None) -> None:
@@ -90,16 +90,16 @@ class Foo200Config(DriverConfig[Foo200], tag="foo200"):
 
 | descriptor | what | who sets it |
 |---|---|---|
-| `Output(name, label, quantity, range=, precision=, warn=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
+| `Readout(name, label, quantity, range=, precision=, warn=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
 | `Demand(name, label, quantity, limits=)` | a value someone asks for; its readback is what the device is doing | a controller, a command, `set_demand` |
-| `Namespace(name, label)` then `ns.output(...)` / `ns.demand(...)` / `ns.config(...)` / `ns.input(...)` | a subtree, one address segment | -- |
+| `Namespace(name, label)` then `ns.readout(...)` / `ns.demand(...)` / `ns.config(...)` / `ns.input(...)` | a subtree, one address segment | -- |
 | `ns.config(section, label, quantity)` | a value fixed at build from the config (a max flow) | `build`, by `self.x.push(...)` |
 | `ns.input(section, label, quantity, default=)` | another device's signal the rig binds to this role (`bound:` in the rig file) | the rig |
 | `Section(name, label)` | a tag across the tree (`dry`/`wet`); supplies the segment name to `ns.<kind>(section, ...)` | -- |
 
 Rules: `name` is the address segment, `label` the display text. `limits`
 may be numbers, a config descriptor (resolved at build) or an input
-(resolved live). An `Output` with a non-float `vtype` (an enum, `initial=`)
+(resolved live). An `Readout` with a non-float `vtype` (an enum, `initial=`)
 is how a device reports its mode. On the class a descriptor is the spec; on
 the instance `self.bath` is the bound signal: `.value`, `.push(value,
 time_ns)`, and for a demand `.pending` (what was asked and not yet

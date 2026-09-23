@@ -42,6 +42,6 @@ devices:
 # setpoint untouched and the law's gains are the old L-per-L tuning.
 controllers:
   valve.drive:
-    signal: level.volume
+    measured: level.volume
     law: { tag: PI, kp: 0.05, ki: 0.01 }
     default: true

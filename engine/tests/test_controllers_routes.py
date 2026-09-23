@@ -42,16 +42,16 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     schema = client.get("/api/controllers/schema").json()
     # Every signal publishes now (`conditions`, `last.*` included), so check the temperature
     # zones are among the sources, in order, rather than the whole (much longer) list.
-    source_addresses = [s["address"] for s in schema["sources"]]
+    source_addresses = [s["address"] for s in schema["measured"]]
     assert source_addresses.index(source) < source_addresses.index(f"{daq.name}.zone2")
-    zone1_choice = next(s for s in schema["sources"] if s["address"] == source)
+    zone1_choice = next(s for s in schema["measured"] if s["address"] == source)
     assert zone1_choice["dimension"] == "Temperature"
-    assert [s["address"] for s in schema["targets"]] == [
+    assert [s["address"] for s in schema["outputs"]] == [
         f"{daq.name}.setpoint",
         target,
         f"{drive.name}.heater2",
     ]
-    assert schema["targets"][1]["limits"] == [0.0, 2500.0]
+    assert schema["outputs"][1]["limits"] == [0.0, 2500.0]
     tags = {d["properties"]["tag"]["const"] for d in schema["laws"]["$defs"].values()}
     assert "PI" in tags and schema["laws"]["discriminator"]["propertyName"] == "tag"
     ff = {d["properties"]["tag"]["const"] for d in schema["feedforwards"]["$defs"].values()}
@@ -67,44 +67,52 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
 
     # The units disagree (°C -> W), so the setpoint itself cannot be the feedforward.
     bad = client.post(
-        "/api/controllers", json={"target": target, "source": source, "feedforward": "setpoint"}
+        "/api/controllers", json={"output": target, "measured": source, "feedforward": "setpoint"}
     )
     assert bad.status_code == 409
     assert (
-        client.post("/api/controllers", json={"target": target, "source": "nowhere.x"}).status_code
+        client.post(
+            "/api/controllers", json={"output": target, "measured": "nowhere.x"}
+        ).status_code
         == 404
     )
     assert (
-        client.post("/api/controllers", json={"target": drive.name, "source": source}).status_code
+        client.post("/api/controllers", json={"output": drive.name, "measured": source}).status_code
         == 404
     )
 
     made = client.post(
         "/api/controllers",
         json={
-            "target": target,
-            "source": source,
+            "output": target,
+            "measured": source,
             "law": {"tag": "P", "kp": 10.0},
             "default": True,
         },
     )
     assert made.status_code == 201
     body = made.json()
-    assert body["name"] == target and body["target"] == target and body["source"] == source
+    assert (
+        body["name"] == target
+        and body["output_signal"] == target
+        and body["measured_signal"] == source
+    )
     assert body["label"] == "Heater 1" and body["default"] is True and body["mode"] == "manual"
-    assert body["feedforward"] == {"tag": "none"} and body["demand_unit"] == "W"
-    assert body["law"]["tag"] == "P" and body["reading"] is None
+    assert body["feedforward"] == {"tag": "none"} and body["output_unit"] == "W"
+    assert body["law"]["tag"] == "P" and body["measured"] is None
     assert client.get(f"/api/controllers/{target}").json() == body
     assert client.get("/api/controllers/default").json() == body
     assert [c["name"] for c in client.get("/api/controllers").json()] == [target]
     schema = client.get("/api/controllers/schema").json()
     assert schema["regulated"] == {source: target} and schema["driven"] == {target: target}
 
-    # The target and the source are spoken for.
-    again = client.post("/api/controllers", json={"target": target, "source": f"{daq.name}.zone2"})
+    # The output and the measured signal are spoken for.
+    again = client.post(
+        "/api/controllers", json={"output": target, "measured": f"{daq.name}.zone2"}
+    )
     assert again.status_code == 409 and "already driven" in again.json()["detail"]
     again = client.post(
-        "/api/controllers", json={"target": f"{drive.name}.heater2", "source": source}
+        "/api/controllers", json={"output": f"{drive.name}.heater2", "measured": source}
     )
     assert again.status_code == 409 and "already regulated" in again.json()["detail"]
 
@@ -125,9 +133,9 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 60.0, "transfer": "reset"})
     assert reg.status_code == 200
     assert reg.json()["mode"] == "regulating" and reg.json()["reference"] == 60.0
-    assert reg.json()["demand"] == 0.0 and reg.json()["expected"] == 0.0
+    assert reg.json()["output"] == 0.0 and reg.json()["expected"] == 0.0
     assert drive.inputs["heater1"] == 0.0
-    assert reg.json()["reading"] is None, "attached after the delivery: no tick yet"
+    assert reg.json()["measured"] is None, "attached after the delivery: no tick yet"
     heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][1]
     assert heater1["write"]["controller"] == target and heater1["write"]["at_limit"] == "low"
 
@@ -137,9 +145,9 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert drive.inputs["heater1"] == 385.0
     after = client.get(f"/api/controllers/{target}").json()
     assert after["expected"] == 385.0
-    assert after["reading"] == {"signal": source, "time_ns": 1_000_000_000, "value": 21.5}
+    assert after["measured"] == {"signal": source, "time_ns": 1_000_000_000, "value": 21.5}
 
-    ref = client.put(f"/api/controllers/{target}/reference", json={"at": 65.0})
+    ref = client.put(f"/api/controllers/{target}/setpoint", json={"at": 65.0})
     assert ref.json()["reference"] == 65.0 and ref.json()["mode"] == "regulating"
     bad = client.post(f"/api/controllers/{target}/regulate", json={"at": 1.0, "tuning": "ghost"})
     assert bad.status_code == 404
@@ -165,12 +173,12 @@ def test_tunings_are_stored_on_the_rig(client, rig):
 
 
 def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
-    """A generator spec on `/reference` shows its own params on the wire and moves the setpoint."""
+    """A generator spec on `/setpoint` shows its own params on the wire and moves the setpoint."""
     target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
     deliver(rig, daq)
     made = client.post(
         "/api/controllers",
-        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"tag": "P", "kp": 10.0}},
     )
     assert made.status_code == 201
     reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
@@ -178,7 +186,7 @@ def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
     assert reg.json()["arrived"] is True, "a number is already where it is going"
 
     ramp = client.put(
-        f"/api/controllers/{target}/reference",
+        f"/api/controllers/{target}/setpoint",
         json={"at": {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0}},
     )
     assert ramp.status_code == 200
@@ -204,7 +212,7 @@ def test_reference_can_start_a_generator(client, rig, daq, drive, clock):
     assert landed["setpoint"] == 30.0 and landed["arrived"] is True
 
     bad = client.put(
-        f"/api/controllers/{target}/reference", json={"at": {"tag": "no_such_generator"}}
+        f"/api/controllers/{target}/setpoint", json={"at": {"tag": "no_such_generator"}}
     )
     assert bad.status_code == 422
     assert any("no_such_generator" in str(error) for error in bad.json()["detail"])
@@ -216,11 +224,11 @@ def test_reference_can_start_a_profile(client, rig, daq, drive, clock):
     deliver(rig, daq)
     client.post(
         "/api/controllers",
-        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"tag": "P", "kp": 10.0}},
     )
     client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
     profile = client.put(
-        f"/api/controllers/{target}/reference",
+        f"/api/controllers/{target}/setpoint",
         json={
             "at": {
                 "tag": "profile",
@@ -261,7 +269,7 @@ def test_reference_can_start_a_profile(client, rig, daq, drive, clock):
     assert last["arrived"] is False, "a hold with no duration never lands"
 
     endless_first = client.put(
-        f"/api/controllers/{target}/reference",
+        f"/api/controllers/{target}/setpoint",
         json={
             "at": {
                 "tag": "profile",
@@ -272,7 +280,7 @@ def test_reference_can_start_a_profile(client, rig, daq, drive, clock):
     assert endless_first.status_code == 422
     assert "segment 0 (hold) never ends" in endless_first.text
     empty = client.put(
-        f"/api/controllers/{target}/reference", json={"at": {"tag": "profile", "segments": []}}
+        f"/api/controllers/{target}/setpoint", json={"at": {"tag": "profile", "segments": []}}
     )
     assert empty.status_code == 422
 
@@ -282,7 +290,7 @@ def test_regulate_can_start_a_generator_from_the_current_reading(client, rig, da
     target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
     client.post(
         "/api/controllers",
-        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"tag": "P", "kp": 10.0}},
     )
     deliver(rig, daq)  # zone1 reads 21.5, now that the controller is attached to see it
     started = client.post(
@@ -300,7 +308,7 @@ def test_regulate_a_generator_refuses_without_a_reading_or_reference(client, rig
     target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
     client.post(
         "/api/controllers",
-        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"tag": "P", "kp": 10.0}},
     )
     refused = client.post(
         f"/api/controllers/{target}/regulate",
@@ -315,7 +323,7 @@ def test_controllers_stream_sends_a_snapshot_then_each_tick(client, rig, daq, dr
     with client.websocket_connect("/ws/controllers") as ws:
         (first,) = ws.receive_json()["controllers"]
         assert first["name"] == heater1.address and first["mode"] == "manual"
-        assert first["default"] is True and first["source"] == zone1.address
+        assert first["default"] is True and first["measured_signal"] == zone1.address
         deliver(rig, daq)
         controller.regulate(60.0, transfer=Transfer.RESET)
         clock.advance(1.0)
@@ -346,14 +354,12 @@ def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
     deliver(rig, daq)  # the reading is 21.5
     client.post(
         "/api/controllers",
-        json={"target": target, "source": source, "law": {"tag": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"tag": "P", "kp": 10.0}},
     )
     client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "reset"})
     ramp = {"tag": "linear_ramp_setpoint", "pace": {"minutes": 1}, "end": 80.0}
 
-    from_value = client.put(
-        f"/api/controllers/{target}/reference", json={"at": ramp, "start": 50.0}
-    )
+    from_value = client.put(f"/api/controllers/{target}/setpoint", json={"at": ramp, "start": 50.0})
     assert from_value.status_code == 200
     clock.advance(30.0)
     deliver(rig, daq)
@@ -362,7 +368,7 @@ def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
     )
 
     from_reading = client.put(
-        f"/api/controllers/{target}/reference", json={"at": ramp, "start": "process"}
+        f"/api/controllers/{target}/setpoint", json={"at": ramp, "start": "measured"}
     )
     assert from_reading.status_code == 200
     clock.advance(30.0)
@@ -372,7 +378,7 @@ def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
     ), "from the reading"
 
     from_setpoint = client.put(
-        f"/api/controllers/{target}/reference", json={"at": ramp, "start": "setpoint"}
+        f"/api/controllers/{target}/setpoint", json={"at": ramp, "start": "setpoint"}
     )
     assert from_setpoint.status_code == 200
     before = (21.5 + 80.0) / 2
@@ -384,7 +390,7 @@ def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
 
     assert (
         client.put(
-            f"/api/controllers/{target}/reference", json={"at": ramp, "start": "nowhere"}
+            f"/api/controllers/{target}/setpoint", json={"at": ramp, "start": "nowhere"}
         ).status_code
         == 422
     )

@@ -143,7 +143,7 @@ class QCoDeS(Readable, Committable):
             if settable:
                 role, access = Role.DEMAND, Access.RPW
             else:
-                role, access = Role.OUTPUT, (Access.RP if channel.publish else Access.R)
+                role, access = Role.READOUT, (Access.RP if channel.publish else Access.R)
             unit = (
                 Unit.get(channel.unit)
                 if channel.unit

@@ -67,20 +67,20 @@ const SIGNAL: SignalOut = {
 const CONTROLLER: ControllerOut = {
   name: "heater.demand",
   label: null,
-  target: "heater.demand",
-  source: "chamber.temp",
+  output_signal: "heater.demand",
+  measured_signal: "chamber.temp",
   default: false,
   mode: "regulating",
   law: null,
   feedforward: { tag: "none" },
-  demand_unit: "W",
+  output_unit: "W",
   reference: 50,
   setpoint: 50,
   correction: 0,
-  demand: 10,
+  output: 10,
   expected: 10,
   delivered_correction: 0,
-  reading: null,
+  measured: null,
 };
 
 describe("WritePanel gates on canOperate", () => {

@@ -1,7 +1,7 @@
 # Writing a sensor
 
 A sensor is a `Readable` device: it implements `read`, and its signals are
-`R`/`P` (`Output`, the default role). There is no separate `Reader` class —
+`R`/`P` (`Readout`, the default role). There is no separate `Reader` class —
 a sensor, an actuator with a readback, and a multi-channel instrument are
 all `Device`, told apart by which of `Readable`/`Committable` they are and
 which access flags their signals carry.
@@ -24,7 +24,7 @@ rig can differ in all three.
 --8<-- "sensor.py:polled-signals"
 ```
 
-Each signal is a **descriptor** on the class: [`Output`][flyball.foundation.device.descriptors.Output]
+Each signal is a **descriptor** on the class: [`Readout`][flyball.foundation.device.descriptors.Readout]
 for something produced (`RP`), the only role a pure sensor needs. Its
 arguments are the signal's name, a label, its quantity, then metadata:
 `range` and `precision` for a gauge or an axis, `warn` and `alarm` bands,
@@ -120,7 +120,7 @@ the exception that stopped it.
 
 A sensor is a device like any other, so it may declare a `ConfigSignal` and
 mark commands the same way a writable device does — see
-[Writing an actuator](actuator.md#demand-output-and-setting). One with
+[Writing an actuator](actuator.md#demand-readout-and-setting). One with
 nothing to configure declares nothing. To be named in a rig file it needs a
 config class with a tag -- [Config and build](config.md) -- after which it
 appears in [Supported drivers](../../2-config/devices/drivers.md)' terms: its own

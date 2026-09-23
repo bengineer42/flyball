@@ -43,9 +43,9 @@ asserts on what it did. Nothing sleeps: `clock.advance(1.0)` runs the
 
 ## Testing a law without a rig
 
-A `Controller` needs bound signals — `Access.W` on the target, `Access.P` on
-the source — but not a running `Rig`: built with no `write` callback, it
-records demands on itself (`controller.demand`) instead of committing
+A `Controller` needs bound signals — `Access.W` on the output, `Access.P` on
+the measured signal — but not a running `Rig`: built with no `write`
+callback, it records its output on itself (`controller.output`) instead of committing
 anything, which is enough to drive a bare plant by hand:
 
 ```python
@@ -74,7 +74,7 @@ controller = Controller(
     bench.signals["heater"],
     bench.signals["reading"],
     law=PI(kp=1.0, ki=0.1),
-    write=lambda demand: plant.drive(demand, 0.1),
+    write=lambda value: plant.drive(value, 0.1),
 )
 controller.regulate(1.0)
 for _ in range(100):
@@ -82,7 +82,7 @@ for _ in range(100):
     controller.tick(Reading(bench.signals["reading"], clock.now_ns(), plant.output))
 ```
 
-`controller.correction`, `controller.demand` and `plant.output` (or, with a
+`controller.correction`, `controller.output` and `plant.output` (or, with a
 `write` that records instead of driving, the values it was handed) are what
 a law's own test asserts on. No `Rig`, no device tree beyond the two signals
 a controller needs.
@@ -139,7 +139,7 @@ devices:
 
 controllers:
   heater.drive:
-    signal: thermocouple.temperature
+    measured: thermocouple.temperature
     law: { tag: PI, kp: 0.02, ki: 0.0005 }
     default: true
 ```

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from flyball.foundation.device import Committable, Demand, Level, Output, Sample, command
+from flyball.foundation.device import Committable, Demand, Level, Readout, Sample, command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.sequencing import Command, Program, Programmer, Wait
@@ -19,7 +19,7 @@ POWER = Quantity("power", Watt)
 class Heater(Committable):
     """One output zone and one power demand, plus a command independent of any controller."""
 
-    zone = Output("zone", "", TEMP)
+    zone = Readout("zone", "", TEMP)
     power = Demand("power", "", POWER, limits=(0.0, 100.0))
 
     def __init__(self, name: str) -> None:

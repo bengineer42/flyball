@@ -94,7 +94,7 @@ class DosingPump(Committable):
                 name="dispensed_ml",
                 quantity=VOLUME,
                 access=Access.RP,
-                role=Role.OUTPUT,
+                role=Role.READOUT,
                 initial=0.0,
             ),
         ))

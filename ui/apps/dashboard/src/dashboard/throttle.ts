@@ -48,7 +48,7 @@ export function useStableControllers(controllers: Record<Address, ControllerOut>
   const nextHistory: ControllerTraces = {};
   for (const [name, trace] of Object.entries(history)) {
     const prev = held.current.history[name];
-    if (prev && sameTrace({ t: prev.t, v: prev.reading }, { t: trace.t, v: trace.reading })) nextHistory[name] = prev;
+    if (prev && sameTrace({ t: prev.t, v: prev.measured }, { t: trace.t, v: trace.measured })) nextHistory[name] = prev;
     else {
       nextHistory[name] = trace;
       changed = true;

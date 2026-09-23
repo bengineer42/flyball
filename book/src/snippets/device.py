@@ -12,7 +12,7 @@ from flyball.foundation.device.descriptors import Demand, Setting
 from flyball.foundation.device.device import (
     Committable,
     DriverConfig,
-    Output,
+    Readout,
     Readable,
     command,
 )
@@ -43,7 +43,7 @@ class Heater(Readable, Committable):
     """
 
     demand = Demand("demand", "Target temperature", TEMPERATURE, limits=(0.0, 300.0))
-    power = Output("power", "Power drawn", POWER)
+    power = Readout("power", "Power drawn", POWER)
     limit = Setting("limit", "Power limit", initial=1.0)  # fraction of max_power_w
 
     # --8<-- [start:heater-init]

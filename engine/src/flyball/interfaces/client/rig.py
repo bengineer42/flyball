@@ -216,7 +216,7 @@ class Rig:
         return Devices(self)
 
     def controllers(self) -> Any:
-        """Every controller, by its target address."""
+        """Every controller, by its output address."""
         return self.get("/api/controllers")
 
     def read(self, address: str, fresh: bool = False) -> Any:

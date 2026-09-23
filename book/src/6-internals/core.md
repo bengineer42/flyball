@@ -90,7 +90,7 @@ Three kinds of object, told apart by who changes them and when:
 
 A device's own signal roles echo the same split at finer grain (below): a
 `Role.CONFIG` signal is effective at the structure tier; a
-`Role.DEMAND`/`Role.SETTING`/`Role.OUTPUT` signal's readings are the values
+`Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings are the values
 tier. Two rules
 keep "mutable" from meaning "anything goes": after startup, mutation goes
 through the rig, under its lock, and is an event — `Signal.override(...)`
@@ -103,10 +103,11 @@ both.
 
 ## Devices
 
-Every signal has a **role** (`Role.DEMAND`, `Role.OUTPUT`, `Role.SETTING`,
-`Role.CONFIG`, `Role.INPUT`), which sets its default access, and structure
-is declared once as descriptors in the class body (`Namespace`, `Demand`,
-`Output`, `Setting`, `ConfigSignal`, `Input`) or built from config in
+Every signal has a **role** (`Role.DEMAND`, `Role.READOUT`, `Role.SETTING`,
+`Role.CONFIG`), which sets its default access; an input is not a signal of
+the device and has no role. Structure is declared once as descriptors in
+the class body (`Namespace`, `Demand`, `Readout`, `Setting`, `ConfigSignal`,
+`Input`) or built from config in
 `__init__` and bound with `Device.bind`. `Device.__init_subclass__` collects
 every descriptor into `DESCRIPTORS`, checks `vtype` and `config`'s return
 type against pydantic, and collects `@command` methods — checking every

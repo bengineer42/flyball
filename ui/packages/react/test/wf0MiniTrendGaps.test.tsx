@@ -95,20 +95,20 @@ const SOURCE: SignalOut = {
 const CONTROLLER: ControllerOut = {
   name: "heater.demand",
   label: null,
-  target: "heater.demand",
-  source: "chamber.temp",
+  output_signal: "heater.demand",
+  measured_signal: "chamber.temp",
   default: false,
   mode: "regulating",
   law: null,
   feedforward: { tag: "none" },
-  demand_unit: "W",
+  output_unit: "W",
   reference: 50,
   setpoint: 50,
   correction: 0,
-  demand: 10,
+  output: 10,
   expected: 10,
   delivered_correction: 0,
-  reading: null,
+  measured: null,
 };
 
 // A real dead-time break landing as NaN in the process reading -- the same sentinel the ring's
@@ -116,8 +116,8 @@ const CONTROLLER: ControllerOut = {
 const HISTORY_WITH_GAP: ControllerTrace = {
   t: [0, 1, 2, 3],
   reference: [50, 50, 50, 50],
-  reading: [48, Number.NaN, 52, 49],
-  demand: [10, 10, 10, 10],
+  measured: [48, Number.NaN, 52, 49],
+  output: [10, 10, 10, 10],
   expected: [10, 10, 10, 10],
   correction: [0, 0, 0, 0],
 };

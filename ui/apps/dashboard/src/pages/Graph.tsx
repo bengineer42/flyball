@@ -126,7 +126,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
   // Every controller whose regulated signal (`source`) is a numeric publishing signal on this rig --
   // that is the signal `byAddress` already knows, so the setpoint's unit/title/device come from it.
   const { controllers: controllersLive } = useControllers();
-  const controllerList = useMemo(() => Object.values(controllersLive).filter((c) => byAddress.has(c.source)), [controllersLive, byAddress]);
+  const controllerList = useMemo(() => Object.values(controllersLive).filter((c) => byAddress.has(c.measured_signal)), [controllersLive, byAddress]);
   const controllerByKey = useMemo(() => new Map(controllerList.map((c) => [controllerSetpointKey(c.name), c])), [controllerList]);
   // A controller-setpoint key is recognised by its shape alone (no need for `controllerList`, which
   // seeds asynchronously): dropping a not-yet-loaded one here would lose it from the hash/localStorage
@@ -201,9 +201,9 @@ export function Graph({ devices, ...charts }: GraphProps) {
   // only the search box does. "select all"/"none" stays signal-only (above): a setpoint is a much
   // rarer thing to bulk-select than a device's own signals, so it isn't worth the extra affordance.
   const controllerMatches = (c: ControllerOut, source: SignalOut) =>
-    !needle || `${title(source)} setpoint ${c.name} ${c.source} ${source.unit} ${deviceLabel(deviceOf(source.address))}`.toLowerCase().includes(needle);
+    !needle || `${title(source)} setpoint ${c.name} ${c.measured_signal} ${source.unit} ${deviceLabel(deviceOf(source.address))}`.toLowerCase().includes(needle);
   const visibleControllers = controllerList
-    .map((c) => ({ c, source: byAddress.get(c.source)! }))
+    .map((c) => ({ c, source: byAddress.get(c.measured_signal)! }))
     .filter(({ c, source }) => controllerMatches(c, source));
 
   // Each ticked key is either a signal or a controller's setpoint (its regulated signal's own trace,
@@ -214,7 +214,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
     const signal = byAddress.get(k);
     if (signal) return [{ key: k, signal }];
     const setpoint = controllerByKey.get(k);
-    const source = setpoint ? byAddress.get(setpoint.source) : undefined;
+    const source = setpoint ? byAddress.get(setpoint.measured_signal) : undefined;
     return source ? [{ key: k, signal: source, setpoint }] : [];
   });
   const live = useTraceRef(useMemo(() => items.map((i) => i.key), [items]));

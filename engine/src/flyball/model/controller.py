@@ -1,17 +1,17 @@
-"""A controller: one publishing signal regulated through one writable signal.
+"""A controller: one measured signal regulated through one output, a demand.
 
-A W signal has at most one controller, so the controller is named by that
-signal's address (`"heaters.heater1"`). The feedforward maps the source's
-unit to the target's; the law adds a correction in the target's unit. The
-demand reaches the target through a `write` callable the rig injects: it
-calls the rig's `demand()` and returns the committed value, or None when
+A demand has at most one controller, so the controller is named by its
+output's address (`"heaters.heater1"`). The feedforward maps the measured
+signal's unit to the output's; the law adds a correction in the output's
+unit. The output value reaches the output signal through a `write` callable
+the rig injects: it calls the rig's `demand()` and returns the committed value, or None when
 the commit is deferred to the end of the delivery -- then
 [delivered][flyball.model.controller.Controller.delivered] closes the tick
-with the write state. Until one is injected, a demand is recorded on the
-controller and nothing is written.
+with the write state. Until one is injected, the output value is recorded on
+the controller and nothing is written.
 
 A second injected callable, `hold`, says whether the rig would refuse the
-write now (a stale source, a limit not yet known) and why. While it does,
+write now (a stale measured signal, a limit not yet known) and why. While it does,
 the controller is frozen: the law does not step and nothing is written, so
 the integral cannot wind up against a write that never lands; the first
 step after the hold counts as one ordinary interval.
@@ -71,19 +71,19 @@ class ControllerMode(Enum):
 class ValueSource(Labelled):
     """Where a ramp begins."""
 
-    PROCESS = "process", "The current reading"
-    SETPOINT = "setpoint", "The current target"
-    DEMAND = "demand", "The current demand"
+    MEASURED = "measured", "The current measured value"
+    SETPOINT = "setpoint", "The current setpoint"
+    OUTPUT = "output", "The current output"
 
 
 class ApplyResult(NamedTuple):
-    demand: float
+    output: float
     expected: float | None
     delivered_correction: float | None
 
 
 class RegulateResult(NamedTuple):
-    demand: float
+    output: float
     expected: float | None
     delivered_correction: float | None
     bump: float
@@ -94,16 +94,16 @@ class ControllerSettings:
     """What can be re-set while the controller runs: the law in force and its gains."""
 
     name: str
-    """The target's address."""
-    target: str
-    """The address of the W signal driven."""
-    source: str
-    """The address of the P signal regulated."""
+    """The output's address."""
+    output_signal: str
+    """The address of the demand driven: the output."""
+    measured_signal: str
+    """The address of the P signal regulated: the measured signal."""
     law: ControlLawConfig | None
     feedforward: FeedforwardConfig
-    """What maps the setpoint (source unit) to a demand (target unit); the law adds to it."""
-    demand_unit: str
-    """The target's unit symbol."""
+    """Maps the setpoint (measured unit) to an output value (output unit); the law adds to it."""
+    output_unit: str
+    """The output's unit symbol."""
     offset_ns: int
     min_period_s: float | None = None
     """Step the law at most this often, however fast readings arrive. None: every reading."""
@@ -115,14 +115,16 @@ class ControllerState:
     correction: float = 0.0
     reference: float | SetPointGenerator | None = None
     setpoint: float | None = None
-    """The reference resolved at the last tick: a ramp's value then, in the source's unit."""
+    """The reference resolved at the last tick: a ramp's value then, in the measured unit."""
     arrived: bool = False
     """Whether the reference has landed: a fixed one always has; a trajectory once it finishes."""
-    demand: float | None = None
+    output: float | None = None
+    """The last output value asked of the output signal, in its unit."""
     expected: float | None = None
     delivered_correction: float | None = None
     mode: ControllerMode = ControllerMode.MANUAL
-    reading: Reading | None = None
+    measured: Reading | None = None
+    """The last reading of the measured signal."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -133,54 +135,54 @@ class ControllerView(ControllerSettings, ControllerState):
     def of(cls, settings: ControllerSettings, state: ControllerState) -> ControllerView:
         return cls(
             name=settings.name,
-            target=settings.target,
-            source=settings.source,
+            output_signal=settings.output_signal,
+            measured_signal=settings.measured_signal,
             law=settings.law and state.law and ControlLawView.of(settings.law, state.law),
             feedforward=settings.feedforward,
-            demand_unit=settings.demand_unit,
+            output_unit=settings.output_unit,
             offset_ns=settings.offset_ns,
             min_period_s=settings.min_period_s,
             correction=state.correction,
             reference=state.reference,
             setpoint=state.setpoint,
             arrived=state.arrived,
-            demand=state.demand,
+            output=state.output,
             expected=state.expected,
             delivered_correction=state.delivered_correction,
             mode=state.mode,
-            reading=state.reading,
+            measured=state.measured,
         )
 
 
 class Controller:
-    """Binds `source` (a P signal) to `target` (a W signal) through a law and a feedforward."""
+    """Regulates `measured_signal` (P) by writing `output_signal` (a W demand): law, feedforward."""
 
     clock: Clock
-    target: Signal
-    source: Signal
+    output_signal: Signal
+    measured_signal: Signal
     law: ControlLaw | None
     feedforward: Feedforward
     correction: float = 0.0
     offset_ns: int = 0
     reference: float | SetPointGenerator | None = None
     setpoint: float | None = None
-    demand: float | None = None
+    output: float | None = None
     expected: float | None = None
-    reading: Reading | None = None
+    measured: Reading | None = None
     delivered_correction: float | None = None
     mode: ControllerMode = ControllerMode.MANUAL
     _on_tick: dict[ControllerTickCallback, None]
     lock: RLock
     _base: float | None = None
-    """The feedforward's part of the last demand, so a deferred delivery can split the rest."""
+    """The feedforward's part of the last output, so a deferred delivery can split the rest."""
     held: Kind | None = None
     """Why the last tick was held (`stale_input`, `limit_unknown`); None when it stepped."""
 
     def __init__(
         self,
         clock: Clock,
-        target: Signal,
-        source: Signal,
+        output_signal: Signal,
+        measured_signal: Signal,
         *,
         law: ControlLawLike | None = None,
         feedforward: Feedforward | FeedforwardConfig | None = None,
@@ -188,27 +190,30 @@ class Controller:
         write: Callable[[float], float | None] | None = None,
         hold: Callable[[], Kind | None] | None = None,
     ) -> None:
-        if Access.W not in target.access:
-            raise ConflictError(f"{target.address} [{target.access}] is not writable")
-        if Access.P not in source.access:
-            raise ConflictError(f"{source.address} [{source.access}] is not publishing")
+        if Access.W not in output_signal.access:
+            raise ConflictError(f"{output_signal.address} [{output_signal.access}] is not writable")
+        if Access.P not in measured_signal.access:
+            raise ConflictError(
+                f"{measured_signal.address} [{measured_signal.access}] is not publishing"
+            )
         self.clock = clock
-        self.target = target
-        self.source = source
-        same_unit = source.unit == target.unit
+        self.output_signal = output_signal
+        self.measured_signal = measured_signal
+        same_unit = measured_signal.unit == output_signal.unit
         built = feedforward.build() if isinstance(feedforward, FeedforwardConfig) else feedforward
         if built is None:
             built = Setpoint() if same_unit else NoFeedforward()
         elif isinstance(built, Setpoint) and not same_unit:
-            # Handing the target demands in the source's unit when it takes
+            # Handing the output values in the measured unit when it takes
             # another would run happily and do nonsense.
             raise ConflictError(
-                f"controller on {source.address} ({source.unit}) cannot pass its setpoint to"
-                f" {target.address!r}, which takes demands in {target.unit}"
+                f"controller on {measured_signal.address} ({measured_signal.unit}) cannot pass"
+                f" its setpoint to {output_signal.address!r}, which takes demands in"
+                f" {output_signal.unit}"
             )
         self.feedforward = built
         self.write: Callable[[float], float | None] = self._unwired if write is None else write
-        """How a demand reaches the target: the rig's `demand`, returning the committed value."""
+        """How an output value reaches the output: the rig's `demand`, returning what committed."""
         self.hold: Callable[[], Kind | None] = self._never_held if hold is None else hold
         """Why the rig would refuse a write now, or None: asked before the law steps."""
         self.law = None
@@ -221,28 +226,28 @@ class Controller:
         self._step_interval_ns: int | None = None
 
     @staticmethod
-    def _unwired(demand: float) -> float | None:
-        """Nothing to write to yet: the demand is recorded on the controller, not delivered."""
+    def _unwired(output: float) -> float | None:
+        """Nothing to write to yet: the output is recorded on the controller, not delivered."""
         return None
 
     @staticmethod
     def _never_held() -> Kind | None:
-        """Nothing to refuse a write: no rig in front of the target."""
+        """Nothing to refuse a write: no rig in front of the output."""
         return None
 
     @property
     def name(self) -> str:
-        """A controller is known by what it drives."""
-        return self.target.address
+        """A controller is known by what it drives: its output's address."""
+        return self.output_signal.address
 
     @property
-    def demand_unit(self) -> str:
-        """The unit `write` takes: the target's."""
-        return self.target.unit.symbol
+    def output_unit(self) -> str:
+        """The unit `write` takes: the output's."""
+        return self.output_signal.unit.symbol
 
     @property
     def last_value(self) -> float | None:
-        return self.reading and self.reading.value
+        return self.measured and self.measured.value
 
     @property
     def required_last_value(self) -> float:
@@ -256,11 +261,11 @@ class Controller:
     def settings(self) -> ControllerSettings:
         return ControllerSettings(
             name=self.name,
-            target=self.target.address,
-            source=self.source.address,
+            output_signal=self.output_signal.address,
+            measured_signal=self.measured_signal.address,
             law=self.law and self.law.config,
             feedforward=self.feedforward.config,
-            demand_unit=self.demand_unit,
+            output_unit=self.output_unit,
             offset_ns=self.offset_ns,
             min_period_s=self.min_period_s,
         )
@@ -273,11 +278,11 @@ class Controller:
             reference=self.reference,
             setpoint=self.setpoint,
             arrived=self.arrived,
-            demand=self.demand,
+            output=self.output,
             expected=self.expected,
             delivered_correction=self.delivered_correction,
             mode=self.mode,
-            reading=self.reading,
+            measured=self.measured,
         )
 
     @property
@@ -309,7 +314,7 @@ class Controller:
             return self.reference.rate(self.clock.from_start_s(time_ns))
         return 0.0
 
-    def demand_at(self, time_ns: int) -> float:
+    def output_at(self, time_ns: int) -> float:
         return self.feedforward(self.setpoint_at(time_ns), self.rate_at(time_ns)) + self.correction
 
     def _set_law(self, law: ControlLawLike) -> None:
@@ -319,18 +324,18 @@ class Controller:
         self._set_law(law)
 
     def resolve_value(self, at: ValueSource | float, time_ns: int | None = None) -> float:
-        if at is ValueSource.PROCESS:
+        if at is ValueSource.MEASURED:
             return self.required_last_value
         if at is ValueSource.SETPOINT:
             return self.setpoint_at(self.get_time_ns(time_ns))
-        if at is ValueSource.DEMAND:
-            # `demand_at` is in the target's unit; every other source here
-            # is in the source's, since the result becomes `self.reference`
+        if at is ValueSource.OUTPUT:
+            # `output_at` is in the output's unit; every other value here is
+            # in the measured unit, since the result becomes `self.reference`
             # and is compared against readings by the law. Convert back
             # through the feedforward's inverse rather than handing the raw
-            # target-unit number back as if it were a setpoint.
+            # output-unit number back as if it were a setpoint.
             time_ns = self.get_time_ns(time_ns)
-            return self.feedforward.invert(self.demand_at(time_ns), self.rate_at(time_ns))
+            return self.feedforward.invert(self.output_at(time_ns), self.rate_at(time_ns))
         return float(at)
 
     def reset_law(self, time_ns: int | None = None) -> None:
@@ -355,8 +360,8 @@ class Controller:
         delivered output against the new setpoint.
 
         Args:
-            at: Where to aim, or the source to take it from; `SETPOINT` and
-                `DEMAND` mean the current ones.
+            at: Where to aim, or the value to take it from; `MEASURED`,
+                `SETPOINT` and `OUTPUT` mean the current ones.
             generator: A trajectory to follow from `at`.
             tuning: A law to swap in first, for a bumpless retune.
             time_ns: The handover instant and the law's new clock origin.
@@ -366,11 +371,11 @@ class Controller:
 
         Returns:
             What was applied, and the step the handover put through the
-            target; zero when the seed held the output.
+            output; zero when the seed held it.
         """
         with self.lock:
             time_ns = self.get_time_ns(time_ns)
-            held = self.expected if self.expected is not None else self.demand
+            held = self.expected if self.expected is not None else self.output
             setpoint = _finite_aim(self.resolve_value(at, time_ns), at)
 
             if tuning is not None:
@@ -396,16 +401,16 @@ class Controller:
                     if self.law is not None:
                         self.correction = self.law.resume(reading, setpoint, hold)
             self.mode = ControllerMode.REGULATING
-            applied = self._apply_demand(setpoint, self.rate_at(time_ns))
-            bump = 0.0 if held is None else applied.demand - held
+            applied = self._apply_output(setpoint, self.rate_at(time_ns))
+            bump = 0.0 if held is None else applied.output - held
             return RegulateResult(*applied, bump=bump)
 
     def manual(self) -> None:
-        """Stop regulating: the target keeps its last demand and takes demands directly."""
+        """Stop regulating: the output keeps its last value and takes demands directly."""
         with self.lock:
             self.mode = ControllerMode.MANUAL
 
-    def set_reference(
+    def set_setpoint(
         self,
         at: ValueSource | float,
         generator: SetPointGenerator | None = None,
@@ -439,17 +444,19 @@ class Controller:
             callback(self, reading)
 
     def on_reading(self, reading: Reading) -> None:
-        """The source signal's node delivered a sample; step the law on its reading."""
-        assert reading.signal is self.source, f"{reading.signal} is not {self.source}"
+        """The measured signal's node delivered a sample; step the law on its reading."""
+        assert reading.signal is self.measured_signal, (
+            f"{reading.signal} is not {self.measured_signal}"
+        )
         self.tick(reading)
 
     def tick(self, reading: Reading | None) -> None:
         time_ns = self.get_time_ns(reading and reading.time_ns)
         if reading is not None:
-            self.reading = reading
+            self.measured = reading
         self._run_on_tick(reading)
 
-        # A fast source updates the reading every time but steps the law at
+        # A fast measured signal updates the reading every time but steps the law at
         # most every ``min_period_s``: the latest value is always there, the
         # controller integrates at its own rate.
         if (
@@ -476,12 +483,12 @@ class Controller:
                 self.correction = self.required_law.step(
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
-            self._apply_demand(setpoint, self.rate_at(time_ns))
+            self._apply_output(setpoint, self.rate_at(time_ns))
 
     def _skip_outage(self, time_ns: int, *, resumed: bool = False) -> None:
         """Keep a gap in the readings out of the law's time.
 
-        A source that went quiet (a sensor offline, a stalled poll) comes back
+        A measured signal that went quiet (a sensor offline, a stalled poll) comes back
         with one reading after the whole gap; stepped as is, the law would
         integrate the error over all of it at once. Past `OUTAGE_STEPS` usual
         intervals, the law's clock is moved on by the gap less one interval,
@@ -501,27 +508,27 @@ class Controller:
         elif gap > 0:
             self._step_interval_ns = gap
 
-    def _apply_demand(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
+    def _apply_output(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
         self.setpoint = setpoint
         self._base = base = self.feedforward(setpoint, rate)
-        self.demand = base + self.correction
-        self.expected = self.write(self.demand)
+        self.output = base + self.correction
+        self.expected = self.write(self.output)
         self.delivered_correction = None if self.expected is None else self.expected - base
 
         return ApplyResult(
             expected=self.expected,
-            demand=self.demand,
+            output=self.output,
             delivered_correction=self.delivered_correction,
         )
 
     def apply(self, time_ns: int | None = None) -> ApplyResult:
         time_ns = self.get_time_ns(time_ns)
-        return self._apply_demand(self.setpoint_at(time_ns), self.rate_at(time_ns))
+        return self._apply_output(self.setpoint_at(time_ns), self.rate_at(time_ns))
 
     def delivered(self, state: WriteState) -> None:
-        """The deferred commit reported what the target was set to.
+        """The deferred commit reported what the output was set to.
 
-        Records `expected` and `delivered_correction` as `_apply_demand`
+        Records `expected` and `delivered_correction` as `_apply_output`
         would have, had `write` returned the value at once.
         """
         self.expected = state.value

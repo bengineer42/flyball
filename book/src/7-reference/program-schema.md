@@ -28,8 +28,8 @@ declares. Any other key is an error.
 | `Duration` | `{seconds: 90}`, `{minutes: 1, seconds: 30}`, `{hours: 2}`, or a bare number of seconds. Keys are the plural of `nanosecond`, `microsecond`, `millisecond`, `second`, `minute`, `hour`, `day`; they add |
 | `Rate` | one key: `{per_second: 0.01}`, `{per_minute: 2}`, … |
 | `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field (`foldable()` in `flyball.interfaces.server.dialect`) |
-| `ValueSource \| float` | a number, or `process`, `setpoint`, `demand` |
-| a controller name | the address of the writable signal it drives, e.g. `heaters.heater1` — a controller is named by its target |
+| `ValueSource \| float` | a number, or `measured`, `setpoint`, `output` |
+| a controller name | the address of the demand it drives, e.g. `heaters.heater1` — a controller is named by its output |
 | a law (`tuning`) | the name of a registered tuning, or `{tag: PI, kp: …, ki: …, tt: …}` |
 | `Transfer` | `track`, `carry`, `reset`, `none` |
 

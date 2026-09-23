@@ -16,8 +16,8 @@ schema = rig_schema()                 # JSON Schema for an editor
 ```
 
 Unknown keys are refused at every level. A device that names a link must
-name one declared under `links`; a controller must name a source and
-target address that resolve; a unit symbol must be one the units table
+name one declared under `links`; a controller must name an output and a
+measured address that resolve; a unit symbol must be one the units table
 knows. All of these fail at load with the offending name — `flyball rig
 check FILE` reports the same way.
 
@@ -158,31 +158,31 @@ for that label fill in, and anything the entry already gives wins.
 
 ## Controllers
 
-Keyed by the **target's address** — a controller is named by the writable
-signal it drives.
+Keyed by the **output's address** — a controller is named by the demand it
+drives, its output.
 
 | key | type | |
 | --- | --- | --- |
-| `signal` | address | the source: a publishing (`P`) signal |
+| `measured` | address | the measured signal: a publishing (`P`) signal, what is regulated |
 | `law` | `{tag, ...gains}` | e.g. `{tag: PI, kp: 0.2, ki: 0.05}`; omit for none |
-| `feedforward` | `{tag, ...}` | maps the source's unit to the target's: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
+| `feedforward` | `{tag, ...}` | maps the measured signal's unit to the output's: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | step the law at most this often |
 
 ```yaml
 controllers:
-  heaters.heater1: { signal: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15, tt: 30 } }
+  heaters.heater1: { measured: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15, tt: 30 } }
   heaters.heater2:
-    signal: furnace.zone2
+    measured: furnace.zone2
     law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { tag: table, rate_gain: 3000, points: [[20, 0], [200, 289.4], [400, 659.8]] }
     default: true
 ```
 
 (`examples/furnace/rig.yaml`, abridged). `rate_gain` (`affine`,
-`table`) adds `rate_gain * rate` to the demand, `rate` being the
-setpoint's own rate of change in the source's unit *per second* (zero off
-a ramp): target unit per source-unit-per-second — a zone's
+`table`) adds `rate_gain * rate` to the output, `rate` being the
+setpoint's own rate of change in the measured unit *per second* (zero off
+a ramp): output unit per measured-unit-per-second — a zone's
 `capacity_j_per_k` (J/K = W per °C/s) is the extra power a ramp needs to
 charge its own thermal mass. Not on `setpoint`: that feedforward already
 hands the target the source's own unit, so a rate term there would be a

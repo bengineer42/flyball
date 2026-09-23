@@ -35,7 +35,7 @@ DAQ = {
     "poll_s": 0.1,
 }
 DRIVE = {"name": "drive", "driver": "sim_drive", "config": {"link": "t1", "ports": {"u": "input"}}}
-CONTROLLER = {"drive.u": {"signal": "probe.signal", "law": {"tag": "P", "kp": 0.5}}}
+CONTROLLER = {"drive.u": {"measured": "probe.signal", "law": {"tag": "P", "kp": 0.5}}}
 
 
 def entry(posted: dict) -> dict:
@@ -97,7 +97,7 @@ class TestRig:
         rig.attach_controller(drive.signals["u"], probe.signals["signal"])
         document = rig.document()
         assert set(document["links"]) == {"t1"} and set(document["devices"]) == {"probe", "drive"}
-        assert document["controllers"]["drive.u"]["signal"] == "probe.signal"
+        assert document["controllers"]["drive.u"]["measured"] == "probe.signal"
         assert "probe" in rig.polling.by_name, "polled on its period"
         rig.remove_device("probe")
         assert "probe" not in rig.devices and "probe" not in rig.polling.by_name
@@ -141,7 +141,7 @@ class TestRoutes:
         )
         r = client.post(
             "/api/controllers",
-            json={"target": "drive.u", "source": "probe.signal", "law": {"tag": "P", "kp": 0.5}},
+            json={"output": "drive.u", "measured": "probe.signal", "law": {"tag": "P", "kp": 0.5}},
         )
         assert r.status_code == 201, r.text
         document = client.get("/api/rig/document").json()

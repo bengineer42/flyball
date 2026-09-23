@@ -2,7 +2,7 @@ from .controllers import (
     ControllerNotFoundError,
     Controllers,
     NoDefaultControllerError,
-    SourceClaimedError,
+    SignalClaimedError,
 )
 from .polling import DeviceRun, Polling, poll_period
 from .rig import Rig
@@ -15,7 +15,7 @@ __all__ = [
     "NoDefaultControllerError",
     "Polling",
     "Rig",
-    "SourceClaimedError",
+    "SignalClaimedError",
     "TriggerState",
     "Triggers",
     "poll_period",

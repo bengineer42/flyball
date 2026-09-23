@@ -26,14 +26,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample, command
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample, command
 from flyball.foundation.quantities import Quantity, Unit
 
 
 class ${Title}(Readable):
     """TODO: what this measures or drives, and how."""
 
-    value = Output("value", "Value", Quantity("value", Unit.get("1")))
+    value = Readout("value", "Value", Quantity("value", Unit.get("1")))
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """Called every `poll_s`; yield the signals due at `time_ns`."""

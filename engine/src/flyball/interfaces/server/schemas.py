@@ -443,32 +443,33 @@ def finite(value: Any) -> Any:
 class ControllerOut(BaseModel):
     """A controller as a client sees it. Separate from `ControllerView` so the wire stays stable.
 
-    Named by `target`, the writable signal it drives; `source` is the
-    publishing signal it regulates. `demand`, `expected` and `correction`
-    are in `demand_unit`, the target's.
+    Named by `output_signal`, the demand it drives; `measured_signal` is the
+    published signal it regulates. `measured` is that signal's last reading
+    and `setpoint` is in its unit; `output`, `expected` and `correction` are
+    in `output_unit`, the output signal's.
     """
 
     name: str
     label: str | None = None
-    """The target signal's display name; None: show `name`."""
-    target: str
-    source: str
+    """The output signal's display name; None: show `name`."""
+    output_signal: str
+    measured_signal: str
     default: bool
     mode: str
     law: SerializeAsAny[ControlLawView] | None
     feedforward: SerializeAsAny[FeedforwardConfig]
-    """What maps the setpoint to the demand; the law's correction is added to it."""
-    demand_unit: str
+    """What maps the setpoint to the output; the law's correction is added to it."""
+    output_unit: str
     reference: float | GeneratorOut | None
     setpoint: float | None
     """The reference as resolved at the last tick, so a ramp's current value is on the wire."""
     arrived: bool
     """Whether the reference has landed: a number has; a trajectory once it finishes."""
     correction: float
-    demand: float | None
+    output: float | None
     expected: float | None
     delivered_correction: float | None
-    reading: ReadingOut | None
+    measured: ReadingOut | None
 
     @model_serializer(mode="wrap")
     def _finite(self, handler: SerializerFunctionWrapHandler):
@@ -488,24 +489,24 @@ class ControllerOut(BaseModel):
         reference = view.reference
         return cls(
             name=view.name,
-            label=controller.target.label or None,
-            target=controller.target.address,
-            source=controller.source.address,
+            label=controller.output_signal.label or None,
+            output_signal=controller.output_signal.address,
+            measured_signal=controller.measured_signal.address,
             default=default,
             mode=view.mode.value,
             law=view.law,
             feedforward=view.feedforward,
-            demand_unit=view.demand_unit or controller.target.unit.symbol,
+            output_unit=view.output_unit or controller.output_signal.unit.symbol,
             reference=reference
             if isinstance(reference, float | int | type(None))
             else GeneratorOut.of(reference),
             setpoint=view.setpoint,
             arrived=view.arrived,
             correction=view.correction,
-            demand=view.demand,
+            output=view.output,
             expected=view.expected,
             delivered_correction=view.delivered_correction,
-            reading=None if view.reading is None else ReadingOut.of(view.reading),
+            measured=None if view.measured is None else ReadingOut.of(view.measured),
         )
 
 

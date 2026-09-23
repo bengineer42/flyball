@@ -36,14 +36,14 @@ export interface TraceView {
 export interface ControllerView {
   t: number[];
   reference: (number | null)[];
-  reading: (number | null)[];
-  demand: (number | null)[];
+  measured: (number | null)[];
+  output: (number | null)[];
   expected: (number | null)[];
   correction: (number | null)[];
 }
 
 export const emptyTrace = (): TraceView => ({ t: [], v: [] });
-export const emptyControllerView = (): ControllerView => ({ t: [], reference: [], reading: [], demand: [], expected: [], correction: [] });
+export const emptyControllerView = (): ControllerView => ({ t: [], reference: [], measured: [], output: [], expected: [], correction: [] });
 
 /**
  * A controller's setpoint, as a synthetic key `read`/`subscribeTrace` accept
@@ -97,7 +97,7 @@ interface Sub {
 const CONTROLLER_COLS = 5; // reference, reading, demand, expected, correction
 
 /** A controller's identity across sessions and restarts: what it drives and what it reads. */
-const pairOf = (c: { name: string; source: string }) => `${c.name}|${c.source}`;
+const pairOf = (name: string, measured: string) => `${name}|${measured}`;
 
 const nan = (x: number | null | undefined) => (x == null ? Number.NaN : x);
 
@@ -601,17 +601,17 @@ export class TelemetryStore {
   }
 
   /**
-   * One controller's latest state. In playback its mode, reference, demand
-   * and law stay live (commanded values are not samples) but `reading` is
-   * the source's point at `atS`, so a faceplate's PV and its trend agree.
+   * One controller's latest state. In playback its mode, reference, output
+   * and law stay live (commanded values are not samples) but `measured` is
+   * the measured signal's point at `atS`, so a faceplate's PV and its trend agree.
    */
   controller(name: Address): ControllerOut | undefined {
     const live = this.controllerLatest[name];
     if (this.atS === null || !live) return live;
-    const point = this.latest(live.source);
+    const point = this.latest(live.measured_signal);
     const held = this.playbackControllers.get(name);
     if (held && held.live === live && held.t === point?.t && held.v === point?.v) return held.out;
-    const out: ControllerOut = { ...live, reading: point ? { signal: live.source, time_ns: Math.round(point.t * 1e9), value: point.v } : null };
+    const out: ControllerOut = { ...live, measured: point ? { signal: live.measured_signal, time_ns: Math.round(point.t * 1e9), value: point.v } : null };
     this.playbackControllers.set(name, { live, t: point?.t, v: point?.v, out });
     return out;
   }
@@ -624,7 +624,7 @@ export class TelemetryStore {
   /** Copy a controller's ticks into `out` (arrays reused), thinned as asked; the playback window instead while paused. */
   readController(name: Address, out: ControllerView, options: ReadOptions = {}): ControllerView {
     const ring = this.atS === null ? this.controllerRings.get(name) : this.playbackTicks.get(name);
-    const cols = [out.reference, out.reading, out.demand, out.expected, out.correction] as number[][];
+    const cols = [out.reference, out.measured, out.output, out.expected, out.correction] as number[][];
     if (!ring) {
       out.t.length = 0;
       for (const c of cols) c.length = 0;
@@ -641,10 +641,10 @@ export class TelemetryStore {
     const row = new Array<number>(CONTROLLER_COLS);
     for (const c of controllers) {
       next[c.name] = c;
-      const time = c.reading ? c.reading.time_ns / 1e9 : Date.now() / 1000;
+      const time = c.measured ? c.measured.time_ns / 1e9 : Date.now() / 1000;
       row[0] = nan(setpointOf(c));
-      row[1] = nan(c.reading && typeof c.reading.value === "number" ? c.reading.value : null);
-      row[2] = nan(c.demand);
+      row[1] = nan(c.measured && typeof c.measured.value === "number" ? c.measured.value : null);
+      row[2] = nan(c.output);
       row[3] = nan(c.expected);
       row[4] = nan(c.correction);
       this.controllerRing(c.name).push(time, row);
@@ -663,7 +663,7 @@ export class TelemetryStore {
   /**
    * `GET /api/controllers` once (so the latest state is there before the
    * socket's first message) and the window of ticks from the recording
-   * store for each controller not yet seeded, matched by (target, source)
+   * store for each controller not yet seeded, matched by (output, measured signal)
    * across sessions.
    */
   seedControllers(every?: number): Promise<void> {
@@ -672,12 +672,12 @@ export class TelemetryStore {
       .then(async (controllers) => {
         const fresh = controllers.filter((c) => !(c.name in this.controllerLatest));
         if (fresh.length) this.onControllers(fresh);
-        const wanted = controllers.filter((c) => !this.seededControllers.has(pairOf(c)));
+        const wanted = controllers.filter((c) => !this.seededControllers.has(pairOf(c.name, c.measured_signal)));
         if (!wanted.length) return;
-        for (const c of wanted) this.seededControllers.add(pairOf(c));
+        for (const c of wanted) this.seededControllers.add(pairOf(c.name, c.measured_signal));
         const traces = await this.fetchTicks(wanted, every);
         for (const [name, view] of traces) {
-          this.controllerRing(name).prepend(view.t, [view.reference, view.reading, view.demand, view.expected, view.correction].map((c) => c.map(nan)));
+          this.controllerRing(name).prepend(view.t, [view.reference, view.measured, view.output, view.expected, view.correction].map((c) => c.map(nan)));
           this.controllerVersions.set(name, (this.controllerVersions.get(name) ?? 0) + 1);
           this.mark("controllers", name);
         }
@@ -693,7 +693,7 @@ export class TelemetryStore {
     const [sessions, clock, current] = await Promise.all([rig.sessions(20).catch(() => []), rig.clock(), rig.recording().catch(() => null)]);
     if (!sessions.length) return out;
     const nowS = clock.now_ns / 1e9; // the rig's now: a simulated clock runs ahead of the wall
-    const wanted = new Map(controllers.map((c) => [pairOf(c), c.name]));
+    const wanted = new Map(controllers.map((c) => [pairOf(c.name, c.measured_signal), c.name]));
     const perController = new Map<Address, Array<{ startS: number; ticks: Awaited<ReturnType<RigClient["ticks"]>> }>>();
     const horizonS = nowS - this.windowS;
     // Sessions must sit one after another on the time axis. A simulated clock
@@ -710,7 +710,7 @@ export class TelemetryStore {
       const rows = await rig.sessionControllers(session.id).catch(() => []);
       await Promise.all(
         rows.map(async (row) => {
-          const name = wanted.get(pairOf(row));
+          const name = wanted.get(pairOf(row.name, row.measured));
           if (!name) return;
           const startOffset = Math.max(0, (horizonS - startS) * 1e9); // history routes take offsets from the session's start
           const ticks = await rig.ticks(session.id, row.name, { start_ns: Math.floor(startOffset), ...(every && every > 1 ? { every } : {}) }).catch(() => []);
@@ -725,8 +725,8 @@ export class TelemetryStore {
         for (const k of ticks) {
           view.t.push(startS + k.offset_ns / 1e9);
           view.reference.push(k.setpoint);
-          view.reading.push(k.reading);
-          view.demand.push(k.demand);
+          view.measured.push(k.measured);
+          view.output.push(k.output);
           view.expected.push(k.expected ?? null);
           view.correction.push(k.correction ?? null);
         }
@@ -1081,7 +1081,7 @@ export class TelemetryStore {
         if (controllers.has(name)) {
           const ticks = await this.rig.ticks(session.id, name, { start_ns, end_ns }).catch(() => []);
           if (gen !== this.playbackGen) return;
-          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.reading), nan(k.demand), nan(k.expected), nan(k.correction)]);
+          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.measured), nan(k.output), nan(k.expected), nan(k.correction)]);
         }
         if (gen !== this.playbackGen) return;
         this.playbackTicks.set(name, ring);

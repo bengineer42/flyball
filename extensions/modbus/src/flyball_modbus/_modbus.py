@@ -56,7 +56,7 @@ class ModbusRegister(BaseModel):
 
     @property
     def role(self) -> Role:
-        return Role.DEMAND if self.write else Role.OUTPUT
+        return Role.DEMAND if self.write else Role.READOUT
 
     @property
     def access(self) -> Access:

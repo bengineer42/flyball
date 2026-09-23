@@ -19,9 +19,9 @@ from flyball.foundation.device import (
     Level,
     Node,
     NodeSpec,
-    Output,
     Readable,
     Reading,
+    Readout,
     Role,
     Sample,
     Signal,
@@ -36,7 +36,7 @@ from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
-from flyball.rig import Rig, SourceClaimedError
+from flyball.rig import Rig, SignalClaimedError
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -198,8 +198,8 @@ class Thermostat(Committable):
 class Supplied(Committable):
     """A demand bounded by a reading that may not have arrived yet: a supply line's humidity."""
 
-    supply = Output("supply", "Supply humidity", HUMIDITY)
-    chamber = Output("chamber", "Chamber humidity", HUMIDITY)
+    supply = Readout("supply", "Supply humidity", HUMIDITY)
+    chamber = Readout("chamber", "Chamber humidity", HUMIDITY)
     humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
 
     @command
@@ -749,9 +749,9 @@ class TestControllers:
         assert rig.controllers[heater1.address] is controller
         assert rig.controllers.default == controller.name
         assert isinstance(controller.feedforward, NoFeedforward)
-        with pytest.raises(SourceClaimedError, match=f"{heater1.address} is already driven by"):
+        with pytest.raises(SignalClaimedError, match=f"{heater1.address} is already driven by"):
             rig.attach_controller(heater1, zone2)
-        with pytest.raises(SourceClaimedError, match=f"{zone1.address} is already regulated by"):
+        with pytest.raises(SignalClaimedError, match=f"{zone1.address} is already regulated by"):
             rig.attach_controller(heater2, zone1)
 
         # From outside a delivery -- a program, a route -- the write commits at once.
@@ -788,15 +788,15 @@ class TestControllers:
         controller.regulate(50.0, transfer=Transfer.RESET)
         with rig.controller_states.watch(), rig.write_states.watch():
             rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0})])
-        assert controller.demand == 10_000.0 and controller.expected == 2500.0, "clamped"
+        assert controller.output == 10_000.0 and controller.expected == 2500.0, "clamped"
         assert rig.write_states.changed_since(0)[1] == {
             heater1.address: WriteState(
                 value=2500.0, requested=10_000.0, at_limit="high", controller=controller.name
             )
         }
         state = rig.controller_states.changed_since(0)[1][controller.name]
-        assert state.expected == 2500.0 and state.reading is not None
-        assert state.reading.value == 40.0
+        assert state.expected == 2500.0 and state.measured is not None
+        assert state.measured.value == 40.0
 
 
 class TestBoundInputs:

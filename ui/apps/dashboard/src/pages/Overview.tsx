@@ -172,11 +172,11 @@ const ControllerCard = memo(function ControllerCard({ name, title, sourceUnit, s
         </Typography>
         <Chip label={c.mode} size="small" variant="outlined" color={c.mode === "regulating" ? "primary" : "default"} sx={{ ml: "auto !important" }} className={`fb-mode fb-mode-${c.mode}`} />
       </Stack>
-      <Typography variant="body2" color="text.secondary" title={`${c.source} → ${c.target}`}>
+      <Typography variant="body2" color="text.secondary" title={`${c.measured_signal} → ${c.output_signal}`}>
         {sourceTitle} → {targetTitle}
       </Typography>
       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
-        reading {num(typeof c.reading?.value === "number" ? c.reading.value : null, sourceUnit)} · target {num(setpoint, sourceUnit)} · demand {num(c.demand, c.demand_unit)}
+        reading {num(typeof c.measured?.value === "number" ? c.measured.value : null, sourceUnit)} · target {num(setpoint, sourceUnit)} · demand {num(c.output, c.output_unit)}
       </Typography>
     </Paper>
   );
@@ -334,8 +334,8 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
         {controllerList.length > 0 && (
           <div className="grid">
             {controllerList.map((c) => {
-              const source = byAddress.get(c.source);
-              return <ControllerCard key={c.name} name={c.name} title={titleOf(c.name)} sourceUnit={source?.unit ?? ""} sourceTitle={titleOf(c.source)} targetTitle={titleOf(c.target)} precision={source?.precision ?? 1} />;
+              const source = byAddress.get(c.measured_signal);
+              return <ControllerCard key={c.name} name={c.name} title={titleOf(c.name)} sourceUnit={source?.unit ?? ""} sourceTitle={titleOf(c.measured_signal)} targetTitle={titleOf(c.output_signal)} precision={source?.precision ?? 1} />;
             })}
           </div>
         )}

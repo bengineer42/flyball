@@ -32,7 +32,7 @@ overdriven. In its state while it holds.
 from; a pydantic model with `build()`. Changed only by rebuilding.
 
 **correction** — what the law produces: the offset added to the
-feedforward's demand.
+feedforward's output value.
 
 **delivery** — one call to `rig.on_samples`: bound inputs mark devices
 touched, then controllers tick, then one commit per device touched, then
@@ -56,8 +56,8 @@ recording.
 **expected** — what a device says it will deliver a demand as; `None` if
 it cannot say.
 
-**feedforward** — what maps a controller's setpoint (source unit) to a
-demand (target unit); the law's correction adds to it.
+**feedforward** — what maps a controller's setpoint (measured unit) to an
+output value (the output's unit); the law's correction adds to it.
 
 **front** — the Go server in front of every runner that `flyball run`
 and `flyballd` start: it serves the dashboard, decides who a caller is
@@ -77,7 +77,7 @@ feedforwards, links, program steps.
 **label** — a display name, from the rig file; `None` shows the address or
 name instead.
 
-**law** — a `ControlLaw`: `(elapsed, reading, setpoint) → correction`.
+**law** — a `ControlLaw`: `(elapsed, measured, setpoint) → correction`.
 
 **link** — a transport devices talk over, or a simulated plant they share;
 not a device, has no signals of its own.
@@ -94,8 +94,14 @@ under it.
 scalars and lists replace, `null` deletes. Swaps drivers behind the same
 names — the real-vs-simulated pattern.
 
-**output** — a signal that is produced, never set: a measurement, a
-derived value, a mode (`Role.OUTPUT`, `RP`).
+**measured** — a controller's measured signal: the published signal it
+regulates (ISA's PV), `measured:` in the rig file. Also the faceplate row
+and the wire field holding its last reading.
+
+**output** — a controller's output: the demand it writes (ISA's OP); the
+controller is named by its address. Also the faceplate row and the wire
+field holding the last value asked of it. Not a role: a signal a device
+produces is a **readout**.
 
 **plant** — the thing being controlled, as a model: gain, time constant,
 dead time (simulation only).
@@ -111,7 +117,14 @@ and audience, valid for 60 s, in the `X-Flyball-Principal` header.
 **quantity** — what is measured or set, independent of any device: a name
 and a unit, nothing else.
 
+**readback** — a demand's reported current value: what the device says it
+holds, beside what was last written. Not a role; compare **readout**.
+
 **reading** — one value on one signal at one instant.
+
+**readout** — a signal the device produces and nothing outside writes: a
+measurement, a derived value, a mode (`Role.READOUT`, `RP`, the `Readout`
+descriptor). A role; not the same thing as a demand's **readback**.
 
 **reference** — where a controller is aiming: a value, or a generator.
 
@@ -121,10 +134,12 @@ controllers that `load_rig` builds.
 **rig** — the clock, the devices, the controllers, the polling, the
 recorder. What the equipment *is*.
 
-**role** — what a signal is to its device: `Role.DEMAND` (settable),
-`Role.OUTPUT` (produced), `Role.SETTING` (re-set by a command),
-`Role.CONFIG` (effective at build) or `Role.INPUT` (bound, not in the
-tree). Sets the signal's default access.
+**role** — what a signal is to its device, by what writing it does:
+`Role.DEMAND` (settable; takes control of the process; the only thing a
+controller drives), `Role.READOUT` (produced, never written from outside),
+`Role.SETTING` (re-set by a command; changes how the device behaves) or
+`Role.CONFIG` (effective at build). Sets the signal's default access. An
+input is not a role: it is a binding to another device's signal.
 
 **sample** — every signal under one node at one instant, keyed by the
 bound signal objects.
@@ -132,7 +147,8 @@ bound signal objects.
 **session** — one recording: spans, samples, ticks, write states, events,
 the config and tuning in force.
 
-**setpoint** — the reference resolved at an instant, in the source's unit.
+**setpoint** — the reference resolved at an instant, in the measured
+signal's unit; the faceplate's middle row (ISA's SP).
 
 **setting** — a signal re-set by a command while a device runs, shown but
 not driven by a controller (`Role.SETTING`, `RP`).
@@ -160,9 +176,9 @@ changed only through the rig, under its lock, as an event.
 
 **tuning** — a named law config.
 
-**controller** — one source signal, one law, one target signal, one
-reference; named by the address of the signal it drives (a writable
-signal has at most one).
+**controller** — a software control loop, not a device: one measured
+signal, one law, one output (a demand), one reference; named by the
+address of its output (a demand has at most one).
 
 **values tier** — the per-instant objects (`Reading`, `Sample`, `Demand`,
 `WriteState`, `Event`): frozen; recorded, streamed, compared; never

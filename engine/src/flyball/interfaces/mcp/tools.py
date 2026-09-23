@@ -340,7 +340,7 @@ READ: tuple[Tool, ...] = (
     Tool(
         "session_ticks",
         "A controller's recorded steps over a session: mode, correction and, when logged, "
-        "setpoint, demand and reading -- the data behind a ramp's setpoint curve. "
+        "setpoint, output and measured -- the data behind a ramp's setpoint curve. "
         "`session_series` for a plain signal instead.",
         _object(
             {
@@ -615,10 +615,10 @@ AUTHOR: tuple[Tool, ...] = (
 # region Drive
 
 AT = _any(
-    "Where to aim: a number; `process`, `setpoint` or `demand` for the current one; or a "
+    "Where to aim: a number; `measured`, `setpoint` or `output` for the current one; or a "
     "generator config (a ramp, say) as an object."
 )
-TARGET = _str("The controller: the address of the signal it drives.")
+CONTROLLER = _str("The controller: the address of the demand it drives, its output.")
 WAIT = _str("The wait's name, from `waits`.")
 
 DRIVE: tuple[Tool, ...] = (
@@ -648,7 +648,7 @@ DRIVE: tuple[Tool, ...] = (
         "Aim a controller and hand it control.",
         _object(
             {
-                "target": TARGET,
+                "controller": CONTROLLER,
                 "at": AT,
                 "start": _any("Where a generator starts from; default the current setpoint."),
                 "tuning": _any(
@@ -658,58 +658,59 @@ DRIVE: tuple[Tool, ...] = (
                     "How the law takes over.", enum=["none", "carry", "track", "reset"]
                 ),
             },
-            "target",
+            "controller",
             "at",
         ),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            f"/api/controllers/{segment(a['target'])}/regulate",
-            {k: v for k, v in a.items() if k != "target"},
+            f"/api/controllers/{segment(a['controller'])}/regulate",
+            {k: v for k, v in a.items() if k != "controller"},
         ),
     ),
     Tool(
         "manual",
-        "Put a controller in manual: it stops driving; the demand stays where it is.",
-        _object({"target": TARGET}, "target"),
+        "Put a controller in manual: it stops driving; its output stays where it is.",
+        _object({"controller": CONTROLLER}, "controller"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/controllers/{segment(a['target'])}/manual"),
+        lambda rig, a: rig.post(f"/api/controllers/{segment(a['controller'])}/manual"),
     ),
     Tool(
-        "set_reference",
-        "Move a regulating controller's target without changing anything else.",
+        "set_setpoint",
+        "Move a controller's setpoint without changing anything else.",
         _object(
-            {"target": TARGET, "at": AT, "start": _any("Where a generator starts from.")},
-            "target",
+            {"controller": CONTROLLER, "at": AT, "start": _any("Where a generator starts from.")},
+            "controller",
             "at",
         ),
         Tier.DRIVE,
         lambda rig, a: rig.put(
-            f"/api/controllers/{segment(a['target'])}/reference",
-            {k: v for k, v in a.items() if k != "target"},
+            f"/api/controllers/{segment(a['controller'])}/setpoint",
+            {k: v for k, v in a.items() if k != "controller"},
         ),
     ),
     Tool(
         "make_controller",
-        "Make a controller: a writable signal to drive, a signal to regulate, and a law.",
+        "Make a controller: a demand to drive (its output), a signal to regulate (its measured "
+        "signal), and a law.",
         _object(
             {
-                "target": TARGET,
-                "source": _str("The signal to regulate."),
+                "output": _str("The demand to drive; the controller is named by its address."),
+                "measured": _str("The signal to regulate."),
                 "law": _any("A tuning's tag or a law config; default the rig's default law."),
                 "feedforward": _any("A feedforward config or tuning tag, if any."),
             },
-            "target",
-            "source",
+            "output",
+            "measured",
         ),
         Tier.DRIVE,
         lambda rig, a: rig.post("/api/controllers", a),
     ),
     Tool(
         "remove_controller",
-        "Remove a controller; its demand stays where it is.",
-        _object({"target": TARGET}, "target"),
+        "Remove a controller; its output stays where it is.",
+        _object({"controller": CONTROLLER}, "controller"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/controllers/{segment(a['target'])}"),
+        lambda rig, a: rig.delete(f"/api/controllers/{segment(a['controller'])}"),
         destructive=True,
     ),
     Tool(

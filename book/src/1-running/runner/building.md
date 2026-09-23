@@ -17,7 +17,7 @@ curl -X POST localhost:8000/api/devices -d '{"name": "probe", "driver": "sim_daq
      "config": {"link": "t1", "ports": {"signal": {"port": "output", "quantity": "level", "unit": "1"}}}}'
 curl -X POST localhost:8000/api/devices -d '{"name": "drive", "driver": "sim_drive",
      "config": {"link": "t1", "ports": {"u": "input"}}}'
-curl -X POST localhost:8000/api/controllers -d '{"target": "drive.u", "source": "probe.signal", "law": {"tag": "P", "kp": 0.8}}'
+curl -X POST localhost:8000/api/controllers -d '{"output": "drive.u", "measured": "probe.signal", "law": {"tag": "P", "kp": 0.8}}'
 curl -X POST localhost:8000/api/rig -d @lab.yaml.json     # or all of it at once
 ```
 

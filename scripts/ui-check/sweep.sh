@@ -56,7 +56,7 @@ try:
   d=json.load(sys.stdin)
   if d:
     c=d[0]
-    print(c.get('name',''), c.get('source',''))
+    print(c.get('name',''), c.get('measured_signal',''))
 except Exception:
   pass
 " 2>/dev/null)
@@ -109,9 +109,9 @@ try:
 except Exception:
   ctrls=[]
 schema=json.loads('''$schema''') if '''$schema''' else {}
-ranges={s['address']: s.get('range') for s in schema.get('sources', [])}
+ranges={s['address']: s.get('range') for s in schema.get('measured', [])}
 for c in ctrls:
-  lo, hi = (ranges.get(c.get('source')) or [0,1])[:2]
+  lo, hi = (ranges.get(c.get('measured_signal')) or [0,1])[:2]
   target = lo + 0.6*(hi-lo)
   print(c.get('name',''), target)
 " 2>/dev/null | while read -r cn tgt; do

@@ -166,12 +166,14 @@ class InterimStopper:
         return running
 
     def _manual(self) -> dict[str, str]:
-        """Every controller to manual; by target address, why one would not go."""
+        """Every controller to manual; by output address, why one would not go."""
         failed: dict[str, str] = {}
         for name, controller in list(self.rig.controllers.items()):
             try:
                 controller.manual()
             except Exception as error:
                 log.exception("stop: controller %s would not go to manual", name)
-                failed[controller.target.address] = f"controller {name} not in manual: {error}"
+                failed[controller.output_signal.address] = (
+                    f"controller {name} not in manual: {error}"
+                )
         return failed

@@ -23,7 +23,7 @@ a fresh read may deliver several at once:
    whoever asked for it. There is no callback: a touched device reads the
    value itself (`self.<input>.value`, from the router) when the rig calls
    its `commit`, in step 4.
-3. **Controllers whose source is in the delivery tick.** For every reading
+3. **Controllers whose measured signal is in the delivery tick.** For every reading
    whose signal a controller regulates (`self.controllers.find(signal)`),
    the reading is queued; after every sample in the batch has been walked,
    every queued `(controller, reading)` pair calls
@@ -171,14 +171,14 @@ meanwhile is not an error. `Rig.document` and `attach_controller` take it.
 
 ## Controllers
 
-`Controllers` indexes by the target signal's address — a `W` signal has at
-most one controller, so the controller *is* named by what it drives — and by
-source, for the tick (`Controllers.find(signal)`). The `default` flag is
+`Controllers` indexes by the output's address — a demand has at most one
+controller, so the controller *is* named by what it drives — and by
+measured signal, for the tick (`Controllers.find(signal)`). The `default` flag is
 what a command or program step means when it names no controller.
-`rig.attach_controller(target, source, law=..., feedforward=..., default=...)`
+`rig.attach_controller(output, measured, law=..., feedforward=..., default=...)`
 builds one and wires its `write` callback to `rig.demand`; `detach_controller`
-takes it off its target (left in manual, its last demand held) so a manual
-demand may drive the target again.
+takes it off its output (left in manual, its last value held) so a manual
+demand may drive the output again.
 
 ## Triggers
 

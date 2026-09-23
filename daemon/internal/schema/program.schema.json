@@ -848,7 +848,7 @@
               "manual"
             ],
             "additionalProperties": false,
-            "description": "Stop a controller regulating; its target keeps its last demand and takes demands directly."
+            "description": "Stop a controller regulating; its output keeps its last value and takes demands directly."
           }
         ]
       }

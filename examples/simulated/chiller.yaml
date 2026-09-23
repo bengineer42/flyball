@@ -49,6 +49,6 @@ devices:
 # the inverting.
 controllers:
   compressor.drive:
-    signal: probe.temperature
+    measured: probe.temperature
     law: { tag: PI, kp: 0.05, ki: 0.0015 }
     default: true

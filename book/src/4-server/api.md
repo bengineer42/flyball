@@ -214,7 +214,7 @@ last_read_ns}` for a polled device (null otherwise).
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warn, alarm,
 poll_s, limits, initial, latest, write}`: `access` is the set in force as
-letters (`rp`, `w`, `rw`, `rpw`), `role` one of `demand`, `output`,
+letters (`rp`, `w`, `rw`, `rpw`), `role` one of `demand`, `readout`,
 `setting`, `config`, `tags` the section as `{axis: name}` (empty without
 one), `limits` the effective numbers now, `latest` `{time_ns, value}` once
 it has been read (null before), `write` a `WriteOut` for a writable signal
@@ -224,7 +224,7 @@ poll_s, signals: [...]}`, nesting the same shapes.
 A `WriteOut` is `{value, requested, at_limit, controller}`: what was last
 set after limits, what was asked for when the clamp changed it, `low` /
 `high` when the value sits on a limit, and the controller driving the
-signal (it refuses manual demands; set its reference or detach it).
+signal (it refuses manual demands; set its setpoint or detach it).
 
 A `CommandOut` is `{name, description, simulation, commit, mode,
 interrupts, demand_of, links}`: `commit` whether the rig commits the
@@ -254,35 +254,38 @@ properties linked to a demand also carry `x-signal`, `unit` and
 
 ## Controllers
 
-A controller binds one publishing signal (`source`) to one writable
-signal (`target`) through a law and a feedforward, and is named by its
-target's address.
+A controller regulates one publishing signal, its **measured** signal,
+by writing one demand, its **output**, through a law and a feedforward. It
+is named by its output's address.
 
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/controllers` | `[ControllerOut]` |
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
-| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `sources` and `targets` (`[{address, device, label, unit, dimension, range, limits}]`: every publishing signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{source: controller}`), `driven` (`{target: controller}`) |
-| `POST` | `/api/controllers` | `{target, source, law?, feedforward?, default?, min_period_s?}`; 201 `ControllerOut`; 409 if the target is already driven or the source already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
-| `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the target holds its last demand; manual demands may drive it again |
-| `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `process`/`setpoint`/`demand`, or a generator spec (`{tag, ...its own arguments}`, e.g. `{tag: "linear_ramp_setpoint", pace, end}`, discriminated by `tag` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `process` (the reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `demand` is converted back to the source's unit through the feedforward's inverse, 422 if it has none; the handover's demand is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
-| `POST` | `/api/controllers/{address}/manual` | stop regulating; the target keeps its last demand |
-| `PUT` | `/api/controllers/{address}/reference` | `{at, start?}`; move the setpoint, or start following a generator spec (as `regulate` takes, with the same `start`), without touching the mode |
+| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every publishing signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
+| `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, default?, min_period_s?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
+| `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the output holds its last value; manual demands may drive it again |
+| `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{tag, ...its own arguments}`, e.g. `{tag: "linear_ramp_setpoint", pace, end}`, discriminated by `tag` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
+| `POST` | `/api/controllers/{address}/manual` | stop regulating; the output keeps its last value |
+| `PUT` | `/api/controllers/{address}/setpoint` | `{at, start?}`; move the setpoint, or start following a generator spec (as `regulate` takes, with the same `start`), without touching the mode |
 
-A `ControllerOut` is `{name, label, target, source, default, mode, law,
-feedforward, demand_unit, reference, setpoint, arrived, correction, demand,
-expected, delivered_correction, reading}`: `name` is `target`; `label` the
-target signal's; `reference` is a number or, mid-trajectory, `{tag,
+A `ControllerOut` is `{name, label, output_signal, measured_signal,
+default, mode, law, feedforward, output_unit, reference, setpoint, arrived,
+correction, output, expected, delivered_correction, measured}`: `name` is
+`output_signal`, the output's address, and `measured_signal` the measured
+signal's; `label` the output signal's; `reference` is a number or, mid-trajectory, `{tag,
 ...the generator's own arguments, end_time?}` (`end_time` in seconds from
 the rig's start, once started and unless endless), `setpoint` the value it
-resolved to at the last tick (in the source's unit), `arrived` whether the
+resolved to at the last tick (in the measured unit), `arrived` whether the
 reference has landed (a number has; a generator once it finishes, judged
-in rig time), and `demand`, `expected` and `correction` are in
-`demand_unit` -- the target's unit, which the `feedforward` (`{tag:
+in rig time), and `output`, `expected` and `correction` are in
+`output_unit` -- the output signal's unit, which the `feedforward` (`{tag:
 setpoint | none | affine | table, ...}`, `affine`/`table` taking an
 optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
-`reading` is `{signal, time_ns, value}` on the source at the last tick.
+`measured` is the measured signal's reading at the last tick, `{signal,
+time_ns, value}`. The faceplate reads Measured / Setpoint / Output from
+`measured`, `setpoint` and `output`.
 
 The generators, by `tag`:
 
@@ -333,10 +336,10 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions/{id}/devices` | `[DeviceRow {id, address, driver, config, label}]` |
 | `GET` | `/api/history/sessions/{id}/signals` | `[SignalRow {id, device_id, address, quantity, unit, access, dtype, shape, label, range, precision, warn, alarm, limits}]` |
 | `GET` | `/api/history/sessions/{id}/writes` | `[WriteRow {signal: SignalRow, driver, limits}]` |
-| `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, source, law, feedforward}]` |
+| `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, measured, law, feedforward}]` |
 | `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
 | `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
-| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral) |
+| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured, setpoint, output, expected, delivered_correction}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral) |
 | `GET` | `/api/history/sessions/{id}/events` | `[Event]`; query `start_ns`, `end_ns` |
 | `GET` | `/api/history/sessions/{id}/spans` | `[Span]`, in start order; nest by `parent_id` |
 | `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per signal (each row holds every signal's last value; `step_s` resamples onto a grid), `long` one row per value (`device, signal, unit, value`), `zip` both (`signals-wide.csv`, `signals-long.csv`) plus each controller's ticks (`controller-{name}.csv`), each write's states (`write-{address}.csv`), `events.csv` and `session.json` (`devices`, `signals`, `controllers`) |
@@ -356,7 +359,7 @@ Times in history are integer nanosecond offsets from the session's start.
 
 A program is a document in the server's [dialect](../1-running/programs/writing.md);
 `check` and `run` take it as the body. Steps name a controller by its
-target address (or none for the rig's default), a device by name.
+output's address (or none for the rig's default), a device by name.
 
 | | | |
 | --- | --- | --- |
@@ -408,7 +411,7 @@ what is stored stays as saved: `channel` (`"source.measurand"` or
 `{source, measurand}`) becomes `address`, `channels` become `addresses`,
 a `loop` widget's `loop` becomes `controller`, and an `actuator` widget
 becomes a `device` widget bound by `device`. A loop was named by its
-actuator and a controller by its target's address, so a migrated `loop`
+actuator and a controller by its output's address, so a migrated `loop`
 binding may show as a problem until it is rebound.
 
 ## Simulation

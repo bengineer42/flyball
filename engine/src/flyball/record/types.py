@@ -107,10 +107,10 @@ class WriteRow:
 
 @dataclass(frozen=True, slots=True)
 class ControllerRow:
-    """A controller is named by the signal it drives; `source` is the one it regulates."""
+    """A controller is named by the demand it drives; `measured` is the signal it regulates."""
 
     name: str
-    source: str
+    measured: str
     law: Any
     feedforward: Any = None
     """The feedforward's config; None in sessions recorded before there was one."""
@@ -242,9 +242,9 @@ class Tick:
     mode: str
     correction: float | None
     """None when the law's output was not a number (a NaN integral)."""
-    reading: float | None = None
+    measured: float | None = None
     setpoint: float | None = None
-    demand: float | None = None
+    output: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
 

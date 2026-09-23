@@ -15,7 +15,7 @@ from flyball.foundation.device import (
     DriverConfig,
     LimitNotKnownError,
     LimitsInvertedError,
-    Output,
+    Readout,
     Sample,
 )
 from flyball.foundation.device.entry import NamespaceOverride, SignalOverride, _override_signal
@@ -33,8 +33,8 @@ HUMIDITY = Quantity("humidity", Percent)
 class Blender(Committable):
     """A heater with fixed limits, a free demand, and a humidity bounded by two supplies."""
 
-    dry = Output("dry", "Dry supply humidity", HUMIDITY)
-    wet = Output("wet", "Wet supply humidity", HUMIDITY)
+    dry = Readout("dry", "Dry supply humidity", HUMIDITY)
+    wet = Readout("wet", "Wet supply humidity", HUMIDITY)
     heater = Demand("heater", "Heater", POWER, limits=(0.0, 2500.0))
     free = Demand("free", "Unbounded demand", POWER)
     humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(dry, wet))

@@ -78,9 +78,9 @@ def client(tmp_path, fresh):
             2_000_000_000,
             "regulating",
             5.0,
-            reading=21.0,
+            measured=21.0,
             setpoint=25.0,
-            demand=5.0,
+            output=5.0,
         )
     )
     writer.write_states(
@@ -147,7 +147,7 @@ def test_session_long_json_and_zip(client):
         assert meta["id"] == sid and meta["controllers"] == [
             {
                 "name": f"{heater}.power",
-                "source": f"{probe}.temperature",
+                "measured": f"{probe}.temperature",
                 "law": {"tag": "PI", "kp": 1.0, "ki": 0.0, "tt": 0.0, "b": 1.0},
                 "feedforward": {"tag": "none"},
             }
@@ -175,7 +175,7 @@ def test_signal_controller_write_and_events(client):
     assert series[0][2] == f"{probe}.temperature (°C)" and series[1][2] == "20.5"
 
     ticks = rows(c.get(f"/api/history/sessions/{sid}/ticks/{heater}.power/export").text)
-    assert ticks[0][2:5] == ["mode", "setpoint", "reading"]
+    assert ticks[0][2:5] == ["mode", "setpoint", "measured"]
     assert ticks[1][:5] == ["2.0", "2023-11-14T22:13:22.000Z", "regulating", "25.0", "21.0"]
 
     writes = c.get(f"/api/history/sessions/{sid}/writes/{heater}.power/export?format=json").json()
@@ -230,7 +230,7 @@ def test_history_routes_read_by_address(client):
     assert write["signal"]["address"] == f"{heater}.power" and write["limits"] == [0.0, 10.0]
     (controller,) = c.get(f"/api/history/sessions/{sid}/controllers").json()
     assert (
-        controller["name"] == f"{heater}.power" and controller["source"] == f"{probe}.temperature"
+        controller["name"] == f"{heater}.power" and controller["measured"] == f"{probe}.temperature"
     )
 
     series = c.get(f"/api/history/sessions/{sid}/series/{probe}.temperature").json()

@@ -3,7 +3,7 @@
 A tree of tagged configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
 config, keyed by name; a controller is keyed by the address of
-the signal it drives and names its source. Formats are
+the demand it drives, its output, and names its `measured` signal. Formats are
 [flyball.foundation.files][]'s business; which driver and link kinds exist is
 [flyball.model.catalog.Catalogs][]'s, read here via
 [get_catalog][flyball.model.catalog.get_catalog] where a function has no way
@@ -128,15 +128,15 @@ def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Confi
 
 
 class ControllerEntry(BaseModel):
-    """A controller and how it regulates its target; keyed by the target's address in the file."""
+    """A controller and how it regulates its output; keyed by the output's address in the file."""
 
     model_config = ConfigDict(extra="forbid")
 
-    signal: str = Field(description="The source signal's address (a P signal).")
+    measured: str = Field(description="The measured signal's address (a P signal).")
     law: LawConfig | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
         default=None,
-        description="Maps the source's unit to the target's; the law adds to it."
+        description="Maps the measured signal's unit to the output's; the law adds to it."
         " Omit for the setpoint itself when the units agree, else none.",
     )
     default: bool = False
@@ -727,7 +727,7 @@ class RigConfig(BaseModel):
     links: dict[str, Any] = Field(default_factory=dict)
     devices: dict[str, DeviceEntry] = Field(default_factory=dict)
     controllers: dict[str, ControllerEntry] = Field(
-        default_factory=dict, description="Keyed by the target signal's address."
+        default_factory=dict, description="Keyed by the output signal's address."
     )
     runner: RunnerConfig | None = Field(default=None, exclude=True)
     """How the runner serves; not part of the rig, so not of its document or versions."""
@@ -809,12 +809,12 @@ class RigConfig(BaseModel):
             link = entry.config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
-        for target, controller in self.controllers.items():
-            if "." not in target:
-                raise ValueError(f"controller {target!r} must be a 'node.signal' address")
-            if "." not in controller.signal:
+        for output, controller in self.controllers.items():
+            if "." not in output:
+                raise ValueError(f"controller {output!r} must be a 'node.signal' address")
+            if "." not in controller.measured:
                 raise ValueError(
-                    f"controller {target!r}: signal {controller.signal!r}"
+                    f"controller {output!r}: measured {controller.measured!r}"
                     " must be a 'node.signal' address"
                 )
         if sum(c.default for c in self.controllers.values()) > 1:
@@ -875,19 +875,19 @@ class RigConfig(BaseModel):
             for name, entry in self.devices.items():
                 if entry.bound:
                     rig.bind_inputs(rig.devices[name], entry.bound)
-            for target_address, controller in self.controllers.items():
-                target = rig.resolve(target_address)
-                if not isinstance(target, Signal):
-                    raise ValueError(f"controller {target_address!r} is not a signal")
-                source_signal = rig.resolve(controller.signal)
-                if not isinstance(source_signal, Signal):
+            for output_address, controller in self.controllers.items():
+                output = rig.resolve(output_address)
+                if not isinstance(output, Signal):
+                    raise ValueError(f"controller {output_address!r} is not a signal")
+                measured = rig.resolve(controller.measured)
+                if not isinstance(measured, Signal):
                     raise ValueError(
-                        f"controller {target_address!r}: signal {controller.signal!r}"
+                        f"controller {output_address!r}: measured {controller.measured!r}"
                         " is not a signal"
                     )
                 rig.attach_controller(
-                    target,
-                    source_signal,
+                    output,
+                    measured,
                     law=controller.law,
                     feedforward=controller.feedforward,
                     default=controller.default,
