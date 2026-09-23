@@ -17,6 +17,7 @@ from flyball.foundation.device import (
     Signal,
     SignalSpec,
 )
+from flyball.foundation.device.entry import SignalOverride
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
@@ -423,6 +424,29 @@ class TestBuild:
         rig = RigConfig.model_validate(document).build(start=False)
         assert isinstance(rig.resolve("furnace.zone1"), Signal)
         assert "heaters.heater1" in rig.controllers
+
+
+class TestSignalOverride:
+    def test_an_inverted_range_override_is_refused(self):
+        with pytest.raises(ValueError, match="range"):
+            SignalOverride(range=(100.0, 0.0))
+
+    def test_a_non_finite_limits_override_is_refused(self):
+        with pytest.raises(ValueError, match="limits"):
+            SignalOverride(limits=(0.0, float("nan")))
+
+    def test_rig_build_refuses_an_inverted_override_band(self, daq_tag):
+        document = {
+            "devices": {
+                "furnace": {
+                    "driver": daq_tag,
+                    "zones": 1,
+                    "signals": {"zone1": {"range": [1200.0, 0.0]}},
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="range"):
+            RigConfig.model_validate(document).build(start=False)
 
 
 class TestOverlay:

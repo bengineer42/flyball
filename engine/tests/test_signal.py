@@ -90,6 +90,28 @@ class TestSpecs:
         with pytest.raises(ValueError, match="'zone1': shape \\(3,\\): only scalars yet"):
             SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, shape=(3,))
 
+    def test_an_inverted_band_is_refused(self):
+        with pytest.raises(ValueError, match="range"):
+            SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, range=(100.0, 0.0))
+        with pytest.raises(ValueError, match="limits"):
+            SignalSpec(name="heater", quantity=POWER, access=Access.W, limits=(2500.0, 0.0))
+
+    def test_a_non_finite_band_is_refused(self):
+        with pytest.raises(ValueError, match="warn"):
+            SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, warn=(0.0, float("nan")))
+        with pytest.raises(ValueError, match="alarm"):
+            SignalSpec(name="zone1", quantity=TEMP, access=Access.RP, alarm=(0.0, float("inf")))
+
+    def test_a_reference_bound_limit_is_not_checked_numerically(self):
+        from flyball.foundation.device.signal import SignalRef
+
+        SignalSpec(
+            name="heater",
+            quantity=POWER,
+            access=Access.W,
+            limits=(0.0, SignalRef("max_power")),
+        )
+
 
 class Probe(Device):
     TREE = (
