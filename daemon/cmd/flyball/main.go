@@ -136,25 +136,45 @@ func main() {
 		return
 	}
 
-	// `login`/`logout` sign in/out of a runner's password or token door
-	// (engine/src/flyball/server/auth.py) -- addressed like every other
-	// runner command (-s/FLYBALLD_URL or FLYBALL_URL direct), so
-	// dispatched after target resolution, unlike the local/daemon
-	// commands above.
-	if args[0] == "login" || args[0] == "logout" {
-		target, err := resolveTarget(server)
-		if err != nil {
+	// `login`/`logout` sign in/out of a front's password door
+	// (daemon/internal/front/auth.go) -- login resolves its own target
+	// (an explicit URL argument, or the usual -s/FLYBALLD_URL/FLYBALL_URL
+	// precedence), since it may need to reach a front before any token
+	// exists to resolve-and-authenticate with.
+	if args[0] == "login" {
+		if err := runLoginCommand(server, args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
-		var runErr error
-		if args[0] == "login" {
-			runErr = runLoginCommand(target.WithToken(token), args[1:])
-		} else {
-			runErr = runLogoutCommand(target.WithToken(token))
+		return
+	}
+	if args[0] == "logout" {
+		if err := runLogoutCommand(server); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
 		}
-		if runErr != nil {
-			fmt.Fprintln(os.Stderr, "flyball:", runErr)
+		return
+	}
+
+	// `token ...` manages the named-tokens file offline, the same file a
+	// running front reads (daemon/internal/front/store.Tokens re-reads on
+	// stat change) -- no runner or daemon request at all, so dispatched
+	// before target resolution like `rig`/`daemon`.
+	if args[0] == "token" {
+		if err := runTokenCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// `stop` tries the front first (POST /api/rig/stop) and falls back to
+	// SIGUSR1 when it can't be reached, so it resolves its own target
+	// rather than sharing the generic block below (a stop must still work
+	// when that resolution, or the front itself, is unreachable).
+	if args[0] == "stop" {
+		if err := runStopCommand(server, token, args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
 		return
@@ -190,8 +210,10 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `usage: flyball [-s NAME] [--token TOKEN] <command> ...
 
 runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
-  login [SECRET]                      sign in to a password-protected runner
-  logout                              drop the saved session
+  login [URL]                         admin password -> a saved named token (prompted, never on argv)
+  logout                              drop the saved token (locally only; see token revoke)
+  stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT]
+                                      POST /api/rig/stop; SIGUSR1 if the front can't be reached
   read ADDRESS [--fresh]              GET /api/read/{address}
   demand ADDRESS VALUE                PUT /api/signals/{address}
   status [--json]                     one screen: devices, controllers, waits
@@ -215,6 +237,10 @@ local (no runner or daemon involved):
   run RIG-FILE [--serve-ui ADDR] [--uv] [flyball-runner flags...]   start a runner directly, foreground
   password [PASSWORD]                 hash a password for runner.auth.password
   new NAME [--dir PATH]                write a starting point for a device driver
+  token create --name N --config PATH [--scope S ...] [--kind human|service|agent] [--expires D]
+                                      write a token into the front's tokens.json offline; prints it once
+  token list --config PATH            list tokens (never their secrets)
+  token revoke ID --config PATH       remove a token; the front picks this up at its next check
 
 daemon-managed (talks to flyballd via FLYBALLD_URL, never routed through a runner):
   daemon runners                      list registered runners

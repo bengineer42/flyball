@@ -1,10 +1,10 @@
-// `flyball login`/`logout`: trade a runner's password (or its bearer
-// token) for a session cookie via POST /api/auth/login, and persist it
-// so later invocations reuse it -- see internal/client/auth.go for the
-// storage and internal/client/resolve.go for where the saved cookie is
-// picked back up (Target.AuthHeaders). Mirrors what the UI's login page
-// does (POST the secret, get a cookie); the old Python cli.py never had
-// this -- only a bearer token, taken via --token/FLYBALL_TOKEN.
+// `flyball login`/`logout`: trade a front's admin password for a named
+// token via POST /api/auth/login then POST /api/auth/tokens, and persist
+// the token -- see internal/client/auth.go for the storage and exchange,
+// and internal/client/resolve.go for where the saved token is picked
+// back up (Target.AuthHeaders). The password is never a command-line
+// argument (merge requirement 6's "never in argv" applies here too, not
+// only to the front-dir key): it is always read from the terminal.
 package main
 
 import (
@@ -15,34 +15,50 @@ import (
 	"golang.org/x/term"
 )
 
-func runLoginCommand(t client.Target, args []string) error {
-	var secret string
-	switch len(args) {
-	case 0:
-		fmt.Fprint(os.Stderr, "Password: ")
-		data, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr)
-		if err != nil {
-			return fmt.Errorf("reading password: %w", err)
-		}
-		secret = string(data)
-	case 1:
-		secret = args[0]
-	default:
-		return fmt.Errorf("usage: flyball login [SECRET]")
+func runLoginCommand(server string, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("usage: flyball login [URL]")
 	}
-	if secret == "" {
+	var target client.Target
+	if len(args) == 1 {
+		// An explicit URL addresses the front directly, same shape as
+		// FLYBALL_URL, without requiring -s/FLYBALLD_URL to be set up
+		// first just to sign in.
+		target = client.Target{BaseURL: args[0]}
+	} else {
+		t, err := resolveTarget(server)
+		if err != nil {
+			return err
+		}
+		target = t
+	}
+
+	fmt.Fprint(os.Stderr, "Password: ")
+	data, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return fmt.Errorf("reading password: %w", err)
+	}
+	password := string(data)
+	if password == "" {
 		return fmt.Errorf("an empty password is no password")
 	}
-	if err := client.Login(t, secret); err != nil {
+
+	tok, err := client.Login(target, password)
+	if err != nil {
 		return err
 	}
-	fmt.Println("signed in")
+	fmt.Printf("signed in; saved token %q (scopes %v, expires %s)\n",
+		tok.Name, tok.Scopes, tok.Expires.Format("2006-01-02T15:04:05Z07:00"))
 	return nil
 }
 
-func runLogoutCommand(t client.Target) error {
-	if err := client.Logout(t); err != nil {
+func runLogoutCommand(server string) error {
+	target, err := resolveTarget(server)
+	if err != nil {
+		return err
+	}
+	if err := client.Logout(target); err != nil {
 		return err
 	}
 	fmt.Println("signed out")
