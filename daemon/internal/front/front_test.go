@@ -859,7 +859,7 @@ func TestAuthInfoV2(t *testing.T) {
 		return decode(body(resp))
 	}
 	local := newHarness(t, Config{})
-	want := decode(`{"v":2,"shape":"local","scheme":"local","user":{"id":"local:console","name":"local","kind":"human"},"verbs":["operate","read"],"anonymous":"none","login":{"password":false,"token":false,"passkey":false,"sso":null},"exposure":null}`)
+	want := decode(`{"v":2,"shape":"local","scheme":"local","user":{"id":"local:console","name":"local","kind":"human"},"verbs":["operate","read"],"anonymous":"none","login":{"password":false,"token":false,"passkey":false,"sso":null},"exposure":null,"rig":"blender"}`)
 	if got := get(local, nil); !reflect.DeepEqual(got, want) {
 		t.Errorf("local:\n got %v\nwant %v", got, want)
 	}
@@ -870,7 +870,7 @@ func TestAuthInfoV2(t *testing.T) {
 	got := get(pw, nil).(map[string]any)
 	exp := got["exposure"]
 	delete(got, "exposure")
-	want = decode(`{"v":2,"shape":"password","scheme":"anonymous","user":null,"verbs":["read"],"anonymous":"read","login":{"password":true,"token":false,"passkey":false,"sso":null}}`)
+	want = decode(`{"v":2,"shape":"password","scheme":"anonymous","user":null,"verbs":["read"],"anonymous":"read","login":{"password":true,"token":false,"passkey":false,"sso":null},"rig":"blender"}`)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("password, anonymous:\n got %v\nwant %v", got, want)
 	}
@@ -1302,11 +1302,18 @@ func TestRouting(t *testing.T) {
 	if !reflect.DeepEqual(info.Verbs, []string{"operate", "read"}) {
 		t.Fatalf("beta verbs %v", info.Verbs)
 	}
+	if info.Rig != "beta" {
+		t.Fatalf("beta rig = %q, want beta", info.Rig)
+	}
 	if b := body(h.do("GET", "/", "", nil)); b != "landing" {
 		t.Fatalf("fallback: %q", b)
 	}
-	if resp := h.do("GET", "/api/auth", "", nil); resp.StatusCode != 200 {
-		t.Fatalf("root /api/auth: %d", resp.StatusCode)
+	rootResp := h.do("GET", "/api/auth", "", nil)
+	if rootResp.StatusCode != 200 {
+		t.Fatalf("root /api/auth: %d", rootResp.StatusCode)
+	}
+	if root := readJSON[AuthInfo](t, rootResp); root.Rig != "" {
+		t.Fatalf("root rig = %q, want empty (flyballd's own root names no rig)", root.Rig)
 	}
 	if resp := h.do("GET", "/alpha/", "", nil); resp.StatusCode != 200 || body(resp) != testUI {
 		t.Fatalf("UI under a root: %d", resp.StatusCode)
