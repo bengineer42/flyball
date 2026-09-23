@@ -102,7 +102,7 @@ reaches the rig depends on how the rig is named (D-042):
 | `flyball stop`, `flyball stop NAME`, `flyball -s NAME stop` | `POST /api/rig/stop` through the front at `$FLYBALL_URL` (or `flyballd` for a `NAME`); needs `operate` | printed |
 | `flyball stop --front-dir DIR` | `SIGUSR1` to the runner holding `DIR/runner.lock`; no HTTP call | in the runner's log |
 | `flyball stop RIG-FILE` | `SIGUSR1` to the runner holding `runner.lock` in the front-dir `flyball run RIG-FILE` uses (when that is not a temporary directory); no HTTP call | in that run's `run.log`, whose path the CLI prints |
-| `flyball stop --pid N` | `SIGUSR1` to `N` as given; no HTTP call | in the runner's log |
+| `flyball stop --pid N` | `SIGUSR1` to `N` as given -- unless `N` is `uv` (`flyball run --uv`, `uv_project:`), which does not pass the signal on: refused, naming the runner under it; no HTTP call | in the runner's log |
 
 An argument with a `/` or a `.yaml`/`.yml` ending is a rig file; anything
 else is a rig name. `--front-dir` with `-s NAME`, a `NAME` or a `RIG-FILE`
@@ -134,7 +134,14 @@ Ctrl-C in the `flyball run` terminal instead. A stale lock is refused with
 an error naming the pid, and nothing is signalled. While a front rewrites
 its front-dir, and until a runner that has just taken the lock writes its
 pid, `runner.lock` names no pid: the stop says the runner is starting, and
-signals nothing -- try again in a moment. `--pid N` is signalled as given.
+signals nothing -- try again in a moment. `--pid N` is signalled as given,
+except a `uv` process: under `flyball run --uv` or `uv_project:` the
+process started (the pid `flyball runners` shows) is `uv`, with the runner
+as its child, and `uv` dies of `SIGUSR1` rather than passing it on, so the
+stop refuses and names the runner's pid instead. The lock file always
+names the runner itself. A `SIGUSR1` that reaches a runner still building
+its rig stops nothing (there is nothing to stop yet) and does not end it:
+its log says so.
 
 `flyball stop --all` asks `flyballd` (`$FLYBALLD_URL`) for the rigs this
 credential holds a verb on (`GET /api/rigs`, no `manage` needed) and stops

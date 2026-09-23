@@ -242,3 +242,45 @@ func TestStopWithoutProcLocks(t *testing.T) {
 		}
 	})
 }
+
+// --- SIGUSR1 never goes to uv --------------------------------------------
+
+// Under `flyball run --uv` or flyballd's `uv_project:` the process spawned
+// is uv, and the runner is its child. uv does not pass SIGUSR1 on: it dies
+// of it, orphaning the runner, and the rig is not stopped. `--pid` given
+// uv's pid (the pid `flyball runners` shows there) is refused, naming the
+// runner under it.
+func TestStopPidRefusesUv(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	uv := filepath.Join(t.TempDir(), "uv") // its comm is "uv"
+	if err := os.Symlink(sh, uv); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(uv, "-c", "sleep 30 & wait")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() { cmd.Wait(); close(exited) }()
+	t.Cleanup(func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); cmd.Process.Kill(); <-exited })
+	if b, err := os.ReadFile("/proc/" + strconv.Itoa(cmd.Process.Pid) + "/comm"); err != nil || strings.TrimSpace(string(b)) != "uv" {
+		t.Skipf("cannot name a process uv here (%q, %v)", b, err)
+	}
+	var child int
+	for end := time.Now().Add(5 * time.Second); child == 0 && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		child = childOf(cmd.Process.Pid)
+	}
+
+	err = runStopCommand("", "", []string{"--pid", strconv.Itoa(cmd.Process.Pid)})
+	t.Logf("refused: %v", err)
+	if err == nil {
+		t.Fatal("SIGUSR1 was sent to uv")
+	}
+	if child != 0 && !strings.Contains(err.Error(), strconv.Itoa(child)) {
+		t.Errorf("the refusal does not name the runner under uv (pid %d): %v", child, err)
+	}
+	assertAlive(t, exited)
+}

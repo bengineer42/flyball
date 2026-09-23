@@ -342,6 +342,16 @@ func signalStop(pid int, where string) error {
 	if err != nil {
 		return fmt.Errorf("pid %d: %w", pid, err)
 	}
+	// Under `flyball run --uv` or flyballd's `uv_project:` the process
+	// spawned is uv (the pid `flyball runners` shows), with the runner as
+	// its child. uv does not pass SIGUSR1 on: it would die of it, leave
+	// the runner orphaned, and stop nothing.
+	if processName(pid) == "uv" {
+		if child := childOf(pid); child != 0 {
+			return fmt.Errorf("pid %d is uv, which does not pass SIGUSR1 on (it would die of it, and the rig would not stop): nothing was signalled; the runner under it is pid %d -- `flyball stop --pid %d`", pid, child, child)
+		}
+		return fmt.Errorf("pid %d is uv, which does not pass SIGUSR1 on (it would die of it, and the rig would not stop): nothing was signalled; signal the runner under it -- `flyball stop --front-dir DIR` or `flyball stop RIG-FILE` find it by its runner.lock", pid)
+	}
 	return signalProcess(proc, pid, where)
 }
 
