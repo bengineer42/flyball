@@ -468,4 +468,66 @@ def test_sigusr1_stops_without_exit(tmp_path):
     assert proc.returncode == 0, "".join(err.lines)
 
 
+def test_sigusr1_while_starting_does_not_end_the_runner(tmp_path):
+    """A stop signalled while the rig is still being built is survived, not fatal.
+
+    `flyball stop RIG-FILE` / `--front-dir` signal the pid in the lock file, which the
+    runner writes long before the rig is up (18-22 s on a Pi): SIGUSR1's default action
+    would end it there, and `flyball run` would start it again -- a stop turned restart.
+    Sent the moment `<store>.lock` names the runner, the signal finds no rig to stop yet.
+    """
+    port = _free_port()
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("FLYBALL_PASSWORD", "FLYBALL_TOKEN", "FLYBALL_INSECURE_OPEN")
+    }
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(port), "--store", str(store)]
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "flyball.runner", *argv],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stderr is not None
+    err = Lines(proc.stderr)
+    lock = tmp_path / "s.sqlite.lock"
+    try:
+
+        def named() -> bool:
+            assert proc.poll() is None, "".join(err.lines)
+            return lock.exists() and lock.read_text().startswith(f"pid {proc.pid}")
+
+        _until(named, 30)
+        proc.send_signal(signal.SIGUSR1)
+
+        def up() -> bool:
+            assert proc.poll() is None, (
+                f"SIGUSR1 while starting ended the runner ({proc.returncode})"
+            )
+            try:
+                _call(port, "GET", "/api/auth")
+            except OSError:
+                return False
+            return True
+
+        _until(up, 30)
+        early = err.matching("SIGUSR1: no rig attached yet")
+        late = err.matching("stop report")
+        assert early or late, "".join(err.lines)
+        print("the signal found:", (early or late)[0].strip())
+    finally:
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.wait(15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+    assert proc.returncode == 0, "".join(err.lines)
+
+
 # endregion

@@ -18,6 +18,7 @@ from typing import IO, Any
 
 from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
+from flyball.rig.stopping import Stopper
 from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
@@ -26,6 +27,7 @@ from . import frontdir, locking, logs
 from .cli import parser, settle
 from .serving import serve
 from .starting import BuildFailed, resumed, start_with_store
+from .stopping import install_break_glass
 
 log = logging.getLogger("flyball.runner")
 
@@ -58,7 +60,21 @@ def _needed_extras(args: Any) -> list[str]:
     return needed
 
 
+def _attached_stopper() -> Stopper | None:
+    """The stopper of the rig serving attached, or None while there is none yet.
+
+    Read from the server's module only if it is loaded (nothing attaches a rig before
+    then), so a SIGUSR1 during startup imports nothing on the handler's thread.
+    """
+    deps = sys.modules.get("flyball.interfaces.server.deps")
+    current = getattr(deps, "current_stopper", None)
+    return None if current is None else current()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    # SIGUSR1 first of all: `flyball stop` sends it to the pid the lock files name, which
+    # they do long before the rig is up, and its default action would end the runner.
+    install_break_glass(_attached_stopper)
     args = parser().parse_args(argv)
     logs.configure(args.log_level or "info")
     if args.front_dir is None:

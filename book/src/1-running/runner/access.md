@@ -422,7 +422,10 @@ manual. **In this release it writes nothing to any device**: outputs are
 left at whatever they were last told, and each device is reported
 `unchanged` (`interim: true` in the report). A `SIGUSR1` stop writes its
 report to the runner's log (`stop report: {…}`) and does not end the
-process. Every stop is in the [audit](#what-is-recorded), the `SIGUSR1` one
+process. One that arrives while the rig is still being built (from the
+moment the lock file names the runner; 20 s or so on a Raspberry Pi) finds
+nothing to stop yet: the log says so (`SIGUSR1: no rig attached yet`), the
+runner carries on starting, and the stop is sent again once it serves. Every stop is in the [audit](#what-is-recorded), the `SIGUSR1` one
 as `local:signal`; the signal's sender is not recorded.
 
 !!! warning "Not an emergency stop"
