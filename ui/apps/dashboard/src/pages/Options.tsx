@@ -223,6 +223,7 @@ function Appearance() {
 
 /** What each page is for, in a line: the Pages tab is the one place that lists them all. */
 const PAGE_NOTES: Partial<Record<Page, string>> = {
+  dashboards: "The dashboards: the generated overview and every saved one. Also the tabs in the bar.",
   readings: "Every device and published signal, its value, trend and commands: the plain fall-back view.",
   controllers: "Every control loop's faceplate.",
   graph: "Several signals and setpoints on one chart.",

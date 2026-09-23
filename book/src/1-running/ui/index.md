@@ -22,9 +22,11 @@ The visual language is *Design rationale* below and `ui/README.md`.
 There is no sidebar: the app bar at the top of every page is how you move.
 
 ```
- Overview (generated) · furnace · wall  [+]     ⚠ 0 conditions ³  ⏺ session #4  ▷ no program  ✓ server  ⚗ sim   [■ Software stop]  ⚙
+ ⌂  Overview (generated) · furnace · wall  [+]     ⚠ 0 conditions ³  ⏺ session #4  ▷ no program  ✓ server  ⚗ sim   [■ Software stop]  ⚙
 ```
 
+- **⌂ goes back to the dashboards** from any page (the home dashboard, if
+  one is set, else the generated overview).
 - **Dashboards are tabs.** On the dashboards page the bar shows one tab per
   saved dashboard, after the generated overview; `[+]` makes a new, empty
   one. Each tab is a link (`#/dashboards/<name>`). On a phone the tabs sit
