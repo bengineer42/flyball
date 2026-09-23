@@ -27,7 +27,9 @@ func TestResolveDefault(t *testing.T) {
 
 // Merge requirement 24 (the front's half): every auth misconfiguration
 // removes exposure, never operation -- the plan serves the local shape on
-// loopback with a banner, and never fails.
+// loopback with a banner, and never fails. A credential shape's fallback
+// serves it on a fresh loopback address and refuses (503) the one asked
+// for (D-028, amended: sec F1); local beyond loopback keeps its port.
 func TestResolveFallbacks(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string]Config{
@@ -46,16 +48,37 @@ func TestResolveFallbacks(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := Resolve(c, false)
 			defer p.Close()
-			if p.Shape != "local" || p.Listen != "127.0.0.1:9000" || p.Fallback == "" {
-				t.Fatalf("plan: shape %q listen %q fallback %q", p.Shape, p.Listen, p.Fallback)
+			listen, refused := "127.0.0.1:0", "0.0.0.0:9000"
+			if c.Auth == "" {
+				listen, refused = "127.0.0.1:9000", ""
+			}
+			if p.Shape != "local" || p.Listen != listen || p.Refused != refused || p.Fallback == "" {
+				t.Fatalf("plan: shape %q listen %q refused %q fallback %q", p.Shape, p.Listen, p.Refused, p.Fallback)
 			}
 			if p.TLS != nil || p.Secure {
 				t.Fatal("a fallback kept TLS")
 			}
-			if !strings.Contains(p.Banner(), p.Fallback) || !strings.Contains(p.Banner(), "127.0.0.1:9000") {
+			if !strings.Contains(p.Banner(), p.Fallback) || !strings.Contains(p.Banner(), listen) {
 				t.Fatalf("banner %q", p.Banner())
 			}
+			if refused != "" && !strings.Contains(p.Banner(), refused+" answers 503") {
+				t.Fatalf("banner %q does not say the requested address answers 503", p.Banner())
+			}
 		})
+	}
+	// Beside a unix socket, the console is a fresh socket in the same
+	// directory; one whose path would be too long gets a loopback port.
+	p := Resolve(Config{Listen: "unix:/run/flyball/front.sock", Auth: "sso"}, false)
+	if p.Listen != "unix:/run/flyball/front.sock.local" || p.Refused != "unix:/run/flyball/front.sock" {
+		t.Fatalf("unix fallback: listen %q refused %q", p.Listen, p.Refused)
+	}
+	long := "unix:/" + strings.Repeat("d", 96) + ".sock"
+	if p = Resolve(Config{Listen: long, Auth: "sso"}, false); p.Listen != "127.0.0.1:0" || p.Refused != long {
+		t.Fatalf("long unix fallback: listen %q refused %q", p.Listen, p.Refused)
+	}
+	// A listen that is not an address: nothing to refuse.
+	if p = Resolve(Config{Listen: "nowhere", Auth: "sso"}, false); p.Listen != DefaultListen || p.Refused != "" {
+		t.Fatalf("bad listen: listen %q refused %q", p.Listen, p.Refused)
 	}
 }
 

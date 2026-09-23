@@ -180,7 +180,10 @@ only a warning to it; `flyball rig check` holds it to this schema. An
 unknown key or a wrong type makes the front fall back to the `local` shape
 on `127.0.0.1` ([Access](../1-running/runner/access.md#when-a-setting-is-wrong)),
 as does every error the table marks *falls back*; a key marked *warns* is
-ignored with one warning line and its default used.
+ignored with one warning line and its default used. When `auth` asked for
+anything but `local`, a fallback answers `503` on `listen` and serves the
+`local` shape on a fresh loopback port (or on `<socket>.local` beside a
+`unix:` one) instead.
 
 | key | type | default | |
 | --- | --- | --- | --- |

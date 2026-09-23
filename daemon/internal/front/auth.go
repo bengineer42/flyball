@@ -360,7 +360,9 @@ func cookieName(p Plan) string {
 // plan whose Listen asked for port 0 (e.g. `--listen 127.0.0.1:0`): before
 // this, cookieName saw "0" and every such front shared "flyball-0". Unix
 // sockets and TLS (__Host-) are unaffected, since cookieName does not use
-// the port for either.
+// the port for either. After a credential shape's fallback (Plan.Refused)
+// the console's fresh port is also what /api/auth's exposure reports. Call
+// it before serving.
 func (f *Front) Bound(addr net.Addr) {
 	tcp, ok := addr.(*net.TCPAddr)
 	if !ok {
@@ -369,6 +371,9 @@ func (f *Front) Bound(addr net.Addr) {
 	p := f.plan
 	p.Listen = tcp.String()
 	f.cookie = cookieName(p)
+	if f.plan.Refused != "" {
+		f.plan.Listen = p.Listen
+	}
 }
 
 func (f *Front) setCookie(w http.ResponseWriter, value string, maxAge int) {
@@ -435,7 +440,7 @@ func (f *Front) exposure() *Exposure {
 	host, port, _ := net.SplitHostPort(p.Listen)
 	n, _ := strconv.Atoi(port)
 	e := &Exposure{Requested: p.Requested, Host: host, Port: n, Open: p.Shape == ShapeLocal,
-		Restricted: p.Listen != p.Requested, OpenNetwork: p.Shape == ShapeLocal && !loopbackListen(p.Listen)}
+		Restricted: p.Listen != p.Requested || p.Refused != "", OpenNetwork: p.Shape == ShapeLocal && !loopbackListen(p.Listen)}
 	if b := p.Banner(); b != "" {
 		e.Warning = &b
 	}
