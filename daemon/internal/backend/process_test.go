@@ -143,6 +143,32 @@ func TestStopKillsARunnerThatIgnoresSIGTERM(t *testing.T) {
 	}
 }
 
+// Restart kills a runner that ignores SIGTERM after Stop's timeout -- a
+// read stuck in a driver must not make it wait for ever -- and a new
+// process follows.
+func TestRestartKillsARunnerThatIgnoresSIGTERM(t *testing.T) {
+	b := newTestBackend(t, `trap '' TERM; while :; do sleep 0.02; done`)
+	b.stopTimeout = 200 * time.Millisecond
+	mustStart(t, b, "r")
+	first := b.pid("r")
+	time.Sleep(100 * time.Millisecond) // let the trap be installed
+
+	asked := time.Now()
+	if err := b.Restart("r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a new process after Restart", func() bool {
+		p := b.pid("r")
+		return p != 0 && p != first
+	})
+	if took := time.Since(asked); took > b.stopTimeout+time.Second {
+		t.Errorf("new process %v after Restart; the timeout is %v", took, b.stopTimeout)
+	}
+	if err := syscall.Kill(first, 0); err != syscall.ESRCH {
+		t.Errorf("runner %d still there after Restart (kill -0: %v)", first, err)
+	}
+}
+
 func status(b *ProcessBackend, name string) Status {
 	st, _ := b.Status(name)
 	return st

@@ -116,7 +116,9 @@ code for a rig file that does not validate or a rig that cannot be built
 cannot fix. The runner is `failed` until `daemon restart`.
 
 `daemon restart` restarts a runner at once, whatever its exit code, and
-cuts short a crash backoff; a `stopped` or `failed` runner starts again. `daemon stop` sends `SIGTERM`, `SIGKILL`s a
+cuts short a crash backoff; a `stopped` or `failed` runner starts again. It
+sends `SIGTERM` and returns; a runner still there after 10 s is `SIGKILL`ed
+and the new one started all the same. `daemon stop` sends `SIGTERM`, `SIGKILL`s a
 runner still there after 10 s, and returns once it is gone -- also for a
 runner in backoff, which does not come back.
 

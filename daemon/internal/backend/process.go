@@ -27,7 +27,8 @@ type ProcessBackend struct {
 	// swaps it for a shell script. minBackoff is the first crash backoff.
 	command    func(uvProject string, args []string) *exec.Cmd
 	minBackoff time.Duration
-	// stopTimeout is how long Stop waits after SIGTERM before SIGKILL.
+	// stopTimeout is how long Stop and Restart wait after SIGTERM before
+	// SIGKILL.
 	stopTimeout time.Duration
 	// maxLogSize caps a runner's captured log (0: no cap), checked every
 	// logCheckInterval.
@@ -373,6 +374,7 @@ func (b *ProcessBackend) Stop(name string) error {
 		b.mu.Unlock()
 		return fmt.Errorf("no runner named %q", name)
 	}
+	cmd := rp.cmd
 	delete(b.runners, name)
 	rp.stopping = true
 	if rp.alive {
@@ -385,11 +387,7 @@ func (b *ProcessBackend) Stop(name string) error {
 	select {
 	case <-done:
 	case <-time.After(b.stopTimeout):
-		b.mu.Lock()
-		if rp.alive {
-			rp.cmd.Process.Kill()
-		}
-		b.mu.Unlock()
+		b.killIfStill(rp, cmd)
 		<-done
 	}
 	rp.logMu.Lock()
@@ -399,10 +397,13 @@ func (b *ProcessBackend) Stop(name string) error {
 	return nil
 }
 
-// Restart ends the runner's current process and starts a new one at once.
+// Restart ends the runner's current process and starts a new one at once:
+// SIGTERM, then SIGKILL if that process is still there after stopTimeout,
+// as Stop does -- so a runner stuck in its shutdown (a read hung in a
+// driver) is not waited on for ever. It returns once SIGTERM is sent.
 // The intent is recorded, not inferred from the exit code: a runner that
-// exits 0 on SIGTERM is restarted all the same. A runner in crash backoff
-// restarts now; one that has stopped or failed starts again.
+// exits 0 on SIGTERM, or is killed, is restarted all the same. A runner in
+// crash backoff restarts now; one that has stopped or failed starts again.
 func (b *ProcessBackend) Restart(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -422,10 +423,25 @@ func (b *ProcessBackend) Restart(name string) error {
 	}
 	rp.restartRequested = true
 	if rp.alive {
-		return rp.cmd.Process.Signal(syscall.SIGTERM) // supervise() restarts it
+		cmd := rp.cmd
+		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil { // supervise() restarts it
+			return err
+		}
+		time.AfterFunc(b.stopTimeout, func() { b.killIfStill(rp, cmd) })
+		return nil
 	}
 	b.nudge(rp)
 	return nil
+}
+
+// killIfStill sends SIGKILL to cmd if it is still rp's live process -- not
+// reaped, nor replaced by a later incarnation. Takes b.mu.
+func (b *ProcessBackend) killIfStill(rp *runnerProc, cmd *exec.Cmd) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if rp.alive && rp.cmd == cmd {
+		cmd.Process.Kill()
+	}
 }
 
 // nudge wakes supervise() from a backoff wait, if it is in one.
