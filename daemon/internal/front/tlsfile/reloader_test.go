@@ -197,7 +197,15 @@ func TestRealHandshakePicksUpRenewal(t *testing.T) {
 	defer ts.Close()
 
 	dial := func() int64 {
-		conn, err := tls.Dial("tcp", ts.Listener.Addr().String(), &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // test only
+		// httptest.Server.StartTLS fills in its own placeholder Certificates
+		// entry when none is set (it only ever checks Certificates, not
+		// GetCertificate). crypto/tls only consults GetCertificate ahead of
+		// Certificates when the ClientHello carries SNI, so the dial must
+		// send one for this real handshake to exercise the reloader.
+		conn, err := tls.Dial("tcp", ts.Listener.Addr().String(), &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // test only
+			ServerName:         "localhost",
+		})
 		if err != nil {
 			t.Fatalf("tls.Dial: %v", err)
 		}
@@ -248,7 +256,7 @@ func TestMinimumVersionIsTLS12(t *testing.T) {
 	_, err = tls.Dial("tcp", ln.Addr().String(), &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // test only
 		MinVersion:         tls.VersionTLS10,
-		MaxVersion:          tls.VersionTLS11,
+		MaxVersion:         tls.VersionTLS11,
 	})
 	if err == nil {
 		t.Fatal("dial with a client capped at TLS 1.1: want error, got nil")
