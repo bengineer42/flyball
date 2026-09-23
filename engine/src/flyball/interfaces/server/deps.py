@@ -30,6 +30,7 @@ from .dialect import Dialect
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Device
+    from flyball.rig.stopping import Stopper
     from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
@@ -252,6 +253,19 @@ def current_exposure() -> dict[str, Any] | None:
     """Where the runner serves against where it was asked to; None where nothing is."""
     exposure = None if _runner is None else _runner.exposure
     return None if exposure is None else exposure.as_dict()
+
+
+_stopper: Stopper | None = None
+
+
+def set_stopper(stopper: Stopper | None) -> None:
+    """What `POST /api/rig/stop` and the break-glass signal call; None where nothing is."""
+    global _stopper
+    _stopper = stopper
+
+
+def current_stopper() -> Stopper | None:
+    return _stopper
 
 
 def save_allowed() -> bool:

@@ -48,6 +48,7 @@ from flyball.interfaces.server.routes import (
     waits_router,
 )
 from flyball.interfaces.server.routes.auth import router as auth_router
+from flyball.interfaces.server.routes.stop import router as stop_router
 from flyball.runtime.config import AuthConfig
 
 # The UI is served from its own dev server during development.
@@ -251,6 +252,7 @@ def create_app(
     app.include_router(library_router)
     app.include_router(telemetry_router)
     app.include_router(auth_router)
+    app.include_router(stop_router)
     # Every runner has the door: an open one (no password, no token) still refuses other
     # names for itself and other sites' pages; `app.state.auth` is None there, which the
     # routes read as "open".
