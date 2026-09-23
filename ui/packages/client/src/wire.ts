@@ -239,10 +239,10 @@ export interface DeviceOut {
   label: string | null;
   /** `device`, or `simulation` for an application's own simulation device (kept on the simulation page). */
   kind: string;
-  /** The rig file's tag for it (`sim_daq`, `scpi`); null for a device built in code. */
+  /** The rig file's `driver:` for it (`sim_daq`, `scpi`); null for a device built in code. */
   driver: string | null;
   /** The Python class (`SimDaq`). */
-  type: string;
+  class_name: string;
   /** The rig file's name for the link it was built on, or null. */
   link: string | null;
   poll_s: number | null;
@@ -312,7 +312,7 @@ export interface InputSchema {
 export interface DeviceSchema {
   name: string;
   label: string | null;
-  type: string;
+  class_name: string;
   driver: string | null;
   description: string | null;
   readable: boolean;
@@ -356,7 +356,7 @@ export type ReadOut = { reading: ReadingOut } | { sample: SampleOut } | { sample
 export type ControllerMode = "manual" | "regulating";
 
 export interface LawConfig {
-  tag: string;
+  type: string;
   [gain: string]: unknown;
 }
 
@@ -369,14 +369,14 @@ export interface LawConfig {
  * optional `rate_gain` for a ramp's rate of change.
  */
 export type FeedforwardConfig =
-  | { tag: "setpoint" }
-  | { tag: "none" }
-  | { tag: "affine"; gain: number; bias?: number; rate_gain?: number | null }
-  | { tag: "table"; points: Array<[number, number]>; rate_gain?: number | null }
-  | { tag: string; [arg: string]: unknown };
+  | { type: "setpoint" }
+  | { type: "none" }
+  | { type: "affine"; gain: number; bias?: number; rate_gain?: number | null }
+  | { type: "table"; points: Array<[number, number]>; rate_gain?: number | null }
+  | { type: string; [arg: string]: unknown };
 
 /**
- * A running trajectory as `ControllerOut.reference` shows it: `{tag, ...its
+ * A running trajectory as `ControllerOut.reference` shows it: `{type, ...its
  * config}` plus, once started, where it lands. Loosely typed on purpose (the
  * server allows extra keys), so the shape stays put as generators are added.
  * A `linear_ramp_setpoint` carries `end` and `pace` (a speed as `{value,
@@ -384,7 +384,7 @@ export type FeedforwardConfig =
  * `value` and `duration`; a `profile` its `segments` as given.
  */
 export interface GeneratorOut {
-  tag: string;
+  type: string;
   /** Seconds from the rig's start (`ClockOut.start_time_ns`) at which it lands; absent while endless or not yet started. */
   end_time?: number;
   /** A profile's segment in force, as an index into `segments`. */
@@ -400,26 +400,26 @@ export type SpeedSpec = { per_second: number } | { per_minute: number } | { per_
 
 /** Walk the setpoint from where it is to `end`, at a speed or over a duration. */
 export interface LinearRampSpec {
-  tag: "linear_ramp_setpoint";
+  type: "linear_ramp_setpoint";
   pace: SpeedSpec | DurationSpec;
   end: number;
 }
 
 /** Sit at `value`; with no `duration` it never finishes of its own accord. */
 export interface DwellSpec {
-  tag: "dwell";
+  type: "dwell";
   value: number;
   duration?: DurationSpec | null;
 }
 
 /** Segments in order; only the last may be endless. */
 export interface ProfileSpec {
-  tag: "profile";
+  type: "profile";
   segments: Array<LinearRampSpec | DwellSpec>;
 }
 
 /** A set-point generator as `PUT .../setpoint` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
-export type GeneratorSpec = LinearRampSpec | DwellSpec | ProfileSpec | { tag: string; [k: string]: unknown };
+export type GeneratorSpec = LinearRampSpec | DwellSpec | ProfileSpec | { type: string; [k: string]: unknown };
 
 /**
  * A controller as a client sees it: it regulates one published signal
@@ -435,7 +435,7 @@ export interface ControllerOut {
   measured_signal: Address;
   default: boolean;
   mode: ControllerMode;
-  /** The law's config and state flattened, `tag` first; null when there is no law. */
+  /** The law's config and state flattened, `type` first; null when there is no law. */
   law: Record<string, unknown> | null;
   feedforward: FeedforwardConfig;
   /** The unit `output`, `expected` and `correction` are in: the output signal's. */
@@ -471,7 +471,7 @@ export interface SignalChoice {
 /** A stored tuning as the controller form offers it: its name, the law it is for, and the gains. */
 export interface TuningChoice {
   name: string;
-  /** The law's tag (`PI`, `PID`, ...), so a form can offer the tunings for one law. */
+  /** The law's type (`PI`, `PID`, ...), so a form can offer the tunings for one law. */
   law: string;
   config: LawConfig;
 }
@@ -482,11 +482,11 @@ export interface ControllerSchema {
   measured: SignalChoice[];
   /** Every signal a controller may drive. */
   outputs: SignalChoice[];
-  /** JSON Schema of the law config union, discriminated on `tag`. */
+  /** JSON Schema of the law config union, discriminated on `type`. */
   laws: JsonSchema;
-  /** JSON Schema of the feedforward config union, discriminated on `tag`. */
+  /** JSON Schema of the feedforward config union, discriminated on `type`. */
   feedforwards: JsonSchema;
-  /** JSON Schema of the set-point generator config union (`GeneratorSpec`), discriminated on `tag`. */
+  /** JSON Schema of the set-point generator config union (`GeneratorSpec`), discriminated on `type`. */
   generators: JsonSchema;
   tunings: TuningChoice[];
   /** measured signal address → the controller already regulating it. */
@@ -503,7 +503,7 @@ export interface NewController {
   /** A config, or a stored tuning's name. */
   law?: LawConfig | string | null;
   /**
-   * A config, or a tag alone (`"setpoint"`). Omitted: `setpoint` when the
+   * A config, or a type alone (`"setpoint"`). Omitted: `setpoint` when the
    * units agree, else `none`. `"setpoint"` across differing units is refused (409).
    */
   feedforward?: FeedforwardConfig | string | null;
@@ -617,10 +617,10 @@ export interface RigDocument {
   controllers: Record<string, Record<string, unknown>>;
 }
 
-/** A link as the file writes one: `{name, tag, ...its config}`. Body for `POST /api/links`, and what it returns. */
+/** A link as the file writes one: `{name, type, ...its config}`. Body for `POST /api/links`, and what it returns. */
 export interface LinkEntry {
   name: string;
-  tag: string;
+  type: string;
   [key: string]: unknown;
 }
 

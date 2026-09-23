@@ -42,7 +42,7 @@ with a minimal axis pair: 3-4 y ticks at the signal's precision, sparse time
 labels, no legend or toolbar) sit beside the rows; the Drive trend's y-range
 is the output signal's `limits` when known, so "at limit" reads as the line
 sitting on the rail. Below the trends, an always-open (no `<details>`) law &
-feedforward summary gives the law's tag and every gain on one line, each
+feedforward summary gives the law's type and every gain on one line, each
 abbreviated field carrying its full name as a hover hint, and — on the
 Controllers page only, never a dashboard widget — the device's own state and
 commands, collapsed into the same card so a controller is one card, not two.

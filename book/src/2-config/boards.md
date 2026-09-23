@@ -18,7 +18,7 @@ flyball-linux probe                      # what this machine has
 point, so `flyball rig check`, `flyball rig schema` and the runner know them
 once it is installed.
 
-| link tag | device | fake |
+| link type | device | fake |
 | --- | --- | --- |
 | `i2c` | `/dev/i2c-<bus>` via smbus2 | `fake_i2c` — registers per address, scripted raw replies |
 | `spi` | `/dev/spidev<bus>.<device>` via spidev | `fake_spi` — scripted or computed replies |
@@ -27,7 +27,7 @@ once it is installed.
 | `onewire` | `/sys/bus/w1/devices` | `fake_onewire` — `w1_slave` text per device |
 | `uart` | a kernel serial device via pyserial: `port` (required, e.g. `/dev/ttyUSB0`), `baudrate` (`9600`), `timeout` (`1.0` s per read) | `fake_uart` — scripted `replies` |
 
-| device tag | what | on |
+| device driver | what | on |
 | --- | --- | --- |
 | `i2c_table` | a table of registers: `address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit`, `write` | `i2c` |
 | `sht4x` | Sensirion SHT40/41/45: one chip, `humidity`, `temperature [RP]` | `i2c` |
@@ -52,7 +52,7 @@ board_temp:
 ```
 
 A chip with a command sequence rather than registers (SHT4x: write a byte,
-wait, read six) gets its own tag under `flyball_chips` (extensions/chips). Each
+wait, read six) gets its own driver under `flyball_chips` (extensions/chips). Each
 is a short module against the link protocol, tested to the byte on the fake.
 
 ## Board profiles
@@ -65,15 +65,15 @@ file actually is:
 name = "Raspberry Pi 5"
 
 [links.i2c1]
-tag = "i2c"
+type = "i2c"
 bus = 1
 
 [links.header]
-tag = "gpio"
+type = "gpio"
 chip = "gpiochip4"
 
 [links.pwm]
-tag = "pwm"
+type = "pwm"
 chip = 0
 
 [pins]
@@ -105,7 +105,7 @@ devices:
 controllers:
   heater.drive:
     measured: air.temperature
-    law: { tag: PI, kp: 0.5, ki: 0.01 }
+    law: { type: PI, kp: 0.5, ki: 0.01 }
     default: true
 ```
 

@@ -86,11 +86,11 @@ def test_fake_onewire_serves_texts_in_turn():
         bus.read("28-9")
 
 
-@pytest.mark.parametrize("tag", ["fake_i2c", "fake_spi", "fake_gpio", "fake_pwm", "fake_onewire"])
-def test_every_fake_has_a_tag_that_builds(tag):
-    assert get_catalog().links[tag]().build() is not None
+@pytest.mark.parametrize("name", ["fake_i2c", "fake_spi", "fake_gpio", "fake_pwm", "fake_onewire"])
+def test_every_fake_has_a_type_that_builds(name):
+    assert get_catalog().links[name]().build() is not None
 
 
-@pytest.mark.parametrize("tag", ["i2c", "spi", "gpio", "pwm", "onewire"])
-def test_every_real_link_has_a_tag(tag):
-    assert get_catalog().links[tag].config_tag == tag
+@pytest.mark.parametrize("name", ["i2c", "spi", "gpio", "pwm", "onewire"])
+def test_every_real_link_has_a_type(name):
+    assert get_catalog().links[name].type_name == name

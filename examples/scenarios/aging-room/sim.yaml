@@ -10,7 +10,7 @@ links:
   i2c1: null
   humidifier_pwm: null
   room:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 900.0        # a walk-in room responds far slower than the 3L humidity chamber
     dead_s: 30.0

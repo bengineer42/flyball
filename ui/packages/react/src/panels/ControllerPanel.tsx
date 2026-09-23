@@ -283,15 +283,15 @@ function fieldsLine(value: Record<string, unknown>, units: Record<string, string
 /** A feedforward's arguments as the one-line law summary shows them: a table as a compact `n points, x→y … x→y` line. */
 function feedforwardArgs(feedforward: FeedforwardConfig | null | undefined): unknown {
   if (!feedforward) return {};
-  const { tag, ...args } = feedforward;
-  if (tag === "table") {
+  const { type, ...args } = feedforward;
+  if (type === "table") {
     const points = (args as { points?: Array<[number, number]> }).points ?? [];
     const pair = (p: [number, number]) => `${p[0]} → ${p[1]}`;
     const shown = points.length <= 4 ? points.map(pair).join(", ") : `${points.slice(0, 2).map(pair).join(", ")} … ${points.slice(-2).map(pair).join(", ")}`;
     return { points: `${points.length} point${points.length === 1 ? "" : "s"}${shown ? `, ${shown}` : ""}` };
   }
-  if (tag === "setpoint") return "demand = setpoint; the law corrects about it";
-  if (tag === "none") return "0; the law does all the work";
+  if (type === "setpoint") return "demand = setpoint; the law corrects about it";
+  if (type === "none") return "0; the law does all the work";
   return args;
 }
 
@@ -338,18 +338,18 @@ export function describeReference(controller: Pick<ControllerOut, "reference" | 
     return ` · ${verb} ${clockAt(at, nowS)}${left > 0 ? ` (in ${span(left)})` : ""}`;
   };
   const segment = (seg: GeneratorOut, live: boolean): string => {
-    if (seg.tag === "linear_ramp_setpoint") {
+    if (seg.type === "linear_ramp_setpoint") {
       const pace = describePace(seg.pace, unit);
       return `${live ? "ramping" : "ramp"} to ${value(seg.end)}${pace ? ` ${pace}` : ""}`;
     }
-    if (seg.tag === "dwell") {
+    if (seg.type === "dwell") {
       const d = seg.duration as { seconds?: number; nanoseconds?: number } | null | undefined;
       const forS = d && typeof d.seconds === "number" ? d.seconds + (d.nanoseconds ?? 0) / 1e9 : null;
       return `${live ? `dwelling at ${value(seg.value)}` : `dwell ${value(seg.value)}`}${forS !== null ? ` for ${span(forS)}` : ""}`;
     }
-    return `following ${humanise(seg.tag).toLowerCase()}`;
+    return `following ${humanise(seg.type).toLowerCase()}`;
   };
-  if (g.tag === "profile") {
+  if (g.type === "profile") {
     const segments = Array.isArray(g.segments) ? (g.segments as GeneratorOut[]) : [];
     if (arrived) return `profile of ${segments.length} segment${segments.length === 1 ? "" : "s"} · arrived`;
     const active = typeof g.active === "number" ? segments[g.active] : undefined;
@@ -357,11 +357,11 @@ export function describeReference(controller: Pick<ControllerOut, "reference" | 
     return `profile${which}${active ? ` · ${segment(active, true)}` : ""}${arrival("ends")}`;
   }
   if (arrived) {
-    if (g.tag === "linear_ramp_setpoint") return `ramped to ${value(g.end)} · arrived`;
-    if (g.tag === "dwell") return `dwelt at ${value(g.value)} · arrived`;
+    if (g.type === "linear_ramp_setpoint") return `ramped to ${value(g.end)} · arrived`;
+    if (g.type === "dwell") return `dwelt at ${value(g.value)} · arrived`;
     return `${segment(g, false)} · arrived`;
   }
-  return `${segment(g, true)}${arrival(g.tag === "dwell" ? "until" : "arrives")}`;
+  return `${segment(g, true)}${arrival(g.type === "dwell" ? "until" : "arrives")}`;
 }
 
 /** The rig clock's origin in epoch seconds (`GET /api/clock`, once per mount): what a generator's `end_time` counts from. */
@@ -442,9 +442,9 @@ export function ControllerPanel({
     },
   ];
   const feedforward = controller.feedforward as FeedforwardConfig | undefined;
-  const ffTag = typeof feedforward?.tag === "string" ? feedforward.tag : null;
+  const ffType = typeof feedforward?.type === "string" ? feedforward.type : null;
   // Under no feedforward the correction *is* the output; drawing it twice says nothing.
-  const showCorrection = ffTag !== "none";
+  const showCorrection = ffType !== "none";
   const clampedTrace = history.expected.map((e, i) => (e != null && differs(history.output[i] ?? null, e) ? e : null));
   const drive = [
     {
@@ -486,7 +486,7 @@ export function ControllerPanel({
       : []),
   ];
   const law = controller.law as Record<string, unknown> | null;
-  const { tag, ...rest } = law ?? {};
+  const { type: lawType, ...rest } = law ?? {};
   const following = describeReference(controller, unit, precision, nowS, startS);
   // Under a generator the setpoint is the resolved value; failing that, recovered through the feedforward, or read off
   // the latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
@@ -511,7 +511,7 @@ export function ControllerPanel({
 
   // The measured signal's device run says whether anything is arriving at all; freshness catches a device
   // that is nominally running but has gone quiet. Open loop is not a mode (D23): it is the `open_loop` law
-  // tag, under "regulating" (it is still driving the output), just with nothing correcting for error.
+  // type, under "regulating" (it is still driving the output), just with nothing correcting for error.
   const offline = !!run && (!run.running || run.conditions.some((c) => c.kind === "offline"));
   const stale = alarmLevel(reading, source, fresh) === "stale";
   const banner = offline
@@ -520,7 +520,7 @@ export function ControllerPanel({
       ? { text: "no recent reading", hint: `No sample has arrived on ${controller.measured_signal} recently.` }
       : clamped
         ? { text: "output at limit", hint: `${controller.output_signal} cannot give the full output; it is clamped to what it can achieve.` }
-        : tag === "open_loop"
+        : lawType === "open_loop"
           ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
           : null;
 
@@ -636,7 +636,7 @@ export function ControllerPanel({
         <section className="fb-loop-law">
           {law ? (
             <p className="fb-loop-law-line">
-              <span className="fb-tag">{typeof tag === "string" ? tag : "?"}</span>
+              <span className="fb-tag">{typeof lawType === "string" ? lawType : "?"}</span>
               {fieldsLine(rest, { tt: "s", last_raw: dUnit, last_elapsed: "s" }).map((f) => (
                 <span key={f.key} title={f.title}>
                   {" "}
@@ -649,9 +649,9 @@ export function ControllerPanel({
               manual · no law
             </p>
           )}
-          {ffTag && (
+          {ffType && (
             <p className="fb-loop-law-line fb-loop-feedforward" title="What the controller asks for before the law corrects: the setpoint mapped into the output's unit">
-              <span className="fb-tag">{ffTag}</span>
+              <span className="fb-tag">{ffType}</span>
               <span> · {unit === dUnit ? dUnit : `${unit} → ${dUnit}`}</span>
               {(() => {
                 const args = feedforwardArgs(feedforward);

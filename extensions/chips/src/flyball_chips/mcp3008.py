@@ -90,7 +90,7 @@ class Mcp3008(Readable):
             yield Sample(self.root, time_ns, {signal: self._value(signal) for signal in due})
 
 
-class Mcp3008Config(DriverConfig[Mcp3008], tag="mcp3008"):
+class Mcp3008Config(DriverConfig[Mcp3008], type="mcp3008"):
     """`channels: { level: { channel: 0 } }`, in volts unless `unit` and `scale` say otherwise."""
 
     link: SpiLinkConfig | str  # type: ignore[valid-type]

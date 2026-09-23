@@ -204,7 +204,7 @@ class Boom(Readable):
         yield self.sample(time_ns, temperature=20.0)
 
 
-class BoomConfig(DriverConfig[Boom], tag="test_boom"):
+class BoomConfig(DriverConfig[Boom], type="test_boom"):
     def build(self, name, label=None):
         raise OSError("no such device: /dev/i2c-9")
 """

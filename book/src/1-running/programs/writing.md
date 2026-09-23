@@ -137,7 +137,7 @@ same as it always has for a step that cannot even be applied.
 | `settle` | `loop?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings |
 | `manual` | `loop?` (primary) | stop a controller regulating; its target keeps its last demand |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
-| `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would |
+| `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/commands/{command}` would |
 | `prompt` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/activities/{name}/fire`; a timeout ends the program |
 
 `loop` is a controller's name -- the address of the signal it drives -- a

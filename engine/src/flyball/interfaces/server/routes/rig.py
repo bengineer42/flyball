@@ -31,7 +31,7 @@ from flyball.runtime.config import RigConfig, canonical, rig_schema
 
 router = APIRouter(prefix="/api", tags=["rig"])
 
-# A tuning body is any registered law's config, told apart by its tag --
+# A tuning body is any registered law's config, told apart by its type --
 # every built-in law's, direct, same as `interfaces.server.schemas.LawConfig`
 # (reused here rather than rebuilt): see that module's comment on why this
 # isn't `get_catalog()`/`Catalogs.discover()`.
@@ -183,17 +183,17 @@ async def read_tunings(rig: RigDep) -> dict[str, SerializeAsAny[ControlLawConfig
     return rig.tunings.all()
 
 
-@router.get("/tunings/{tag}")
-async def read_tuning(rig: RigDep, tag: str) -> SerializeAsAny[ControlLawConfig | ControlLawView]:
-    if (tuning := rig.tunings.get(tag)) is None:
-        raise TuningNotRegisteredError(tag)
+@router.get("/tunings/{name}")
+async def read_tuning(rig: RigDep, name: str) -> SerializeAsAny[ControlLawConfig | ControlLawView]:
+    if (tuning := rig.tunings.get(name)) is None:
+        raise TuningNotRegisteredError(name)
     return tuning
 
 
-@router.put("/tunings/{tag}")
-def set_tuning(rig: RigDep, tag: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
-    """Store `body` under `tag` on the live rig, replacing any tuning already there."""
-    tuning = Tuning(tag=tag, config=body)
+@router.put("/tunings/{name}")
+def set_tuning(rig: RigDep, name: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
+    """Store `body` under `name` on the live rig, replacing any tuning already there."""
+    tuning = Tuning(name=name, config=body)
     with rig.lock:
         rig.tunings.add(tuning)
     return tuning

@@ -11,7 +11,7 @@ imports every `.py` there at start and again on `POST /api/drivers/reload`,
 so a driver written on the spot -- by hand, or by a model over MCP -- is
 attachable without a restart or a package. `GET /api/drivers` lists what
 registered and any import error. `flyball new NAME` writes a complete
-starting file with a tag.
+starting file with a type.
 
 ## A package with an entry point
 

@@ -1,7 +1,7 @@
 """Links to instruments: what a generic device talks over.
 
 Each kind is a protocol only. The fake for tests, the real implementation
-that imports its driver only when built, and the tagged configs that build
+that imports its driver only when built, and the typed configs that build
 them from a file live with the driver that uses the protocol -- `RegisterLink`
 with `modbus` in `extensions/modbus`, `TextLink` with `scpi` in
 `extensions/visa` -- registered through the `flyball.configs` entry point

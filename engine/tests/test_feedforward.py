@@ -49,10 +49,10 @@ class TestFeedforwards:
         assert set(get_catalog().feedforwards) >= {"setpoint", "none", "affine", "table"}
         assert Setpoint()(50.0) == 50.0
         assert NoFeedforward()(50.0) == 0.0
-        affine = Affine.config.model_validate({"tag": "affine", "gain": 2.0, "bias": 1.0}).build()
+        affine = Affine.config.model_validate({"type": "affine", "gain": 2.0, "bias": 1.0}).build()
         assert affine(3.0) == 7.0
         assert affine.config.model_dump() == {
-            "tag": "affine",
+            "type": "affine",
             "gain": 2.0,
             "bias": 1.0,
             "rate_gain": None,
@@ -118,7 +118,7 @@ class TestController:
         assert loop.correction == pytest.approx(10.0)
         assert loop.settings.output_unit == "W"
         assert loop.view.feedforward.model_dump() == {
-            "tag": "affine",
+            "type": "affine",
             "gain": 1.0,
             "bias": 10.0,
             "rate_gain": None,
@@ -149,12 +149,12 @@ class TestController:
     def test_default_follows_the_units(self):
         loop = controller(SteppedClock(), Heater(), law=P(kp=1.0))
         assert isinstance(loop.feedforward, NoFeedforward), "°C to W: nothing to pass through"
-        assert loop.settings.feedforward.model_dump() == {"tag": "none"}
+        assert loop.settings.feedforward.model_dump() == {"type": "none"}
         bath = Oven("bath")
         bath.signals["heater"].override(quantity=Quantity("temperature", Celsius))
         same = Controller(SteppedClock(), bath.signals["heater"], bath.signals["zone"])
         assert isinstance(same.feedforward, Setpoint)
-        assert same.settings.feedforward.model_dump() == {"tag": "setpoint"}
+        assert same.settings.feedforward.model_dump() == {"type": "setpoint"}
 
     def test_regulate_at_demand_aims_at_the_setpoint_behind_it(self):
         """`at=DEMAND` must land back in the source's unit, not the target's."""

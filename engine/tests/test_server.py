@@ -92,7 +92,7 @@ class Drive(Committable):
         self.duty.push(duty)
         return duty
 
-    @command(tag="off", simulation=True)
+    @command(name="off", simulation=True)
     def switch_off(self) -> None:
         """Stop heating."""
         self.duty.push(0.0)
@@ -193,7 +193,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     devices = {d["name"]: d for d in client.get("/api/devices").json()}
     assert set(devices) == {daq.name, drive.name}
     furnace = devices[daq.name]
-    assert furnace["label"] == "Tube furnace" and furnace["type"] == "Daq"
+    assert furnace["label"] == "Tube furnace" and furnace["class_name"] == "Daq"
     assert furnace["kind"] == "device"
     assert furnace["driver"] is None and furnace["link"] is None and furnace["run"] is None
     assert [s["name"] for s in furnace["signals"]] == [
@@ -360,7 +360,7 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
 
 def test_device_schema_and_commands(client, rig, drive, daq):
     schema = client.get(f"/api/devices/{drive.name}/schema").json()
-    assert schema["type"] == "Drive" and schema["driver"] is None
+    assert schema["class_name"] == "Drive" and schema["driver"] is None
     assert (
         schema["description"]
         == "Two heater demands with limits, and a duty command that pushes an output."
@@ -741,8 +741,8 @@ def programmer(client, rig):
 def test_load_tunings_stores_law_configs_under_the_directory_from_their_file_stem(tmp_path, rig):
     from flyball.interfaces.server.routes.library import load_tunings
 
-    (tmp_path / "gentle.yaml").write_text("tag: P\nkp: 0.5\n")
-    (tmp_path / "brisk.toml").write_text('tag = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
+    (tmp_path / "gentle.yaml").write_text("type: P\nkp: 0.5\n")
+    (tmp_path / "brisk.toml").write_text('type = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
     (tmp_path / "notes.txt").write_text("not a tuning")
 
     loaded = load_tunings(rig, tmp_path)
@@ -927,7 +927,7 @@ class TestSimRoutes:
         document = {
             "name": "tank",
             "clock": {"stepped": True},
-            "links": {"tank": {"tag": "sim_plant", "model": "lag", "gain": 1.0, "tau_s": 10.0}},
+            "links": {"tank": {"type": "sim_plant", "model": "lag", "gain": 1.0, "tau_s": 10.0}},
             "devices": {
                 "level": {
                     "driver": "sim_daq",

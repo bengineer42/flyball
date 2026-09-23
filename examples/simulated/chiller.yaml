@@ -11,7 +11,7 @@ name: chiller
 
 links:
   bath:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 45.0
     gain: -30.0        # full compressor pulls 30 °C below ambient
@@ -50,5 +50,5 @@ devices:
 controllers:
   compressor.drive:
     measured: probe.temperature
-    law: { tag: PI, kp: 0.05, ki: 0.0015 }
+    law: { type: PI, kp: 0.05, ki: 0.0015 }
     default: true

@@ -37,7 +37,7 @@ class TestFakeBlockingOption:
 class TestFakeBlockingGoesThroughTheWriter:
     def _rig_document(self) -> dict:
         return {
-            "links": {"psu": {"tag": "fake_text", "blocking": True}},
+            "links": {"psu": {"type": "fake_text", "blocking": True}},
             "devices": {
                 "psu": {
                     "driver": "scpi",

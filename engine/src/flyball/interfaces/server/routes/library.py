@@ -63,7 +63,7 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
     """Store every control-law config file in `directory` on `rig.tunings`, under its stem.
 
     Each `*.toml`/`*.yaml`/`*.json` file holds one law config, validated
-    against the same tagged union (`LawConfig`) a controller's own `tuning`
+    against the same discriminated union (`LawConfig`) a controller's own `tuning`
     field parses. A missing directory is fine: no tunings.
     """
     if not directory.is_dir():
@@ -74,7 +74,7 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
         if not path.is_file() or path.suffix.lower() not in SUFFIXES:
             continue
         config = adapter.validate_python(loads(path.read_text(), path.suffix))
-        rig.tunings.add(Tuning(tag=path.stem, config=config))
+        rig.tunings.add(Tuning(name=path.stem, config=config))
         loaded.append(path.stem)
     return loaded
 

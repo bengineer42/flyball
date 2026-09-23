@@ -145,7 +145,7 @@ class Sgp40(Readable):
         yield self.sample(time_ns, voc_raw=voc_raw)
 
 
-class Sgp40Config(DriverConfig[Sgp40], tag="sgp40"):
+class Sgp40Config(DriverConfig[Sgp40], type="sgp40"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

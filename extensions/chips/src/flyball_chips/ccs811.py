@@ -168,7 +168,7 @@ class Ccs811(Readable):
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
 
 
-class Ccs811Config(DriverConfig[Ccs811], tag="ccs811"):
+class Ccs811Config(DriverConfig[Ccs811], type="ccs811"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

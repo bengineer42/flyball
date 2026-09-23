@@ -7,7 +7,7 @@ name: oven
 
 links:
   chamber:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 60.0        # the oven takes about a minute to respond
     dead_s: 5.0        # ... and five seconds before it starts to
@@ -49,5 +49,5 @@ devices:
 controllers:
   heater.drive:
     measured: thermocouple.temperature
-    law: { tag: PI, kp: 0.02, ki: 0.0005 }
+    law: { type: PI, kp: 0.02, ki: 0.0005 }
     default: true

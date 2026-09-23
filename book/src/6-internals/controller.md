@@ -175,12 +175,12 @@ The feedforward is the open-loop guess: the output value, in the
 **measured** signal's. The law corrects the rest, so its gains are in
 output units per measured unit (watts
 per °C on a bare heater; °C per °C on a packaged controller that itself
-takes a temperature). Feedforwards are tagged and self-describing like laws
+takes a temperature). Feedforwards are typed and self-describing like laws
 (`Feedforward` in `flyball.model.feedforward`; subclassing generates the
 config, and `control/configs.py` registers the built-in tags on a
 `Catalogs`), and a rig file names one per controller:
 
-| tag | `output =` | for |
+| type | `output =` | for |
 | --- | --- | --- |
 | `setpoint` | `setpoint` | an output that takes the measured unit; the default when the units agree |
 | `none` | `0` | a bare output under PID; the default when they differ |
@@ -219,9 +219,9 @@ controller ships with it:
 # examples/furnace/rig.yaml
 heaters.heater2:
   measured: furnace.zone2
-  law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+  law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
   feedforward:
-    tag: table
+    type: table
     rate_gain: 3000
     points: [[20, 0], [100, 125.4], [200, 289.4], ...]
   default: true

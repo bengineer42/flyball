@@ -1,6 +1,6 @@
 """A rig as a file: links, devices and controllers, built in that order.
 
-A tree of tagged configs. Links are declared once and named by the devices
+A tree of typed configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
 config, keyed by name; a controller is keyed by the address of
 the demand it drives, its output, and names its `measured` signal. Formats are
@@ -10,7 +10,7 @@ the demand it drives, its output, and names its `measured` signal. Formats are
 to take one as a parameter (a pydantic classmethod, a validator), and as an
 explicit `catalogs` argument (default: the same) where it does.
 
-Every tag resolves to a real constructor, so the file validates against the
+Every type resolves to a real constructor, so the file validates against the
 models the code is built from, including configs another package registered
 through the `flyball.configs` entry point. The same file with `fake_text`
 and `fake_registers` links runs without hardware.
@@ -48,7 +48,7 @@ from pydantic import (
 )
 from pydantic.json_schema import GenerateJsonSchema
 
-# Nothing built into flyball core registers a tag implicitly any more --
+# Nothing built into flyball core registers a type implicitly any more --
 # `scpi`/`modbus` (extensions/visa, extensions/modbus), the Linux buses and
 # chips, flyball-sim's sim_plant/sim_daq/sim_drive, and engine's own laws,
 # feedforwards and generators (`control/configs.py`) all register through the
@@ -89,9 +89,9 @@ log = logging.getLogger(__name__)
 # `RigConfig` from here).
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
 _FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
-LawConfig = discriminated_union({law.tag: law for law in _LAWS}, "tag", lambda law: law.config)
+LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
 FeedforwardConfig = discriminated_union(
-    {ff.tag: ff for ff in _FEEDFORWARDS}, "tag", lambda ff: ff.config
+    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
 )
 
 Role = Literal["link", "driver"]
@@ -103,7 +103,7 @@ LEGACY_MESSAGE = (
 )
 
 
-# region Which tag plays which part
+# region Which type plays which part
 
 
 def role_of(config: type[Config[Any]]) -> Role:
@@ -112,7 +112,7 @@ def role_of(config: type[Config[Any]]) -> Role:
 
 
 def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Config[Any]], ...]:
-    """Every tagged config playing `role`, in tag order.
+    """Every typed config playing `role`, in type order.
 
     Args:
         role: `"driver"` or `"link"`.
@@ -120,7 +120,7 @@ def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Confi
     """
     catalogs = catalogs or get_catalog()
     catalog = catalogs.devices if role == "driver" else catalogs.links
-    return tuple(catalog[tag] for tag in sorted(catalog.tags()))
+    return tuple(catalog[name] for name in sorted(catalog.names()))
 
 
 # endregion
@@ -668,8 +668,8 @@ class RunnerConfig(BaseModel):
 def is_simulated(links: dict[str, Any]) -> bool:
     """Whether every link is a fake or a simulation, so time may be played with."""
     return all(
-        (tag := getattr(link, "config_tag", None)) is not None
-        and (tag.startswith("sim_") or tag.startswith("fake_"))
+        (name := getattr(link, "type_name", None)) is not None
+        and (name.startswith("sim_") or name.startswith("fake_"))
         for link in links.values()
     )
 
@@ -706,7 +706,7 @@ class RigConfig(BaseModel):
     """The whole file.
 
     `model_validate` and `model_json_schema` on this class use
-    [get_catalog][flyball.model.catalog.get_catalog] -- the tags registered
+    [get_catalog][flyball.model.catalog.get_catalog] -- the types registered
     there at the time of the call -- so a config registered after import is
     as valid in a file as a built-in one.
     """
@@ -913,16 +913,16 @@ _models: dict[tuple[tuple[str, ...], tuple[str, ...]], type[RigConfig]] = {}
 
 
 def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
-    """[RigConfig][flyball.runtime.config.RigConfig] typed with every tag registered now.
+    """[RigConfig][flyball.runtime.config.RigConfig] typed with every type registered now.
 
-    Built once per set of registered tags and cached, so validating many
+    Built once per set of registered types and cached, so validating many
     files costs one model.
 
     Args:
         catalogs: Default: [get_catalog][flyball.model.catalog.get_catalog].
     """
     catalogs = catalogs or get_catalog()
-    key = (tuple(sorted(catalogs.devices.tags())), tuple(sorted(catalogs.links.tags())))
+    key = (tuple(sorted(catalogs.devices.names())), tuple(sorted(catalogs.links.names())))
     if key not in _models:
         links = Config.union(*registered("link", catalogs))
         _models[key] = create_model(
@@ -934,7 +934,7 @@ def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
 
 
 def _driver_configs(catalogs: Catalogs) -> tuple[type[DriverConfig[Any]], ...]:
-    """Every registered device driver, in tag order."""
+    """Every registered device driver, in type order."""
     return tuple(
         config for config in registered("driver", catalogs) if issubclass(config, DriverConfig)
     )
@@ -963,19 +963,19 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
         defs.update(driver_schema.pop("$defs", {}))
         driver_properties = driver_schema.get("properties", {})
-        driver_envelope = {**envelope, "driver": {"const": driver.config_tag}}
+        driver_envelope = {**envelope, "driver": {"const": driver.type_name}}
         # Exactly one shape may match (`oneOf`): layered needs `config`, flat forbids it,
         # else a flat entry with no required driver fields satisfies both and an
         # editor reports "matches multiple schemas".
         layered = {
             "type": "object",
-            "title": f"{driver.config_tag} (layered)",
+            "title": f"{driver.type_name} (layered)",
             "properties": {**driver_envelope, "config": driver_schema},
             "required": ["driver", "config"],
         }
         flat = {
             "type": "object",
-            "title": f"{driver.config_tag} (flat)",
+            "title": f"{driver.type_name} (flat)",
             "properties": {**driver_envelope, **driver_properties},
             "required": ["driver", *driver_schema.get("required", [])],
             "not": {"required": ["config"]},
@@ -1177,7 +1177,7 @@ def load_rig_config(
 ) -> RigConfig:
     """Read and validate a rig file, or a layered rig of several, `.toml`, `.yaml` or `.json`.
 
-    Installed packages' configs are discovered first, so their tags are valid
+    Installed packages' configs are discovered first, so their types are valid
     in the file; a `board` is applied before validation.
     """
     ensure_discovered()
@@ -1192,7 +1192,7 @@ def load_rig(path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[st
 
 
 def rig_schema() -> dict[str, Any]:
-    """The rig file's JSON schema, for an editor, with every tag installed here."""
+    """The rig file's JSON schema, for an editor, with every type installed here."""
     ensure_discovered()
     schema = RigConfig.model_json_schema()
     schema["$schema"] = GenerateJsonSchema.schema_dialect

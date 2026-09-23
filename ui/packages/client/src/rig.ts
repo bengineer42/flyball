@@ -161,13 +161,13 @@ export class RigClient {
     return this.get("/api/tunings");
   }
 
-  tuning(tag: string): Promise<LawConfig> {
-    return this.get(`/api/tunings/${enc(tag)}`);
+  tuning(name: string): Promise<LawConfig> {
+    return this.get(`/api/tunings/${enc(name)}`);
   }
 
-  /** Store `config` under `tag` on the live rig, replacing any tuning already there. */
-  setTuning(tag: string, config: LawConfig): Promise<LawConfig> {
-    return this.call({ method: "PUT", path: `/api/tunings/${enc(tag)}`, body: config });
+  /** Store `config` under `name` on the live rig, replacing any tuning already there. */
+  setTuning(name: string, config: LawConfig): Promise<LawConfig> {
+    return this.call({ method: "PUT", path: `/api/tunings/${enc(name)}`, body: config });
   }
 
   // endregion
@@ -190,8 +190,8 @@ export class RigClient {
   }
 
   /** Run a marked command; resolves to whatever the method returned. A command that succeeds on an offline device restarts its polling. */
-  command(name: string, tag: string, args: Record<string, unknown> = {}): Promise<unknown> {
-    return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(tag)}`, body: args });
+  command(name: string, command: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(command)}`, body: args });
   }
 
   /** Poll an offline device again on its period. */
@@ -430,7 +430,7 @@ export class RigClient {
 
   /**
    * Aim at `at` (a value, `process`/`setpoint`/`demand`, or a generator spec such as
-   * `{tag: "linear_ramp_setpoint", pace: {per_minute: 10}, end: 75}`, which ramps from
+   * `{type: "linear_ramp_setpoint", pace: {per_minute: 10}, end: 75}`, which ramps from
    * the current setpoint or reading) and hand control to the law; the handover's demand
    * is committed at once.
    */
@@ -691,7 +691,7 @@ export class RigClient {
 
   /**
    * `GET /api/programs/commands`: the commands' argument schemas as one
-   * discriminated union (`$defs` per command, `discriminator.mapping` tag →
+   * discriminated union (`$defs` per command, `discriminator.mapping` command →
    * ref), for rendering a program's steps with titles, units and enums.
    */
   programCommandsSchema(): Promise<JsonSchema> {

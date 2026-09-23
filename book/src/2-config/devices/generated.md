@@ -2,7 +2,7 @@
 
 Nothing on the [Supported drivers](drivers.md) page was written by hand
 first and coded second. Each driver's fields *are* its config class -- a
-pydantic model with a `tag` -- and the same class is what validates the rig
+pydantic model with a `type` -- and the same class is what validates the rig
 file, draws the form in the UI, spells the CLI flags and describes the tool
 a model calls. This page is how that works and where to look when a field
 is not what you expected.
@@ -10,7 +10,7 @@ is not what you expected.
 ## One class, five faces
 
 ```python
-class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
+class Sht4xConfig(DriverConfig[Sht4x], type="sht4x"):
     link: I2cLinkConfig | str
     address: int = Field(default=0x44, ge=0x03, le=0x77)
     precision: Literal["high", "medium", "low"] = "high"
@@ -18,9 +18,9 @@ class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
 
 | face | built from the class by | you see it as |
 | --- | --- | --- |
-| the rig file | `flyball.runtime.config` validating `devices:` against the tag registry | `driver: sht4x` and its fields, flat or under `config:`; a wrong field fails `flyball rig check` with its name |
-| the editor schema | `flyball rig schema` (`RigConfig.model_json_schema()`, every registered tag folded in) | completion and red squiggles in `rig.yaml`, from the `# yaml-language-server: $schema=` line |
-| the UI | `GET /api/drivers` (`schema` per tag) → the tagged-union form | the **Add device** dialog's fields, with defaults, bounds and choices |
+| the rig file | `flyball.runtime.config` validating `devices:` against the driver catalog | `driver: sht4x` and its fields, flat or under `config:`; a wrong field fails `flyball rig check` with its name |
+| the editor schema | `flyball rig schema` (`RigConfig.model_json_schema()`, every registered type folded in) | completion and red squiggles in `rig.yaml`, from the `# yaml-language-server: $schema=` line |
+| the UI | `GET /api/drivers` (`schema` per type) → the discriminated-union form | the **Add device** dialog's fields, with defaults, bounds and choices |
 | the CLI and the client | `GET /api/schema` and `/api/devices/{name}/schema` | `flyball device-schema <device>` and `flyball invoke <device> <command> …`, or a method per command on `flyball.interfaces.client.Rig` |
 | a model | the MCP `author` tier's `attach_device` tool, whose argument schema is the same JSON | a tool call with the same fields |
 
@@ -53,7 +53,7 @@ are [Writing a sensor](../../3-extending/device/sensor.md) and
 
 ## Links and laws are the same story
 
-A link tag ([Links](../links.md)) is a `Config[Link]` with a `tag`; a law or a
+A link type ([Links](../links.md)) is a `Config[Link]` with a `type`; a law or a
 feedforward ([Controllers](../controllers.md)) a `Config` again. All go through
 the one registry, so `GET /api/drivers` lists links beside drivers and
 `flyball rig schema` includes the laws.
@@ -71,9 +71,9 @@ the one registry, so `GET /api/drivers` lists links beside drivers and
 | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball_modbus` |
 | the board chips | `flyball_chips.*` |
 | board-level Linux drivers and links | `flyball_linux.devices.*`, `flyball_linux.links.*` |
-| a `drivers/` file, a package's | wherever it is: `GET /api/drivers` names the module per tag |
+| a `drivers/` file, a package's | wherever it is: `GET /api/drivers` names the module per type |
 
-A tag registers when its module is imported: the built-ins on `import
+A type registers when its module is imported: the built-ins on `import
 flyball`, a package's through its `flyball.configs` entry point, a
 `drivers/` file when the runner starts or `POST /api/drivers/reload` runs.
 `flyball new NAME` writes a complete starting file.

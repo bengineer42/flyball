@@ -13,7 +13,7 @@ function describeValue(value: unknown, field: JsonSchema | undefined, root: Json
 }
 
 export interface CommandFormProps {
-  tag: string;
+  name: string;
   command: CommandSchema;
   onRun(args: Record<string, unknown>): Promise<unknown>;
   busy?: boolean;
@@ -21,7 +21,7 @@ export interface CommandFormProps {
   /** The RJSF form to render with (a theme's `Form`); default `@rjsf/core`. */
   form?: SchemaFormProps["form"];
   /**
-   * The device this command belongs to: looks up `last.<tag>` for the "ran
+   * The device this command belongs to: looks up `last.<command>` for the "ran
    * at … with …" line. Omitted (a simulation command, say) drops that line.
    */
   device?: string;
@@ -56,9 +56,9 @@ function LinkedReadback({ name, field, address, root }: { name: string; field: J
   );
 }
 
-/** `last.<tag>` (`{args, at}`), live: when the command last ran and with what. */
-function LastRan({ device, tag, label, schema }: { device: string; tag: string; label: string; schema: JsonSchema }) {
-  const live = useLatestValue(`${device}.last.${tag}`);
+/** `last.<command>` (`{args, at}`), live: when the command last ran and with what. */
+function LastRan({ device, name, label, schema }: { device: string; name: string; label: string; schema: JsonSchema }) {
+  const live = useLatestValue(`${device}.last.${name}`);
   const value = live?.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const { args, at } = value as { args?: Record<string, unknown>; at?: number };
@@ -90,17 +90,17 @@ function LastRan({ device, tag, label, schema }: { device: string; tag: string; 
  * (left blank again, the rig keeps it where it is) and shows the signal's
  * live readback beside the form.
  */
-export function CommandForm({ tag, command, onRun, busy, result, form, device, currentMode }: CommandFormProps) {
+export function CommandForm({ name, command, onRun, busy, result, form, device, currentMode }: CommandFormProps) {
   const only = onlyArgument(command.arguments);
   const args = only
     ? { ...command.arguments, properties: { ...command.arguments.properties, [only]: { ...command.arguments.properties![only]!, title: "" } } }
     : command.arguments;
-  const label = humanise(tag);
-  // The raw tag beside the heading is only worth showing when it carries something the
+  const label = humanise(name);
+  // The raw name beside the heading is only worth showing when it carries something the
   // heading doesn't: `demand` -> "Demand" is a bare recapitalisation, so the chip would just
   // repeat the heading in lowercase; `set_flows` -> "Set flows" hides the underscore a caller
   // scripting against the API would need, so the chip earns its place there.
-  const showTag = label.toLowerCase() !== tag.toLowerCase();
+  const showName = label.toLowerCase() !== name.toLowerCase();
   const store = useTelemetry();
   const linked = useMemo(() => linkedArguments(command.arguments), [command.arguments]);
   // A one-time snapshot at mount: the operator types over it to change it, and the schema
@@ -116,7 +116,7 @@ export function CommandForm({ tag, command, onRun, busy, result, form, device, c
     <section className={`fb-command${active ? " fb-command-active" : ""}`}>
       <header>
         <h4 title={command.description || undefined}>
-          {label} {showTag && <code className="fb-tag">{tag}</code>}
+          {label} {showName && <code className="fb-tag">{name}</code>}
           {command.description && (
             <span className="fb-info" title={command.description} aria-label={`${label}: ${command.description}`}>
               ⓘ
@@ -147,7 +147,7 @@ export function CommandForm({ tag, command, onRun, busy, result, form, device, c
           )}
         </>
       )}
-      {device && <LastRan device={device} tag={tag} label={label} schema={command.arguments} />}
+      {device && <LastRan device={device} name={name} label={label} schema={command.arguments} />}
       {result?.error && <div className="fb-error">{result.error.message}</div>}
       {result && !result.error && (
         <div className="fb-result">

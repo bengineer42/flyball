@@ -35,9 +35,9 @@ from flyball.runtime.config import (
 BOARD = """
 name = "Test board"
 [links.bus]
-tag = "fake_registers"
+type = "fake_registers"
 [links.plant]
-tag = "sim_plant"
+type = "sim_plant"
 [pins]
 OUT1 = { link = "bus", unit_id = 7 }
 """
@@ -68,7 +68,7 @@ class RelayConfig(DriverConfig[Relay]):
 def relay_tag(fresh, _catalog) -> str:
     tag = fresh("relay")
 
-    class Tagged(RelayConfig, tag=tag):
+    class Tagged(RelayConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -103,7 +103,7 @@ def test_find_board_by_name_and_by_path(tmp_path, monkeypatch):
 def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
     board = Board.model_validate(__import__("tomllib").loads(BOARD))
     document = {
-        "links": {"bus": {"tag": "fake_registers", "registers": {"1": 5}}},
+        "links": {"bus": {"type": "fake_registers", "registers": {"1": 5}}},
         "devices": {
             "flat": {"driver": "relay", "pin": "OUT1", "label": "Flat"},
             "own": {"driver": "relay", "pin": "OUT1", "unit_id": 2},
@@ -113,8 +113,8 @@ def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
         },
     }
     out = apply_board(document, board)
-    assert out["links"]["bus"] == {"tag": "fake_registers", "registers": {"1": 5}}, "file wins"
-    assert out["links"]["plant"] == {"tag": "sim_plant"}
+    assert out["links"]["bus"] == {"type": "fake_registers", "registers": {"1": 5}}, "file wins"
+    assert out["links"]["plant"] == {"type": "sim_plant"}
     assert out["devices"]["flat"] == {
         "driver": "relay",
         "label": "Flat",
@@ -161,7 +161,7 @@ def test_a_link_registered_later_is_valid_in_a_file(fresh, _catalog):
     tag = fresh("late_bus")
     before = rig_model(_catalog)
 
-    class LateBus(Config[object], tag=tag):
+    class LateBus(Config[object], type=tag):
         """Registered after the module was imported."""
 
         baud: int = 9600
@@ -170,7 +170,7 @@ def test_a_link_registered_later_is_valid_in_a_file(fresh, _catalog):
             return object()
 
     _catalog.register_link(LateBus)
-    config = RigConfig.model_validate({"links": {"b": {"tag": tag, "baud": 115200}}})
+    config = RigConfig.model_validate({"links": {"b": {"type": tag, "baud": 115200}}})
     assert isinstance(config, RigConfig) and isinstance(config.links["b"], LateBus)
     assert config.links["b"].baud == 115200
     assert rig_model(_catalog) is not before, "a new tag means a new model"
@@ -193,10 +193,10 @@ class DaqConfig(DriverConfig[Daq]):
 def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh, _catalog):
     daq_tag, relay_tag = fresh("daq"), fresh("relay")
 
-    class TaggedDaq(DaqConfig, tag=daq_tag):
+    class TaggedDaq(DaqConfig, type=daq_tag):
         pass
 
-    class TaggedRelay(RelayConfig, tag=relay_tag):
+    class TaggedRelay(RelayConfig, type=relay_tag):
         pass
 
     _catalog.register_device(TaggedDaq)

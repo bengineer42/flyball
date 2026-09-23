@@ -9,24 +9,24 @@
 name = "Raspberry Pi 5"
 
 [links.i2c1]
-tag = "i2c"
+type = "i2c"
 bus = 1
 
 [links.spi0]
-tag = "spi"
+type = "spi"
 bus = 0
 device = 0
 
 [links.header]
-tag = "gpio"
+type = "gpio"
 chip = "gpiochip4"
 
 [links.pwm]
-tag = "pwm"
+type = "pwm"
 chip = 0
 
 [links.w1]
-tag = "onewire"
+type = "onewire"
 
 [pins]
 GPIO4  = { link = "header", line = 4 }

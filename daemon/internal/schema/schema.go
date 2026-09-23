@@ -1,6 +1,6 @@
 // Package schema embeds the rig file's JSON Schema -- generated from the
 // Python side's own RigConfig model (engine/src/flyball/runtime/config.py's
-// rig_schema()), which is the single source of truth for every driver/tag
+// rig_schema()), which is the single source of truth for every driver/type
 // registered there. The daemon/CLI never derives this schema itself; it
 // only carries the checked-in copy (rig.schema.json, kept current by
 // regen.sh) and validates against it.

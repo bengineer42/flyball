@@ -22,7 +22,7 @@ validated in full by starting a runner.
 
 ## Links
 
-| tag | what | fake |
+| type | what | fake |
 | --- | --- | --- |
 | `i2c` | `/dev/i2c-<bus>` via smbus2 | `fake_i2c` -- registers per address, scripted raw replies |
 | `spi` | `/dev/spidev<bus>.<device>` via spidev | `fake_spi` -- scripted or computed replies |
@@ -95,7 +95,7 @@ devices:
     span: [10, 40]
   fan:    { driver: gpio_line, label: Fan, pin: GPIO18 }     # fan.on [W]; `flyball fan on`
 controllers:
-  heater.drive: { measured: air.temperature, law: { tag: PI, kp: 0.5, ki: 0.01 }, default: true }
+  heater.drive: { measured: air.temperature, law: { type: PI, kp: 0.5, ki: 0.01 }, default: true }
 ```
 
 [examples/sim.yaml](examples/sim.yaml) overlays it with `board: sim`, every

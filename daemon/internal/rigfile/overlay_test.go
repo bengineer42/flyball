@@ -109,7 +109,7 @@ func TestResolveLayers_extendsAndLaterFileWins(t *testing.T) {
 	base := filepath.Join(dir, "base.yaml")
 	mid := filepath.Join(dir, "mid.yaml")
 	top := filepath.Join(dir, "top.yaml")
-	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    tag: sim_plant\n")
+	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    type: sim_plant\n")
 	mustWrite(t, mid, "extends: [base.yaml]\nname: mid\n")
 	mustWrite(t, top, "name: top\n")
 
@@ -168,7 +168,7 @@ func TestResolveLayers_absoluteExtends(t *testing.T) {
 	baseDir, dir := t.TempDir(), t.TempDir()
 	base := filepath.Join(baseDir, "base.yaml")
 	top := filepath.Join(dir, "top.yaml")
-	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    tag: sim_plant\n")
+	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    type: sim_plant\n")
 	mustWrite(t, top, "extends: ["+base+"]\nrunner:\n  front:\n    auth: password\n")
 
 	doc, files, err := ResolveLayers([]string{top}, nil)

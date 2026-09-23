@@ -2,7 +2,7 @@
 
 A device is a Python class with *descriptors* for its signals and, where it
 does something, a `read` and/or a `commit`. A *driver config* beside it
-registers a tag so a rig file can say `driver: <tag>`. Check what you wrote
+registers a type so a rig file can say `driver: <type>`. Check what you wrote
 with `check_driver`, attach it with `attach_device`, keep it with `save_rig`.
 
 ## First: does it need code at all?
@@ -15,7 +15,7 @@ Probably not. Two generic drivers take everything from the rig-file entry:
 - `modbus` -- registers over TCP or RTU: each signal is an address, a type
   and a scale.
 
-`list_drivers` shows every tag the runner has and each config's schema;
+`list_drivers` shows every type the runner has and each config's schema;
 `rig_schema` shows the whole file. Write the entry, `check_rig` the file,
 `attach_device` the entry, `read` its signals. Only reach for code when the
 protocol is neither, or the device does arithmetic across its signals (a
@@ -73,7 +73,7 @@ class Foo200(Readable, Committable):
         self._link.write("STOP")
 
 
-class Foo200Config(DriverConfig[Foo200], tag="foo200"):
+class Foo200Config(DriverConfig[Foo200], type="foo200"):
     """The rig-file entry: `driver: foo200`, settings flat beside it or under `config:`."""
 
     link: TextLinkConfig | str  # a link declared under `links:` by name, or inline
@@ -139,7 +139,7 @@ line what it does, then what the arguments mean.
 
 ## The config and the link
 
-`DriverConfig[Device]` with `tag="..."` is a pydantic model: its fields are
+`DriverConfig[Device]` with `type="..."` is a pydantic model: its fields are
 the rig-file settings, validated and schema-published. It may not use an
 envelope key (`driver`, `label`, `poll_s`, `signals`, `bound`, `config`).
 `build(name, label)` makes the device. A transport is a *link*: declare
@@ -153,10 +153,10 @@ fakes are how a driver is tested without hardware.
 
 1. Write the module where the runner runs, in its drivers directory.
 2. `check_driver(path)`: imports it in a fresh interpreter and reports the
-   tag, the config schema, the device's descriptors and commands, or the
+   type, the config schema, the device's descriptors and commands, or the
    error.
-3. `reload_drivers`, then `list_drivers` shows the tag.
-4. `attach_device(name, entry)` with `{"driver": "<tag>", "link": "...",
+3. `reload_drivers`, then `list_drivers` shows the type.
+4. `attach_device(name, entry)` with `{"driver": "<type>", "link": "...",
    ...}`; `read` or `view_device` to see it live; `set_demand` or its
    commands to drive it.
 5. `save_rig` writes the entry into the rig file so it survives a restart.

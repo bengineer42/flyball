@@ -93,7 +93,7 @@ the worker threads other routes share.
 
 ## Resolution at request time
 
-Device routes are `/{name}` and `/{name}/commands/{tag}`, resolved against
+Device routes are `/{name}` and `/{name}/commands/{command}`, resolved against
 the live rig per request rather than mounted per device, because the app
 exists before the rig is set and a device may be attached later. The price
 is that OpenAPI lists one generic command route; `/api/devices/{name}/schema`
@@ -115,11 +115,11 @@ independently.
 | `SampleOut` | a `Sample`, plus `rig.latest` for each demand's write record | `{node, time_ns, values, writes}`, both keyed relative to `node`; `writes` only for the demands the sample includes |
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
 | `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
-| `DeviceOut` | a `Device` | `{name, label, kind, driver, type, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
+| `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
 | `ControllerOut` | a `Controller`/`ControllerView` | identity, mode, law config and state, reference, setpoint, correction, demand, expected, reading |
 | `ClockOut` | a `Clock` | `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 
-Law configs cross as a `tag`-discriminated union built from the registry, so
+Law configs cross as a `type`-discriminated union built from the registry, so
 a law added by a package is accepted without a change here. `book/src/4-server/api.md`
 is the wire's own reference; read it for the full shape of each — this page
 is about where the code that builds them lives.
@@ -130,7 +130,7 @@ Each device command's request model is derived from the method's signature
 (`flyball.interfaces.server.wire`): one field per parameter after `self`, with domain
 types that cannot cross the wire swapped for wire ones through `WIRE_TYPES`
 (a running control law becomes a `LawConfig | str | None` — a config or the
-name of a stored tuning). `POST /api/devices/{name}/commands/{tag}` validates
+name of a stored tuning). `POST /api/devices/{name}/commands/{command}` validates
 the body against it and calls the method with the result. Program commands
 do the same from their dataclass constructor.
 

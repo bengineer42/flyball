@@ -5,7 +5,7 @@
     uv run python scripts/search_drivers.py --unit ppm
     uv run python scripts/search_drivers.py --dimension Fraction --json
 
-Every filter is an exact match on one field except `--tag`/`--text`, which are substring
+Every filter is an exact match on one field except `--type`/`--text`, which are substring
 matches. Filters combine with AND. `--unit`/`--dimension` match if any of a driver's signals
 (from `drivers-signals.yaml`, itself introspected from the code by `index_signals.py` -- see
 that file) has the given unit symbol or dimension label.
@@ -31,14 +31,14 @@ def load_catalogue(
 ) -> list[dict[str, Any]]:
     """Every entry from the manifest, each with its introspected `signals:` list joined in."""
     manifest = yaml.safe_load(manifest_path.read_text())
-    signals_by_tag: dict[str, list[dict[str, str]]] = {}
+    signals_by_type: dict[str, list[dict[str, str]]] = {}
     if signals_path.exists():
         # The generated file has a couple of trailing `#` comment lines after the YAML
-        # document; safe_load stops at the document end, so this is just `{by_tag: {...}}`.
-        signals_by_tag = (yaml.safe_load(signals_path.read_text()) or {}).get("by_tag", {}) or {}
+        # document; safe_load stops at the document end, so this is just `{by_type: {...}}`.
+        signals_by_type = (yaml.safe_load(signals_path.read_text()) or {}).get("by_type", {}) or {}
     entries = list(manifest.get("sensors", [])) + list(manifest.get("links", []))
     for entry in entries:
-        entry["signals"] = signals_by_tag.get(entry.get("tag", ""), [])
+        entry["signals"] = signals_by_type.get(entry.get("type", ""), [])
     return entries
 
 
@@ -46,7 +46,7 @@ def matches(entry: dict[str, Any], args: argparse.Namespace) -> bool:
     def field(name: str) -> str:
         return str(entry.get(name, "")).lower()
 
-    if args.tag and args.tag.lower() not in field("tag"):
+    if args.type and args.type.lower() not in field("type"):
         return False
     if args.category and args.category.lower() != field("category"):
         return False
@@ -78,7 +78,7 @@ def render_table(entries: list[dict[str, Any]]) -> str:
         return "(no matches)"
     rows = [
         (
-            e.get("tag", ""),
+            e.get("type", ""),
             e.get("part_number", ""),
             e.get("manufacturer", ""),
             e.get("category", ""),
@@ -88,7 +88,7 @@ def render_table(entries: list[dict[str, Any]]) -> str:
         )
         for e in entries
     ]
-    header = ("tag", "part_number", "manufacturer", "category", "tier", "status", "units")
+    header = ("type", "part_number", "manufacturer", "category", "tier", "status", "units")
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     lines = [" | ".join(h.ljust(w) for h, w in zip(header, widths, strict=True))]
     lines.append("-+-".join("-" * w for w in widths))
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--tag", help="substring match on the driver tag")
+    parser.add_argument("--type", help="substring match on the driver type")
     parser.add_argument("--category")
     parser.add_argument("--interface")
     parser.add_argument("--tier", choices=["config_only", "generic_link", "bespoke_driver"])

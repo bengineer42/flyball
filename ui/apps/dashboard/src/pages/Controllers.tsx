@@ -73,23 +73,23 @@ const EMPTY_DRAFT: Draft = { output: null, measured: null, lawChoice: "none", tu
  * (the law does all the work, in the output's unit).
  */
 const defaultFeedforward = (target: SignalChoice | null, source: SignalChoice | null): FeedforwardConfig | null =>
-  target && source ? { tag: target.unit === source.unit ? "setpoint" : "none" } : null;
+  target && source ? { type: target.unit === source.unit ? "setpoint" : "none" } : null;
 
 /**
- * A tagged union's branches titled by their tag (`PI`, not `PIConfig`), so
- * the form's kind picker reads as the tags the rig speaks; the `tag` field
- * itself is then hidden by `TAG_HIDDEN`.
+ * A discriminated union's branches titled by their type (`PI`, not `PIConfig`),
+ * so the form's kind picker reads as the types the rig speaks; the `type`
+ * field itself is then hidden by `TYPE_HIDDEN`.
  */
-function titledByTag(schema: JsonSchema): JsonSchema {
+function titledByType(schema: JsonSchema): JsonSchema {
   const defs = Object.fromEntries(
     Object.entries(schema.$defs ?? {}).map(([name, def]) => {
-      const tag = (def.properties?.tag as JsonSchema | undefined)?.const;
-      return [name, typeof tag === "string" ? { ...def, title: tag } : def];
+      const type = (def.properties?.type as JsonSchema | undefined)?.const;
+      return [name, typeof type === "string" ? { ...def, title: type } : def];
     }),
   );
   return { ...schema, $defs: defs };
 }
-const TAG_HIDDEN = { tag: { "ui:widget": "hidden" } };
+const TYPE_HIDDEN = { type: { "ui:widget": "hidden" } };
 
 /** The feedforward schema with the `setpoint` branch dropped: across differing units the rig refuses it (409). */
 function withoutSetpoint(schema: JsonSchema): JsonSchema {
@@ -98,7 +98,7 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
   delete mapping["setpoint"];
   return {
     ...schema,
-    oneOf: (schema.oneOf ?? []).filter((b) => b.$ref !== ref && (b.properties?.tag as JsonSchema | undefined)?.const !== "setpoint"),
+    oneOf: (schema.oneOf ?? []).filter((b) => b.$ref !== ref && (b.properties?.type as JsonSchema | undefined)?.const !== "setpoint"),
     ...(schema.discriminator ? { discriminator: { ...schema.discriminator, mapping } } : {}),
   };
 }
@@ -180,7 +180,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
   const feedforward = draft.feedforward ?? defaultFeedforward(draft.output, source);
   const feedforwardSchema = useMemo(
-    () => (schema?.feedforwards ? titledByTag(unitsAgree ? schema.feedforwards : withoutSetpoint(schema.feedforwards)) : undefined),
+    () => (schema?.feedforwards ? titledByType(unitsAgree ? schema.feedforwards : withoutSetpoint(schema.feedforwards)) : undefined),
     [schema, unitsAgree],
   );
 
@@ -203,7 +203,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   };
 
   const tunings = schema?.tunings ?? [];
-  const lawSchema = useMemo(() => (schema?.laws ? titledByTag(schema.laws) : undefined), [schema]);
+  const lawSchema = useMemo(() => (schema?.laws ? titledByType(schema.laws) : undefined), [schema]);
 
   return (
     <Dialog open={open} onClose={() => (busy ? undefined : onClose())} fullWidth maxWidth="sm">
@@ -306,7 +306,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
             <Step completed={lawReady && draft.lawChoice !== "none"}>
               <StepLabel onClick={() => draft.measured && setActive(2)} sx={{ cursor: draft.measured ? "pointer" : "default" }}>
                 Law
-                {active !== 2 && (draft.lawChoice === "none" ? ": none (manual only)" : draft.lawChoice === "stored" ? `: tuning ${draft.tuning || "…"}` : draft.config ? `: ${String(draft.config.tag)}` : "")}
+                {active !== 2 && (draft.lawChoice === "none" ? ": none (manual only)" : draft.lawChoice === "stored" ? `: tuning ${draft.tuning || "…"}` : draft.config ? `: ${String(draft.config.type)}` : "")}
               </StepLabel>
               <StepContent>
                 <Stack spacing={1.5}>
@@ -334,12 +334,12 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                   )}
                   {draft.lawChoice === "configure" && lawSchema && (
                     <Box data-testid="law-form">
-                      {draft.config && <Chip label={`law set: ${String(draft.config.tag)}`} color="success" variant="outlined" sx={{ mb: 1.5 }} />}
+                      {draft.config && <Chip label={`law set: ${String(draft.config.type)}`} color="success" variant="outlined" sx={{ mb: 1.5 }} />}
                       <SchemaForm
                         key={formKey}
                         schema={lawSchema}
                         value={draft.config ?? undefined}
-                        uiSchema={TAG_HIDDEN}
+                        uiSchema={TYPE_HIDDEN}
                         form={MuiForm}
                         submitLabel="Use this law"
                         onSubmit={(data) => patch({ config: data as LawConfig })}
@@ -356,7 +356,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
             </Step>
             <Step completed={feedforward !== null}>
               <StepLabel onClick={() => draft.measured && setActive(3)} sx={{ cursor: draft.measured ? "pointer" : "default" }}>
-                Feedforward{feedforward && active !== 3 ? `: ${feedforward.tag}` : ""}
+                Feedforward{feedforward && active !== 3 ? `: ${feedforward.type}` : ""}
               </StepLabel>
               <StepContent>
                 <Stack spacing={1.5}>
@@ -369,7 +369,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                     </Typography>
                   )}
                   {feedforward && (
-                    <Chip label={`feedforward set: ${feedforward.tag}${draft.feedforward === null ? " (the rig's default)" : ""}`} color="success" variant="outlined" sx={{ alignSelf: "flex-start" }} data-testid="feedforward-set" />
+                    <Chip label={`feedforward set: ${feedforward.type}${draft.feedforward === null ? " (the rig's default)" : ""}`} color="success" variant="outlined" sx={{ alignSelf: "flex-start" }} data-testid="feedforward-set" />
                   )}
                   {draft.output && source && feedforwardSchema && (
                     <Box data-testid="feedforward-form">
@@ -377,7 +377,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                         key={`${formKey}-${draft.output.address}-${draft.measured}`}
                         schema={feedforwardSchema}
                         value={feedforward ?? undefined}
-                        uiSchema={TAG_HIDDEN}
+                        uiSchema={TYPE_HIDDEN}
                         form={MuiForm}
                         submitLabel="Use this feedforward"
                         onSubmit={(data) => patch({ feedforward: data as FeedforwardConfig })}
@@ -431,7 +431,7 @@ type From = "setpoint" | "measured" | "value";
  * control below so Tab reaches this field and its button before Stop, which
  * the faceplate places in the header regardless of where it sits in the DOM.
  */
-const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, hasSetpoint, generators, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; tag: string | null; hasSetpoint: boolean; generators: JsonSchema | undefined; onEvent(name: string, kind: "changed" | "removed"): void }) {
+const SetpointControl = memo(function SetpointControl({ name, unit, mode, law, hasSetpoint, generators, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; law: string | null; hasSetpoint: boolean; generators: JsonSchema | undefined; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
   const [setpoint, setSetpoint] = useState("");
   const [kind, setKind] = useState("value");
@@ -439,12 +439,12 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
   const [fromValue, setFromValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasLaw = tag !== null && tag !== "open_loop";
+  const hasLaw = law !== null && law !== "open_loop";
   const regulating = mode === "regulating";
   // A faceplate offers a value or a ramp to it; a hold or a profile is a program's business, not a knob on a loop.
-  const choices = useMemo(() => generatorChoices(generators).filter((c) => /ramp/i.test(c.tag)), [generators]);
-  const chosen = choices.find((c) => c.tag === kind);
-  const formSchema = useMemo(() => (generators && chosen ? generatorFormSchema(generators, chosen.tag, unit) : undefined), [generators, chosen, unit]);
+  const choices = useMemo(() => generatorChoices(generators).filter((c) => /ramp/i.test(c.type)), [generators]);
+  const chosen = choices.find((c) => c.type === kind);
+  const formSchema = useMemo(() => (generators && chosen ? generatorFormSchema(generators, chosen.type, unit) : undefined), [generators, chosen, unit]);
   const formUi = useMemo(() => (formSchema ? generatorUiSchema(formSchema) : undefined), [formSchema]);
 
   const act = async (op: () => Promise<unknown>) => {
@@ -470,7 +470,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
   const start: StartSpec | null = fromNow === "value" ? (typedStart !== null && Number.isFinite(typedStart) ? typedStart : null) : fromNow;
   const startValid = fromNow !== "value" || start !== null;
 
-  const startLabel = hasLaw ? "Aim here and start the law (bumpless)" : tag === null ? "No law: give the controller a tuning first" : "Open loop: no law to regulate with";
+  const startLabel = hasLaw ? "Aim here and start the law (bumpless)" : law === null ? "No law: give the controller a tuning first" : "Open loop: no law to regulate with";
   // One height for every control on the row (a select, a number box, a button), so they sit on one line, centred.
   const box = { "& .MuiInputBase-root": { height: 32, fontSize: "0.875rem" }, "& .MuiInputBase-input": { py: 0, height: 32, boxSizing: "border-box" } } as const;
   const select = { height: 32, fontSize: "0.85rem", "& .MuiSelect-select": { py: 0, display: "flex", alignItems: "center", height: "32px !important", boxSizing: "border-box" } } as const;
@@ -481,10 +481,10 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
     <Stack component="span" direction="row" spacing={0.75} alignItems="center" useFlexGap sx={{ display: "inline-flex", flexWrap: "wrap", minWidth: 0 }}>
       {choices.length > 0 && (
         <FormControl size="small" sx={{ flexShrink: 0 }}>
-          <Select value={chosen ? chosen.tag : "value"} onChange={(e) => setKind(e.target.value)} inputProps={{ "aria-label": `how to set the target of ${name}` }} data-testid={`kind-${name}`} sx={select}>
+          <Select value={chosen ? chosen.type : "value"} onChange={(e) => setKind(e.target.value)} inputProps={{ "aria-label": `how to set the target of ${name}` }} data-testid={`kind-${name}`} sx={select}>
             <MenuItem value="value">go to</MenuItem>
             {choices.map((c) => (
-              <MenuItem key={c.tag} value={c.tag}>
+              <MenuItem key={c.type} value={c.type}>
                 {c.label.toLowerCase()}
               </MenuItem>
             ))}
@@ -558,7 +558,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
           <Tooltip title={!canStart ? startLabel : regulating ? `${chosen.verb}; the law keeps running as it is` : `${chosen.verb} and hand control to the law (bumpless)`}>
             <Box className="fb-generator" data-testid={`generator-${name}`} sx={{ width: "100%", minWidth: 0 }}>
               <SchemaForm
-                key={`${name}-${chosen.tag}`}
+                key={`${name}-${chosen.type}`}
                 schema={formSchema}
                 uiSchema={formUi}
                 form={MuiForm}
@@ -567,7 +567,7 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, tag, h
                 disabled={busy || !canStart || !startValid}
                 onSubmit={(data) => {
                   const spec = prune(data) ?? {};
-                  void send({ ...spec, tag: chosen.tag }, start);
+                  void send({ ...spec, type: chosen.type }, start);
                 }}
               />
             </Box>
@@ -794,7 +794,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
           aren't three to show, one per row otherwise. */}
       <div className="grid">
         {driven.map(({ target, c, source }) => {
-          const tag = typeof c.law?.tag === "string" ? c.law.tag : null;
+          const law = typeof c.law?.type === "string" ? c.law.type : null;
           return (
             <div key={target.address} className={(name === null ? cardClass(driven.length) : "c12") + " controller-cell"}>
               <Faceplate
@@ -805,7 +805,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
                 windowS={windowS}
                 yScale={yScale}
                 exportHref={stored.ticks(c.name)}
-                controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} tag={tag} hasSetpoint={c.reference !== null} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
+                controls={<SetpointControl name={c.name} unit={source.unit} mode={c.mode} law={law} hasSetpoint={c.reference !== null} generators={controllerSchema.data?.generators} onEvent={onEvent} />}
                 headerControls={<StopControl name={c.name} mode={c.mode} onEvent={onEvent} />}
               />
             </div>

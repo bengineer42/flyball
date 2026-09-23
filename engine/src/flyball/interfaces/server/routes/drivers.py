@@ -24,10 +24,10 @@ router = APIRouter(prefix="/api", tags=["drivers"])
 
 @router.get("/drivers")
 def read_drivers(catalog: CatalogDep) -> dict[str, Any]:
-    """Every registered config, by tag: its role, module, description and config schema."""
+    """Every registered config, by type: its role, module, description and config schema."""
     out: dict[str, Any] = {}
     for role, sub in (("driver", catalog.devices), ("link", catalog.links)):
-        for tag, config in sorted(sub.items()):
+        for name, config in sorted(sub.items()):
             entry: dict[str, Any] = {
                 "role": role,
                 "module": config.__module__,
@@ -37,7 +37,7 @@ def read_drivers(catalog: CatalogDep) -> dict[str, Any]:
                 entry["schema"] = config.model_json_schema()
             except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
                 entry["schema_error"] = f"{type(e).__name__}: {e}"
-            out[tag] = entry
+            out[name] = entry
     return out
 
 

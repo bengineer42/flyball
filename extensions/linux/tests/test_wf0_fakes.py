@@ -38,7 +38,7 @@ class TestFakeBlockingOption:
 class TestFakeBlockingGoesThroughTheWriter:
     def _rig_document(self) -> dict:
         return {
-            "links": {"i2c1": {"tag": "fake_i2c", "blocking": True}},
+            "links": {"i2c1": {"type": "fake_i2c", "blocking": True}},
             "devices": {
                 "dac": {
                     "driver": "i2c_table",

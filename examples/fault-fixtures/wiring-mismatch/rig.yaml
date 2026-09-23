@@ -14,8 +14,8 @@
 name: wiring-mismatch
 
 links:
-  driven: { tag: sim_plant, model: fopdt, tau_s: 30, dead_s: 2, gain: 60, ambient: 20, initial: 20, noise: 0.2, seed: 11 }
-  unrelated: { tag: sim_plant, model: lag, tau_s: 20, gain: 1.0, ambient: 21, initial: 21, noise: 0.3, seed: 12 }
+  driven: { type: sim_plant, model: fopdt, tau_s: 30, dead_s: 2, gain: 60, ambient: 20, initial: 20, noise: 0.2, seed: 11 }
+  unrelated: { type: sim_plant, model: lag, tau_s: 20, gain: 1.0, ambient: 21, initial: 21, noise: 0.3, seed: 12 }
 
 devices:
   zone:
@@ -32,5 +32,5 @@ devices:
 controllers:
   heater.drive:
     measured: zone.temperature
-    law: { tag: PI, kp: 1.0, ki: 0.05 }
+    law: { type: PI, kp: 1.0, ki: 0.05 }
     default: true

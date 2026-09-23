@@ -135,8 +135,8 @@ class Simulation:
         current = self.plant_config(name)
         if "model" in parameters and parameters["model"] != getattr(current, "model", None):
             raise ValueError("a plant's model cannot change while it runs; edit the file")
-        # The tagged form, as the file's union holds, so the config still dumps as its tag.
-        model = get_catalog().links[current.config_tag].tagged()
+        # The typed form, as the file's union holds, so the config still dumps as its type.
+        model = get_catalog().links[current.type_name].tagged()
         updated = model.model_validate({**current.model_dump(), **parameters})
         updated.retune(self.plants[name])  # type: ignore[attr-defined]
         links = {**self.config.links, name: updated}
@@ -339,5 +339,5 @@ class Simulation:
 
 
 def _tagged(config: Any) -> dict[str, Any]:
-    """A link config as its file form: `tag` first, then its fields."""
-    return {"tag": config.config_tag, **config.model_dump(mode="json", exclude_none=True)}
+    """A link config as its file form: `type` first, then its fields."""
+    return {"type": config.type_name, **config.model_dump(mode="json", exclude_none=True)}

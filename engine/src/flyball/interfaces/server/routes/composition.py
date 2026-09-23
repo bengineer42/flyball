@@ -69,7 +69,7 @@ def _validated[T](adapter: TypeAdapter[T], body: Any) -> T:
 
 
 class NewLink(BaseModel):
-    """A link as the file writes one, with its name: `{name, tag, ...}`."""
+    """A link as the file writes one, with its name: `{name, type, ...}`."""
 
     model_config = ConfigDict(extra="allow")
 

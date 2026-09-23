@@ -40,12 +40,12 @@ export function useDeviceSchema(name: string): QueryState<DeviceSchema> {
 
 export interface CommandRunner {
   run(command: string, args?: Record<string, unknown>): Promise<unknown>;
-  /** The last result or error, per command tag, for feedback next to the form. */
+  /** The last result or error, per command, for feedback next to the form. */
   results: Record<string, { result?: unknown; error?: RigError | Error; at: number }>;
   busy: string | null;
 }
 
-/** Runs a device's commands (`POST /api/devices/{name}/commands/{tag}`) and remembers what came back. */
+/** Runs a device's commands (`POST /api/devices/{name}/commands/{command}`) and remembers what came back. */
 export function useCommands(name: string): CommandRunner {
   const rig = useRig();
   const [results, setResults] = useState<CommandRunner["results"]>({});

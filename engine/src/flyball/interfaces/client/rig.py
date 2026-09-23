@@ -4,7 +4,7 @@
 validating arguments against the schema before sending:
 
     rig = Rig("http://pi:8000")
-    rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
+    rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"type": "absolute", "flow": 8})
     rig.devices.sht4x.view()["conditions"]
     rig.write("heaters.heater1", 1200.0)
     for frame in rig.watch("controllers"):

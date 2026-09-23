@@ -44,7 +44,7 @@ runner:                        # how the process serves; not part of the rig
   allow_shutdown: true
 
 links:                         # the buses and plants devices are built on
-  tube: { tag: sim_furnace, zones: 2, power_w: 3000 }
+  tube: { type: sim_furnace, zones: 2, power_w: 3000 }
 
 devices:                       # what is on the rig, keyed by name
   furnace:
@@ -59,7 +59,7 @@ devices:                       # what is on the rig, keyed by name
     config: { link: tube, ports: { heater1: heater1 } }
 
 controllers:                   # who drives what, keyed by the target signal
-  heaters.heater1: { measured: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15 }, default: true }
+  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15 }, default: true }
 ```
 
 Sections may be split across files -- `flyball-runner furnace.yaml sim.yaml`,

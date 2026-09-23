@@ -68,15 +68,15 @@ writing a device driver rather than editing the rig.
 
 ## The pattern
 
-The same thing four times: a registry keyed by tag, populated on
+The same thing four times: a registry keyed by type, populated on
 subclassing, with a pydantic model derived from the class itself.
 
 | registry | populated by | model derived from |
 | --- | --- | --- |
-| control laws | `class X(ControlLaw, tag=…)` | `__init__` → config; `_state_fields` → state |
-| trajectories | `class X(SetPointGenerator, tag=…)` | the same |
+| control laws | `class X(ControlLaw, type=…)` | `__init__` → config; `_state_fields` → state |
+| trajectories | `class X(SetPointGenerator, type=…)` | the same |
 | commands | `class X(Command, tag=…)` | the dataclass constructor → request |
-| configs | `class X(Config, tag=…)` | the model itself; `union` discriminates on `tag` |
+| configs | `class X(Config, type=…)` | the model itself; `union` discriminates on `type` |
 
 Devices do the same without a registry: descriptors in the class body (or
 built from config) collect into the tree on subclassing, `config`'s return
@@ -145,7 +145,7 @@ Two intentions shape the extension points:
 
 1. **Devices and control laws as packages.** A `flyball-<device>`
    distribution defines a driver — a device, a control law, a feedforward —
-   and is usable by name (its tag) the moment it is installed.
+   and is usable by name (its type) the moment it is installed.
 2. **Use through config, not code.** A rig is a file: which links, which
    devices, which controller on which signal with which law.
 
@@ -153,6 +153,6 @@ The second exists for the generic devices (`flyball.runtime.config`). The
 first still needs per-rig registries instead of process-wide ones — driver
 tags are one process-wide namespace, a `Catalog` per kind held in one
 process-scoped `Catalogs` (`flyball.model.catalog`), so a second plugin
-declaring the same tag still collides; see [Decisions](decisions.md) — a
+declaring the same type still collides; see [Decisions](decisions.md) — a
 frozen public surface, and entry-point discovery. `IDEAS.md` in the
 repository carries the detail.

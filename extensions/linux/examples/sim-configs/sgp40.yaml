@@ -4,7 +4,7 @@
 # rises and falls.
 
 links:
-  voc_plant: { tag: sim_plant, tau_s: 10.0, gain: 5000.0, ambient: 30000.0, initial: 30000.0, noise: 100.0, seed: 70 }
+  voc_plant: { type: sim_plant, tau_s: 10.0, gain: 5000.0, ambient: 30000.0, initial: 30000.0, noise: 100.0, seed: 70 }
 
 devices:
   voc:

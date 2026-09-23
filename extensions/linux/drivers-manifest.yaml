@@ -6,7 +6,7 @@
 # of that, not a substitute for reading it.
 #
 # Fields:
-#   tag                the DriverConfig/Config tag string used in a rig file's `driver:`
+#   type               the DriverConfig/Config type string used in a rig file's `driver:`
 #   part_number, manufacturer
 #   category           temp | humidity | pressure | gas | liquid | weight | light | actuator | link
 #   interface          i2c_table | i2c_bespoke | uart | spi | analog_adc | gpio | pulse | 4-20ma | onewire | pwm
@@ -25,7 +25,7 @@
 #                      entry; "TODO" where none was captured, never a guessed URL
 
 sensors:
-  - tag: sht4x
+  - type: sht4x
     part_number: SHT40/41/45
     manufacturer: Sensirion
     category: humidity
@@ -40,9 +40,9 @@ sensors:
     domains: [pre-existing, humidity-example]
     links:
       - label: note
-        url: "Same module also implements the sht4x_set (multi-sensor) tag; both run on the real humidity rig"
+        url: "Same module also implements the sht4x_set (multi-sensor) type; both run on the real humidity rig"
 
-  - tag: sht31
+  - type: sht31
     part_number: SHT30/31/35
     manufacturer: Sensirion
     category: humidity
@@ -60,7 +60,7 @@ sensors:
       - label: datasheet
         url: "Sensirion Datasheet SHT3x-DIS, May 2015 v0.93 (public, section 4.3/4.12/4.13 used)"
 
-  - tag: htu21d
+  - type: htu21d
     part_number: HTU21D(F) / Si7021
     manufacturer: TE Connectivity / Silicon Labs
     category: humidity
@@ -78,7 +78,7 @@ sensors:
       - label: datasheet
         url: "TE Connectivity HTU21D(F) datasheet, 05/2017 (public)"
 
-  - tag: ms5611
+  - type: ms5611
     part_number: MS5611-01BA03
     manufacturer: TE Connectivity
     category: pressure
@@ -98,7 +98,7 @@ sensors:
       - label: known issue
         url: "The PROM's CRC-4 checksum is read but not verified -- a corrupted calibration block could be trusted silently"
 
-  - tag: bme280
+  - type: bme280
     part_number: BME280 / BMP280
     manufacturer: Bosch Sensortec
     category: temp
@@ -116,7 +116,7 @@ sensors:
       - label: note
         url: "No official Bosch worked numeric example exists for BME280 (unlike MS5611) -- tests are structural/self-consistency only, flagged [Unverified] in the module docstring"
 
-  - tag: scd30
+  - type: scd30
     part_number: SCD30
     manufacturer: Sensirion
     category: gas
@@ -136,7 +136,7 @@ sensors:
       - label: caveat
         url: "ASC/forced-recalibration/temperature-offset/altitude-compensation commands are named but not implemented or independently re-verified"
 
-  - tag: scd40
+  - type: scd40
     part_number: SCD40 / SCD41
     manufacturer: Sensirion
     category: gas
@@ -156,7 +156,7 @@ sensors:
       - label: caveat
         url: "Data-ready status bitmask (0x07FF) is [Unverified] beyond what the reference driver's usage implied -- exact datasheet bit-layout text not fetched"
 
-  - tag: sgp30
+  - type: sgp30
     part_number: SGP30
     manufacturer: Sensirion
     category: gas
@@ -174,7 +174,7 @@ sensors:
       - label: datasheet
         url: "Sensirion SGP30 datasheet v1.0 (May 2020), 'Set and Get Baseline': baseline words are sent 'in the order as (TVOC, CO2eq)' -- confirmed against Sensirion's embedded-sgp reference driver, sgp30.c at commit 19fa58d, which writes in the same order"
 
-  - tag: sgp40
+  - type: sgp40
     part_number: SGP40
     manufacturer: Sensirion
     category: gas
@@ -192,7 +192,7 @@ sensors:
       - label: caveat
         url: "Minimum wait after measure_raw (~30ms used) is approximate, not re-confirmed against a primary timing table"
 
-  - tag: ccs811
+  - type: ccs811
     part_number: CCS811
     manufacturer: ams / ScioSense
     category: gas
@@ -210,7 +210,7 @@ sensors:
       - label: caveat
         url: "ENV_DATA humidity/temperature bit-packing followed the convention used by several open CCS811 libraries (e.g. Adafruit's), not a directly re-read datasheet table"
 
-  - tag: mhz19
+  - type: mhz19
     part_number: MH-Z19(B)
     manufacturer: Winsen
     category: gas
@@ -225,7 +225,7 @@ sensors:
     domains: [mushroom, aging]
     links: []
 
-  - tag: ezo_ph
+  - type: ezo_ph
     part_number: EZO-pH
     manufacturer: Atlas Scientific
     category: liquid
@@ -243,7 +243,7 @@ sensors:
       - label: datasheet
         url: "https://cdn.sparkfun.com/datasheets/Sensors/Biometric/pH_EZO_datasheet_v13.pdf"
 
-  - tag: ezo_ec
+  - type: ezo_ec
     part_number: EZO-EC
     manufacturer: Atlas Scientific
     category: liquid
@@ -261,7 +261,7 @@ sensors:
       - label: caveat
         url: "Datasheet's own worked example (single bare value) contradicts its stated factory-default CSV format (EC,TDS,SAL,SG) two pages later -- followed the quick-reference table, flagged the conflict in the module docstring, needs checking against real hardware"
 
-  - tag: ezo_orp
+  - type: ezo_orp
     part_number: EZO-ORP
     manufacturer: Atlas Scientific
     category: liquid
@@ -277,7 +277,7 @@ sensors:
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links: []
 
-  - tag: ezo_do
+  - type: ezo_do
     part_number: EZO-DO
     manufacturer: Atlas Scientific
     category: liquid
@@ -295,7 +295,7 @@ sensors:
       - label: note
         url: "Decodes a single mg/L value per the O command's stated factory default; raises HardwareError rather than guessing if the reply ever contains a comma (i.e. reconfigured away from default)"
 
-  - tag: hx711
+  - type: hx711
     part_number: HX711
     manufacturer: Avia Semiconductor
     category: weight
@@ -313,7 +313,7 @@ sensors:
       - label: caveat
         url: "Gain/channel pulse counts (25/26/27) confirmed against the Avia HX711 datasheet's Serial Interface section and Table 3/Fig.2 -- but the fake used for tests only exercises decode logic, not real GPIO bit-bang timing (no hardware, ever)"
 
-  - tag: tsl2591
+  - type: tsl2591
     part_number: TSL2591
     manufacturer: ams
     category: light
@@ -328,7 +328,7 @@ sensors:
       - label: datasheet
         url: "ams TSL2591 DS000338 v2-04 (Mouser-hosted PDF)"
 
-  - tag: veml7700
+  - type: veml7700
     part_number: VEML7700
     manufacturer: Vishay
     category: light
@@ -343,7 +343,7 @@ sensors:
       - label: datasheet
         url: "https://docs.vishay.com/84286/veml7700.pdf"
 
-  - tag: lps22hb
+  - type: lps22hb
     part_number: LPS22HB
     manufacturer: STMicroelectronics
     category: pressure
@@ -358,7 +358,7 @@ sensors:
       - label: datasheet
         url: "ST DM00140895, Table 18 + section 9.13"
 
-  - tag: "(generic analog pH via ads1115/mcp3008)"
+  - type: "(generic analog pH via ads1115/mcp3008)"
     part_number: "e.g. DFRobot Gravity pH SEN0161-V2"
     manufacturer: "varies (DFRobot-style breakout)"
     category: liquid
@@ -373,7 +373,7 @@ sensors:
       - label: note
         url: "Calibration is inherently per-probe (2-point, pH 4/7 buffers) -- documented as a PLACEHOLDER in the config comments, not a fixed value"
 
-  - tag: "(generic analog turbidity via ads1115/mcp3008)"
+  - type: "(generic analog turbidity via ads1115/mcp3008)"
     part_number: "e.g. DFRobot SEN0189"
     manufacturer: "varies"
     category: liquid
@@ -386,7 +386,7 @@ sensors:
     domains: [water_treatment, aquaculture]
     links: []
 
-  - tag: gpio_line
+  - type: gpio_line
     part_number: "(generic relay via gpio_line)"
     manufacturer: n/a
     category: actuator
@@ -399,7 +399,7 @@ sensors:
     domains: [dosing_skids, brewing, irrigation]
     links: []
 
-  - tag: current_loop
+  - type: current_loop
     part_number: "(generic 4-20mA wrapper over ads1115/mcp3008)"
     manufacturer: n/a
     category: liquid
@@ -415,7 +415,7 @@ sensors:
       - label: caveat
         url: "Fault thresholds (3.6mA/21.0mA) are the commonly cited NAMUR NE43 approximation -- [Unverified], the primary NAMUR document wasn't consulted"
 
-  - tag: pulse_counter
+  - type: pulse_counter
     part_number: "(generic hall-effect flow meter, e.g. YF-S201)"
     manufacturer: n/a
     category: liquid
@@ -431,7 +431,7 @@ sensors:
       - label: note
         url: "Uses gpiod v2's native edge-event + debounce support (LineSettings.debounce_period), not a hand-rolled polling loop"
 
-  - tag: dosing_pump
+  - type: dosing_pump
     part_number: "(generic peristaltic pump, PWM-DC or relay-driven)"
     manufacturer: n/a
     category: actuator
@@ -447,7 +447,7 @@ sensors:
       - label: note
         url: "Stepper-driven pumps (step/direction) are out of scope for this version -- no pulse-generating actuator link exists yet, only PWM-DC and GPIO-relay are supported"
 
-  - tag: dual_pump_blender
+  - type: dual_pump_blender
     part_number: "(the humidity rig's own composite actuator, two PWM-driven pumps)"
     manufacturer: n/a
     category: actuator
@@ -463,7 +463,7 @@ sensors:
         url: "Runs on the real Pi humidity rig (dry/wet pump split-range blend); the fields and physics are in the humidity book: https://bengineer42.github.io/humctrl/3-devices/blender/"
 
 links:
-  - tag: uart
+  - type: uart
     file: extensions/linux/src/flyball_linux/links/uart.py
     loc_actual: 109
     status: done
@@ -474,7 +474,7 @@ links:
       - label: note
         url: "Highest-leverage new infrastructure in this catalogue -- unlocks the entire Atlas EZO family plus MH-Z19; needed a new `serial` optional-dependency extra (pyserial) in pyproject.toml, mirroring how `i2c` gates smbus2"
 
-  - tag: pwm
+  - type: pwm
     file: extensions/linux/src/flyball_linux/links/pwm.py
     loc_actual: 105
     status: done

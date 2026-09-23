@@ -45,11 +45,11 @@ instant; a sample in reverse.
 conditions.
 
 **driver** — which device code builds a device entry; the discriminator,
-written `driver:` in the rig file (the Python side calls it the config
-*tag*).
+written `driver:` in the rig file (the Python side calls it the config's
+`type_name`).
 
 **dwell** — the setpoint generator's segment that holds a value for a
-duration (`{tag: dwell, value, duration}`), used in a profile's `segments`
+duration (`{type: dwell, value, duration}`), used in a profile's `segments`
 and in `POST /api/controllers/{c}/setpoint`'s `at`; the generator's
 equivalent of the program step **wait**.
 
@@ -75,9 +75,6 @@ endpoint, its socket and its `runner.lock`.
 
 **handover** — entering regulation, or changing a tuning: choosing what the
 correction should be at the instant of the switch (a `Transfer`).
-
-**kind** — the discriminator for everything that is not a device: laws,
-feedforwards, links, program steps.
 
 **label** — a display name, from the rig file; `None` shows the address or
 name instead.
@@ -190,6 +187,11 @@ changed only through the rig, under its lock, as an event.
 `carry`, `track`.
 
 **tuning** — a named law config.
+
+**type** — the discriminator, written `type:`: which implementation a link,
+a law, a feedforward or a setpoint generator entry is (`type: PI`,
+`type: sim_plant`). A device names its implementation with `driver:`
+instead; a program step has no discriminator (its key is the step).
 
 **controller** — a software control loop, not a device: one measured
 signal, one law, one output (a demand), one reference; named by the

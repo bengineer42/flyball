@@ -94,7 +94,7 @@ class EzoPh(Readable):
         yield self.sample(time_ns, ph=self.probe.read())
 
 
-class EzoPhConfig(DriverConfig[EzoPh], tag="ezo_ph"):
+class EzoPhConfig(DriverConfig[EzoPh], type="ezo_ph"):
     """One EZO-pH circuit, alone on its UART."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

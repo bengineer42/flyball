@@ -91,18 +91,18 @@ class TestResolveLayers:
         assert files == [tmp_path / "a.yaml"]
 
     def test_a_later_file_overlays_an_earlier_one(self, tmp_path):
-        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {tag: sim_plant}}\n")
+        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {type: sim_plant}}\n")
         (tmp_path / "b.yaml").write_text("name: b\n")
         document, files = resolve_layers([tmp_path / "a.yaml", tmp_path / "b.yaml"])
-        assert document == {"name": "b", "links": {"l1": {"tag": "sim_plant"}}}
+        assert document == {"name": "b", "links": {"l1": {"type": "sim_plant"}}}
         assert files == [tmp_path / "a.yaml", tmp_path / "b.yaml"]
 
     def test_extends_is_applied_underneath_and_relative_to_the_extending_file(self, tmp_path):
         (tmp_path / "base").mkdir()
-        (tmp_path / "base" / "b.yaml").write_text("name: base\nlinks: {l1: {tag: sim_plant}}\n")
+        (tmp_path / "base" / "b.yaml").write_text("name: base\nlinks: {l1: {type: sim_plant}}\n")
         (tmp_path / "top.yaml").write_text('extends: ["base/b.yaml"]\nname: top\n')
         document, files = resolve_layers([tmp_path / "top.yaml"])
-        assert document == {"name": "top", "links": {"l1": {"tag": "sim_plant"}}}
+        assert document == {"name": "top", "links": {"l1": {"type": "sim_plant"}}}
         assert "extends" not in document
         assert files == [tmp_path / "base" / "b.yaml", tmp_path / "top.yaml"]
 
@@ -121,11 +121,11 @@ class TestResolveLayers:
             resolve_layers([tmp_path / "a.yaml"])
 
     def test_set_is_applied_last(self, tmp_path):
-        (tmp_path / "a.yaml").write_text("links: {l1: {tag: sim_plant, noise: 0.1}}\n")
+        (tmp_path / "a.yaml").write_text("links: {l1: {type: sim_plant, noise: 0.1}}\n")
         document, _ = resolve_layers(
             [tmp_path / "a.yaml"], ["links.l1.noise=0.5", "links.l1.seed=7"]
         )
-        assert document == {"links": {"l1": {"tag": "sim_plant", "noise": 0.5, "seed": 7}}}
+        assert document == {"links": {"l1": {"type": "sim_plant", "noise": 0.5, "seed": 7}}}
 
     def test_a_duplicate_key_in_a_layer_still_fails_strictly(self, tmp_path):
         (tmp_path / "a.yaml").write_text("a: 1\nb: 2\na: 3\n")

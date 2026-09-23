@@ -136,7 +136,7 @@ class Modbus(Readable, Committable):
                 signal.push(actual, time_ns)
 
 
-class ModbusConfig(DriverConfig[Modbus], tag="modbus"):
+class ModbusConfig(DriverConfig[Modbus], type="modbus"):
     """`driver: modbus`. `registers` is the driver's own tree -- see `ModbusRegister`."""
 
     link: RegisterLinkConfig | str  # type: ignore[valid-type]

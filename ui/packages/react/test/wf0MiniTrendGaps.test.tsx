@@ -100,7 +100,7 @@ const CONTROLLER: ControllerOut = {
   default: false,
   mode: "regulating",
   law: null,
-  feedforward: { tag: "none" },
+  feedforward: { type: "none" },
   output_unit: "W",
   reference: 50,
   setpoint: 50,

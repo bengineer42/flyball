@@ -212,7 +212,7 @@ class PyMeasure(Readable, Committable):
         setattr(self.instrument, self.channels[signal.name].property, value)
 
 
-class PyMeasureConfig(DriverConfig[PyMeasure], tag="pymeasure"):
+class PyMeasureConfig(DriverConfig[PyMeasure], type="pymeasure"):
     """`driver: pymeasure`. `channels` is the driver's own tree -- see `PyMeasureSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is

@@ -39,7 +39,7 @@ class FakeOneWire:
         return queue[0] if len(queue) == 1 else queue.pop(0)
 
 
-class FakeOneWireConfig(Config[OneWireLink], tag="fake_onewire"):
+class FakeOneWireConfig(Config[OneWireLink], type="fake_onewire"):
     texts: dict[str, str | list[str]] = Field(default_factory=dict)
 
     def build(self) -> OneWireLink:
@@ -61,7 +61,7 @@ class SysfsOneWire:
         return (self.root / device / "w1_slave").read_text()
 
 
-class OneWireConfig(Config[OneWireLink], tag="onewire"):
+class OneWireConfig(Config[OneWireLink], type="onewire"):
     root: str = "/sys/bus/w1/devices"
 
     def build(self) -> OneWireLink:

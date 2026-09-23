@@ -27,5 +27,5 @@
 Everything here is a `Device` like any other once attached: routes, a schema,
 telemetry, CLI subcommands and a client method per command with no further
 code. Where a new one goes: a driver is [Extending](../3-extending/index.md);
-a link tag, [Config and build](../3-extending/device/config.md); a data tool,
+a link type, [Config and build](../3-extending/device/config.md); a data tool,
 [The server](../4-server/index.md).

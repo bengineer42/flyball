@@ -122,8 +122,8 @@ class TestScpi:
 def bench_document() -> dict:
     return {
         "links": {
-            "psu": {"tag": "fake_text", "replies": {"MEAS:VOLT?": "11.98"}},
-            "dmm": {"tag": "fake_text", "replies": {"MEAS:VOLT:DC?": "+1.1980E+01"}},
+            "psu": {"type": "fake_text", "replies": {"MEAS:VOLT?": "11.98"}},
+            "dmm": {"type": "fake_text", "replies": {"MEAS:VOLT:DC?": "+1.1980E+01"}},
         },
         "devices": {
             "psu": {

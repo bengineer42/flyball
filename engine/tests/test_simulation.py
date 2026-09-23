@@ -79,7 +79,7 @@ class TestSimulation:
         assert "clock" in oven.describe()["changed"]
 
     def test_the_file_may_ask_for_a_speed_or_a_stepped_clock(self):
-        base = {"links": {"p": {"tag": "sim_plant"}}}
+        base = {"links": {"p": {"type": "sim_plant"}}}
         assert isinstance(
             RigConfig.model_validate({**base, "clock": {"speed": 10}}).build(start=False).clock,
             ScaledClock,
@@ -88,14 +88,14 @@ class TestSimulation:
         assert isinstance(rig.clock, SteppedClock)
         with pytest.raises(ValueError, match="sim_\\* or fake_\\*"):
             RigConfig.model_validate({
-                "links": {"v": {"tag": "visa", "resource": "x"}},
+                "links": {"v": {"type": "visa", "resource": "x"}},
                 "clock": {"speed": 2},
             })
 
     def test_hardware_is_not_a_simulation(self):
         from flyball.rig import Rig
 
-        config = RigConfig.model_validate({"links": {"v": {"tag": "visa", "resource": "x"}}})
+        config = RigConfig.model_validate({"links": {"v": {"type": "visa", "resource": "x"}}})
         assert config.simulated is False
         with pytest.raises(ConflictError, match="real hardware"):
             Simulation(Rig(), config)
@@ -132,13 +132,13 @@ class TestSimulation:
             assert list(again.controllers) == ["heater.drive"]
             rig = again.build(start=False)
             assert rig.resolve("thermocouple.temperature").spec.alarm == (10.0, 110.0)
-        assert 'tag = "sim_plant"' in (tmp_path / "oven.toml").read_text()
+        assert 'type = "sim_plant"' in (tmp_path / "oven.toml").read_text()
         assert "model: fopdt" in (tmp_path / "oven.yaml").read_text()
 
     def test_without_a_document_the_whole_config_is_dumped_in_the_devices_form(self, oven):
         bare = Simulation(oven.rig, oven.config)
         document = bare.config_document()
-        assert document["links"]["chamber"]["tag"] == "sim_plant"
+        assert document["links"]["chamber"]["type"] == "sim_plant"
         heater = document["devices"]["heater"]
         assert heater["driver"] == "sim_drive" and heater["label"] == "Oven heater"
         assert heater["config"] == {

@@ -195,9 +195,9 @@ wire these are "activities" (`/api/activities`).
 `Config[T]` with `build() -> T`; `ConfigOr[T]` and `resolve` so any component
 can be given either a built object or a description of one. Configs hold
 real defaults rather than `None` sentinels, so a serialised config records
-what the rig actually did. One tag names one kind of thing rig-wide
+what the rig actually did. One type names one kind of thing rig-wide
 (`Config.registry`), which is what lets a rig file's `driver:` or a link's
-`tag:` be resolved without knowing which package defined it.
+`type:` be resolved without knowing which package defined it.
 
 ## Resources
 

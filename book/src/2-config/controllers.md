@@ -20,16 +20,16 @@ entry a demand unless the entry says `role: setting`
 controllers:
   heaters.heater2:
     measured: furnace.zone2                                 # what is regulated
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, rate_gain: 3000, points: [[20, 0], [200, 289.4]] }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4]] }
     default: true
 ```
 
 | key | type | |
 | --- | --- | --- |
 | `measured` | address | the measured signal: a published signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
-| `law` | `{tag, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
-| `feedforward` | `{tag, …}` | `setpoint` (the measured unit passed through); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `setpoint` when the units agree, else `none` |
+| `law` | `{type, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
+| `feedforward` | `{type, …}` | `setpoint` (the measured unit passed through); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | step the law at most this often |
 
@@ -47,8 +47,8 @@ measured signal: the law does all the work from zero.
 ## Tunings
 
 A law's gains may also live in a file under `tunings/` beside the rig
-(`tunings/<tag>.yaml`, a `{tag, …gains}` document, loaded onto the rig at
-start) and be chosen at run time: `PUT /api/tunings/{tag}`, or the tuning
+(`tunings/<name>.yaml`, a `{type, …gains}` document, loaded onto the rig at
+start) and be chosen at run time: `PUT /api/tunings/{name}`, or the tuning
 picker on a faceplate. Autotune writes one:
 [Tuning and autotune](../1-running/autotune.md). Writing a law of your own:
 [Control laws](../3-extending/laws.md); the strict schema:

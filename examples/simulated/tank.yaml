@@ -7,7 +7,7 @@ name: tank
 
 links:
   tank:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 2.0          # litres per second at full valve
     leak: 0.05         # 5 % of the contents drains per second
@@ -43,5 +43,5 @@ devices:
 controllers:
   valve.drive:
     measured: level.volume
-    law: { tag: PI, kp: 0.05, ki: 0.01 }
+    law: { type: PI, kp: 0.05, ki: 0.01 }
     default: true

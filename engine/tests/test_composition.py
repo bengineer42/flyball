@@ -15,10 +15,10 @@ from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
 
 
-class _RealLinkConfig(Config[object], tag="test_real_link"):
+class _RealLinkConfig(Config[object], type="test_real_link"):
     """A stand-in for any real (non-fake, non-sim) link's own config.
 
-    Only `config_tag`'s prefix matters to `is_simulated`/the hardware gate --
+    Only `type_name`'s prefix matters to `is_simulated`/the hardware gate --
     `flyball.hardware.links` has no config classes of its own any more, the
     real link kinds (`visa`, `modbus_tcp`, ...) live in extensions/*.
     """
@@ -27,7 +27,7 @@ class _RealLinkConfig(Config[object], tag="test_real_link"):
         return object()
 
 
-PLANT = {"name": "t1", "tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
+PLANT = {"name": "t1", "type": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
 DAQ = {
     "name": "probe",
     "driver": "sim_daq",
@@ -35,7 +35,7 @@ DAQ = {
     "poll_s": 0.1,
 }
 DRIVE = {"name": "drive", "driver": "sim_drive", "config": {"link": "t1", "ports": {"u": "input"}}}
-CONTROLLER = {"drive.u": {"measured": "probe.signal", "law": {"tag": "P", "kp": 0.5}}}
+CONTROLLER = {"drive.u": {"measured": "probe.signal", "law": {"type": "P", "kp": 0.5}}}
 
 
 def entry(posted: dict) -> dict:
@@ -141,7 +141,7 @@ class TestRoutes:
         )
         r = client.post(
             "/api/controllers",
-            json={"output": "drive.u", "measured": "probe.signal", "law": {"tag": "P", "kp": 0.5}},
+            json={"output": "drive.u", "measured": "probe.signal", "law": {"type": "P", "kp": 0.5}},
         )
         assert r.status_code == 201, r.text
         document = client.get("/api/rig/document").json()

@@ -141,7 +141,7 @@ class EzoEc(Readable):
         )
 
 
-class EzoEcConfig(DriverConfig[EzoEc], tag="ezo_ec"):
+class EzoEcConfig(DriverConfig[EzoEc], type="ezo_ec"):
     """One EZO-EC circuit, alone on its UART."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

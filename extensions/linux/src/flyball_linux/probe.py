@@ -31,7 +31,7 @@ KNOWN: dict[int, tuple[str, str]] = {
     0x76: ("bme280 / bmp280", "i2c_table"),
     0x77: ("bme280 / bmp280 / bmp180", "i2c_table"),
 }
-"""Address -> (what usually lives there, the tag to start from)."""
+"""Address -> (what usually lives there, the type to start from)."""
 
 
 def model(root: Path = Path("/proc/device-tree")) -> str | None:
@@ -91,20 +91,20 @@ def scan_i2c(bus: int) -> Iterator[int]:
 
 def fragment(bus_name: str, address: int) -> str:
     """A `devices:` entry to start from, for a recognised address."""
-    what, tag = KNOWN.get(address, ("unknown", ""))
-    if not tag:
+    what, driver = KNOWN.get(address, ("unknown", ""))
+    if not driver:
         return f"# 0x{address:02x}: {what}; no flyball driver for it"
     link = bus_name.replace("i2c-", "i2c")
-    fields = [f"driver: {tag}", "poll_s: 1", f"link: {link}"]
-    if tag != "sht4x":
+    fields = [f"driver: {driver}", "poll_s: 1", f"link: {link}"]
+    if driver != "sht4x":
         fields.append(f"address: 0x{address:02x}")
-    if tag == "ads1115":
+    if driver == "ads1115":
         fields.append("channels: { volts: { channel: 0 } }")
     note = ""
-    if tag == "i2c_table":
+    if driver == "i2c_table":
         fields.append("registers: {}")
         note = "   # registers from the datasheet: address, length, signed, scale, unit"
-    return f"# 0x{address:02x}: {what}\n{tag}_{address:02x}: {{ {', '.join(fields)} }}{note}"
+    return f"# 0x{address:02x}: {what}\n{driver}_{address:02x}: {{ {', '.join(fields)} }}{note}"
 
 
 def report(scan: bool = True) -> str:

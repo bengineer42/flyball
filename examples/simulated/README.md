@@ -91,6 +91,6 @@ A program file gets the same from `flyball program schema` and a
 Nothing in these files is Python. `sim_plant` is a link — one plant shared
 by the `sim_daq` that reads its output and the `sim_drive` that drives its
 input — and a controller names their signals by address. The same file with
-`tag: visa` links and `scpi` devices is a real bench: the schema, routes,
+`type: visa` links and `scpi` devices is a real bench: the schema, routes,
 telemetry and CLI are identical either way, which is the property the rig
 file exists to demonstrate.

@@ -145,7 +145,7 @@ class Scd30(Readable):
         yield self.sample(time_ns, co2=co2, temperature=temperature, humidity=humidity)
 
 
-class Scd30Config(DriverConfig[Scd30], tag="scd30"):
+class Scd30Config(DriverConfig[Scd30], type="scd30"):
     """One chip by its I2C address, in continuous-measurement mode."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

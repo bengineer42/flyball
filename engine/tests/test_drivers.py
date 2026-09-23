@@ -25,7 +25,7 @@ class Probe(Readable):
         yield self.sample(time_ns, temperature={value})
 
 
-class ProbeConfig(DriverConfig[Probe], tag="test_probe_{n}"):
+class ProbeConfig(DriverConfig[Probe], type="test_probe_{n}"):
     def build(self, name, label=None):
         return Probe(name, label)
 """

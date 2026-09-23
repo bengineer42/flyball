@@ -4,10 +4,10 @@ A driver package declares its configs through an entry point and calls
 `catalog.register_*(...)` explicitly (`flyball.model.catalog.Catalogs.discover`);
 a driver being written lives in `drivers/` beside the rig file instead, with
 no `register()` of its own to call -- there is nothing to import it as an
-installed package. Reloading a file registers every tagged `Config` subclass
+installed package. Reloading a file registers every typed `Config` subclass
 it defines, explicitly, into the given `Catalogs` (default: the process's
 [current_catalog][flyball.model.catalog.get_catalog]): the old classes are
-unregistered first, so a tag does not clash with its own earlier self.
+unregistered first, so a type does not clash with its own earlier self.
 Devices already built on the old class keep it; add the device again to get
 the new one.
 """
@@ -38,7 +38,7 @@ class DriversReport:
 
     directory: str
     registered: dict[str, list[str]] = field(default_factory=dict)
-    """File stem -> the tags its import registered."""
+    """File stem -> the types its import registered."""
     errors: dict[str, str] = field(default_factory=dict)
     """File stem -> the import error, one line."""
 
@@ -51,7 +51,7 @@ def load_drivers(directory: str | Path, catalogs: Catalogs | None = None) -> Dri
 
     Args:
         directory: Where the `.py` files live.
-        catalogs: Where a file's tagged configs are registered. Default:
+        catalogs: Where a file's typed configs are registered. Default:
             [get_catalog][flyball.model.catalog.get_catalog].
     """
     catalogs = catalogs or get_catalog()
@@ -82,31 +82,31 @@ def load_drivers(directory: str | Path, catalogs: Catalogs | None = None) -> Dri
 
 
 def _register_module(module: ModuleType, name: str, catalogs: Catalogs) -> list[str]:
-    """Register every tagged `Config` subclass `module` (freshly imported as `name`) defines."""
+    """Register every typed `Config` subclass `module` (freshly imported as `name`) defines."""
     added = []
     for value in vars(module).values():
         if not (isinstance(value, type) and issubclass(value, Config)):
             continue
-        if value.__module__ != name or value.config_tag is None:
+        if value.__module__ != name or value.type_name is None:
             continue
         if issubclass(value, DriverConfig):
             catalogs.register_device(value)
         else:
             catalogs.register_link(value)
-        added.append(value.config_tag)
+        added.append(value.type_name)
     return sorted(added)
 
 
 def _forget(module: str, catalogs: Catalogs) -> None:
-    """Drop the tags `module` registered, so importing it again does not clash with itself."""
+    """Drop the types `module` registered, so importing it again does not clash with itself."""
     for catalog in (catalogs.devices, catalogs.links):
         _forget_from(catalog, module)
 
 
 def _forget_from(catalog: Catalog[Any], module: str) -> None:
-    for tag, config in list(catalog.items()):
+    for name, config in list(catalog.items()):
         if config.__module__ == module:
-            catalog.unregister(tag)
+            catalog.unregister(name)
 
 
 __all__ = ["PACKAGE", "DriversReport", "load_drivers"]

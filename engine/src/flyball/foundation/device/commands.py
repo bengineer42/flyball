@@ -76,7 +76,7 @@ class CommandSpec:
     Marked by [command][flyball.foundation.device.commands.command].
     """
 
-    tag: str
+    name: str
     method: Callable[..., Any]
     params: dict[str, Param] = field(default_factory=dict)
     simulation: bool = False
@@ -104,7 +104,7 @@ def command[F: Callable[..., Any]](fn: F, /) -> F: ...
 @overload
 def command[F: Callable[..., Any]](
     *,
-    tag: str | None = None,
+    name: str | None = None,
     simulation: bool = False,
     commit: bool = False,
     mode: Any = None,
@@ -114,15 +114,15 @@ def command(
     fn: Any = None,
     /,
     *,
-    tag: str | None = None,
+    name: str | None = None,
     simulation: bool = False,
     commit: bool = False,
     mode: Any = None,
     interrupts: bool = False,
 ) -> Any:
-    """Mark a device method as a command, under its name or `tag`.
+    """Mark a device method as a command, under the method's name or `name`.
 
-    `@command` or `@command(tag="stop")`. The method's signature is the
+    `@command` or `@command(name="stop")`. The method's signature is the
     command's; an argument annotated `Annotated[<type>, <descriptor>]` (or
     named like a descriptor) is a value for that demand -- legal in the
     class body, since the descriptor's name is already bound there. `mode`
@@ -137,7 +137,7 @@ def command(
     """
 
     def mark(f: Any) -> Any:
-        f.__command__ = tag or f.__name__
+        f.__command__ = name or f.__name__
         f.__command_options__ = {
             "simulation": simulation,
             "commit": commit,

@@ -1,7 +1,7 @@
 """Wire format shared across routes.
 
 Separate from the domain types so the HTTP surface and the control code can
-change shape independently. Law configs cross as a `tag`-discriminated union
+change shape independently. Law configs cross as a `type`-discriminated union
 built from the registry. Application-specific requests live with the
 application.
 
@@ -53,7 +53,7 @@ from flyball.rig import DeviceRun
 # extension's own import chain -- see `runtime/config.py`'s equivalent
 # comment on `LawConfig`/`FeedforwardConfig` there.
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
-LawConfig = discriminated_union({law.tag: law for law in _LAWS}, "tag", lambda law: law.config)
+LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
 LawsSchema = TypeAdapter(LawConfig).json_schema()
 
 ANY = TypeAdapter(Any)
@@ -293,7 +293,7 @@ class CommandOut(BaseModel):
     @classmethod
     def of(cls, spec: CommandSpec) -> CommandOut:
         return cls(
-            name=spec.tag,
+            name=spec.name,
             description=spec.doc,
             simulation=spec.simulation,
             commit=spec.commit,
@@ -341,8 +341,8 @@ class RunOut(BaseModel):
 class DeviceOut(BaseModel):
     """One entry of `GET /api/devices`: the tree with live values, commands, state, conditions.
 
-    `driver` is the rig file's tag for it, or null for a device built in
-    code; `type` its class; `kind` what claimed its name -- `device`, or
+    `driver` is the rig file's `driver:` for it, or null for a device built in
+    code; `class_name` its Python class; `kind` what claimed its name -- `device`, or
     `simulation` for an application's own simulation device, which a UI
     keeps on its simulation page. `conditions` joins what the device
     reports of itself with what the runtime knows of polling it (`offline`,
@@ -353,7 +353,7 @@ class DeviceOut(BaseModel):
     label: str | None = None
     kind: str
     driver: str | None = None
-    type: str
+    class_name: str
     link: str | None = None
     poll_s: float | None = None
     signals: list[SignalOut | NamespaceOut]
@@ -384,8 +384,8 @@ class DeviceOut(BaseModel):
             name=device.name,
             label=device.label,
             kind=kind,
-            driver=type(device.config).config_tag,
-            type=type(device).__name__,
+            driver=type(device.config).type_name,
+            class_name=type(device).__name__,
             link=link,
             poll_s=device.poll_s,
             signals=tree_out(device.root, latest, device.written),
@@ -406,7 +406,7 @@ class DeviceOut(BaseModel):
 
 
 class GeneratorOut(BaseModel):
-    """A running trajectory as `ControllerOut.reference` shows it: `{tag, **its config}`.
+    """A running trajectory as `ControllerOut.reference` shows it: `{type, **its config}`.
 
     Loosely typed (`extra="allow"`) rather than a union over every
     registered generator, so the shape stays put as generators are added.
@@ -417,7 +417,7 @@ class GeneratorOut(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    tag: str
+    type: str
 
     @classmethod
     def of(cls, generator: SetPointGenerator) -> GeneratorOut:

@@ -39,7 +39,7 @@ class FakePwm:
         self.enabled[channel] = on
 
 
-class FakePwmConfig(Config[PwmLink], tag="fake_pwm"):
+class FakePwmConfig(Config[PwmLink], type="fake_pwm"):
     def build(self) -> PwmLink:
         return FakePwm()
 
@@ -92,7 +92,7 @@ class SysfsPwm:
             (self._channel(channel) / "enable").write_text("1" if on else "0")
 
 
-class PwmConfig(Config[PwmLink], tag="pwm"):
+class PwmConfig(Config[PwmLink], type="pwm"):
     """A kernel PWM chip: `chip = 0` is `/sys/class/pwm/pwmchip0`."""
 
     chip: int = Field(default=0, ge=0)

@@ -127,7 +127,7 @@ class Mcp4725(Committable):
             signal.push(achieved)
 
 
-class Mcp4725Config(DriverConfig[Mcp4725], tag="mcp4725"):
+class Mcp4725Config(DriverConfig[Mcp4725], type="mcp4725"):
     """`driver: mcp4725`: `{ link, address }`, in a bare 0-1 fraction unless `unit` and `span`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

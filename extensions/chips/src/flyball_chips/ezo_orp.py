@@ -93,7 +93,7 @@ class EzoOrp(Readable):
         yield self.sample(time_ns, orp=self.probe.read())
 
 
-class EzoOrpConfig(DriverConfig[EzoOrp], tag="ezo_orp"):
+class EzoOrpConfig(DriverConfig[EzoOrp], type="ezo_orp"):
     """One EZO-ORP circuit, alone on its UART."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

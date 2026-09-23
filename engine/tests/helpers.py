@@ -19,7 +19,7 @@ class DutyHeater(Committable):
         self.duty.push(duty)
         return duty
 
-    @command(tag="off")
+    @command(name="off")
     def switch_off(self) -> None:
         """Stop heating."""
         self.duty.push(0.0)

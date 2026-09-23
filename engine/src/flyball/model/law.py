@@ -12,6 +12,7 @@ structurally (anything with a `build()`) rather than by name.
 
 from __future__ import annotations
 
+import builtins
 from inspect import signature
 from typing import Any, ClassVar, Literal, Protocol, Self, runtime_checkable
 
@@ -29,19 +30,19 @@ class Transfer(Labelled):
 
 
 class ControlLawConfig(BaseModel):
-    """How a law was specified: its constructor arguments and its tag.
+    """How a law was specified: its constructor arguments and its type.
 
-    `tag` is declared on the base so the base has a schema; each subclass
+    `type` is declared on the base so the base has a schema; each subclass
     narrows it to a `Literal`, which lets a union of configs discriminate on
     it.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    law: ClassVar[type]
+    law: ClassVar[builtins.type]
     init_names: ClassVar[tuple[str, ...]] = ()
 
-    tag: str
+    type: str
 
     def build(self) -> Any:
         """A fresh law with cold state.
@@ -115,7 +116,7 @@ def _merged_state(cls: type) -> dict[str, Any]:
 class ControlLaw:
     """Base for control laws. Subclassing generates the law's pydantic models.
 
-    - `config`: one field per `__init__` parameter, plus `tag`; builds the law
+    - `config`: one field per `__init__` parameter, plus `type`; builds the law
       with [ControlLawConfig.build][flyball.model.law.ControlLawConfig.build].
     - `state`: one field per name in `_state_fields`, merged up the MRO.
     - `view`: both flattened, round-tripping through
@@ -123,30 +124,30 @@ class ControlLaw:
 
     Each is a [ModelOf][flyball.model.model.ModelOf]: `Law.config` is the model
     class, `law.config` that law's values. A law that declares one itself keeps
-    it. The wire name is the class keyword `tag`
-    (`class PI(ControlLaw, tag="PI")`), defaulting to the class name.
+    it. The wire name is the class keyword `type`
+    (`class PI(ControlLaw, type="PI")`), defaulting to the class name.
     """
 
-    tag: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
+    type: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
     config: ClassVar[Any] = None
     state: ClassVar[Any] = None
     view: ClassVar[Any] = None
     _state_fields: ClassVar[dict[str, Any]] = {}
 
-    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.tag = tag or cls.__dict__.get("tag") or cls.__name__
+        cls.type = type or cls.__dict__.get("type") or cls.__name__
 
         # Every law gets its own config and state, even one that adds neither:
         # the models carry `law`, so an inherited pair would rebuild the base.
-        # The config carries the tag: nothing crosses the wire usefully without
+        # The config carries the type: nothing crosses the wire usefully without
         # saying which law it configures.
         if "config" not in cls.__dict__:
             config_model = creation_model(
                 cls,
                 suffix="Config",
                 base=ControlLawConfig,
-                extra={"tag": (Literal[cls.tag], cls.tag)},
+                extra={"type": (Literal[cls.type], cls.type)},
             )
             config_model.law = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
@@ -165,7 +166,7 @@ class ControlLaw:
             cls.state = ModelOf(state_model, tuple(state_fields))
 
         # A view is both halves flattened into one model: how the law was
-        # configured and what it is doing right now. The tag arrives via the
+        # configured and what it is doing right now. The type arrives via the
         # config. Resolved rather than reused, so a law that declares its own
         # config or state is still viewable.
         config_model = _resolved_model(cls, "config")

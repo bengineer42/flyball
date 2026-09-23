@@ -10,7 +10,7 @@ clock: { speed: 600 }
 
 links:
   drum:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 1800.0
     dead_s: 60.0
@@ -20,7 +20,7 @@ links:
     noise: 0.1
     seed: 5
   cistern:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 1.0
     leak: 0.01
@@ -60,10 +60,10 @@ devices:
 controllers:
   heater.drive:
     measured: temp.temperature
-    law: { tag: PI, kp: 0.000125, ki: 2.5e-06 }
-    feedforward: { tag: affine, gain: 0.0125, bias: -0.1875 }
+    law: { type: PI, kp: 0.000125, ki: 2.5e-06 }
+    feedforward: { type: affine, gain: 0.0125, bias: -0.1875 }
     default: true
   pump.drive:
     measured: cistern_level.volume
-    law: { tag: PI, kp: 0.02, ki: 0.005 }
-    feedforward: { tag: affine, gain: 0.01 }
+    law: { type: PI, kp: 0.02, ki: 0.005 }
+    feedforward: { type: affine, gain: 0.01 }

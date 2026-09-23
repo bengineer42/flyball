@@ -26,7 +26,7 @@ def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
     (cls,) = (
         v
         for v in vars(module).values()
-        if isinstance(v, type) and issubclass(v, Config) and v.config_tag == name
+        if isinstance(v, type) and issubclass(v, Config) and v.type_name == name
     )
     config = cls()
     device = config.build(name)
@@ -41,7 +41,7 @@ def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
 
 
 def test_names_are_made_safe_and_files_are_not_overwritten(tmp_path):
-    assert 'tag="lab_probe"' in render("Lab-Probe 2".replace(" 2", ""))
+    assert 'type="lab_probe"' in render("Lab-Probe 2".replace(" 2", ""))
     for bad in ("", "2fast", "class"):
         with pytest.raises(ValueError):
             render(bad)

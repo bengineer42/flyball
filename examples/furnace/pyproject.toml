@@ -17,7 +17,7 @@ authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball[server]", "flyball-sim"]
 
 # What `flyball rig check`, the runner and the schema load to make
-# `sim_furnace` a valid tag in a rig file.
+# `sim_furnace` a valid type in a rig file.
 [project.entry-points."flyball.configs"]
 furnace = "furnace.configs"
 

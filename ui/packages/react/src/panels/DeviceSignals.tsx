@@ -229,7 +229,7 @@ export function DeviceSignals({ device, sparkline = true, windowS, controls, eve
         <h3><Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref></h3>
         <span className="fb-muted">
           {device.label && `${device.name} · `}
-          {describeDevice(device.driver ?? device.type)} · {all.length} signal{all.length === 1 ? "" : "s"}
+          {describeDevice(device.driver ?? device.class_name)} · {all.length} signal{all.length === 1 ? "" : "s"}
           {lastReadNs !== null && ` · last read ${clock(lastReadNs)}`}
         </span>
         {mode && <ModeChip signal={mode} />}

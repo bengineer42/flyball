@@ -218,7 +218,7 @@ class Device:
     """Where this device's values live: its own until a rig adds it, then the rig's."""
     config_type: ClassVar[type[DriverConfig[Any]]]
     commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
-    """Every command, by tag: the class's, plus a synthesised `set_<path>` for each demand of a
+    """Every command, by name: the class's, plus a synthesised `set_<path>` for each demand of a
     tree computed at construction (a class's demands get theirs at definition)."""
 
     def __init__(self, name: str, label: str | None = None) -> None:
@@ -269,9 +269,9 @@ class Device:
             for path, signal in self.signals.items()
             if signal.role is Role.DEMAND and path not in linked
         ]
-        new = [s for s in setters if s.tag not in self.commands]
+        new = [s for s in setters if s.name not in self.commands]
         for setter in new:
-            self.commands[setter.tag] = setter
+            self.commands[setter.name] = setter
         self.signals = {str(signal.path): signal for signal in self.root.walk()}
         self.nodes = {str(node.path): node for node in self.root.descendants()}
         for signal in self.root.walk():
@@ -405,24 +405,24 @@ class Device:
         # marking one in a subclass must not leak into its siblings.
         cls.commands = {t: c for t, c in cls.commands.items() if c.demand_of is None}
         for attr_name, value in cls.__dict__.items():
-            if (tag := getattr(value, "__command__", None)) is not None:
-                if tag in RESERVED_NAMES:
-                    raise ValueError(f"{cls.__name__}: {tag!r} is reserved as a route segment")
-                if tag in cls.commands and cls.commands[tag].method.__name__ != attr_name:
-                    raise ValueError(f"{cls.__name__}: command tag {tag!r} is already used")
+            if (name := getattr(value, "__command__", None)) is not None:
+                if name in RESERVED_NAMES:
+                    raise ValueError(f"{cls.__name__}: {name!r} is reserved as a route segment")
+                if name in cls.commands and cls.commands[name].method.__name__ != attr_name:
+                    raise ValueError(f"{cls.__name__}: command name {name!r} is already used")
                 if not (value.__doc__ or "").strip():
                     # The CLI, the form and the schema all show it; without it
                     # they show a blank where the help should be.
                     raise TypeError(f"{cls.__name__}.{attr_name}: a command needs a docstring")
                 params = _link_params(cls, value)
-                spec = CommandSpec(tag, value, params, **value.__command_options__)
+                spec = CommandSpec(name, value, params, **value.__command_options__)
                 _check_command_signature(cls, spec)
-                cls.commands[tag] = spec
+                cls.commands[name] = spec
         linked = {p.link for c in cls.commands.values() for p in c.params.values() if p.link}
         for leaf in _leaves(cls.TREE):
             if leaf.role is Role.DEMAND and leaf.path not in linked:
                 setter = _setter(cls, leaf)
-                cls.commands[setter.tag] = setter
+                cls.commands[setter.name] = setter
         if any(not c.simulation and c.demand_of is None for c in cls.commands.values()):
             cls.TREE = (*cls.TREE, _last_of(cls))
 
@@ -502,9 +502,9 @@ ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "bound", "con
 class DriverConfig[D: Device](Config[D]):
     """A driver's own settings: what sits flat beside the envelope, or under `config`.
 
-    The tagged model `driver:` selects (the tag is the driver name). It may
+    The typed model `driver:` selects (its type is the driver name). It may
     not declare a field named like an envelope key, so flat and layered
-    entries always mean the same thing; that is checked at import, like tag
+    entries always mean the same thing; that is checked at import, like type
     clashes.
     """
 
@@ -513,13 +513,13 @@ class DriverConfig[D: Device](Config[D]):
     )
 
     @classmethod
-    def __pydantic_init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+    def __pydantic_init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         if clash := ENVELOPE_KEYS.intersection(cls.model_fields):
             raise TypeError(
                 f"{cls.__name__}: {', '.join(sorted(clash))} is an envelope key,"
                 " reserved for the rig file"
             )
-        super().__pydantic_init_subclass__(tag=tag, **kwargs)
+        super().__pydantic_init_subclass__(type=type, **kwargs)
 
     def build(self, name: str, label: str | None = None) -> D:  # pyright: ignore[reportIncompatibleMethodOverride]  the envelope supplies the name
         raise NotImplementedError(f"{type(self).__name__} cannot build a device")

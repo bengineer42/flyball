@@ -125,8 +125,8 @@ demand's address, unit and limits:
 ```
 
 Every parameter and the return type must be describable by pydantic; this
-is checked when the class is defined, not on the first request. The tag
-defaults to the method name; `@command(tag="off")` overrides it, and a
+is checked when the class is defined, not on the first request. The command's
+name defaults to the method name; `@command(name="off")` overrides it, and a
 command needs a docstring. `schema` is reserved as a route segment.
 
 A command with a `mode` or a linked argument changes what drives the

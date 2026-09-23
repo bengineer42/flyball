@@ -108,9 +108,9 @@ def _each_registered_law() -> list[ControlLaw]:
     return [cls(**kwargs) for tag, cls in catalog.laws.items() for kwargs in _LAW_KWARGS[tag]]
 
 
-@pytest.mark.parametrize("law", _each_registered_law(), ids=lambda law: law.tag)
+@pytest.mark.parametrize("law", _each_registered_law(), ids=lambda law: law.type)
 def test_each_law_round_trips_through_its_config_and_view(law):
-    assert get_catalog().laws[law.tag] is type(law)
+    assert get_catalog().laws[law.type] is type(law)
     rebuilt = law.config.build()
     assert type(rebuilt) is type(law) and rebuilt.config == law.config
     law.step(0.0, 10.0, 12.0)

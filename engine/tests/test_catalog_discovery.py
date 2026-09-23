@@ -52,8 +52,8 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     """
     catalogs = Catalogs()
     catalogs.discover()
-    assert catalogs.laws.tags(), "engine's own built-in laws (control/configs.py) did not load"
-    assert set(catalogs.laws.tags()) >= {
+    assert catalogs.laws.names(), "engine's own built-in laws (control/configs.py) did not load"
+    assert set(catalogs.laws.names()) >= {
         "open_loop",
         "P",
         "PI",
@@ -64,13 +64,13 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
         "scheduled",
         "sliding",
     }, "one of engine's 9 built-in laws is missing"
-    assert set(catalogs.feedforwards.tags()) >= {"setpoint", "none", "affine", "table"}, (
+    assert set(catalogs.feedforwards.names()) >= {"setpoint", "none", "affine", "table"}, (
         "engine's own built-in feedforwards (control/configs.py) did not all load"
     )
-    assert set(catalogs.generators.tags()) >= {"dwell", "linear_ramp_setpoint", "profile"}, (
+    assert set(catalogs.generators.names()) >= {"dwell", "linear_ramp_setpoint", "profile"}, (
         "engine's own built-in generators (control/configs.py) did not all load"
     )
-    assert set(catalogs.commands.tags()) >= {
+    assert set(catalogs.commands.names()) >= {
         "prompt",
         "set",
         "command",

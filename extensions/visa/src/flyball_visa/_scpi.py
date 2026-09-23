@@ -167,7 +167,7 @@ class Scpi(Readable, Committable):
         return self.link.query(text)
 
 
-class ScpiConfig(DriverConfig[Scpi], tag="scpi"):
+class ScpiConfig(DriverConfig[Scpi], type="scpi"):
     """`driver: scpi`. `channels` is the driver's own tree -- see `ScpiSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is

@@ -71,7 +71,7 @@ and generators) now has an explicit `register(catalog)`, called by
 `Catalogs.discover()`; the four old implicit, process-wide
 `__init_subclass__` writes (`Config.registry`, `ControlLaws`,
 `Feedforwards`, `SetPointGenerators`) are all gone, so a collision is caught
-by the `Catalog` that actually holds a tag (`register()` raises), not
+by the `Catalog` that actually holds a type (`register()` raises), not
 silently, for devices and links *and* laws/feedforwards/generators alike.
 `discover()` still only runs at runner startup (live reload of a
 newly-installed package remains open, unlike a `drivers/` directory's `POST

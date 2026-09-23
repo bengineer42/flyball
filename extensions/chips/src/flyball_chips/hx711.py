@@ -183,7 +183,7 @@ class Hx711(Readable):
         yield self.sample(time_ns, weight=raw * self.scale + self.offset)
 
 
-class Hx711Config(DriverConfig[Hx711], tag="hx711"):
+class Hx711Config(DriverConfig[Hx711], type="hx711"):
     """One chip, two raw GPIO lines: `{ link, clock_line, data_line, scale, offset }`."""
 
     link: GpioLinkConfig | str  # type: ignore[valid-type]

@@ -9,7 +9,7 @@ channel's unit) — zero unless the reference is ramping — and a feedforward
 that models a plant with capacity (thermal, hydraulic, ...) can spend an
 extra `rate_gain * rate` to charge or discharge it, rather than let the law
 find that shortfall through its integral while the ramp is under way.
-Subclassing generates `config` from `__init__` and registers the tag,
+Subclassing generates `config` from `__init__` and registers the type,
 exactly as [ControlLaw][flyball.model.law.ControlLaw] does.
 
 `Feedforward`/`FeedforwardConfig` (the base) and `Setpoint`/`NoFeedforward`
@@ -36,7 +36,7 @@ from flyball.model.feedforward import (  # ruff: ignore[unused-import]
 )
 
 
-class Affine(Feedforward, tag="affine"):
+class Affine(Feedforward, type="affine"):
     """`demand = gain * setpoint + bias [+ rate_gain * rate]`.
 
     The two-number model that fits most plants nearby, plus an optional
@@ -57,13 +57,13 @@ class Affine(Feedforward, tag="affine"):
 
     def invert(self, demand: float, rate: float = 0.0) -> float:
         if not self.gain:
-            raise FeedforwardNotInvertibleError(self.tag, "gain is 0")
+            raise FeedforwardNotInvertibleError(self.type, "gain is 0")
         if self.rate_gain is not None:
             demand -= self.rate_gain * rate
         return (demand - self.bias) / self.gain
 
 
-class Table(Feedforward, tag="table"):
+class Table(Feedforward, type="table"):
     """Piecewise-linear `(setpoint, demand)` breakpoints: a static curve measured on the rig.
 
     Held flat beyond the ends. `rate_gain` adds the same plant-capacity term
@@ -99,7 +99,7 @@ class Table(Feedforward, tag="table"):
         ascending = all(a <= b for a, b in pairwise(ys))
         descending = all(a >= b for a, b in pairwise(ys))
         if not (ascending or descending):
-            raise FeedforwardNotInvertibleError(self.tag, "not monotonic")
+            raise FeedforwardNotInvertibleError(self.type, "not monotonic")
         # Re-sort by demand: for a monotonic table this is either `points`
         # unchanged (ascending) or reversed (descending), and the inverse of
         # each linear segment is itself linear.

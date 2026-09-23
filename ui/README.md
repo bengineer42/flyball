@@ -29,7 +29,7 @@ import "@flyball/react/styles.css";
 function Pumps() {
   const device = useDevice("pumps");                    // GET /api/devices/pumps
   const schema = useDeviceSchema("pumps");               // GET /api/devices/pumps/schema
-  const commands = useCommands("pumps");                 // POST /api/devices/pumps/commands/{tag}
+  const commands = useCommands("pumps");                 // POST /api/devices/pumps/commands/{command}
   if (!device.data || !schema.data) return null;
   return <DevicePanel device={device.data} schema={schema.data} onRun={commands.run} busy={commands.busy} results={commands.results} />;
 }

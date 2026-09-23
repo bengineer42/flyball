@@ -49,7 +49,7 @@ class BlenderConfig(DriverConfig[Blender]):
 def blender_tag(fresh, _catalog) -> str:
     tag = fresh("wf0_blender")
 
-    class Tagged(BlenderConfig, tag=tag):
+    class Tagged(BlenderConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)

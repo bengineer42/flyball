@@ -92,7 +92,7 @@ class PulseCounter(Readable):
         )
 
 
-class PulseCounterConfig(DriverConfig[PulseCounter], tag="pulse_counter"):
+class PulseCounterConfig(DriverConfig[PulseCounter], type="pulse_counter"):
     """`driver: pulse_counter`: `{ link, line, pulses_per_litre }`, or `pin:` from a board profile.
 
     `pulses_per_litre` is the sensor's datasheet constant (450 for a

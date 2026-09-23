@@ -99,7 +99,7 @@ class TestSimDaq:
         assert list(daq.read(6_000_000_000))
         with pytest.raises(NotFoundError, match="no signal 'z9'"):
             daq.fail("z9")
-        assert {tag: spec.simulation for tag, spec in daq.commands.items()} == {
+        assert {name: spec.simulation for name, spec in daq.commands.items()} == {
             "fail": True,
             "restore": True,
         }
@@ -184,7 +184,7 @@ class TestNamespaces:
 
     def test_the_rig_file_overrides_reach_a_namespaced_signal(self):
         config = RigConfig.model_validate({
-            "links": {"plant": {"tag": "sim_furnace", "zones": 2}},
+            "links": {"plant": {"type": "sim_furnace", "zones": 2}},
             "devices": {
                 "hum_sensors": {
                     "driver": "sim_daq",
@@ -310,7 +310,7 @@ class TestRigFile:
     def test_the_plan_s_sim_overlay_shape_builds(self):
         config = RigConfig.model_validate({
             "clock": {"speed": 60},
-            "links": {"plant": {"tag": "sim_furnace", "zones": 2, "power_w": [2500, 6000]}},
+            "links": {"plant": {"type": "sim_furnace", "zones": 2, "power_w": [2500, 6000]}},
             "devices": {
                 "furnace": {
                     "driver": "sim_daq",

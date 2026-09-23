@@ -27,7 +27,7 @@ clock: { speed: 60 }
 
 links:
   tube:
-    tag: sim_furnace
+    type: sim_furnace
     zones: 3
     power_w: [2500, 6000, 2000]         # the middle is the hot zone; the end is smaller
     capacity_j_per_k: [3000, 3000, 2200]
@@ -67,7 +67,7 @@ devices:
 # finding the hold power on its own. Tuned on a 15 °C/min ramp to 700 and a
 # hold: 2-4 °C overshoot, settled in 10-20 min. The losses steepen with
 # temperature (radiation), so it is softer at 900 than at 200. A `feedforward`
-# (`{ tag: table, points: [[20, 0], [200, 289], [400, 660], ...] }`, the
+# (`{ type: table, points: [[20, 0], [200, 289], [400, 660], ...] }`, the
 # single-zone losses curve) *without* a rate term measures *worse* than plain
 # PI on a ramp -- it only adds hold power on top of an already wound-up
 # integral (measured on zone 2, 15 °C/min to 700 + 20 min hold: 4.0 °C
@@ -84,12 +84,12 @@ devices:
 controllers:
   heaters.heater1:
     measured: furnace.zone1
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
   heaters.heater2:
     measured: furnace.zone2
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward:
-      tag: table
+      type: table
       rate_gain: 3000
       points:
         - [20, 0]
@@ -107,4 +107,4 @@ controllers:
     default: true
   heaters.heater3:
     measured: furnace.zone3
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }

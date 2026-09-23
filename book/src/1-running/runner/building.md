@@ -12,12 +12,12 @@ Then post the same things the file would say -- a link, a device with the
 file's envelope, a controller -- one at a time or as one document:
 
 ```
-curl -X POST localhost:8000/api/links -d '{"name": "t1", "tag": "sim_plant", "model": "lag", "tau_s": 2}'
+curl -X POST localhost:8000/api/links -d '{"name": "t1", "type": "sim_plant", "model": "lag", "tau_s": 2}'
 curl -X POST localhost:8000/api/devices -d '{"name": "probe", "driver": "sim_daq", "poll_s": 0.5,
      "config": {"link": "t1", "ports": {"signal": {"port": "output", "quantity": "level", "unit": "1"}}}}'
 curl -X POST localhost:8000/api/devices -d '{"name": "drive", "driver": "sim_drive",
      "config": {"link": "t1", "ports": {"u": "input"}}}'
-curl -X POST localhost:8000/api/controllers -d '{"output": "drive.u", "measured": "probe.signal", "law": {"tag": "P", "kp": 0.8}}'
+curl -X POST localhost:8000/api/controllers -d '{"output": "drive.u", "measured": "probe.signal", "law": {"type": "P", "kp": 0.8}}'
 curl -X POST localhost:8000/api/rig -d @lab.yaml.json     # or all of it at once
 ```
 
@@ -68,7 +68,7 @@ from what its command line says -- unless you keep it:
   directory of driver modules imported before serving and again on
   `POST /api/drivers/reload`, so a driver written on the spot -- by hand or
   by a [model](../../4-server/mcp.md) -- can be attached without a restart or a package.
-  `GET /api/drivers` lists every tag the runner can build. An edited file
+  `GET /api/drivers` lists every type the runner can build. An edited file
   re-registers its tags; devices already built keep the class they were
   built with.
 

@@ -32,12 +32,12 @@ router = APIRouter(prefix="/api", tags=["devices"])
 
 
 def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[ArgumentsBase]:
-    """The request model for one device command, built once per class and tag.
+    """The request model for one device command, built once per class and command.
 
     An argument that is a value for a demand may be left out: the rig fills
     it from the demand's current value, so the request does not require it.
     """
-    key = (device_type, spec.tag)
+    key = (device_type, spec.name)
     if key not in _ARGUMENTS:
         fields = wire_fields(spec.method, skip=1)
         for name, param in spec.params.items():
@@ -47,18 +47,18 @@ def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[Argument
                 annotation, default = fields[name]
                 fields[name] = (annotation, None if default is ... else default)
         _ARGUMENTS[key] = create_model(
-            f"{device_type.__name__}{spec.tag.title().replace('_', '')}Arguments",
+            f"{device_type.__name__}{spec.name.title().replace('_', '')}Arguments",
             __base__=ArgumentsBase,
             **fields,
         )
     return _ARGUMENTS[key]
 
 
-def command_for(device: Device, tag: str) -> CommandSpec:
+def command_for(device: Device, command: str) -> CommandSpec:
     try:
-        return device.commands[tag]
+        return device.commands[command]
     except KeyError as e:
-        raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
+        raise NotFoundError(f"{device.name!r} has no command {command!r}") from e
 
 
 def _signal_schema(signal: Signal) -> dict[str, Any]:
@@ -86,8 +86,8 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
     return {
         "name": device.name,
         "label": device.label,
-        "type": cls.__name__,
-        "driver": type(device.config).config_tag,
+        "class_name": cls.__name__,
+        "driver": type(device.config).type_name,
         "description": cls.__doc__.strip().splitlines()[0] if cls.__doc__ else None,
         "readable": cls.readable,
         "writable": cls.writable,
@@ -104,7 +104,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
             for role, spec in cls.INPUTS.items()
         },
         "commands": {
-            tag: {
+            command: {
                 "description": spec.doc,
                 "arguments": _linking_demands(
                     _naming_signals(
@@ -120,7 +120,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
                 "interrupts": spec.interrupts,
                 "demand_of": spec.demand_of,
             }
-            for tag, spec in device.commands.items()
+            for command, spec in device.commands.items()
         },
     }
 
@@ -176,14 +176,14 @@ def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]
     }
 
 
-def run(rig: Rig, device: Device, tag: str, body: dict[str, Any] | None) -> Any:
+def run(rig: Rig, device: Device, command: str, body: dict[str, Any] | None) -> Any:
     """Run the command with the validated body, through the rig; return whatever it returns."""
-    spec = command_for(device, tag)
+    spec = command_for(device, command)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
     left_out = [n for n, p in spec.params.items() if p.link is not None and arguments[n] is None]
     for name in left_out:
         del arguments[name]  # the rig fills it from the demand's current value
-    return rig.run_command(device, tag, arguments)
+    return rig.run_command(device, command, arguments)
 
 
 def device_of(rig: Rig, name: str) -> Device:
@@ -271,9 +271,9 @@ def set_signal(rig: RigDep, address: str, body: Annotated[float, Body()]) -> dic
 
 # Plain `def`: FastAPI runs it in the threadpool, so a command that touches
 # hardware never blocks the event loop.
-@router.post("/devices/{name}/commands/{tag}")
+@router.post("/devices/{name}/commands/{command}")
 def run_command(
-    rig: RigDep, name: str, tag: str, body: Annotated[dict[str, Any] | None, Body()] = None
+    rig: RigDep, name: str, command: str, body: Annotated[dict[str, Any] | None, Body()] = None
 ) -> Any:
     """Call the marked method with the validated body; respond with whatever it returns.
 
@@ -282,6 +282,6 @@ def run_command(
     still broken simply goes offline again with a fresh event.
     """
     device = device_of(rig, name)
-    result = run(rig, device, tag, body)
+    result = run(rig, device, command, body)
     rig.polling.revive(name)
     return result

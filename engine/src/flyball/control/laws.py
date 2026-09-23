@@ -5,7 +5,7 @@ gains come from a plant model; `on_off`, a relay with hysteresis; `smith`, a
 PI on a dead-time-compensated reading; `scheduled`, a PID whose gains follow
 the setpoint; `sliding`, a sliding-mode law on an integral surface. Every
 one turns `(elapsed, reading, setpoint)` into a correction and is selected by
-its tag in a rig file, a request or a tuning.
+its type in a rig file, a request or a tuning.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ class Weighted:
         return kp * (self.b * setpoint - reading)
 
 
-class OpenLoop(ControlLaw, tag="open_loop"): ...
+class OpenLoop(ControlLaw, type="open_loop"): ...
 
 
 class P(ControlLaw):
@@ -261,7 +261,7 @@ class IMC(PID):
     """A PID whose gains come from a first-order-plus-dead-time model, by the IMC rule.
 
     The same arithmetic as `flyball.autotune.rules.imc`, stated here so the
-    law can be written from the model directly (`{tag: IMC, gain: 1, tau: 60,
+    law can be written from the model directly (`{type: IMC, gain: 1, tau: 60,
     dead_time: 5}`) and retuned by changing the model, not the gains. `lam`
     is the closed-loop time constant asked for: smaller is faster and less
     tolerant of model error; it defaults to `max(tau, 0.8·dead_time)`, about
@@ -315,7 +315,7 @@ class IMC(PID):
         super().__init__(kp=kp, ki=kp / ti, kd=kp * td, tt=(ti * td) ** 0.5 if td else ti, b=b, n=n)
 
 
-class OnOff(ControlLaw, tag="on_off"):
+class OnOff(ControlLaw, type="on_off"):
     """A relay with hysteresis: `high` below the setpoint, `low` above, held in the deadband.
 
     For an actuator that only switches -- a heater with a contactor, a
@@ -355,7 +355,7 @@ class OnOff(ControlLaw, tag="on_off"):
         return self.high if self.on else self.low
 
 
-class SmithPredictor(PI, tag="smith"):
+class SmithPredictor(PI, type="smith"):
     """A PI on a reading with the dead time taken out: the Smith predictor.
 
     The law runs its own first-order model of the plant on the corrections it
@@ -458,7 +458,7 @@ class SmithPredictor(PI, tag="smith"):
         return self._last_output
 
 
-class Scheduled(PID, tag="scheduled"):
+class Scheduled(PID, type="scheduled"):
     """A PID whose gains follow the setpoint: gain scheduling.
 
     `points` is a table of `[setpoint, kp, ki, kd]` rows; the gains in force
@@ -529,7 +529,7 @@ class Scheduled(PID, tag="scheduled"):
         return super().step(elapsed, reading, setpoint, last_applied)
 
 
-class SlidingMode(ControlLaw, tag="sliding"):
+class SlidingMode(ControlLaw, type="sliding"):
     """Sliding-mode control on an integral surface, with a boundary layer.
 
     The surface is `s = e + lam·∫e`; the law pushes towards it with

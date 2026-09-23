@@ -137,7 +137,7 @@ def closing_link_tag(fresh, _catalog):
         def close(self) -> None:
             closed.append(True)
 
-    class ClosingLinkConfig(Config[Built], tag=tag):
+    class ClosingLinkConfig(Config[Built], type=tag):
         def build(self) -> Built:
             return Built()
 
@@ -149,7 +149,7 @@ def closing_link_tag(fresh, _catalog):
 def daq_tag(fresh, _catalog) -> str:
     tag = fresh("eurotherm_daq")
 
-    class Tagged(DaqConfig, tag=tag):
+    class Tagged(DaqConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -161,7 +161,7 @@ def sim_daq_tag(fresh, _catalog) -> str:
     """A second driver with the same shape as `daq_tag`'s: an overlay swapping the driver."""
     tag = fresh("sim_daq")
 
-    class Tagged(DaqConfig, tag=tag):
+    class Tagged(DaqConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -172,7 +172,7 @@ def sim_daq_tag(fresh, _catalog) -> str:
 def heaters_tag(fresh, _catalog) -> str:
     tag = fresh("ssr_bank")
 
-    class Tagged(HeatersConfig, tag=tag):
+    class Tagged(HeatersConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -183,7 +183,7 @@ def heaters_tag(fresh, _catalog) -> str:
 def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
-    class Tagged(HumSensorsConfig, tag=tag):
+    class Tagged(HumSensorsConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -194,7 +194,7 @@ def sensors_tag(fresh, _catalog) -> str:
 def blender_tag(fresh, _catalog) -> str:
     tag = fresh("dual_pump_blender")
 
-    class Tagged(BlenderConfig, tag=tag):
+    class Tagged(BlenderConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -233,11 +233,11 @@ class TestParsing:
             "controllers": {
                 "heaters.heater1": {
                     "measured": "furnace.zone1",
-                    "law": {"tag": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
                 },
                 "heaters.heater2": {
                     "measured": "furnace.zone2",
-                    "law": {"tag": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
                     "default": True,
                 },
             },
@@ -261,7 +261,7 @@ class TestParsing:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"tag": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
+                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
                     "default": True,
                 }
             },
@@ -309,13 +309,13 @@ class TestChecks:
 
     def test_a_clock_needs_a_simulated_rig(self, daq_tag):
         document = {
-            "links": {"bench": {"tag": "visa", "resource": "x"}},
+            "links": {"bench": {"type": "visa", "resource": "x"}},
             "devices": {"f": {"driver": daq_tag}},
             "clock": {"speed": 2},
         }
         with pytest.raises(ValueError, match="`clock` is only for a rig whose links"):
             RigConfig.model_validate(document)
-        document["links"] = {"p": {"tag": "sim_plant"}}
+        document["links"] = {"p": {"type": "sim_plant"}}
         assert RigConfig.model_validate(document).simulated is True
 
     def test_a_device_s_undeclared_link_is_refused(self, daq_tag):
@@ -409,7 +409,7 @@ class TestBuild:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"tag": "PI", "kp": 0.8, "ki": 0.02},
+                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02},
                 }
             },
         }
@@ -434,7 +434,7 @@ class TestBuild:
     def test_a_built_link_is_closed_when_build_fails_later(self, daq_tag, closing_link_tag):
         link_tag, closed = closing_link_tag
         document = {
-            "links": {"l1": {"tag": link_tag}},
+            "links": {"l1": {"type": link_tag}},
             "devices": {"f": {"driver": daq_tag, "zones": 1}},
             "controllers": {"f.nope": {"measured": "f.zone1"}},
         }
@@ -449,7 +449,7 @@ class TestBuild:
                 "heaters": {"driver": heaters_tag, "zones": 2, "limits": [2500, 6000]},
             },
             "controllers": {
-                "heaters.heater1": {"measured": "furnace.zone1", "law": {"tag": "PI", "kp": 1.0}}
+                "heaters.heater1": {"measured": "furnace.zone1", "law": {"type": "PI", "kp": 1.0}}
             },
         }
         rig = RigConfig.model_validate(document).build(start=False)

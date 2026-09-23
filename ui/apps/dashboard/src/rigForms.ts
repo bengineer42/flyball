@@ -6,13 +6,13 @@
 import { deref, type JsonSchema } from "@flyball/client";
 
 export interface DriverVariant {
-  /** The rig file's `driver:` tag. */
-  tag: string;
+  /** The rig file's `driver:`. */
+  type: string;
   /** The driver's own config schema (unpatched): what `SchemaForm` needs, plus the root's `$defs`. */
   configSchema: JsonSchema;
 }
 
-/** Every device driver the rig schema offers, tag and config schema, in the order the server lists them. */
+/** Every device driver the rig schema offers, type and config schema, in the order the server lists them. */
 export function deviceDrivers(schema: JsonSchema): DriverVariant[] {
   const additional = schema.properties?.devices?.additionalProperties as JsonSchema | undefined;
   const variants = additional?.oneOf ?? [];
@@ -20,16 +20,16 @@ export function deviceDrivers(schema: JsonSchema): DriverVariant[] {
   for (const variant of variants) {
     // Each entry is `{oneOf: [layered, flat]}`; the layered branch has `config` as the driver's own schema.
     const layered = variant.oneOf?.[0];
-    const tag = layered?.properties?.driver?.const;
+    const type = layered?.properties?.driver?.const;
     const configSchema = layered?.properties?.config as JsonSchema | undefined;
-    if (typeof tag === "string" && configSchema) out.push({ tag, configSchema });
+    if (typeof type === "string" && configSchema) out.push({ type, configSchema });
   }
   return out;
 }
 
 export interface LinkVariant {
-  tag: string;
-  /** The link's own config schema (has a `tag` const property; hide it, don't strip it -- `SchemaForm` fills its default). */
+  type: string;
+  /** The link's own config schema (has a `type` const property; hide it, don't strip it -- `SchemaForm` fills its default). */
   configSchema: JsonSchema;
 }
 
@@ -37,7 +37,7 @@ export interface LinkVariant {
 export function linkKinds(schema: JsonSchema): LinkVariant[] {
   const additional = schema.properties?.links?.additionalProperties as JsonSchema | undefined;
   const mapping = (additional?.discriminator?.mapping ?? {}) as Record<string, string>;
-  return Object.entries(mapping).map(([tag, ref]) => ({ tag, configSchema: deref({ $ref: ref }, schema) }));
+  return Object.entries(mapping).map(([type, ref]) => ({ type, configSchema: deref({ $ref: ref }, schema) }));
 }
 
 /**
@@ -72,5 +72,5 @@ export function withLinkSelect(configSchema: JsonSchema, root: JsonSchema, linkN
   return { ...configSchema, properties: { ...configSchema.properties, link: patched } };
 }
 
-/** Hides a tagged union's `tag` field: `SchemaForm` still fills its const default, just not shown (the picker above already named it). */
-export const TAG_HIDDEN = { tag: { "ui:widget": "hidden" } };
+/** Hides a discriminated union's `type` field: `SchemaForm` still fills its const default, just not shown (the picker above already named it). */
+export const TYPE_HIDDEN = { type: { "ui:widget": "hidden" } };

@@ -37,7 +37,7 @@ class FakeTextLink:
             raise OSError(f"no reply for {command!r}") from None
 
 
-class FakeTextLinkConfig(Config[TextLink], tag="fake_text"):
+class FakeTextLinkConfig(Config[TextLink], type="fake_text"):
     """A scripted instrument, for a rig file that runs without hardware."""
 
     replies: dict[str, str] = Field(default_factory=dict)
@@ -79,7 +79,7 @@ class VisaLink:
             return str(self._instrument.query(command)).strip()
 
 
-class VisaLinkConfig(Config[TextLink], tag="visa"):
+class VisaLinkConfig(Config[TextLink], type="visa"):
     """`TCPIP::192.168.1.20::INSTR`, `USB0::…::INSTR`, `ASRL/dev/ttyUSB0::INSTR`."""
 
     resource: str
@@ -114,7 +114,7 @@ class SerialLink:
             return self._port.read_until(self._terminator.encode()).decode().strip()
 
 
-class SerialLinkConfig(Config[TextLink], tag="serial"):
+class SerialLinkConfig(Config[TextLink], type="serial"):
     port: str
     baud: int = 9600
     terminator: str = "\n"

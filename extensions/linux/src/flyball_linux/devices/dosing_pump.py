@@ -150,7 +150,7 @@ class DosingPump(Committable):
         self._run(False)
 
 
-class DosingPumpConfig(DriverConfig[DosingPump], tag="dosing_pump"):
+class DosingPumpConfig(DriverConfig[DosingPump], type="dosing_pump"):
     """`driver: dosing_pump`: `{ pump, ml_per_s }`, `pump` a nested `pwm_channel` or `gpio_line`.
 
     `drive_fraction` (pwm only) is the duty the pump runs at during a dispense, default full

@@ -352,7 +352,7 @@ class Bme280(Readable):
         yield Sample(self.root, time_ns, values)
 
 
-class Bme280Config(DriverConfig[Bme280], tag="bme280"):
+class Bme280Config(DriverConfig[Bme280], type="bme280"):
     """`has_humidity: false` for a BMP280 (no humidity registers or calibration)."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

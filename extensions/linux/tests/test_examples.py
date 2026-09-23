@@ -16,7 +16,7 @@ SIM = EXAMPLES / "sim.yaml"
 def test_the_real_file_resolves_its_pins_from_the_board():
     document, files = resolve_documents(REAL)
     assert files == [REAL, BOARDS / "rpi5.toml"]
-    assert document["links"]["header"] == {"tag": "gpio", "chip": "gpiochip4"}
+    assert document["links"]["header"] == {"type": "gpio", "chip": "gpiochip4"}
     fan = document["devices"]["fan"]
     assert fan["link"] == "header" and fan["line"] == 18 and "pin" not in fan
     assert document["devices"]["heater"]["link"] == "pwm"
@@ -38,7 +38,7 @@ def test_the_overlay_keeps_every_name_and_address_on_fake_links():
     assert sim.board == "sim" and sim.name == "greenhouse"
     assert set(sim.devices) == set(real.devices)
     assert {e.driver for e in sim.devices.values()} == {e.driver for e in real.devices.values()}
-    assert all(tag.startswith("fake_") for tag in (link.config_tag for link in sim.links.values()))
+    assert all(tag.startswith("fake_") for tag in (link.type_name for link in sim.links.values()))
     assert sim.simulated
 
 

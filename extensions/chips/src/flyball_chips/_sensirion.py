@@ -1,6 +1,6 @@
 """Shared wire-protocol machinery for Sensirion-style command/response chips.
 
-Not a driver itself: no `DriverConfig`, no tag. Every Sensirion-family chip
+Not a driver itself: no `DriverConfig`, no type. Every Sensirion-family chip
 in this package (`sht4x`, `sht31`, `scd30`, `scd4x`, `sgp30`, `sgp40`) sends a
 command, waits a datasheet conversion time, and reads back a reply made of
 16-bit big-endian words each followed by a CRC-8 byte (polynomial 0x31).

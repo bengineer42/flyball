@@ -56,7 +56,7 @@ class Ds18b20(Readable):
         yield self.sample(time_ns, temperature=temperature)
 
 
-class Ds18b20Config(DriverConfig[Ds18b20], tag="ds18b20"):
+class Ds18b20Config(DriverConfig[Ds18b20], type="ds18b20"):
     """`driver: ds18b20`: the probe's id under `/sys/bus/w1/devices`."""
 
     link: OneWireLinkConfig | str  # type: ignore[valid-type]

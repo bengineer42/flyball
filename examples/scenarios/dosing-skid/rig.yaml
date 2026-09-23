@@ -13,11 +13,11 @@
 name: dosing-skid
 
 links:
-  ph_uart: { tag: uart, port: /dev/ttyUSB0, baudrate: 38400 }
-  ec_uart: { tag: uart, port: /dev/ttyUSB1, baudrate: 38400 }
-  orp_uart: { tag: uart, port: /dev/ttyUSB2, baudrate: 38400 }
-  do_uart: { tag: uart, port: /dev/ttyUSB3, baudrate: 38400 }
-  pump_pwm: { tag: pwm, chip: 0 }
+  ph_uart: { type: uart, port: /dev/ttyUSB0, baudrate: 38400 }
+  ec_uart: { type: uart, port: /dev/ttyUSB1, baudrate: 38400 }
+  orp_uart: { type: uart, port: /dev/ttyUSB2, baudrate: 38400 }
+  do_uart: { type: uart, port: /dev/ttyUSB3, baudrate: 38400 }
+  pump_pwm: { type: pwm, chip: 0 }
 
 devices:
   ph:                                      # ph.ph [RP]
@@ -48,7 +48,7 @@ devices:
     driver: dosing_pump
     label: pH-down dosing pump
     config:
-      pump: { tag: pwm_channel, link: pump_pwm, channel: 0, frequency_hz: 200 }
+      pump: { type: pwm_channel, link: pump_pwm, channel: 0, frequency_hz: 200 }
       ml_per_s: 0.5
       max_dispense_ml: 20.0                # a single dose is capped; no continuous/unattended dosing loop
 

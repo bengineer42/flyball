@@ -69,7 +69,7 @@ dev = [
     "import-linter>=2.1",
     "ipykernel>=7.3.0",
     "flyball-sim", # engine's own tests use SteppedClock/ScaledClock as scaffolding
-    "furnace", # examples/stress's chaos.yaml/plant.yaml use its sim_furnace tag
+    "furnace", # examples/stress's chaos.yaml/plant.yaml use its sim_furnace type
     "flyball-visa", # example/stress rigs and the hardware-gate tests use visa/fake_text
     "flyball-modbus", # example/stress rigs use modbus/fake_registers
     "jsonschema>=4.18",

@@ -160,7 +160,7 @@ class Sgp30(Readable):
         return self.sensor.get_baseline()
 
 
-class Sgp30Config(DriverConfig[Sgp30], tag="sgp30"):
+class Sgp30Config(DriverConfig[Sgp30], type="sgp30"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

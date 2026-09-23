@@ -12,7 +12,7 @@ clock: { speed: 40 }
 
 links:
   t1:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 20.0      # with ambient -10, drive1's -10..10 V span settles the output at the drive
@@ -21,7 +21,7 @@ links:
     noise: 3.0
     seed: 1
   t2:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -30,7 +30,7 @@ links:
     noise: 3.0
     seed: 2
   t3:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -39,7 +39,7 @@ links:
     noise: 3.0
     seed: 3
   t4:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -48,7 +48,7 @@ links:
     noise: 3.0
     seed: 4
   t5:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -57,7 +57,7 @@ links:
     noise: 3.0
     seed: 5
   t6:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -66,7 +66,7 @@ links:
     noise: 3.0
     seed: 6
   t7:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -75,7 +75,7 @@ links:
     noise: 3.0
     seed: 7
   t8:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -176,6 +176,6 @@ devices:
 controllers:
   drive1.drive:
     measured: channel1.signal1
-    law: { tag: P, kp: 0.5 }
-    feedforward: { tag: affine, gain: 1.0, bias: 0.0 }
+    law: { type: P, kp: 0.5 }
+    feedforward: { type: affine, gain: 1.0, bias: 0.0 }
     default: true

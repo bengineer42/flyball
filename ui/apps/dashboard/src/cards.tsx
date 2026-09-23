@@ -224,7 +224,7 @@ export function DeviceSummaryCard({ device, run, link = true, actions, className
       name={device.name}
       label={device.label}
       href={link ? hrefFor({ kind: "device", name: device.name }) : undefined}
-      type={describeDevice(device.driver ?? device.type)}
+      type={describeDevice(device.driver ?? device.class_name)}
       chip={<StatusDot tone={tone} label={stopped ? "stopped" : named || undefined} title={stopped ? "polling stopped" : conditions.map((c) => `${c.kind}: ${c.message}`).join("\n") || (polled ? "running" : "not polled")} />}
       actions={actions}
       footer={footer || undefined}

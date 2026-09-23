@@ -24,7 +24,7 @@ clock: { speed: 60 }
 
 links:
   tube:
-    tag: sim_furnace
+    type: sim_furnace
     zones: 12
     power_w: [1000, 1500, 2000, 2500, 3000, 6000, 3000, 2500, 2000, 1500, 1200, 900]
     capacity_j_per_k: [2000, 2200, 2500, 2800, 3000, 3500, 3000, 2800, 2500, 2200, 2000, 1800]
@@ -40,7 +40,7 @@ links:
     noise: 0.2
     seed: 42
   oven1:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 30.0
     dead_s: 2.0
@@ -50,7 +50,7 @@ links:
     noise: 0.05
     seed: 11
   oven2:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 90.0
     dead_s: 8.0
@@ -60,7 +60,7 @@ links:
     noise: 0.08
     seed: 12
   oven3:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 200.0
     dead_s: 20.0
@@ -70,21 +70,21 @@ links:
     noise: 0.1
     seed: 13
   tank1:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 2.0
     leak: 0.05
     initial: 12.0
     noise: 0.02
   tank2:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 3.0
     leak: 0.08
     initial: 30.0
     noise: 0.03
   vessel:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 15.0
     gain: 250.0
@@ -93,19 +93,19 @@ links:
     noise: 1.0
     seed: 21
   psu:
-    tag: fake_text
+    type: fake_text
     replies: { "MEAS:VOLT?": "230.000", "*IDN?": "Fake Instruments,PSU-2,0,1.0" }
   dmm:
-    tag: fake_text
+    type: fake_text
     replies: { "MEAS:VOLT:DC?": "+2.3000E+02", "MEAS:CURR:DC?": "1.250", "*IDN?": "Fake Instruments,DMM-2,0,1.0" }
   freqctr:
-    tag: fake_text
+    type: fake_text
     replies: { "MEAS:FREQ?": "1000.0", "MEAS:DUTY?": "45.0", "*IDN?": "Fake Instruments,FC-1,0,1.0" }
   plc:
-    tag: fake_registers
+    type: fake_registers
     registers: { "0": 1013, "1": 250, "2": 6500, "3": 1450, "4": 3200, "5": 1250 }
   shaker:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 2.0
     gain: 0.5
@@ -113,7 +113,7 @@ links:
     initial: 0.0
     noise: 0.01
   humidity_cell:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 20.0
     gain: 40.0
@@ -121,7 +121,7 @@ links:
     initial: 40.0
     noise: 0.5
   tach:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 3.0
     gain: 50.0
@@ -129,7 +129,7 @@ links:
     initial: 5.0
     noise: 0.2
   wrench:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 5.0
     gain: 10.0
@@ -137,7 +137,7 @@ links:
     initial: 0.0
     noise: 0.05
   hopper:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 8.0
     gain: 100.0
@@ -145,7 +145,7 @@ links:
     initial: 5.0
     noise: 0.3
   rail:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 4.0
     gain: 1.0
@@ -153,7 +153,7 @@ links:
     initial: 0.0
     noise: 0.01
   cell:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 6.0
     gain: 500.0
@@ -161,7 +161,7 @@ links:
     initial: 0.0
     noise: 2.0
   capacitor:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 0.1
@@ -169,7 +169,7 @@ links:
     initial: 0.0
     noise: 0.005
   reactor:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 12.0
     gain: 5.0
@@ -177,7 +177,7 @@ links:
     initial: 1.0
     noise: 0.02
   knob:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 1.0
     gain: 1.0
@@ -185,7 +185,7 @@ links:
     initial: 0.3
     noise: 0.005
   silo:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 10.0
     gain: 2.0
@@ -193,7 +193,7 @@ links:
     initial: 0.5
     noise: 0.01
   turntable:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 3.0
     gain: 3.0
@@ -549,70 +549,70 @@ devices:
 controllers:
   heaters.heater1:
     measured: furnace.zone1
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: none }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: none }
   heaters.heater2:
     measured: furnace.zone2
-    law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
-    feedforward: { tag: affine, gain: 2.0, bias: 50 }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    feedforward: { type: affine, gain: 2.0, bias: 50 }
   heaters.heater3:
     measured: furnace.zone3
-    law: { tag: P, kp: 120 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
+    law: { type: P, kp: 120 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   heaters.heater4:
     measured: furnace.zone4
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: none }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: none }
   heaters.heater5:
     measured: furnace.zone5
-    law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
-    feedforward: { tag: affine, gain: 2.0, bias: 80 }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    feedforward: { type: affine, gain: 2.0, bias: 80 }
   heaters.heater6:
     measured: furnace.zone6
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
     default: true
   heaters.heater7:
     measured: furnace.zone7
-    law: { tag: P, kp: 120 }
-    feedforward: { tag: none }
+    law: { type: P, kp: 120 }
+    feedforward: { type: none }
   heaters.heater8:
     measured: furnace.zone8
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: affine, gain: 1.8, bias: 60 }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: affine, gain: 1.8, bias: 60 }
   heaters.heater9:
     measured: furnace.zone9
-    law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   heaters.heater10:
     measured: furnace.zone10
-    law: { tag: P, kp: 120 }
-    feedforward: { tag: none }
+    law: { type: P, kp: 120 }
+    feedforward: { type: none }
   heaters.heater11:
     measured: furnace.zone11
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: affine, gain: 1.5, bias: 40 }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: affine, gain: 1.5, bias: 40 }
   heaters.heater12:
     measured: furnace.zone12
-    law: { tag: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   burner1.drive:
     measured: temp1.temperature
-    law: { tag: P, kp: 0.00045 }
-    feedforward: { tag: affine, gain: 0.016666667, bias: -0.33333333 }
+    law: { type: P, kp: 0.00045 }
+    feedforward: { type: affine, gain: 0.016666667, bias: -0.33333333 }
   burner2.drive:
     measured: temp2.temperature
-    law: { tag: PI, kp: 0.00016, ki: 6e-06 }
-    feedforward: { tag: affine, gain: 0.01, bias: -0.2 }
+    law: { type: PI, kp: 0.00016, ki: 6e-06 }
+    feedforward: { type: affine, gain: 0.01, bias: -0.2 }
   burner3.drive:
     measured: temp3.temperature
-    law: { tag: PID, kp: 7.1333333e-05, ki: 2.6666667e-06, kd: 0.0066666667 }
-    feedforward: { tag: affine, gain: 0.0066666667, bias: -0.13333333 }
+    law: { type: PID, kp: 7.1333333e-05, ki: 2.6666667e-06, kd: 0.0066666667 }
+    feedforward: { type: affine, gain: 0.0066666667, bias: -0.13333333 }
   valve1.drive:
     measured: level1.volume
-    law: { tag: PI, kp: 0.025, ki: 0.005 }
-    feedforward: { tag: affine, gain: 0.025 }
+    law: { type: PI, kp: 0.025, ki: 0.005 }
+    feedforward: { type: affine, gain: 0.025 }
   valve2.drive:
     measured: level2.volume
-    law: { tag: PID, kp: 0.013333333, ki: 0.0026666667, kd: 0.066666667 }
-    feedforward: { tag: affine, gain: 0.026666667 }
+    law: { type: PID, kp: 0.013333333, ki: 0.0026666667, kd: 0.066666667 }
+    feedforward: { type: affine, gain: 0.026666667 }

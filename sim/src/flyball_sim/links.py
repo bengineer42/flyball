@@ -94,7 +94,7 @@ class FakeI2c:
         return self._exact(reply, length, f"0x{address:02x} read")
 
 
-class FakeI2cConfig(Config[I2cLink], tag="fake_i2c"):
+class FakeI2cConfig(Config[I2cLink], type="fake_i2c"):
     """A scripted bus, for a rig file that runs without hardware."""
 
     registers: dict[int, dict[int, list[int]]] = Field(default_factory=dict)
@@ -143,7 +143,7 @@ class FakeSpi:
         return bytes(reply[: len(sent)]).ljust(len(sent), b"\0")
 
 
-class FakeSpiConfig(Config[SpiLink], tag="fake_spi"):
+class FakeSpiConfig(Config[SpiLink], type="fake_spi"):
     replies: list[list[int]] = Field(default_factory=list)
 
     def build(self) -> SpiLink:
@@ -200,7 +200,7 @@ class FakeGpio:
         return count
 
 
-class FakeGpioConfig(Config[GpioLink], tag="fake_gpio"):
+class FakeGpioConfig(Config[GpioLink], type="fake_gpio"):
     levels: dict[int, bool] = Field(default_factory=dict, description="Input levels by line.")
 
     def build(self) -> GpioLink:
@@ -254,7 +254,7 @@ class FakeUart:
         return self._take(index + len(terminator))
 
 
-class FakeUartConfig(Config[UartLink], tag="fake_uart"):
+class FakeUartConfig(Config[UartLink], type="fake_uart"):
     """A scripted port, for a rig file that runs without hardware."""
 
     replies: list[bytes] = Field(default_factory=list)

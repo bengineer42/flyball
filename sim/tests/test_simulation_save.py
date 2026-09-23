@@ -13,7 +13,7 @@ from flyball_sim.simulation import Simulation
 
 RIG = {
     "name": "oven",
-    "links": {"chamber": {"tag": "sim_plant", "model": "lag", "tau_s": 10.0, "gain": 50.0}},
+    "links": {"chamber": {"type": "sim_plant", "model": "lag", "tau_s": 10.0, "gain": 50.0}},
     "devices": {
         "thermocouple": {
             "driver": "sim_daq",

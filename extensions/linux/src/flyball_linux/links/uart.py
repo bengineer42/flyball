@@ -50,7 +50,7 @@ class SerialUart:
         self._serial.close()
 
 
-class SerialConfig(Config[UartLink], tag="uart"):
+class SerialConfig(Config[UartLink], type="uart"):
     """A kernel serial device: `port = "/dev/ttyUSB0"`."""
 
     port: str

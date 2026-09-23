@@ -58,7 +58,7 @@ INPUT = "input"
 # region The plants
 
 
-class PlantConfig(Config[Plant], tag="sim_plant"):
+class PlantConfig(Config[Plant], type="sim_plant"):
     """A plant model with one input and one output, shared by the devices that use it.
 
     Its ports are `input` (a drive, 0 to 1 of full) and `output`, whose
@@ -463,7 +463,7 @@ class SimDaq(Readable):
         return self.broken
 
 
-class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
+class SimDaqConfig(DriverConfig[SimDaq], type="sim_daq"):
     """Read chosen outputs of a simulated plant as this device's `[RP]` signals."""
 
     link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -672,7 +672,7 @@ class SimDrive(Committable):
         return self.inputs
 
 
-class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
+class SimDriveConfig(DriverConfig[SimDrive], type="sim_drive"):
     """Drive chosen inputs of a simulated plant from this device's `[W]` signals."""
 
     link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]

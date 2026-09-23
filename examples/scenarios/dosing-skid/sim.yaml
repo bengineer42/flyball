@@ -11,11 +11,11 @@ name: dosing-skid-sim
 clock: { speed: 1 }
 
 links:
-  ph_uart: { tag: fake_uart, replies: ["6.200\r"] }
-  ec_uart: { tag: fake_uart, replies: ["1.850\r"] }     # mS/cm-scale reading, as the probe would report it
-  orp_uart: { tag: fake_uart, replies: ["185\r"] }
-  do_uart: { tag: fake_uart, replies: ["7.20\r"] }
-  pump_pwm: { tag: fake_pwm }
+  ph_uart: { type: fake_uart, replies: ["6.200\r"] }
+  ec_uart: { type: fake_uart, replies: ["1.850\r"] }     # mS/cm-scale reading, as the probe would report it
+  orp_uart: { type: fake_uart, replies: ["185\r"] }
+  do_uart: { type: fake_uart, replies: ["7.20\r"] }
+  pump_pwm: { type: fake_pwm }
 
 # devices: unchanged from rig.yaml -- ph/ec/orp/do/doser keep their real
 # drivers; only the four uart links plus pump_pwm above are overlaid, so a

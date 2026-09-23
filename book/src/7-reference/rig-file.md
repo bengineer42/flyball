@@ -85,7 +85,7 @@ like an envelope key).
 
 | envelope key | type | |
 | --- | --- | --- |
-| `driver` | string | which driver builds this device; a tag on the process-wide `Config.registry` |
+| `driver` | string | which driver builds this device; a type registered in the driver catalog |
 | `label` | string, optional | shown instead of the name |
 | `poll_s` | number, optional | inherited down the tree; a namespace or signal override wins |
 | `signals` | `{name: SignalOverride \| NamespaceOverride}` | per-signal metadata overrides and access restriction — never adds access the driver did not declare |
@@ -140,7 +140,7 @@ number or `.nan` is refused at load.
 
 ## Links
 
-Every link is a tagged config, declared once under `links:` and referred
+Every link is a typed config, declared once under `links:` and referred
 to by name from a device's `link` field. The tags and every field, one
 section each: [Links](../2-config/links.md); the board tags
 (`i2c`, `spi`, `gpio`, `pwm`, `onewire` and their fakes):
@@ -148,7 +148,7 @@ section each: [Links](../2-config/links.md); the board tags
 
 ## Drivers
 
-`driver:` names a tag on the process-wide `Config.registry`; the driver's
+`driver:` names a type registered in the driver catalog; the driver's
 own fields sit flat beside the envelope or under `config:`. Every shipped
 driver with its fields and an example entry: [Supported drivers](../2-config/devices/drivers.md);
 why those fields and where else they appear: [Where a device's options come from](../2-config/devices/generated.md).
@@ -165,18 +165,18 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | key | type | |
 | --- | --- | --- |
 | `measured` | address | the measured signal: a published (`P`) signal, what is regulated |
-| `law` | `{tag, ...gains}` | e.g. `{tag: PI, kp: 0.2, ki: 0.05}`; omit for none |
-| `feedforward` | `{tag, ...}` | maps the measured signal's unit to the output's: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
+| `law` | `{type, ...gains}` | e.g. `{type: PI, kp: 0.2, ki: 0.05}`; omit for none |
+| `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | step the law at most this often |
 
 ```yaml
 controllers:
-  heaters.heater1: { measured: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15, tt: 30 } }
+  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt: 30 } }
   heaters.heater2:
     measured: furnace.zone2
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, rate_gain: 3000, points: [[20, 0], [200, 289.4], [400, 659.8]] }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4], [400, 659.8]] }
     default: true
 ```
 

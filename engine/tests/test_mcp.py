@@ -141,7 +141,7 @@ class TestTools:
         assert self.tool(client, "status").run(client, {})["rig"] == "t"
         devices = self.tool(client, "list_devices").run(client, {})["devices"]
         assert [d["name"] for d in devices] == ["furnace", "heaters"]
-        assert set(devices[0]) == {"name", "type", "label", "description"}, (
+        assert set(devices[0]) == {"name", "class_name", "label", "description"}, (
             "projected: not the full tree"
         )
         detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
@@ -539,7 +539,7 @@ class TestDriverTools:
         guide = self.tool(client, "driver_guide", "read").run(client, {})
         assert guide.startswith("# Writing a device driver")
         out = self.tool(client, "driver_scaffold", "read").run(client, {"name": "foo-200"})
-        assert 'tag="foo_200"' in out["source"]
+        assert 'type="foo_200"' in out["source"]
         from flyball.interfaces.client import SchemaError
 
         with pytest.raises(SchemaError, match="identifier"):
@@ -554,7 +554,7 @@ class TestDriverTools:
         report = self.tool(client, "check_driver").run(client, {"path": str(path)})
         assert report["ok"], report
         (driver,) = report["drivers"]
-        assert driver["tag"] == name and driver["readable"] and not driver["writable"]
+        assert driver["type"] == name and driver["readable"] and not driver["writable"]
         assert driver["descriptors"] == ["conditions", "value"] and driver["commands"] == ["reset"]
         assert "properties" in driver["schema"]
 
@@ -598,7 +598,7 @@ class TestComposition:
         )
         assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
         self.tool(client, "attach_link").run(
-            client, {"name": "plant", "config": {"tag": "sim_furnace"}}
+            client, {"name": "plant", "config": {"type": "sim_furnace"}}
         )
         added = self.tool(client, "attach_device").run(
             client,
@@ -634,7 +634,7 @@ class TestComposition:
                     await session.initialize()
                     await session.list_tools()
                     await session.call_tool(
-                        "attach_link", {"name": "plant", "config": {"tag": "sim_furnace"}}
+                        "attach_link", {"name": "plant", "config": {"type": "sim_furnace"}}
                     )
                     result = await session.call_tool(
                         "attach_device",

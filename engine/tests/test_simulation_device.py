@@ -97,7 +97,7 @@ def test_without_a_device_the_route_is_404_but_the_simulation_answers(scaled_rig
 def test_schema_view_and_commands_go_through_the_device_routes(client):
     assert client.get("/api/sim").json()["device"] is True
     schema = client.get("/api/sim/device/schema").json()
-    assert schema["name"] == "simulation" and schema["type"] == "OvenSim"
+    assert schema["name"] == "simulation" and schema["class_name"] == "OvenSim"
     assert set(schema["commands"]) == {"set_tau"}
     tau = schema["commands"]["set_tau"]["arguments"]["properties"]["tau_s"]
     assert tau["exclusiveMinimum"] == 0

@@ -1,7 +1,7 @@
-"""Catalog: what's installed, by tag. Explicit registration, no import-side-effect magic.
+"""Catalog: what's installed, by type. Explicit registration, no import-side-effect magic.
 
 A [Catalog][flyball.model.catalog.Catalog] holds one kind of thing (devices,
-links, laws, ...), tag to class, collision-checked. [Catalogs][flyball.model.catalog.Catalogs]
+links, laws, ...), type to class, collision-checked. [Catalogs][flyball.model.catalog.Catalogs]
 holds one `Catalog` per kind -- the whole install-scoped surface a rig can be
 built from.
 
@@ -54,55 +54,63 @@ if TYPE_CHECKING:
 
 
 class Catalog[T]:
-    """Tag -> class, for one kind of thing. Collision-checked, nothing implicit."""
+    """Type -> class, for one kind of thing. Collision-checked, nothing implicit."""
 
     def __init__(self, kind: str) -> None:
         self.kind = kind
-        self._by_tag: dict[str, type[T]] = {}
+        self._by_type: dict[str, type[T]] = {}
 
-    def register(self, cls: type[T], *, tag: str | None = None) -> None:
-        """Register `cls` under `tag` (`cls.config_tag`/`cls.tag` if omitted).
+    def register(self, cls: type[T], *, name: str | None = None) -> None:
+        """Register `cls` under `name`.
+
+        By default its `type_name` (a config), `type` (a law, feedforward or
+        generator) or `tag` (a program step).
 
         Raises:
-            ValueError: `tag` is already registered to a different class. Not
-                raised on re-registering the same class under the same tag
+            ValueError: `name` is already registered to a different class. Not
+                raised on re-registering the same class under the same name
                 (safe to call `discover()` more than once).
         """
-        resolved = tag or getattr(cls, "config_tag", None) or getattr(cls, "tag", None)
+        resolved = (
+            name
+            or getattr(cls, "type_name", None)
+            or getattr(cls, "type", None)
+            or getattr(cls, "tag", None)
+        )
         if not resolved:
-            raise ValueError(f"{cls.__name__} has no tag; pass one or declare it on the class")
-        clash = self._by_tag.get(resolved)
+            raise ValueError(f"{cls.__name__} has no type; pass one or declare it on the class")
+        clash = self._by_type.get(resolved)
         if clash is not None and clash is not cls:
-            raise ValueError(f"{self.kind} tag {resolved!r} is already {clash.__name__}")
-        self._by_tag[resolved] = cls
+            raise ValueError(f"{self.kind} type {resolved!r} is already {clash.__name__}")
+        self._by_type[resolved] = cls
 
-    def __getitem__(self, tag: str) -> type[T]:
+    def __getitem__(self, name: str) -> type[T]:
         try:
-            return self._by_tag[tag]
+            return self._by_type[name]
         except KeyError:
-            raise KeyError(f"{self.kind} tag {tag!r} is not registered") from None
+            raise KeyError(f"{self.kind} type {name!r} is not registered") from None
 
-    def get(self, tag: str, default: type[T] | None = None) -> type[T] | None:
-        return self._by_tag.get(tag, default)
+    def get(self, name: str, default: type[T] | None = None) -> type[T] | None:
+        return self._by_type.get(name, default)
 
-    def __contains__(self, tag: str) -> bool:
-        return tag in self._by_tag
+    def __contains__(self, name: str) -> bool:
+        return name in self._by_type
 
     def __iter__(self):
-        return iter(self._by_tag)
+        return iter(self._by_type)
 
     def __len__(self) -> int:
-        return len(self._by_tag)
+        return len(self._by_type)
 
-    def tags(self) -> list[str]:
-        return list(self._by_tag)
+    def names(self) -> list[str]:
+        return list(self._by_type)
 
     def items(self):
-        return self._by_tag.items()
+        return self._by_type.items()
 
-    def unregister(self, tag: str) -> None:
-        """Drop `tag`, if present. For a reloadable source (a `drivers/` directory) only."""
-        self._by_tag.pop(tag, None)
+    def unregister(self, name: str) -> None:
+        """Drop `name`, if present. For a reloadable source (a `drivers/` directory) only."""
+        self._by_type.pop(name, None)
 
 
 @dataclass
@@ -124,24 +132,24 @@ class Catalogs:
     # down would be a real edge (import-linter reads the AST, guard or not).
     commands: Catalog[Any] = field(default_factory=lambda: Catalog("command"))
 
-    def register_device(self, cls: type[DriverConfig[Any]], *, tag: str | None = None) -> None:
-        self.devices.register(cls, tag=tag)
+    def register_device(self, cls: type[DriverConfig[Any]], *, name: str | None = None) -> None:
+        self.devices.register(cls, name=name)
 
-    def register_link(self, cls: type[Config[Any]], *, tag: str | None = None) -> None:
-        self.links.register(cls, tag=tag)
+    def register_link(self, cls: type[Config[Any]], *, name: str | None = None) -> None:
+        self.links.register(cls, name=name)
 
-    def register_law(self, cls: type[ControlLaw], *, tag: str | None = None) -> None:
-        self.laws.register(cls, tag=tag)
+    def register_law(self, cls: type[ControlLaw], *, name: str | None = None) -> None:
+        self.laws.register(cls, name=name)
 
-    def register_feedforward(self, cls: type[Feedforward], *, tag: str | None = None) -> None:
-        self.feedforwards.register(cls, tag=tag)
+    def register_feedforward(self, cls: type[Feedforward], *, name: str | None = None) -> None:
+        self.feedforwards.register(cls, name=name)
 
-    def register_generator(self, cls: type[SetPointGenerator], *, tag: str | None = None) -> None:
-        self.generators.register(cls, tag=tag)
+    def register_generator(self, cls: type[SetPointGenerator], *, name: str | None = None) -> None:
+        self.generators.register(cls, name=name)
 
-    def register_command(self, cls: type[Any], *, tag: str | None = None) -> None:
+    def register_command(self, cls: type[Any], *, name: str | None = None) -> None:
         """`cls` is a `sequencing.command.Command` subclass -- untyped here, see `commands`."""
-        self.commands.register(cls, tag=tag)
+        self.commands.register(cls, name=name)
 
     def discover(self, group: str = "flyball.configs") -> list[str]:
         """Call every installed package's `register(self)`, by its `flyball.configs` entry point.
@@ -153,7 +161,7 @@ class Catalogs:
 
         pointing at a module with a `def register(catalog) -> None`. Returns
         the entry names loaded. Safe to call more than once -- registering
-        the same class under the same tag twice is not a collision.
+        the same class under the same type twice is not a collision.
         """
         from importlib.metadata import entry_points
 

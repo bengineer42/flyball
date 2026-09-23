@@ -395,7 +395,7 @@ def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
     rig.attach_controller(
         heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), default=True
     )
-    rig.tunings.add(Tuning(tag="brisk", config=P(kp=4.0).config))
+    rig.tunings.add(Tuning(name="brisk", config=P(kp=4.0).config))
 
     assert Regulate(setpoint=1.0, tuning="brisk").missing(rig) == []
     assert Regulate(setpoint=1.0, tuning="ghost").missing(rig) == ["tuning 'ghost' is not stored"]

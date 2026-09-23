@@ -118,7 +118,7 @@ class PwmChannel(Committable):
         self.signals["drive"].push(0.0 if self.span is None else self.span[0])
 
 
-class PwmChannelConfig(DriverConfig[PwmChannel], tag="pwm_channel"):
+class PwmChannelConfig(DriverConfig[PwmChannel], type="pwm_channel"):
     """`driver: pwm_channel`: `{ link, channel }`, or `pin: PWM0` from the board profile."""
 
     link: PwmLinkConfig | str  # type: ignore[valid-type]

@@ -353,7 +353,7 @@ class TestSmartDrive:
         controller = rig.attach_controller(
             drive.signals["t"], daq.signals["t"], law=PI(kp=0.02, ki=0.0005)
         )
-        assert controller.feedforward.tag == "setpoint", "units agree, so no feedforward was given"
+        assert controller.feedforward.type == "setpoint", "units agree, so no feedforward was given"
         controller.regulate(60.0)
         clock.advance(600)
         assert rig.latest[daq.signals["t"]].value == pytest.approx(60.0, abs=0.5)

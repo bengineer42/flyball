@@ -301,7 +301,7 @@ class SensorsConfig(DriverConfig[HumSensors]):
 def furnace_tag(fresh, _catalog) -> str:
     tag = fresh("sim_furnace")
 
-    class Tagged(FurnaceConfig, tag=tag):
+    class Tagged(FurnaceConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -312,7 +312,7 @@ def furnace_tag(fresh, _catalog) -> str:
 def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
-    class Tagged(SensorsConfig, tag=tag):
+    class Tagged(SensorsConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -518,7 +518,7 @@ class TestDeviceEntry:
 
         tag = fresh("bus")
 
-        class Bus(Config[object], tag=tag):
+        class Bus(Config[object], type=tag):
             def build(self) -> object:
                 return object()
 
@@ -535,7 +535,7 @@ class TestDeviceEntry:
     def test_a_link_s_tag_is_not_a_driver(self, fresh, _catalog):
         tag = fresh("bus")
 
-        class Bus(Config[object], tag=tag):
+        class Bus(Config[object], type=tag):
             def build(self) -> object:
                 return object()
 

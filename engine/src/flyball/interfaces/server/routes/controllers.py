@@ -40,7 +40,7 @@ router = APIRouter(prefix="/api/controllers", tags=["controllers"])
 # union.
 _FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
 FeedforwardConfig = discriminated_union(
-    {ff.tag: ff for ff in _FEEDFORWARDS}, "tag", lambda ff: ff.config
+    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
 )
 
 
@@ -53,7 +53,7 @@ class NewController(BaseModel):
     """The P signal to regulate."""
     law: LawConfig | str | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | str | None = None  # type: ignore[valid-type]
-    """A config or a tag. Omitted: ``setpoint`` when the units agree, else ``none``."""
+    """A config or a type. Omitted: ``setpoint`` when the units agree, else ``none``."""
     default: bool = False
     min_period_s: Positive | None = None
 
@@ -104,7 +104,7 @@ class SignalChoice(BaseModel):
 class TuningChoice(BaseModel):
     name: str
     law: str
-    """The law's tag, so a form can offer the tunings for one law."""
+    """The law's type, so a form can offer the tunings for one law."""
     config: dict[str, Any]
 
 
@@ -116,11 +116,11 @@ class ControllerSchema(BaseModel):
     outputs: list[SignalChoice]
     """Every writable demand (role `demand` and `W`): what a controller may drive."""
     laws: dict[str, Any]
-    """JSON Schema of the law config union, discriminated on ``tag``."""
+    """JSON Schema of the law config union, discriminated on ``type``."""
     feedforwards: dict[str, Any]
-    """JSON Schema of the feedforward config union, discriminated on ``tag``."""
+    """JSON Schema of the feedforward config union, discriminated on ``type``."""
     generators: dict[str, Any]
-    """JSON Schema of the set-point generator config union, discriminated on ``tag``."""
+    """JSON Schema of the set-point generator config union, discriminated on ``type``."""
     tunings: list[TuningChoice]
     """Stored tunings a controller may name instead of a config."""
     regulated: dict[str, str]
@@ -198,7 +198,7 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
         feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
         generators=TypeAdapter(GeneratorConfig).json_schema(),
         tunings=[
-            TuningChoice(name=name, law=config.tag, config=config.model_dump(mode="json"))
+            TuningChoice(name=name, law=config.type, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()
         ],
         regulated={c.measured_signal.address: c.name for _, c in controllers},

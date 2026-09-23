@@ -8,7 +8,7 @@ flyball device. Use these before writing a driver.
 [`pymeasure`](../2-config/devices/drivers.md#pymeasure); every field is on
 that page.
 
-| library | drivers | driver tag | what comes through |
+| library | drivers | driver | what comes through |
 | --- | --- | --- | --- |
 | **QCoDeS** (`flyball-qcodes[qcodes]`) | ~200: source-meters, lock-ins, cryogenic and quantum kit | `qcodes` (`flyball_qcodes`) | any gettable, numeric `Parameter` as a signal, with its unit read off the parameter unless overridden; a settable one is writable too |
 | **PyMeasure** (`flyball-pymeasure[pymeasure]`) | ~150: Keithley, Agilent/Keysight, Lakeshore, Thorlabs, Anritsu, Oxford… | `pymeasure` (`flyball_pymeasure`) | the `measurement`/`control`/`setting` properties you name as signals, units read from their docstrings (`"in volts"` → V) with per-channel overrides |

@@ -6,8 +6,8 @@
 # 60 s, ambient 20 ppb baseline, gain up to +500 ppb.
 
 links:
-  co2eq_plant: { tag: sim_plant, tau_s: 60.0, gain: 2000.0, ambient: 400.0, initial: 400.0, noise: 20.0, seed: 60 }
-  tvoc_plant: { tag: sim_plant, tau_s: 60.0, gain: 500.0, ambient: 20.0, initial: 20.0, noise: 5.0, seed: 61 }
+  co2eq_plant: { type: sim_plant, tau_s: 60.0, gain: 2000.0, ambient: 400.0, initial: 400.0, noise: 20.0, seed: 60 }
+  tvoc_plant: { type: sim_plant, tau_s: 60.0, gain: 500.0, ambient: 20.0, initial: 20.0, noise: 5.0, seed: 61 }
 
 devices:
   co2eq:

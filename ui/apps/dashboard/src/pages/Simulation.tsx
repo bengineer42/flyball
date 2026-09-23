@@ -214,7 +214,7 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
         <TableBody>
           {names.map((name) => {
             const plant = plants[name]!;
-            const { kind, tag, model, ...rest } = plant.config;
+            const { kind, type, model, ...rest } = plant.config;
             const live = plant.links ?? {};
             const readings = Object.entries(plant.readings ?? {});
             return (
@@ -223,7 +223,7 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
                   <code>{name}</code>
                 </TableCell>
                 <TableCell>
-                  {kind || tag ? describeDevice(String(kind ?? tag)) : ""}
+                  {kind || type ? describeDevice(String(kind ?? type)) : ""}
                   {typeof model === "string" && (
                     <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 0.75 }}>
                       {model}
@@ -271,27 +271,27 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
 /** One device's simulation-only commands (faults, disturbances) as forms, run through its own route. */
 function DeviceFaults({ schema }: { schema: DeviceSchema }) {
   const commands = useCommands(schema.name);
-  const tags = Object.keys(schema.commands).filter((t) => schema.commands[t]?.simulation);
-  if (!tags.length) return null;
+  const names = Object.keys(schema.commands).filter((t) => schema.commands[t]?.simulation);
+  if (!names.length) return null;
   return (
     <Box sx={{ mb: 2.25 }}>
       <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
         {schema.label ?? schema.name}{" "}
         <Typography component="span" variant="body2" color="text.secondary">
           {schema.label && `${schema.name} · `}
-          {describeDevice(schema.type)}
+          {describeDevice(schema.class_name)}
         </Typography>
       </Typography>
       <Box className="fb-commands">
-        {tags.map((tag) => (
+        {names.map((name) => (
           <CommandForm
-            key={tag}
-            tag={tag}
-            command={schema.commands[tag]!}
+            key={name}
+            name={name}
+            command={schema.commands[name]!}
             form={MuiForm}
-            onRun={(args) => commands.run(tag, args).catch(() => undefined)}
-            busy={commands.busy === tag}
-            result={commands.results[tag]}
+            onRun={(args) => commands.run(name, args).catch(() => undefined)}
+            busy={commands.busy === name}
+            result={commands.results[name]}
           />
         ))}
       </Box>
@@ -368,7 +368,7 @@ export function Simulation({ devices, playback }: { devices: DeviceOut[]; playba
           form={MuiForm}
           subtitle={<code>/api/sim/device</code>}
           openSettings
-          onRun={(tag, args) => sim.run(tag, args).catch(() => undefined)}
+          onRun={(command, args) => sim.run(command, args).catch(() => undefined)}
           busy={sim.busy}
           results={sim.results}
         />

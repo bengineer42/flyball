@@ -24,7 +24,7 @@ POWER = Quantity("power", Watt)
 
 
 # --8<-- [start:heater-config]
-class HeaterConfig(DriverConfig["Heater"], tag="heater"):
+class HeaterConfig(DriverConfig["Heater"], type="heater"):
     """What the heater is built from. Rebuild to change."""
 
     max_power_w: float = 500.0

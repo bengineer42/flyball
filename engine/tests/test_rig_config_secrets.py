@@ -113,7 +113,7 @@ SIM_RIG = f"""\
 name: tank
 clock: {{stepped: true}}
 links:
-  tank: {{tag: sim_plant, model: lag, gain: 1.0, tau_s: 10.0}}
+  tank: {{type: sim_plant, model: lag, gain: 1.0, tau_s: 10.0}}
 devices:
   level:
     driver: sim_daq

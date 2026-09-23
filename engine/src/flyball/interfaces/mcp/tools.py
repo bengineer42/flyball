@@ -139,7 +139,7 @@ def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
         "devices": [
             {
                 "name": d["name"],
-                "type": d["type"],
+                "class_name": d["class_name"],
                 "label": d["label"],
                 "description": described.get(d["name"], {}).get("description"),
             }
@@ -284,7 +284,7 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "tunings",
-        "The control-law tunings loaded on the rig, by tag.",
+        "The control-law tunings loaded on the rig, by name.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/tunings"),
@@ -591,7 +591,7 @@ AUTHOR: tuple[Tool, ...] = (
         _object(
             {
                 "name": NAME,
-                "law": _str("The law's tag, e.g. `pid`."),
+                "law": _str("The law's type, e.g. `pid`."),
                 "config": {"type": "object", "description": "The law's config."},
                 "notes": _any("Free-form notes."),
             },
@@ -653,7 +653,7 @@ DRIVE: tuple[Tool, ...] = (
                 "at": AT,
                 "start": _any("Where a generator starts from; default the current setpoint."),
                 "tuning": _any(
-                    "A tuning's tag, or a law config as an object; default the current."
+                    "A tuning's name, or a law config as an object; default the current."
                 ),
                 "transfer": _str(
                     "How the law takes over.", enum=["none", "carry", "track", "cold"]
@@ -697,8 +697,8 @@ DRIVE: tuple[Tool, ...] = (
             {
                 "output": _str("The demand to drive; the controller is named by its address."),
                 "measured": _str("The signal to regulate."),
-                "law": _any("A tuning's tag or a law config; default the rig's default law."),
-                "feedforward": _any("A feedforward config or tuning tag, if any."),
+                "law": _any("A tuning's name or a law config; default the rig's default law."),
+                "feedforward": _any("A feedforward config or its type, if any."),
             },
             "output",
             "measured",
@@ -716,17 +716,17 @@ DRIVE: tuple[Tool, ...] = (
     ),
     Tool(
         "apply_tuning",
-        "Put a control-law config on the rig under `tag`, for controllers to use by name.",
+        "Put a control-law config on the rig under `name`, for controllers to use by name.",
         _object(
             {
-                "tag": _str("The tuning's tag."),
-                "law": {"type": "object", "description": "The law config, with its `tag`."},
+                "name": _str("The tuning's name."),
+                "law": {"type": "object", "description": "The law config, with its `type`."},
             },
-            "tag",
+            "name",
             "law",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.put(f"/api/tunings/{segment(a['tag'])}", a["law"]),
+        lambda rig, a: rig.put(f"/api/tunings/{segment(a['name'])}", a["law"]),
     ),
     Tool(
         "run_program",
@@ -854,15 +854,15 @@ SIM: tuple[Tool, ...] = (
 )
 
 
-def _command(name: str, tag: str) -> Run:
-    return lambda rig, a: rig.devices[name].run(tag, **a)
+def _command(name: str, command: str) -> Run:
+    return lambda rig, a: rig.devices[name].run(command, **a)
 
 
 def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
     """One tool per device command, `<device>-<command>`, from the rig's schema."""
     tools = []
     for name, device in rig.schema["devices"].items():
-        for tag, spec in device["commands"].items():
+        for command, spec in device["commands"].items():
             if spec.get("simulation") and not simulated:
                 continue
             notes = []
@@ -872,14 +872,14 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
                 notes.append("A controller driving this device goes to manual first.")
             if spec.get("simulation"):
                 notes.append("A simulation-only command.")
-            description = " ".join([spec.get("description") or f"{name}.{tag}", *notes])
+            description = " ".join([spec.get("description") or f"{name}.{command}", *notes])
             tools.append(
                 Tool(
-                    f"{name}-{tag}",
+                    f"{name}-{command}",
                     f"[{device.get('label') or name}] {description}",
                     spec["arguments"],
                     Tier.DRIVE,
-                    _command(name, tag),
+                    _command(name, command),
                     destructive=bool(spec.get("interrupts")),
                 )
             )
@@ -912,22 +912,22 @@ try:
     module = importlib.util.module_from_spec(spec)
     sys.modules[path.stem] = module
     spec.loader.exec_module(module)
-    tags = sorted(
-        value.config_tag
+    types = sorted(
+        value.type_name
         for value in vars(module).values()
         if isinstance(value, type)
         and issubclass(value, Config)
         and value.__module__ == path.stem
-        and value.config_tag is not None
+        and value.type_name is not None
     )
-    for tag in tags:
+    for type_name in types:
         config = next(
             v for v in vars(module).values()
-            if isinstance(v, type) and issubclass(v, Config) and v.config_tag == tag
+            if isinstance(v, type) and issubclass(v, Config) and v.type_name == type_name
         )
         if not issubclass(config, DriverConfig):
             continue
-        entry = {"tag": tag, "config": config.__name__}
+        entry = {"type": type_name, "config": config.__name__}
         try:
             entry["schema"] = config.model_json_schema()
             generic = [
@@ -942,10 +942,10 @@ try:
                 entry["descriptors"] = sorted(getattr(device, "DESCRIPTORS", {}) or [])
                 entry["commands"] = sorted(getattr(device, "commands", {}) or [])
         except Exception as e:
-            out["errors"].append(f"{tag}: {type(e).__name__}: {e}")
+            out["errors"].append(f"{type_name}: {type(e).__name__}: {e}")
         out["drivers"].append(entry)
     if not out["drivers"]:
-        out["errors"].append("the module registers no DriverConfig subclass with a tag")
+        out["errors"].append("the module registers no DriverConfig subclass with a type")
     out["ok"] = not out["errors"]
 except Exception as e:
     out["errors"].append(f"{type(e).__name__}: {e}")
@@ -979,7 +979,7 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
         raise SchemaError(f"search_drivers: {script} is not a file here")
     flags = ["--json"]
     for key in (
-        "tag",
+        "type",
         "category",
         "interface",
         "tier",
@@ -1017,7 +1017,7 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "driver_guide",
         "How to write a device driver for this rig: descriptors, read and commit, commands, "
-        "the config that registers a tag, links, and how a driver is checked and attached. "
+        "the config that registers a type, links, and how a driver is checked and attached. "
         "Read before writing one; most instruments need only a config entry, which it says.",
         _object(),
         Tier.READ,
@@ -1025,16 +1025,16 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "driver_scaffold",
-        "A complete starting module for a driver called `name`: it imports, registers the tag "
+        "A complete starting module for a driver called `name`: it imports, registers the type "
         "and works in a rig file before a line is changed. What `flyball new NAME` writes.",
-        _object({"name": _str("The driver's tag; a Python identifier is made from it.")}, "name"),
+        _object({"name": _str("The driver's type; a Python identifier is made from it.")}, "name"),
         Tier.READ,
         _scaffold,
     ),
     Tool(
         "check_driver",
         "Import a driver module from a file on the machine this server runs on, in a fresh "
-        "interpreter, and report: the tags it registers, each config's schema, the device's "
+        "interpreter, and report: the types it registers, each config's schema, the device's "
         "signals and commands, or what went wrong. Runs the file's top level.",
         _object({"path": _str("The module's path, where this server runs.")}, "path"),
         Tier.DRIVE,
@@ -1047,13 +1047,13 @@ DRIVERS: tuple[Tool, ...] = (
         "verification status, price, which rig leads it serves, and (introspected from the "
         "code, not hand-maintained) each signal's real unit and physical dimension. For "
         "choosing what to buy or wire up before a driver exists, not for a running rig's own "
-        "tags -- that's `list_drivers`. Runs `<linux_dir>/scripts/search_drivers.py` in that "
+        "types -- that's `list_drivers`. Runs `<linux_dir>/scripts/search_drivers.py` in that "
         "checkout's own environment on the machine this server runs on, so it is a drive-tier "
         "tool like `check_driver`: it executes what it finds there.",
         _object(
             {
                 "linux_dir": _str("The `linux/` checkout's path, where this server runs."),
-                "tag": _str("Substring match on the driver tag."),
+                "type": _str("Substring match on the driver type."),
                 "category": _str("Exact match, e.g. humidity, gas, liquid, weight, actuator."),
                 "interface": _str("Exact match, e.g. i2c_bespoke, uart, analog_adc, gpio."),
                 "tier": _str("config_only, generic_link, or bespoke_driver."),
@@ -1073,7 +1073,7 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "list_drivers",
-        "Every tag the runner can build -- drivers and links -- with its config schema, "
+        "Every type the runner can build -- drivers and links -- with its config schema, "
         "description and the module it came from.",
         _object(),
         Tier.READ,
@@ -1083,7 +1083,7 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "reload_drivers",
         "Import (again) every module in the runner's drivers directory, so a new or edited "
-        "driver's tag can be attached; devices already built keep their old class. Runs "
+        "driver's type can be attached; devices already built keep their old class. Runs "
         "those files' top level. Returns what each file registered and any import error.",
         _object(),
         Tier.DRIVE,
@@ -1159,7 +1159,7 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "attach_link",
         "Build a transport on the running rig and hold it under `name`, for devices to be "
-        "built on: the rig file's `links:` entry (`tag`, its settings). On a hardware rig only "
+        "built on: the rig file's `links:` entry (`type`, its settings). On a hardware rig only "
         "when the runner runs with `--compose`.",
         _object(
             {"name": NAME, "config": {"type": "object", "description": "The link config."}},

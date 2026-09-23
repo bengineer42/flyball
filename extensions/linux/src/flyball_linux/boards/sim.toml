@@ -5,19 +5,19 @@
 name = "Simulated board"
 
 [links.i2c1]
-tag = "fake_i2c"
+type = "fake_i2c"
 
 [links.spi0]
-tag = "fake_spi"
+type = "fake_spi"
 
 [links.header]
-tag = "fake_gpio"
+type = "fake_gpio"
 
 [links.pwm]
-tag = "fake_pwm"
+type = "fake_pwm"
 
 [links.w1]
-tag = "fake_onewire"
+type = "fake_onewire"
 
 [pins]
 GPIO4  = { link = "header", line = 4 }

@@ -150,7 +150,7 @@ class I2cTable(Readable, Committable):
                 signal.push(readback, time_ns)
 
 
-class I2cTableConfig(DriverConfig[I2cTable], tag="i2c_table"):
+class I2cTableConfig(DriverConfig[I2cTable], type="i2c_table"):
     """`driver: i2c_table`. `registers` is the driver's own tree -- see `Register`.
 
     ```yaml

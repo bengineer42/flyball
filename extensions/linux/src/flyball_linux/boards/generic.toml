@@ -5,11 +5,11 @@
 name = "Generic Linux"
 
 [links.i2c1]
-tag = "i2c"
+type = "i2c"
 bus = 1
 
 [links.gpio]
-tag = "gpio"
+type = "gpio"
 chip = "gpiochip0"
 
 [pins]

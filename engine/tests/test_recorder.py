@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -122,7 +123,7 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     assert setpoint_write.signal.access == "rw" and setpoint_write.limits is None
     (row,) = store.controllers(session.id)
     assert row.name == controller.name == heater.address
-    assert row.measured == zone1.address and row.law["tag"] == "PI" and row.feedforward is not None
+    assert row.measured == zone1.address and row.law["type"] == "PI" and row.feedforward is not None
 
 
 def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):
@@ -411,6 +412,50 @@ def test_a_failed_version_write_rolls_the_migration_back(tmp_path, monkeypatch):
     connection.commit()
     assert migrate.migrate(connection) == last, "the failed migration left nothing half-applied"
     connection.close()
+
+
+def _migrated_rig_version(tmp_path, monkeypatch, before: int, document: dict) -> dict:
+    """`document` stored as a rig version at schema `before`, read back after every migration."""
+    from flyball.record import migrate
+
+    every = migrate.available()
+    monkeypatch.setattr(
+        migrate, "available", lambda: {v: p for v, p in every.items() if v <= before}
+    )
+    connection = sqlite3.connect(tmp_path / "old.db", isolation_level=None)
+    assert migrate.migrate(connection) == before
+    connection.execute(
+        "INSERT INTO rig_version (time_ns, reason, files, document) VALUES (1, 'loaded', '[]', ?)",
+        (json.dumps(document),),
+    )
+    connection.close()
+    monkeypatch.setattr(migrate, "available", lambda: every)
+    store = SqliteStore(tmp_path / "old.db")
+    (row,) = store.rig_versions()
+    return row.document
+
+
+def test_a_stored_rig_version_spells_the_discriminator_type(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        14,
+        {
+            "links": {"p": {"tag": "sim_plant", "model": "lag"}},
+            "controllers": {
+                "d.u": {
+                    "measured": "p.x",
+                    "law": {"tag": "PI", "kp": 1.0},
+                    "feedforward": {"tag": "none"},
+                }
+            },
+            "devices": {"note": {"driver": "sim_daq", "label": "a tag: stays a value"}},
+        },
+    )
+    assert document["links"]["p"] == {"type": "sim_plant", "model": "lag"}
+    assert document["controllers"]["d.u"]["law"] == {"type": "PI", "kp": 1.0}
+    assert document["controllers"]["d.u"]["feedforward"] == {"type": "none"}
+    assert document["devices"]["note"]["label"] == "a tag: stays a value"
 
 
 # endregion

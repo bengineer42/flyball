@@ -88,7 +88,7 @@ class ProfileConfig(SetPointGeneratorConfig):
     the end of the module closes the loop.
     """
 
-    tag: Literal["profile"] = "profile"  # pyright: ignore[reportIncompatibleVariableOverride]
+    type: Literal["profile"] = "profile"  # pyright: ignore[reportIncompatibleVariableOverride]
     segments: list[GeneratorConfig] = Field(min_length=1)  # type: ignore[valid-type]
     init_names: ClassVar[tuple[str, ...]] = ("segments",)
 
@@ -122,7 +122,7 @@ class Profile(SetPointGenerator):
         for index, generator in enumerate(self.generators[:-1]):
             if not generator.bounded:
                 raise ValueError(
-                    f"profile segment {index} ({generator.tag}) never ends, so segment"
+                    f"profile segment {index} ({generator.type}) never ends, so segment"
                     f" {index + 1} would never start; only the last segment may be endless"
                 )
 
@@ -161,18 +161,18 @@ ProfileConfig.generator = Profile
 
 
 def _renamed(value: Any) -> Any:
-    """A targeted error for a generator's old name, rather than an unmatched tag."""
-    if isinstance(value, dict) and value.get("tag") == "hold":
+    """A targeted error for a generator's old name, rather than an unmatched type."""
+    if isinstance(value, dict) and value.get("type") == "hold":
         raise ValueError("the setpoint generator `hold` is now `dwell`")
     return value
 
 
 GeneratorConfig = Annotated[  # type: ignore[valid-type]
     Union[LinearRampSetpoint.config, Dwell.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
-    Field(discriminator="tag"),
+    Field(discriminator="type"),
     BeforeValidator(_renamed),
 ]
-"""Every built-in generator's config, discriminated by `tag`; a profile's segments are these."""
+"""Every built-in generator's config, discriminated by `type`; a profile's segments are these."""
 
 # A profile holds generators, so its config refers back to the union above:
 # the forward reference can only be resolved now the union exists.

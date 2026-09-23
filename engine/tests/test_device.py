@@ -58,18 +58,18 @@ def test_reserved_and_duplicate_tags_are_refused():
     with pytest.raises(ValueError, match="reserved"):
 
         class A(Device):
-            @command(tag="schema")
+            @command(name="schema")
             def s(self) -> None:
                 """Stub."""
 
     with pytest.raises(ValueError, match="already used"):
 
         class B(Device):
-            @command(tag="go")
+            @command(name="go")
             def one(self) -> None:
                 """Stub."""
 
-            @command(tag="go")
+            @command(name="go")
             def two(self) -> None:
                 """Stub."""
 

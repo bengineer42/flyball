@@ -22,7 +22,7 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
   const run = useDeviceRun(device.name); // from the store: this widget alone re-renders on its device
   const runner = useCommands(device.name);
   const title = useMemo(() => <Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref>, [device.name, device.label]);
-  useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.type), severity: severityOf(run?.conditions ?? device.conditions) });
+  useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.class_name), severity: severityOf(run?.conditions ?? device.conditions) });
   if (schema.error) return <Missing what="device schema" name={schema.error.message} failed />;
   if (!schema.data) return null;
   const panel = (
@@ -35,7 +35,7 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
       // description, and only the chosen commands inline (DESIGN-SPEC §3.5).
       bare
       compact
-      onRun={(tag, args) => runner.run(tag, args).catch(() => undefined)}
+      onRun={(command, args) => runner.run(command, args).catch(() => undefined)}
       onRestart={() => rig.restartDevice(device.name)}
       busy={runner.busy}
       results={runner.results}

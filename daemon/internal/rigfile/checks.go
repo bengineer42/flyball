@@ -100,11 +100,11 @@ func checkSingleDefaultController(document map[string]any) []string {
 //	    raise ValueError("`clock` is only for a rig whose links are all sim_* or fake_*")
 //
 // is_simulated (flyball.runtime.config.is_simulated) checks every link's
-// config_tag class attribute starts with "sim_" or "fake_". That attribute
-// is set from each config's own `tag` discriminator field
-// (Config.union/Field(discriminator="tag") in engine/src/flyball/core/
+// type_name class attribute starts with "sim_" or "fake_". That attribute
+// is set from each config's own `type` discriminator field
+// (Config.union/Field(discriminator="type") in engine/src/flyball/model/
 // config.py), which is what actually appears in the document -- e.g.
-// `links: {chamber: {tag: sim_plant, ...}}`.
+// `links: {chamber: {type: sim_plant, ...}}`.
 func checkClockOnlySimulated(document map[string]any) []string {
 	if document["clock"] == nil {
 		return nil
@@ -112,11 +112,11 @@ func checkClockOnlySimulated(document map[string]any) []string {
 	links := asMap(document["links"])
 	for name, raw := range links {
 		link := asMap(raw)
-		tag, _ := link["tag"].(string)
-		if tag == "" || (!strings.HasPrefix(tag, "sim_") && !strings.HasPrefix(tag, "fake_")) {
+		typ, _ := link["type"].(string)
+		if typ == "" || (!strings.HasPrefix(typ, "sim_") && !strings.HasPrefix(typ, "fake_")) {
 			return []string{fmt.Sprintf(
 				"`clock` is only for a rig whose links are all sim_* or fake_* (link %q is %q)",
-				name, tag,
+				name, typ,
 			)}
 		}
 	}

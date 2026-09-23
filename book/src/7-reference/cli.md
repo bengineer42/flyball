@@ -164,7 +164,7 @@ is stopped with `--pid` or `--front-dir`.
 | `token create --name N --config PATH [--config PATH]... [--set KEY=VALUE]... [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
 | `token list --config PATH [--daemon]` | the tokens in that file: id, name, scopes, kind, created, expires, last used -- never a secret |
 | `token revoke ID --config PATH [--daemon]` | remove one; the front stops accepting it within a second |
-| `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
+| `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a type, ready to edit |
 
 !!! note "`rig check --print`'s formatting"
     The Go CLI's `--print` prints the same merged document as the old

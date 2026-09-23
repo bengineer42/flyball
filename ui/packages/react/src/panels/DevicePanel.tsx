@@ -81,7 +81,7 @@ function modeSignalOf(device: DeviceOut): SignalOut | undefined {
 export function DevicePanel({ device, schema, view, commands, onRun, busy, results, form, onRestart, title, subtitle, children, openSettings = false, bare = false, compact = false, maxFields: _maxFields = 4 }: DevicePanelProps) {
   // Simulation-only commands (faults, disturbances) belong on the simulation page, not beside the real ones.
   // A dashboard widget's default is none at all (DESIGN-SPEC.md §3.5); a page's default is every command.
-  const tags = commands ?? (compact ? [] : Object.keys(schema.commands).filter((t) => !schema.commands[t]?.simulation));
+  const names = commands ?? (compact ? [] : Object.keys(schema.commands).filter((t) => !schema.commands[t]?.simulation));
   const live = useDeviceRun(device.name);
   const run = live ?? device.run;
   const conditions = live ? mergeConditions(device.conditions, live.conditions) : device.conditions;
@@ -127,21 +127,21 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
       )}
     </div>
   );
-  const commandForms = tags.length > 0 && (
+  const commandForms = names.length > 0 && (
     <div className="fb-commands">
-      {tags.map((tag) => {
-        const command = schema.commands[tag];
+      {names.map((name) => {
+        const command = schema.commands[name];
         if (!command) return null;
         return (
           <CommandForm
-            key={tag}
-            tag={tag}
+            key={name}
+            name={name}
             command={command}
             device={device.name}
             currentMode={currentMode}
-            onRun={(args) => onRun(tag, args)}
-            busy={busy === tag}
-            result={results?.[tag]}
+            onRun={(args) => onRun(name, args)}
+            busy={busy === name}
+            result={results?.[name]}
             form={form}
           />
         );
@@ -182,7 +182,7 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
         <h3>{title ?? <Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref>}</h3>
         <span className="fb-muted">
           {title === undefined && device.label && `${device.name} · `}
-          {describeDevice(device.driver ?? device.type)}
+          {describeDevice(device.driver ?? device.class_name)}
           {device.link && ` · on ${device.link}`}
           {subtitle && <> · {subtitle}</>}
         </span>

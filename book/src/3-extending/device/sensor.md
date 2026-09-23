@@ -122,7 +122,7 @@ A sensor is a device like any other, so it may declare a `ConfigSignal` and
 mark commands the same way a writable device does — see
 [Writing an actuator](actuator.md#demand-readout-and-setting). One with
 nothing to configure declares nothing. To be named in a rig file it needs a
-config class with a tag -- [Config and build](config.md) -- after which it
+config class with a type -- [Config and build](config.md) -- after which it
 appears in [Supported drivers](../../2-config/devices/drivers.md)' terms: its own
 fields, a `link`, the envelope around it.
 

@@ -11,7 +11,7 @@ FLOW = {
         "Absolute": {
             "type": "object",
             "title": "Absolute",
-            "properties": {"flow": {"type": "number", "minimum": 0}, "tag": {"const": "absolute"}},
+            "properties": {"flow": {"type": "number", "minimum": 0}, "type": {"const": "absolute"}},
             "required": ["flow"],
         },
         "Relative": {

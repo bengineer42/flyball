@@ -193,7 +193,7 @@ class Stepper(Readable, Committable):
         self._enable(False)
 
 
-class StepperConfig(DriverConfig[Stepper], tag="stepper"):
+class StepperConfig(DriverConfig[Stepper], type="stepper"):
     """`driver: stepper`: `{ link, step_line, direction_line, steps_per_s }`.
 
     `enable_line` (optional) is driven active for the duration of a move and released

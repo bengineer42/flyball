@@ -30,7 +30,7 @@ declares. Any other key is an error.
 | `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field, `timeout` aside (`foldable()` in `flyball.interfaces.server.dialect`). `timeout` is always a `Duration` named `timeout` and is never itself a fold candidate; a step whose only time field is `timeout` (`prompt`, `settle`) takes no flat keys. `wait`'s `duration` folds flat only when the step has no `message`: `wait: {minutes: 20, message: "…"}` is refused (that is what an old operator prompt with a flat timeout looked like) -- write `wait: {duration: {minutes: 20}, message: "…"}` |
 | `ValueSource \| float` | a number, or `measured`, `setpoint`, `output` |
 | a controller name | the address of the demand it drives, e.g. `heaters.heater1` — a controller is named by its output |
-| a law (`tuning`) | the name of a registered tuning, or `{tag: PI, kp: …, ki: …, tt: …}` |
+| a law (`tuning`) | the name of a registered tuning, or `{type: PI, kp: …, ki: …, tt: …}` |
 | `Transfer` | `track`, `carry`, `cold`, `none` |
 
 ## The library's commands
@@ -60,7 +60,7 @@ list of addresses, or omitted for the rig's default controller. Source:
 | `manual` | `loop` (primary) | address, list, or omitted | rig default |
 | `set` | `device` | name | — |
 | | `values` | `{name: value}` | — |
-| `command` | `device_command` | tag | — |
+| `command` | `device_command` | string | — |
 | | `device` | name | — |
 | | `args` | `{name: value}` | none |
 | `prompt` | `message` (primary) | string | — |
@@ -71,8 +71,8 @@ list of addresses, or omitted for the rig's default controller. Source:
 (named by its target's address); `set` and `command` reach a **device**
 directly — `set` is one demand (`rig.write`) on its writable signals,
 `command` calls one of its `@command` methods, `device_command` naming the
-tag rather than `command` because a step's own wire form reserves
-`command` for its own tag. See [Programs](../1-running/programs/index.md) for
+device command rather than `command` because a step's own wire form reserves
+`command` for its own key. See [Programs](../1-running/programs/index.md) for
 the concepts and [Writing programs](../1-running/programs/writing.md) for the full
 worked example.
 

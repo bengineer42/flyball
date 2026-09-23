@@ -31,7 +31,7 @@ class SpidevSpi:
         self._spi.close()
 
 
-class SpiConfig(Config[SpiLink], tag="spi"):
+class SpiConfig(Config[SpiLink], type="spi"):
     """A kernel SPI device: `bus = 0, device = 0` is `/dev/spidev0.0`."""
 
     bus: int = Field(ge=0)

@@ -1,4 +1,4 @@
-"""The entry-point target: explicitly registers every tag this package provides."""
+"""The entry-point target: explicitly registers every type this package provides."""
 
 from flyball.model.catalog import Catalogs
 

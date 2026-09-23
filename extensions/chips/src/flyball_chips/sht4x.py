@@ -135,7 +135,7 @@ class Sht4x(Readable):
         yield self.sample(time_ns, humidity=humidity, temperature=temperature)
 
 
-class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
+class Sht4xConfig(DriverConfig[Sht4x], type="sht4x"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
@@ -226,7 +226,7 @@ class Sht4xSet(Readable):
                 yield self._sample(child, time_ns)
 
 
-class Sht4xSetConfig(DriverConfig[Sht4xSet], tag="sht4x_set"):
+class Sht4xSetConfig(DriverConfig[Sht4xSet], type="sht4x_set"):
     """Several chips on one bus, one namespace per sensor: `sensors: {dry: {address: 0x45}}`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

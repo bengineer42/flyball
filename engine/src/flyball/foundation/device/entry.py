@@ -116,7 +116,7 @@ NamespaceOverride.model_rebuild()
 class DeviceEntry(BaseModel):
     """The envelope of one device in the rig file: flyball's keys, the same for every driver.
 
-    `driver:` picks the driver's config model by tag; the driver's own
+    `driver:` picks the driver's config model by type; the driver's own
     settings sit flat beside these keys or under `config`, and both parse to
     the same thing. If `config` is present it is the whole of the driver
     config and any other leftover key is an error.

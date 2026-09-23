@@ -126,7 +126,7 @@ class GpioLine(Readable, Committable):
         self.signals["on"].push(0.0)
 
 
-class GpioLineConfig(DriverConfig[GpioLine], tag="gpio_line"):
+class GpioLineConfig(DriverConfig[GpioLine], type="gpio_line"):
     """`driver: gpio_line`: `{ link, line }`, or `pin: GPIO18` from the board profile."""
 
     link: GpioLinkConfig | str  # type: ignore[valid-type]

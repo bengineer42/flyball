@@ -20,7 +20,7 @@ devices:
 
 | key | type | |
 | --- | --- | --- |
-| `driver` | tag | which driver builds it -- one of the [supported drivers](drivers.md), a board driver, or one from the runner's `drivers/` directory |
+| `driver` | string | which driver builds it -- one of the [supported drivers](drivers.md), a board driver, or one from the runner's `drivers/` directory |
 | `label` | string | shown instead of the name |
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
 | `config` | object | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board` |

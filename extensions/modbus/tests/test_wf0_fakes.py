@@ -43,7 +43,7 @@ class TestFakeBlockingGoesThroughTheWriter:
         return {
             "links": {
                 "chiller": {
-                    "tag": "fake_registers",
+                    "type": "fake_registers",
                     "registers": {100: 0},
                     "blocking": True,
                 }

@@ -144,7 +144,7 @@ Every tool call is recorded like any other request that needs more than
   says how to write a driver and when not to; `driver_scaffold` gives a
   module that already runs; `check_driver` imports one where the server
   runs and reports what it registers; `reload_drivers` imports the
-  runner's `--drivers` directory again so the tag can be attached;
+  runner's `--drivers` directory again so the type can be attached;
   `search_drivers` searches a `linux/` checkout's hardware catalogue by
   part, category, interface, unit or domain (it runs that checkout's
   search script, so it is drive-tier like `check_driver`). Both run a file

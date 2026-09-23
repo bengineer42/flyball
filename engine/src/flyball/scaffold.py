@@ -1,7 +1,7 @@
 """A starting point for a device driver of your own: `flyball new NAME`.
 
 The template is a complete module that imports, schema-checks and registers
-a tag, so the generated file works in a rig file before a line is changed.
+a type, so the generated file works in a rig file before a line is changed.
 """
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ __all__ = ["render", "write"]
 
 _DEVICE = Template('''"""${Title}: a device driver built for this rig.
 
-Registered as `driver: "${tag}"`, so a rig file can declare one:
+Registered as `driver: "${type}"`, so a rig file can declare one:
 
     devices:
       ${name}:
-        driver: ${tag}
+        driver: ${type}
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ class ${Title}(Readable):
         self.value.push(0.0)
 
 
-class ${Title}Config(DriverConfig[${Title}], tag="${tag}"):
-    """The rig-file entry: `driver: ${tag}` (flat) or its settings under `config:` (layered)."""
+class ${Title}Config(DriverConfig[${Title}], type="${type}"):
+    """The rig-file entry: `driver: ${type}` (flat) or its settings under `config:` (layered)."""
 
     def build(self, name: str, label: str | None = None) -> ${Title}:
         return ${Title}(name, label)
@@ -61,10 +61,10 @@ def _identifier(name: str) -> str:
 
 
 def render(name: str) -> str:
-    """The module text for a device driver called `name`: the tag is `name`, the class CamelCase."""
+    """The module text for a driver called `name`: the type is `name`, the class CamelCase."""
     snake = _identifier(name)
     title = "".join(part.capitalize() for part in snake.split("_"))
-    return _DEVICE.substitute(Title=title, tag=snake, name=snake)
+    return _DEVICE.substitute(Title=title, type=snake, name=snake)
 
 
 def write(name: str, directory: str | Path = ".") -> Path:

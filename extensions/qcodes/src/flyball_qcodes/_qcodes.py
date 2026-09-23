@@ -187,7 +187,7 @@ class QCoDeS(Readable, Committable):
         self._parameters[signal.name].set(value)
 
 
-class QCoDeSConfig(DriverConfig[QCoDeS], tag="qcodes"):
+class QCoDeSConfig(DriverConfig[QCoDeS], type="qcodes"):
     """`driver: qcodes`. `channels` is the driver's own tree -- see `QCoDeSSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is

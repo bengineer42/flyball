@@ -165,10 +165,10 @@ function walk(segments: string[], node: unknown): unknown {
   return walk(rest, record[head]);
 }
 
-/** `feedforward(setpoint)`: the demand, in the target's unit, the feedforward asks for at `setpoint`. Null for a tag this client does not know. */
+/** `feedforward(setpoint)`: the demand, in the target's unit, the feedforward asks for at `setpoint`. Null for a type this client does not know. */
 export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined, setpoint: number): number | null {
   if (!feedforward) return setpoint;
-  switch (feedforward.tag) {
+  switch (feedforward.type) {
     case "setpoint":
       return setpoint;
     case "none":
@@ -201,7 +201,7 @@ export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined,
  */
 export function invertFeedforward(feedforward: FeedforwardConfig | null | undefined, base: number): number | null {
   if (!feedforward) return base;
-  switch (feedforward.tag) {
+  switch (feedforward.type) {
     case "setpoint":
       return base;
     case "none":
@@ -242,9 +242,9 @@ export function setpointOf(controller: Pick<ControllerOut, "reference" | "output
   return null;
 }
 
-/** `set_flows` → `Set flows`, `wetFraction` → `Wet fraction`. For headings; the tag stays the identifier. */
-export function humanise(tag: string): string {
-  const words = tag.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+/** `set_flows` → `Set flows`, `wetFraction` → `Wet fraction`. For headings; the name stays the identifier. */
+export function humanise(name: string): string {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
@@ -314,13 +314,13 @@ export function describeStateKey(key: string): { label: string; hint?: string } 
 }
 
 /**
- * A device, link or plant tag as words: the Python class name the server
- * puts in `DeviceOut.type` / `DeviceSchema.type` (`SimDaq`), or a rig
- * file's `driver:` / link `kind:` tag (`sim_daq`, `sim_furnace`). From the
- * device classes under `flyball/{sim,devices,integrations}` and the tags
- * registered there; unknown tags fall through to `humanise`.
+ * A device, link or plant type as words: the Python class name the server
+ * puts in `DeviceOut.class_name` / `DeviceSchema.class_name` (`SimDaq`), or a rig
+ * file's `driver:` / link `type:` (`sim_daq`, `sim_furnace`). From the
+ * device classes under `flyball/{sim,devices,integrations}` and the types
+ * registered there; unknown types fall through to `humanise`.
  */
-const DEVICE_TAGS: Record<string, string> = {
+const DEVICE_TYPES: Record<string, string> = {
   SimDaq: "Simulated DAQ",
   SimDrive: "Simulated drive",
   Modbus: "Modbus device",
@@ -343,8 +343,8 @@ const DEVICE_TAGS: Record<string, string> = {
   fake_text: "Fake text link",
 };
 
-export function describeDevice(tag: string): string {
-  return DEVICE_TAGS[tag] ?? humanise(tag);
+export function describeDevice(type: string): string {
+  return DEVICE_TYPES[type] ?? humanise(type);
 }
 
 /** A signal's display name: its `label`, or its `name` humanised when the driver gave none. */

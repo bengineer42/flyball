@@ -32,7 +32,7 @@ import { useRecordingExports } from "../model.js";
 import { Confirm } from "../Confirm.js";
 import { Crumbs } from "./Inputs.js";
 import { PageBar } from "../PageBar.js";
-import { deviceDrivers, linkKinds, withLinkSelect, TAG_HIDDEN } from "../rigForms.js";
+import { deviceDrivers, linkKinds, withLinkSelect, TYPE_HIDDEN } from "../rigForms.js";
 import type { ChartSettings } from "../YScaleSelect.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
@@ -79,7 +79,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
   const [error, setError] = useState<string | null>(null);
 
   const drivers = useMemo(() => (schema ? deviceDrivers(schema) : []), [schema]);
-  const chosen = drivers.find((d) => d.tag === driver);
+  const chosen = drivers.find((d) => d.type === driver);
   const formSchema = useMemo(
     () => (schema && chosen ? { ...withLinkSelect(chosen.configSchema, schema, linkNames), $defs: schema.$defs } : undefined),
     [schema, chosen, linkNames],
@@ -126,8 +126,8 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
             <InputLabel id="device-driver-label">driver</InputLabel>
             <Select labelId="device-driver-label" label="driver" value={driver} onChange={(e) => { setDriver(e.target.value); setConfig({}); }} data-testid="device-driver">
               {drivers.map((d) => (
-                <MenuItem key={d.tag} value={d.tag} title={d.configSchema.description}>
-                  {describeDevice(d.tag)}
+                <MenuItem key={d.type} value={d.type} title={d.configSchema.description}>
+                  {describeDevice(d.type)}
                 </MenuItem>
               ))}
             </Select>
@@ -168,21 +168,21 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
 }
 
 /** Name, a link kind from the rig schema, and that kind's config as a form. */
-function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; onClose(): void; onCreated(link: { name: string; tag: string }): void }) {
+function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; onClose(): void; onCreated(link: { name: string; type: string }): void }) {
   const rig = useRig();
   const [name, setName] = useState("");
-  const [tag, setTag] = useState("");
+  const [type, setType] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const kinds = useMemo(() => (schema ? linkKinds(schema) : []), [schema]);
-  const chosen = kinds.find((k) => k.tag === tag);
+  const chosen = kinds.find((k) => k.type === type);
   const formSchema = useMemo(() => (schema && chosen ? { ...chosen.configSchema, $defs: schema.$defs } : undefined), [schema, chosen]);
 
   const reset = () => {
     setName("");
-    setTag("");
+    setType("");
     setConfig({});
     setError(null);
   };
@@ -191,9 +191,9 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
     setBusy(true);
     setError(null);
     try {
-      const link = await rig.addLink({ ...config, name: name.trim(), tag });
+      const link = await rig.addLink({ ...config, name: name.trim(), type });
       reset();
-      onCreated({ name: link.name, tag: String(link.tag) });
+      onCreated({ name: link.name, type: String(link.type) });
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -201,7 +201,7 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
     }
   };
 
-  const canCreate = name.trim() !== "" && tag !== "" && !busy;
+  const canCreate = name.trim() !== "" && type !== "" && !busy;
 
   return (
     <Dialog open={open} onClose={() => (busy ? undefined : (reset(), onClose()))} fullWidth maxWidth="sm">
@@ -210,11 +210,11 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           <TextField label="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus fullWidth inputProps={{ "data-testid": "link-name" }} />
           <FormControl fullWidth>
-            <InputLabel id="link-tag-label">kind</InputLabel>
-            <Select labelId="link-tag-label" label="kind" value={tag} onChange={(e) => { setTag(e.target.value); setConfig({}); }} data-testid="link-tag">
+            <InputLabel id="link-type-label">kind</InputLabel>
+            <Select labelId="link-type-label" label="kind" value={type} onChange={(e) => { setType(e.target.value); setConfig({}); }} data-testid="link-type">
               {kinds.map((k) => (
-                <MenuItem key={k.tag} value={k.tag} title={k.configSchema.description}>
-                  {k.tag}
+                <MenuItem key={k.type} value={k.type} title={k.configSchema.description}>
+                  {k.type}
                 </MenuItem>
               ))}
             </Select>
@@ -227,7 +227,7 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
           )}
           {formSchema && (
             <Box data-testid="link-config-form">
-              <SchemaForm schema={formSchema} value={config} onChange={setConfig} uiSchema={TAG_HIDDEN} form={MuiForm} idPrefix="new-link" />
+              <SchemaForm schema={formSchema} value={config} onChange={setConfig} uiSchema={TYPE_HIDDEN} form={MuiForm} idPrefix="new-link" />
             </Box>
           )}
         </Stack>
@@ -249,7 +249,7 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
   );
 }
 
-/** The rig's links, name and tag, each with a remove button (409 while a device is built on it). */
+/** The rig's links, name and type, each with a remove button (409 while a device is built on it). */
 export function LinksSection({ document, schema, showAdd = true }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; showAdd?: boolean }) {
   const rig = useRig();
   const [adding, setAdding] = useState(false);
@@ -296,7 +296,7 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
           {links.map(([name, entry]) => (
             <Chip
               key={name}
-              label={`${name} · ${String(entry.tag)}`}
+              label={`${name} · ${String(entry.type)}`}
               variant="outlined"
               onDelete={() => setRemoving(name)}
               data-testid={`link-${name}`}
@@ -440,7 +440,7 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
   const commands = useCommands(name);
   const stored = useRecordingExports();
   const { controllers } = useControllers();
-  const tags = useMemo(() => Object.entries(schema.data?.commands ?? {}).filter(([, c]) => !c.simulation).map(([tag]) => tag), [schema.data]);
+  const commandNames = useMemo(() => Object.entries(schema.data?.commands ?? {}).filter(([, c]) => !c.simulation).map(([command]) => command), [schema.data]);
   if (!device) return <Alert severity="warning">No device named {name}.</Alert>;
   const drives = Object.values(controllers).filter((c) => deviceOf(c.output_signal) === name);
   const regulates = Object.values(controllers).filter((c) => deviceOf(c.measured_signal) === name && deviceOf(c.output_signal) !== name);
@@ -456,9 +456,9 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
             <DevicePanel
               device={device}
               schema={schema.data}
-              commands={tags}
+              commands={commandNames}
               form={MuiForm}
-              onRun={(tag, args) => commands.run(tag, args).catch(() => undefined)}
+              onRun={(command, args) => commands.run(command, args).catch(() => undefined)}
               onRestart={() => rig.restartDevice(name)}
               busy={commands.busy}
               results={commands.results}

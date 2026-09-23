@@ -115,7 +115,7 @@ class Sht31(Readable):
         yield self.sample(time_ns, humidity=humidity, temperature=temperature)
 
 
-class Sht31Config(DriverConfig[Sht31], tag="sht31"):
+class Sht31Config(DriverConfig[Sht31], type="sht31"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

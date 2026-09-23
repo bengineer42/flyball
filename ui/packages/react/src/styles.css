@@ -316,7 +316,7 @@
 .fb-loop-law { margin: 0.4rem 0 0; }
 .fb-loop-law h4 { margin: 0.6rem 0 0; display: flex; align-items: baseline; gap: 0.5rem; }
 .fb-loop-law .fb-state { margin: 0.3rem 0 0; }
-/* Law/feedforward, one line each (no `<details>`): the tag, then every field abbreviated with its
+/* Law/feedforward, one line each (no `<details>`): the type, then every field abbreviated with its
    full name on a hover hint (`title`) rather than spelled out and crowding the line. */
 .fb-loop-law-line { margin: 0.3rem 0 0; font-size: 0.85em; color: var(--fb-fg-2); }
 .fb-loop-law-line .fb-tag { color: var(--fb-fg); }

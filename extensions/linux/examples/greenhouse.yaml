@@ -40,5 +40,5 @@ devices:
 controllers:
   heater.drive:
     measured: air.temperature
-    law: { tag: PI, kp: 0.5, ki: 0.01 }
+    law: { type: PI, kp: 0.5, ki: 0.01 }
     default: true

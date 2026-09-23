@@ -148,11 +148,11 @@ transaction begun inside another under the same error; `detail` says which.
 | `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
-| `GET` | `/api/tunings` | `{tag: LawConfig}` |
-| `GET` | `/api/tunings/{tag}` | `LawConfig` |
-| `PUT` | `/api/tunings/{tag}` | body `LawConfig`; replaces the tuning on the live rig |
+| `GET` | `/api/tunings` | `{name: LawConfig}` |
+| `GET` | `/api/tunings/{name}` | `LawConfig` |
+| `PUT` | `/api/tunings/{name}` | body `LawConfig`; replaces the tuning on the live rig |
 
-A `LawConfig` is `{tag, ...gains}`, e.g. `{"tag": "PI", "kp": 0.5, "ki": 0.05, "tt": 0}`.
+A `LawConfig` is `{type, ...gains}`, e.g. `{"type": "PI", "kp": 0.5, "ki": 0.05, "tt": 0}`.
 
 ### Composition
 
@@ -168,7 +168,7 @@ saving are never gated.
 | `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
 | `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); of `runner:` only what a reader needs -- `host`, `port`, `log_level`, `compose`, `mcp`, `root_path`, `allow_save`, `allow_shutdown`, the retention keys, `auth.anonymous`, and `front`'s `listen`, `auth`, `url` and `anonymous`. No credential (`auth.token`, `front.password`), no path (`store`, `drivers`, `front.tls`, ...), none of `front.proxy` or `front.trusted_proxies` |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
-| `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
+| `POST` | `/api/links` | body `{name, type, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
 | `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
 | `POST` | `/api/devices` | body the file's device envelope with its `name` (`driver`, `config` or flat settings, `label`, `poll_s`, `signals`, `bound`); 201 `DeviceOut`, bound, polled and recorded; 409 name taken; 404 unknown link or bound address; 422 unknown driver or a config it refuses |
 | `DELETE` | `/api/devices/{name}` | 204; its poll stops, controllers on it are detached, inputs bound into it unbound |
@@ -178,7 +178,7 @@ saving are never gated.
 | `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files, parent, head}]`, newest first; `?limit=`. `parent`: the version this was made from (the head when it was saved; `null` for a first); `head`: whether the running rig is at it |
 | `GET` | `/api/rig/versions/{id}` | the same with `document` |
 | `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}`; a `rig`/`versions`/`restored` event marks it on the event stream |
-| `GET` | `/api/drivers` | every registered tag: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
+| `GET` | `/api/drivers` | every registered type: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
 | `POST` | `/api/probe` | `{report}`: the board's buses, GPIO chips and I²C addresses (flyball-linux); `?scan=false` for the list without a bus transaction; 404 where it is not installed. A `POST` because a scan drives every I²C bus |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
@@ -194,16 +194,16 @@ lists them all with their signal trees.
 | `GET` | `/api/devices` | `[DeviceOut]` |
 | `GET` | `/api/devices/{name}` | `DeviceOut`; 404 if no device has that name |
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
-| `POST` | `/api/devices/{name}/commands/{tag}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline device restarts its polling |
+| `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline device restarts its polling |
 | `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut` |
 | `PUT` | `/api/devices/{name}/write` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one atomic write, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal write; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
 
-A `DeviceOut` is `{name, label, kind, driver, type, link, poll_s, signals,
+A `DeviceOut` is `{name, label, kind, driver, class_name, link, poll_s, signals,
 commands, inputs, readable, writable, conditions, run}`: `kind` is
 `device`, or `simulation` for an application's own simulation device (see
-[Simulation](#simulation)), `driver` the rig file's tag (null for a device
-built in code), `type` the class, `link` the rig file's name for the link
+[Simulation](#simulation)), `driver` the rig file's `driver:` (null for a device
+built in code), `class_name` its Python class, `link` the rig file's name for the link
 it was built on (or null), `signals` the tree, `commands` `[CommandOut]`,
 `inputs` `{role: InputOut}` — what the device follows, and what is bound to
 it — `readable`/`writable` whether it implements `read`/`commit`,
@@ -234,13 +234,13 @@ controller into manual and run anyway, `demand_of` the path of the demand
 it sets for a synthesised `set_<name>`, and `links` `{argument: demand
 path}` for every argument that is a value for a demand.
 
-`GET /api/devices/{name}/schema` returns `{name, label, type, driver,
+`GET /api/devices/{name}/schema` returns `{name, label, class_name, driver,
 description, readable, writable, config, signals, inputs, commands}`:
 `config` a JSON Schema for the driver's config, `signals` `{path: {address,
 access, role, tags, label, quantity, unit, dimension, dtype, value, range,
 precision, limits}}` by path relative to the device (`value` a JSON Schema
 for the signal's own type), `inputs` `{role: {label, quantity, unit,
-bound}}`, and `commands` `{tag: {description, arguments, simulation,
+bound}}`, and `commands` `{command: {description, arguments, simulation,
 commit, mode, interrupts, demand_of}}` — `arguments` a JSON Schema whose
 properties linked to a demand also carry `x-signal`, `unit` and
 `minimum`/`maximum` from that signal's effective limits.
@@ -263,10 +263,10 @@ is named by its output's address.
 | `GET` | `/api/controllers` | `[ControllerOut]` |
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
-| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every published signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `tag`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
+| `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every published signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `type`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
 | `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, default?, min_period_s?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
 | `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the output holds its last value; manual demands may drive it again |
-| `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{tag, ...its own arguments}`, e.g. `{tag: "linear_ramp_setpoint", pace, end}`, discriminated by `tag` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
+| `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{type, ...its own arguments}`, e.g. `{type: "linear_ramp_setpoint", pace, end}`, discriminated by `type` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
 | `POST` | `/api/controllers/{address}/manual` | stop regulating; the output keeps its last value |
 | `PUT` | `/api/controllers/{address}/setpoint` | `{at, start?}`; move the setpoint, or start following a generator spec (as `regulate` takes, with the same `start`), without touching the mode |
 
@@ -274,22 +274,22 @@ A `ControllerOut` is `{name, label, output_signal, measured_signal,
 default, mode, law, feedforward, output_unit, reference, setpoint, arrived,
 correction, output, expected, delivered_correction, measured}`: `name` is
 `output_signal`, the output's address, and `measured_signal` the measured
-signal's; `label` the output signal's; `reference` is a number or, mid-trajectory, `{tag,
+signal's; `label` the output signal's; `reference` is a number or, mid-trajectory, `{type,
 ...the generator's own arguments, end_time?}` (`end_time` in seconds from
 the rig's start, once started and unless endless), `setpoint` the value it
 resolved to at the last tick (in the measured unit), `arrived` whether the
 reference has landed (a number has; a generator once it finishes, judged
 in rig time), and `output`, `expected` and `correction` are in
-`output_unit` -- the output signal's unit, which the `feedforward` (`{tag:
+`output_unit` -- the output signal's unit, which the `feedforward` (`{type:
 setpoint | none | affine | table, ...}`, `affine`/`table` taking an
 optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
 `measured` is the measured signal's reading at the last tick, `{signal,
 time_ns, value}`. The faceplate reads Measured / Setpoint / Output from
 `measured`, `setpoint` and `output`.
 
-The generators, by `tag`:
+The generators, by `type`:
 
-| tag | arguments | on the wire once started |
+| type | arguments | on the wire once started |
 |---|---|---|
 | `linear_ramp_setpoint` | `pace` (a rate, `{per_minute: 10}`, or a duration for the whole walk), `end` | `end_time`; starts from the current setpoint or reading and walks to `end`, so a ramp to where it already is finishes at once; a descending ramp's rate is negative |
 | `dwell` | `value`, `duration?` | `end_time` when it has a duration; without one it never finishes |

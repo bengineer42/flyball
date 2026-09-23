@@ -308,7 +308,7 @@ class SqliteSessionWriter:
                     self._session.id,
                     did,
                     device.name,
-                    config.config_tag or type(device).__name__,
+                    config.type_name or type(device).__name__,
                     _dumps(_config_json(device)),
                     device.label,
                 ),
@@ -358,7 +358,7 @@ class SqliteSessionWriter:
                     (
                         self._session.id,
                         sid,
-                        signal.device.config.config_tag or type(signal.device).__name__,
+                        signal.device.config.type_name or type(signal.device).__name__,
                         _dumps(signal.limits),
                     ),
                 )

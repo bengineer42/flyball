@@ -939,7 +939,7 @@ class Rig:
             self.on_change(reason)
 
     def add_link(self, name: str, config: Any) -> Any:
-        """Build a link from its config (a tagged `Config`) and hold it under `name`.
+        """Build a link from its config (a typed `Config`) and hold it under `name`.
 
         Raises:
             ConflictError: The name is already a link's.
@@ -1082,7 +1082,7 @@ class Rig:
                     law=c.law.config if c.law is not None else None,
                     # The file's default: the setpoint itself. Left out, as a file would.
                     feedforward=None
-                    if c.feedforward.config.tag == "setpoint"
+                    if c.feedforward.config.type == "setpoint"
                     else c.feedforward.config,
                     default=self.controllers.default == name,
                     min_period_s=c.min_period_s,
@@ -1091,7 +1091,7 @@ class Rig:
             }
             links = {
                 name: {
-                    "tag": link.config_tag,
+                    "type": link.type_name,
                     **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
                 }
                 for name, link in self.link_entries.items()
@@ -1110,20 +1110,22 @@ class Rig:
         document["links"] = links
         for key in ("devices", "controllers"):
             document.setdefault(key, {})
-        for name, entry in controllers.items():  # a tag is a default too; the file needs it
+        for name, entry in controllers.items():  # a type is a default too; the file needs it
             rendered = document["controllers"][name]
             if entry.law is not None:
-                rendered.setdefault("law", {})["tag"] = entry.law.tag
+                rendered.setdefault("law", {})["type"] = entry.law.type
             if entry.feedforward is not None:
-                rendered.setdefault("feedforward", {})["tag"] = entry.feedforward.tag
+                rendered.setdefault("feedforward", {})["type"] = entry.feedforward.type
         return document
 
     # endregion
 
     # region Commands
 
-    def run_command(self, device: Device, tag: str, args: Mapping[str, Any] | None = None) -> Any:
-        """Run `device`'s command `tag` with `args`, as the rig: linked, clamped, owned, recorded.
+    def run_command(
+        self, device: Device, command: str, args: Mapping[str, Any] | None = None
+    ) -> Any:
+        """Run `device`'s `command` with `args`, as the rig: linked, clamped, owned, recorded.
 
         An argument that is a value for a demand (`Annotated[..., d]`) is filled from
         that demand's current value when left out, and clamped to the
@@ -1136,7 +1138,7 @@ class Rig:
         device's `mode` output (if it has one) becomes the command's, a
         `commit=True` command commits the device, each linked demand the
         driver did not push gets its argument as its reading, and
-        `last.<tag>` records what ran. Returns what the method returned.
+        `last.<command>` records what ran. Returns what the method returned.
 
         Raises:
             NotFoundError: No such command.
@@ -1149,9 +1151,9 @@ class Rig:
                 resolve inverted now: refused.
         """
         try:
-            spec = device.commands[tag]
+            spec = device.commands[command]
         except KeyError as e:
-            raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
+            raise NotFoundError(f"{device.name!r} has no command {command!r}") from e
         given = dict(args or {})
         if spec.demand_of is not None:
             signal = device.signals[spec.demand_of]
@@ -1177,7 +1179,7 @@ class Rig:
                     if not spec.interrupts:
                         raise ConflictError(
                             f"'{signal.address}' is driven by controller {holder.name!r}:"
-                            f" {tag!r} would fight it; put it in manual, or detach it"
+                            f" {command!r} would fight it; put it in manual, or detach it"
                         )
                     holder.manual()
                     self.event(
@@ -1185,7 +1187,7 @@ class Rig:
                         Scope.CONTROLLER,
                         holder.name,
                         Kind.INTERRUPTED,
-                        f"put in manual by {device.name}.{tag}",
+                        f"put in manual by {device.name}.{command}",
                     )
                     if self.controller_states.watched:
                         self.controller_states.set(holder.name, holder.state)
@@ -1201,7 +1203,7 @@ class Rig:
                 for name, signal in linked.items():
                     if self.router.seq.get(signal, 0) == before.get(signal, 0):  # no readback
                         signal.push(given[name], time_ns)
-                if (last := device.signals.get(f"last.{tag}")) is not None:
+                if (last := device.signals.get(f"last.{command}")) is not None:
                     last.push({"args": given, "at": time_ns}, time_ns)
                 if spec.commit:
                     if outer is not None:
@@ -1238,7 +1240,7 @@ class Rig:
             measured: The P signal regulated.
             law: The control law, a config, or a stored tuning's name.
             feedforward: What maps the setpoint to a value in the output's
-                unit: an instance, a config, or a tag. Default: the setpoint
+                unit: an instance, a config, or a type. Default: the setpoint
                 itself when the units agree, else none.
             default: Make this the controller commands address when they name none.
             min_period_s: Step the law at most this often.

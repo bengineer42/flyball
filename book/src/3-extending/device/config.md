@@ -27,25 +27,25 @@ Configs hold real defaults rather than `None` sentinels, so a serialised
 config records what the rig actually did. `model_dump(exclude_unset=True)`
 recovers what the user wrote when that is what is wanted.
 
-## Tags and unions
+## Types and unions
 
 Where a field admits several implementations — a pump driver, an instrument
-link — each config declares a `tag`, and `Config.union` gives the
+link — each config declares a `type`, and `Config.union` gives the
 discriminated union a file validates against:
 
 ```python
-class SerialLink(Config[Link], tag="serial"): ...
-class VisaLink(Config[Link], tag="visa"): ...
+class SerialLink(Config[Link], type="serial"): ...
+class VisaLink(Config[Link], type="visa"): ...
 
 class InstrumentConfig(DriverConfig["Instrument"]):
     link: Config.union(SerialLink, VisaLink)
 ```
 
-A file then says `link: {tag: visa, address: "GPIB0::12"}`, and the schema
-says exactly which fields follow `tag: visa`. Tags are one namespace across
+A file then says `link: {type: visa, address: "GPIB0::12"}`, and the schema
+says exactly which fields follow `type: visa`. Types are one namespace per kind across
 the process — a [Catalog][flyball.model.catalog.Catalog] per kind, held in
-[Catalogs][flyball.model.catalog.Catalogs] — so `driver:`, a link's `kind:`,
-a law's `kind:` and a program step's tag each collision-check against their
+[Catalogs][flyball.model.catalog.Catalogs] — so `driver:`, a link's `type:`,
+a law's `type:` and a program step's key each collision-check against their
 own catalog, explicitly, through a `register(catalog)` entry point rather
 than as a side effect of importing the module.
 
@@ -54,7 +54,7 @@ than as a side effect of importing the module.
 `driver label poll_s signals bound config` belong to the rig file's
 envelope, the same for every driver (§1.5 of the plan). A `DriverConfig`
 subclass may not declare a field with one of those names — checked at
-import, the same way a duplicate tag is — so a driver's own settings mean
+import, the same way a duplicate type is — so a driver's own settings mean
 the same thing whether they sit flat beside the envelope or nested under
 `config:`:
 
@@ -86,9 +86,9 @@ That is what lets the same constructor serve code and files.
 
 ## In a rig file
 
-A `DriverConfig` with a `tag` is what a rig file's `devices:` section names.
+A `DriverConfig` with a `type` is what a rig file's `devices:` section names.
 `flyball.runtime.config` validates a file's `links`, `devices` and
-`controllers` against the tag registries and builds the rig — see
+`controllers` against the catalogs and builds the rig — see
 [Rig file schema](../../7-reference/rig-file.md) for every field and
 [Assembling a rig](../rig.md#from-a-file) for loading one.
 

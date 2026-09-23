@@ -67,7 +67,7 @@ func TestCheckSingleDefaultController_oneIsFine(t *testing.T) {
 func TestCheckClockOnlySimulated(t *testing.T) {
 	doc := map[string]any{
 		"clock": map[string]any{"speed": 2.0},
-		"links": map[string]any{"bus": map[string]any{"tag": "serial"}},
+		"links": map[string]any{"bus": map[string]any{"type": "serial"}},
 	}
 	err := CheckBusinessRules(doc)
 	if err == nil {
@@ -76,20 +76,20 @@ func TestCheckClockOnlySimulated(t *testing.T) {
 }
 
 func TestCheckClockOnlySimulated_simIsFine(t *testing.T) {
-	for _, tag := range []string{"sim_plant", "fake_registers"} {
+	for _, typ := range []string{"sim_plant", "fake_registers"} {
 		doc := map[string]any{
 			"clock": map[string]any{"speed": 2.0},
-			"links": map[string]any{"bus": map[string]any{"tag": tag}},
+			"links": map[string]any{"bus": map[string]any{"type": typ}},
 		}
 		if err := CheckBusinessRules(doc); err != nil {
-			t.Fatalf("tag %s: expected no error, got %v", tag, err)
+			t.Fatalf("type %s: expected no error, got %v", typ, err)
 		}
 	}
 }
 
 func TestCheckClockOnlySimulated_noClockIsFine(t *testing.T) {
 	doc := map[string]any{
-		"links": map[string]any{"bus": map[string]any{"tag": "serial"}},
+		"links": map[string]any{"bus": map[string]any{"type": "serial"}},
 	}
 	if err := CheckBusinessRules(doc); err != nil {
 		t.Fatalf("expected no error, got %v", err)

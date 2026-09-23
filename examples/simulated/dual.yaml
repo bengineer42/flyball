@@ -8,7 +8,7 @@ name: dual
 
 links:
   chamber:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 60.0
     dead_s: 5.0
@@ -18,7 +18,7 @@ links:
     noise: 0.05
     seed: 1
   tank:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 2.0
     leak: 0.05
@@ -66,8 +66,8 @@ devices:
 controllers:
   heater.drive:
     measured: dual_temp.temperature
-    law: { tag: PI, kp: 0.02, ki: 0.0005 }
+    law: { type: PI, kp: 0.02, ki: 0.0005 }
     default: true
   valve.drive:
     measured: dual_level.volume
-    law: { tag: PI, kp: 0.05, ki: 0.01 }
+    law: { type: PI, kp: 0.05, ki: 0.01 }

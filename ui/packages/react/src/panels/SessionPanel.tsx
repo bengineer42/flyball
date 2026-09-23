@@ -11,7 +11,7 @@ import { useVisible } from "../hooks/useVisible.js";
 /** A device's recorded config, if any, as a plain object minus what the row already says. */
 function deviceConfig(config: unknown): { label: string | null; rest: Record<string, unknown> } {
   if (!config || typeof config !== "object") return { label: null, rest: {} };
-  const { label, tag: _tag, name: _name, driver: _driver, ...rest } = config as Record<string, unknown>;
+  const { label, type: _type, name: _name, driver: _driver, ...rest } = config as Record<string, unknown>;
   return { label: typeof label === "string" ? label : null, rest };
 }
 
@@ -56,15 +56,15 @@ function asSignal(row: SignalRow): SignalOut {
   };
 }
 
-/** A law config (`{tag, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
-function lawSummary(config: unknown): { tag: string | null; gains: string } {
-  if (!config || typeof config !== "object") return { tag: null, gains: "" };
-  const { tag, ...gains } = config as Record<string, unknown>;
+/** A law config (`{type, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
+function lawSummary(config: unknown): { type: string | null; gains: string } {
+  if (!config || typeof config !== "object") return { type: null, gains: "" };
+  const { type, ...gains } = config as Record<string, unknown>;
   const gains_ = Object.entries(gains)
     .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
     .map(([k, v]) => `${k} ${String(v)}${k === "tt" ? " s" : ""}`)
     .join(" · ");
-  return { tag: typeof tag === "string" ? tag : null, gains: gains_ };
+  return { type: typeof type === "string" ? type : null, gains: gains_ };
 }
 
 /** `recorder.py`'s `event()` wraps the level, scope and message around the emitter's own `details`. */
@@ -478,7 +478,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               </div>
             ))}
             {controllers.map((c) => {
-              const { tag, gains } = lawSummary(c.law);
+              const { type, gains } = lawSummary(c.law);
               return (
                 <div key={c.name} className="fb-state-row">
                   <dt>
@@ -487,7 +487,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                   </dt>
                   <dd>
                     <Ref kind="signal" name={c.measured} /> → <Ref kind="signal" name={c.name} />
-                    {tag && <> · <span className="fb-tag">{tag}</span></>}
+                    {type && <> · <span className="fb-tag">{type}</span></>}
                     {gains && <span className="fb-muted"> · {gains}</span>}
                   </dd>
                 </div>

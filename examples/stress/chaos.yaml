@@ -15,7 +15,7 @@ clock: { speed: 60 }
 
 links:
   tube:
-    tag: sim_furnace
+    type: sim_furnace
     zones: 6
     power_w: [800, 1000, 1200, 1000, 900, 700]
     capacity_j_per_k: [300, 320, 350, 320, 300, 280]
@@ -77,26 +77,26 @@ devices:
 controllers:
   heaters.heater1:
     measured: furnace.zone1
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
     default: true
   heaters.heater2:
     measured: furnace.zone2
-    law: { tag: PID, kp: 800, ki: 5, kd: 0 }
-    feedforward: { tag: none }
+    law: { type: PID, kp: 800, ki: 5, kd: 0 }
+    feedforward: { type: none }
   heaters.heater3:
     measured: furnace.zone3
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
   heaters.heater4:
     measured: furnace.zone4
-    law: { tag: P, kp: 150 }
-    feedforward: { tag: affine, gain: 2.0, bias: 50 }
+    law: { type: P, kp: 150 }
+    feedforward: { type: affine, gain: 2.0, bias: 50 }
   heaters.heater5:
     measured: furnace.zone5
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: none }
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: none }
   heaters.heater6:
     measured: furnace.zone6
-    law: { tag: open_loop }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    law: { type: open_loop }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }

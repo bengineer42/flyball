@@ -111,7 +111,7 @@ name: oven
 
 links:
   chamber:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt          # renamed from `kind`, so it doesn't read as the link's own discriminator
     tau_s: 60.0            # the oven takes about a minute to respond
     dead_s: 5.0             # ... and five seconds before it starts to
@@ -143,13 +143,13 @@ devices:
 controllers:
   heater.drive:
     measured: thermocouple.temperature
-    law: { tag: PI, kp: 0.02, ki: 0.0005 }
+    law: { type: PI, kp: 0.02, ki: 0.0005 }
     default: true
 ```
 
 `sim_plant`'s own field for which model it is (`lag`, `integrator`, `fopdt`)
 is `model:`, not `kind:` — freeing `kind` from meaning two different things
-(the link's own `tag: sim_plant` is the discriminator flyball reads; `model`
+(the link's own `type: sim_plant` is the discriminator flyball reads; `model`
 is one of `sim_plant`'s own parameters). `heater`'s port is declared
 `demand: output`: a demand is the temperature to hold, in °C, and `commit()`
 inverts the plant's static model to find the drive fraction, rather than
@@ -222,7 +222,7 @@ devices ask, so the zones stay consistent whatever order they are read in:
 # examples/furnace/rig.yaml
 links:
   tube:
-    tag: sim_furnace
+    type: sim_furnace
     zones: 3
     power_w: [2500, 6000, 2000]
     coupling_w_per_k: 5.0
@@ -245,7 +245,7 @@ devices:
 your own with more than one port: implement the `MultiPlant` protocol
 (`inputs`, `output_names`, `output(port)`, `advance(time_ns)`,
 `feedforward(port, demand)`, `inverse_feedforward(port, drive)`) and a
-`Config` with `retune`, in a package of your own -- registering its tag
+`Config` with `retune`, in a package of your own -- registering its type
 through the `flyball.configs` entry point, the way `examples/furnace`'s
 `pyproject.toml` registers `sim_furnace` -- and `sim_daq`, `sim_drive`,
 `/api/sim` and `flyball sim` all work on it unchanged.
@@ -297,7 +297,7 @@ devices:
 links:
   i2c1: null                             # deletes the real link
   pwm0: null
-  chamber: { tag: sim_humidity_chamber, dry: 10.0, wet: 90.0, tau_s: 45.0, ... }
+  chamber: { type: sim_humidity_chamber, dry: 10.0, wet: 90.0, tau_s: 45.0, ... }
 devices:
   hum_sensors:
     driver: sim_daq

@@ -92,7 +92,7 @@ class MhZ19(Readable):
         yield self.sample(time_ns, co2=self.sensor.read())
 
 
-class MhZ19Config(DriverConfig[MhZ19], tag="mhz19"):
+class MhZ19Config(DriverConfig[MhZ19], type="mhz19"):
     """One MH-Z19(B) on its own UART port."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

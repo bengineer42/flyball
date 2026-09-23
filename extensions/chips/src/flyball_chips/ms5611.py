@@ -162,7 +162,7 @@ class Ms5611(Readable):
         yield self.sample(time_ns, pressure=pressure, temperature=temperature)
 
 
-class Ms5611Config(DriverConfig[Ms5611], tag="ms5611"):
+class Ms5611Config(DriverConfig[Ms5611], type="ms5611"):
     """One chip by its I2C address; `osr` trades conversion time for resolution."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

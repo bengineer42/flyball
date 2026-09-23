@@ -10,9 +10,9 @@
 name: mushroom-room
 
 links:
-  i2c1: { tag: i2c, bus: 1 }
-  fan_pwm: { tag: pwm, chip: 0 }
-  fogger_pwm: { tag: pwm, chip: 1 }
+  i2c1: { type: i2c, bus: 1 }
+  fan_pwm: { type: pwm, chip: 0 }
+  fogger_pwm: { type: pwm, chip: 1 }
 
 devices:
   climate:                                 # climate.chamber.humidity/temperature [RP]
@@ -59,10 +59,10 @@ devices:
 controllers:
   fogger.drive:
     measured: climate.chamber.humidity
-    law: { tag: PI, kp: 0.03, ki: 0.001 }
+    law: { type: PI, kp: 0.03, ki: 0.001 }
     default: true
 
   fan.drive:
     # more CO2 -> more fan, so this is reverse-acting like chiller.yaml's drive
     measured: co2.co2
-    law: { tag: PI, kp: -0.0002, ki: -0.000005 }
+    law: { type: PI, kp: -0.0002, ki: -0.000005 }

@@ -58,7 +58,7 @@ def test_an_explicit_no_beats_the_file(tmp_path, oven):
 
 def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
     bad = tmp_path / "bad.yaml"
-    bad.write_text("name: x\nlinks:\n  p: { tag: nope }\n")
+    bad.write_text("name: x\nlinks:\n  p: { type: nope }\n")
     assert runner.main([str(bad)]) == 2
     assert "nope" in capsys.readouterr().err
 
@@ -441,7 +441,7 @@ def test_a_restart_asked_over_the_api_execs_the_same_command_line(monkeypatch):
     assert deps.current_runner() is None
 
 
-SIM_LINK = {"tag": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
+SIM_LINK = {"type": "sim_plant", "model": "lag", "tau_s": 1.0, "gain": 1.0}
 
 
 def test_resume_follows_the_head_back_to_the_last_change(tmp_path):

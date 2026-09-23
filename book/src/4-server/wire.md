@@ -62,20 +62,20 @@ Kelvin against a °C signal converts before it reports.
 
 | type | JSON |
 | --- | --- |
-| `DeviceOut` | `{name, label, kind, driver, type, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
+| `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
 | `CommandOut` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
 | a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
 | `Condition` | `{"kind": str, "level": 10 \| 20 \| 30 \| 40, "message": str, "since_ns": int}` |
-| `DeviceSchema` (`GET .../schema`) | `{name, label, type, driver, description, readable, writable, config, signals, inputs, commands: {tag: {description, arguments, simulation, commit, mode, interrupts, demand_of}}}` |
+| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, demand_of}}}` |
 | a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
 
 ## Controllers and laws
 
 | type | JSON |
 | --- | --- |
-| a law config | `{"tag": "PI", "kp": 0.5, "ki": 0.05, "tt": 0.0}`; the union discriminates on `tag` |
+| a law config | `{"type": "PI", "kp": 0.5, "ki": 0.05, "tt": 0.0}`; the union discriminates on `type` |
 | a law view | the config plus the law's state fields (`integral`, `last_raw`, …) |
-| `Tuning` | `{"tag": name, "config": law config}` |
+| `Tuning` | `{"name": name, "config": law config}` |
 | `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured}` — `name` is `output_signal`; `measured` is a `ReadingOut`; see [Controllers](api.md#controllers) |
 | `mode` | `"manual"`, `"regulating"` (open loop is the `open_loop` law under `"regulating"`) |
 | `Transfer` | `"none"`, `"carry"`, `"track"`, `"cold"` |

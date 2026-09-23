@@ -3,10 +3,10 @@
     "AffineConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "affine",
           "default": "affine",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "gain": {
@@ -168,7 +168,7 @@
                   "sliding": "#/$defs/SlidingModeConfig",
                   "smith": "#/$defs/SmithPredictorConfig"
                 },
-                "propertyName": "tag"
+                "propertyName": "type"
               },
               "oneOf": [
                 {
@@ -217,7 +217,7 @@
                   "setpoint": "#/$defs/SetpointConfig",
                   "table": "#/$defs/TableConfig"
                 },
-                "propertyName": "tag"
+                "propertyName": "type"
               },
               "oneOf": [
                 {
@@ -308,7 +308,7 @@
     },
     "DeviceEntry": {
       "additionalProperties": false,
-      "description": "The envelope of one device in the rig file: flyball's keys, the same for every driver.\n\n`driver:` picks the driver's config model by tag; the driver's own\nsettings sit flat beside these keys or under `config`, and both parse to\nthe same thing. If `config` is present it is the whole of the driver\nconfig and any other leftover key is an error.",
+      "description": "The envelope of one device in the rig file: flyball's keys, the same for every driver.\n\n`driver:` picks the driver's config model by type; the driver's own\nsettings sit flat beside these keys or under `config`, and both parse to\nthe same thing. If `config` is present it is the whole of the driver\nconfig and any other leftover key is an error.",
       "properties": {
         "driver": {
           "title": "Driver",
@@ -381,10 +381,10 @@
           "title": "Levels",
           "type": "object"
         },
-        "tag": {
+        "type": {
           "const": "fake_gpio",
           "default": "fake_gpio",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -425,10 +425,10 @@
           "title": "Blocking",
           "type": "boolean"
         },
-        "tag": {
+        "type": {
           "const": "fake_i2c",
           "default": "fake_i2c",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -454,10 +454,10 @@
           "title": "Texts",
           "type": "object"
         },
-        "tag": {
+        "type": {
           "const": "fake_onewire",
           "default": "fake_onewire",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -466,10 +466,10 @@
     },
     "FakePwmConfigTagged": {
       "properties": {
-        "tag": {
+        "type": {
           "const": "fake_pwm",
           "default": "fake_pwm",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -491,10 +491,10 @@
           "title": "Blocking",
           "type": "boolean"
         },
-        "tag": {
+        "type": {
           "const": "fake_registers",
           "default": "fake_registers",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -513,10 +513,10 @@
           "title": "Replies",
           "type": "array"
         },
-        "tag": {
+        "type": {
           "const": "fake_spi",
           "default": "fake_spi",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -538,10 +538,10 @@
           "title": "Blocking",
           "type": "boolean"
         },
-        "tag": {
+        "type": {
           "const": "fake_text",
           "default": "fake_text",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -558,10 +558,10 @@
           "title": "Replies",
           "type": "array"
         },
-        "tag": {
+        "type": {
           "const": "fake_uart",
           "default": "fake_uart",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -806,10 +806,10 @@
           "live": "outputs.*",
           "title": "Initial C"
         },
-        "tag": {
+        "type": {
           "const": "sim_furnace",
           "default": "sim_furnace",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -823,10 +823,10 @@
           "title": "Chip",
           "type": "string"
         },
-        "tag": {
+        "type": {
           "const": "gpio",
           "default": "gpio",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -840,10 +840,10 @@
           "title": "Bus",
           "type": "integer"
         },
-        "tag": {
+        "type": {
           "const": "i2c",
           "default": "i2c",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -856,10 +856,10 @@
     "IMCConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "IMC",
           "default": "IMC",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "gain": {
@@ -928,10 +928,10 @@
           "title": "Baud",
           "type": "integer"
         },
-        "tag": {
+        "type": {
           "const": "modbus_rtu",
           "default": "modbus_rtu",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -958,10 +958,10 @@
           "title": "Timeout S",
           "type": "number"
         },
-        "tag": {
+        "type": {
           "const": "modbus_tcp",
           "default": "modbus_tcp",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1035,10 +1035,10 @@
     "NoFeedforwardConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "none",
           "default": "none",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1048,10 +1048,10 @@
     "OnOffConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "on_off",
           "default": "on_off",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "high": {
@@ -1082,10 +1082,10 @@
           "title": "Root",
           "type": "string"
         },
-        "tag": {
+        "type": {
           "const": "onewire",
           "default": "onewire",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1095,10 +1095,10 @@
     "OpenLoopConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "open_loop",
           "default": "open_loop",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1108,10 +1108,10 @@
     "PConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "P",
           "default": "P",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "kp": {
@@ -1128,10 +1128,10 @@
     "PIConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "PI",
           "default": "PI",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "kp": {
@@ -1161,10 +1161,10 @@
     "PIDConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "PID",
           "default": "PID",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "kp": {
@@ -1280,10 +1280,10 @@
           "default": null,
           "title": "Seed"
         },
-        "tag": {
+        "type": {
           "const": "sim_plant",
           "default": "sim_plant",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1455,10 +1455,10 @@
           "title": "Root",
           "type": "string"
         },
-        "tag": {
+        "type": {
           "const": "pwm",
           "default": "pwm",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1670,10 +1670,10 @@
     "ScheduledConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "scheduled",
           "default": "scheduled",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "points": {
@@ -1733,10 +1733,10 @@
           "title": "Timeout",
           "type": "number"
         },
-        "tag": {
+        "type": {
           "const": "uart",
           "default": "uart",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1767,10 +1767,10 @@
           "title": "Timeout S",
           "type": "number"
         },
-        "tag": {
+        "type": {
           "const": "serial",
           "default": "serial",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -1783,10 +1783,10 @@
     "SetpointConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "setpoint",
           "default": "setpoint",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -2004,10 +2004,10 @@
     "SlidingModeConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "sliding",
           "default": "sliding",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "k": {
@@ -2034,10 +2034,10 @@
     "SmithPredictorConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "smith",
           "default": "smith",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "kp": {
@@ -2111,10 +2111,10 @@
           "title": "Mode",
           "type": "integer"
         },
-        "tag": {
+        "type": {
           "const": "spi",
           "default": "spi",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -2128,10 +2128,10 @@
     "TableConfig": {
       "additionalProperties": false,
       "properties": {
-        "tag": {
+        "type": {
           "const": "table",
           "default": "table",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         },
         "points": {
@@ -2277,10 +2277,10 @@
           "title": "Backend",
           "type": "string"
         },
-        "tag": {
+        "type": {
           "const": "visa",
           "default": "visa",
-          "title": "Tag",
+          "title": "Type",
           "type": "string"
         }
       },
@@ -2346,7 +2346,7 @@
                 "mapping": {
                   "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                 },
-                "propertyName": "tag"
+                "propertyName": "type"
               },
               "oneOf": [
                 {
@@ -2463,7 +2463,7 @@
                 "mapping": {
                   "fake_spi": "#/$defs/FakeSpiConfigTagged"
                 },
-                "propertyName": "tag"
+                "propertyName": "type"
               },
               "oneOf": [
                 {
@@ -2602,7 +2602,7 @@
                   "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                   "gpio": "#/$defs/GpioConfigTagged"
                 },
-                "propertyName": "tag"
+                "propertyName": "type"
               },
               "oneOf": [
                 {
@@ -2677,7 +2677,7 @@
                   "fake_pwm": "#/$defs/FakePwmConfigTagged",
                   "pwm": "#/$defs/PwmConfigTagged"
                 },
-                "propertyName": "tag"
+                "propertyName": "type"
               },
               "oneOf": [
                 {
@@ -3454,7 +3454,7 @@
             "uart": "#/$defs/SerialConfigTagged",
             "visa": "#/$defs/VisaLinkConfigTagged"
           },
-          "propertyName": "tag"
+          "propertyName": "type"
         },
         "oneOf": [
           {
@@ -3593,7 +3593,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -3700,7 +3700,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -3812,7 +3812,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -3925,7 +3925,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -4043,7 +4043,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -4136,7 +4136,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -4679,7 +4679,7 @@
                                 "fake_onewire": "#/$defs/FakeOneWireConfigTagged",
                                 "onewire": "#/$defs/OneWireConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -4774,7 +4774,7 @@
                             "fake_onewire": "#/$defs/FakeOneWireConfigTagged",
                             "onewire": "#/$defs/OneWireConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -4873,7 +4873,7 @@
                               "mapping": {
                                 "fake_uart": "#/$defs/FakeUartConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -4959,7 +4959,7 @@
                           "mapping": {
                             "fake_uart": "#/$defs/FakeUartConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -5050,7 +5050,7 @@
                               "mapping": {
                                 "fake_uart": "#/$defs/FakeUartConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -5136,7 +5136,7 @@
                           "mapping": {
                             "fake_uart": "#/$defs/FakeUartConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -5227,7 +5227,7 @@
                               "mapping": {
                                 "fake_uart": "#/$defs/FakeUartConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -5313,7 +5313,7 @@
                           "mapping": {
                             "fake_uart": "#/$defs/FakeUartConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -5404,7 +5404,7 @@
                               "mapping": {
                                 "fake_uart": "#/$defs/FakeUartConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -5490,7 +5490,7 @@
                           "mapping": {
                             "fake_uart": "#/$defs/FakeUartConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -5582,7 +5582,7 @@
                                 "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                                 "gpio": "#/$defs/GpioConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -5712,7 +5712,7 @@
                             "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                             "gpio": "#/$defs/GpioConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -5846,7 +5846,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -5939,7 +5939,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -6037,7 +6037,7 @@
                               "mapping": {
                                 "fake_gpio": "#/$defs/FakeGpioConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -6158,7 +6158,7 @@
                           "mapping": {
                             "fake_gpio": "#/$defs/FakeGpioConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -6285,7 +6285,7 @@
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged",
                                 "i2c": "#/$defs/I2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -6391,7 +6391,7 @@
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged",
                             "i2c": "#/$defs/I2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -6501,7 +6501,7 @@
                               "mapping": {
                                 "fake_spi": "#/$defs/FakeSpiConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -6602,7 +6602,7 @@
                           "mapping": {
                             "fake_spi": "#/$defs/FakeSpiConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -6708,7 +6708,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -6839,7 +6839,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -6975,7 +6975,7 @@
                               "mapping": {
                                 "fake_uart": "#/$defs/FakeUartConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -7061,7 +7061,7 @@
                           "mapping": {
                             "fake_uart": "#/$defs/FakeUartConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -7154,7 +7154,7 @@
                                 "modbus_rtu": "#/$defs/ModbusRtuConfigTagged",
                                 "modbus_tcp": "#/$defs/ModbusTcpConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -7261,7 +7261,7 @@
                             "modbus_rtu": "#/$defs/ModbusRtuConfigTagged",
                             "modbus_tcp": "#/$defs/ModbusTcpConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -7371,7 +7371,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -7476,7 +7476,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -7587,7 +7587,7 @@
                                 "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                                 "gpio": "#/$defs/GpioConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -7708,7 +7708,7 @@
                             "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                             "gpio": "#/$defs/GpioConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -7834,7 +7834,7 @@
                                 "fake_pwm": "#/$defs/FakePwmConfigTagged",
                                 "pwm": "#/$defs/PwmConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -7979,7 +7979,7 @@
                             "fake_pwm": "#/$defs/FakePwmConfigTagged",
                             "pwm": "#/$defs/PwmConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -8570,7 +8570,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -8674,7 +8674,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -8783,7 +8783,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -8900,7 +8900,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -9024,7 +9024,7 @@
                                 "serial": "#/$defs/SerialLinkConfigTagged",
                                 "visa": "#/$defs/VisaLinkConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -9126,7 +9126,7 @@
                             "serial": "#/$defs/SerialLinkConfigTagged",
                             "visa": "#/$defs/VisaLinkConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -9231,7 +9231,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -9347,7 +9347,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -9468,7 +9468,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -9587,7 +9587,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -9711,7 +9711,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -9814,7 +9814,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -9922,7 +9922,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -10025,7 +10025,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -10133,7 +10133,7 @@
                               "mapping": {
                                 "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -10237,7 +10237,7 @@
                           "mapping": {
                             "fake_i2c": "#/$defs/FakeI2cConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {
@@ -10697,7 +10697,7 @@
                                 "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                                 "gpio": "#/$defs/GpioConfigTagged"
                               },
-                              "propertyName": "tag"
+                              "propertyName": "type"
                             },
                             "oneOf": [
                               {
@@ -10842,7 +10842,7 @@
                             "fake_gpio": "#/$defs/FakeGpioConfigTagged",
                             "gpio": "#/$defs/GpioConfigTagged"
                           },
-                          "propertyName": "tag"
+                          "propertyName": "type"
                         },
                         "oneOf": [
                           {

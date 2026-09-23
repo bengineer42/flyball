@@ -172,7 +172,7 @@ class Htu21d(Readable):
         yield self.sample(time_ns, humidity=humidity, temperature=temperature)
 
 
-class Htu21dConfig(DriverConfig[Htu21d], tag="htu21d"):
+class Htu21dConfig(DriverConfig[Htu21d], type="htu21d"):
     """One chip; there is no address pin, but the field stays for parity with sht31/sht4x."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

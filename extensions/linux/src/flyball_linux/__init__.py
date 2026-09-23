@@ -6,6 +6,6 @@ BeagleBone or a USB bridge on a laptop all present the same files. Which
 numbers a board uses is a board profile -- a data file on the board path --
 not code.
 
-Importing [flyball_linux.configs][] registers every tag; the `flyball.configs`
+Importing [flyball_linux.configs][] registers every type; the `flyball.configs`
 entry point does that for `flyball rig check` and the runner.
 """

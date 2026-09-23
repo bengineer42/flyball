@@ -8,7 +8,7 @@ name: sparse
 
 links:
   cell:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 10.0
     gain: 1.0

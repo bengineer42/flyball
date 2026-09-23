@@ -118,7 +118,7 @@ class TestModbus:
 
 def bench_document() -> dict:
     return {
-        "links": {"chiller": {"tag": "fake_registers", "registers": {100: 215}}},
+        "links": {"chiller": {"type": "fake_registers", "registers": {100: 215}}},
         "devices": {
             "chiller": {
                 "driver": "modbus",

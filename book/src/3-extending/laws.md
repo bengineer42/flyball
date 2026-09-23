@@ -4,7 +4,7 @@ A `ControlLaw` turns `(elapsed, reading, setpoint)` into a **correction**:
 the offset added to the feedforward's base to give the demand. Nine ship;
 the set is open.
 
-| tag | parameters | |
+| type | parameters | |
 | --- | --- | --- |
 | `open_loop` | — | correction is always zero |
 | `P` | `kp` | proportional |
@@ -60,7 +60,7 @@ ideal form (`Kp`, `Ti`, `Td`) are converted once by `Gains.of_ideal`.
 ## What a law provides
 
 ```python
-class MyLaw(ControlLaw, tag="mine"):
+class MyLaw(ControlLaw, type="mine"):
     def __init__(self, gain: float) -> None: ...
     def step(self, elapsed: float, reading: float, setpoint: float,
              last_applied: float | None = None) -> float: ...
@@ -80,16 +80,16 @@ class MyLaw(ControlLaw, tag="mine"):
 
 Three pydantic models, from the class itself, so a law is described once:
 
-- `config` — one field per `__init__` parameter, plus `tag`. Builds the law.
+- `config` — one field per `__init__` parameter, plus `type`. Builds the law.
 - `state` — one field per name in `_state_fields`, merged up the MRO.
 - `view` — both flattened, round-tripping through `build()`.
 
 `MyLaw.config` is the model class; `law.config` is that law's values. A new
-law gains a wire schema this way, but nothing selects it by tag until it is
+law gains a wire schema this way, but nothing selects it by type until it is
 registered: add `catalog.register_law(MyLaw)` to your package's
 `register(catalog)` -- the same `flyball.configs` entry point a device or
 link registers through, see [Packaging](packaging.md). Once registered, it
-is selectable by tag in a file or a request, and appears in the generated
+is selectable by type in a file or a request, and appears in the generated
 command form.
 
 ## Tunings

@@ -17,7 +17,7 @@ def bench_document() -> dict:
         "name": "bench",
         "links": {
             "i2c1": {
-                "tag": "fake_i2c",
+                "type": "fake_i2c",
                 "registers": {0x48: {0x00: [0x40, 0x00]}, 0x4A: {0x00: [0x0C, 0x80], 0x01: [0, 0]}},
                 "replies": {
                     0x44: [list(encode(21.5, 55.0))],
@@ -25,10 +25,10 @@ def bench_document() -> dict:
                     0x46: [list(encode(23.0, 95.0))],
                 },
             },
-            "spi0": {"tag": "fake_spi", "replies": [[0, 0x03, 0xFF]]},
-            "header": {"tag": "fake_gpio", "levels": {17: True}},
-            "pwm": {"tag": "fake_pwm"},
-            "w1": {"tag": "fake_onewire", "texts": {"28-1": W1_TEXT}},
+            "spi0": {"type": "fake_spi", "replies": [[0, 0x03, 0xFF]]},
+            "header": {"type": "fake_gpio", "levels": {17: True}},
+            "pwm": {"type": "fake_pwm"},
+            "w1": {"type": "fake_onewire", "texts": {"28-1": W1_TEXT}},
         },
         "devices": {
             "air": {"driver": "sht4x", "poll_s": 2, "link": "i2c1"},
@@ -89,7 +89,7 @@ def bench_document() -> dict:
         "controllers": {
             "heater.drive": {
                 "measured": "air.temperature",
-                "law": {"tag": "PI", "kp": 1.0, "ki": 0.0},
+                "law": {"type": "PI", "kp": 1.0, "ki": 0.0},
                 "default": True,
             }
         },
@@ -223,9 +223,9 @@ def test_the_entry_point_registers_every_tag():
         "pwm_channel",
         "ds18b20",
     ):
-        assert fresh.devices[tag].config_tag == tag
+        assert fresh.devices[tag].type_name == tag
     for tag in ("i2c", "spi", "gpio", "pwm", "onewire"):
-        assert fresh.links[tag].config_tag == tag
+        assert fresh.links[tag].type_name == tag
 
 
 def test_the_schema_describes_every_driver_flat_and_layered():

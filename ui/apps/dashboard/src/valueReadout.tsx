@@ -19,13 +19,13 @@ export interface ValueReadout {
 /** Whether a signal's value belongs on a chart axis or a gauge dial; the rest are a chip or a block. */
 export const isNumeric = (signal: Pick<SignalOut, "dtype">): boolean => signal.dtype === "float" || signal.dtype === "int";
 
-/** A scalar inside a json value, as a person would write it: a tag or a mode as a word, a number as itself. */
+/** A scalar inside a json value, as a person would write it: a type or a mode as a word, a number as itself. */
 const scalar = (v: unknown): string => (typeof v === "string" ? humanise(v) : typeof v === "number" || typeof v === "boolean" ? String(v) : v === null ? "—" : JSON.stringify(v));
 
 /**
- * A json value as a reading. A flat object -- a tagged config such as a
+ * A json value as a reading. A flat object -- a config such as a
  * blend flow `{flow: 1, on_overdrive: "clamp"}`, a command record -- is a
- * row per key (`Flow 1`, `On overdrive Clamp`), its `tag` first as the
+ * row per key (`Flow 1`, `On overdrive Clamp`), its `type` first as the
  * kind; anything deeper is shown as JSON, since that is what it is.
  */
 export function JsonValue({ value }: { value: unknown }) {
@@ -37,14 +37,14 @@ export function JsonValue({ value }: { value: unknown }) {
       </Typography>
     );
   const entries = Object.entries(value as Record<string, unknown>);
-  const tag = entries.find(([k]) => k === "tag");
-  const rest = entries.filter(([k]) => k !== "tag");
+  const type = entries.find(([k]) => k === "type");
+  const rest = entries.filter(([k]) => k !== "type");
   return (
     <dl className="fb-json-rows">
-      {tag && (
+      {type && (
         <div>
           <dt>kind</dt>
-          <dd>{scalar(tag[1])}</dd>
+          <dd>{scalar(type[1])}</dd>
         </div>
       )}
       {rest.map(([k, v]) => (

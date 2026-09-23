@@ -17,13 +17,13 @@ EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 def kinds(fresh):
     a, b = fresh("link_a"), fresh("link_b")
 
-    class A(Config[str], tag=a):
+    class A(Config[str], type=a):
         x: int = 1
 
         def build(self) -> str:
             return f"A{self.x}"
 
-    class B(Config[str], tag=b):
+    class B(Config[str], type=b):
         y: str
 
         def build(self) -> str:
@@ -35,24 +35,24 @@ def kinds(fresh):
 def test_union_picks_the_config_by_tag_and_builds_it(kinds):
     a, b, A, B = kinds
     adapter = TypeAdapter(Config.union(A, B))
-    assert adapter.validate_python({"tag": a, "x": 2}).build() == "A2"
-    assert adapter.validate_python({"tag": b, "y": "hi"}).build() == "Bhi"
+    assert adapter.validate_python({"type": a, "x": 2}).build() == "A2"
+    assert adapter.validate_python({"type": b, "y": "hi"}).build() == "Bhi"
     with pytest.raises(ValidationError):
         adapter.validate_python({"x": 2})  # no tag: no guess
     with pytest.raises(ValidationError):
-        adapter.validate_python({"tag": "nope"})
+        adapter.validate_python({"type": "nope"})
 
 
 def test_schema_declares_the_discriminator(kinds):
     a, b, A, B = kinds
     schema = TypeAdapter(Config.union(A, B)).json_schema()
-    assert schema["discriminator"]["propertyName"] == "tag"
+    assert schema["discriminator"]["propertyName"] == "type"
     assert {m.get("$ref", "").rsplit("/", 1)[-1] for m in schema["oneOf"]} == {"ATagged", "BTagged"}
 
 
 def test_code_never_passes_the_tag(kinds):
     a, b, A, B = kinds
-    assert A().build() == "A1" and A.config_tag == a
+    assert A().build() == "A1" and A.type_name == a
     assert resolve(A(x=3)) == "A3" and resolve("already built") == "already built"
 
 
@@ -62,7 +62,7 @@ def test_duplicate_tag_is_refused_by_a_catalog(kinds):
 
     a, _b, A, _B = kinds
 
-    class Again(Config[str], tag=a):
+    class Again(Config[str], type=a):
         def build(self) -> str:
             return ""
 
@@ -77,7 +77,7 @@ def test_untagged_config_cannot_join_a_union():
         def build(self) -> str:
             return ""
 
-    with pytest.raises(TypeError, match="has no tag"):
+    with pytest.raises(TypeError, match="has no type"):
         Plain.tagged()
 
 
@@ -87,10 +87,10 @@ class TestResolveDocumentsAndLoadRigConfig:
     def test_resolve_documents_merges_two_files_in_command_line_order(self, tmp_path):
         from flyball.runtime.config import resolve_documents
 
-        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {tag: sim_plant}}\n")
+        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {type: sim_plant}}\n")
         (tmp_path / "b.yaml").write_text("name: b\n")
         document, files = resolve_documents([tmp_path / "a.yaml", tmp_path / "b.yaml"])
-        assert document == {"name": "b", "links": {"l1": {"tag": "sim_plant"}}}
+        assert document == {"name": "b", "links": {"l1": {"type": "sim_plant"}}}
         assert files == [tmp_path / "a.yaml", tmp_path / "b.yaml"]
 
     def test_board_is_looked_up_relative_to_the_first_file(self, tmp_path, monkeypatch):
@@ -99,7 +99,7 @@ class TestResolveDocumentsAndLoadRigConfig:
         monkeypatch.setenv(BOARDS_ENV, str(tmp_path / "profiles"))
         (tmp_path / "profiles").mkdir()
         (tmp_path / "profiles" / "test.toml").write_text(
-            'name = "Test board"\n[links.bus]\ntag = "fake_registers"\n'
+            'name = "Test board"\n[links.bus]\ntype = "fake_registers"\n'
         )
         (tmp_path / "rig").mkdir()
         (tmp_path / "rig" / "a.yaml").write_text("board: test\nname: a\n")
@@ -108,7 +108,7 @@ class TestResolveDocumentsAndLoadRigConfig:
             tmp_path / "rig" / "a.yaml",
             tmp_path / "overlay.yaml",
         ])
-        assert document["name"] == "b" and document["links"] == {"bus": {"tag": "fake_registers"}}
+        assert document["name"] == "b" and document["links"] == {"bus": {"type": "fake_registers"}}
         assert tmp_path / "profiles" / "test.toml" in files
 
     def test_load_rig_config_of_a_single_path_still_works(self):
@@ -136,7 +136,7 @@ class TestResolveDocumentsAndLoadRigConfig:
     def test_a_legacy_section_is_refused_naming_the_reference(self, tmp_path):
         from flyball.runtime.config import load_rig_config
 
-        (tmp_path / "old.yaml").write_text("readers:\n  - device: {tag: x}\n")
+        (tmp_path / "old.yaml").write_text("readers:\n  - device: {type: x}\n")
         with pytest.raises(
             ValueError,
             match="readers/actuators/loops are no longer rig-file sections; devices and"

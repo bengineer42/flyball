@@ -110,7 +110,7 @@ class EzoDo(Readable):
         yield self.sample(time_ns, dissolved_oxygen=self.probe.read())
 
 
-class EzoDoConfig(DriverConfig[EzoDo], tag="ezo_do"):
+class EzoDoConfig(DriverConfig[EzoDo], type="ezo_do"):
     """One EZO-DO circuit, alone on its UART."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

@@ -10,7 +10,7 @@ from pydantic import ConfigDict, Field
 from .plant import Furnace
 
 
-class FurnaceConfig(Config[Furnace], tag="sim_furnace"):
+class FurnaceConfig(Config[Furnace], type="sim_furnace"):
     """A multi-zone furnace ([Furnace][furnace.plant.Furnace]).
 
     Ports: inputs `heaterN` (a power in W, full drive being `power_w`),
@@ -36,7 +36,7 @@ class FurnaceConfig(Config[Furnace], tag="sim_furnace"):
     initial_c: float | None = Field(default=None, json_schema_extra={"live": "outputs.*"})
 
     def build(self) -> Furnace:
-        return Furnace(**self.model_dump(exclude={"tag"}))
+        return Furnace(**self.model_dump(exclude={"type"}))
 
     def retune(self, plant: Any) -> None:
         """Apply the parameters to a running furnace; its temperatures stay where they are."""

@@ -159,7 +159,7 @@ def _adc_channels(
     }
 
 
-class CurrentLoopConfig(DriverConfig[CurrentLoop], tag="current_loop"):
+class CurrentLoopConfig(DriverConfig[CurrentLoop], type="current_loop"):
     """`driver: current_loop`. Wraps an `ads1115`/`mcp3008` channel; `channels` is its own tree.
 
     ```yaml

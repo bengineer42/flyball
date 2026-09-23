@@ -223,9 +223,9 @@ def test_view_joins_settings_and_state(furnace):
     controller, _ = _regulating(furnace, SteppedClock(0), law=PI(kp=1.0, ki=0.1))
     view = controller.view
     assert view.name == "furnace.bath"
-    assert view.law is not None and view.law.tag == "PI"
+    assert view.law is not None and view.law.type == "PI"
     assert controller.settings.law is not None and controller.settings.law.kp == 1.0
-    assert view.feedforward.model_dump() == {"tag": "setpoint"}
+    assert view.feedforward.model_dump() == {"type": "setpoint"}
 
 
 def test_min_period_caps_how_often_the_law_steps(furnace):
@@ -289,15 +289,15 @@ def test_a_non_finite_aim_is_refused_before_anything_changes(furnace, aim):
 
 def test_a_generator_with_a_non_finite_argument_is_refused():
     with pytest.raises(ValueError):
-        TypeAdapter(GeneratorConfig).validate_python({"tag": "dwell", "value": float("nan")})
+        TypeAdapter(GeneratorConfig).validate_python({"type": "dwell", "value": float("nan")})
 
 
 def test_the_old_generator_name_hold_says_it_is_now_dwell():
     union = TypeAdapter(GeneratorConfig)
     with pytest.raises(ValueError, match="the setpoint generator `hold` is now `dwell`"):
-        union.validate_python({"tag": "hold", "value": 1.0})
+        union.validate_python({"type": "hold", "value": 1.0})
     with pytest.raises(ValueError, match="`hold` is now `dwell`"):
-        union.validate_python({"tag": "profile", "segments": [{"tag": "hold", "value": 1.0}]})
+        union.validate_python({"type": "profile", "segments": [{"type": "hold", "value": 1.0}]})
 
 
 def test_the_first_step_after_an_outage_counts_as_one_ordinary_step(furnace):
@@ -335,22 +335,22 @@ def test_a_slower_but_steady_source_is_not_an_outage(furnace):
 def test_linear_ramp_setpoint_config_round_trips_and_builds():
     assert get_catalog().generators["linear_ramp_setpoint"] is LinearRampSetpoint
     config = LinearRampSetpoint.config.model_validate({
-        "tag": "linear_ramp_setpoint",
+        "type": "linear_ramp_setpoint",
         "pace": {"per_minute": 10},
         "end": 30.0,
     })
     ramp = config.build()
     assert ramp.pace == Speed(10.0, TimeUnit.MINUTE) and ramp.end == 30.0
 
-    with pytest.raises(Exception, match="tag"):
-        LinearRampSetpoint.config.model_validate({"tag": "no_such_tag", "pace": 1, "end": 1})
+    with pytest.raises(Exception, match="type"):
+        LinearRampSetpoint.config.model_validate({"type": "no_such_tag", "pace": 1, "end": 1})
 
 
 def test_linear_ramp_setpoint_serialises_its_init_args_plus_end_time_once_started():
     ramp = LinearRampSetpoint(Speed(10.0, TimeUnit.MINUTE), 30.0)
     before = TypeAdapter(LinearRampSetpoint).dump_python(ramp, mode="json")
     assert before == {
-        "tag": "linear_ramp_setpoint",
+        "type": "linear_ramp_setpoint",
         "pace": {"value": 10.0, "per": "minute"},
         "end": 30.0,
     }, "not yet started: no end_time on the wire"
@@ -401,7 +401,7 @@ def test_a_negative_pace_is_refused():
         Speed(-10.0, TimeUnit.MINUTE)
     with pytest.raises(Exception, match="greater than 0"):
         LinearRampSetpoint.config.model_validate({
-            "tag": "linear_ramp_setpoint",
+            "type": "linear_ramp_setpoint",
             "pace": {"per_minute": -10},
             "end": 30.0,
         })
@@ -428,14 +428,14 @@ def test_arrived_follows_the_reference(furnace):
 
 def test_dwell_is_a_fixed_setpoint_that_may_end():
     assert get_catalog().generators["dwell"] is Dwell
-    forever = Dwell.config.model_validate({"tag": "dwell", "value": 30.0}).build()
+    forever = Dwell.config.model_validate({"type": "dwell", "value": 30.0}).build()
     assert isinstance(forever, Dwell) and forever.bounded is False
     forever.start(10.0, 20.0)
     assert forever.generate(10.0) == 30.0 and forever.generate(1e9) == 30.0
     assert forever.end_time is None and forever.finished(1e9) is False
     assert forever.rate(10.0) == 0.0
     assert TypeAdapter(Dwell).dump_python(forever, mode="json") == {
-        "tag": "dwell",
+        "type": "dwell",
         "value": 30.0,
         "duration": None,
     }
@@ -451,12 +451,12 @@ def test_dwell_is_a_fixed_setpoint_that_may_end():
 def test_profile_runs_its_segments_back_to_back():
     assert get_catalog().generators["profile"] is Profile
     config = Profile.config.model_validate({
-        "tag": "profile",
+        "type": "profile",
         "segments": [
-            {"tag": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0},
-            {"tag": "dwell", "value": 30.0, "duration": {"minutes": 5}},
-            {"tag": "linear_ramp_setpoint", "pace": {"seconds": 60}, "end": 0.0},
-            {"tag": "dwell", "value": 0.0},
+            {"type": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0},
+            {"type": "dwell", "value": 30.0, "duration": {"minutes": 5}},
+            {"type": "linear_ramp_setpoint", "pace": {"seconds": 60}, "end": 0.0},
+            {"type": "dwell", "value": 0.0},
         ],
     })
     profile = config.build()
@@ -478,15 +478,15 @@ def test_profile_runs_its_segments_back_to_back():
     assert profile.finished(1e6) is False, "the last segment is endless"
 
     wire = TypeAdapter(Profile).dump_python(profile, mode="json")
-    assert wire["tag"] == "profile" and wire["active"] == 3 and "end_time" not in wire
-    assert [segment["tag"] for segment in wire["segments"]] == [
+    assert wire["type"] == "profile" and wire["active"] == 3 and "end_time" not in wire
+    assert [segment["type"] for segment in wire["segments"]] == [
         "linear_ramp_setpoint",
         "dwell",
         "linear_ramp_setpoint",
         "dwell",
     ]
     assert wire["segments"][1] == {
-        "tag": "dwell",
+        "type": "dwell",
         "value": 30.0,
         "duration": {"seconds": 300, "nanoseconds": 0},
     }
@@ -511,10 +511,10 @@ def test_a_bounded_profile_finishes_with_its_last_segment_and_nests():
 
     union = TypeAdapter(GeneratorConfig)
     nested = union.validate_python({
-        "tag": "profile",
+        "type": "profile",
         "segments": [
-            {"tag": "profile", "segments": [{"tag": "dwell", "value": 1.0, "duration": 1}]},
-            {"tag": "dwell", "value": 2.0},
+            {"type": "profile", "segments": [{"type": "dwell", "value": 1.0, "duration": 1}]},
+            {"type": "dwell", "value": 2.0},
         ],
     })
     assert isinstance(nested, Profile.config) and isinstance(nested.build(), Profile)
@@ -534,4 +534,4 @@ def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():
     with pytest.raises(ValueError, match="at least one segment"):
         Profile([])
     with pytest.raises(Exception, match="at least 1"):
-        Profile.config.model_validate({"tag": "profile", "segments": []})
+        Profile.config.model_validate({"type": "profile", "segments": []})
