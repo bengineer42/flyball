@@ -1,6 +1,6 @@
 """Plants: what a loop pushes on, and how it pushes back.
 
-Each is a small model with an `input`, an `output`, and `step(dt_s)`, held
+Each is a small model with an `input`, an `output`, and `advance(dt_s)`, held
 exactly between steps so the step size does not change the trajectory. A
 `Plant` is what a simulated reader reads and a simulated actuator drives;
 one plant object is shared between them, the way one chamber is.
@@ -33,7 +33,7 @@ class Plant(Protocol):
     @property
     def output(self) -> float: ...
 
-    def step(self, dt_s: float) -> float: ...
+    def advance(self, dt_s: float) -> float: ...
 
     def feedforward(self, demand: float) -> float:
         """The input that would hold `demand` at steady state, if the model knows one."""
@@ -79,9 +79,9 @@ class Lag:
     def drive(self, u: float, dt_s: float) -> float:
         """Set the input to `u` and hold it for `dt_s` seconds; return the new output."""
         self.input = u
-        return self.step(dt_s)
+        return self.advance(dt_s)
 
-    def step(self, dt_s: float) -> float:
+    def advance(self, dt_s: float) -> float:
         """Hold the input for `dt_s` seconds; return the new output."""
         target = self.ambient + self.gain * self.input
         self.value = target + (self.value - target) * exp(-dt_s / self.tau_s)
@@ -110,7 +110,7 @@ class Integrator:
         # integrator holds anything with no input at all.
         return demand * self.leak / self.gain if self.gain else 0.0
 
-    def step(self, dt_s: float) -> float:
+    def advance(self, dt_s: float) -> float:
         if self.leak > 0:  # exact for a held input
             steady = self.gain * self.input / self.leak
             self.value = steady + (self.value - steady) * exp(-self.leak * dt_s)
@@ -151,7 +151,7 @@ class Fopdt:
     def inverse_feedforward(self, drive: float) -> float:
         return self._lag.inverse_feedforward(drive)
 
-    def step(self, dt_s: float) -> float:
+    def advance(self, dt_s: float) -> float:
         """Hold the input for `dt_s` seconds; return the new output.
 
         What went in `dead_s` ago reaches the lag at that instant, not at the
@@ -164,11 +164,11 @@ class Fopdt:
         while self._pipe and self._pipe[0][0] <= end:
             arrives, value = self._pipe.popleft()
             if arrives > at:
-                self._lag.step(arrives - at)
+                self._lag.advance(arrives - at)
                 at = arrives
             self._lag.input = value
         if end > at:
-            self._lag.step(end - at)
+            self._lag.advance(end - at)
         self._now = end
         return self._lag.output
 
@@ -198,8 +198,8 @@ class Noisy:
     def feedforward(self, demand: float) -> float:
         return self.plant.feedforward(demand)
 
-    def step(self, dt_s: float) -> float:
-        self.plant.step(dt_s)
+    def advance(self, dt_s: float) -> float:
+        self.plant.advance(dt_s)
         return self.output
 
 
@@ -207,7 +207,7 @@ class Advancer:
     """Steps one single-port plant to a time, once per instant however many devices read it.
 
     The bare-[Plant][flyball_sim.plant.Plant] counterpart of
-    [MultiPlant.advance][flyball_sim.plant.MultiPlant.advance]: each reader
+    [MultiPlant.advance_to][flyball_sim.plant.MultiPlant.advance_to]: each reader
     polls on its own thread, so the first to reach an instant steps the plant
     and the rest find it there. An earlier instant than the last does
     nothing. Get the one shared by every reader of a plant from
@@ -221,11 +221,11 @@ class Advancer:
         self._lock = threading.Lock()
         self._last_ns: int | None = None
 
-    def advance(self, time_ns: int) -> None:
+    def advance_to(self, time_ns: int) -> None:
         """Step to `time_ns`; the same or an earlier instant does nothing."""
         with self._lock:
             if self._last_ns is not None and time_ns > self._last_ns:
-                self.plant.step((time_ns - self._last_ns) / 1e9)
+                self.plant.advance((time_ns - self._last_ns) / 1e9)
             if self._last_ns is None or time_ns > self._last_ns:
                 self._last_ns = time_ns
 
@@ -268,7 +268,7 @@ class MultiPlant(Protocol):
 
     def output(self, port: str) -> float: ...
 
-    def advance(self, time_ns: int) -> None:
+    def advance_to(self, time_ns: int) -> None:
         """Step to `time_ns`; a second call with the same instant does nothing."""
         ...
 
@@ -311,11 +311,13 @@ class Port:
             raise AttributeError("this port has no output")
         return self.plant.output(self.output_name)
 
-    def advance(self, time_ns: int) -> None:
-        self.plant.advance(time_ns)
+    def advance_to(self, time_ns: int) -> None:
+        self.plant.advance_to(time_ns)
 
-    def step(self, dt_s: float) -> float:
-        raise TypeError("a multi-port plant is stepped by time, not by interval: use advance()")
+    def advance(self, dt_s: float) -> float:
+        raise TypeError(
+            "a multi-port plant is advanced to a time, not by an interval: use advance_to()"
+        )
 
     def feedforward(self, demand: float) -> float:
         if self.input_name is None:

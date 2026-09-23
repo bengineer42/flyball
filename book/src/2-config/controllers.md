@@ -29,14 +29,14 @@ controllers:
 | --- | --- | --- |
 | `measured` | address | the measured signal: a published signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
 | `law` | `{type, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
-| `feedforward` | `{type, …}` | `setpoint` (the measured unit passed through); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `setpoint` when the units agree, else `none` |
+| `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
-| `min_period_s` | number | step the law at most this often |
+| `min_period_s` | number | update the law at most this often |
 
 ## Feedforward and units
 
 A controller works in the measured signal's unit for the setpoint and the
-output's for the output value; `feedforward` is what maps one to the other. `setpoint`
+output's for the output value; `feedforward` is what maps one to the other. `identity`
 passes the setpoint through -- right when a controller drives a signal in
 its own unit, as when `pwm_channel` has a `span` in °C. `affine` and
 `table` are the static curve from measured to output (the power a furnace
@@ -77,7 +77,7 @@ Then:
 1. **Resolve the setpoint** for this instant. The reference is either a
    fixed value or a *generator* — a function of time, such as a ramp —
    evaluated exactly at the reading's timestamp.
-2. **Step the law.** The law takes `(elapsed, measured, setpoint)` and
+2. **Update the law.** The law takes `(elapsed, measured, setpoint)` and
    returns a **correction**: the offset to add to the setpoint.
 3. **Form the output**: `output = feedforward(setpoint, rate) + correction`.
 4. **Write it**: the controller calls `rig.write(output.node, {output:
@@ -125,7 +125,7 @@ the feedforward's own mapping of the setpoint. Two things follow:
 | mode | what a tick does |
 | --- | --- |
 | `MANUAL` | nothing; the output is driven by demands directly |
-| `REGULATING` | step the law, then write (under `open_loop` the law's correction is zero) |
+| `REGULATING` | update the law, then write (under `open_loop` the law's correction is zero) |
 
 A frozen controller (a stale measured signal, a limit not known) is still
 `REGULATING`: frozen is a condition, not a mode.

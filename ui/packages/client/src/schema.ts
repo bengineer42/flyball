@@ -169,7 +169,7 @@ function walk(segments: string[], node: unknown): unknown {
 export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined, setpoint: number): number | null {
   if (!feedforward) return setpoint;
   switch (feedforward.type) {
-    case "setpoint":
+    case "identity":
       return setpoint;
     case "none":
       return 0;
@@ -202,7 +202,7 @@ export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined,
 export function invertFeedforward(feedforward: FeedforwardConfig | null | undefined, base: number): number | null {
   if (!feedforward) return base;
   switch (feedforward.type) {
-    case "setpoint":
+    case "identity":
       return base;
     case "none":
       return null;

@@ -13,9 +13,9 @@ imports `flyball.model.config.Config` partway through `foundation/__init__
 `controller.py`'s `from flyball.foundation import Clock` would hit a
 half-built `flyball.foundation` module.
 
-Import `Controller`/`ControllerSettings`/... from `.controller`, `ControlLaw`/
+Import `Controller`/`ControllerSpec`/... from `.controller`, `ControlLaw`/
 `ControlLawConfig`/... from `.law`, `Feedforward`/... from `.feedforward`,
-`SetPointGenerator`/... from `.generator`, the error taxonomy from `.errors`
+`SetpointGenerator`/... from `.generator`, the error taxonomy from `.errors`
 -- each submodule is safe to import once `flyball.foundation` itself is
 past its own import (true for every consumer except `foundation/device
 /device.py` itself).

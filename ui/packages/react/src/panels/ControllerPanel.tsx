@@ -290,7 +290,7 @@ function feedforwardArgs(feedforward: FeedforwardConfig | null | undefined): unk
     const shown = points.length <= 4 ? points.map(pair).join(", ") : `${points.slice(0, 2).map(pair).join(", ")} … ${points.slice(-2).map(pair).join(", ")}`;
     return { points: `${points.length} point${points.length === 1 ? "" : "s"}${shown ? `, ${shown}` : ""}` };
   }
-  if (type === "setpoint") return "demand = setpoint; the law corrects about it";
+  if (type === "identity") return "demand = setpoint; the law corrects about it";
   if (type === "none") return "0; the law does all the work";
   return args;
 }

@@ -93,9 +93,9 @@ class Foo200Config(DriverConfig[Foo200], type="foo200"):
 | `Readout(name, label, quantity, range=, precision=, warning=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
 | `Demand(name, label, quantity, limits=)` | a value someone asks for; its readback is what the device is doing | a controller, a command, `set_demand` |
 | `Namespace(name, label)` then `ns.readout(...)` / `ns.demand(...)` / `ns.config(...)` / `ns.input(...)` | a subtree, one address segment | -- |
-| `ns.config(section, label, quantity)` | a value fixed at build from the config (a max flow) | `build`, by `self.x.push(...)` |
-| `ns.input(section, label, quantity, default=)` | another device's signal the rig binds to this input (`inputs:` in the rig file) | the rig |
-| `Section(name, label)` | a tag across the tree (`dry`/`wet`); supplies the segment name to `ns.<kind>(section, ...)` | -- |
+| `ns.config(name, label, quantity)` | a value fixed at build from the config (a max flow) | `build`, by `self.x.push(...)` |
+| `ns.input(name, label, quantity, default=)` | another device's signal the rig binds to this input (`inputs:` in the rig file) | the rig |
+| `tags={"line": "dry"}` on any descriptor | a grouping across the tree (`dry`/`wet`), never part of the address | -- |
 
 Rules: `name` is the address segment, `label` the display text. `limits`
 may be numbers, a config descriptor (resolved at build) or an input

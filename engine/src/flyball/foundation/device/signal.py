@@ -186,24 +186,6 @@ _ROLE_ACCESS.update({
 })
 
 
-@dataclass(frozen=True, slots=True)
-class Section:
-    """A second grouping axis across a device's tree: `dry` / `wet` / `total`, `ch1` / `ch2`.
-
-    A tag on the signal, never part of its address: `flows.dry` and
-    `efforts.dry` share the section `dry`, so a UI can pivot the tree by
-    section as well as by namespace. `axis` names what the sections are
-    (`"line"`, `"channel"`) for a device with more than one grouping.
-    """
-
-    name: str
-    label: str = ""
-    axis: str = "line"
-
-    def __post_init__(self) -> None:
-        _check_segment(self.name)
-
-
 type Bound = float | SignalRef
 """One end of `limits`: a number, or a reference to a signal whose current value it is."""
 
@@ -244,10 +226,10 @@ class SignalSpec:
     a driver opting a signal into being widened (an internal detail's `R` raised to `RP` for
     recording) without ever sanctioning access it did not name here."""
     role: Role = Role.READOUT
-    section: Section | None = None
     tags: dict[str, str] = field(default_factory=dict)
-    """Groupings across the tree, `{axis: name}`: the section's, plus any a driver or the rig
-    file adds (`signals: {dry: {tags: {line: dry}}}`); a namespace's apply to all under it."""
+    """Groupings across the tree, `{axis: name}` (`{"line": "dry"}`): what the driver declares,
+    plus any the rig file adds (`signals: {dry: {tags: {line: dry}}}`); a namespace's apply to
+    all under it. Never part of the address: `flows.dry` and `efforts.dry` share `line: dry`."""
     initial: Any = None
     """A value the signal has before anything reads or sets it: a mode's starting state."""
     vtype: Any = float
@@ -299,8 +281,6 @@ class SignalSpec:
         _check_band(self.name, "warning", self.warning)
         _check_band(self.name, "alarm", self.alarm)
         _check_band(self.name, "limits", self.limits)
-        if self.section is not None and self.section.axis not in self.tags:
-            object.__setattr__(self, "tags", {self.section.axis: self.section.name, **self.tags})
 
     @property
     def dtype(self) -> str:

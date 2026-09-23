@@ -307,7 +307,7 @@ One PWM output, a `[W]` signal `drive`.
 | `channel` | required | |
 | `frequency_hz` | `1000` | |
 | `invert` | `false` | |
-| `unit`, `quantity`, `span` | none | omitted, `drive` is the duty itself (0–1). Given, `drive` is set in `unit` (say °C) and `span: [lo, hi]` maps it linearly onto 0–100 % -- a static feedforward inside the device, so a controller may drive it with `feedforward: {type: setpoint}` |
+| `unit`, `quantity`, `span` | none | omitted, `drive` is the duty itself (0–1). Given, `drive` is set in `unit` (say °C) and `span: [lo, hi]` maps it linearly onto 0–100 % -- a static feedforward inside the device, so a controller may drive it with `feedforward: {type: identity}` |
 
 ### `ds18b20`
 

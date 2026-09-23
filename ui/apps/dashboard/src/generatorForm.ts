@@ -1,5 +1,5 @@
 /**
- * The set-point generator union (`GET /api/controllers/schema` → `generators`)
+ * The setpoint generator union (`GET /api/controllers/schema` → `generators`)
  * as the faceplate's target control offers it: a list of kinds to choose from,
  * and each kind's config schema reshaped so `SchemaForm` renders it as a
  * usable form -- nothing here knows any generator by name; every rewrite is by

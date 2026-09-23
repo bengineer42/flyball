@@ -213,15 +213,15 @@
               "discriminator": {
                 "mapping": {
                   "affine": "#/$defs/AffineConfig",
+                  "identity": "#/$defs/IdentityConfig",
                   "none": "#/$defs/NoFeedforwardConfig",
-                  "setpoint": "#/$defs/SetpointConfig",
                   "table": "#/$defs/TableConfig"
                 },
                 "propertyName": "type"
               },
               "oneOf": [
                 {
-                  "$ref": "#/$defs/SetpointConfig"
+                  "$ref": "#/$defs/IdentityConfig"
                 },
                 {
                   "$ref": "#/$defs/NoFeedforwardConfig"
@@ -239,7 +239,7 @@
             }
           ],
           "default": null,
-          "description": "Maps the measured signal's unit to the output's; the law adds to it. Omit for the setpoint itself when the units agree, else none.",
+          "description": "Maps the measured signal's unit to the output's; the law adds to it. Omit for identity (the setpoint itself) when the units agree, else none.",
           "title": "Feedforward"
         },
         "default": {
@@ -258,7 +258,7 @@
             }
           ],
           "default": null,
-          "description": "Step the law at most this often; omit to step on every reading.",
+          "description": "Update the law at most this often; omit to update on every reading.",
           "title": "Min Period S"
         }
       },
@@ -910,6 +910,19 @@
         "tau"
       ],
       "title": "IMCConfig",
+      "type": "object"
+    },
+    "IdentityConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "identity",
+          "default": "identity",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "IdentityConfig",
       "type": "object"
     },
     "ModbusRtuConfigTagged": {
@@ -1773,19 +1786,6 @@
         "port"
       ],
       "title": "SerialLinkConfigTagged",
-      "type": "object"
-    },
-    "SetpointConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "const": "setpoint",
-          "default": "setpoint",
-          "title": "Type",
-          "type": "string"
-        }
-      },
-      "title": "SetpointConfig",
       "type": "object"
     },
     "SignalMeta": {

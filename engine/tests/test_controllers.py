@@ -46,7 +46,7 @@ def test_keyed_by_target_address_with_the_first_as_default(furnace):
         (furnace.signals["zone2"], c2),
     ]
     assert dict(controllers.items()) == {"furnace.heater1": c1, "furnace.heater2": c2}
-    assert set(controllers.states) == set(controllers.settings) == set(controllers.views)
+    assert set(controllers.states) == set(controllers.specs) == set(controllers.views)
     assert controllers.views["furnace.heater1"].name == "furnace.heater1"
 
 

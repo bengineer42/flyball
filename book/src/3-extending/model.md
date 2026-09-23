@@ -60,8 +60,9 @@ apart by its type.
 Structure is declared once, as descriptors in the class body (`Namespace`,
 `Demand`, `Readout`, `Setting`, `ConfigSignal`, `Input`), or built from config
 in `__init__` with the same factories and bound with `Device.bind`.
-`Section("dry", "Dry line")` in place of a name tags a second grouping axis
-across the tree, orthogonal to the namespace. On the class a descriptor is
+`tags={"line": "dry"}` on a descriptor groups it along a second axis across
+the tree, orthogonal to the namespace (`flows.dry` and `efforts.dry` share
+`line: dry`). On the class a descriptor is
 its spec; on an instance it is the bound
 [`Signal`][flyball.foundation.device.signal.Signal] (`self.dry_flow.value`,
 `.push(v)`, `.staged`, `.limits`).

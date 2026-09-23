@@ -68,12 +68,12 @@ interface Draft {
 const EMPTY_DRAFT: Draft = { output: null, measured: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false };
 
 /**
- * What the rig would pick when no feedforward is given: `setpoint` when the
+ * What the rig would pick when no feedforward is given: `identity` when the
  * output takes the measured signal's unit (output = setpoint), else `none`
  * (the law does all the work, in the output's unit).
  */
 const defaultFeedforward = (target: SignalChoice | null, source: SignalChoice | null): FeedforwardConfig | null =>
-  target && source ? { type: target.unit === source.unit ? "setpoint" : "none" } : null;
+  target && source ? { type: target.unit === source.unit ? "identity" : "none" } : null;
 
 /**
  * A discriminated union's branches titled by their type (`PI`, not `PIConfig`),
@@ -91,14 +91,14 @@ function titledByType(schema: JsonSchema): JsonSchema {
 }
 const TYPE_HIDDEN = { type: { "ui:widget": "hidden" } };
 
-/** The feedforward schema with the `setpoint` branch dropped: across differing units the rig refuses it (409). */
-function withoutSetpoint(schema: JsonSchema): JsonSchema {
+/** The feedforward schema with the `identity` branch dropped: across differing units the rig refuses it (409). */
+function withoutIdentity(schema: JsonSchema): JsonSchema {
   const mapping = { ...(schema.discriminator?.mapping ?? {}) };
-  const ref = mapping["setpoint"];
-  delete mapping["setpoint"];
+  const ref = mapping["identity"];
+  delete mapping["identity"];
   return {
     ...schema,
-    oneOf: (schema.oneOf ?? []).filter((b) => b.$ref !== ref && (b.properties?.type as JsonSchema | undefined)?.const !== "setpoint"),
+    oneOf: (schema.oneOf ?? []).filter((b) => b.$ref !== ref && (b.properties?.type as JsonSchema | undefined)?.const !== "identity"),
     ...(schema.discriminator ? { discriminator: { ...schema.discriminator, mapping } } : {}),
   };
 }
@@ -180,7 +180,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   // The feedforward the rig would pick on its own; set once both ends are known, and again whenever they change.
   const feedforward = draft.feedforward ?? defaultFeedforward(draft.output, source);
   const feedforwardSchema = useMemo(
-    () => (schema?.feedforwards ? titledByType(unitsAgree ? schema.feedforwards : withoutSetpoint(schema.feedforwards)) : undefined),
+    () => (schema?.feedforwards ? titledByType(unitsAgree ? schema.feedforwards : withoutIdentity(schema.feedforwards)) : undefined),
     [schema, unitsAgree],
   );
 
@@ -364,8 +364,8 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                   {draft.output && source && (
                     <Typography variant="body2" color="text.secondary" data-testid="feedforward-help">
                       {unitsAgree
-                        ? `${draft.output.address} takes demands in ${demandUnit}, the same as ${source.address} — "setpoint" passes the setpoint straight through and the law corrects in ${demandUnit}.`
-                        : `${draft.output.address} takes ${demandUnit}; ${source.address} is ${source.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "setpoint" is not offered: the units differ. "none" leaves all of it to the law.`}
+                        ? `${draft.output.address} takes demands in ${demandUnit}, the same as ${source.address} — "identity" passes the setpoint straight through and the law corrects in ${demandUnit}.`
+                        : `${draft.output.address} takes ${demandUnit}; ${source.address} is ${source.unit} — the feedforward maps one to the other, the law corrects in ${demandUnit}. "identity" is not offered: the units differ. "none" leaves all of it to the law.`}
                     </Typography>
                   )}
                   {feedforward && (
@@ -417,7 +417,7 @@ type From = "setpoint" | "measured" | "value";
 /**
  * The target entry and its verb button, rendered inline in the faceplate's
  * Setpoint row (DESIGN-SPEC §3.4). A kind picker offers a plain value or any
- * set-point generator the rig registers (`GET /api/controllers/schema` →
+ * setpoint generator the rig registers (`GET /api/controllers/schema` →
  * `generators`, never a list kept here). A plain value: one box, and
  * "Regulate" hands control to the law at it (a bumpless start) while stopped,
  * "Move setpoint" changes it and leaves the law running while regulating. A

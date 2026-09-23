@@ -25,7 +25,7 @@ from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep
 from flyball.interfaces.server.schemas import ControllerOut, LawConfig
 from flyball.model.controller import Controller, ValueSource
-from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig
 
@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/controllers", tags=["controllers"])
 # `GeneratorConfig` is `flyball.control`'s own closed union over the built-in
 # generators (`control/setpoint.py`); `profile`'s segments are this same
 # union.
-_FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
+_FEEDFORWARDS = (Identity, NoFeedforward, Affine, Table)
 FeedforwardConfig = discriminated_union(
     {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
 )
@@ -53,7 +53,7 @@ class NewController(BaseModel):
     """The P signal to regulate."""
     law: LawConfig | str | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | str | None = None  # type: ignore[valid-type]
-    """A config or a type. Omitted: ``setpoint`` when the units agree, else ``none``."""
+    """A config or a type. Omitted: ``identity`` when the units agree, else ``none``."""
     default: bool = False
     min_period_s: Positive | None = None
 
@@ -120,7 +120,7 @@ class ControllerSchema(BaseModel):
     feedforwards: dict[str, Any]
     """JSON Schema of the feedforward config union, discriminated on ``type``."""
     generators: dict[str, Any]
-    """JSON Schema of the set-point generator config union, discriminated on ``type``."""
+    """JSON Schema of the setpoint generator config union, discriminated on ``type``."""
     tunings: list[TuningChoice]
     """Stored tunings a controller may name instead of a config."""
     regulated: dict[str, str]

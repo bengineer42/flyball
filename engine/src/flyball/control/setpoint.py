@@ -5,16 +5,16 @@ from typing import Annotated, Any, ClassVar, Literal, Union
 from pydantic import BeforeValidator, Field
 
 from flyball.foundation import Duration, Rate, Speed
-from flyball.model.generator import SetPointGenerator, SetPointGeneratorConfig
+from flyball.model.generator import SetpointGenerator, SetpointGeneratorConfig
 from flyball.model.model import ModelOf
 
 
-class LinearRampSetpoint(SetPointGenerator):
-    """A set point walking from where it starts to `end` at `pace`.
+class LinearRampSetpoint(SetpointGenerator):
+    """A setpoint walking from where it starts to `end` at `pace`.
 
     `pace` is a speed (`per_minute: 10`) or how long the whole walk should
     take; either way the ramp starts at the value it is started from, so a
-    ramp to where the set point already is lands at once.
+    ramp to where the setpoint already is lands at once.
     """
 
     view_fields: ClassVar[tuple[str, ...]] = ("end_time",)
@@ -50,8 +50,8 @@ class LinearRampSetpoint(SetPointGenerator):
         return time >= self.end_time
 
 
-class Dwell(SetPointGenerator):
-    """A fixed set point, as a trajectory: a profile's soak, or a plain setpoint with an end.
+class Dwell(SetpointGenerator):
+    """A fixed setpoint, as a trajectory: a profile's soak, or a plain setpoint with an end.
 
     With no `duration` it never finishes -- a runner decides when it has
     waited long enough, not the generator.
@@ -80,7 +80,7 @@ class Dwell(SetPointGenerator):
         return self.end_time is not None and time >= self.end_time
 
 
-class ProfileConfig(SetPointGeneratorConfig):
+class ProfileConfig(SetpointGeneratorConfig):
     """A profile's segments are generator configs, so the union below refers to itself.
 
     Written out rather than derived from `__init__`, since `GeneratorConfig`
@@ -93,7 +93,7 @@ class ProfileConfig(SetPointGeneratorConfig):
     init_names: ClassVar[tuple[str, ...]] = ("segments",)
 
 
-class Profile(SetPointGenerator):
+class Profile(SetpointGenerator):
     """Segments run back to back: each starts where the previous one landed.
 
     A ramp lands at its `end`, a dwell at its `value`, a nested profile
@@ -108,12 +108,12 @@ class Profile(SetPointGenerator):
     config: ClassVar[Any] = ModelOf(ProfileConfig, ("segments",))
     view_fields: ClassVar[tuple[str, ...]] = ("active", "end_time")
 
-    segments: list[SetPointGeneratorConfig]
-    generators: list[SetPointGenerator]
+    segments: list[SetpointGeneratorConfig]
+    generators: list[SetpointGenerator]
     active: int | None
     """The index of the segment last asked for; None until the profile has been read."""
 
-    def __init__(self, segments: list[SetPointGeneratorConfig]) -> None:
+    def __init__(self, segments: list[SetpointGeneratorConfig]) -> None:
         self.segments = list(segments)
         if not self.segments:
             raise ValueError("a profile needs at least one segment")
@@ -138,7 +138,7 @@ class Profile(SetPointGenerator):
             time, value = generator.end_time, generator.generate(generator.end_time)
         self.end_time = self.generators[-1].end_time
 
-    def _at(self, time: float) -> SetPointGenerator:
+    def _at(self, time: float) -> SetpointGenerator:
         """The segment in force at `time`: the first not yet finished, else the last."""
         last = len(self.generators) - 1
         self.active = next(

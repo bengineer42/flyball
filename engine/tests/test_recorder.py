@@ -496,4 +496,24 @@ def test_a_stored_rig_version_names_a_device_s_inputs(tmp_path, monkeypatch):
     assert document["devices"]["s"] == {"driver": "sht4x_set", "link": "i2c1"}
 
 
+def test_a_stored_rig_version_s_pass_through_feedforward_is_identity(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        17,
+        {
+            "controllers": {
+                "a.u": {"measured": "a.x", "feedforward": {"type": "setpoint"}},
+                "b.u": {"measured": "b.x", "feedforward": {"type": "affine", "gain": 2.0}},
+                "c.u": {"measured": "c.x"},
+            }
+        },
+    )
+    assert document["controllers"] == {
+        "a.u": {"measured": "a.x", "feedforward": {"type": "identity"}},
+        "b.u": {"measured": "b.x", "feedforward": {"type": "affine", "gain": 2.0}},
+        "c.u": {"measured": "c.x"},
+    }
+
+
 # endregion

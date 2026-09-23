@@ -107,7 +107,7 @@ class TestSimulation:
         assert updated.tau_s == 30 and oven.plant_config(name).tau_s == 30
         assert oven.plant_state(name)["output"] == pytest.approx(50.0), "state survives a retune"
         plant = oven.plants[name]
-        plant.step(30)  # one time constant with no input: 63 % of the way to ambient (20)
+        plant.advance(30)  # one time constant with no input: 63 % of the way to ambient (20)
         assert plant.output == pytest.approx(50 - 30 * (1 - 2.718281828**-1), rel=0.02)
         with pytest.raises(ValueError, match="model"):
             oven.set_plant(name, model="lag")
@@ -161,7 +161,7 @@ class TestSimulation:
 
     def test_stepping_needs_a_stepped_clock(self, oven):
         with pytest.raises(ConflictError, match="not stepped"):
-            oven.step(1.0)
+            oven.advance(1.0)
 
 
 class TestLiveValues:

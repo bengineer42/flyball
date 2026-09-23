@@ -12,7 +12,7 @@ find that shortfall through its integral while the ramp is under way.
 Subclassing generates `config` from `__init__` and registers the type,
 exactly as [ControlLaw][flyball.model.law.ControlLaw] does.
 
-`Feedforward`/`FeedforwardConfig` (the base) and `Setpoint`/`NoFeedforward`
+`Feedforward`/`FeedforwardConfig` (the base) and `Identity`/`NoFeedforward`
 (the two defaults `Controller` falls back to when none is given) live in
 `flyball.model.feedforward` -- `Controller` needs them and `model` can't
 import upward from `control`. What's left here are the feedforwards that
@@ -31,8 +31,8 @@ from flyball.model.feedforward import (  # ruff: ignore[unused-import]
     Feedforward,
     FeedforwardConfig,
     FeedforwardLike,
+    Identity,
     NoFeedforward,
-    Setpoint,
 )
 
 

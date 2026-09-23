@@ -80,15 +80,17 @@ class Simulation:
         self._changed.add("clock")
         return clock.speed
 
-    def step(self, seconds: float) -> int:
-        """Advance a stepped clock; return the new time.
+    def advance(self, seconds: float) -> int:
+        """Advance a stepped clock by `seconds`; return the new time.
 
         Raises:
             ConflictError: The clock runs on its own.
         """
         clock = self.rig.clock
         if not isinstance(clock, SteppedClock):
-            raise ConflictError("the clock is not stepped; set `clock.stepped = true` to step it")
+            raise ConflictError(
+                "the clock is not stepped; set `clock.stepped = true` to advance it"
+            )
         return clock.advance(seconds)
 
     # endregion

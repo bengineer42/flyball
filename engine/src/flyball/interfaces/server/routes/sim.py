@@ -73,7 +73,7 @@ def set_clock(body: SpeedIn, simulation: SimulationDep) -> dict[str, Any]:
 @router.post("/clock/advance")
 def advance_clock(body: AdvanceIn, simulation: SimulationDep) -> dict[str, Any]:
     """Advance a stepped clock by `seconds`; 409 if the clock runs on its own."""
-    return {"now_ns": simulation.step(body.seconds)}
+    return {"now_ns": simulation.advance(body.seconds)}
 
 
 @router.get("/plants/{name}")

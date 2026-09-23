@@ -17,7 +17,6 @@ from flyball.foundation.device import (
     Readout,
     Role,
     Sample,
-    Section,
     command,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError
@@ -28,7 +27,6 @@ from flyball.rig import Rig
 
 TEMP = Quantity("temperature", Celsius)
 DUTY = Quantity("duty", Percent)
-A, B = Section("a", "Bank A", axis="bank"), Section("b", "Bank B", axis="bank")
 
 
 class Mode(Labelled):
@@ -43,8 +41,8 @@ class Heater(Committable):
     banks = Namespace("banks", "Banks")
     max_duty = Readout("max_duty", "Max duty", DUTY, access=Access.R, initial=80.0)
     power = Demand("power", "Power", DUTY, limits=(0.0, 100.0))
-    a = banks.demand(A, "Bank A duty", DUTY, limits=(0.0, max_duty))
-    b = banks.demand(B, "Bank B duty", DUTY, limits=(0.0, max_duty))
+    a = banks.demand("a", "Bank A duty", DUTY, limits=(0.0, max_duty), tags={"bank": "a"})
+    b = banks.demand("b", "Bank B duty", DUTY, limits=(0.0, max_duty), tags={"bank": "b"})
     mode = Readout("mode", "Mode", vtype=Mode, initial=Mode.AUTO)
     writes: list[tuple[str, float]]
 

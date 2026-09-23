@@ -28,7 +28,7 @@ class Probe(Readable):
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
         dt = 0.0 if self._last_ns is None else (time_ns - self._last_ns) / 1e9
         self._last_ns = time_ns
-        yield self.sample(time_ns, temperature=self.oven.step(dt))
+        yield self.sample(time_ns, temperature=self.oven.advance(dt))
 
 
 # --8<-- [start:heater]

@@ -64,7 +64,7 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
         "scheduled",
         "sliding",
     }, "one of engine's 9 built-in laws is missing"
-    assert set(catalogs.feedforwards.names()) >= {"setpoint", "none", "affine", "table"}, (
+    assert set(catalogs.feedforwards.names()) >= {"identity", "none", "affine", "table"}, (
         "engine's own built-in feedforwards (control/configs.py) did not all load"
     )
     assert set(catalogs.generators.names()) >= {"dwell", "linear_ramp_setpoint", "profile"}, (

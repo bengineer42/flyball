@@ -1,6 +1,6 @@
 """`Feedforward`: the base a feedforward subclasses, and the schema it generates by doing so.
 
-`control/feedforward.py` holds the concrete feedforwards that ship (`Setpoint`,
+`control/feedforward.py` holds the concrete feedforwards that ship (`Identity`,
 `Affine`, `Table`, ...); this is just the machinery every one of them
 subclasses, the same shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
 """
@@ -71,8 +71,8 @@ class Feedforward:
         raise FeedforwardNotInvertibleError(self.type)
 
 
-class Setpoint(Feedforward, type="setpoint"):
-    """Demand equals setpoint: the actuator takes the channel's unit.
+class Identity(Feedforward, type="identity"):
+    """The identity map: demand equals setpoint, the actuator taking the channel's unit.
 
     No `rate_gain`: the actuator already takes the channel's own unit, so a
     rate term here would be a lead compensator, not the plant-capacity model
@@ -95,7 +95,7 @@ class NoFeedforward(Feedforward, type="none"):
     """The law does all the work: a bare power actuator under PID.
 
     The default `Controller` picks when the source and target units differ
-    and none is given -- see `Setpoint`'s docstring for why it lives here.
+    and none is given -- see `Identity`'s docstring for why it lives here.
     """
 
     def __call__(self, setpoint: float, rate: float = 0.0) -> float:

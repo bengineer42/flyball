@@ -48,7 +48,7 @@ class P(ControlLaw):
         """A proportional law has no memory, so it cannot hold `correction`."""
         return self.kp * (setpoint - reading)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         return self.kp * (setpoint - reading)
@@ -175,7 +175,7 @@ class PI(Weighted, IComponent, ControlLaw):
     def resume(self, reading: float, setpoint: float, correction: float) -> float:
         return self.resume_integral(self.proportional(self._kp, reading, setpoint), correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
@@ -240,7 +240,7 @@ class PID(Weighted, IComponent, ControlLaw):
         self.last_reading = reading
         return self.resume_integral(self.proportional(self._kp, reading, setpoint), correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
@@ -344,7 +344,7 @@ class OnOff(ControlLaw, type="on_off"):
         self.on = abs(correction - self.high) <= abs(correction - self.low)
         return self.high if self.on else self.low
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
@@ -434,7 +434,7 @@ class SmithPredictor(PI, type="smith"):
         self._last_output = correction
         return super().resume(reading, setpoint, correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         dt = elapsed - self.last_elapsed
@@ -454,7 +454,7 @@ class SmithPredictor(PI, type="smith"):
             if self._pipe[0][0] <= due:
                 self.predicted_delayed = self._pipe[0][1]
         seen = reading + (self.predicted - self.predicted_delayed)
-        self._last_output = super().step(elapsed, seen, setpoint, last_applied)
+        self._last_output = super().update(elapsed, seen, setpoint, last_applied)
         return self._last_output
 
 
@@ -522,11 +522,11 @@ class Scheduled(PID, type="scheduled"):
         self._schedule(setpoint)
         return super().resume(reading, setpoint, correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         self._schedule(setpoint)
-        return super().step(elapsed, reading, setpoint, last_applied)
+        return super().update(elapsed, reading, setpoint, last_applied)
 
 
 class SlidingMode(ControlLaw, type="sliding"):
@@ -574,7 +574,7 @@ class SlidingMode(ControlLaw, type="sliding"):
         self.last_elapsed = 0.0
         return wanted
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading

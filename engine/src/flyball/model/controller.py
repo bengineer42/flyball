@@ -41,8 +41,8 @@ from flyball.model.errors import (
     ControllerNotStartedError,
     LastReadingNotAvailableError,
 )
-from flyball.model.feedforward import Feedforward, FeedforwardConfig, NoFeedforward, Setpoint
-from flyball.model.generator import SetPointGenerator
+from flyball.model.feedforward import Feedforward, FeedforwardConfig, Identity, NoFeedforward
+from flyball.model.generator import SetpointGenerator
 from flyball.model.law import (
     ControlLaw,
     ControlLawConfig,
@@ -95,8 +95,11 @@ class RegulateResult(NamedTuple):
 
 
 @dataclass(frozen=True, kw_only=True)
-class ControllerSettings:
-    """What can be re-set while the controller runs: the law in force and its gains."""
+class ControllerSpec:
+    """What a controller is: its signals, and the law, tuning and feedforward in force.
+
+    A retune or a `regulate` may change the law and its tuning while it runs.
+    """
 
     name: str
     """The output's address."""
@@ -111,14 +114,14 @@ class ControllerSettings:
     """The output's unit symbol."""
     offset_ns: int
     min_period_s: float | None = None
-    """Step the law at most this often, however fast readings arrive. None: every reading."""
+    """Update the law at most this often, however fast readings arrive. None: every reading."""
 
 
 @dataclass(frozen=True, kw_only=True)
 class ControllerState:
     law: ControlLawState | None
     correction: float = 0.0
-    reference: float | SetPointGenerator | None = None
+    reference: float | SetpointGenerator | None = None
     setpoint: float | None = None
     """The reference resolved at the last tick: a ramp's value then, in the measured unit."""
     arrived: bool = False
@@ -133,20 +136,20 @@ class ControllerState:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ControllerView(ControllerSettings, ControllerState):
+class ControllerView(ControllerSpec, ControllerState):
     law: ControlLawView | None
 
     @classmethod
-    def of(cls, settings: ControllerSettings, state: ControllerState) -> ControllerView:
+    def of(cls, spec: ControllerSpec, state: ControllerState) -> ControllerView:
         return cls(
-            name=settings.name,
-            output_signal=settings.output_signal,
-            measured_signal=settings.measured_signal,
-            law=settings.law and state.law and ControlLawView.of(settings.law, state.law),
-            feedforward=settings.feedforward,
-            output_unit=settings.output_unit,
-            offset_ns=settings.offset_ns,
-            min_period_s=settings.min_period_s,
+            name=spec.name,
+            output_signal=spec.output_signal,
+            measured_signal=spec.measured_signal,
+            law=spec.law and state.law and ControlLawView.of(spec.law, state.law),
+            feedforward=spec.feedforward,
+            output_unit=spec.output_unit,
+            offset_ns=spec.offset_ns,
+            min_period_s=spec.min_period_s,
             correction=state.correction,
             reference=state.reference,
             setpoint=state.setpoint,
@@ -169,7 +172,7 @@ class Controller:
     feedforward: Feedforward
     correction: float = 0.0
     offset_ns: int = 0
-    reference: float | SetPointGenerator | None = None
+    reference: float | SetpointGenerator | None = None
     setpoint: float | None = None
     output: float | None = None
     expected: float | None = None
@@ -212,8 +215,8 @@ class Controller:
         same_unit = measured_signal.unit == output_signal.unit
         built = feedforward.build() if isinstance(feedforward, FeedforwardConfig) else feedforward
         if built is None:
-            built = Setpoint() if same_unit else NoFeedforward()
-        elif isinstance(built, Setpoint) and not same_unit:
+            built = Identity() if same_unit else NoFeedforward()
+        elif isinstance(built, Identity) and not same_unit:
             # Handing the output values in the measured unit when it takes
             # another would run happily and do nonsense.
             raise ConflictError(
@@ -268,8 +271,8 @@ class Controller:
         return require(self.law, ControlLawNotSetError)
 
     @property
-    def settings(self) -> ControllerSettings:
-        return ControllerSettings(
+    def spec(self) -> ControllerSpec:
+        return ControllerSpec(
             name=self.name,
             output_signal=self.output_signal.address,
             measured_signal=self.measured_signal.address,
@@ -301,16 +304,16 @@ class Controller:
 
         False with no reference at all -- there is nothing to have arrived at.
         """
-        if isinstance(self.reference, SetPointGenerator):
+        if isinstance(self.reference, SetpointGenerator):
             return self.reference.finished(self.clock.from_start_s(self.clock.now_ns()))
         return self.reference is not None
 
     @property
     def view(self) -> ControllerView:
-        return ControllerView.of(settings=self.settings, state=self.state)
+        return ControllerView.of(spec=self.spec, state=self.state)
 
     def setpoint_at(self, time_ns: int) -> float:
-        if isinstance(self.reference, SetPointGenerator):
+        if isinstance(self.reference, SetpointGenerator):
             return self.reference.generate(self.clock.from_start_s(time_ns))
         return require(self.reference, ControllerNotStartedError)
 
@@ -320,7 +323,7 @@ class Controller:
         From the generator, not a difference of successive `setpoint_at`
         values: those carry reading noise a real trajectory does not have.
         """
-        if isinstance(self.reference, SetPointGenerator):
+        if isinstance(self.reference, SetpointGenerator):
             return self.reference.rate(self.clock.from_start_s(time_ns))
         return 0.0
 
@@ -348,7 +351,7 @@ class Controller:
             return self.feedforward.invert(self.output_at(time_ns), self.rate_at(time_ns))
         return float(at)
 
-    def reset_law(self, time_ns: int | None = None) -> None:
+    def clear_law(self, time_ns: int | None = None) -> None:
         time_ns = self.get_time_ns(time_ns)
         self.offset_ns = time_ns
         self._last_step_ns = None
@@ -359,7 +362,7 @@ class Controller:
     def regulate(
         self,
         at: ValueSource | float,
-        generator: SetPointGenerator | None = None,
+        generator: SetpointGenerator | None = None,
         tuning: ControlLawLike | None = None,
         time_ns: int | None = None,
         transfer: Transfer = Transfer.TRACK,
@@ -397,7 +400,7 @@ class Controller:
                 self.reference = generator
 
             if transfer is not Transfer.NONE:
-                self.reset_law(time_ns)
+                self.clear_law(time_ns)
                 setpoint = self.setpoint_at(time_ns)
                 reading = self.last_value
                 if reading is None or transfer is Transfer.COLD:
@@ -423,7 +426,7 @@ class Controller:
     def set_setpoint(
         self,
         at: ValueSource | float,
-        generator: SetPointGenerator | None = None,
+        generator: SetpointGenerator | None = None,
         time_ns: int | None = None,
     ) -> None:
         with self.lock:
@@ -454,7 +457,7 @@ class Controller:
             callback(self, reading)
 
     def on_reading(self, reading: Reading) -> None:
-        """The measured signal's node delivered a sample; step the law on its reading."""
+        """The measured signal's node delivered a sample; update the law on its reading."""
         assert reading.signal is self.measured_signal, (
             f"{reading.signal} is not {self.measured_signal}"
         )
@@ -490,7 +493,7 @@ class Controller:
             if reading is not None:
                 self._skip_outage(time_ns, resumed=resumed)
                 self._last_step_ns = time_ns
-                self.correction = self.required_law.step(
+                self.correction = self.required_law.update(
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
             self._apply_output(setpoint, self.rate_at(time_ns))

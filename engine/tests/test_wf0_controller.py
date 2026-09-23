@@ -171,14 +171,14 @@ class TestBackCalculation:
     def test_the_output_never_crosses_the_applied_value(self, dt):
         law = PI(kp=2.0, ki=0.1, tt=5.0)
         assert law.resume(50.0, 50.0, 96.0) == 96.0, "railed: raw 96, the target took 60"
-        output = law.step(dt, 50.0, 50.0, last_applied=60.0)
+        output = law.update(dt, 50.0, 50.0, last_applied=60.0)
         assert 60.0 <= output <= 96.0
 
     def test_a_short_step_matches_the_continuous_rate(self):
         law = PI(kp=2.0, ki=0.1, tt=5.0)
         law.resume(50.0, 50.0, 96.0)
         # d(output)/dt = (applied - raw) / tt = -7.2/s, to first order in dt
-        assert law.step(0.001, 50.0, 50.0, last_applied=60.0) == pytest.approx(
+        assert law.update(0.001, 50.0, 50.0, last_applied=60.0) == pytest.approx(
             96.0 - 7.2e-3, rel=1e-6
         )
 

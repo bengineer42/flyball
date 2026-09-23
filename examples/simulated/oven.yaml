@@ -42,7 +42,7 @@ devices:
       drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
 # The drive takes a demand straight in °C, so the controller hands it the
-# setpoint untouched (the default `setpoint` feedforward, since the units
+# setpoint untouched (the default `identity` feedforward, since the units
 # agree) and the law's gains are the old °C-per-°C tuning.
 controllers:
   heater.drive:

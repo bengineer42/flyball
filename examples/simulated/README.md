@@ -66,7 +66,7 @@ through `flyball sim set`. Several devices may share one link, which is how
 `oven.yaml`, `tank.yaml`, `chiller.yaml` and `dual.yaml` declare their
 drive `demand: output`, so the signal takes a demand straight in the
 plant's own output unit (°C, L) and `commit` inverts the plant to find the
-drive -- no feedforward is needed (the default `setpoint` one hands the
+drive -- no feedforward is needed (the default `identity` one hands the
 target its setpoint unchanged, since the units agree) and the law's gains
 are ordinary per-unit-of-error PI, even on the chiller's negative-gain
 plant -- see the comments in each file.

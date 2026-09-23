@@ -108,26 +108,26 @@ class TestPlants:
         lag.drive(0.0, 1000)
         assert lag.output == pytest.approx(20)
         lag.input = lag.feedforward(60)
-        lag.step(1000)
+        lag.advance(1000)
         assert lag.output == pytest.approx(60)
 
     def test_integrator_with_and_without_leak(self):
         tank = Integrator(gain=2.0, leak=0.0, value=10)
         tank.input = 1.0
-        assert tank.step(5.0) == pytest.approx(20.0)
+        assert tank.advance(5.0) == pytest.approx(20.0)
         drained = Integrator(gain=2.0, leak=0.1, value=0)
         drained.input = drained.feedforward(40)
-        drained.step(1000)
+        drained.advance(1000)
         assert drained.output == pytest.approx(40)
 
     def test_fopdt_delays_the_input(self):
         plant = Fopdt(tau_s=1.0, dead_s=5.0, gain=1.0)
         plant.input = 1.0
         for _ in range(4):
-            plant.step(1.0)
+            plant.advance(1.0)
         assert plant.output == pytest.approx(0.0), "nothing arrives inside the dead time"
         for _ in range(20):
-            plant.step(1.0)
+            plant.advance(1.0)
         assert plant.output == pytest.approx(1.0, abs=1e-6)
 
     def test_noisy_reads_through_noise_but_steps_the_clean_plant(self):

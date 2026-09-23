@@ -1,4 +1,4 @@
-"""`SetPointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
+"""`SetpointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
 
 `control/setpoint.py` holds the concrete generators that ship (`Dwell`,
 `LinearRampSetpoint`, `Profile`, ...) and the closed discriminated union over
@@ -19,7 +19,7 @@ from pydantic_core import core_schema
 from flyball.model.model import ModelOf, creation_model
 
 
-class SetPointGeneratorConfig(BaseModel):
+class SetpointGeneratorConfig(BaseModel):
     """How a generator was specified: its constructor arguments and its type.
 
     `type` is declared on the base so the base has a schema; each subclass
@@ -31,20 +31,20 @@ class SetPointGeneratorConfig(BaseModel):
     # A NaN or infinite end, value or rate would carry straight into the setpoint.
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    generator: ClassVar[builtins.type[SetPointGenerator]]
+    generator: ClassVar[builtins.type[SetpointGenerator]]
     init_names: ClassVar[tuple[str, ...]] = ()
 
     type: str
 
-    def build(self) -> SetPointGenerator:
+    def build(self) -> SetpointGenerator:
         """A fresh generator, not yet started."""
         return self.generator(**{name: getattr(self, name) for name in self.init_names})
 
 
-class SetPointGenerator:
+class SetpointGenerator:
     """A reference trajectory. Subclassing derives `config`; registering is explicit.
 
-    A type is assigned when subclassed (`class Dwell(SetPointGenerator, type="dwell")`),
+    A type is assigned when subclassed (`class Dwell(SetpointGenerator, type="dwell")`),
     but nothing is written into a shared registry any more -- see
     [Catalogs][flyball.model.catalog.Catalogs].
     """
@@ -66,7 +66,7 @@ class SetPointGenerator:
             config_model = creation_model(
                 cls,
                 suffix="Config",
-                base=SetPointGeneratorConfig,
+                base=SetpointGeneratorConfig,
                 extra={"type": (Literal[cls.type], cls.type)},
             )
             config_model.generator = cls  # pyright: ignore[reportAttributeAccessIssue]
@@ -106,7 +106,7 @@ class SetPointGenerator:
         """Bind to the rig: `time` is the origin, `value` the process value then."""
 
     def generate(self, time: float) -> float:
-        """The set point at `time`."""
+        """The setpoint at `time`."""
         raise NotImplementedError
 
     def finished(self, time: float) -> bool:
@@ -119,7 +119,7 @@ class SetPointGenerator:
         return False
 
     def rate(self, time: float) -> float:
-        """How fast the set point is moving at `time`, per second.
+        """How fast the setpoint is moving at `time`, per second.
 
         Zero unless overridden: a generator with no notion of a rate (or one
         that has landed) is not moving. A rate feedforward uses this rather

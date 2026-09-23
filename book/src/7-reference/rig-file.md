@@ -165,9 +165,9 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | --- | --- | --- |
 | `measured` | address | the measured signal: a published (`P`) signal, what is regulated |
 | `law` | `{type, ...gains}` | e.g. `{type: PI, kp: 0.2, ki: 0.05}`; omit for none |
-| `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `setpoint`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `setpoint` when the units agree, else `none` |
+| `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `identity`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |
-| `min_period_s` | number, optional | step the law at most this often |
+| `min_period_s` | number, optional | update the law at most this often |
 
 ```yaml
 controllers:
@@ -184,7 +184,7 @@ controllers:
 setpoint's own rate of change in the measured unit *per second* (zero off
 a ramp): output unit per measured-unit-per-second — a zone's
 `capacity_j_per_k` (J/K = W per °C/s) is the extra power a ramp needs to
-charge its own thermal mass. Not on `setpoint`: that feedforward already
+charge its own thermal mass. Not on `identity`: that feedforward already
 hands the output the measured signal's own unit, so a rate term there would be a
 lead compensator, a different job from the plant-capacity model this is.
 

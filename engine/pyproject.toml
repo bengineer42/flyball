@@ -186,7 +186,7 @@ convention = "google"
 # `flyball.model` (engine-structure.md layer 2) is deliberately left OUT of
 # this list too, for the same reason as flyball.rig above: a real,
 # unavoidable cycle, not an oversight. `flyball.control` (laws/feedforwards/
-# generators that ship) imports `ControlLaw`/`Feedforward`/`SetPointGenerator`
+# generators that ship) imports `ControlLaw`/`Feedforward`/`SetpointGenerator`
 # from `flyball.model`, so model has to sit below control -- but
 # `flyball.foundation.device.device.DriverConfig` subclasses `flyball.model
 # .config.Config` (`Config[T]`'s home moved out of `foundation/config/` to

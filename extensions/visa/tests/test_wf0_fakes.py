@@ -42,9 +42,7 @@ class TestFakeBlockingGoesThroughTheWriter:
                 "psu": {
                     "driver": "scpi",
                     "link": "psu",
-                    "channels": {
-                        "set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"}
-                    },
+                    "channels": {"set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"}},
                 }
             },
         }

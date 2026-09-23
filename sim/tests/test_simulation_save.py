@@ -18,13 +18,12 @@ RIG = {
         "thermocouple": {
             "driver": "sim_daq",
             "link": "chamber",
-            "ports": {
-                "temperature": {"port": "output", "quantity": "temperature", "unit": "°C"}
-            },
+            "ports": {"temperature": {"port": "output", "quantity": "temperature", "unit": "°C"}},
         },
         "heater": {
             "driver": "sim_drive",
-            "link": "chamber", "ports": {"drive": "input"},
+            "link": "chamber",
+            "ports": {"drive": "input"},
         },
     },
 }

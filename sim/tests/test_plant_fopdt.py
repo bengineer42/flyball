@@ -16,7 +16,7 @@ def _after_a_step(t_s: float, dt_s: float, dead_s: float = DEAD) -> float:
     plant = Fopdt(TAU, dead_s)
     plant.input = 1.0
     for _ in range(round(t_s / dt_s)):
-        plant.step(dt_s)
+        plant.advance(dt_s)
     return plant.output
 
 
@@ -52,10 +52,10 @@ def test_an_input_change_mid_run_is_delayed_whole():
         plant = Fopdt(TAU, DEAD)
         plant.input = 1.0
         for _ in range(round(3.0 / dt_s)):
-            plant.step(dt_s)
+            plant.advance(dt_s)
         plant.input = 0.0
         for _ in range(round(9.0 / dt_s)):
-            plant.step(dt_s)
+            plant.advance(dt_s)
         outputs.append(plant.output)
     exact = (1 - math.exp(-3 / TAU)) * math.exp(-(12 - 8) / TAU)
     assert outputs == pytest.approx([exact] * 3)

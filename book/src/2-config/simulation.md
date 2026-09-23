@@ -11,7 +11,7 @@ default, so `pip install flyball[server]` alone can already run a simulated rig.
 | --- | --- |
 | `SteppedClock` | only moves when told to: `clock.advance(1.0)` |
 | `ScaledClock(speed)` | real time × `speed`, changeable while running |
-| `Lag(tau_s, value, gain, ambient)` | a first-order plant; `step(dt_s)` holds `input` for `dt_s` seconds |
+| `Lag(tau_s, value, gain, ambient)` | a first-order plant; `advance(dt_s)` holds `input` for `dt_s` seconds |
 | `Fopdt(tau_s, dead_s, gain)` | a `Lag` whose input arrives `dead_s` late |
 | `Integrator(gain, leak)` | `dy/dt = gain·u − leak·y`: a tank against a drain |
 | `Noisy(plant, sigma)` | any plant, read through Gaussian noise; the plant itself stays clean |
@@ -152,7 +152,7 @@ is one of `sim_plant`'s own parameters). `heater`'s port is declared
 `demand: output`: a demand is the temperature to hold, in °C, and `commit()`
 inverts the plant's static model to find the drive fraction, rather than
 leaving that job to the controller's feedforward — so `heater.drive`'s law
-can be tuned in plain °C-per-°C and the default `setpoint` feedforward hands
+can be tuned in plain °C-per-°C and the default `identity` feedforward hands
 the target the setpoint untouched.
 
 Several `sim_daq`s may read one bare `sim_plant`: it is stepped once per
@@ -243,7 +243,7 @@ devices:
 
 `examples/furnace`'s `sim_furnace` is the example to read for a plant of
 your own with more than one port: implement the `MultiPlant` protocol
-(`inputs`, `output_names`, `output(port)`, `advance(time_ns)`,
+(`inputs`, `output_names`, `output(port)`, `advance_to(time_ns)`,
 `feedforward(port, demand)`, `inverse_feedforward(port, drive)`) and a
 `Config` with `retune`, in a package of your own -- registering its type
 through the `flyball.configs` entry point, the way `examples/furnace`'s

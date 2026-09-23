@@ -45,7 +45,7 @@ ideal form (`Kp`, `Ti`, `Td`) are converted once by `Gains.of_ideal`.
   of what the plant will have done once the dead time passes and lets the PI
   be tuned for the lag alone. It never sees the demand's feedforward base,
   so `feedforward` says what the controller's feedforward hands on per unit
-  of setpoint: 1 under the default `setpoint` feedforward, 0 under `none`.
+  of setpoint: 1 under the default `identity` feedforward, 0 under `none`.
 - **`scheduled`** when one tuning is sluggish at one end of the range and
   rings at the other: a heater whose losses grow with temperature, a valve
   nonlinear in its travel. When `ki` changes the integrator is rescaled so
@@ -62,17 +62,17 @@ ideal form (`Kp`, `Ti`, `Td`) are converted once by `Gains.of_ideal`.
 ```python
 class MyLaw(ControlLaw, type="mine"):
     def __init__(self, gain: float) -> None: ...
-    def step(self, elapsed: float, reading: float, setpoint: float,
+    def update(self, elapsed: float, reading: float, setpoint: float,
              last_applied: float | None = None) -> float: ...
     def reset(self) -> None: ...
     def resume(self, reading: float, setpoint: float, correction: float) -> float: ...
 ```
 
-- `step` is called once per tick with seconds since the law's own start.
+- `update` is called once per tick with seconds since the law's own start.
   `last_applied` is the correction the output actually delivered last
   tick, or `None`.
 - `reset` clears memory: a cold start.
-- `resume` seeds memory so the next `step` reproduces `correction`, and
+- `resume` seeds memory so the next `update` reproduces `correction`, and
   returns what it managed. The default is a cold start; a law with an
   integral overrides it. See [Handover](../6-internals/controller.md#handover).
 

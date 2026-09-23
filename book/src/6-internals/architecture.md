@@ -52,7 +52,7 @@ writing a device driver rather than editing the rig.
 | package | layer | holds |
 | --- | --- | --- |
 | `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Write`, `WriteState`, `Access`; `Device`, `DriverConfig`; errors; `Topic`, `Latest`, `Trigger` |
-| `flyball.model` | control (unlisted -- a real cycle, see Layering) | `Catalog`/`Catalogs`, `Config`; the base `ControlLaw`, `Feedforward`, `SetPointGenerator`, `Controller`/`ControllerSettings`/`ValueSource`, `Transfer` every registered law, feedforward, generator and `DriverConfig` derives from |
+| `flyball.model` | control (unlisted -- a real cycle, see Layering) | `Catalog`/`Catalogs`, `Config`; the base `ControlLaw`, `Feedforward`, `SetpointGenerator`, `Controller`/`ControllerSpec`/`ValueSource`, `Transfer` every registered law, feedforward, generator and `DriverConfig` derives from |
 | `flyball.control` | control | the 9 built-in laws (`P`, `PI`, `PID`, `IMC`, `OnOff`, `OpenLoop`, `Scheduled`, `SlidingMode`, `SmithPredictor`), the `Affine`/`Table` feedforwards, the `Dwell`/`LinearRampSetpoint`/`Profile` generators |
 | `flyball.library` | library | `Tuning`, `Tunings` -- saved, named configs |
 | `flyball.autotune` | `hardware\|adaptive\|autotune\|record` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
@@ -74,7 +74,7 @@ subclassing, with a pydantic model derived from the class itself.
 | registry | populated by | model derived from |
 | --- | --- | --- |
 | control laws | `class X(ControlLaw, type=…)` | `__init__` → config; `_state_fields` → state |
-| trajectories | `class X(SetPointGenerator, type=…)` | the same |
+| trajectories | `class X(SetpointGenerator, type=…)` | the same |
 | program steps | `class X(Step, tag=…)` | the dataclass constructor → request |
 | configs | `class X(Config, type=…)` | the model itself; `union` discriminates on `type` |
 
@@ -125,7 +125,7 @@ module level (`runtime.config`/`writer`/`retention` build or type a `Rig`;
 -- the fix is moving `writer.py`/`retention.py` into `rig/` and extracting
 just the `Rig`-building half of `runtime.config` out of it. `flyball.model`
 has to sit below `flyball.control` (the built-in laws import `ControlLaw`/
-`Feedforward`/`SetPointGenerator` from it) but also below `flyball.foundation`,
+`Feedforward`/`SetpointGenerator` from it) but also below `flyball.foundation`,
 model's own supposed base layer (`foundation.device.device.DriverConfig`
 subclasses `model.config.Config`) -- the fix is moving `DriverConfig` itself
 into `model/`. Both checked directly with `uv run lint-imports`; the

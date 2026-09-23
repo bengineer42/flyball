@@ -11,7 +11,7 @@ from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.model.catalog import get_catalog
 from flyball.model.controller import Controller, ValueSource
 from flyball.model.errors import FeedforwardNotInvertibleError
-from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.model.law import Transfer
 
 
@@ -46,8 +46,8 @@ def controller(clock: SteppedClock, heater: Heater, **kwargs) -> Controller:
 
 class TestFeedforwards:
     def test_builtins_and_their_configs_round_trip(self):
-        assert set(get_catalog().feedforwards) >= {"setpoint", "none", "affine", "table"}
-        assert Setpoint()(50.0) == 50.0
+        assert set(get_catalog().feedforwards) >= {"identity", "none", "affine", "table"}
+        assert Identity()(50.0) == 50.0
         assert NoFeedforward()(50.0) == 0.0
         affine = Affine.config.model_validate({"type": "affine", "gain": 2.0, "bias": 1.0}).build()
         assert affine(3.0) == 7.0
@@ -73,7 +73,7 @@ class TestInvert:
     """The setpoint behind a demand: identity, algebra, or a table read backwards."""
 
     def test_setpoint_is_its_own_inverse(self):
-        assert Setpoint().invert(50.0) == 50.0
+        assert Identity().invert(50.0) == 50.0
 
     def test_none_has_no_inverse(self):
         with pytest.raises(FeedforwardNotInvertibleError, match="'none'"):
@@ -116,7 +116,7 @@ class TestController:
         # feedforward(50) = 60 W; the law adds kp * (50 - 45) = 10 W.
         assert loop.output == pytest.approx(70.0)
         assert loop.correction == pytest.approx(10.0)
-        assert loop.settings.output_unit == "W"
+        assert loop.spec.output_unit == "W"
         assert loop.view.feedforward.model_dump() == {
             "type": "affine",
             "gain": 1.0,
@@ -149,12 +149,12 @@ class TestController:
     def test_default_follows_the_units(self):
         loop = controller(SteppedClock(), Heater(), law=P(kp=1.0))
         assert isinstance(loop.feedforward, NoFeedforward), "°C to W: nothing to pass through"
-        assert loop.settings.feedforward.model_dump() == {"type": "none"}
+        assert loop.spec.feedforward.model_dump() == {"type": "none"}
         bath = Oven("bath")
         bath.signals["heater"].set_meta(quantity=Quantity("temperature", Celsius))
         same = Controller(SteppedClock(), bath.signals["heater"], bath.signals["zone"])
-        assert isinstance(same.feedforward, Setpoint)
-        assert same.settings.feedforward.model_dump() == {"type": "setpoint"}
+        assert isinstance(same.feedforward, Identity)
+        assert same.spec.feedforward.model_dump() == {"type": "identity"}
 
     def test_regulate_at_demand_aims_at_the_setpoint_behind_it(self):
         """`at=DEMAND` must land back in the source's unit, not the target's."""

@@ -187,7 +187,7 @@ class ControlLaw:
         return None
 
     def resume(self, reading: float, setpoint: float, correction: float) -> float:
-        """Re-enter control so the first step reproduces `correction`; return what was seeded.
+        """Re-enter control so the first update reproduces `correction`; return what was seeded.
 
         For bumpless hand-back from manual control. The seeded value differs
         from `correction` when the law has no integral to carry an offset; the
@@ -196,7 +196,7 @@ class ControlLaw:
         """
         return correction
 
-    def step(
+    def update(
         self,
         elapsed: float,
         reading: float,

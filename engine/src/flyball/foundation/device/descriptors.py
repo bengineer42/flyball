@@ -18,7 +18,6 @@ from .signal import (
     Node,
     NodeSpec,
     Role,
-    Section,
     Signal,
     SignalRef,
     SignalSpec,
@@ -67,23 +66,23 @@ class Namespace:
         """A namespace under this one; `atomic` and `poll_s` as for the top level."""
         return Namespace(name, label, parent=self, **options)
 
-    def demand(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Demand:
+    def demand(self, name: str, label: str = "", *args: Any, **meta: Any) -> Demand:
         """A settable signal under this namespace, with a readback; what a controller drives."""
         return Demand(name, label, *args, parent=self, **meta)
 
-    def readout(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Readout:
+    def readout(self, name: str, label: str = "", *args: Any, **meta: Any) -> Readout:
         """A produced signal under this namespace: a measurement, a derived value, a mode."""
         return Readout(name, label, *args, parent=self, **meta)
 
-    def setting(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Setting:
+    def setting(self, name: str, label: str = "", *args: Any, **meta: Any) -> Setting:
         """A signal under this namespace that a command re-sets; shown, not driven."""
         return Setting(name, label, *args, parent=self, **meta)
 
-    def config(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> ConfigSignal:
+    def config(self, name: str, label: str = "", *args: Any, **meta: Any) -> ConfigSignal:
         """A signal under this namespace effective at build: the driver pushes it once."""
         return ConfigSignal(name, label, *args, parent=self, **meta)
 
-    def input(self, name: str | Section, label: str = "", *args: Any, **meta: Any) -> Input:
+    def input(self, name: str, label: str = "", *args: Any, **meta: Any) -> Input:
         """An input grouped under this namespace for the schema; not in the tree (rig-bound)."""
         return Input(name, label, *args, parent=self, **meta)
 
@@ -123,9 +122,9 @@ class Descriptor[B]:
 
     `dry_flow = flows.demand("dry", "Dry pump flow", FLOW, limits=(0.0, dry_max_flow))`
     on the class; `self.dry_flow` is the bound [Signal][flyball.foundation.device.signal.Signal].
-    A [Section][flyball.foundation.device.signal.Section] in place of the name gives the
-    segment and tags the signal. `quantity` None: the name, unitless (a mode, a
-    count). A limit may be another descriptor of the same device: its
+    `tags={"line": "dry"}` groups it across the tree (`flows.dry` and `efforts.dry`
+    share `line: dry`) without being part of its address. `quantity` None: the
+    name, unitless (a mode, a count). A limit may be another descriptor of the same device: its
     current value bounds this one. `ceiling` lets the rig file widen `access`
     up to it (never beyond); without one, the rig file may only narrow.
     """
@@ -134,7 +133,7 @@ class Descriptor[B]:
 
     def __init__(
         self,
-        name: str | Section,
+        name: str,
         label: str = "",
         quantity: Quantity | None = None,
         vtype: Any = float,
@@ -144,13 +143,7 @@ class Descriptor[B]:
         parent: Namespace | None = None,
         **meta: Any,
     ) -> None:
-        self.section: Section | None
-        if isinstance(name, Section):
-            self.section, self.name = name, name.name
-            if not label:
-                label = name.label
-        else:
-            self.section, self.name = meta.pop("section", None), name
+        self.name = name
         self.label = label
         self.quantity = Quantity(self.name, Unitless) if quantity is None else quantity
         self.vtype = vtype
@@ -178,7 +171,6 @@ class Descriptor[B]:
             access=self.access,
             ceiling=self.ceiling,
             role=self.role,
-            section=self.section,
             vtype=self.vtype,
             label=self.label,
             **meta,
@@ -288,7 +280,7 @@ class Input(Descriptor[BoundInput]):
 
     def __init__(
         self,
-        name: str | Section,
+        name: str,
         label: str = "",
         quantity: Quantity | None = None,
         vtype: Any = float,

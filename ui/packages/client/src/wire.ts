@@ -362,14 +362,14 @@ export interface LawConfig {
 
 /**
  * What maps the setpoint into the output's unit before the law corrects:
- * `output = feedforward(setpoint) + correction`. `setpoint` passes it
+ * `output = feedforward(setpoint) + correction`. `identity` passes it
  * through (the units agree), `none` gives 0 (the law does all the work),
  * `affine` is `gain * setpoint + bias`, `table` interpolates `(setpoint,
  * output)` breakpoints, held flat beyond the ends. `affine`/`table` take an
  * optional `rate_gain` for a ramp's rate of change.
  */
 export type FeedforwardConfig =
-  | { type: "setpoint" }
+  | { type: "identity" }
   | { type: "none" }
   | { type: "affine"; gain: number; bias?: number; rate_gain?: number | null }
   | { type: "table"; points: Array<[number, number]>; rate_gain?: number | null }
@@ -418,7 +418,7 @@ export interface ProfileSpec {
   segments: Array<LinearRampSpec | DwellSpec>;
 }
 
-/** A set-point generator as `PUT .../setpoint` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
+/** A setpoint generator as `PUT .../setpoint` and `POST .../regulate` take one in `at`; `GET /api/controllers/schema` lists them. */
 export type GeneratorSpec = LinearRampSpec | DwellSpec | ProfileSpec | { type: string; [k: string]: unknown };
 
 /**
@@ -486,7 +486,7 @@ export interface ControllerSchema {
   laws: JsonSchema;
   /** JSON Schema of the feedforward config union, discriminated on `type`. */
   feedforwards: JsonSchema;
-  /** JSON Schema of the set-point generator config union (`GeneratorSpec`), discriminated on `type`. */
+  /** JSON Schema of the setpoint generator config union (`GeneratorSpec`), discriminated on `type`. */
   generators: JsonSchema;
   tunings: TuningChoice[];
   /** measured signal address → the controller already regulating it. */
@@ -503,8 +503,8 @@ export interface NewController {
   /** A config, or a stored tuning's name. */
   law?: LawConfig | string | null;
   /**
-   * A config, or a type alone (`"setpoint"`). Omitted: `setpoint` when the
-   * units agree, else `none`. `"setpoint"` across differing units is refused (409).
+   * A config, or a type alone (`"identity"`). Omitted: `identity` when the
+   * units agree, else `none`. `"identity"` across differing units is refused (409).
    */
   feedforward?: FeedforwardConfig | string | null;
   default?: boolean;

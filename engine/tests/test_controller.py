@@ -14,7 +14,7 @@ from flyball.control import (
     GeneratorConfig,
     LinearRampSetpoint,
     Profile,
-    SetPointGenerator,
+    SetpointGenerator,
 )
 from flyball.control.laws import P
 from flyball.foundation.device import (
@@ -32,7 +32,7 @@ from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.foundation.time import Duration, Speed, TimeUnit
 from flyball.model.catalog import get_catalog
 from flyball.model.controller import Controller, ControllerMode
-from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.model.law import Transfer
 
 TEMP = Quantity("temperature", Celsius)
@@ -63,11 +63,9 @@ def test_named_by_its_target(furnace):
     assert controller.output_signal is furnace.signals["heater1"]
     assert controller.measured_signal is furnace.signals["zone1"]
     assert controller.output_unit == "W"
-    settings = controller.settings
-    assert settings.name == "furnace.heater1" and settings.output_unit == "W"
-    assert (
-        settings.output_signal == "furnace.heater1" and settings.measured_signal == "furnace.zone1"
-    )
+    spec = controller.spec
+    assert spec.name == "furnace.heater1" and spec.output_unit == "W"
+    assert spec.output_signal == "furnace.heater1" and spec.measured_signal == "furnace.zone1"
     assert (
         controller.view.output_signal == "furnace.heater1"
         and controller.view.measured_signal == "furnace.zone1"
@@ -91,7 +89,7 @@ def test_the_output_must_be_a_writable_demand_and_the_measured_signal_publishing
 def test_feedforward_defaults_follow_the_units(furnace):
     clock = SteppedClock()
     same = Controller(clock, furnace.signals["bath"], furnace.signals["zone1"])
-    assert isinstance(same.feedforward, Setpoint)
+    assert isinstance(same.feedforward, Identity)
     different = Controller(clock, furnace.signals["heater1"], furnace.signals["zone1"])
     assert isinstance(different.feedforward, NoFeedforward)
     with pytest.raises(
@@ -100,7 +98,7 @@ def test_feedforward_defaults_follow_the_units(furnace):
         r" which takes demands in W",
     ):
         Controller(
-            clock, furnace.signals["heater1"], furnace.signals["zone1"], feedforward=Setpoint()
+            clock, furnace.signals["heater1"], furnace.signals["zone1"], feedforward=Identity()
         )
     built = Controller(
         clock,
@@ -224,15 +222,15 @@ def test_view_joins_settings_and_state(furnace):
     view = controller.view
     assert view.name == "furnace.bath"
     assert view.law is not None and view.law.type == "PI"
-    assert controller.settings.law is not None and controller.settings.law.kp == 1.0
-    assert view.feedforward.model_dump() == {"type": "setpoint"}
+    assert controller.spec.law is not None and controller.spec.law.kp == 1.0
+    assert view.feedforward.model_dump() == {"type": "identity"}
 
 
 def test_min_period_caps_how_often_the_law_steps(furnace):
     clock = SteppedClock(0)
     controller, writes = _regulating(furnace, clock, law=PI(kp=1.0), min_period_s=0.1)
     zone1 = furnace.signals["zone1"]
-    assert controller.settings.min_period_s == 0.1
+    assert controller.spec.min_period_s == 0.1
     controller.regulate(10.0)
     before = len(writes)
 
@@ -415,7 +413,7 @@ def test_arrived_follows_the_reference(furnace):
     controller.regulate(50.0, transfer=Transfer.COLD)
     assert controller.arrived is True and controller.view.arrived is True
 
-    class Endless(SetPointGenerator):
+    class Endless(SetpointGenerator):
         def __init__(self) -> None:
             pass
 

@@ -189,7 +189,8 @@ class TestNamespaces:
                 "hum_sensors": {
                     "driver": "sim_daq",
                     "poll_s": 1,
-                    "link": "plant", "ports": {"dry.t": "zone1", "wet.t": "zone2"},
+                    "link": "plant",
+                    "ports": {"dry.t": "zone1", "wet.t": "zone2"},
                     "signals": {
                         "dry": {"signals": {"t": {"warning": [0, 100]}}},
                         "wet": {"poll_s": 5},
@@ -315,7 +316,8 @@ class TestRigFile:
                 "furnace": {
                     "driver": "sim_daq",
                     "poll_s": 1,
-                    "link": "plant", "ports": {"zone1": "zone1", "zone2": "zone2"},
+                    "link": "plant",
+                    "ports": {"zone1": "zone1", "zone2": "zone2"},
                     "signals": {"zone1": {"range": [0, 1200], "warning": [0, 1100]}},
                 },
                 "heaters": {

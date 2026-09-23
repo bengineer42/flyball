@@ -74,7 +74,7 @@ class Loop:
     def tick(self) -> None:
         demand = self.pi.demand(self.setpoint, self.plant.output, self.dt)
         self.plant.input = self.feedforward(demand) if self.feedforward else demand  # type: ignore[operator]
-        self.plant.step(self.dt)
+        self.plant.advance(self.dt)
         self.time += self.dt
         if self.identifier is not None:
             self.identifier.push(Sample(self.plant.output, demand))

@@ -15,7 +15,7 @@ controller with a `controllers:` field (the output's address, or a list).
 
 ## State
 
-`ControllerSettings` — changes only on a retune or a `regulate`:
+`ControllerSpec` — changes only on a retune or a `regulate`:
 
 | field | is |
 | --- | --- |
@@ -25,13 +25,13 @@ controller with a `controllers:` field (the output's address, or a list).
 | `feedforward` | what maps the measured unit to the output's |
 | `output_unit` | the output's unit symbol |
 | `offset_ns` | the law's clock origin; `elapsed` is measured from here |
-| `min_period_s` | step the law at most this often, however fast readings arrive; `None` steps on every reading |
+| `min_period_s` | update the law at most this often, however fast readings arrive; `None` updates on every reading |
 
 `ControllerState` — changes every tick:
 
 | field | is |
 | --- | --- |
-| `reference` | a float, or a `SetPointGenerator` evaluated at each tick's instant |
+| `reference` | a float, or a `SetpointGenerator` evaluated at each tick's instant |
 | `setpoint` | the reference resolved at the last tick, in the measured unit |
 | `correction` | what the law last produced, in the output's unit |
 | `output` | `feedforward(setpoint, rate) + correction`, what the output signal was last told |
@@ -73,7 +73,7 @@ def tick(self, reading):
         if reading is not None:
             self._skip_outage(time_ns, resumed=resumed)   # a gap counts as one ordinary step
             self._last_step_ns = time_ns
-            self.correction = self.required_law.step(
+            self.correction = self.required_law.update(
                 self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
             )
         self._apply_output(setpoint, self.rate_at(time_ns))
@@ -111,7 +111,7 @@ Seven things to note:
    gap. If the gap is more than `OUTAGE_STEPS` (3) of the usual step
    intervals, `_skip_outage` moves `offset_ns` on by the gap less one
    interval, so the law's `dt` for that step is one ordinary interval, not
-   the outage; `reset_law` forgets the last step, so the first step after a
+   the outage; `clear_law` forgets the last step, so the first step after a
    `regulate` is never mistaken for one. This is an interim bound for a
    signal that goes quiet; a measured signal the rig calls stale is a hold (7).
    Separately, `regulate` and
@@ -141,7 +141,7 @@ Seven things to note:
    [`delivered(state)`][flyball.model.controller.Controller.delivered]
    fills them in, closing the tick with what the output actually took.
 6. **An output that never reports (`write` always returns `None`) gets no
-   anti-windup.** `step`'s `last_applied` argument is `self.delivered_correction`
+   anti-windup.** `update`'s `last_applied` argument is `self.delivered_correction`
    from the *previous* tick; `None` skips the back-calculation term (see
    below), so an unwired or permanently-deferred controller runs open,
    correction-wise, exactly as a law with no `tt` would.
@@ -180,7 +180,7 @@ config, and `control/configs.py` registers the built-in tags on a
 
 | type | `output =` | for |
 | --- | --- | --- |
-| `setpoint` | `setpoint` | an output that takes the measured unit; the default when the units agree |
+| `identity` | `setpoint` | an output that takes the measured unit; the default when the units agree |
 | `none` | `0` | a bare output under PID; the default when they differ |
 | `affine` | `gain · setpoint + bias [+ rate_gain · rate]` | a plant that is linear near one point |
 | `table` | interpolated `(setpoint, output)` points, flat past the ends`[+ rate_gain · rate]` | a static curve measured at commissioning |
@@ -193,7 +193,7 @@ watts would run happily and do nonsense. Without a units mismatch to force
 ### The setpoint's rate
 
 `rate` is `dSP/dt`, in the measured unit per *second*: the controller asks
-the reference for it (`Controller.rate_at`, `SetPointGenerator.rate`),
+the reference for it (`Controller.rate_at`, `SetpointGenerator.rate`),
 rather than differencing successive `setpoint_at` values, which would carry
 the reading noise a real trajectory does not have. `LinearRampSetpoint`
 reports its `per_second` while ramping and `0` once it has landed; every
@@ -254,7 +254,7 @@ nothing to an integral.
 
 ## The reference
 
-A `SetPointGenerator` is a function of *absolute* time, evaluated exactly at
+A `SetpointGenerator` is a function of *absolute* time, evaluated exactly at
 the reading's timestamp (`setpoint_at(time_ns)`, inside `tick`) rather than
 sampled once per tick. So a ramp lands where it should whatever the tick
 rate, and a reference can be evaluated *ahead* — at `t + dead_time` — for
@@ -293,7 +293,7 @@ correction for the old setpoint and step the output by the difference.
 `held` — what the output was last actually committed to (`self.expected`),
 or, if nothing has been committed yet, last asked (`self.output`) — is
 captured at the very top of `regulate()`, before the aim moves. For anything
-but `NONE`, the law is reset next (`reset_law`, which also moves `offset_ns`
+but `NONE`, the law is cleared next (`clear_law`, which also moves `offset_ns`
 to the handover instant). Then, unless there is no reading yet or `transfer
 is COLD` (both cold-start straight to `correction = 0.0`, with no call to
 the law), the correction is seeded by asking the law `resume(reading,

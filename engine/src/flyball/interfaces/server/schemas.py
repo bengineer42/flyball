@@ -42,7 +42,7 @@ from flyball.foundation.device import (
 from flyball.foundation.time import Clock
 from flyball.model.controller import Controller, ControllerState, ControllerView
 from flyball.model.feedforward import FeedforwardConfig
-from flyball.model.generator import SetPointGenerator
+from flyball.model.generator import SetpointGenerator
 from flyball.model.law import ControlLawView
 from flyball.rig import DeviceRun
 
@@ -210,7 +210,7 @@ class SignalOut(BaseModel):
     role: str
     """`demand`, `output`, `setting` or `config`."""
     tags: dict[str, str]
-    """The section, as `{axis: name}`: `{"line": "dry"}`; empty without one."""
+    """Groupings across the tree, `{axis: name}`: `{"line": "dry"}`; empty without any."""
     initial: Any = None
     latest: LatestOut | None = None
     write: WriteOut | None = None
@@ -420,7 +420,7 @@ class GeneratorOut(BaseModel):
     type: str
 
     @classmethod
-    def of(cls, generator: SetPointGenerator) -> GeneratorOut:
+    def of(cls, generator: SetpointGenerator) -> GeneratorOut:
         return cls.model_validate(generator.wire())
 
 
@@ -485,7 +485,7 @@ class ControllerOut(BaseModel):
         cls, controller: Controller, default: bool, state: ControllerState | None = None
     ) -> ControllerOut:
         """From the controller now, or from `state` (a tick's snapshot) joined to its settings."""
-        view = controller.view if state is None else ControllerView.of(controller.settings, state)
+        view = controller.view if state is None else ControllerView.of(controller.spec, state)
         reference = view.reference
         return cls(
             name=view.name,

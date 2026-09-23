@@ -1,10 +1,10 @@
 """The laws, feedforwards and generators that ship, plus what's left of `control`'s own concerns.
 
-`Controller`/`ControlLaw`/`Feedforward`/`SetPointGenerator` -- the
+`Controller`/`ControlLaw`/`Feedforward`/`SetpointGenerator` -- the
 Catalog/Config machinery every one of these subclasses -- live in
 `flyball.model`; `Tuning`/`Tunings` live in `flyball.library.tunings`. What's
 left here is what ships built on top of that machinery: the 9 built-in laws,
-the plant-model feedforwards (`Affine`, `Table` -- `Setpoint`/
+the plant-model feedforwards (`Affine`, `Table` -- `Identity`/
 `NoFeedforward`, `Controller`'s own defaults, live in `flyball.model
 .feedforward` instead, see that module's docstring), and the built-in
 generators (`Dwell`, `LinearRampSetpoint`, `Profile`).
@@ -33,8 +33,8 @@ from .setpoint import (
     GeneratorConfig,
     LinearRampSetpoint,
     Profile,
-    SetPointGenerator,
-    SetPointGeneratorConfig,
+    SetpointGenerator,
+    SetpointGeneratorConfig,
 )
 
 __all__ = [
@@ -56,8 +56,8 @@ __all__ = [
     "P",
     "Profile",
     "Scheduled",
-    "SetPointGenerator",
-    "SetPointGeneratorConfig",
+    "SetpointGenerator",
+    "SetpointGeneratorConfig",
     "SlidingMode",
     "SmithPredictor",
     "Table",

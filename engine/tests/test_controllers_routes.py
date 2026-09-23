@@ -60,7 +60,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     tags = {d["properties"]["type"]["const"] for d in schema["laws"]["$defs"].values()}
     assert "PI" in tags and schema["laws"]["discriminator"]["propertyName"] == "type"
     ff = {d["properties"]["type"]["const"] for d in schema["feedforwards"]["$defs"].values()}
-    assert ff >= {"setpoint", "none", "affine", "table"}
+    assert ff >= {"identity", "none", "affine", "table"}
     generators = {
         d["properties"]["type"]["const"]
         for d in schema["generators"]["$defs"].values()
@@ -72,7 +72,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
 
     # The units disagree (°C -> W), so the setpoint itself cannot be the feedforward.
     bad = client.post(
-        "/api/controllers", json={"output": target, "measured": source, "feedforward": "setpoint"}
+        "/api/controllers", json={"output": target, "measured": source, "feedforward": "identity"}
     )
     assert bad.status_code == 409
     assert (

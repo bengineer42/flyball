@@ -19,10 +19,10 @@ RIG = Path(__file__).resolve().parents[1] / "rig.yaml"
 class TestFurnace:
     def test_rests_at_ambient_and_heats_when_driven(self):
         furnace = Furnace(zones=2, sensor_lag_s=0)
-        furnace.step(600)
+        furnace.advance(600)
         assert furnace.temperature == [20.0, 20.0]
         furnace.inputs["heater1"] = 1.0
-        furnace.step(600)
+        furnace.advance(600)
         assert furnace.temperature[0] > 100 and 20 < furnace.temperature[1] < furnace.temperature[0]
         assert furnace.output("zone1") == pytest.approx(furnace.temperature[0])
 
@@ -47,7 +47,7 @@ class TestFurnace:
     def test_sample_and_sensors_lag(self):
         furnace = Furnace(zones=1, sample_zone=1, sensor_lag_s=10)
         furnace.inputs["heater1"] = 1.0
-        furnace.step(60)
+        furnace.advance(60)
         assert furnace.sample < furnace.temperature[0]
         assert furnace.measured[0] < furnace.temperature[0]
         furnace.reset(300)
@@ -56,10 +56,10 @@ class TestFurnace:
     def test_advance_steps_once_per_instant(self):
         furnace = Furnace(zones=1, sample_zone=1)
         furnace.inputs["heater1"] = 1.0
-        furnace.advance(0)
-        furnace.advance(60_000_000_000)
+        furnace.advance_to(0)
+        furnace.advance_to(60_000_000_000)
         after_one = furnace.temperature[0]
-        furnace.advance(60_000_000_000)  # the same instant again: no second step
+        furnace.advance_to(60_000_000_000)  # the same instant again: no second step
         assert furnace.temperature[0] == after_one
 
     def test_ports_and_bad_names(self):

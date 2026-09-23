@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from flyball.foundation.device import DriverConfig
     from flyball.model.config import Config
     from flyball.model.feedforward import Feedforward
-    from flyball.model.generator import SetPointGenerator
+    from flyball.model.generator import SetpointGenerator
     from flyball.model.law import ControlLaw
 
 
@@ -126,7 +126,7 @@ class Catalogs:
     links: Catalog[Config[Any]] = field(default_factory=lambda: Catalog("link"))
     laws: Catalog[ControlLaw] = field(default_factory=lambda: Catalog("law"))
     feedforwards: Catalog[Feedforward] = field(default_factory=lambda: Catalog("feedforward"))
-    generators: Catalog[SetPointGenerator] = field(default_factory=lambda: Catalog("generator"))
+    generators: Catalog[SetpointGenerator] = field(default_factory=lambda: Catalog("generator"))
     # `Any`, not `type[Step]`: `Step` lives in `flyball.sequencing`, above
     # `model` in the Layers contract -- even a `TYPE_CHECKING`-only import back
     # down would be a real edge (import-linter reads the AST, guard or not).
@@ -144,7 +144,7 @@ class Catalogs:
     def register_feedforward(self, cls: type[Feedforward], *, name: str | None = None) -> None:
         self.feedforwards.register(cls, name=name)
 
-    def register_generator(self, cls: type[SetPointGenerator], *, name: str | None = None) -> None:
+    def register_generator(self, cls: type[SetpointGenerator], *, name: str | None = None) -> None:
         self.generators.register(cls, name=name)
 
     def register_step(self, cls: type[Any], *, name: str | None = None) -> None:

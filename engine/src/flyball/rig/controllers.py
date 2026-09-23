@@ -12,7 +12,7 @@ from collections.abc import ItemsView, Iterator
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
-from flyball.model.controller import Controller, ControllerSettings, ControllerState, ControllerView
+from flyball.model.controller import Controller, ControllerSpec, ControllerState, ControllerView
 
 
 class ControllerNotFoundError(NotFoundError):
@@ -124,8 +124,8 @@ class Controllers:
         return {name: c.state for name, c in self._controllers.items()}
 
     @property
-    def settings(self) -> dict[str, ControllerSettings]:
-        return {name: c.settings for name, c in self._controllers.items()}
+    def specs(self) -> dict[str, ControllerSpec]:
+        return {name: c.spec for name, c in self._controllers.items()}
 
     @property
     def views(self) -> dict[str, ControllerView]:

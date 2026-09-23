@@ -402,9 +402,9 @@ class SimDaq(Readable):
     def _advance(self, time_ns: int) -> None:
         """Step the plant to `time_ns`: once per instant, whichever device reading it asks first."""
         if isinstance(self.plant, MultiPlant):
-            self.plant.advance(time_ns)
+            self.plant.advance_to(time_ns)
         elif self._advancer is not None:
-            self._advancer.advance(time_ns)
+            self._advancer.advance_to(time_ns)
         self._last_ns = time_ns
 
     def _due(self, signal: Signal, time_ns: int) -> bool:

@@ -1080,9 +1080,9 @@ class Rig:
                 name: ControllerEntry(
                     measured=c.measured_signal.address,
                     law=c.law.config if c.law is not None else None,
-                    # The file's default: the setpoint itself. Left out, as a file would.
+                    # The file's default: the identity. Left out, as a file would.
                     feedforward=None
-                    if c.feedforward.config.type == "setpoint"
+                    if c.feedforward.config.type == "identity"
                     else c.feedforward.config,
                     default=self.controllers.default == name,
                     min_period_s=c.min_period_s,

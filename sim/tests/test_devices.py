@@ -42,7 +42,7 @@ class Chamber:
     def output(self, port: str) -> float:
         return {"chamber": self.humidity, "dry": 10.0, "wet": 90.0}[port]
 
-    def advance(self, time_ns: int) -> None:
+    def advance_to(self, time_ns: int) -> None:
         if time_ns not in self.advanced:
             self.advanced.append(time_ns)
             self.humidity = 10.0 + 80.0 * self.inputs["wet_fraction"]
@@ -353,7 +353,7 @@ class TestSmartDrive:
         controller = rig.attach_controller(
             drive.signals["t"], daq.signals["t"], law=PI(kp=0.02, ki=0.0005)
         )
-        assert controller.feedforward.type == "setpoint", "units agree, so no feedforward was given"
+        assert controller.feedforward.type == "identity", "units agree, so no feedforward was given"
         controller.regulate(60.0)
         clock.advance(600)
         assert rig.latest[daq.signals["t"]].value == pytest.approx(60.0, abs=0.5)

@@ -72,7 +72,7 @@ from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
-from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.rig import Rig
 
 log = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ log = logging.getLogger(__name__)
 # through an extension's own import chain (`flyball_sim`, notably, imports
 # `RigConfig` from here).
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
-_FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
+_FEEDFORWARDS = (Identity, NoFeedforward, Affine, Table)
 LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
 FeedforwardConfig = discriminated_union(
     {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
@@ -137,13 +137,13 @@ class ControllerEntry(BaseModel):
     feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
         default=None,
         description="Maps the measured signal's unit to the output's; the law adds to it."
-        " Omit for the setpoint itself when the units agree, else none.",
+        " Omit for identity (the setpoint itself) when the units agree, else none.",
     )
     default: bool = False
     min_period_s: float | None = Field(
         default=None,
         gt=0,
-        description="Step the law at most this often; omit to step on every reading.",
+        description="Update the law at most this often; omit to update on every reading.",
     )
 
 
