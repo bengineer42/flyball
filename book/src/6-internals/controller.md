@@ -320,13 +320,17 @@ at all — the `PUT /api/controllers/{address}/reference` route.
 Back-calculation. `PI`/`PID`'s `step_integral` is handed `last_applied` —
 `self.delivered_correction` from the *previous* tick, i.e. what the target
 actually reported committing minus what the feedforward alone asked for —
-and pulls the integral back by `(last_applied − last_raw) * dt / (tt * ki)`,
-where `last_raw` is the raw (unclamped) correction the law itself computed
-last step. A target whose `write` returns `None` — unwired, or a commit
+and moves the integral's contribution toward it by
+`(last_applied − last_raw) * (1 − exp(−dt / tt))`, where `last_raw` is the
+raw (unclamped) correction the law itself computed last step. That is the
+continuous law `dI/dt = (last_applied − last_raw) / tt` integrated exactly
+over the step, so the gap closes by at most all of it: the output never
+crosses what was applied, however long `dt` is. (The forward-Euler form it
+replaced, `* dt / tt`, overshot once `dt > tt` and diverged past
+`2·tt`: a long step off a railed output swung it far past the rail.) A target whose `write` returns `None` — unwired, or a commit
 still pending inside a delivery — reports no `delivered_correction`, so that
 tick gets no anti-windup term rather than a wrong one. `tt` omitted or 0
-turns this off outright (`(tt * ki)` is 0, so the term is skipped rather
-than dividing by zero): a reasonable `tt` is about `Ti` (`kp/ki`), or
+(or `ki` 0) turns this off outright: a reasonable `tt` is about `Ti` (`kp/ki`), or
 `√(Ti·Td)` once a derivative term also acts.
 
 `smith`'s own internal model is driven by the same `last_applied` when it is
