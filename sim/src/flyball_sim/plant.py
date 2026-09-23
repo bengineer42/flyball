@@ -152,11 +152,25 @@ class Fopdt:
         return self._lag.inverse_feedforward(drive)
 
     def step(self, dt_s: float) -> float:
+        """Hold the input for `dt_s` seconds; return the new output.
+
+        What went in `dead_s` ago reaches the lag at that instant, not at the
+        end of the step: the lag is stepped exactly up to each arrival and on
+        from it, so the step size changes nothing.
+        """
         self._pipe.append((self._now + self.dead_s, self.input))
-        self._now += dt_s
-        while self._pipe and self._pipe[0][0] <= self._now:
-            self._lag.input = self._pipe.popleft()[1]
-        return self._lag.step(dt_s)
+        end = self._now + dt_s
+        at = self._now
+        while self._pipe and self._pipe[0][0] <= end:
+            arrives, value = self._pipe.popleft()
+            if arrives > at:
+                self._lag.step(arrives - at)
+                at = arrives
+            self._lag.input = value
+        if end > at:
+            self._lag.step(end - at)
+        self._now = end
+        return self._lag.output
 
 
 class Noisy:
