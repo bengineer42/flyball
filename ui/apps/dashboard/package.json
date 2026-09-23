@@ -1,11 +1,12 @@
 {
   "name": "@flyball/dashboard",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node ../../scripts/third-party-licences.mjs dist/third-party-licences.txt",
     "preview": "vite preview"
   },
   "dependencies": {

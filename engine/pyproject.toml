@@ -7,6 +7,8 @@ name = "flyball"
 description = "Closed-loop control of a quantity with an actuator: control laws, runtime, telemetry, identification"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 dynamic = ["version"]
 
@@ -20,7 +22,6 @@ dynamic = ["version"]
 dependencies = ["pydantic>=2.9", "tomli-w>=1.0"]  # tomli-w: saving a rig file
 
 classifiers = [
-    "Private :: Do Not Upload",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Typing :: Typed",

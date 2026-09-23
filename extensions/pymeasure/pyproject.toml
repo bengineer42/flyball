@@ -7,9 +7,10 @@ name = "flyball-pymeasure"
 version = "0.1.0"
 description = "A PyMeasure instrument's measurement/control/setting properties as a flyball device"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball"]
-classifiers = ["Private :: Do Not Upload"]
 
 [project.optional-dependencies]
 # Nothing here imports pymeasure at module load: PyMeasureConfig.build does,

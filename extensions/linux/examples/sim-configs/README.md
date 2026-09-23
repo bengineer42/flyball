@@ -33,7 +33,7 @@ per file where it would otherwise apply.
 ## Covered
 
 Every driver that reads a sensor value: `sht31`, `htu21d`, `bme280`,
-`bme680`, `ms5611`, `scd30`, `scd40` (SCD40/41), `sgp30`, `sgp40`, `ccs811`,
+`ms5611`, `scd30`, `scd40` (SCD40/41), `sgp30`, `sgp40`, `ccs811`,
 `mhz19`, `ezo_ph`, `hx711`, `tsl2591`, `veml7700`, `lps22hb`, `ph_probe`
 (generic analog pH), `turbidity` (generic analog).
 

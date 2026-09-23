@@ -1,0 +1,100 @@
+# Checks the Developer Certificate of Origin sign-off on every commit a pull
+# request adds. See CONTRIBUTING.md for what the line means and how to add it.
+#
+# Hand-rolled rather than the DCO GitHub App: it is a short script, there is no
+# third-party app to install or trust, and it cannot stop working because
+# someone else's service changed.
+#
+# This only *reports* until it is made a required status check:
+#   Settings -> Branches -> branch protection rule -> Require status checks to
+#   pass -> add "sign-off". Without that a pull request can still be merged red.
+#
+# Two things this deliberately does not do, both of which would need a decision
+# first: it does not exempt bot authors (Dependabot signs nothing, so its pull
+# requests would be red), and it does not accept a sign-off whose address is not
+# the commit author's -- so a patch carried on someone else's behalf under DCO
+# clause (c) needs the carrier's own sign-off added, as CONTRIBUTING says.
+name: dco
+
+on:
+  pull_request:
+    # `edited` matters: retargeting a pull request to another base branch fires
+    # only that, and without it a run that passed against the old base would
+    # stand unchallenged against the new one.
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  sign-off:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Every commit carries a Signed-off-by matching its author
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # NOT `base.sha`: that is the base branch's tip when the pull request
+          # was opened, so once the base moves and the contributor rebases, the
+          # range picks up other people's commits and blames the contributor for
+          # them. The merge base against the base *branch* is the real answer.
+          base=$(git merge-base "origin/$BASE_REF" "$HEAD_SHA")
+
+          # Its own command, not a `for` word-list: inside `$(...)` in a for
+          # header a failure is swallowed, `set -e` does not fire, the loop runs
+          # zero times and the check reports success. A DCO check that goes green
+          # when git fails is worse than no check at all.
+          shas=$(git rev-list --no-merges "$base..$HEAD_SHA")
+
+          missing=0
+          for sha in $shas; do
+            author=$(git show -s --format='%ae' "$sha")
+            name=$(git show -s --format='%an' "$sha")
+            subject=$(git show -s --format='%h %s' "$sha")
+
+            # The trailer block, not the whole message -- a sign-off quoted in a
+            # commit body certifies nothing. Parsed rather than grepped: a
+            # substring search matches a folded continuation line, or an address
+            # mentioned in passing inside someone else's trailer.
+            if git show -s --format='%(trailers:key=Signed-off-by,valueonly,separator=%x0A)' "$sha" |
+               awk -v want="$author" '
+                 /^[[:space:]]/ { next }
+                 match($0, /<[^<>]*>[[:space:]]*$/) {
+                   e = substr($0, RSTART + 1, RLENGTH - 2)
+                   sub(/[[:space:]]+$/, "", e)
+                   if (e != "" && tolower(e) == tolower(want)) found = 1
+                 }
+                 END { exit !found }'; then
+              continue
+            fi
+
+            missing=1
+            echo "::error::$subject is not signed off by its author. Add: Signed-off-by: $name <$author>"
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "One or more commits lack a Signed-off-by line matching the commit's own author."
+            echo ""
+            echo "  the last commit only   git commit --amend -s"
+            echo "  every commit here      git rebase --signoff origin/$BASE_REF"
+            echo "  then                   git push --force-with-lease"
+            echo ""
+            echo "Sign-off is automatic if you install the repository hook once:"
+            echo "  git config core.hooksPath .githooks"
+            echo ""
+            echo "If your commits are authored by a GitHub noreply address, sign off with that"
+            echo "same address -- the check compares the sign-off to the commit's own author."
+            echo ""
+            echo "CONTRIBUTING.md explains what the line certifies."
+            exit 1
+          fi
+
+          echo "All commits are signed off."

@@ -19,12 +19,13 @@ if [ "${1:-}" = "-o" ]; then out="$2"; fi
 HASH_FILE=internal/webui/.ui-hash
 
 # Everything that actually affects the built UI: source, lockfile, workspace
-# configs -- not node_modules/dist, which are either huge or already the
-# output. Same hash regardless of file order (sorted) or how many files
+# configs, and the .mjs build scripts (third-party-licences.mjs writes into
+# dist, so a change to it changes the output) -- not node_modules/dist, which
+# are either huge or already the output. Same hash regardless of file order (sorted) or how many files
 # (each file's own hash goes through a second sha256sum to collapse to one).
 ui_hash() {
   find ../ui \( -name node_modules -o -name dist -o -name .vite \) -prune -o \
-    -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' -o -name '*.html' -o -name 'package*.json' -o -name '*.yaml' \) -print \
+    -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' -o -name '*.html' -o -name 'package*.json' -o -name '*.yaml' -o -name '*.mjs' \) -print \
     | sort | xargs sha256sum | sha256sum | cut -d' ' -f1
 }
 
