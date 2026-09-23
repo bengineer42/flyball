@@ -73,7 +73,16 @@ before touching anything:
 3. Each value is clamped to the signal's `limits` — numbers, or a reference
    to another signal of the same device, resolved live — and the original
    value kept (as `_requested`) only where the clamp changed it — that is
-   what `WriteState.requested` reports later.
+   what `WriteState.requested` reports later. A reference with no value yet
+   fails closed (`Signal.clamp` raises `LimitNotKnownError`, a
+   `NotReadyError`): a manual demand is refused before anything is
+   applied; a controller's demand is *held* — `demand()` returns `{}`,
+   nothing is applied, as for a stale source — and the rig emits one
+   `limit_unknown` event (`WARNING`, scope `controller`) on entering the
+   hold and one `limit_known` (`INFO`) on the first write after it, not
+   one per step. Refusing rather than clamping to the known end is
+   deliberate: in `(0, max_flow)` or `(dry_supply, wet_supply)` the end
+   that is not known yet is the one that protects the hardware.
 
 Only once all of this holds does anything happen: `device.apply` (or, for a
 blocking device, `writer.apply`) is called once per signal, under the rig's
