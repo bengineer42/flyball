@@ -371,6 +371,12 @@
           "title": "Replies",
           "type": "object"
         },
+        "blocking": {
+          "default": false,
+          "description": "Run this fake's writes on the Writer thread, as a real bus would.",
+          "title": "Blocking",
+          "type": "boolean"
+        },
         "tag": {
           "const": "fake_i2c",
           "default": "fake_i2c",
@@ -431,6 +437,12 @@
           "title": "Registers",
           "type": "object"
         },
+        "blocking": {
+          "default": false,
+          "description": "Run this fake's writes on the Writer thread, as a real bus would.",
+          "title": "Blocking",
+          "type": "boolean"
+        },
         "tag": {
           "const": "fake_registers",
           "default": "fake_registers",
@@ -471,6 +483,12 @@
           },
           "title": "Replies",
           "type": "object"
+        },
+        "blocking": {
+          "default": false,
+          "description": "Run this fake's writes on the Writer thread, as a real instrument would.",
+          "title": "Blocking",
+          "type": "boolean"
         },
         "tag": {
           "const": "fake_text",
@@ -773,6 +791,12 @@
           "default": 502,
           "title": "Port",
           "type": "integer"
+        },
+        "timeout_s": {
+          "default": 3.0,
+          "description": "Socket timeout for the pymodbus client.",
+          "title": "Timeout S",
+          "type": "number"
         },
         "tag": {
           "const": "modbus_tcp",
