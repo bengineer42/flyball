@@ -218,7 +218,11 @@ class Rig:
 
         Raises:
             ConflictError: The name is reserved, or already something else's.
+            ValueError: A signal's limit follows something that is neither a
+                signal nor an input of the device.
         """
+        for signal in device.signals.values():
+            signal.bind_limits()  # a limit naming nothing fails here, not at the first demand
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
         own, device.router = device.router, self.router
