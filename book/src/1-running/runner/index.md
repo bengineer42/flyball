@@ -6,15 +6,36 @@ Python at all:
 
 ```
 flyball-runner rig.yaml                          # loopback, port 8000
-flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
+FLYBALL_PASSWORD=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
 ```
 
+Reachable needs a password or a token: an open runner (neither) asked for
+any other address still runs the rig but serves on `127.0.0.1` only, with a
+warning, unless that run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`)
+-- [the door](access.md#the-door-a-password-a-token-or-open).
+
 The file is validated first (`flyball rig check rig.yaml` does the same
-without serving); a bad file is a one-line message and exit code 2. With
+without serving); a bad file is a one-line message and exit code 2, and so
+is a rig that validates but cannot be built -- a driver that refuses its
+config, a device that is not there -- so a supervisor can tell a config to
+fix from a crash. With
 `recording: true` in the file, or `--record`, a session is opened in
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
-shutdown the programmer is interrupted, the session closed and the polled
-devices stopped.
+shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd
+stop it -- the programmer is interrupted, the session closed and the polled
+devices stopped, and the runner exits 0.
+
+One runner per rig: before it imports a driver, opens a link or touches the
+store, the runner takes an exclusive lock on `<store>.lock` beside the store
+(`flock`, so it goes with the process however that ends). A second runner
+for the same rig -- the same store, which by default means the same rig
+file -- exits 3 at once, naming the process that holds it, and leaves the
+live one's session and hardware alone.
+
+Every log line -- the runner's own, uvicorn's and its access log -- starts
+with the local time and its offset (`2026-09-23T10:35:20+0100 INFO
+flyball.runner: …`), so a log `flyballd` or systemd keeps can be matched
+against readings and events. `--log-level` sets how much.
 
 The rest of this section: [access and safety](access.md) -- the door, a
 sub-path behind a proxy, stopping and restarting from the API -- and

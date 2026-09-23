@@ -39,7 +39,7 @@
     },
     "AuthConfig": {
       "additionalProperties": false,
-      "description": "The `runner.auth` section: who may reach the runner, and for what.\n\nA *password* is for a person at the UI: the login page trades it for a\nsession cookie, so the browser never keeps the secret. A *token* is for\nmachines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.\nEither one turns the door on; with neither the runner is open. What a\ncaller with neither may do is `anonymous`: nothing, or read. Levels are\n`none < read < operate`; a later scheme (several sign-ins, a part of the\nrig locked) changes who gets which level, not what a level admits.",
+      "description": "The `runner.auth` section: who may reach the runner, and for what.\n\nA *password* is for a person at the UI: the login page trades it for a\nsession cookie, so the browser never keeps the secret. A *token* is for\nmachines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.\nEither one turns the door on; with neither the runner is open. What a\ncaller with neither may do is `anonymous`: nothing, or read. Levels are\n`none < read < operate`; a later scheme (several sign-ins, a part of the\nrig locked) changes who gets which level, not what a level admits.\nAn open runner is served on loopback only unless the run itself says otherwise\n(see [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is\nnever a key here, so no file -- nor anything it `extends` -- can open a runner.",
       "properties": {
         "password": {
           "anyOf": [

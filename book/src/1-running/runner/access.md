@@ -7,8 +7,19 @@ Who may reach the runner, where, and what the API is allowed to do to the proces
 Three ways a runner can stand:
 
 - **Open** (the default): no password, no token; anyone who can reach the
-  port can read and drive the rig. Fine on loopback; not on `--host 0.0.0.0`,
-  and not on a rig a model can drive.
+  port can read and drive the rig. Fine on loopback, so it is served on
+  loopback only: an open runner asked for any other `--host` (`0.0.0.0`, a
+  LAN address, a host name other than `localhost`) still starts and runs
+  the rig -- a control process that will not start leaves the equipment
+  uncontrolled -- but binds `127.0.0.1` on the same port, and prints one
+  `WARNING` line on stderr saying why and how to fix it. `GET /api/auth`
+  and `GET /api/health` report it as `exposure` (`restricted: true`). To
+  serve one open on the network anyway, say so for that run:
+  `--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in its environment. There
+  is no rig-file key for it: a file can be copied from anywhere, and
+  `extends:` would pass it on. The runner then prints a warning each start,
+  `exposure.open_network` is `true`, and the dashboard shows a banner on
+  every page that cannot be dismissed. Not on a rig a model can drive.
 - **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
   the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
   The login page trades it for a session -- an `HttpOnly` cookie the browser
@@ -26,6 +37,16 @@ Three ways a runner can stand:
   `FLYBALL_TOKEN=T` in the environment. The login page takes the token too,
   so a browser on a token-only runner still ends up with a cookie and
   nothing in its storage.
+
+A password or a token given in the environment counts the same as one on
+the command line or in the file.
+
+**Plain HTTP.** The runner does not do TLS: a password, a token and a
+session cookie sent to it from another machine cross the network in the
+clear, and anyone on the path can take them. A runner with a password or a
+token that serves beyond loopback logs a warning saying so at start; put a
+proxy that terminates TLS in front of it on anything but a network you
+trust.
 
 Either one shuts the door: everything under `/api`, `/ws` and `/mcp` needs a
 session or the token, bar `/api/auth` (the door itself) and `/docs`.
@@ -51,7 +72,51 @@ passwords in a minute from one address are refused for the rest of it.
 The runner's own MCP mount still works on a password-only runner (it uses a
 token of its own, never shown); a model connecting from outside needs the
 runner to have `--token` as well. `GET /api/runner` reports none of these
-values; `GET /api/auth` says which the runner has.
+values; `GET /api/auth` says which the runner has, and its `exposure` (also
+in `GET /api/health`) says where it serves against where it was asked to:
+
+```json
+{"requested": "0.0.0.0", "host": "127.0.0.1", "port": 8000, "open": true,
+ "restricted": true, "open_network": false,
+ "warning": "host is '0.0.0.0' but the runner has no password and no token: serving on 127.0.0.1:8000 only, ..."}
+```
+
+## Behind `flyball run --serve-ui`
+
+`flyball run rig.yaml --serve-ui ADDR` (or `runner.run.serve_ui`) serves the
+UI on `ADDR` and proxies `/api`, `/ws` and `/mcp` to the runner on loopback,
+with no door of its own -- so the runner's door is the only one, and the
+runner, being on loopback, is content to be open. The front makes the
+same decision for `ADDR` instead: on an address beyond loopback (`:8000` is
+every interface) it serves nothing until the runner answers
+`GET /api/auth`, and
+
+- a runner with no password and no token -- in the file, on the command
+  line or in its environment -- keeps running, and the UI is served on
+  `127.0.0.1` on the same port instead, with one `WARNING` line naming the
+  fixes;
+- unless `--insecure-open` is given (it is passed on to the runner too) or
+  `FLYBALL_INSECURE_OPEN=1` is in the environment: then it is served where
+  asked, with a warning;
+- a runner with either is served, with the plain-HTTP warning.
+
+A runner that answers `/api/auth` with anything but its door (a 404, a
+page that is not JSON) counts as open. Either way the front puts its own
+`exposure` into the `GET /api/auth` it passes on, so the dashboard's banner
+describes the front people actually reach. `flyballd` does the same for every
+runner it proxies to when its `listen` is beyond loopback: an open runner's
+routes answer 503 unless `auth.insecure_open` is set in `flyballd.yaml`
+([the daemon](../../7-reference/cli.md#the-daemon)).
+
+For the usual Pi setup, that means a password in the file:
+
+```yaml
+runner:
+  auth:
+    password: $scrypt$…      # flyball password
+  run:
+    serve_ui: ":8000"
+```
 
 ## The password, from the Go CLI
 

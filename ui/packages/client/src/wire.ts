@@ -574,6 +574,7 @@ export interface Health {
   /** The names of the registered waits. */
   waits: string[];
   recording: boolean;
+  exposure?: Exposure | null;
 }
 
 export interface ErrorDetail {
@@ -691,6 +692,24 @@ export interface AuthInfo {
   anonymous: "none" | "read";
   password: boolean;
   token: boolean;
+  /** Where the runner (or `flyball run`'s front) serves against where it was asked to; null or absent when not known. */
+  exposure?: Exposure | null;
+}
+
+/**
+ * Where a runner serves against where it was asked to (`GET /api/auth`, `GET /api/health`). An open runner
+ * (no password, no token) asked for an address beyond loopback is served on 127.0.0.1 instead (`restricted`);
+ * with `--insecure-open` it is served where asked, and `open_network` says anyone who reaches it may operate.
+ */
+export interface Exposure {
+  requested: string;
+  host: string;
+  port: number;
+  open: boolean;
+  restricted: boolean;
+  open_network: boolean;
+  /** What the runner said about it on stderr, if anything. */
+  warning: string | null;
 }
 
 /** A duration the runner reports, as ns or as configured (`1h`, `30d`, `15m`), in seconds; null for none/0. */

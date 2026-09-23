@@ -1,7 +1,7 @@
 """Serve a rig described by a file.
 
     flyball-runner rig.toml
-    flyball-runner rig.toml --host 0.0.0.0 --port 8000 --record
+    FLYBALL_TOKEN=... flyball-runner rig.toml --host 0.0.0.0 --port 8000 --record
     flyball-runner furnace.yaml sim.yaml --set clock.speed=60
 
 Builds the rig from the file (any of `.toml`, `.yaml`, `.json`), starts its
@@ -29,10 +29,11 @@ from __future__ import annotations
 from .cli import parser, settle
 from .entrypoint import main
 from .serving import Handle, serve
-from .starting import START_REASONS, keep_versions, resumed, start, start_with_store
+from .starting import START_REASONS, BuildFailed, keep_versions, resumed, start, start_with_store
 
 __all__ = [
     "START_REASONS",
+    "BuildFailed",
     "Handle",
     "keep_versions",
     "main",

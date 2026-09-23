@@ -109,6 +109,7 @@ class FakeRunner:
         self.settings = settings or RunnerConfig()
         self.files = files or []
         self.asked: list[str] = []
+        self.exposure = None
 
     def shutdown(self) -> None:
         self.asked.append("shutdown")

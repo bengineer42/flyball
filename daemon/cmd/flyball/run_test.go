@@ -9,7 +9,7 @@ import (
 // TestResolveRunFlagsNoYAMLDefaults checks the bare, no-`runner.run` case
 // behaves exactly as before this change: no UI, default port, no uv.
 func TestResolveRunFlagsNoYAMLDefaults(t *testing.T) {
-	serveAddr, wantUI, port, useUV, rest := resolveRunFlags([]string{"rig.yaml"}, nil)
+	serveAddr, wantUI, port, useUV, rest := resolveRunFlags([]string{"rig.yaml"}, nil, "")
 	if wantUI || serveAddr != "" || port != "8000" || useUV {
 		t.Fatalf("got (%q, %v, %q, %v), want (\"\", false, \"8000\", false)", serveAddr, wantUI, port, useUV)
 	}
@@ -22,7 +22,7 @@ func TestResolveRunFlagsNoYAMLDefaults(t *testing.T) {
 // take effect when the equivalent CLI flag is absent.
 func TestResolveRunFlagsYAMLSetsDefaults(t *testing.T) {
 	defaults := map[string]any{"serve_ui": ":8123", "uv": true}
-	serveAddr, wantUI, port, useUV, rest := resolveRunFlags([]string{"rig.yaml"}, defaults)
+	serveAddr, wantUI, port, useUV, rest := resolveRunFlags([]string{"rig.yaml"}, defaults, "")
 	if !wantUI || serveAddr != ":8123" || port != "8000" || !useUV {
 		t.Fatalf("got (%q, %v, %q, %v), want (\":8123\", true, \"8000\", true)", serveAddr, wantUI, port, useUV)
 	}
@@ -37,15 +37,15 @@ func TestResolveRunFlagsYAMLSetsDefaults(t *testing.T) {
 func TestResolveRunFlagsCLIWinsOverYAML(t *testing.T) {
 	defaults := map[string]any{"serve_ui": ":8123", "uv": true, "port": "9999"}
 	args := []string{"rig.yaml", "--serve-ui", ":9000", "--port", "9001"}
-	serveAddr, wantUI, port, useUV, rest := resolveRunFlags(args, defaults)
+	serveAddr, wantUI, port, useUV, rest := resolveRunFlags(args, defaults, "")
 	if !wantUI || serveAddr != ":9000" || port != "9001" {
 		t.Fatalf("got (%q, %v, %q), want (\":9000\", true, \"9001\")", serveAddr, wantUI, port)
 	}
 	if !useUV {
 		t.Fatal("uv: YAML default should still apply since --uv wasn't given")
 	}
-	if !reflect.DeepEqual(rest, []string{"rig.yaml"}) {
-		t.Fatalf("rest = %v, want [rig.yaml]", rest)
+	if !reflect.DeepEqual(rest, []string{"rig.yaml", "--port", "9001"}) {
+		t.Fatalf("rest = %v, want [rig.yaml --port 9001]: the runner serves where the front proxies", rest)
 	}
 }
 
@@ -53,9 +53,22 @@ func TestResolveRunFlagsCLIWinsOverYAML(t *testing.T) {
 // number (not a string) is still usable as the flag's string form.
 func TestResolveRunFlagsYAMLPortNumber(t *testing.T) {
 	defaults := map[string]any{"port": 9500}
-	_, _, port, _, _ := resolveRunFlags([]string{"rig.yaml"}, defaults)
-	if port != "9500" {
-		t.Fatalf("port = %q, want 9500", port)
+	_, _, port, _, rest := resolveRunFlags([]string{"rig.yaml"}, defaults, "")
+	if port != "9500" || !reflect.DeepEqual(rest, []string{"rig.yaml", "--port", "9500"}) {
+		t.Fatalf("port = %q, rest %v, want 9500 and --port 9500 passed on", port, rest)
+	}
+}
+
+// TestResolveRunFlagsRunnerPort checks the proxy follows the rig file's own
+// runner.port when no --port is given, and leaves the runner's args alone.
+func TestResolveRunFlagsRunnerPort(t *testing.T) {
+	_, _, port, _, rest := resolveRunFlags([]string{"rig.yaml"}, map[string]any{"port": "9500"}, "8123")
+	if port != "8123" || !reflect.DeepEqual(rest, []string{"rig.yaml"}) {
+		t.Fatalf("port = %q, rest %v, want 8123 and nothing added", port, rest)
+	}
+	_, _, port, _, _ = resolveRunFlags([]string{"rig.yaml", "--port", "9001"}, nil, "8123")
+	if port != "9001" {
+		t.Fatalf("port = %q, want --port to win", port)
 	}
 }
 
@@ -64,7 +77,7 @@ func TestResolveRunFlagsYAMLPortNumber(t *testing.T) {
 // UI on, matching the "non-empty string means serve" rule.
 func TestResolveRunFlagsEmptyServeUIIsNotSet(t *testing.T) {
 	defaults := map[string]any{"serve_ui": ""}
-	_, wantUI, _, _, _ := resolveRunFlags([]string{"rig.yaml"}, defaults)
+	_, wantUI, _, _, _ := resolveRunFlags([]string{"rig.yaml"}, defaults, "")
 	if wantUI {
 		t.Fatal("empty serve_ui should not turn the UI on")
 	}

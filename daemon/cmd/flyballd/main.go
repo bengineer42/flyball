@@ -52,6 +52,9 @@ func main() {
 	if daemonCfg.Auth.Token == "" {
 		log.Printf("no auth.token in %s: runners from %s are up, but the API will refuse to start, stop, restart or read them", *configPath, daemonCfg.ManifestsDir)
 	}
+	for _, w := range api.StartupWarnings(daemonCfg) {
+		log.Printf("WARNING: %s", w)
+	}
 	log.Printf("flyballd listening on %s", daemonCfg.Listen)
 	if err := http.ListenAndServe(daemonCfg.Listen, srv); err != nil {
 		log.Fatal(err)

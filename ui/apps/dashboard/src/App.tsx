@@ -1,10 +1,11 @@
 import { createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
-import { LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
+import { ExposureBanner, LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
 import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
+import { useAuth } from "./auth.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip, PausedChip } from "./Status.js";
 import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
@@ -172,6 +173,8 @@ function SessionsPage({ name, navigate }: { name: string | null; navigate: (page
  */
 export function App({ onSignIn }: { onSignIn(): void }) {
   countRender("App");
+  // Open to the network, or moved to loopback for want of a password: said on every page, never dismissed.
+  const exposure = useAuth().info?.exposure;
   const [route, navigate] = useRoute();
   const { page, name, params } = route;
   // A bare `#/` opens the home dashboard when one is set; the Overview stays a click away.
@@ -279,6 +282,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                   ) : undefined
                 }
               >
+                <ExposureBanner exposure={exposure} />
                 <Waits />
                 <Suspense fallback={<PageFallback />}>
                   {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
