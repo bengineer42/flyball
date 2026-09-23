@@ -139,7 +139,8 @@ def test_the_tree_and_the_envelope_s_overrides(rig):
     assert _signal(rig, "hum.wet.humidity").poll_s == 5.0
     assert _signal(rig, "adc.pressure").spec.range == (0.0, 100.0)
     assert _signal(rig, "heater.drive").limits == (10.0, 34.0), "the file narrowed the span"
-    assert _signal(rig, "heater.drive").spec.limits == (10.0, 34.0)
+    assert _signal(rig, "heater.drive").spec.limits == (10.0, 40.0), "the driver's span stays"
+    assert _signal(rig, "heater.drive").narrowed == (10.0, 34.0)
 
 
 @pytest.mark.parametrize(

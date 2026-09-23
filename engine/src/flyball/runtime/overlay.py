@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from flyball.foundation.files import load_document
+from flyball.foundation.files import load_document, yaml_loader
 
 __all__ = ["apply_set", "merge", "parse_set", "resolve_layers"]
 
@@ -54,7 +54,7 @@ def parse_set(expr: str) -> tuple[list[str], Any]:
         raise ValueError(f"{expr!r}: expected KEY=VALUE")
     import yaml  # the one non-stdlib parser, only needed to type a --set value
 
-    return key.split("."), yaml.safe_load(raw)
+    return key.split("."), yaml.load(raw, Loader=yaml_loader())
 
 
 def apply_set(document: dict[str, Any], path: list[str], value: Any) -> dict[str, Any]:
