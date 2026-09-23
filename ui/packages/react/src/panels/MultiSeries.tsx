@@ -298,7 +298,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         // sum of their points near the cap, not each of them, or eight traces make a
         // 20 000-row axis every series has to walk.
         const maxPoints = Math.max(300, Math.floor(pointCap(u?.width ?? host.current?.clientWidth ?? 400) / Math.max(1, keys.length)));
-        const opts = { every: everyRef.current, maxPoints };
+        const opts = { every: everyRef.current, maxPoints, spanS: windowS };
         latest.current = align(keys.map((key, i) => source.store.read(key, views.current[i]!, opts)));
       }
       u?.setData(latest.current);

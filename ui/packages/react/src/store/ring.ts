@@ -148,8 +148,9 @@ export class Ring {
    * arrays in `out` are reused: their lengths are set, not their identities.
    *
    * Thinning is by fixed time bucket, not a row-count stride: `bucketWidth`
-   * (derived once per call from `windowS`/the held span and the target point
-   * count, never from "now" or a row index) partitions time into
+   * (derived once per call from `spanS`, falling back to `windowS`/the held
+   * span, and the target point count, never from "now" or a row index)
+   * partitions time into
    * `floor(t / bucketWidth)` buckets, and the *last* row seen in each bucket
    * is kept. A bucket's boundaries are anchored to absolute time, so a
    * bucket's identity never changes call to call -- what changes between two
@@ -186,7 +187,13 @@ export class Ring {
    */
   read(
     out: RingView,
-    { fromS = Number.NEGATIVE_INFINITY, every = 1, maxPoints = Number.POSITIVE_INFINITY, maxGapS }: { fromS?: number; every?: number; maxPoints?: number; maxGapS?: number } = {},
+    {
+      fromS = Number.NEGATIVE_INFINITY,
+      every = 1,
+      maxPoints = Number.POSITIVE_INFINITY,
+      maxGapS,
+      spanS,
+    }: { fromS?: number; every?: number; maxPoints?: number; maxGapS?: number; spanS?: number } = {},
   ): RingView {
     const start = fromS === Number.NEGATIVE_INFINITY ? 0 : this.indexAtOrAfter(fromS);
     const n = this.count - start;
@@ -214,7 +221,7 @@ export class Ring {
           prevRawT = ti;
         }
       } else {
-        const span = Number.isFinite(this.windowS) ? this.windowS : Math.max(this.t[this.at(lastLogical)]! - this.t[this.at(start)]!, 1e-9);
+        const span = spanS ?? (Number.isFinite(this.windowS) ? this.windowS : Math.max(this.t[this.at(lastLogical)]! - this.t[this.at(start)]!, 1e-9));
         const targetPoints = Number.isFinite(maxPoints) ? maxPoints : n;
         const points = Math.max(1, Math.floor(targetPoints / Math.max(1, every)));
         const bucketWidth = Math.max(span / points, 1e-9);
