@@ -54,6 +54,6 @@ type Backend interface {
 	Start(name string, spec Spec) (endpoint string, err error)
 	Stop(name string) error
 	Restart(name string) error
-	Logs(name string) (io.Reader, error)
+	Logs(name string) (io.ReadCloser, error)
 	Status(name string) (Status, error)
 }

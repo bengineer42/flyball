@@ -174,6 +174,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	defer rd.Close()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	io.Copy(w, rd)
 }

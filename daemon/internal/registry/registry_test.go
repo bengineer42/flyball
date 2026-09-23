@@ -20,9 +20,11 @@ type fakeBackend struct {
 func (f *fakeBackend) Start(name string, spec backend.Spec) (string, error) {
 	return "127.0.0.1:1", nil
 }
-func (f *fakeBackend) Stop(name string) error              { return nil }
-func (f *fakeBackend) Restart(name string) error           { return nil }
-func (f *fakeBackend) Logs(name string) (io.Reader, error) { return strings.NewReader(""), nil }
+func (f *fakeBackend) Stop(name string) error    { return nil }
+func (f *fakeBackend) Restart(name string) error { return nil }
+func (f *fakeBackend) Logs(name string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
 func (f *fakeBackend) Status(name string) (backend.Status, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

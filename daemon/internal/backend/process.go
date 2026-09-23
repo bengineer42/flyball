@@ -425,7 +425,7 @@ func (b *ProcessBackend) nudge(rp *runnerProc) {
 	}
 }
 
-func (b *ProcessBackend) Logs(name string) (io.Reader, error) {
+func (b *ProcessBackend) Logs(name string) (io.ReadCloser, error) {
 	path := filepath.Join(b.logDir, name+".log")
 	f, err := os.Open(path)
 	if err != nil {

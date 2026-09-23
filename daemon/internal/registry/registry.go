@@ -76,7 +76,7 @@ func (r *Registry) Restart(name string) error {
 // Logs reaches the backend's own Logs(name) -- the registry is the only
 // thing above Backend that the API layer talks to, so it needs a narrow
 // accessor rather than exposing the whole backend.Backend.
-func (r *Registry) Logs(name string) (io.Reader, error) {
+func (r *Registry) Logs(name string) (io.ReadCloser, error) {
 	return r.be.Logs(name)
 }
 

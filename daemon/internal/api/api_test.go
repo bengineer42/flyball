@@ -13,15 +13,30 @@ import (
 )
 
 // fakeBackend records what it was asked to start and never spawns anything.
-type fakeBackend struct{ started []string }
+type fakeBackend struct {
+	started []string
+	logs    []*logReader
+}
+
+// logReader is a log that knows whether it was closed.
+type logReader struct {
+	io.Reader
+	closed bool
+}
+
+func (l *logReader) Close() error { l.closed = true; return nil }
 
 func (f *fakeBackend) Start(name string, spec backend.Spec) (string, error) {
 	f.started = append(f.started, name)
 	return "127.0.0.1:1", nil
 }
-func (f *fakeBackend) Stop(name string) error                     { return nil }
-func (f *fakeBackend) Restart(name string) error                  { return nil }
-func (f *fakeBackend) Logs(name string) (io.Reader, error)        { return strings.NewReader("log\n"), nil }
+func (f *fakeBackend) Stop(name string) error    { return nil }
+func (f *fakeBackend) Restart(name string) error { return nil }
+func (f *fakeBackend) Logs(name string) (io.ReadCloser, error) {
+	l := &logReader{Reader: strings.NewReader("log\n")}
+	f.logs = append(f.logs, l)
+	return l, nil
+}
 func (f *fakeBackend) Status(name string) (backend.Status, error) { return backend.StatusRunning, nil }
 
 func newServer(token string) (*Server, *fakeBackend) {
@@ -156,5 +171,24 @@ func TestRegistryRefusesWhatValidateRefuses(t *testing.T) {
 	}
 	if err := reg.Start(good); err == nil {
 		t.Error("registry started the same name twice")
+	}
+}
+
+// Each GET .../logs opens the log file; the handler must close it, or
+// flyballd runs out of descriptors one request at a time.
+func TestLogsClosesTheLog(t *testing.T) {
+	s, be := newServer("s3cret")
+	if rec := do(t, s, "POST", "/api/runners", "s3cret", goodManifest); rec.Code != http.StatusAccepted {
+		t.Fatalf("start: %d", rec.Code)
+	}
+	for range 3 {
+		if rec := do(t, s, "GET", "/api/runners/oven/logs", "s3cret", ""); rec.Code != http.StatusOK {
+			t.Fatalf("logs: %d", rec.Code)
+		}
+	}
+	for i, l := range be.logs {
+		if !l.closed {
+			t.Errorf("log %d left open", i)
+		}
 	}
 }
