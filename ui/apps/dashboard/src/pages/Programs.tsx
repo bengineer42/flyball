@@ -47,6 +47,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useQuery, useRig, useRigSchema } from "@flyball/react";
 import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "@flyball/client";
 import { hashFor } from "../router.js";
+import { useAuth } from "../auth.js";
 import { Confirm } from "../Confirm.js";
 import { NEW, stepOf, type Programmer } from "../model.js";
 import { clickThrough, clickableSx, SectionHead, StateBlock } from "../cards.js";
@@ -57,6 +58,7 @@ import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
 // Lazy: the builder's own tree of step editors pulls in every step kind's form, ~31 kB gzip
 // the overview/loops/etc. routes never need.
 const ProgramBuilder = lazy(() => import("./ProgramBuilder.js").then((m) => ({ default: m.ProgramBuilder })));
+const RunStepDialog = lazy(() => import("./RunStep.js").then((m) => ({ default: m.RunStepDialog })));
 import { when } from "../time.js";
 import { Crumbs } from "./Readings.js";
 
@@ -277,6 +279,8 @@ export interface ProgramsProps {
 /** The program library: every stored program, with check, run, delete, upload and new. */
 export function Programs({ programmer, events, onOpen }: ProgramsProps) {
   const rig = useRig();
+  const { canOperate } = useAuth();
+  const [runningStep, setRunningStep] = useState(false);
   // Files in the runner's programs directory are imported on arrival here and on "Rescan"; the list is fetched after.
   const [rescans, setRescans] = useState(0);
   const [imported, setImported] = useState<string[] | null>(null);
@@ -340,6 +344,18 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
             </Tooltip>
           </span>
         </Tooltip>
+        <Tooltip title={canOperate ? "Run one step now, without making a program of it" : "Sign in to operate to run a step"}>
+          <span>
+            <Button variant="outlined" startIcon={<PlayArrowIcon />} onClick={() => setRunningStep(true)} disabled={!canOperate} data-testid="run-step">
+              Run a step
+            </Button>
+          </span>
+        </Tooltip>
+        {runningStep && (
+          <Suspense fallback={null}>
+            <RunStepDialog open={runningStep} busyProgram={running ? (programmer.data?.command ?? "a program") : null} onClose={() => setRunningStep(false)} onRan={() => programmer.refresh()} />
+          </Suspense>
+        )}
         {imported && imported.length > 0 && <Chip label={`imported ${imported.join(", ")}`} color="info" variant="outlined" onDelete={() => setImported(null)} />}
         <Box sx={{ flexGrow: 1 }} />
         <Tooltip title={failed ? (programmer.data?.error ?? "") : ""}>
@@ -505,15 +521,9 @@ function parseProgram(text: string, format: ProgramFormat): { tree: ProgramTree;
   }
 }
 
-/**
- * One program: the step builder and the text, two views of one document tree,
- * each editable; format, save, download, history, run/cancel, live status.
- */
-export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
+/** What the step builder needs from the rig: the dialect's schema, the controllers, and each device's commands and demands. */
+export function useProgramEditorInputs() {
   const rig = useRig();
-  const creating = routeName === NEW;
-  const stored = useQuery(async () => (creating ? null : rig.program(routeName)), [rig, routeName, creating]);
-  const history = useQuery(async () => (creating ? [] : rig.programHistory(routeName)), [rig, routeName, creating]);
   const programSchema = useQuery(() => rig.programSchema(), [rig]);
   const controllers = useQuery(async () => (await rig.controllers()).map((c) => c.name), [rig]);
   const rigSchema = useRigSchema();
@@ -531,6 +541,19 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       ),
     };
   }, [rigSchema.data]);
+  return { programSchema, controllers, devices };
+}
+
+/**
+ * One program: the step builder and the text, two views of one document tree,
+ * each editable; format, save, download, history, run/cancel, live status.
+ */
+export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
+  const rig = useRig();
+  const creating = routeName === NEW;
+  const stored = useQuery(async () => (creating ? null : rig.program(routeName)), [rig, routeName, creating]);
+  const history = useQuery(async () => (creating ? [] : rig.programHistory(routeName)), [rig, routeName, creating]);
+  const { programSchema, controllers, devices } = useProgramEditorInputs();
   const [format, setFormat] = useState<ProgramFormat>("yaml");
   // The tree is the truth; the text is what the user sees and saves. Either side may be edited: the other follows.
   const [tree, setTree] = useState<ProgramTree>(EMPTY);
