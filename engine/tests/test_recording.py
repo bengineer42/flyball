@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.deps import set_store
+from flyball.interfaces.server.deps import get_rig, set_store
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 
@@ -84,3 +87,26 @@ def test_end_session_route_closes_live_and_orphaned(client):
     ended = c.post(f"/api/history/sessions/{live['id']}/end")
     assert ended.status_code == 200 and ended.json()["end_ns"] is not None
     assert c.get("/api/recording").json() is None  # went through the rig, so the recorder stopped
+
+
+def test_two_starts_at_once_open_one_session(client, monkeypatch):
+    c, store = client
+    rig = get_rig()
+    start = rig.start_recording
+
+    def slow_start(*args, **kwargs):
+        time.sleep(0.2)  # widen the gap between the 409 check and the open
+        return start(*args, **kwargs)
+
+    monkeypatch.setattr(rig, "start_recording", slow_start)
+    results: list[int] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(c.post("/api/recording").status_code))
+        for _ in range(2)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == [201, 409], "the second start sees the first's session"
+    assert [s for s in store.sessions() if s.kind == "session"][-1].end_ns is None

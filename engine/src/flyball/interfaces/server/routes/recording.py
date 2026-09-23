@@ -12,6 +12,7 @@ asks for copied into the new session first.
 
 from __future__ import annotations
 
+from threading import Lock
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -56,9 +57,18 @@ def read_recording(rig: RigDep) -> SessionRow | None:
     return _current(rig)
 
 
+_starting = Lock()
+"""One start at a time: the 409 check and the open are one step, or two starts both pass it."""
+
+
 @router.post("", status_code=201)
 def start_recording(rig: RigDep, store: StoreDep, body: StartRecording | None = None) -> SessionRow:
     """Open a session and record into it. 409 while one is already open: end it first."""
+    with _starting:
+        return _start(rig, store, body)
+
+
+def _start(rig: RigDep, store: StoreDep, body: StartRecording | None) -> SessionRow:
     if _current(rig) is not None:
         raise ConflictError("already recording; end the open session first")
     fields = (body or StartRecording()).model_dump(exclude_none=True)
