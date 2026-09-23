@@ -105,7 +105,11 @@ overloads on what `target` is: a `Signal` gives a `Reading`, an atomic
 sequence of targets gives a list of results in address order, and `fresh`
 reads the hardware first (one `device.read()` per device that owns a
 target, on the node they share or the device's root) before answering from
-what was just delivered.
+what was just delivered. The fresh read runs off the rig lock, under the
+device's `read_lock`, which the poller takes around each `read` too, so reads
+of one device never overlap; a fresh read waits `FRESH_READ_WAIT_S` (5 s) for
+one in flight and is then refused (409). Only its delivery takes the rig
+lock, and what a device removed meanwhile read is dropped.
 
 ## Polling
 
@@ -169,6 +173,7 @@ tick — is arithmetic under the lock. What leaves it:
 | --- | --- |
 | a blocking device's `commit` (`Device.blocking = True`: SCPI, Modbus, QCoDeS, PyMeasure) | a `Writer` thread per device; `rig.written` delivers its states, publishes and records them once the write completes. A commit or a `rig.written` that raises is a `write_failed` condition and event, never the end of the thread |
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
+| a device's `read` | the poll loop's thread, or the fresh reader's (`rig.read(..., fresh=True)`), under the device's `read_lock` and never the rig's; the delivery after it takes the rig's. A fresh read asked for by a caller already holding the rig lock is refused |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
 | a long command (`@command(long=True)`: `dosing_pump.dispense`, `stepper.move`) | the caller's thread, off the lock: `Rig.run_command` makes its checks and claims the device's one long-command slot under it (a second is refused), runs the method without it, and takes it back to push `mode`, the linked readings and `last.<command>` and to commit. The method waits with `Device.wait`, on the rig's clock and an event `Device.cancel` sets, so the device's `stop` (a short command, under the lock) ends it at once. A caller already holding the lock is refused rather than made to wait under it; a program's `command` step runs without it (`Step.locked = False`). Removing the device, or closing the rig, cancels it |
 

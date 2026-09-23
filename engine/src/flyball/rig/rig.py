@@ -66,6 +66,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("flyball.rig")
 
+FRESH_READ_WAIT_S = 5.0
+"""How long a fresh read waits for a read of the same device already in flight (a poll,
+another fresh read) before it is refused."""
+
 
 def _held(lock: RLock) -> bool:
     """Whether the calling thread holds `lock` (an `RLock`, or a test's wrapper of one)."""
@@ -486,28 +490,39 @@ class Rig:
 
         `fresh` reads the hardware first and delivers what comes back as a
         poll would, so the rig's state and what the caller sees agree: how a
-        setting (`RW`, never published) is read. An atomic node's sample is
+        setting (`RW`, never published) is read. The read itself runs off the
+        rig lock, under the device's `read_lock` (one read of a device at a
+        time), and only its delivery takes the rig lock. An atomic node's sample is
         the newest instant on it, whether delivered on it or cut from a
         sample on another node of the tree. A sequence of targets gives a
         list of results in the order asked; a fresh read of several costs
         each device one `read`, on the node they share or its root.
 
         Raises:
-            ConflictError: The signal is not readable.
+            ConflictError: The signal is not readable; a fresh read of a
+                device with nothing to read; a fresh read while another read
+                of the device has been in flight for `FRESH_READ_WAIT_S`; or
+                a fresh read asked for under the rig lock.
             NotReadyError: Nothing has been read on it yet.
         """
         if isinstance(target, Sequence):
-            with self.lock:
-                if fresh:
-                    self._read_fresh(target)
-                return [self._read_known(t) for t in target]
-        with self.lock:
             if fresh:
-                self._read_fresh((target,))
+                self._read_fresh(target)
+            with self.lock:
+                return [self._read_known(t) for t in target]
+        if fresh:
+            self._read_fresh((target,))
+        with self.lock:
             return self._read_known(target)
 
     def _read_fresh(self, targets: Iterable[Node | Signal]) -> None:
-        """One `read` per device, on the one node asked for or the root, then one delivery."""
+        """One `read` per device, on the one node asked for or the root, then one delivery.
+
+        Each read under its device's `read_lock`, off the rig lock; the
+        delivery under it. What a device removed meanwhile read is dropped.
+        """
+        if _held(self.lock):
+            raise ConflictError("a fresh read cannot run while the rig lock is held")
         nodes: dict[Device, Node | None] = {}
         for target in targets:
             node = target.node if isinstance(target, Signal) else target
@@ -516,13 +531,24 @@ class Rig:
                 nodes[device] = node
             elif nodes[device] is not node:
                 nodes[device] = None  # the root
-        time_ns = self.clock.now_ns()
-        samples: list[Sample] = []
-        for device, node in nodes.items():
+        for device in nodes:
             if not isinstance(device, Readable):
                 raise ConflictError(f"'{device.name}' has nothing to read")
-            samples.extend(device.read(time_ns, node))
-        self.on_samples(samples)
+        read: list[tuple[Device, list[Sample]]] = []
+        for device, node in nodes.items():
+            assert isinstance(device, Readable)
+            if not device.read_lock.acquire(timeout=FRESH_READ_WAIT_S):
+                raise ConflictError(
+                    f"'{device.name}': a read has been in flight for over"
+                    f" {FRESH_READ_WAIT_S:g} s; try again when it returns"
+                )
+            try:
+                read.append((device, list(device.read(self.clock.now_ns(), node))))
+            finally:
+                device.read_lock.release()
+        with self.lock:
+            live = [s for d, samples in read if self.devices.get(d.name) is d for s in samples]
+            self.on_samples(live)
 
     def _read_known(self, target: Node | Signal) -> Reading | Sample | Iterator[Sample]:
         if isinstance(target, Signal):

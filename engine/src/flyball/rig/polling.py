@@ -195,11 +195,13 @@ class Polling:
         `read` is timed for `slow`: the delivery after it, and the rig lock
         it waits for, are not the device's.
         """
-        started = self.rig.clock.monotonic()  # in the rig's time, as the period is
         try:
             if not isinstance(device, Readable):
                 raise TypeError(f"{type(device).__name__} has nothing to read")
-            samples = tuple(device.read(self.rig.clock.now_ns()))
+            with device.read_lock:  # not beside a fresh read of it; never the rig's lock
+                started = self.rig.clock.monotonic()  # in the rig's time, as the period is
+                samples = tuple(device.read(self.rig.clock.now_ns()))
+                read_s = self.rig.clock.monotonic() - started
         except Exception as error:
             if not self._polled(device):
                 return  # removed while it was being read: nothing to put offline
@@ -210,7 +212,6 @@ class Polling:
             if (loop := self.periodic.get(device.name)) is not None:
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
-        read_s = self.rig.clock.monotonic() - started
         if not self._polled(device):
             return  # removed while it was being read: what it read goes nowhere
         self.delivered(device, samples)

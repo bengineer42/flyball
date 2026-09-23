@@ -187,3 +187,95 @@ class TestLongCommands:
 
 
 # endregion
+
+
+# region 2. Fresh reads off the lock
+
+
+class Hanging(Readable):
+    """A read that blocks until `release` is set: a device gone quiet on its bus."""
+
+    TREE = (SignalSpec(name="v", quantity=COUNT, access=Access.RP, role=Role.READOUT),)
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.reading = threading.Event()
+        self.release = threading.Event()
+        self.reads = 0
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        self.reads += 1
+        self.reading.set()
+        self.release.wait(10.0)
+        yield Sample(self.root, time_ns, {self.signals["v"]: float(self.reads)})
+
+
+class TestFreshReads:
+    def test_a_hung_fresh_read_leaves_the_rig_lock_free(self, fresh):
+        rig = Rig()
+        hanging, ticker = Hanging(fresh("hanging")), Ticker(fresh("ticker"))
+        rig.add_device(hanging)
+        rig.add_device(ticker)
+        thread, out = _in_thread(lambda: rig.read(hanging.signals["v"], fresh=True))
+        assert hanging.reading.wait(2.0)
+        # Another device's delivery, as its poll would make it, does not wait on the read.
+        began = time.monotonic()
+        rig.on_samples([Sample(ticker.root, rig.clock.now_ns(), {ticker.signals["n"]: 7.0})])
+        assert time.monotonic() - began < 0.5
+        assert rig.latest[ticker.signals["n"]].value == 7.0
+        hanging.release.set()
+        thread.join(2.0)
+        assert out and out[0].value == 1.0, "the fresh read still delivers and answers"
+        assert rig.latest[hanging.signals["v"]].value == 1.0
+
+    def test_reads_of_one_device_do_not_overlap(self, fresh, monkeypatch):
+        monkeypatch.setattr("flyball.rig.rig.FRESH_READ_WAIT_S", 0.1)
+        rig = Rig()
+        hanging = Hanging(fresh("hanging"))
+        rig.add_device(hanging)
+        thread, _ = _in_thread(lambda: rig.read(hanging.signals["v"], fresh=True))
+        assert hanging.reading.wait(2.0)
+        with pytest.raises(ConflictError, match="in flight"):
+            rig.read(hanging.signals["v"], fresh=True)
+        assert hanging.reads == 1, "the second read never reached the device"
+        hanging.release.set()
+        thread.join(2.0)
+
+    def test_a_poll_waits_for_a_fresh_read_of_its_device(self, fresh):
+        rig = Rig()
+        rig.clock = SteppedClock(0)
+        hanging = Hanging(fresh("hanging"))
+        hanging.poll_s = 1.0
+        rig.add_device(hanging)
+        rig.start_polling(hanging)
+        thread, _ = _in_thread(lambda: rig.read(hanging.signals["v"], fresh=True))
+        assert hanging.reading.wait(2.0)
+        poll, _ = _in_thread(rig.clock.advance, 1.0)
+        poll.join(0.2)
+        assert poll.is_alive() and hanging.reads == 1, "the poll waits its turn"
+        hanging.release.set()
+        thread.join(2.0)
+        poll.join(2.0)
+        assert hanging.reads == 2
+
+    def test_a_fresh_read_is_refused_under_the_rig_lock(self, fresh):
+        rig = Rig()
+        hanging = Hanging(fresh("hanging"))
+        rig.add_device(hanging)
+        with rig.lock, pytest.raises(ConflictError, match="rig lock is held"):
+            rig.read(hanging.signals["v"], fresh=True)
+        assert hanging.reads == 0
+
+    def test_what_a_removed_device_read_is_dropped(self, fresh):
+        rig = Rig()
+        hanging = Hanging(fresh("hanging"))
+        rig.add_device(hanging)
+        thread, out = _in_thread(lambda: rig.read(hanging.root, fresh=True))
+        assert hanging.reading.wait(2.0)
+        rig.remove_device(hanging.name)
+        hanging.release.set()
+        thread.join(2.0)
+        assert hanging.signals["v"] not in rig.latest
+
+
+# endregion

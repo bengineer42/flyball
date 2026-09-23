@@ -233,6 +233,9 @@ class Device:
     clock_source: Callable[[], Clock]
     """The clock a long command waits on: wall time until a rig adds the device, then the
     rig's, whatever it is swapped for (a sim's scaled or stepped clock)."""
+    read_lock: threading.Lock
+    """Held across each `read`, by the poller and by a fresh read alike, so reads of one
+    device never overlap; never the rig's lock, which only the delivery after it takes."""
     cancelling: threading.Event
     """Set by [cancel][flyball.foundation.device.device.Device.cancel] to end a long
     command's [wait][flyball.foundation.device.device.Device.wait]; the rig clears it when
@@ -252,6 +255,7 @@ class Device:
         self.conditions = Conditions(now_ns=lambda: self.router.now_ns())
         self.clock_source = _wall_clock
         self.cancelling = threading.Event()
+        self.read_lock = threading.Lock()
         self._extended = False
         self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
