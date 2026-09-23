@@ -21,7 +21,7 @@ another, and either can be replaced without the other noticing.
 | `sample` | every reading, by signal, under one node's instant |
 | `write_state` | what a writable signal was set to: one row per commit that touched it |
 | `controller` | what was driven, named by its target's address, with its source, law and feedforward |
-| `tick` | one controller step: reading, setpoint, correction, demand, expected |
+| `tick` | one controller step: reading, setpoint, correction, demand, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
 | `event` | something non-numeric that happened: a fault, a retune, a flag |
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |

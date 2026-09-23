@@ -252,10 +252,13 @@ class SqliteSessionWriter:
 
     __slots__ = (
         "_controllers",
+        "_device_ids",
         "_devices",
         "_ended",
         "_seq",
         "_session",
+        "_signal_ids",
+        "_signal_written",
         "_signals",
         "_store",
         "_writes",
@@ -267,6 +270,10 @@ class SqliteSessionWriter:
         self._devices: dict[Device, int] = {}
         self._signals: dict[Signal, int] = {}
         self._writes: set[Signal] = set()
+        # By address, so a device or signal object rebuilt at the same address reuses its row.
+        self._device_ids: dict[str, int] = {}
+        self._signal_ids: dict[str, int] = {}
+        self._signal_written: dict[str, bool] = {}
         self._controllers: set[str] = set()
         self._seq: dict[int, int] = {}  # the last seq written, per device id
         self._ended = False
@@ -285,9 +292,15 @@ class SqliteSessionWriter:
         self._open()
         if device in self._devices:
             return
+        # A device removed and added back (a version restore, DELETE then POST)
+        # is a new object at an address this session already holds: it keeps
+        # that row, rather than a second insert breaking UNIQUE(session, address).
+        if (did := self._device_ids.get(device.name)) is not None:
+            self._devices[device] = did
+            return
         config = device.config
         with self._store._transaction() as connection:
-            did = len(self._devices) + 1
+            did = len(self._device_ids) + 1
             connection.execute(
                 "INSERT INTO device (session_id, id, address, driver, config, label)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
@@ -301,16 +314,22 @@ class SqliteSessionWriter:
                 ),
             )
             self._devices[device] = did
+            self._device_ids[device.name] = did
 
     def declare_signal(self, signal: Signal) -> None:
         self._open()
         if signal in self._signals:
             return
+        if (sid := self._signal_ids.get(signal.address)) is not None:  # re-added, as above
+            self._signals[signal] = sid
+            if Access.W in signal.access and self._signal_written.get(signal.address):
+                self._writes.add(signal)
+            return
         if (did := self._devices.get(signal.device)) is None:
             raise NotDeclaredError("device", signal.device.name)
         spec = signal.spec
         with self._store._transaction() as connection:
-            sid = len(self._signals) + 1
+            sid = len(self._signal_ids) + 1
             connection.execute(
                 "INSERT INTO signal (session_id, id, device_id, address, quantity, unit, access,"
                 " dtype, shape, label, range, precision, warn, alarm, limits)"
@@ -345,6 +364,8 @@ class SqliteSessionWriter:
                 )
                 self._writes.add(signal)
             self._signals[signal] = sid
+            self._signal_ids[signal.address] = sid
+            self._signal_written[signal.address] = Access.W in signal.access
 
     def declare_controller(self, controller: Controller) -> None:
         self._open()
