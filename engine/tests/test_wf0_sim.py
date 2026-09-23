@@ -1,6 +1,6 @@
 """Regression tests for the sim fault-injection review (N18, 23 Sep 2026).
 
-N18: `WaitState.since_ns` (`TriggerState.since_ns`) was wall time, not rig
+N18: `ActivityOut.since_ns` (`TriggerState.since_ns`; then `WaitState`) was wall time, not rig
 time: `Rig.__init__` built `Triggers(self.clock)` -- the `Clock` object
 itself -- before a scaled sim clock was swapped onto `rig.clock` later
 (`RunnerConfig.build`, `runtime/config.py`). `Triggers` now takes a clock

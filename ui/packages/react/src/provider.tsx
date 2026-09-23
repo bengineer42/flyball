@@ -43,7 +43,7 @@ export function useRig(): RigClient {
   return held.client;
 }
 
-/** The provider's telemetry store: rings of samples and controller ticks, write states, device runs, waits and events. */
+/** The provider's telemetry store: rings of samples and controller ticks, write states, device runs, activities and events. */
 export function useTelemetry(): TelemetryStore {
   const held = useContext(RigContext);
   if (!held) throw new Error("useTelemetry: no <RigProvider> above this component");

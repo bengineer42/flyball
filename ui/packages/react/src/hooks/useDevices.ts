@@ -9,7 +9,7 @@ export function useRigSchema(): QueryState<RigSchema> {
   return useQuery((signal) => rig.schema(signal), [rig]);
 }
 
-/** `GET /api/health`, polled: ok, recording, device liveness, conditions, alarms, waits. */
+/** `GET /api/health`, polled: ok, recording, device liveness, conditions, alarms, activities. */
 export function useHealth(refreshMs = 5000): QueryState<Health> {
   const rig = useRig();
   return useQuery(() => rig.health(), [rig], { refreshMs });

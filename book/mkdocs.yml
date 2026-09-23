@@ -92,7 +92,7 @@ nav:
           - 1-running/cli/index.md
           - Devices and signals: 1-running/cli/devices.md
           - Controllers and tuning: 1-running/cli/controllers.md
-          - Programs and waits: 1-running/cli/programs.md
+          - Programs and activities: 1-running/cli/programs.md
           - Sessions and export: 1-running/cli/sessions.md
           - The rig and the runner: 1-running/cli/rig.md
           - Without a rig: 1-running/cli/offline.md
