@@ -67,6 +67,10 @@ class Handle:
         self._stop()
 
 
+GRACEFUL_SHUTDOWN_S = 5.0
+"""How long uvicorn waits for open connections at shutdown before cancelling them."""
+
+
 def _interrupt(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
@@ -339,6 +343,9 @@ def serve(
             **bind,
             log_level=settings.log_level,
             proxy_headers=False,  # the peer is the peer: no X-Forwarded-For past the limiter
+            # A websocket or a download left open would hold the shutdown -- and the
+            # recording's close -- for ever; after this uvicorn cancels them (D-045).
+            timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
         )
     )
     if front is None and auth.enabled:

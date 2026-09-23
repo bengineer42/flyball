@@ -47,7 +47,9 @@ shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyball run`, `flyball
 runners stop` and systemd stop it -- the programmer is interrupted, the session closed and the polled
 devices stopped, and the runner exits 0. A read stuck in its driver is waited
 on for 2 s at most (over all devices together), then abandoned with a
-warning naming the device, so a hung read does not hold up the shutdown.
+warning naming the device, so a hung read does not hold up the shutdown. Open
+connections -- a dashboard's websocket, a download -- get 5 s to finish,
+then are closed.
 
 One runner per rig: before it imports a driver, opens a link or touches the
 store, the runner takes an exclusive lock on `<store>.lock` beside the store
@@ -99,8 +101,11 @@ run ends with the runner. Closing the terminal does not end it, nor does
 losing whatever reads its output (`flyball run rig.yaml | tee out.txt`,
 and `tee` dies with the SSH session): the front and the runner keep running, their output also goes to a log file in the
 state directory (`~/.local/state/flyball/front-<id>/run.log`), and a notice
-at start says so. Ctrl-C or SIGTERM ends it;
-`flyball stop` stops the rig and leaves it running. Every flag:
+at start says so. Ctrl-C or SIGTERM ends it; if the runner's shutdown
+hangs, a second Ctrl-C hurries it and a third kills it, and `flyball run`
+exits only after the runner has (a hurried or killed runner may leave its
+recording not cleanly closed). `flyball stop` stops the rig and leaves it
+running. Every flag:
 [`flyball run`](../../7-reference/cli.md#flyball-run).
 
 ## Unattended runs

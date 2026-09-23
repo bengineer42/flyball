@@ -198,10 +198,13 @@ A runner that crashes is started again with a fresh key (1 s backoff,
 doubling to 30 s, back to 1 s after 10 s up). The run ends when the runner
 exits cleanly, or with exit 2 (a bad rig file, or a `flyball-runner` too old
 for `--front-dir`), 3 (another runner holds the rig), or 4 twice (its
-front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run; a
-second Ctrl-C ends `flyball` at once, leaving a runner that has not
-finished its shutdown running in its own process group (end it with
-`kill <pid>`). A dropped terminal or SSH session
+front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run,
+and says what the next presses do (D-045): a second Ctrl-C (or SIGTERM)
+sends the runner SIGINT again, which makes it cut its shutdown short, and a
+third kills its process group (SIGKILL). `flyball` exits only once the
+runner has, so no press leaves it running. Only the first gives the runner
+its whole shutdown; after the second or third, the recording may not be
+closed cleanly. A dropped terminal or SSH session
 does not (D-038): the front and the runner ignore the hangup and keep the
 rig running, their output also goes to `run.log` in the front's state
 directory (below; mode 0600, rotated once to `run.log.1` past 4 MiB), and a

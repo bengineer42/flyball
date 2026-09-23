@@ -114,6 +114,16 @@ func fakeRunner(marker string) int {
 	lifetime, _ := time.ParseDuration(os.Getenv("FLYBALL_FAKE_LIFETIME"))
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	if os.Getenv("FLYBALL_FAKE_STUBBORN") != "" {
+		// A runner whose shutdown hangs: it records every stop signal (one
+		// line each) and never exits on one -- only SIGKILL ends it.
+		os.WriteFile(marker+".pid", []byte(strconv.Itoa(os.Getpid())), 0o644)
+		for sig := range sigs {
+			f, _ := os.OpenFile(marker, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			fmt.Fprintln(f, sig.String())
+			f.Close()
+		}
+	}
 	select {
 	case sig := <-sigs:
 		os.WriteFile(marker, []byte(sig.String()), 0o644)

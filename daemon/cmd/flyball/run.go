@@ -47,16 +47,13 @@ func runDirect(args []string) error {
 	// process with SIGPIPE and orphan the runner (D-038). Ignored, it
 	// fails with EPIPE, which the tee drops (runlog.go).
 	signal.Ignore(syscall.SIGPIPE)
-	sigs := make(chan os.Signal, 1)
+	// Every Ctrl-C (and SIGTERM) stays caught for the whole run: each one
+	// escalates the runner's stop (run), and flyball ends only once the
+	// runner has (D-045). SIGHUP is not among them (D-038).
+	sigs := make(chan os.Signal, 3)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigs)
-	first := make(chan os.Signal, 1)
-	go func() {
-		sig := <-sigs
-		signal.Stop(sigs) // a second Ctrl+C kills flyball the normal way
-		first <- sig
-	}()
-	return run(args, first)
+	return run(args, sigs)
 }
 
 // runnerCommand is what a run execs when not going through uv; a variable
@@ -72,8 +69,11 @@ var runOut io.Writer = os.Stderr
 
 const runUsage = "usage: flyball run <rig-file> [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]"
 
-// run is runDirect with the stop signals given: the first stops the
-// runner (and so the run); after it, signals are no longer caught.
+// run is runDirect with the stop signals given (SIGINT or SIGTERM, each a
+// press of Ctrl-C): the first goes on to the runner's group and ends the
+// run, the second is SIGINT whatever arrived (uvicorn force-exits on a
+// second SIGINT), the third SIGKILLs the group (D-045). run returns only
+// once the runner has exited.
 func run(args []string, sigs <-chan os.Signal) error {
 	o := parseRunArgs(args)
 	if len(o.rest) < 1 || strings.HasPrefix(o.rest[0], "-") {
@@ -178,10 +178,17 @@ func run(args []string, sigs <-chan os.Signal) error {
 		}
 	}()
 	go func() {
-		sig, ok := <-sigs
-		if ok && sig != nil {
-			fmt.Fprintln(out, "flyball: stopping...")
-			s.signal(sig)
+		for presses := 1; ; presses++ {
+			var sig os.Signal
+			select {
+			case sig = <-sigs:
+			case <-ctx.Done():
+				return
+			}
+			if sig == nil {
+				return
+			}
+			s.escalate(presses, sig)
 		}
 	}()
 
@@ -283,6 +290,41 @@ func (s *supervisor) signal(sig os.Signal) {
 	select {
 	case s.wake <- struct{}{}:
 	default:
+	}
+}
+
+// escalate is the press'th stop signal (D-045): the first, sig, stops the
+// run; the second is SIGINT again; the third and later SIGKILL the
+// runner's group.
+func (s *supervisor) escalate(press int, sig os.Signal) {
+	switch press {
+	case 1:
+		s.mu.Lock()
+		pid := 0
+		if s.alive {
+			pid = s.cmd.Process.Pid
+		}
+		s.mu.Unlock()
+		if pid != 0 {
+			fmt.Fprintf(s.out, "flyball: stopping... (Ctrl-C again to hurry, a third time kills pid %d)\n", pid)
+		} else {
+			fmt.Fprintln(s.out, "flyball: stopping...")
+		}
+		s.signal(sig)
+	case 2:
+		fmt.Fprintln(s.out, "flyball: hurrying the runner (SIGINT again); Ctrl-C once more kills it")
+		s.signal(syscall.SIGINT)
+	default:
+		s.mu.Lock()
+		pid := 0
+		if s.alive {
+			pid = s.cmd.Process.Pid
+		}
+		s.mu.Unlock()
+		if pid != 0 {
+			fmt.Fprintf(s.out, "flyball: killing the runner (SIGKILL to pid %d's group); its recording may not be closed cleanly\n", pid)
+		}
+		s.signal(syscall.SIGKILL)
 	}
 }
 
