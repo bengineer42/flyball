@@ -22,6 +22,13 @@ shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd
 stop it -- the programmer is interrupted, the session closed and the polled
 devices stopped, and the runner exits 0.
 
+One runner per rig: before it imports a driver, opens a link or touches the
+store, the runner takes an exclusive lock on `<store>.lock` beside the store
+(`flock`, so it goes with the process however that ends). A second runner
+for the same rig -- the same store, which by default means the same rig
+file -- exits 3 at once, naming the process that holds it, and leaves the
+live one's session and hardware alone.
+
 The rest of this section: [access and safety](access.md) -- the door, a
 sub-path behind a proxy, stopping and restarting from the API -- and
 [building a rig while it runs](building.md) -- the composition API,

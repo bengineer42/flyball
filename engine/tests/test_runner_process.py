@@ -135,3 +135,23 @@ def test_a_stop_signal_runs_the_cleanup(tmp_path, sig):
     assert proc.returncode == 0, err[-2000:]
     assert _open_sessions(store) == [], "the recording session was left open"
     assert "Traceback" not in err
+
+
+def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path):
+    # Two runners on one rig would drive the same hardware; the second used to close the
+    # live runner's recording session and start the rig before its port bind failed.
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    with runner(tmp_path, *argv) as live:
+        _wait_up(live, PORT)
+        before = _open_sessions(store)
+        assert len(before) == 1
+        second = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT + 1), "--store", str(store)]
+        with runner(tmp_path, *second, "--record") as late:
+            _, err = late.communicate(timeout=20)
+        assert late.returncode == 3, err[-2000:]
+        assert str(live.pid) in err and "already" in err
+        assert "rig version" not in err and "recording to" not in err, "nothing was started"
+        assert _open_sessions(store) == before, "the live runner's session was touched"
+        assert live.poll() is None
+        assert _get(f"http://127.0.0.1:{PORT}/api/health")["recording"] is True
