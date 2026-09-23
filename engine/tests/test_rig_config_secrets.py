@@ -64,7 +64,7 @@ def test_a_simulation_s_document_is_redacted_too(monkeypatch: pytest.MonkeyPatch
     assert response.status_code == 200
     _assert_no_secrets(response.text)
     auth = response.json()["runner"]["auth"]
-    assert auth == {"anonymous": "read", "session": "8h"}, "non-secret settings stay visible"
+    assert auth == {"anonymous": "read"}, "non-secret settings stay visible; removed keys do not"
     assert response.json()["runner"]["port"] == 8001
 
 
@@ -90,3 +90,138 @@ def test_the_simulation_s_own_config_route_is_redacted_too():
         _assert_no_secrets(response.text)
     finally:
         set_simulation(None)
+
+
+# region The whole `runner:` section, end to end
+
+# Every credential and credential path a rig file may carry under `runner:`, each a value that
+# appears nowhere else in the file, so finding it in a response is finding the leak.
+FRONT_SECRETS = {
+    "runner.auth.token": "TOK-bare-runner",
+    "runner.front.password": "$scrypt$ln=15,r=8,p=1$c2FsdA$aGFzaC1vZi10aGUtcGFzc3dvcmQ",
+    "runner.front.proxy.secret_file": "/etc/flyball/proxy-SECRET-FILE",
+    "runner.front.proxy.jwt.jwks_url": "https://idp.internal/JWKS-URL",
+    "runner.front.proxy.grants": "alice@SUBJECT.example",
+    "runner.front.tls.key": "/etc/flyball/TLS-KEY.pem",
+    "runner.front.tls.cert": "/etc/flyball/TLS-CERT.pem",
+    "runner.front.trusted_proxies": "10.9.8.7/32",
+    "runner.store": "/srv/STORE-PATH.sqlite",
+    "runner.drivers": "/srv/DRIVERS-PATH",
+}
+
+SIM_RIG = f"""\
+name: tank
+clock: {{stepped: true}}
+links:
+  tank: {{tag: sim_plant, model: lag, gain: 1.0, tau_s: 10.0}}
+devices:
+  level:
+    driver: sim_daq
+    poll_s: 1.0
+    link: tank
+    ports: {{level: {{port: output, quantity: level, unit: m}}}}
+runner:
+  port: 8123
+  store: {FRONT_SECRETS["runner.store"]}
+  drivers: {FRONT_SECRETS["runner.drivers"]}
+  auth:
+    token: {FRONT_SECRETS["runner.auth.token"]}
+    anonymous: read
+  front:
+    listen: 0.0.0.0:8443
+    auth: proxy
+    url: https://rig.example
+    anonymous: read
+    password: "{FRONT_SECRETS["runner.front.password"]}"
+    trusted_proxies: ["{FRONT_SECRETS["runner.front.trusted_proxies"]}"]
+    tls:
+      cert: {FRONT_SECRETS["runner.front.tls.cert"]}
+      key: {FRONT_SECRETS["runner.front.tls.key"]}
+    proxy:
+      preset: custom
+      secret_file: {FRONT_SECRETS["runner.front.proxy.secret_file"]}
+      grants: {{operate: ["{FRONT_SECRETS["runner.front.proxy.grants"]}"]}}
+      jwt:
+        header: X-Assertion
+        jwks_url: {FRONT_SECRETS["runner.front.proxy.jwt.jwks_url"]}
+        issuer: idp
+        audience: rig
+        algorithms: [RS256]
+"""
+
+
+@pytest.fixture
+def sim_rig(tmp_path):
+    """A simulated rig loaded from a file as the runner loads one, with a store and versions."""
+    from flyball_sim.simulation import Simulation
+
+    from flyball.interfaces.server.deps import set_rig, set_store
+    from flyball.record.sqlite import SqliteStore
+    from flyball.runner.starting import keep_versions
+    from flyball.runtime.overlay import resolve_layers
+
+    path = tmp_path / "tank.yaml"
+    path.write_text(SIM_RIG)
+    layered, _ = resolve_layers([path])
+    config = RigConfig.model_validate(layered)
+    assert config.runner is not None and config.runner.front is not None, "the file parses whole"
+    rig = config.build(start=False)
+    store = SqliteStore(tmp_path / "tank.sqlite")
+    keep_versions(rig, store, "loaded")
+    set_rig(rig)
+    set_store(store)
+    set_rig_config(config)
+    set_simulation(Simulation(rig, config, layered, path))
+    try:
+        with TestClient(create_app()) as http:
+            yield http
+    finally:
+        set_simulation(None)
+        set_rig_config(None)
+        set_store(None)
+        set_rig(None)
+        rig.stop()
+        store.close()
+
+
+ROUTES = (
+    "/api/rig/config",
+    "/api/sim/config",
+    "/api/rig/document",
+    "/api/rig/changes",
+    "/api/rig/versions",
+    "/api/rig/versions/1",
+)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_no_runner_credential_or_path_reaches_a_reader(sim_rig, route: str):
+    response = sim_rig.get(route)
+    assert response.status_code == 200, response.text
+    leaked = {key: value for key, value in FRONT_SECRETS.items() if value in response.text}
+    assert not leaked, f"{route} hands out {sorted(leaked)}"
+
+
+def test_what_a_reader_needs_of_the_runner_section_stays(sim_rig):
+    runner = sim_rig.get("/api/rig/config").json()["runner"]
+    assert runner["port"] == 8123
+    assert runner["auth"] == {"anonymous": "read"}
+    assert runner["front"] == {
+        "listen": "0.0.0.0:8443",
+        "auth": "proxy",
+        "url": "https://rig.example",
+        "anonymous": "read",
+    }
+
+
+def test_an_unknown_runner_key_is_dropped_not_passed_through():
+    """An allowlist all the way down: a key added to `RunnerConfig` later is hidden by default."""
+    from flyball.interfaces.server.redact import without_credentials
+
+    document = {
+        "runner": {"port": 1, "new_secret": "x", "front": {"auth": "sso", "sso": {"key": "y"}}}
+    }
+    assert without_credentials(document) == {"runner": {"port": 1, "front": {"auth": "sso"}}}
+
+
+# endregion
