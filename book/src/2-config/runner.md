@@ -67,7 +67,7 @@ runner:
 | --- | --- | --- | --- |
 | `serve_ui` | string | `--serve-ui ADDR` | a non-empty value serves the embedded dashboard UI on `ADDR`. `":8000"` is every interface: the runner then needs a password or a token, or the UI is served on `127.0.0.1` only (unless `--insecure-open` / `FLYBALL_INSECURE_OPEN=1`) -- see [behind `flyball run --serve-ui`](../1-running/runner/access.md#behind-flyball-run-serve-ui) |
 | `uv` | bool | `--uv` | run `flyball-runner` via `uv run --project <dir>` instead of a bare exec |
-| `port` | string or int | `--port PORT` | where `--serve-ui`'s proxy expects the runner to be listening |
+| `port` | string or int | `--port PORT` | the runner's port under `flyball run` (passed on as `--port`) when the section's own `port` is not set; `--serve-ui`'s proxy follows `--port`, then `runner.port`, then this, then `8000` |
 
 A flag given on the command line always wins over the matching `run:` key;
 `run:` only supplies the default when the flag is absent. `flyball run` with

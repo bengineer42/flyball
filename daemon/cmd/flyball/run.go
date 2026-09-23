@@ -58,8 +58,10 @@ func runDirect(args []string) error {
 	// args[0] is known present (the guard above), so it's safe to load it now
 	// for `runner.run` defaults -- this must stay after that guard, not
 	// before it, since reading the rig file obviously requires one.
-	defaults := runYAMLDefaults(args[0])
-	serveAddr, wantUI, port, useUV, args := resolveRunFlags(args, defaults)
+	runner := runnerSection(args[0])
+	defaults, _ := runner["run"].(map[string]any)
+	runnerPort, _ := asNonEmptyString(runner["port"])
+	serveAddr, wantUI, port, useUV, args := resolveRunFlags(args, defaults, runnerPort)
 	if len(args) < 1 {
 		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
 	}
@@ -200,14 +202,20 @@ func runnerSection(rigPath string) map[string]any {
 	return runner
 }
 
-// resolveRunFlags pops --serve-ui/--port/--uv out of args (which may
-// appear anywhere, same as popValue/popBool always allowed), falling back
-// to defaults (runner.run's serve_ui/port/uv, as loaded by
-// runYAMLDefaults) for any of the three not explicitly given on the
-// command line. CLI flags always win: a YAML value only ever supplies the
-// default for a flag whose CLI form was absent. Pure and independent of
-// any file I/O, so it's unit-testable without a real rig file.
-func resolveRunFlags(args []string, defaults map[string]any) (serveAddr string, wantUI bool, port string, useUV bool, rest []string) {
+// resolveRunFlags pops --serve-ui/--uv out of args (which may appear
+// anywhere, same as popValue/popBool always allowed), falling back to
+// defaults (runner.run's serve_ui/port/uv, as loaded by runYAMLDefaults)
+// for any not explicitly given on the command line. CLI flags always win:
+// a YAML value only ever supplies the default for a flag whose CLI form
+// was absent. Pure and independent of any file I/O, so it's unit-testable
+// without a real rig file.
+//
+// port is where the runner serves, so where the UI proxies to: --port,
+// else runnerPort (the rig file's own runner.port), else runner.run.port,
+// else 8000. --port stays in rest, and a runner.run.port is added to it,
+// so the runner serves where the front proxies; runner.port and the
+// default are the runner's own already.
+func resolveRunFlags(args []string, defaults map[string]any, runnerPort string) (serveAddr string, wantUI bool, port string, useUV bool, rest []string) {
 	serveAddr, args, explicitUI := popValue(args, "--serve-ui")
 	wantUI = explicitUI
 	if !explicitUI {
@@ -217,9 +225,15 @@ func resolveRunFlags(args []string, defaults map[string]any) (serveAddr string, 
 	}
 
 	port, args, explicitPort := popValue(args, "--port")
-	if !explicitPort {
+	switch {
+	case explicitPort:
+		args = append(args, "--port", port)
+	case runnerPort != "":
+		port = runnerPort
+	default:
 		if v, ok := asNonEmptyString(defaults["port"]); ok {
 			port = v
+			args = append(args, "--port", port)
 		} else {
 			port = "8000"
 		}

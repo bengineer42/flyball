@@ -147,7 +147,13 @@ func fakeRunner(marker string) int {
 			"password": false, "token": token, "exposure": nil,
 		})
 	})
-	ln, err := net.Listen("tcp", "127.0.0.1:"+os.Getenv("FLYBALL_FAKE_PORT"))
+	port := os.Getenv("FLYBALL_FAKE_PORT") // what the rig file would say
+	for i, a := range os.Args {
+		if a == "--port" && i+1 < len(os.Args) {
+			port = os.Args[i+1] // the command line wins, as for flyball-runner
+		}
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fake runner:", err)
 		return 3
@@ -199,6 +205,12 @@ type seen struct {
 // and what the front looked like while it ran.
 func runFake(t *testing.T, door, rigYAML, host string, lifetime time.Duration, extra ...string) (error, string, time.Duration, bool, seen) {
 	t.Helper()
+	return runFakeArgs(t, door, rigYAML, lifetime, append([]string{"--serve-ui", net.JoinHostPort(host, frontPort), "--port", fakeRunnerPort}, extra...)...)
+}
+
+// runFakeArgs is runFake with the whole of `flyball run RIG`'s flags given.
+func runFakeArgs(t *testing.T, door, rigYAML string, lifetime time.Duration, flags ...string) (error, string, time.Duration, bool, seen) {
+	t.Helper()
 	dir := t.TempDir()
 	rig := filepath.Join(dir, "rig.yaml")
 	if err := os.WriteFile(rig, []byte(rigYAML), 0o644); err != nil {
@@ -206,7 +218,9 @@ func runFake(t *testing.T, door, rigYAML, host string, lifetime time.Duration, e
 	}
 	marker := filepath.Join(dir, "stopped")
 	t.Setenv("FLYBALL_FAKE_RUNNER", marker)
-	t.Setenv("FLYBALL_FAKE_PORT", fakeRunnerPort)
+	if os.Getenv("FLYBALL_FAKE_PORT") == "" { // a test may have set what the rig file says
+		t.Setenv("FLYBALL_FAKE_PORT", fakeRunnerPort)
+	}
 	t.Setenv("FLYBALL_FAKE_DOOR", door)
 	t.Setenv("FLYBALL_FAKE_LIFETIME", lifetime.String())
 	self, err := os.Executable()
@@ -246,7 +260,7 @@ func runFake(t *testing.T, door, rigYAML, host string, lifetime time.Duration, e
 	stderr := os.Stderr
 	os.Stderr = w
 	start := time.Now()
-	args := append([]string{rig, "--serve-ui", net.JoinHostPort(host, frontPort), "--port", fakeRunnerPort}, extra...)
+	args := append([]string{rig}, flags...)
 	runErr := runDirect(args)
 	took := time.Since(start)
 	os.Stderr = stderr
@@ -349,5 +363,31 @@ func TestServeUILoopbackServesAnOpenRunner(t *testing.T) {
 	}
 	if saw.auth["exposure"] != nil {
 		t.Fatalf("exposure = %v, want the runner's own (none)", saw.auth["exposure"])
+	}
+}
+
+// The front proxies to the port the runner really serves on: the rig
+// file's runner.port when no --port is given, and --port (passed on to the
+// runner) when it is -- never a fixed 8000.
+func TestServeUIProxiesToTheRunnersOwnPort(t *testing.T) {
+	for name, c := range map[string]struct {
+		rig      string
+		fakePort string // what the fake runner would read from its rig file
+		flags    []string
+	}{
+		"runner.port": {"name: t\nrunner:\n  port: " + fakeRunnerPort + "\n", fakeRunnerPort, nil},
+		"--port":      {"name: t\n", "1", []string{"--port", fakeRunnerPort}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			flags := append([]string{"--serve-ui", "127.0.0.1:" + frontPort}, c.flags...)
+			t.Setenv("FLYBALL_FAKE_PORT", c.fakePort)
+			err, out, _, _, saw := runFakeArgs(t, "open", c.rig, 1500*time.Millisecond, flags...)
+			if err != nil {
+				t.Fatalf("runDirect = %v: %s", err, out)
+			}
+			if saw.auth == nil || !strings.Contains(out, "proxying to runner on 127.0.0.1:"+fakeRunnerPort) {
+				t.Fatalf("the front did not reach the runner on %s: stderr %q, /api/auth %v", fakeRunnerPort, out, saw.auth)
+			}
+		})
 	}
 }
