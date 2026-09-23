@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { alarmLevel, staleAfterS } from "@flyball/client";
+import { readoutLevel } from "../src/panels/Readout.js";
 
 // wf0: the stale rule (`max(3 * period, 5s)`) used the device's poll period
 // (`DeviceOut.run.period_s` -- the device's *fastest* signal), not the
@@ -34,6 +35,23 @@ describe("alarmLevel stale threshold", () => {
     const nullPeriod = { poll_s: null };
     const fresh = { periodS: 1, lastSampleS: 0, nowS: 8 };
     expect(alarmLevel(1, nullPeriod, fresh)).toBe("stale");
+  });
+});
+
+describe("readoutLevel's stale label", () => {
+  it("states the signal's own threshold in the 'over Ns' label, not the device's period", () => {
+    const slowSignal = { poll_s: 5 }; // threshold: max(3*5, 5) = 15 s
+    const fresh = { periodS: 1, lastSampleS: 0, nowS: 16 }; // 16 s old, past its own 15 s threshold
+    const { level, label } = readoutLevel(slowSignal, 1, fresh);
+    expect(level).toBe("stale");
+    expect(label).toBe("stale — last sample 16 s ago (over 15 s)");
+  });
+
+  it("falls back to the device period in the label when the signal carries no poll_s", () => {
+    const fresh = { periodS: 1, lastSampleS: 0, nowS: 8 }; // threshold: max(3*1, 5) = 5 s
+    const { level, label } = readoutLevel({}, 1, fresh);
+    expect(level).toBe("stale");
+    expect(label).toBe("stale — last sample 8 s ago (over 5 s)");
   });
 });
 
