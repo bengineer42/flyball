@@ -24,13 +24,19 @@ type ProcessBackend struct {
 	// swaps it for a shell script. minBackoff is the first crash backoff.
 	command    func(uvProject string, args []string) *exec.Cmd
 	minBackoff time.Duration
+	// stopTimeout is how long Stop waits after SIGTERM before SIGKILL.
+	stopTimeout time.Duration
 
 	mu      sync.Mutex
 	runners map[string]*runnerProc
 }
 
+// runnerProc is one registered runner. Every field but the fixed ones
+// (endpoint, logFile, uvProject, args, wake, done) is guarded by
+// ProcessBackend.mu.
 type runnerProc struct {
-	cmd      *exec.Cmd
+	cmd      *exec.Cmd // the current incarnation
+	alive    bool      // cmd is running (not yet reaped by supervise)
 	endpoint string
 	status   Status
 	logFile  *os.File
@@ -41,6 +47,11 @@ type runnerProc struct {
 	// restartRequested is set by Restart: the next exit is a restart,
 	// whatever its exit code, never a stop or a crash.
 	restartRequested bool
+	// stopping is set by Stop: the next exit is the end, no restart.
+	stopping bool
+
+	wake chan struct{} // Stop/Restart cut a backoff wait short
+	done chan struct{} // closed when supervise() returns
 }
 
 func NewProcessBackend(logDir string) (*ProcessBackend, error) {
@@ -48,10 +59,11 @@ func NewProcessBackend(logDir string) (*ProcessBackend, error) {
 		return nil, fmt.Errorf("creating log dir: %w", err)
 	}
 	return &ProcessBackend{
-		logDir:     logDir,
-		runners:    map[string]*runnerProc{},
-		command:    runnerCommand,
-		minBackoff: time.Second,
+		logDir:      logDir,
+		runners:     map[string]*runnerProc{},
+		command:     runnerCommand,
+		minBackoff:  time.Second,
+		stopTimeout: 10 * time.Second,
 	}, nil
 }
 
@@ -69,6 +81,9 @@ func runnerCommand(uvProject string, args []string) *exec.Cmd {
 func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPath, uvProject string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if _, taken := b.runners[name]; taken {
+		return "", fmt.Errorf("a runner named %q is already running", name)
+	}
 
 	logPath := filepath.Join(b.logDir, name+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -102,11 +117,11 @@ func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPa
 	}
 
 	endpoint := fmt.Sprintf("%s:%d", host, port)
-	rp := &runnerProc{cmd: cmd, endpoint: endpoint, status: StatusStarting, logFile: logFile,
-		uvProject: uvProject, args: args}
+	rp := &runnerProc{cmd: cmd, alive: true, endpoint: endpoint, status: StatusStarting, logFile: logFile,
+		uvProject: uvProject, args: args, wake: make(chan struct{}, 1), done: make(chan struct{})}
 	b.runners[name] = rp
 
-	go b.supervise(name, rp)
+	go b.supervise(rp, cmd)
 
 	return endpoint, nil
 }
@@ -115,17 +130,18 @@ func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPa
 // Restart, whatever the exit code, and with backoff after a crash, so a
 // runner that dies immediately every time is not hot-looped. A clean exit
 // nobody asked for is a stop.
-func (b *ProcessBackend) supervise(name string, rp *runnerProc) {
+func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd) {
+	defer close(rp.done)
 	backoff := b.minBackoff
 	for {
-		err := rp.cmd.Wait()
+		err := cmd.Wait()
 		b.mu.Lock()
-		stillTracked := b.runners[name] == rp
-		b.mu.Unlock()
-		if !stillTracked {
-			return // explicitly stopped/replaced, not a crash
+		rp.alive = false
+		if rp.stopping {
+			rp.status = StatusStopped
+			b.mu.Unlock()
+			return
 		}
-		b.mu.Lock()
 		restart := rp.restartRequested
 		rp.restartRequested = false
 		if !restart && err == nil {
@@ -139,52 +155,84 @@ func (b *ProcessBackend) supervise(name string, rp *runnerProc) {
 		}
 		b.mu.Unlock()
 
-		// A requested restart goes straight back up; only a crash waits.
+		// A requested restart goes straight back up; only a crash waits,
+		// and Stop or Restart cut the wait short.
 		if !restart {
-			time.Sleep(backoff)
+			select {
+			case <-time.After(backoff):
+			case <-rp.wake:
+			}
 			if backoff < 30*time.Second {
 				backoff *= 2
 			}
 		}
 
 		b.mu.Lock()
-		cmd := b.command(rp.uvProject, rp.args)
+		if rp.stopping {
+			rp.status = StatusStopped
+			b.mu.Unlock()
+			return
+		}
+		rp.restartRequested = false
+		cmd = b.command(rp.uvProject, rp.args)
 		cmd.Stdout = rp.logFile
 		cmd.Stderr = rp.logFile
 		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(rp.logFile, "flyballd: restarting: %v\n", err)
+			rp.status = StatusCrashed
 			b.mu.Unlock()
 			return
 		}
 		rp.cmd = cmd
+		rp.alive = true
 		rp.status = StatusStarting
 		b.mu.Unlock()
 	}
 }
 
-// Stop and Restart send SIGTERM, not SIGKILL -- plan.md's resolution of
-// the allow_shutdown question: the daemon ends a runner's life with a
-// clean signal it can catch and shut down on, rather than routing
-// through the runner's own HTTP shutdown API at all. Keeps
-// `allow_shutdown` off for daemon-managed runners with no conflict
-// between two controllers of the same lifecycle.
+// Stop and Restart send SIGTERM first -- the daemon ends a runner's life
+// with a signal it can catch and shut down cleanly on, rather than routing
+// through the runner's own HTTP shutdown API. Keeps `allow_shutdown` off
+// for daemon-managed runners with no conflict between two controllers of
+// the same lifecycle.
 
+// Stop deregisters a runner and ends it: SIGTERM, then SIGKILL if it is
+// still there after stopTimeout. It returns once the process is gone and
+// supervise() has finished, so nothing is left behind -- also when the
+// runner was waiting out a crash backoff.
 func (b *ProcessBackend) Stop(name string) error {
 	b.mu.Lock()
 	rp, ok := b.runners[name]
-	if ok {
-		delete(b.runners, name) // supervise() sees this and stops restarting
-	}
-	b.mu.Unlock()
 	if !ok {
+		b.mu.Unlock()
 		return fmt.Errorf("no runner named %q", name)
 	}
-	if err := rp.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		return err
+	delete(b.runners, name)
+	rp.stopping = true
+	if rp.alive {
+		rp.cmd.Process.Signal(syscall.SIGTERM)
+	}
+	b.nudge(rp)
+	b.mu.Unlock()
+
+	select {
+	case <-rp.done:
+	case <-time.After(b.stopTimeout):
+		b.mu.Lock()
+		if rp.alive {
+			rp.cmd.Process.Kill()
+		}
+		b.mu.Unlock()
+		<-rp.done
 	}
 	rp.logFile.Close()
 	return nil
 }
 
+// Restart ends the runner's current process and starts a new one at once.
+// The intent is recorded, not inferred from the exit code: a runner that
+// exits 0 on SIGTERM is restarted all the same. A runner in crash backoff
+// restarts now.
 func (b *ProcessBackend) Restart(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -192,10 +240,20 @@ func (b *ProcessBackend) Restart(name string) error {
 	if !ok {
 		return fmt.Errorf("no runner named %q", name)
 	}
-	// The intent is recorded, not inferred from the exit code: a runner
-	// that exits 0 on SIGTERM is restarted all the same.
 	rp.restartRequested = true
-	return rp.cmd.Process.Signal(syscall.SIGTERM) // supervise() restarts it
+	if rp.alive {
+		return rp.cmd.Process.Signal(syscall.SIGTERM) // supervise() restarts it
+	}
+	b.nudge(rp)
+	return nil
+}
+
+// nudge wakes supervise() from a backoff wait, if it is in one.
+func (b *ProcessBackend) nudge(rp *runnerProc) {
+	select {
+	case rp.wake <- struct{}{}:
+	default:
+	}
 }
 
 func (b *ProcessBackend) Logs(name string) (io.Reader, error) {

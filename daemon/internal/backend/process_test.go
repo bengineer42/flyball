@@ -2,6 +2,8 @@ package backend
 
 import (
 	"os/exec"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -78,5 +80,56 @@ func TestRestartRestartsARunnerThatExitsCleanlyOnSIGTERM(t *testing.T) {
 	})
 	if st, _ := b.Status("r"); st == StatusStopped {
 		t.Errorf("status after Restart: %s", st)
+	}
+}
+
+// Stop while a crashed runner waits out its backoff must end its life:
+// no new process afterwards, and Stop itself succeeds. Run under -race:
+// Stop and supervise() both touch the runner's current process.
+func TestStopDuringBackoffLeavesNoRunner(t *testing.T) {
+	dir := t.TempDir()
+	b := newTestBackend(t, "")
+	b.minBackoff = 150 * time.Millisecond
+	var mu sync.Mutex
+	spawned := 0
+	b.command = func(string, []string) *exec.Cmd {
+		mu.Lock()
+		spawned++
+		mu.Unlock()
+		// The first incarnation crashes; any later one would stay up.
+		cmd := exec.Command("sh", "-c", `if [ -e once ]; then sleep 3; else touch once; exit 1; fi`)
+		cmd.Dir = dir
+		return cmd
+	}
+	mustStart(t, b, "r")
+	eventually(t, "the first crash", func() bool {
+		st, _ := b.Status("r")
+		return st == StatusCrashed
+	})
+
+	if err := b.Stop("r"); err != nil {
+		t.Errorf("Stop during backoff: %v", err)
+	}
+	time.Sleep(4 * b.minBackoff)
+	mu.Lock()
+	defer mu.Unlock()
+	if spawned != 1 {
+		t.Errorf("%d processes spawned; a Stop during backoff should leave the one that crashed", spawned)
+	}
+}
+
+// Stop waits for the runner to go, and kills one that ignores SIGTERM.
+func TestStopKillsARunnerThatIgnoresSIGTERM(t *testing.T) {
+	b := newTestBackend(t, `trap '' TERM; while :; do sleep 0.02; done`)
+	b.stopTimeout = 200 * time.Millisecond
+	mustStart(t, b, "r")
+	pid := b.pid("r")
+	time.Sleep(100 * time.Millisecond) // let the trap be installed
+
+	if err := b.Stop("r"); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+		t.Errorf("runner %d still there after Stop returned (kill -0: %v)", pid, err)
 	}
 }
