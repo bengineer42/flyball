@@ -1,14 +1,15 @@
-"""The scripted buses answer a read exactly as long as asked for, or fail like a bus does.
+"""The scripted buses behave like the buses they stand in for.
 
 A real `/dev/i2c-N` or spidev read returns the length asked for or raises; a fake that
-quietly returns fewer bytes hides a driver that asks for the wrong length.
+quietly returns fewer bytes hides a driver that asks for the wrong length. A serial port
+is a byte stream, not a queue of messages.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from flyball_sim.links import FakeI2c, FakeI2cConfig, FakeSpi
+from flyball_sim.links import FakeI2c, FakeI2cConfig, FakeSpi, FakeUart
 
 
 class TestFakeI2cLengths:
@@ -78,3 +79,34 @@ class TestFakeSpiLengths:
 
     def test_short_reads_pads_with_zeros_as_before(self):
         assert FakeSpi([[7]], short_reads=True).transfer([1, 2]) == b"\x07\x00"
+
+
+class TestFakeUartStream:
+    def test_a_reply_read_in_pieces_is_one_stream(self):
+        uart = FakeUart([b"\xff\x86\x01\x90", b"\x00\x00"])
+        assert uart.read(1) == b"\xff"
+        assert uart.read(4) == b"\x86\x01\x90\x00"
+        assert uart.read(1) == b"\x00"
+
+    def test_bytes_after_a_terminator_wait_for_the_next_read(self):
+        uart = FakeUart([b"7.00\r*OK\r"])
+        assert uart.read_until(b"\r") == b"7.00\r"
+        assert uart.read_until(b"\r") == b"*OK\r"
+
+    def test_a_line_split_across_replies_is_joined(self):
+        uart = FakeUart([b"7.", b"00\r", b"end\r"])
+        assert uart.read_until(b"\r") == b"7.00\r"
+
+    def test_the_last_reply_repeats_so_a_rig_file_probe_reads_forever(self):
+        uart = FakeUart([b"6.200\r"])
+        assert [uart.read_until(b"\r") for _ in range(3)] == [b"6.200\r"] * 3
+
+    def test_a_terminator_that_never_comes_returns_what_arrived_like_a_timeout(self):
+        uart = FakeUart([b"abc"])
+        assert uart.read_until(b"\r") == b"abc"
+
+    def test_an_unscripted_port_raises(self):
+        with pytest.raises(OSError):
+            FakeUart().read(1)
+        with pytest.raises(OSError):
+            FakeUart().read_until()

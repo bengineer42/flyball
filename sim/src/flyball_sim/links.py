@@ -205,32 +205,46 @@ class FakeGpioConfig(Config[GpioLink], tag="fake_gpio"):
 
 
 class FakeUart:
-    r"""Scripted replies, in order; every write is kept.
+    r"""One scripted byte stream, fed from `replies` in order; every write is kept.
 
-    `replies = [b"1.23\r", b"OK\r"]` answers the first two reads/read_untils in turn.
-    A single-element list repeats forever, matching `FakeI2c`. Reads and `read_until`
-    calls draw from the same queue.
+    The replies are joined end to end, as bytes arriving on a wire: a read takes
+    exactly the bytes it asks for and leaves the rest, `read_until` stops at the
+    terminator and leaves what follows it, and one line may span two replies. The
+    last reply repeats for ever, so `replies = [b"6.200\r"]` is a probe that always
+    reads 6.200. A `read_until` whose terminator never arrives returns what did
+    arrive, as a real port does on its timeout.
     """
 
     def __init__(self, replies: list[bytes] | None = None) -> None:
         self.replies = list(replies or [])
         self.written: list[bytes] = []
+        self._buffer = bytearray()
 
     def write(self, data: bytes) -> None:
         self.written.append(bytes(data))
 
-    def _next(self) -> bytes:
+    def _pull(self) -> None:
         if not self.replies:
             raise OSError("no reply scripted")
-        return self.replies[0] if len(self.replies) == 1 else self.replies.pop(0)
+        self._buffer += self.replies[0] if len(self.replies) == 1 else self.replies.pop(0)
+
+    def _take(self, length: int) -> bytes:
+        out = bytes(self._buffer[:length])
+        del self._buffer[:length]
+        return out
 
     def read(self, length: int) -> bytes:
-        return self._next()[:length]
+        while len(self._buffer) < length:
+            self._pull()
+        return self._take(length)
 
     def read_until(self, terminator: bytes = b"\r") -> bytes:
-        reply = self._next()
-        index = reply.find(terminator)
-        return reply if index == -1 else reply[: index + len(terminator)]
+        while (index := self._buffer.find(terminator)) == -1:
+            never = len(self.replies) == 1 and terminator not in self.replies[0] * 2
+            self._pull()
+            if never:
+                return self._take(len(self._buffer))
+        return self._take(index + len(terminator))
 
 
 class FakeUartConfig(Config[UartLink], tag="fake_uart"):
