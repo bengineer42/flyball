@@ -18,18 +18,31 @@ import (
 type fakeBackend struct {
 	started  []string
 	endpoint string
+	logs     []*logReader
 }
 
-func (f *fakeBackend) Start(name, serverConfig, host string, port int, rootPath, uvProject string) (string, error) {
+// logReader is a log that knows whether it was closed.
+type logReader struct {
+	io.Reader
+	closed bool
+}
+
+func (l *logReader) Close() error { l.closed = true; return nil }
+
+func (f *fakeBackend) Start(name string, spec backend.Spec) (string, error) {
 	f.started = append(f.started, name)
 	if f.endpoint != "" {
 		return f.endpoint, nil
 	}
 	return "127.0.0.1:1", nil
 }
-func (f *fakeBackend) Stop(name string) error                     { return nil }
-func (f *fakeBackend) Restart(name string) error                  { return nil }
-func (f *fakeBackend) Logs(name string) (io.Reader, error)        { return strings.NewReader("log\n"), nil }
+func (f *fakeBackend) Stop(name string) error    { return nil }
+func (f *fakeBackend) Restart(name string) error { return nil }
+func (f *fakeBackend) Logs(name string) (io.ReadCloser, error) {
+	l := &logReader{Reader: strings.NewReader("log\n")}
+	f.logs = append(f.logs, l)
+	return l, nil
+}
 func (f *fakeBackend) Status(name string) (backend.Status, error) { return backend.StatusRunning, nil }
 
 func newServer(token string) (*Server, *fakeBackend) {
@@ -68,8 +81,34 @@ func TestMutatingRoutesAreClosedWithoutAToken(t *testing.T) {
 	if len(be.started) != 0 {
 		t.Errorf("a runner was started with no token configured: %v", be.started)
 	}
-	if rec := do(t, s, "GET", "/api/runners", "", ""); rec.Code != http.StatusOK {
-		t.Errorf("GET /api/runners should stay open: got %d", rec.Code)
+}
+
+// Reading the runner list or the landing page needs the token too: they
+// name every rig on the machine and where it is served.
+func TestReadRoutesNeedTheToken(t *testing.T) {
+	s, _ := newServer("s3cret")
+	if rec := do(t, s, "POST", "/api/runners", "s3cret", goodManifest); rec.Code != http.StatusAccepted {
+		t.Fatalf("start: %d", rec.Code)
+	}
+	for _, path := range []string{"/api/runners", "/api/runners/oven", "/"} {
+		for _, bearer := range []string{"", "wrong"} {
+			if rec := do(t, s, "GET", path, bearer, ""); rec.Code != http.StatusUnauthorized {
+				t.Errorf("GET %s with bearer %q: %d, want 401", path, bearer, rec.Code)
+			}
+		}
+		if rec := do(t, s, "GET", path, "s3cret", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "oven") {
+			t.Errorf("GET %s with the token: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	closed, _ := newServer("")
+	for _, path := range []string{"/api/runners", "/api/runners/oven", "/"} {
+		if rec := do(t, closed, "GET", path, "", ""); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("GET %s with no token configured: %d, want 503", path, rec.Code)
+		}
+	}
+	// The per-runner proxy is the runner's own door, not the daemon's.
+	if rec := do(t, s, "GET", "/oven/api/health", "", ""); rec.Code == http.StatusUnauthorized {
+		t.Errorf("the proxy to a runner asked for the daemon's token")
 	}
 }
 
@@ -137,7 +176,7 @@ func TestABadNameOrRootPathIs400NotAStart(t *testing.T) {
 
 func TestLandingPageEscapesTheRootPath(t *testing.T) {
 	s, _ := newServer("s3cret")
-	rec := do(t, s, "GET", "/", "", "")
+	rec := do(t, s, "GET", "/", "s3cret", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("landing: %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
@@ -158,12 +197,42 @@ func TestRegistryRefusesWhatValidateRefuses(t *testing.T) {
 	if len(be.started) != 0 {
 		t.Errorf("backend started %v", be.started)
 	}
-	good := config.Manifest{Name: "oven", ServerConfig: "a.yaml", Port: 8101, RootPath: "/oven"}
+	good := config.Manifest{Name: "oven", ServerConfig: "a.yaml", Host: "127.0.0.1", Port: 8101, RootPath: "/oven"}
 	if err := reg.Start(good); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.Start(good); err == nil {
 		t.Error("registry started the same name twice")
+	}
+}
+
+// Each GET .../logs opens the log file; the handler must close it, or
+// flyballd runs out of descriptors one request at a time.
+func TestLogsClosesTheLog(t *testing.T) {
+	s, be := newServer("s3cret")
+	if rec := do(t, s, "POST", "/api/runners", "s3cret", goodManifest); rec.Code != http.StatusAccepted {
+		t.Fatalf("start: %d", rec.Code)
+	}
+	for range 3 {
+		if rec := do(t, s, "GET", "/api/runners/oven/logs", "s3cret", ""); rec.Code != http.StatusOK {
+			t.Fatalf("logs: %d", rec.Code)
+		}
+	}
+	for i, l := range be.logs {
+		if !l.closed {
+			t.Errorf("log %d left open", i)
+		}
+	}
+}
+
+func TestANonLoopbackHostIs400(t *testing.T) {
+	s, be := newServer("s3cret")
+	rec := do(t, s, "POST", "/api/runners", "s3cret", `{"name":"oven","server_config":"oven.yaml","port":8101,"host":"0.0.0.0"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "loopback") {
+		t.Errorf("host 0.0.0.0: %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if len(be.started) != 0 {
+		t.Errorf("started %v", be.started)
 	}
 }
 
@@ -191,7 +260,7 @@ func proxyingServer(t *testing.T, listen string, insecureOpen bool, runner *http
 	cfg.Auth.InsecureOpen = insecureOpen
 	be := &fakeBackend{endpoint: strings.TrimPrefix(runner.URL, "http://")}
 	reg := registry.New(be)
-	if err := reg.Start(config.Manifest{Name: "oven", ServerConfig: "a.yaml", Port: 8101, RootPath: "/oven"}); err != nil {
+	if err := reg.Start(config.Manifest{Name: "oven", ServerConfig: "a.yaml", Host: "127.0.0.1", Port: 8101, RootPath: "/oven"}); err != nil {
 		t.Fatal(err)
 	}
 	return New(reg, cfg)
