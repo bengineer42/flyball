@@ -7,7 +7,8 @@
 // flyball-runner on a port in 18470-18499 -- and stops them and removes the dir at the end, pass or fail:
 //   password  runner.front auth: password, anonymous: read. Anonymous sees the app read-only with no stop
 //             button; a wrong password is refused on the page; the right one signs in (HttpOnly cookie,
-//             nothing in localStorage, sockets open); the stop button shows and reports the interim stop;
+//             nothing in localStorage, sockets open); the "Software stop" button shows and reports the interim
+//             stop (controllers to manual, nothing written);
 //             sign out closes the sockets and hides the button; a session revoked from outside (the
 //             cookie's logout, not the page's) turns the page read-only with no reload loop.
 //   none      auth: password, anonymous: none. The login page replaces the app; after a revoked session the
@@ -178,10 +179,13 @@ async function noReloadLoop(s, ms) {
 
 async function stopShowsInterim(page) {
   await T(page, 'stop-button').click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Stop' }).click();
+  const label = (await T(page, 'stop-button').innerText()).trim();
+  if (label !== 'Software stop') throw new Error(`the button says ${JSON.stringify(label)}`);
+  await page.getByRole('dialog').getByRole('button', { name: 'Software stop' }).click();
   await T(page, 'stop-result').waitFor({ timeout: 10000 });
   const text = await T(page, 'stop-result').innerText();
-  if (!/interim/i.test(text)) throw new Error(`the stop result says ${JSON.stringify(text)}`);
+  // The interim report: controllers to manual, nothing written.
+  if (!/^Software stop: .*nothing written/.test(text)) throw new Error(`the stop result says ${JSON.stringify(text)}`);
 }
 
 try {

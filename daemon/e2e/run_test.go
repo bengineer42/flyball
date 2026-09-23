@@ -261,9 +261,11 @@ func TestRunLocal(t *testing.T) {
 		var rep stopReport
 		r.json(t, &rep)
 		if !rep.Interim || !rep.ProgramInterrupted || rep.Actor.Sub != "local:console" || rep.Actor.Via != "http" ||
-			len(rep.ControllersManual) == 0 || !strings.Contains(string(rep.Devices["heater"]), `"held"`) {
+			len(rep.ControllersManual) == 0 || !strings.Contains(string(rep.Devices["heater"]), `"state":"unchanged"`) ||
+			!strings.Contains(string(rep.Devices["heater"]), "nothing written") {
 			t.Fatalf("report: %s", r.Body)
 		}
+		fr.waitOutput(`software stop by local:console via http \(e2e-http\)`, 5*time.Second)
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "via": "http",
 			"status": "200", "detail": "e2e-http"})
 		for _, sql := range []string{"update audit set sub = 'x'", "delete from audit"} {
