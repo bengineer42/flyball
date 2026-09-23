@@ -91,6 +91,21 @@ A runner's `name` is lower-case letters, digits, `-` and `_` (it names the
 log file and the URL prefix); `root_path` is `/segments` of the same. A
 manifest that says otherwise is refused, at start-up or over the API (400).
 
+A runner's `status` (in `GET /api/runners`) follows its process:
+
+| status | |
+| --- | --- |
+| `starting` | spawned, not yet answering `GET <root_path>/api/auth` (probed every 0.5 s) |
+| `running` | answering |
+| `restarting` | it crashed and is waiting out its backoff: 1 s, doubling to 30 s, back to 1 s once a restart reaches `running` |
+| `stopped` | it exited cleanly on its own |
+| `failed` | it could not be started again |
+
+`daemon restart` restarts a runner at once, whatever its exit code, and
+cuts short a crash backoff. `daemon stop` sends `SIGTERM`, `SIGKILL`s a
+runner still there after 10 s, and returns once it is gone -- also for a
+runner in backoff, which does not come back.
+
 ### Daemon-managed commands (via `$FLYBALLD_URL`, never routed through a runner)
 
 | command | | |

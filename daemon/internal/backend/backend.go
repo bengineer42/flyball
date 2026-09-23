@@ -9,11 +9,16 @@ import "io"
 
 type Status string
 
+// A runner's status follows its process: starting until it answers
+// /api/auth, running, restarting while it waits out a crash backoff,
+// stopped once it has exited cleanly or been stopped, failed once it has
+// crashed and will not be restarted.
 const (
-	StatusStarting Status = "starting" // spawned, not yet answering /api/auth
-	StatusRunning  Status = "running"
-	StatusCrashed  Status = "crashed"
-	StatusStopped  Status = "stopped"
+	StatusStarting   Status = "starting"
+	StatusRunning    Status = "running"
+	StatusRestarting Status = "restarting"
+	StatusStopped    Status = "stopped"
+	StatusFailed     Status = "failed"
 )
 
 type RunnerInfo struct {

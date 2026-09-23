@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,10 @@ type ProcessBackend struct {
 	minBackoff time.Duration
 	// stopTimeout is how long Stop waits after SIGTERM before SIGKILL.
 	stopTimeout time.Duration
+	// ready says whether a runner answers yet; probed every probeInterval
+	// after each start until it does.
+	ready         func(endpoint, rootPath string) bool
+	probeInterval time.Duration
 
 	mu      sync.Mutex
 	runners map[string]*runnerProc
@@ -38,9 +43,13 @@ type runnerProc struct {
 	cmd      *exec.Cmd // the current incarnation
 	alive    bool      // cmd is running (not yet reaped by supervise)
 	endpoint string
+	rootPath string
 	status   Status
-	logFile  *os.File
-	restarts int
+	// reachedRunning: the current incarnation answered its probe, so the
+	// crash backoff starts again from the bottom.
+	reachedRunning bool
+	logFile        *os.File
+	restarts       int
 
 	uvProject string
 	args      []string
@@ -59,12 +68,27 @@ func NewProcessBackend(logDir string) (*ProcessBackend, error) {
 		return nil, fmt.Errorf("creating log dir: %w", err)
 	}
 	return &ProcessBackend{
-		logDir:      logDir,
-		runners:     map[string]*runnerProc{},
-		command:     runnerCommand,
-		minBackoff:  time.Second,
-		stopTimeout: 10 * time.Second,
+		logDir:        logDir,
+		runners:       map[string]*runnerProc{},
+		command:       runnerCommand,
+		minBackoff:    time.Second,
+		stopTimeout:   10 * time.Second,
+		ready:         answersAuth,
+		probeInterval: 500 * time.Millisecond,
 	}, nil
+}
+
+// answersAuth: the runner answers GET /api/auth under its root path -- it
+// only does so once started with --root-path, so an unprefixed probe
+// would 404 against a root_path-aware runner.
+func answersAuth(endpoint, rootPath string) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + endpoint + rootPath + "/api/auth")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // runnerCommand is the real flyball-runner, bare or via `uv run --project`
@@ -117,11 +141,12 @@ func (b *ProcessBackend) Start(name, serverConfig, host string, port int, rootPa
 	}
 
 	endpoint := fmt.Sprintf("%s:%d", host, port)
-	rp := &runnerProc{cmd: cmd, alive: true, endpoint: endpoint, status: StatusStarting, logFile: logFile,
+	rp := &runnerProc{cmd: cmd, alive: true, endpoint: endpoint, rootPath: rootPath, status: StatusStarting, logFile: logFile,
 		uvProject: uvProject, args: args, wake: make(chan struct{}, 1), done: make(chan struct{})}
 	b.runners[name] = rp
 
 	go b.supervise(rp, cmd)
+	go b.probe(rp, cmd)
 
 	return endpoint, nil
 }
@@ -151,8 +176,12 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd) {
 		}
 		rp.restarts++
 		if !restart {
-			rp.status = StatusCrashed
+			rp.status = StatusRestarting
 		}
+		if rp.reachedRunning {
+			backoff = b.minBackoff
+		}
+		rp.reachedRunning = false
 		b.mu.Unlock()
 
 		// A requested restart goes straight back up; only a crash waits,
@@ -179,7 +208,7 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd) {
 		cmd.Stderr = rp.logFile
 		if err := cmd.Start(); err != nil {
 			fmt.Fprintf(rp.logFile, "flyballd: restarting: %v\n", err)
-			rp.status = StatusCrashed
+			rp.status = StatusFailed
 			b.mu.Unlock()
 			return
 		}
@@ -187,6 +216,30 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd) {
 		rp.alive = true
 		rp.status = StatusStarting
 		b.mu.Unlock()
+		go b.probe(rp, cmd)
+	}
+}
+
+// probe marks one incarnation running once it answers, and gives up when
+// that incarnation is no longer the live one.
+func (b *ProcessBackend) probe(rp *runnerProc, cmd *exec.Cmd) {
+	for {
+		b.mu.Lock()
+		current := rp.cmd == cmd && rp.alive
+		b.mu.Unlock()
+		if !current {
+			return
+		}
+		if b.ready(rp.endpoint, rp.rootPath) {
+			b.mu.Lock()
+			if rp.cmd == cmd && rp.alive && rp.status == StatusStarting {
+				rp.status = StatusRunning
+				rp.reachedRunning = true
+			}
+			b.mu.Unlock()
+			return
+		}
+		time.Sleep(b.probeInterval)
 	}
 }
 
@@ -273,15 +326,4 @@ func (b *ProcessBackend) Status(name string) (Status, error) {
 		return "", fmt.Errorf("no runner named %q", name)
 	}
 	return rp.status, nil
-}
-
-// MarkRunning is called once the registry confirms /api/auth answers --
-// plan.md's "knowing it actually started" health check, not this
-// package's concern to poll, only to record.
-func (b *ProcessBackend) MarkRunning(name string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if rp, ok := b.runners[name]; ok {
-		rp.status = StatusRunning
-	}
 }

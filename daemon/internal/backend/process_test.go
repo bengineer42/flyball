@@ -21,6 +21,8 @@ func newTestBackend(t *testing.T, script string) *ProcessBackend {
 	}
 	b.command = func(string, []string) *exec.Cmd { return exec.Command("sh", "-c", script) }
 	b.minBackoff = 20 * time.Millisecond
+	b.ready = func(string, string) bool { return false }
+	b.probeInterval = 10 * time.Millisecond
 	t.Cleanup(func() {
 		b.mu.Lock()
 		names := make([]string, 0, len(b.runners))
@@ -104,7 +106,7 @@ func TestStopDuringBackoffLeavesNoRunner(t *testing.T) {
 	mustStart(t, b, "r")
 	eventually(t, "the first crash", func() bool {
 		st, _ := b.Status("r")
-		return st == StatusCrashed
+		return st == StatusRestarting
 	})
 
 	if err := b.Stop("r"); err != nil {
@@ -132,4 +134,43 @@ func TestStopKillsARunnerThatIgnoresSIGTERM(t *testing.T) {
 	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
 		t.Errorf("runner %d still there after Stop returned (kill -0: %v)", pid, err)
 	}
+}
+
+func status(b *ProcessBackend, name string) Status {
+	st, _ := b.Status(name)
+	return st
+}
+
+// The status follows the process: starting until the runner answers,
+// running, restarting while a crash's backoff runs, then back up.
+func TestStatusFollowsACrash(t *testing.T) {
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	b.minBackoff = 300 * time.Millisecond
+	var mu sync.Mutex
+	answering := false
+	b.ready = func(string, string) bool { mu.Lock(); defer mu.Unlock(); return answering }
+	mustStart(t, b, "r")
+
+	time.Sleep(50 * time.Millisecond)
+	if st := status(b, "r"); st != StatusStarting {
+		t.Errorf("before the runner answers: %s, want starting", st)
+	}
+	mu.Lock()
+	answering = true
+	mu.Unlock()
+	eventually(t, "running", func() bool { return status(b, "r") == StatusRunning })
+
+	first := b.pid("r")
+	syscall.Kill(first, syscall.SIGKILL)
+	eventually(t, "restarting", func() bool { return status(b, "r") == StatusRestarting })
+	eventually(t, "running again, a new process", func() bool {
+		return status(b, "r") == StatusRunning && b.pid("r") != first
+	})
+}
+
+// A runner that exits 0 without being asked is stopped, not running.
+func TestACleanExitIsStopped(t *testing.T) {
+	b := newTestBackend(t, `exit 0`)
+	mustStart(t, b, "r")
+	eventually(t, "stopped", func() bool { return status(b, "r") == StatusStopped })
 }
