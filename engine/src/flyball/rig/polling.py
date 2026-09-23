@@ -11,6 +11,7 @@ device's own state, and is pushed through `runs`.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,9 @@ from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
 
 log = logging.getLogger("flyball.polling")
+
+STOP_JOIN_S = 2.0
+"""How long `stop_all` waits, over all polling threads together, for reads in progress."""
 
 if TYPE_CHECKING:
     from .rig import Rig
@@ -124,8 +128,20 @@ class Polling:
         self.runs.discard(name)
 
     def stop_all(self) -> None:
+        """Stop polling every device, waiting at most `STOP_JOIN_S` for reads in progress.
+
+        A read stuck in its driver is not waited on for ever -- SIGTERM and a
+        daemon restart both come through here. Its thread (a daemon thread)
+        is abandoned and logged once by name; if the read ever returns, the
+        loop exits without reading again.
+        """
+        for loop in self.periodic.values():
+            loop.stop(join=False)
+        deadline = time.monotonic() + STOP_JOIN_S
         for name, loop in self.periodic.items():
-            loop.stop()
+            loop.stop(timeout=max(0.0, deadline - time.monotonic()))
+            if loop.running:
+                log.warning("gave up waiting for %s's read after %.1f s", name, STOP_JOIN_S)
             self._update(self.by_name[name], running=False)
 
     def delivered(self, device: Device, samples: Sequence[Sample]) -> None:

@@ -23,7 +23,9 @@ fix from a crash. With
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
 shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd
 stop it -- the programmer is interrupted, the session closed and the polled
-devices stopped, and the runner exits 0.
+devices stopped, and the runner exits 0. A read stuck in its driver is waited
+on for 2 s at most (over all devices together), then abandoned with a
+warning naming the device, so a hung read does not hold up the shutdown.
 
 One runner per rig: before it imports a driver, opens a link or touches the
 store, the runner takes an exclusive lock on `<store>.lock` beside the store
