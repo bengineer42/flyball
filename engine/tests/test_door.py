@@ -8,6 +8,7 @@ with the attacker's `Host`); and a cross-site websocket reading the samples.
 
 from __future__ import annotations
 
+import socket
 import sys
 
 import pytest
@@ -52,7 +53,9 @@ def open_runner(rig, runner):
 
 @pytest.fixture
 def guarded(rig, runner, monkeypatch):
+    """A token and anonymous read, reached by the machine's own name."""
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "pi.lab")
     auth = AuthConfig(token="s3cret", anonymous="read")
     with _client(rig, auth, host="pi.lab:8000") as http:
         yield http
@@ -90,7 +93,7 @@ def test_an_open_runner_refuses_any_other_host(rig, runner, host):
     assert runner.asked == []
 
 
-def test_a_runner_with_a_door_answers_any_host(guarded):
+def test_a_runner_with_a_door_answers_its_own_name(guarded):
     assert guarded.get("/api/health").status_code == 200
 
 
@@ -146,6 +149,131 @@ def test_the_opt_in_means_nothing_to_a_runner_with_a_door(rig, runner):
         own = {"Origin": f"http://{LAN}"}
         assert http.post("/api/runner/shutdown", headers=own).status_code == 401, "sign in first"
     set_rig(None)
+
+
+# endregion
+
+# region Host, for a caller with no credential (D-043)
+
+# DNS rebinding: the attacker's page, its name now pointing at the runner. The page's
+# requests carry the attacker's name as Host and as Origin, so the Origin rule (Origin is
+# the request's own Host) passes them; only the Host itself tells them apart.
+REBOUND = {"Host": "evil.example:8000", "Origin": "http://evil.example:8000"}
+KNOWN = (
+    "192.168.1.3:8000",
+    "10.0.0.7",
+    "[2001:db8::1]:8000",
+    "localhost:8000",
+    "127.0.0.1",
+    "[::1]:8000",
+    "benchpi:8000",
+    "BenchPi.Local:8000",
+    "benchpi.local",
+)
+UNKNOWN = ("evil.example", "benchpi.evil.example", "benchpi.lan:8000", "localhost.evil.example")
+
+
+@pytest.fixture
+def machine(monkeypatch):
+    """This machine is `benchpi`; the door learns its names when the app is made."""
+    monkeypatch.setattr(socket, "gethostname", lambda: "benchpi")
+
+
+@pytest.fixture
+def rebindable(rig, runner, machine):
+    """`--insecure-open`: the runner is open and served on the network."""
+    rig.name = "t"
+    set_rig(rig)
+    with TestClient(create_app(login_delay=0, open_network=True)) as http:
+        yield http
+    set_rig(None)
+
+
+@pytest.fixture
+def anonymous_read(rig, runner, machine, monkeypatch):
+    """A token on the runner, and anyone may read."""
+    monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
+    rig.name = "t"
+    set_rig(rig)
+    app = create_app(AuthConfig(token="s3cret", anonymous="read"), login_delay=0)
+    with TestClient(app) as http:
+        yield http
+    set_rig(None)
+
+
+def _refused_by_name(response) -> None:
+    assert response.status_code == 403, response.text
+    detail = response.json()["detail"]
+    assert "IP address" in detail and "benchpi.local" in detail, detail
+
+
+def test_insecure_open_refuses_a_rebound_page_on_every_route(rebindable, runner):
+    """Reproduced on 23 Sep: a rebound page stopped the rig and read it."""
+    _refused_by_name(rebindable.post("/api/runner/shutdown", headers={**REBOUND, **FORM}))
+    _refused_by_name(rebindable.post("/api/rig/stop", headers=REBOUND))
+    _refused_by_name(rebindable.get("/api/health", headers=REBOUND))
+    _refused_by_name(rebindable.get("/api/auth", headers=REBOUND))
+    _refused_by_name(rebindable.post("/api/auth/login", json={"token": "x"}, headers=REBOUND))
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        rebindable.websocket_connect("/ws/samples", headers=REBOUND),
+    ):
+        pass
+    assert closed.value.code == 4403
+    assert runner.asked == []
+
+
+@pytest.mark.parametrize("host", KNOWN)
+def test_insecure_open_answers_an_address_loopback_or_its_own_name(rebindable, runner, host):
+    assert rebindable.get("/api/health", headers={"Host": host}).status_code == 200
+    own = {"Host": host, "Origin": f"http://{host}"}
+    assert rebindable.post("/api/runner/shutdown", headers=own).status_code == 202
+    assert runner.asked == ["shutdown"]
+
+
+@pytest.mark.parametrize("host", UNKNOWN)
+def test_insecure_open_refuses_other_names(rebindable, host):
+    _refused_by_name(rebindable.get("/api/health", headers={"Host": host}))
+
+
+def test_anonymous_is_refused_a_rebound_page_on_the_data_routes(anonymous_read, runner):
+    _refused_by_name(anonymous_read.get("/api/health", headers=REBOUND))
+    _refused_by_name(anonymous_read.get("/mcp/read", headers=REBOUND))
+    _refused_by_name(anonymous_read.post("/api/runner/shutdown", headers={**REBOUND, **FORM}))
+    _refused_by_name(anonymous_read.post("/api/rig/stop", headers=REBOUND))
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        anonymous_read.websocket_connect("/ws/samples", headers=REBOUND),
+    ):
+        pass
+    assert closed.value.code == 4403
+    assert runner.asked == []
+
+
+@pytest.mark.parametrize("host", KNOWN)
+def test_anonymous_reads_by_an_address_loopback_or_its_own_name(anonymous_read, host):
+    assert anonymous_read.get("/api/health", headers={"Host": host}).status_code == 200
+    with anonymous_read.websocket_connect("/ws/samples", headers={"Host": host}):
+        pass
+
+
+@pytest.mark.parametrize("host", UNKNOWN)
+def test_anonymous_is_refused_other_names(anonymous_read, host):
+    _refused_by_name(anonymous_read.get("/api/health", headers={"Host": host}))
+
+
+def test_sign_in_stays_reachable_by_any_name(anonymous_read, runner):
+    """A DNS name the runner does not know is served once the caller brings a credential."""
+    lab = {"Host": "rig.lab.example:8000", "Origin": "http://rig.lab.example:8000"}
+    info = anonymous_read.get("/api/auth", headers=lab)
+    assert info.status_code == 200 and info.json()["scheme"] == "anonymous"
+    signed = anonymous_read.post("/api/auth/login", json={"token": "s3cret"}, headers=lab)
+    assert signed.status_code == 200 and COOKIE in anonymous_read.cookies
+    assert anonymous_read.get("/api/health", headers=lab).status_code == 200
+    assert anonymous_read.post("/api/runner/shutdown", headers=lab).status_code == 202
+    bearer = {"Host": "rig.lab.example", "Authorization": "Bearer s3cret"}
+    assert anonymous_read.get("/api/health", headers=bearer).status_code == 200
+    assert runner.asked == ["shutdown"]
 
 
 # endregion

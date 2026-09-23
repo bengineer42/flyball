@@ -25,7 +25,8 @@ FLYBALL_TOKEN=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, 
 Reachable needs a token: an open runner (none) asked for any other address
 still runs the rig but serves on `127.0.0.1` only, with a warning, and
 answers only to the names `localhost`, `127.0.0.1` and `[::1]`, unless that
-run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`) --
+run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`), when it answers an
+IP address, `localhost` or the machine's own name --
 [the bare runner](access.md#the-bare-runner).
 
 !!! warning "flyball is not a safety system"

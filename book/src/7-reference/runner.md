@@ -16,10 +16,10 @@ paths in the file to the first rig file.
 | `--port N` | | `port` | default 8000; ignored with `--front-dir` |
 | `--root-path /PREFIX` | `FLYBALL_ROOT_PATH` | `root_path` | serve everything under a prefix |
 | `--log-level LEVEL` | | `log_level` | uvicorn's; default `info`; request lines drop the query string |
-| `--token T` | `FLYBALL_TOKEN` | `auth.token` | the bare runner's token: a bearer token for the CLI, MCP clients and scripts, and what a person trades for a session (the link printed at start, or the login page) |
+| `--token T` | `FLYBALL_TOKEN` | `auth.token` | the bare runner's token: a bearer token for the CLI, MCP clients and scripts, and what a person trades for a session (the link printed at start, or the login page); shorter than 22 characters warns at start |
 | `--token-file PATH` | | `auth.token` | read the token from a file (beats `FLYBALL_TOKEN`); unreadable or empty: a token no one knows, so nothing gets in |
 | `--anonymous none\|read` | `FLYBALL_ANONYMOUS` | `auth.anonymous` | what a caller with no token and no session may do; default `none` |
-| `--insecure-open` | `FLYBALL_INSECURE_OPEN=1` | none (per run only) | serve with no token on the `--host` asked for, beyond loopback, knowingly; default: `127.0.0.1` instead |
+| `--insecure-open` | `FLYBALL_INSECURE_OPEN=1` | none (per run only) | serve with no token on the `--host` asked for, beyond loopback, knowingly; it then answers an IP address, `localhost` or the machine's own name (`hostname`, `<hostname>.local`), never another DNS name; default: `127.0.0.1` instead |
 | `--front-dir DIR` | none | none | started by a front (`flyball run`, `flyballd`), never by hand: bind the endpoint `DIR` names and take only principals signed with its key; `--host`, `--port`, `--token` and `--anonymous` are then ignored ([The front and the runner](../6-internals/front.md)) |
 | `--password P`, `--session D` | `FLYBALL_PASSWORD`, `FLYBALL_SESSION` | `auth.password`, `auth.session` | removed: accepted and ignored with a warning; a bare runner has no password login |
 | `--no-mcp` | `FLYBALL_NO_MCP=1` | `mcp: false` | do not mount `/mcp` |
