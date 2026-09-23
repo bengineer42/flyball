@@ -36,6 +36,7 @@ from flyball.foundation.device import (
     LimitNotKnownError,
     LimitsInvertedError,
     Node,
+    Pending,
     Readable,
     Reading,
     Role,
@@ -123,6 +124,17 @@ class Rig:
     again, none per failing step between. The others in the delivery carry on regardless."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
+    _stepped: set[Controller] | None
+    """The controllers stepped since the outermost delivery began, through every delivery of
+    what its commits pushed; None outside one. A controller steps at most once in that chain:
+    a commit that pushes back its own source would otherwise step it again, for ever."""
+    _ignored: set[Signal]
+    """Demands whose driver's `commit` did not read them: one event when a signal's demand
+    first goes unread, none per demand after, until one is read again."""
+    _commit_failures: dict[Device, Condition]
+    """Devices whose last `commit` on the delivery path raised, with what it raised: one
+    event on the first failure, one when a commit succeeds again, none per failing commit
+    between. A blocking device's writer keeps its own."""
     entries: dict[str, DeviceEntry]
     """What each device was built from: its rig-file entry, for rendering the rig back out."""
     link_entries: dict[str, Any]
@@ -170,6 +182,9 @@ class Rig:
         self._stale_held = set()
         self._failing = set()
         self._touched = None
+        self._stepped = None
+        self._commit_failures = {}
+        self._ignored = set()
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -259,7 +274,7 @@ class Rig:
         return event
 
     def write_conditions(self) -> list[tuple[str, Condition]]:
-        """Bus failures the writers of blocking devices are seeing now, by device name.
+        """Bus failures seen now, by device name: a blocking device's writer's, a commit's.
 
         Read from a snapshot, not under the lock: the async health route
         calls it on the event loop, which must not wait on a delivery.
@@ -268,7 +283,7 @@ class Rig:
             (device.name, failed)
             for device, writer in list(self._writers.items())
             if (failed := writer.failed) is not None
-        ]
+        ] + [(device.name, failed) for device, failed in list(self._commit_failures.items())]
 
     def stop(self) -> None:
         """Stop what runs on threads: polling, writers, recording. The rig can be built again."""
@@ -695,11 +710,25 @@ class Rig:
         finally:
             self._touched = None
 
-    def _commit(self, devices: Iterable[Device], time_ns: int) -> dict[Signal, WriteState]:
+    def _commit(
+        self,
+        devices: Iterable[Device],
+        time_ns: int,
+        failed: dict[Signal, WriteState] | None = None,
+    ) -> dict[Signal, WriteState]:
         """One commit per device, and the states filled in with what the rig knows.
 
         A blocking device's commit is handed to its writer instead, and its
         states come back through `written` when the write completes.
+
+        A commit that raises is that device's alone: its demands are dropped
+        (not left in `pending` to go out with a later commit, over a newer
+        write), it becomes a `commit_failed` event once per outage and a
+        condition, and the other devices commit regardless. Into `failed`,
+        when given, go the states of what it dropped (`value` None: nothing
+        was set), for the controllers driving them; without it -- a manual
+        demand or a command, one device -- the error is raised to the caller
+        too.
         """
         states: dict[Signal, WriteState] = {}
         for device in devices:
@@ -707,11 +736,51 @@ class Rig:
                 continue  # touched by an input landing; nothing to commit
             if (writer := self._writer_for(device)) is not None:
                 writer.request(time_ns)
-            else:
-                before = dict(self.router.seq)
+                continue
+            before = dict(self.router.seq)
+            try:
                 device.commit(time_ns)
-                states.update(self._states(device, time_ns, before))
+            except Exception as error:
+                dropped = self._commit_failed(device, error)
+                if failed is None:
+                    raise
+                failed.update(dropped)
+                continue
+            if self._commit_failures.pop(device, None) is not None:
+                self.event(
+                    Level.INFO, Scope.DEVICE, device.name, Kind.COMMIT_RECOVERED, "commits succeed"
+                )
+            states.update(self._states(device, time_ns, before))
         return states
+
+    def _commit_failed(self, device: Committable, error: Exception) -> dict[Signal, WriteState]:
+        """A commit raised: drop its demands, report the outage once; what each demand became."""
+        message = f"{type(error).__name__}: {error}"
+        first = device not in self._commit_failures
+        self._commit_failures[device] = Condition(
+            Kind.COMMIT_FAILED, Level.ERROR, message, self.clock.now_ns()
+        )
+        if first:  # one event per outage, not one per delivery
+            log.warning("%s: commit failed: %s", device.name, message, exc_info=error)
+            self.event(
+                Level.ERROR,
+                Scope.DEVICE,
+                device.name,
+                Kind.COMMIT_FAILED,
+                message,
+                {"signals": [signal.address for signal in device.pending]},
+            )
+        dropped: dict[Signal, WriteState] = {}
+        for signal in device.pending:
+            holder = self.controllers.driving(signal)
+            dropped[signal] = WriteState(
+                value=None,
+                requested=self._requested.pop(signal, None),
+                controller=None if holder is None else holder.name,
+            )
+            signal.at_limit = None
+        device.pending.clear()
+        return dropped
 
     def _states(
         self, device: Committable, time_ns: int, before: Mapping[Signal, int]
@@ -725,14 +794,32 @@ class Rig:
         asked for, when the clamp changed it, and which controller drives
         the signal; the device's `written` gets the filled-in state too, so
         the wire shows one thing.
+
+        A demand the driver's `commit` never read (a composite that drives
+        from its target and ignores its line demands while blending) was not
+        set: it is not echoed as a reading, its state keeps the reading
+        as it was (None with none) with the demand as `requested`, and a
+        `demand_ignored` event says so, once until one is read again.
         """
         states: dict[Signal, WriteState] = {}
         seq = self.router.seq
-        for signal, value in device.pending.items():
-            if seq.get(signal, 0) != before.get(signal, 0):  # the driver pushed the readback
+        pending = device.pending
+        unread = set(pending.unread()) if isinstance(pending, Pending) else set()
+        for signal, value in dict.items(pending):
+            pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
+            requested = self._requested.pop(signal, None)
+            ignored = signal in unread
+            if ignored:
+                self._demand_ignored(device, signal, value)
+                requested = value if requested is None else requested
+                reading = self.router.latest.get(signal)
+                value = None if reading is None else reading.value
+            else:
+                self._ignored.discard(signal)
+            if pushed:
                 value = self.router.value(signal)
             at_limit = signal.at_limit
-            if at_limit is None and (limits := signal.limits) is not None:
+            if at_limit is None and (limits := signal.limits) is not None and value is not None:
                 if value <= limits[0]:
                     at_limit = Limit.LOW
                 elif value >= limits[1]:
@@ -740,7 +827,7 @@ class Rig:
             holder = self.controllers.driving(signal)
             state = WriteState(
                 value=value,
-                requested=self._requested.pop(signal, None),
+                requested=requested,
                 at_limit=at_limit,
                 controller=None if holder is None else holder.name,
             )
@@ -748,7 +835,7 @@ class Rig:
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
-            if seq.get(signal, 0) == before.get(signal, 0):  # no readback: the value stands
+            if not pushed and not ignored:  # no readback: the value stands
                 signal.push(value, time_ns)
             # Fold the write record into the reading itself, so it rides the samples stream
             # with the value instead of a separate `/ws/writes` cell.
@@ -762,11 +849,37 @@ class Rig:
         device.pending.clear()
         return states
 
+    def _demand_ignored(self, device: Committable, signal: Signal, value: float) -> None:
+        if signal in self._ignored:
+            return
+        self._ignored.add(signal)
+        self.event(
+            Level.WARNING,
+            Scope.DEVICE,
+            device.name,
+            Kind.DEMAND_IGNORED,
+            f"'{signal.address}': {value} was not read by the driver's commit; nothing was set",
+            {"signal": signal.address, "demand": value},
+        )
+
     def _flush_pushed(self) -> None:
-        """Deliver what commits pushed, each batch as one more delivery, until nothing is left."""
-        while self._pushed:
-            pushed, self._pushed = self._pushed, []
-            self._deliver_samples(pushed, noted=True)
+        """Deliver what commits pushed, each batch as one more delivery, until nothing is left.
+
+        One chain: a controller already stepped in it is not stepped again
+        on a reading its own commit pushed (its target's device reading its
+        source back). The reading still lands; the controller steps on the
+        next delivery that starts a chain.
+        """
+        outer = self._stepped
+        if outer is None:
+            self._stepped = set()
+        try:
+            while self._pushed:
+                pushed, self._pushed = self._pushed, []
+                self._deliver_samples(pushed, noted=True)
+        finally:
+            if outer is None:
+                self._stepped = None
 
     def written(self, device: Committable, time_ns: int, before: Mapping[Signal, int]) -> None:
         """A blocking device's writer finished a commit: publish, deliver and record its states.
@@ -921,6 +1034,8 @@ class Rig:
             self.router.seq.pop(signal, None)
             self.write_states.discard(signal.address)
             self._requested.pop(signal, None)
+            self._ignored.discard(signal)
+        self._commit_failures.pop(device, None)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)
             self.router.cuts.pop(node, None)
@@ -1188,8 +1303,12 @@ class Rig:
                     self.router.note(sample)
                 self._pushed.extend(samples)
                 return
-            self._deliver_samples(samples)
-            self._flush_pushed()
+            self._stepped = set()
+            try:
+                self._deliver_samples(samples)
+                self._flush_pushed()
+            finally:
+                self._stepped = None
 
     def _deliver_samples(self, samples: Sequence[Sample], *, noted: bool = False) -> None:
         """One delivery, under the lock: note, observers, controllers, commits, recorder."""
@@ -1229,7 +1348,9 @@ class Rig:
                         for device in self._node_observers.get(node, ()):
                             messages[device, node] = None
                         node = node.parent
-                    if (controller := self.controllers.find(signal)) is not None:
+                    if (controller := self.controllers.find(signal)) is not None and (
+                        self._stepped is None or controller not in self._stepped
+                    ):
                         ticks.append((controller, reading))
                 for device, node in messages:
                     # A subscriber hears what publishes, as a signal-level
@@ -1240,11 +1361,15 @@ class Rig:
                     ) is not None:
                         touched[device] = None
             for controller, reading in ticks:
+                if self._stepped is not None:
+                    self._stepped.add(controller)
                 self._step(controller, reading)
             time_ns = max(s.time_ns for s in samples)
-            states = self._commit(touched, time_ns)
+            failed: dict[Signal, WriteState] = {}
+            states = self._commit(touched, time_ns, failed)
         finally:
             self._touched = None
+        self._deliver(failed)
         self._deliver(states)
         if self.controller_states.watched:
             for controller, _ in ticks:

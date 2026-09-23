@@ -147,9 +147,10 @@ class Polling:
     def delivered(self, device: Device, samples: Sequence[Sample]) -> None:
         """Samples `device` read: into the rig, then noted as its latest.
 
-        A failure *downstream* -- a law, an observer, a driver's `commit` --
-        is the rig's, not the read's: it becomes an event and the device
-        carries on, its samples still noted as read.
+        A failure *downstream* that the delivery does not keep to itself (a
+        law's and a driver's `commit` are) is the rig's, not the read's: it
+        becomes an event and the device carries on, its samples still noted
+        as read.
         """
         try:
             with self.rig.lock:

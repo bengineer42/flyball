@@ -117,9 +117,24 @@ def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh)
     run = rig.polling.run(furnace.name)
     assert run.conditions == () and run.last_read_ns == clock.now_ns(), "the device read fine"
     event = rig.recent[-1]
-    assert event.kind == "delivery_failed" and event.scope == "rig"
+    assert event.kind == "commit_failed" and event.scope == "device"
+    assert event.subject == broken.name, "the committing device's, not the polled one's"
     assert "a bug in a driver's commit" in event.message
     assert run.running is True
+
+
+def test_a_failure_in_the_delivery_itself_is_delivery_failed(rig, clock, furnace, monkeypatch):
+    def broken(*args, **kwargs):
+        raise ValueError("a bug downstream")
+
+    monkeypatch.setattr(rig, "_commit", broken)
+    rig.start_polling(furnace)
+    clock.advance(1.0)
+    run = rig.polling.run(furnace.name)
+    assert run.conditions == () and run.running is True
+    event = rig.recent[-1]
+    assert event.kind == "delivery_failed" and event.scope == "rig"
+    assert "a bug downstream" in event.message
 
 
 def test_a_slow_read_raises_a_warning_condition(rig, furnace):

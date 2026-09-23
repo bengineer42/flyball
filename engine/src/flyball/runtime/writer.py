@@ -62,26 +62,45 @@ class Writer:
             if time_ns is None:
                 continue
             try:
-                for signal, (applied_ns, value) in queued.items():
-                    self.device.apply(signal, applied_ns, value)
-                # What the router has counted per signal until now: a signal
-                # pushed from here on is the commit's readback.
-                before = dict(self.rig.router.seq)
-                self.device.commit(time_ns)
-            except Exception as error:
-                self._failure(error)
-                continue
-            self.writes += 1
-            if self.failed is not None:
-                self.failed = None
-                self.rig.event(
-                    Level.INFO,
-                    Scope.DEVICE,
-                    self.device.name,
-                    Kind.WRITE_RECOVERED,
-                    "writes succeed",
-                )
+                self._write(queued, time_ns)
+            except Exception:  # the thread outlives anything, or the device is never written again
+                log.exception("%s: writer", self.device.name)
+
+    def _write(self, queued: dict[Signal, tuple[int, float]], time_ns: int) -> None:
+        """One write: apply, commit, then report it to the rig.
+
+        A commit that raises drops what it was given (not sent again with a
+        later write) and is a failure. So is a report that raises -- the
+        write reached the device, but the rig does not know it -- so it is
+        logged and raises the same condition rather than ending the thread.
+        """
+        try:
+            for signal, (applied_ns, value) in queued.items():
+                self.device.apply(signal, applied_ns, value)
+            # What the router has counted per signal until now: a signal
+            # pushed from here on is the commit's readback.
+            before = dict(self.rig.router.seq)
+            self.device.commit(time_ns)
+        except Exception as error:
+            self.device.pending.clear()
+            self._failure(error)
+            return
+        self.writes += 1
+        try:
             self.rig.written(self.device, time_ns, before)
+        except Exception as error:
+            log.exception("%s: reporting a write", self.device.name)
+            self._failure(error)
+            return
+        if self.failed is not None:
+            self.failed = None
+            self.rig.event(
+                Level.INFO,
+                Scope.DEVICE,
+                self.device.name,
+                Kind.WRITE_RECOVERED,
+                "writes succeed",
+            )
 
     def _failure(self, error: Exception) -> None:
         message = f"{type(error).__name__}: {error}"

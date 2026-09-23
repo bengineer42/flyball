@@ -9,7 +9,7 @@ from .descriptors import (
     Output,
     Setting,
 )
-from .device import Committable, Device, DriverConfig, Readable
+from .device import Committable, Device, DriverConfig, Pending, Readable
 from .entry import DeviceEntry
 from .signal import (
     Access,
@@ -63,6 +63,7 @@ __all__ = [
     "NodeSpec",
     "Output",
     "Path",
+    "Pending",
     "Readable",
     "Reading",
     "Role",
