@@ -25,7 +25,8 @@ Three ways a runner can stand:
   Python client (`flyball.interfaces.client.Rig`), `flyball-mcp` and any script send it
   as `Authorization: Bearer T`; a websocket, or a plain `GET` the browser
   navigates to (an export link), may pass `?token=T` instead, since a browser
-  cannot set headers on either -- a URL is logged where a header is not, so
+  cannot set headers on either -- a URL is logged where a header is not
+  (the runner's own request log drops the query, but a proxy's may not), so
   the header is the form to use wherever it can be set. The Go CLI
   (`flyball`) takes it the same way -- `flyball --token T ...` or
   `FLYBALL_TOKEN=T` in the environment. The login page takes the token too,

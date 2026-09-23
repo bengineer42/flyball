@@ -25,6 +25,7 @@ from flyball.foundation.errors import (
 )
 from flyball.interfaces.server.auth import Auth
 from flyball.interfaces.server.deps import current_retention, current_rig
+from flyball.interfaces.server.redact import redact_access_logs
 from flyball.interfaces.server.routes import (
     composition_router,
     controllers_router,
@@ -159,6 +160,7 @@ def create_app(
     loopback names only. With `root_path`, everything it serves is under that prefix
     (see `RootPath`).
     """
+    redact_access_logs()  # uvicorn's request lines would keep `?token=`
     app = FastAPI(
         title="flyball",
         summary="flyball control rig",
