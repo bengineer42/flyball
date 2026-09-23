@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
@@ -40,10 +41,29 @@ def _refuse(args: Any, e: Exception) -> int:
     return BAD_CONFIG
 
 
+def _needed_extras(args: Any) -> list[str]:
+    """Which top-level modules this run needs, from the command line alone.
+
+    fastapi/uvicorn serve at all; mcp/httpx are only needed when the MCP
+    servers are mounted (the default -- `--no-mcp` turns it off); yaml only
+    when a rig file actually is one.
+    """
+    needed = ["fastapi", "uvicorn"]
+    if args.mcp is not False:
+        needed += ["mcp", "httpx"]
+    if any(Path(p).suffix.lower() in (".yaml", ".yml") for p in args.rig):
+        needed.append("yaml")
+    return needed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     logs.configure(args.log_level or "info")
     first = args.rig[0] if args.rig else Path("rig")
+    # Checked before any of the real work below, so a bare `pip install flyball`
+    # names the extra to add instead of failing opaquely, deep inside `serve()`
+    # or a lazy YAML/`flyball_sim` import.
+    require("flyball-runner", "server", _needed_extras(args))
     try:
         catalog = Catalogs()
         catalog.discover()
