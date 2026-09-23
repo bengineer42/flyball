@@ -23,15 +23,15 @@ cd ui && npm install && npm run dev                # Vite on :5173, /api and /ws
 ## Use as a library
 
 ```tsx
-import { RigProvider, useRigSchema, useActuatorStates, useCommands, ActuatorPanel } from "@flyball/react";
+import { RigProvider, useDevice, useDeviceSchema, useCommands, DevicePanel } from "@flyball/react";
 import "@flyball/react/styles.css";
 
 function Pumps() {
-  const schema = useRigSchema();                       // GET /api/schema
-  const { states } = useActuatorStates();              // /ws/actuators
-  const commands = useCommands("actuators", "pumps");  // POST /api/actuators/pumps/{command}
-  const pumps = schema.data?.actuators.pumps;
-  return pumps ? <ActuatorPanel schema={pumps} state={states.pumps} onRun={commands.run} busy={commands.busy} results={commands.results} /> : null;
+  const device = useDevice("pumps");                    // GET /api/devices/pumps
+  const schema = useDeviceSchema("pumps");               // GET /api/devices/pumps/schema
+  const commands = useCommands("pumps");                 // POST /api/devices/pumps/commands/{tag}
+  if (!device.data || !schema.data) return null;
+  return <DevicePanel device={device.data} schema={schema.data} onRun={commands.run} busy={commands.busy} results={commands.results} />;
 }
 
 <RigProvider url="http://pi:8000"><Pumps /></RigProvider>
@@ -39,9 +39,9 @@ function Pumps() {
 
 The rules that keep it embeddable:
 
-- **Panels take data and emit events.** `ActuatorPanel`, `CommandForm`, `StateView`, `SchemaForm` never fetch; they render props and call callbacks. They work against a mock, a recording, or someone else's server.
-- **Hooks fetch.** `useRigSchema`, `useDeviceView`, `useActuatorStates`, `useStream`, `useCommands`. Each returns the same `{data, error, loading, refresh}` shape, so they can be swapped for TanStack Query later without touching a panel.
-- **Live values go through one store.** `RigProvider` owns a `TelemetryStore`: ring buffers (`Float64Array`) per channel and per loop, the latest actuator states, a capped event ring, and the four sockets (`samples`, `loops`, `actuators`, `events`), opened on the first subscriber and closed five seconds after the last. Read it with `useLatest(key)` (one value, ≤ 4 Hz, re-renders only the caller), `useTraceRef(channels)` (a handle a chart draws from via its `source` prop, ≤ 10 Hz `setData`, no React re-render on samples), `useLoopLatest`, `useActuatorState`, `useEventsFeed`, `useStreamStatus`, `useFreshness`. `useSamples`/`useLoops`/`useActuatorStates`/`useEvents` remain as adapters over the store for panels that take arrays.
+- **Panels take data and emit events.** `DevicePanel`, `CommandForm`, `StateView`, `SchemaForm` never fetch; they render props and call callbacks. They work against a mock, a recording, or someone else's server.
+- **Hooks fetch.** `useRigSchema`, `useDevices`, `useDevice`, `useDeviceSchema`, `useCommands`, `useRigDocument`. Each query hook returns the same `{data, error, loading, refresh}` shape, so they can be swapped for TanStack Query later without touching a panel.
+- **Live values go through one store.** `RigProvider` owns a `TelemetryStore`: ring buffers (`Float64Array`) per signal, the latest write and controller state, a capped event ring, and the four sockets (`samples`, `controllers`, `waits`, `events`), opened on the first subscriber and closed five seconds after the last. Read it with `useSignal(address)`/`useLatestValue(address)` (one value, ≤ 4 Hz, re-renders only the caller), `useTraceRef(channels)` (a handle a chart draws from via its `source` prop, ≤ 10 Hz `setData`, no React re-render on samples), `useWriteState`, `useController`, `useDeviceRun`, `useWaitStates`, `useEventsFeed`, `useStreamStatus`, `useFreshness`.
 - **Transport is an interface.** `RigProvider` takes a `transport` prop; `browserTransport` (fetch + WebSocket with reconnect) is the default. A test passes a fake.
 - **No global state, no router, no leaking CSS.** Styles are scoped under `.fb-*` and driven by CSS variables (`--fb-accent`, …).
 
