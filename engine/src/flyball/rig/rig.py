@@ -612,11 +612,11 @@ class Rig:
 
         `stale_input`: its source has not been read within `stale_after`.
         `limit_unknown`: a limit on its target follows a signal with no value
-        yet, or a non-finite one (D-030). Each is one event on entering the
-        hold, not one per call; `limit_known` marks leaving the second. The
-        controller asks this before it steps its law, so a held write freezes
-        the law as well as the target; `demand` asks it again for its own
-        writes.
+        yet, or a non-finite one (D-030), or the limits resolve inverted
+        (D-040). Each is one event on entering the hold, not one per call;
+        `limit_known` marks leaving the second. The controller asks this
+        before it steps its law, so a held write freezes the law as well as
+        the target; `demand` asks it again for its own writes.
         """
         name = controller.name
         if (stale_after := controller.source.spec.stale_after) is not None:
@@ -638,7 +638,7 @@ class Rig:
             self._stale_held.discard(name)
         try:
             controller.target.clamp(0.0)
-        except LimitNotKnownError as e:
+        except (LimitNotKnownError, LimitsInvertedError) as e:
             self._limit_unknown(controller, e)
             return Kind.LIMIT_UNKNOWN
         if name in self._limit_held:
@@ -652,7 +652,9 @@ class Rig:
             )
         return None
 
-    def _limit_unknown(self, controller: Controller, error: LimitNotKnownError) -> None:
+    def _limit_unknown(
+        self, controller: Controller, error: LimitNotKnownError | LimitsInvertedError
+    ) -> None:
         """Enter a `limit_unknown` hold: the event once, not per step."""
         if controller.name not in self._limit_held:
             self._limit_held.add(controller.name)
