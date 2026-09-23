@@ -260,7 +260,11 @@ flyball invoke furnace restore signal=zone3  # mends it; a command on an offline
 thing to watch. `SimDrive.disturb(signal, offset)` kicks the plant's drive
 on `signal`'s port by `offset` (in the signal's own unit) without touching
 the demand that set it there -- a door opened, a leak -- so the plant moves
-and the controller only finds out once the reading does.
+and the controller only finds out once the reading does. The kick persists
+across later commits -- a regulated loop's own demand does not wipe it out,
+so it can test disturbance rejection -- until a fresh `disturb` re-sets it,
+`offset=0.0` clears it, or, with `duration_s` given, it expires on its own.
+`offset` must be finite: NaN or infinity is refused.
 
 ## The overlay pattern
 

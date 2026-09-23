@@ -15,6 +15,7 @@ in for its hardware under the same names.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Literal
 
@@ -565,6 +566,9 @@ class SimDrive(Committable):
         """What each signal's `limits` were declared as: the span its values map over."""
         self._smart: set[str] = set()
         """Paths declared `demand: output`: `commit` inverts the plant instead of a linear map."""
+        self._disturbed: dict[str, tuple[float, int | None]] = {}
+        """Path -> (fraction offset, expiry time_ns or None) from `disturb`, re-applied on top
+        of every `commit` until re-set with a fresh offset, cleared with `0.0`, or expired."""
         leaves: dict[str, SignalSpec] = {}
         for path, spec in ports.items():
             if isinstance(spec, str):
@@ -616,6 +620,17 @@ class SimDrive(Committable):
         """What the plant is actually driven with on each signal's port, as a fraction of full."""
         return {name: _get_input(self.plant, port) for name, port in self.ports.items()}
 
+    def _disturbance(self, path: str, time_ns: int) -> float:
+        """The offset still in force on `path` at `time_ns`; expired ones are forgotten."""
+        entry = self._disturbed.get(path)
+        if entry is None:
+            return 0.0
+        offset, expiry = entry
+        if expiry is not None and time_ns >= expiry:
+            del self._disturbed[path]
+            return 0.0
+        return offset
+
     def commit(self, time_ns: int) -> None:
         for signal, value in self.pending.items():
             path = str(signal.path)
@@ -625,23 +640,35 @@ class SimDrive(Committable):
                 if path in self._smart
                 else self._fraction(path, value)
             )
-            _set_drive(self.plant, port, fraction)
+            _set_drive(self.plant, port, fraction + self._disturbance(path, time_ns))
 
     @command(simulation=True)
-    def disturb(self, signal: str, offset: float) -> dict[str, float]:
-        """Kick the plant's drive on `signal`'s port by `offset` in the signal's unit, until re-set.
+    def disturb(
+        self, signal: str, offset: float, duration_s: float | None = None
+    ) -> dict[str, float]:
+        """Kick the plant's drive on `signal`'s port by `offset` in the signal's unit.
 
         A door opened, a leak: the plant sees it, the controller does not
         until the reading moves. `offset` is watts on a furnace heater, a
         fraction of full on a bare plant, the declared unit on a spelled-out
-        port.
+        port. The kick persists across later commits -- a regulated loop's
+        own demand no longer wipes it out -- until re-set with a fresh
+        `disturb`, cleared with `offset=0.0`, or, with `duration_s` given,
+        it expires on its own. `offset` must be finite.
         """
         try:
             port = self.ports[signal]
         except KeyError:
             raise NotFoundError(f"{self.name} has no signal {signal!r}") from None
+        if not math.isfinite(offset):
+            raise ValueError(f"{self.name}.{signal}: disturb offset {offset!r}: must be finite")
         low, high = self._spans[signal]
-        _set_drive(self.plant, port, _get_input(self.plant, port) + offset / (high - low))
+        fraction_offset = offset / (high - low)
+        now_ns = self.router.now_ns()
+        base = _get_input(self.plant, port) - self._disturbance(signal, now_ns)
+        _set_drive(self.plant, port, base + fraction_offset)
+        expiry = None if duration_s is None else now_ns + round(duration_s * 1e9)
+        self._disturbed[signal] = (fraction_offset, expiry)
         return self.inputs
 
 
