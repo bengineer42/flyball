@@ -612,6 +612,9 @@ class RunnerConfig(BaseModel):
             said = "; ".join(
                 f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors()
             )
+            # The keys are the caller's (`POST /api/rig/check` needs only read): escaped, so
+            # a newline in one cannot start a line of its own in the log.
+            said = said.encode("unicode_escape").decode("ascii")
             log.warning("runner.front is not valid and is ignored here: %s", said)
             return None
 

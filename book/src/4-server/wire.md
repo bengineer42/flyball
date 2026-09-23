@@ -104,7 +104,8 @@ options.
 `{"detail": "<message>"}`, with the status code from the error's base. See
 [HTTP and websocket API](api.md#errors). A refused websocket is accepted
 and then closed, so the client sees why: 4401 without a credential, or with
-one that is wrong, revoked or expired (the UI stops retrying); 4403 for a
+one that is wrong, revoked or expired, or an anonymous caller lacking the
+verb (the UI stops retrying, and offers sign-in); 4403 for a signed-in
 caller lacking the verb; 1014 when the front and the runner are out of
 step; 4404 for a path outside the runner's `--root-path`. A `403` for a
 missing verb says which: `{"detail", "needed": "operate"}`. The session

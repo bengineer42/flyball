@@ -11,8 +11,10 @@ the front mints is the only credential. `runner.auth`, a bearer token, a cookie,
 and anonymous access are all ignored. A request with no principal, more than one, another
 `x-flyball-*` header (any spelling, `_` for `-` included) or one that does not verify is
 401 with `X-Flyball-Principal-Error: <code>`; a websocket is accepted and closed with 4401.
-A principal lacking the route's verb is 403 `{"detail", "needed"}` (4403). Host and Origin
-are the front's business: it sends `Host: localhost` and never forwards `Origin`.
+A principal lacking the route's verb is 403 `{"detail", "needed"}` (4403) -- for the front's
+anonymous visitor (`anon:`) a socket's upgrade is refused 403 without a handshake, which the
+front closes with 4401 (sign in). Host and Origin are the front's business: it sends
+`Host: localhost` and never forwards `Origin`.
 
 **Bare** (no front: a laptop, a container, the public demo): a *token* is the one
 credential. A machine sends it as `Authorization: Bearer`; a person trades it, or a one-time
@@ -30,11 +32,13 @@ The runner's own MCP calls carry a principal it signed with its in-memory key.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import secrets
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from typing import Any, Final, Literal
@@ -45,6 +49,7 @@ from starlette.routing import compile_path
 
 from flyball.interfaces.server import verbs
 from flyball.interfaces.server.principal import (
+    ANONYMOUS,
     ERROR_HEADER,
     HEADER,
     LIFETIME,
@@ -142,7 +147,11 @@ def same_origin(origin: str | None, host: str, scheme: str) -> bool:
 
 
 class Attempts:
-    """Slows a guesser: at most `limit` wrong tokens a minute from one address."""
+    """Slows a guesser: at most `limit` wrong tokens a minute from one address.
+
+    A bare runner counts both ways of guessing, `POST /api/auth/login` and a wrong
+    `Authorization: Bearer`; while an address is blocked, both are 429 for it.
+    """
 
     def __init__(self, limit: int = 10, window: float = 60.0) -> None:
         self.limit, self.window = limit, window
@@ -162,6 +171,12 @@ class Attempts:
     def failure(self, address: str, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
         self.failed.setdefault(address, deque()).append(now)
+
+
+def _address(scope: Any) -> str:
+    """The peer's address, as the login route's `request.client.host` names it."""
+    client = scope.get("client")
+    return client[0] if client else "?"
 
 
 def _digest(value: str) -> bytes:
@@ -189,6 +204,8 @@ class Door:
     attempts: Attempts = field(default_factory=Attempts, init=False)
     _sessions: dict[bytes, _Session] = field(default_factory=dict, init=False)
     _links: dict[bytes, float] = field(default_factory=dict, init=False)
+    _sockets: dict[str, set[Callable[[], None]]] = field(default_factory=dict, init=False)
+    """By session id: what closes each of its open websockets (thread-safe to call)."""
 
     def __post_init__(self) -> None:
         if self.fronted is not None:
@@ -225,7 +242,11 @@ class Door:
         return value
 
     def close_session(self, value: str) -> None:
-        self._sessions.pop(_digest(value), None)
+        """Forget the session, and close its open websockets (4401)."""
+        found = self._sessions.pop(_digest(value), None)
+        if found is not None:
+            for end in list(self._sockets.get(found.sid, ())):
+                end()
 
     def session(self, value: str) -> _Session | None:
         found = self._sessions.get(_digest(value))
@@ -280,6 +301,7 @@ class Door:
         auth = headers.get(b"authorization", b"").decode(errors="replace")
         if auth.lower().startswith("bearer "):
             if not self.is_token(auth[7:].strip()):
+                self.attempts.failure(_address(scope))
                 return "Wrong token"
             return self.claims(scope, "token:bare", self._token_sid, everything, "service"), "token"
         if "token" in parse_qs(scope.get("query_string", b"").decode(errors="replace")):
@@ -292,7 +314,7 @@ class Door:
         if self.cookie in cookie and (found := self.session(cookie[self.cookie].value)):
             return self.claims(scope, "token:bare", found.sid, everything, "human"), "session"
         scp = frozenset({verbs.READ}) if self.config.anonymous == "read" else frozenset()
-        return self.claims(scope, "anon:", secrets.token_urlsafe(12), scp, "human"), "anonymous"
+        return self.claims(scope, ANONYMOUS, secrets.token_urlsafe(12), scp, "human"), "anonymous"
 
     # -- serving --
 
@@ -342,6 +364,10 @@ class Door:
                 await _refuse(scope, receive, send, 401, detail, code=e.code)
                 return
             await self._admit(scope, receive, send, claims, "token")
+            return
+        bearer = headers.get(b"authorization", b"")[:7].lower() == b"bearer "
+        if bearer and self.attempts.blocked(_address(scope)):
+            await _refuse(scope, receive, send, 429, "Too many wrong tokens; wait a minute")
             return
         resolved = self._bare(scope, headers)
         if isinstance(resolved, str):
@@ -393,7 +419,10 @@ class Door:
             await _refuse(scope, receive, send, 403, detail, needed=None, accept=accept)
             return
         if verbs.allows(claims.scp, scope):
-            await self.app(scope, receive, send)
+            if scheme == "session" and scope["type"] == "websocket":
+                await self._held(scope, receive, send, claims.sid)
+            else:
+                await self.app(scope, receive, send)
             return
         if scheme == "anonymous":
             detail = (
@@ -403,7 +432,51 @@ class Door:
             await _refuse(scope, receive, send, 401, detail)
             return
         detail = f"This needs {needed!r}, which the caller does not hold here"
+        # The front's visitor with no credential: a plain 403, which the front answers as
+        # sign-in (a socket closed 4401); after a handshake it could only pass on a 4403.
+        accept = accept and claims.sub != ANONYMOUS
         await _refuse(scope, receive, send, 403, detail, needed=needed, accept=accept)
+
+    async def _held(self, scope: Any, receive: Any, send: Any, sid: str) -> None:
+        """A session's websocket, closed with 4401 when the session ends: logout or expiry."""
+        found = next((s for s in list(self._sessions.values()) if s.sid == sid), None)
+        task = asyncio.current_task()
+        loop = asyncio.get_running_loop()
+        if found is None or task is None:
+            return
+        ended = False
+        closed = False
+
+        def end_here() -> None:
+            nonlocal ended
+            if not ended:
+                ended = True
+                task.cancel()
+
+        def end() -> None:  # called from logout, which runs on a worker thread
+            loop.call_soon_threadsafe(end_here)
+
+        async def sending(message: Any) -> None:
+            nonlocal closed
+            closed = closed or message["type"] == "websocket.close"
+            await send(message)
+
+        expiry = loop.call_later(max(0.0, found.expires - time.monotonic()), end_here)
+        held = self._sockets.setdefault(sid, set())
+        held.add(end)
+        try:
+            await self.app(scope, receive, sending)
+        except asyncio.CancelledError:
+            if not ended:
+                raise
+            task.uncancel()
+        finally:
+            expiry.cancel()
+            held.discard(end)
+            if not held:
+                self._sockets.pop(sid, None)
+        if ended and not closed:
+            await send({"type": "websocket.close", "code": 4401, "reason": "Signed out"})
 
 
 _UNSET: Any = object()
@@ -437,6 +510,8 @@ async def _refuse(
     headers: dict[str, str] = {}
     if status == 401:
         headers["WWW-Authenticate"] = "Bearer"
+    if status == 429:
+        headers["Retry-After"] = "60"
     if code is not None:
         headers[ERROR_HEADER] = code
     content: dict[str, Any] = {"detail": detail}

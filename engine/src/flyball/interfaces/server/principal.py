@@ -31,6 +31,8 @@ HEADER: Final = "x-flyball-principal"
 """The header, as ASGI spells it (lower case)."""
 ERROR_HEADER: Final = "X-Flyball-Principal-Error"
 """On a 401 for a bad principal: its refusal code, which the front turns into a 502."""
+ANONYMOUS: Final = "anon:"
+"""The `sub` of a caller with no credential: the front's visitor, a bare runner's anonymous."""
 LIFETIME: Final = 60
 """Seconds a minted principal lives."""
 MAX_LIFETIME: Final = 120

@@ -270,6 +270,10 @@ dashboard too when one is built beside it:
     dashboard with the nonce gone from the address bar. `POST
     /api/auth/link` with the token makes another. The login page also takes
     the token pasted in. A token never goes in a URL: `?token=` is refused.
+    Ten wrong tokens in a minute from one address, pasted or sent as a
+    bearer, and that address gets `429` for both until the oldest is a
+    minute old -- the right token included, so a script sharing the
+    address waits too.
     A `--token-file` that cannot be read leaves the runner with a token
     nobody knows, so nothing gets in until it is restarted with a readable
     one.
@@ -335,7 +339,10 @@ as `local:signal`; the signal's sender is not recorded.
   every request that needs more than `read` from a caller who is not
   anonymous -- refused ones included -- and every stop, `SIGUSR1` included:
   who (`sub`, session, kind, from where), what, and how it ended. It is
-  append-only and outside retention. [Storage](../../6-internals/db.md)
+  append-only and outside retention, so what an unknown caller asks is not
+  kept there, and one caller's refusals are kept to ten rows a minute (a
+  refused demand to its first 16 signals); the runner's log counts the
+  rest. [Storage](../../6-internals/db.md)
   has the columns. A write that fails is logged and refuses nothing: a
   full disk does not block a stop.
 

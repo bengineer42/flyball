@@ -187,8 +187,13 @@ happened: the failure is logged, with the action in full as one JSON line,
 and nothing is refused; the missing `seq` shows the gap. The same when more
 than 10 000 actions are waiting. The middleware is
 `flyball.interfaces.server.audit.Audit`, outside the door so it sees who was
-refused: a request with no principal, or a bad one, identifies no one and is
-not recorded, nor is a CORS preflight.
+refused: a request with no principal, a bad one or an anonymous one (the
+`anonymous` scheme, or the `anon:` subject the front gives a visitor with no
+credential) identifies no one and is not recorded, nor is a CORS preflight.
+An identified caller's `denied` rows are kept to `DENIED_PER_MINUTE` (10) a
+minute per `sub`, and a denied demand's `writes` to its first
+`DENIED_WRITES` (16) addresses; the log counts what was left out. The table
+is never trimmed, so a caller refused over and over adds little to it.
 
 ### Deleting a session
 

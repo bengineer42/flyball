@@ -41,13 +41,18 @@ refused (`403`, `needed: null`). It works in one of two modes:
   `null` `Origin` and no token is `403`, and `?token=` is `401`.
 
 A principal lacking the route's verb is `403` `{detail, needed}` (4403); an
-anonymous one gets `401` instead, so the UI offers sign-in. How the front
+anonymous one gets `401` instead, so the UI offers sign-in. At a front the
+runner cannot tell `401` itself (that means a bad principal, a `502`), so
+for the front's `anon:` visitor it answers `403` -- and refuses a socket's
+upgrade outright rather than accepting it -- and the front turns that into
+`401`, or a socket closed with 4401. How the front
 and the runner share a key and verify each other is in
 [The front and the runner](../6-internals/front.md).
 
 Between the door and `RootPath` sits `Audit` (`server/audit.py`): each
 request that acts -- its verb neither read nor open -- and carries a verified
-principal is one row in the store's append-only `audit` table, written off
+principal that is not anonymous is one row (a caller's refusals at most ten a
+minute) in the store's append-only `audit` table, written off
 the loop; an audit write that fails is logged and refuses nothing
 ([Storage](../6-internals/db.md#sqlite)).
 

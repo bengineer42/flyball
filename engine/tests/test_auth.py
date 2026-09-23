@@ -7,6 +7,7 @@ front reaches it.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -14,7 +15,9 @@ import time
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
+import anyio
 import httpx
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -217,6 +220,53 @@ def test_a_pasted_token_logs_in_and_logout_forgets_the_session(secured):
     assert secured.get("/api/health").status_code == 401, "forgotten here, not only cleared"
 
 
+def _close_code(ws: Any, within: float) -> int | None:
+    """The code `ws` is closed with inside `within` seconds; None if it is still open."""
+
+    async def closing() -> int | None:
+        with anyio.move_on_after(within):
+            while True:
+                message = await ws._send_rx.receive()
+                if message["type"] == "websocket.close":
+                    return int(message.get("code", 1000))
+        return None
+
+    return ws.portal.call(closing)
+
+
+@pytest.mark.parametrize("path", ["/ws/events", "/ws/samples"])
+def test_logout_closes_the_sessions_open_sockets(secured, path):
+    """The book says a sign-out closes its sockets within a second; a bare runner kept them.
+
+    Only that session's: the token's socket, and another session's, stay open.
+    """
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 200
+    mine = secured.cookies["flyball-bare-8123"]
+    other = secured.post("/api/auth/login", json={"token": "s3cret"}).headers["set-cookie"]
+    theirs = other.split(";")[0].split("=", 1)[1]
+    secured.cookies.clear()
+    session = {"Cookie": f"flyball-bare-8123={mine}"}
+    with (
+        secured.websocket_connect(path, headers=session) as ws,
+        secured.websocket_connect("/ws/events", headers=BEARER) as machine,
+        secured.websocket_connect(
+            "/ws/events", headers={"Cookie": f"flyball-bare-8123={theirs}"}
+        ) as another,
+    ):
+        assert secured.post("/api/auth/logout", headers=session).status_code == 200
+        assert _close_code(ws, 1.0) == 4401
+        assert _close_code(machine, 0.2) is None
+        assert _close_code(another, 0.2) is None
+
+
+def test_a_sessions_socket_closes_when_the_session_expires(secured):
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 200
+    (found,) = secured.app.state.door._sessions.values()
+    found.expires = time.monotonic() + 0.3
+    with secured.websocket_connect("/ws/events") as ws:
+        assert _close_code(ws, 1.5) == 4401
+
+
 def test_the_old_login_body_is_refused(secured):
     assert secured.post("/api/auth/login", json={"secret": "s3cret"}).status_code == 422
 
@@ -225,6 +275,27 @@ def test_ten_wrong_tokens_in_a_minute_lock_the_door(secured):
     for _ in range(10):
         assert secured.post("/api/auth/login", json={"token": "no"}).status_code == 401
     assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
+
+
+def test_ten_wrong_bearers_in_a_minute_lock_the_door_too(secured):
+    """A guesser using the header (the CLI's and MCP's way) is counted like a login.
+
+    It was never counted: 500 wrong bearers took 0.15 s, every one a plain 401.
+    """
+    for i in range(10):
+        wrong = secured.get("/api/health", headers={"Authorization": f"Bearer no{i}"})
+        assert wrong.status_code == 401
+    blocked = secured.get("/api/health", headers=BEARER)
+    assert blocked.status_code == 429, "the right token too, or the answer tells it apart"
+    assert int(blocked.headers["retry-after"]) > 0
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        secured.websocket_connect("/ws/events", headers=BEARER),
+    ):
+        pass
+    assert closed.value.code == 4429
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
+    assert secured.get("/api/health").status_code == 401, "no bearer: not held back"
 
 
 def test_the_link_is_single_use_and_leaves_no_nonce_behind(secured):
@@ -290,6 +361,23 @@ def test_anyone_may_read_but_only_the_token_may_operate(public):
     assert public.post("/api/probe").status_code == 401, "a bus scan"
     public.post("/api/auth/login", json={"token": "s3cret"})
     assert public.post("/api/recording", json={}).status_code not in (401, 403)
+
+
+def test_a_reader_cannot_write_lines_into_the_runner_log(public, caplog):
+    """`POST /api/rig/check` needs only read; a key it names reaches a warning, escaped.
+
+    A newline in a `runner.front` key used to start a line of the attacker's own in the
+    runner's log (CWE-117).
+    """
+    forged = "ok\n2026-09-23T00:00:00+0100 ERROR flyball.audit: INJECTED\rLINE"
+    with caplog.at_level("WARNING", logger="flyball.runtime.config"):
+        checked = public.post(
+            "/api/rig/check", json={"name": "x", "runner": {"front": {forged: 1}}}
+        )
+    assert checked.status_code == 200, checked.text
+    said = [r.getMessage() for r in caplog.records if r.name == "flyball.runtime.config"]
+    assert said and "INJECTED" in said[0], said
+    assert not any(c in m for m in said for c in "\n\r\x1b"), said
 
 
 def test_a_bare_runner_takes_a_principal_it_signed_itself(public):
@@ -437,7 +525,8 @@ def uds(rig) -> Iterator[Path]:
     rig.name = "t"
     set_rig(rig)
     app = create_app(AuthConfig(token="s3cret", anonymous="read"), front=Fronted(KEY, AUD))
-    where = Path(tempfile.mkdtemp(prefix="fb-")) / "sock"
+    folder = Path(tempfile.mkdtemp(prefix="fb-"))  # tmp_path is too long for a socket path
+    where = folder / "sock"
     server = uvicorn.Server(uvicorn.Config(app, uds=str(where), log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -451,6 +540,7 @@ def uds(rig) -> Iterator[Path]:
         server.should_exit = True
         thread.join(10)
         set_rig(None)
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def test_over_the_socket_unsigned_is_401_and_signed_is_200(uds):
@@ -466,6 +556,31 @@ def test_over_the_socket_unsigned_is_401_and_signed_is_200(uds):
         ok = c.get("/api/auth/front", headers=signed(()))
         assert ok.status_code == 200 and ok.json()["aud"] == AUD
         assert c.post("/api/probe", headers=signed(("read",))).json()["needed"] == "operate"
+
+
+def test_over_the_socket_the_fronts_anonymous_visitor_is_refused_before_the_handshake(uds):
+    """The front turns an anonymous 403 into sign-in (4401): only if the runner says 403.
+
+    A visitor the front let through as `anon:` lacking read was accepted and closed 4403,
+    which the front passes on as is, so the UI said "no permission" instead of offering
+    sign-in. An identified caller lacking the verb still sees the handshake, then 4403.
+    """
+    from websockets.exceptions import ConnectionClosed, InvalidStatus
+    from websockets.sync.client import unix_connect
+
+    visitor = {"X-Flyball-Principal": principal((), sub="anon:", sid="v-1")}
+    with (
+        pytest.raises(InvalidStatus) as refused,
+        unix_connect(str(uds), "ws://localhost/ws/events", additional_headers=visitor),
+    ):
+        pass
+    assert refused.value.response.status_code == 403
+    with (
+        unix_connect(str(uds), "ws://localhost/ws/events", additional_headers=signed(())) as ws,
+        pytest.raises(ConnectionClosed) as closed,
+    ):
+        ws.recv(timeout=5)
+    assert closed.value.rcvd is not None and closed.value.rcvd.code == 4403
 
 
 def test_over_the_socket_a_websocket_closes_4401_after_accept(uds):

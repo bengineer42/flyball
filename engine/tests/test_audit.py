@@ -165,6 +165,49 @@ def test_an_unverified_request_is_not_recorded(http, store):
     assert _rows(store) == before
 
 
+def test_the_fronts_anonymous_visitor_is_not_recorded(http, store):
+    """At a front every caller comes as `proxy`; its visitor with no credential is `anon:`.
+
+    Recording their refusals would let anyone who reaches the front fill the rig's store,
+    in a table nothing ever trims -- with `anonymous: none` (no verbs) or `read`.
+    """
+    before = _rows(store)
+    for i, scp in enumerate([set(), {"read"}] * 5):
+        visitor = _as(scp, sub="anon:", sid=f"anon-{i}", kind="human")
+        stop = http.post("/api/rig/stop", json={"reason": "x" * 400}, headers=visitor)
+        assert stop.status_code == 403
+        assert http.put("/api/signals/heater.drive", json=1.0, headers=visitor).status_code == 403
+        assert http.post("/api/no-such-route", headers=visitor).status_code == 403
+    assert _rows(store) == before
+
+
+def test_a_callers_denied_rows_are_bounded(http, store):
+    """An identified caller refused again and again: a few rows a minute, not one each.
+
+    A read-only token looping an acting request is somebody, so it is recorded -- up to
+    `DENIED_PER_MINUTE` rows a minute for that caller; a denied demand keeps at most
+    `DENIED_WRITES` of the addresses it asked for. Other callers are not held back.
+    """
+    before = _rows(store)
+    viewer = _as({"read"}, sub="token:viewer", sid="t-9")
+    for _ in range(50):
+        assert http.post("/api/rig/stop", headers=viewer).status_code == 403
+    rows = _rows(store)[len(before) :]
+    assert len(rows) == server_audit.DENIED_PER_MINUTE
+    assert {(r.sub, r.outcome) for r in rows} == {("token:viewer", "denied")}
+
+    other = _as({"read"}, sub="token:other", sid="t-10")
+    flood = {f"k{i}": float(i) for i in range(2000)}
+    denied = http.put("/api/devices/heater/demand", json=flood, headers=other)
+    assert denied.status_code == 403
+    (row,) = _rows(store)[len(before) + len(rows) :]
+    assert row.sub == "token:other"
+    assert row.writes is not None and len(row.writes) == server_audit.DENIED_WRITES
+    # An allowed request is never held back by the cap.
+    assert http.post("/api/rig/stop", headers=_as(OPERATOR)).status_code == 200
+    assert _rows(store)[-1].outcome == "done"
+
+
 def test_a_request_id_that_is_not_the_fronts_is_replaced(http, store):
     headers = {principal.HEADER: _mint(OPERATOR), "X-Request-Id": "evil\x1b[31m"}
     assert http.post("/api/rig/stop", headers=headers).status_code == 200
