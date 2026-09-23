@@ -51,7 +51,7 @@ def _current(rig: RigDep) -> SessionRow | None:
 
 
 @router.get("")
-async def read_recording(rig: RigDep) -> SessionRow | None:
+def read_recording(rig: RigDep) -> SessionRow | None:
     """The open session, or null when not recording."""
     return _current(rig)
 

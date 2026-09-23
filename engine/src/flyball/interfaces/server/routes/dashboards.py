@@ -280,7 +280,7 @@ async def read_widget_catalogue() -> dict[str, Any]:
 
 
 @router.get("")
-async def list_dashboards(
+def list_dashboards(
     store: StoreDep,
     rig: RigDep,
     every: bool = Query(False, description="Every rig's, not only this one's."),
@@ -290,18 +290,18 @@ async def list_dashboards(
 
 
 @router.get("/{name}")
-async def read_dashboard(store: StoreDep, rig: RigDep, name: str) -> DashboardWithProblems:
+def read_dashboard(store: StoreDep, rig: RigDep, name: str) -> DashboardWithProblems:
     return DashboardWithProblems.of(store.dashboard(name), rig)
 
 
 @router.get("/{name}/history")
-async def read_dashboard_history(store: StoreDep, name: str) -> list[DashboardRow]:
+def read_dashboard_history(store: StoreDep, name: str) -> list[DashboardRow]:
     """Every version, newest first."""
     return [_migrated(row) for row in store.dashboard_history(name)]
 
 
 @router.put("/{name}", status_code=201)
-async def save_dashboard(
+def save_dashboard(
     store: StoreDep, rig: RigDep, name: str, body: Dashboard
 ) -> DashboardWithProblems:
     """Save a version under `name`; the document's `name` and `rig` are overwritten to match."""
@@ -313,7 +313,7 @@ async def save_dashboard(
 
 
 @router.post("/{name}/rename")
-async def rename_dashboard(store: StoreDep, name: str, body: Rename) -> list[DashboardRow]:
+def rename_dashboard(store: StoreDep, name: str, body: Rename) -> list[DashboardRow]:
     """Move every version under a new name. 409 if taken."""
     rows = store.rename_dashboard(name, body.name)
     # The document names itself too: keep the newest in step with its key.
@@ -327,6 +327,6 @@ async def rename_dashboard(store: StoreDep, name: str, body: Rename) -> list[Das
 
 
 @router.delete("/{name}", status_code=204)
-async def delete_dashboard(store: StoreDep, name: str) -> None:
+def delete_dashboard(store: StoreDep, name: str) -> None:
     """Every version."""
     store.delete_dashboard(name)

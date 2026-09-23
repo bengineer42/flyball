@@ -181,7 +181,7 @@ async def read_tuning(rig: RigDep, tag: str) -> SerializeAsAny[ControlLawConfig 
 
 
 @router.put("/tunings/{tag}")
-async def set_tuning(rig: RigDep, tag: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
+def set_tuning(rig: RigDep, tag: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
     """Store `body` under `tag` on the live rig, replacing any tuning already there."""
     tuning = Tuning(tag=tag, config=body)
     with rig.lock:

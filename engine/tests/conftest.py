@@ -6,13 +6,18 @@ that declares one uses a name unique to that test (``fresh``).
 
 from __future__ import annotations
 
+import asyncio
 import itertools
+import threading
+import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from flyball_sim.clock import SteppedClock
 
+import flyball.record.sqlite
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
@@ -35,6 +40,48 @@ def _catalog() -> Iterator[Catalogs]:
     set_catalog(catalog)
     yield catalog
     set_catalog(None)
+
+
+class _LoopGuardedLock:
+    """The store's `RLock`, noting every acquisition made on a thread running an event loop.
+
+    The server's loop must never wait for the store (`deps.py`); a TestClient
+    runs the app's loop on a thread of its own, so an acquisition there is a
+    route or task calling the store on the loop. The main thread is left out:
+    an `async def` test may call the store itself.
+    """
+
+    def __init__(self, seen: list[str]) -> None:
+        self._inner = threading.RLock()
+        self._seen = seen
+
+    def acquire(self, *args: Any, **kwargs: Any) -> bool:
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                self._seen.append("".join(traceback.format_stack(limit=12)))
+        return self._inner.acquire(*args, **kwargs)
+
+    def release(self) -> None:
+        self._inner.release()
+
+    def __enter__(self) -> bool:
+        return self.acquire()
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
+
+
+@pytest.fixture(autouse=True)
+def _store_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Fail any test in which the app's event loop took the store's lock."""
+    seen: list[str] = []
+    monkeypatch.setattr(flyball.record.sqlite, "RLock", lambda: _LoopGuardedLock(seen))
+    yield
+    assert not seen, "the store was called on the event loop:\n" + seen[0]
 
 
 @pytest.fixture
