@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +193,37 @@ func TestTokenCreateDefaultsScopeToRead(t *testing.T) {
 	}
 	if len(list) != 1 || len(list[0].Scopes) != 1 || list[0].Scopes[0] != "read:*" {
 		t.Errorf("scopes = %v, want [read:*]", list)
+	}
+}
+
+// TestTokenCreateElevatedScopeAddsRead: `--scope operate` alone would get
+// 403 "needs 'read'" on a websocket, since the vocabulary is an unordered
+// set of verbs until D-034 lands (auth-d1's finding). The CLI adds read
+// on the same rig(s) whenever a non-read scope is requested.
+func TestTokenCreateElevatedScopeAddsRead(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	rig := filepath.Join(t.TempDir(), "blender.yaml")
+	os.WriteFile(rig, []byte("devices: {}\n"), 0o644)
+
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "op", "--config", rig, "--scope", "operate:blender"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	path, _ := tokensPathFor(rig)
+	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokens.Close()
+	list, err := tokens.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"operate:blender", "read:blender"}
+	if len(list) != 1 || !slices.Equal(list[0].Scopes, want) {
+		t.Errorf("scopes = %v, want %v", list, want)
 	}
 }
 
