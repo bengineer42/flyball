@@ -47,7 +47,7 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   const problems = events.filter((e) => e.severity === "error" || e.severity === "warning").length;
   const errors = events.filter((e) => e.severity === "error").length;
   // Alarm summary (research §6): `/api/health.alarms` folds the signals outside their warn/alarm band with the
-  // device conditions at WARNING/ERROR, so this tile, the Overview and the app-bar chip agree.
+  // device conditions at WARNING/ERROR, so this tile and the app-bar chip agree.
   const amber = h?.alarms.warn ?? 0;
   const red = h?.alarms.alarm ?? 0;
   const conditionsCount = amber + red;
@@ -55,7 +55,7 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   const tiles: Record<TileId, ReactNode> = {
     rig: <Stat key="rig" icon={h?.ok ? OkIcon : WarnIcon} label="rig" value={h ? (h.ok ? "ok" : "fault") : "…"} tone={h ? (h.ok ? "ok" : "bad") : undefined} href={hashFor("events")} />,
     recording: <Stat key="recording" icon={SignalIcon} label="recording" value={h ? (h.recording ? "on" : "off") : "…"} tone={h?.recording ? "ok" : undefined} href={hashFor("sessions")} />,
-    devices: <Stat key="devices" icon={PAGE_ICONS.devices} label="devices" value={h ? `${polled - stopped}/${polled} polling` : "…"} tone={stopped ? "warn" : undefined} href={hashFor("devices")} />,
+    devices: <Stat key="devices" icon={PAGE_ICONS.devices} label="devices" value={h ? `${polled - stopped}/${polled} polling` : "…"} tone={stopped ? "warn" : undefined} href={hashFor("readings")} />,
     controllers: <Stat key="controllers" icon={PAGE_ICONS.controllers} label="controllers" value={h ? Object.keys(h.controllers).length : "…"} href={hashFor("controllers")} />,
     conditions: <Stat key="conditions" icon={WarnIcon} label="conditions" value={h ? conditionsCount : "…"} tone={h ? conditionsTone : undefined} href={hashFor("events", null, { level: "WARNING" })} />,
     activities: <Stat key="activities" icon={CircleIcon} label="activities" value={h ? h.activities.length : "…"} href={hashFor("events")} />,

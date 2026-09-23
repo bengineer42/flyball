@@ -16,7 +16,7 @@ import { useAuth } from "../auth.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
-export interface InputsProps extends ChartSettings {
+export interface ReadingsProps extends ChartSettings {
   devices: DeviceOut[];
 }
 
@@ -41,7 +41,8 @@ function LatestValue({ signal }: { signal: SignalOut }) {
  * per signal), a chart per signal, or every signal of a unit on one chart.
  * Every chart draws from the store: the page never re-renders on a sample.
  */
-export function Inputs({ devices: fromRig, ...charts }: InputsProps) {
+/** Readings (was Inputs, and the Devices list): every device and every published signal, its value, trend and commands -- the plain fall-back view, reached from Options › Pages. */
+export function Readings({ devices: fromRig, ...charts }: ReadingsProps) {
   const { windowS, yScale } = charts;
   const rig = useRig();
   const [removing, setRemoving] = useState<string | null>(null);
@@ -235,7 +236,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
   return (
     <>
       <PageBar end={<ChartControls {...charts} unit={signal.unit} />}>
-        <Crumbs items={[{ label: "inputs", href: hashFor("inputs") }, { label: deviceLabel(devices, device), href: hrefFor({ kind: "device", name: device }) }, { label: signalTitle(signal, devices) }]} />
+        <Crumbs items={[{ label: "readings", href: hashFor("readings") }, { label: deviceLabel(devices, device), href: hrefFor({ kind: "device", name: device }) }, { label: signalTitle(signal, devices) }]} />
       </PageBar>
       <Stack direction={{ xs: "column", sm: "row" }} spacing="16px" alignItems="stretch" sx={{ mb: "16px" }}>
         {chartable && (

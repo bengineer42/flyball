@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AppBar, Box, IconButton, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
+import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import { hashFor, type Page } from "./router.js";
 
@@ -24,10 +25,11 @@ export interface ShellProps {
 export const STOP_SLOT_W = 132;
 
 /**
- * The app frame: one app bar and the page (D-053, no sidebar). The bar holds, left to right, the
- * title (the dashboards' tabs on the dashboards page), the status chips, the stop slot, the
- * account chip and the gear that opens Options. Every page is reached from here: a dashboard by
- * its tab, Events / Sessions / Programs / Simulation by their chips, the rest from Options.
+ * The app frame: one app bar and the page (D-053, no sidebar). The bar holds, left to right, a
+ * home button (back to the dashboards -- the home one, if set -- from any page), the title (the
+ * dashboards' tabs on the dashboards page), the status chips, the stop slot, the account chip and
+ * the gear that opens Options. Every page is reached from here: a dashboard by its tab, Events /
+ * Sessions / Programs / Simulation by their chips, the rest from Options.
  */
 export function Shell({ page, title, status, stop, account, startSlot, children }: ShellProps) {
   const theme = useTheme();
@@ -38,6 +40,11 @@ export function Shell({ page, title, status, stop, account, startSlot, children 
     <Box sx={{ minHeight: "100vh" }}>
       <AppBar position="fixed" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Toolbar variant="dense" sx={{ gap: 1.5 }}>
+          <Tooltip title="Dashboards">
+            <IconButton edge="start" aria-label="dashboards" href={hashFor("dashboards")} color={page === "dashboards" ? "primary" : "default"} data-testid="home-button">
+              <HomeOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <Typography
             variant="h1"
             component="h1"

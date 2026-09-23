@@ -647,19 +647,15 @@
           "page": {
             "type": "string",
             "title": "Page",
-            "default": "overview",
+            "default": "dashboards",
             "oneOf": [
               {
                 "const": "dashboards",
                 "title": "Dashboards"
               },
               {
-                "const": "overview",
-                "title": "Overview"
-              },
-              {
-                "const": "inputs",
-                "title": "Inputs"
+                "const": "readings",
+                "title": "Readings"
               },
               {
                 "const": "devices",
@@ -692,10 +688,6 @@
               {
                 "const": "options",
                 "title": "Options"
-              },
-              {
-                "const": "rig",
-                "title": "Rig file"
               },
               {
                 "const": "url",

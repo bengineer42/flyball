@@ -79,7 +79,7 @@ describe("the app bar is the navigation", () => {
     open("#/options/pages");
     expect((await screen.findByTestId("options-gear")).getAttribute("href")).toBe("#/options");
     const pages = await screen.findByTestId("options-pages");
-    for (const id of ["inputs", "devices", "controllers", "graph", "overview", "programs", "events", "sessions"])
+    for (const id of ["readings", "controllers", "graph", "programs", "events", "sessions"])
       expect(within(pages).getByTestId(`options-page-${id}`).getAttribute("href")).toBe(`#/${id}`);
     expect(within(pages).queryByTestId("options-page-simulation")).toBeNull();
   });
@@ -101,6 +101,27 @@ describe("Options", () => {
     expect(within(wall).getByRole("link", { name: "wall" }).getAttribute("href")).toBe("#/dashboards/wall");
     expect(within(wall).getByRole("checkbox", { name: "wall read-only" })).toBeTruthy();
     expect((within(wall).getByRole("button", { name: "move wall earlier" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("Options › Access", () => {
+  it("an open rig says anyone may use it, and lists the verbs", async () => {
+    open("#/options/access");
+    expect((await screen.findByTestId("access-who")).textContent).toMatch(/anyone/i);
+    expect(screen.getByTestId("access-verb-operate")).toBeTruthy();
+    expect(screen.queryByTestId("access-sign-in")).toBeNull();
+  });
+
+  it("a locked rig's anonymous reader is offered Sign in, and told controls are greyed", async () => {
+    window.location.hash = "#/options/access";
+    const reader: AuthInfo = { ...who(["read"]), shape: "password", scheme: "anonymous", user: null, anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const t = transport(reader);
+    const onSignIn = vi.fn();
+    render(createElement(AuthProvider, { transport: t }, createElement(RigProvider, { transport: t }, createElement(App, { onSignIn }))));
+    (await screen.findByTestId("access-sign-in")).click();
+    expect(onSignIn).toHaveBeenCalled();
+    expect(screen.getByText(/greyed out/)).toBeTruthy();
+    expect(screen.getByTestId("access-who").textContent).toMatch(/not signed in/);
   });
 });
 

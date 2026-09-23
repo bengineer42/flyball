@@ -24,7 +24,7 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
   useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.class_name), severity: severityOf(run?.conditions ?? device.conditions) });
   if (schema.error) return <Missing what="device schema" name={schema.error.message} failed />;
   if (!schema.data) return null;
-  const panel = (
+  return (
     <DevicePanel
       device={device}
       schema={schema.data}
@@ -38,16 +38,9 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
       onRestart={() => rig.restartDevice(device.name)}
       busy={runner.busy}
       results={runner.results}
+      // Commands and Restart greyed out, still shown, below operate or on a read-only dashboard.
+      canOperate={canWrite}
     />
-  );
-  // `@command` buttons and Restart live inside `DevicePanel`, which does not itself know about
-  // auth -- so a sub-operate browser, or a read-only dashboard, gets the whole panel dimmed and
-  // click-blocked, rather than a per-button `disabled` reaching into content this widget doesn't own.
-  if (canWrite) return panel;
-  return (
-    <div aria-disabled="true" style={{ opacity: 0.5, pointerEvents: "none" }}>
-      {panel}
-    </div>
   );
 }
 

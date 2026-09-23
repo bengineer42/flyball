@@ -7,7 +7,7 @@ import { isSafeHref } from "./markdown.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 const LinkWidget = memo(function LinkWidget({ config }: WidgetComponentProps) {
-  const page = String(config.page ?? "overview");
+  const page = String(config.page ?? "dashboards");
   const name = String(config.name ?? "").trim();
   const external = page === "url";
   // `hashFor` builds this app's own hash links (always safe); an "a URL" link is an operator-supplied
@@ -44,7 +44,7 @@ export const link: WidgetKind = {
   configSchema: () => ({
     type: "object",
     properties: {
-      page: { type: "string", title: "Page", default: "overview", oneOf: [...PAGES.map((p) => ({ const: p.id, title: p.label })), { const: "url", title: "a URL" }] },
+      page: { type: "string", title: "Page", default: "dashboards", oneOf: [...PAGES.map((p) => ({ const: p.id, title: p.label })), { const: "url", title: "a URL" }] },
       name: { type: "string", title: "Name", default: "", description: "The thing on that page (a device or program name, a signal's or controller's address, a session id); blank for the list." },
       url: { type: "string", title: "URL", default: "", description: "When the page is \"a URL\".", pattern: "^$|^(https?:|mailto:|#|/)" },
       label: { type: "string", title: "Label", default: "", description: "Blank: the page and name." },
@@ -53,7 +53,7 @@ export const link: WidgetKind = {
     required: ["page"],
   }),
   uiSchema: { page: { "ui:widget": "select" } },
-  defaultConfig: () => ({ page: "inputs", name: "", url: "", label: "", variant: "outlined" }),
+  defaultConfig: () => ({ page: "readings", name: "", url: "", label: "", variant: "outlined" }),
   titleFor: () => undefined,
   header: false,
   Component: LinkWidget,

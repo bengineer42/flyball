@@ -116,7 +116,7 @@ moves write only the one moved. `Save ▾` offers:
 - **Save as…** — under a new name; the generated overview must go through
   this once before it can be saved at all.
 - **Rename…**, **Delete…** (with confirmation).
-- **Set as home** — `#/` opens this dashboard instead of the Overview page,
+- **Set as home** — `#/` opens this dashboard instead of the generated overview,
   remembered per browser (`localStorage`), not written to the document.
 - **Export JSON** / **Import JSON…** — the document above, pretty-printed.
   Import loads the file as a draft under its own name; **Save** commits it,

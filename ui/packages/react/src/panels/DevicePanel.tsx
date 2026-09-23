@@ -42,6 +42,12 @@ export interface DevicePanelProps {
    * names (the widget default is none). Default false.
    */
   compact?: boolean;
+  /**
+   * This browser may run commands and restart the device; default true. False disables each
+   * command's form and button and the Restart button -- greyed out, still shown, the rest of the
+   * panel (run, mode, conditions) untouched.
+   */
+  canOperate?: boolean;
   /** Unused now that there is no schema-described `state` to truncate; kept so existing callers still compile. */
   maxFields?: number;
 }
@@ -72,7 +78,7 @@ function modeSignalOf(device: DeviceOut): SignalOut | undefined {
  * live values follow `/ws/devices` and the store; everything else comes in
  * through props.
  */
-export function DevicePanel({ device, schema, view, commands, onRun, busy, results, form, onRestart, title, subtitle, children, openSettings = false, bare = false, compact = false, maxFields: _maxFields = 4 }: DevicePanelProps) {
+export function DevicePanel({ device, schema, view, commands, onRun, busy, results, form, onRestart, title, subtitle, children, openSettings = false, bare = false, compact = false, canOperate = true, maxFields: _maxFields = 4 }: DevicePanelProps) {
   // Simulation-only commands (faults, disturbances) belong on the simulation page, not beside the real ones.
   // A dashboard widget's default is none at all (DESIGN-SPEC.md §3.5); a page's default is every command.
   const names = commands ?? (compact ? [] : Object.keys(schema.commands).filter((t) => !schema.commands[t]?.simulation));
@@ -117,7 +123,7 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
         </span>
       )}
       {onRestart && run && !run.running && (
-        <button type="button" className="fb-tb" disabled={restarting} onClick={() => void restart()} title="Poll the device again on its period">
+        <button type="button" className="fb-tb" disabled={restarting || !canOperate} onClick={() => void restart()} title="Poll the device again on its period">
           Restart
         </button>
       )}
@@ -137,6 +143,7 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
             currentMode={currentMode}
             onRun={(args) => onRun(name, args)}
             busy={busy === name}
+            canOperate={canOperate}
             result={results?.[name]}
             form={form}
           />

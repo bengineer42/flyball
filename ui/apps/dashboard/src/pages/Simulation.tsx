@@ -19,6 +19,7 @@ import {
   alpha,
 } from "@mui/material";
 import { Form as MuiForm } from "@rjsf/mui";
+import { useAuth } from "../auth.js";
 import { CommandForm, DevicePanel, useCommands, useRigSchema, useSimulation, type PlaybackHook, type SimulationHook } from "@flyball/react";
 import type { DeviceOut, DeviceSchema, SimulationPlant } from "@flyball/client";
 import { describeDevice, describeSimParam, fixed } from "@flyball/client";
@@ -270,6 +271,7 @@ function Plants({ plants }: { plants: Record<string, SimulationPlant> }) {
 
 /** One device's simulation-only commands (faults, disturbances) as forms, run through its own route. */
 function DeviceFaults({ schema }: { schema: DeviceSchema }) {
+  const { canOperate } = useAuth();
   const commands = useCommands(schema.name);
   const names = Object.keys(schema.commands).filter((t) => schema.commands[t]?.simulation);
   if (!names.length) return null;
@@ -292,6 +294,7 @@ function DeviceFaults({ schema }: { schema: DeviceSchema }) {
             onRun={(args) => commands.run(name, args).catch(() => undefined)}
             busy={commands.busy === name}
             result={commands.results[name]}
+            canOperate={canOperate}
           />
         ))}
       </Box>
@@ -330,6 +333,7 @@ function Faults() {
  * the tab when `useSimulation().attached` is false).
  */
 export function Simulation({ devices, playback }: { devices: DeviceOut[]; playback: PlaybackHook }) {
+  const { canOperate } = useAuth();
   const sim = useSimulation();
   const own = devices.find((d) => d.kind === "simulation");
   if (sim.loading && !sim.simulation) return <LinearProgress />;
@@ -371,6 +375,7 @@ export function Simulation({ devices, playback }: { devices: DeviceOut[]; playba
           onRun={(command, args) => sim.run(command, args).catch(() => undefined)}
           busy={sim.busy}
           results={sim.results}
+          canOperate={canOperate}
         />
       ) : (
         <Typography variant="body2" color="text.secondary">

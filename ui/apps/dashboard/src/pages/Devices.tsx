@@ -23,6 +23,7 @@ import {
 import { Form as MuiForm } from "@rjsf/mui";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { useAuth } from "../auth.js";
 import { DevicePanel, DeviceSignals, SchemaForm, useCommands, useControllers, useDeviceRuns, useDeviceSchema, useRig, useRigDocument, useRigFileSchema, type QueryState } from "@flyball/react";
 import { describeController, describeDevice, deviceOf, humanise, RigError, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument } from "@flyball/client";
 import { DeviceSummaryCard, SectionHead, StateBlock } from "../cards.js";
@@ -30,7 +31,7 @@ import { PAGE_ICONS } from "../icons.js";
 import { hashFor, hrefFor } from "../router.js";
 import { useRecordingExports } from "../model.js";
 import { Confirm } from "../Confirm.js";
-import { Crumbs } from "./Inputs.js";
+import { Crumbs } from "./Readings.js";
 import { PageBar } from "../PageBar.js";
 import { deviceDrivers, linkKinds, withLinkSelect, TYPE_HIDDEN } from "../rigForms.js";
 import type { ChartSettings } from "../YScaleSelect.js";
@@ -441,13 +442,14 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
   const stored = useRecordingExports();
   const { controllers } = useControllers();
   const commandNames = useMemo(() => Object.entries(schema.data?.commands ?? {}).filter(([, c]) => !c.simulation).map(([command]) => command), [schema.data]);
+  const { canOperate } = useAuth();
   if (!device) return <Alert severity="warning">No device named {name}.</Alert>;
   const drives = Object.values(controllers).filter((c) => deviceOf(c.output_signal) === name);
   const regulates = Object.values(controllers).filter((c) => deviceOf(c.measured_signal) === name && deviceOf(c.output_signal) !== name);
   return (
     <>
       <PageBar>
-        <Crumbs items={[{ label: "overview", href: hashFor("overview") }, { label: "devices", href: hashFor("devices") }, { label: device.label ?? name }]} />
+        <Crumbs items={[{ label: "readings", href: hashFor("readings") }, { label: device.label ?? name }]} />
       </PageBar>
       {schema.error && <Alert severity="error">{schema.error.message}</Alert>}
       <div className="grid">
@@ -462,6 +464,7 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
               onRestart={() => rig.restartDevice(name)}
               busy={commands.busy}
               results={commands.results}
+              canOperate={canOperate}
             >
               <InputsLine inputs={device.inputs} />
             </DevicePanel>

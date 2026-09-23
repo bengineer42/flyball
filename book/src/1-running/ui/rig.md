@@ -1,14 +1,13 @@
 # The rig file
 
-**Options › Rig file** (`#/options/rig`, behind the gear in the app bar; the old `#/rig` address opens it) is the running rig as a file would show it, its history, and how to reach the runner from outside the browser. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
+Two tabs of Options, behind the gear in the app bar: **Rig file** (`#/options/rig`; the old `#/rig` address opens it) is what the rig is made of -- devices, links, controllers, the running document and what changed since start; **Runner** (`#/options/runner`) is the rig as a whole -- its versions and restore, saving it, restarting or shutting down the runner, and connecting a model from outside the browser. The list below covers both. The file it mirrors: [Configuration](../../2-config/index.md); the routes behind each box: [Composition](../../4-server/api.md#composition).
 
 !!! tip "At the terminal"
     `flyball rig check FILE…` validates a file without a runner; `flyball sim …` drives a simulated rig's knobs; save, versions, restart and shut down are routes for now -- [The rig and the runner](../cli/rig.md).
 
-## Config
+## Rig file and Runner
 
-The **Rig file** tab (`#/options/rig`) is the running rig as a file would show it, alongside its
-history and how to reach it from outside the browser:
+What each box shows:
 
 - **Running document** (`GET /api/rig/document`) — links, devices and
   controllers as they are now, as read-only YAML.
@@ -31,7 +30,7 @@ history and how to reach it from outside the browser:
   runs the same command again: the rig is rebuilt from its files, the app
   reconnects within a few seconds.
 - **Devices, links and controllers** — Config is the only place in the app to add or remove
-  any of the three (the Devices, Inputs and Controllers pages show them but no longer offer
+  any of the three (Readings, a device's own page and Controllers show them but no longer offer
   add/remove for anything but a controller's own detach). Each section lists what exists as
   chips (a device's name and driver, a link's name and type, a controller's target and
   source), each with a remove button behind a confirmation; an **Add** button opens the same

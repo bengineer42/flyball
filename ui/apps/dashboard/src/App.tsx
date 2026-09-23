@@ -17,12 +17,11 @@ import { useStartingRetry } from "./useStartingRetry.js";
 
 // Each page (and the dashboard switcher) is its own chunk, fetched only on first visit to that
 // route: the app shell, MUI and the telemetry store are the only things every route pays for.
-const Overview = lazy(() => import("./pages/Overview.js").then((m) => ({ default: m.Overview })));
 const Dashboards = lazy(() => import("./pages/Dashboards.js").then((m) => ({ default: m.Dashboards })));
 const DashboardTabs = lazy(() => import("./dashboard/DashboardTabs.js").then((m) => ({ default: m.DashboardTabs })));
 const Options = lazy(() => import("./pages/Options.js").then((m) => ({ default: m.Options })));
-const Inputs = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.Inputs })));
-const SignalDetail = lazy(() => import("./pages/Inputs.js").then((m) => ({ default: m.SignalDetail })));
+const Readings = lazy(() => import("./pages/Readings.js").then((m) => ({ default: m.Readings })));
+const SignalDetail = lazy(() => import("./pages/Readings.js").then((m) => ({ default: m.SignalDetail })));
 const Graph = lazy(() => import("./pages/Graph.js").then((m) => ({ default: m.Graph })));
 const DevicePage = lazy(() => import("./pages/Devices.js").then((m) => ({ default: m.DevicePage })));
 const Controllers = lazy(() => import("./pages/Controllers.js").then((m) => ({ default: m.Controllers })));
@@ -207,14 +206,10 @@ export function App({ onSignIn }: { onSignIn(): void }) {
   const exposure = authInfo?.exposure;
   const [route, navigate] = useRoute();
   const { page, name, params } = route;
-  // A bare `#/` opens the home dashboard when one is set; the Overview stays a click away.
+  // A bare `#/` opens the home dashboard when one is set; the generated overview stays a tab away.
   useEffect(() => {
     if (/^#?\/?$/.test(window.location.hash) && readHome()) window.location.replace(hashFor("dashboards"));
   }, []);
-  // The Config page's old address: now the Options page's Rig file tab.
-  useEffect(() => {
-    if (page === "rig") window.location.replace(hashFor("options", "rig"));
-  }, [page]);
   // A fixed 5 min undershoots a rig with hours of history (`longrun`); a fixed 1 h is just as
   // wrong the other way for one that started a minute ago. So the default fits whatever has
   // actually loaded, capped at an hour -- settled once, the first time both ends of that are
@@ -307,7 +302,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
     if (name === null || page === "options") return PAGE_LABEL[page];
     if (page === "sessions") return `Session #${name}`;
     if (page === "devices") return deviceTitle(all.find((d) => d.name === name) ?? { name });
-    if (page === "inputs" || page === "controllers") {
+    if (page === "readings" || page === "controllers") {
       const signal = all.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === name);
       return signal ? signalTitle(signal, all) : name;
     }
@@ -343,14 +338,12 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                   <ExposureBanner exposure={exposure} />
                   <Prompts />
                   <Suspense fallback={<PageFallback />}>
-                    {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
                     {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
-                    {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
-                    {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
+                    {page === "readings" && name === null && <Readings devices={all} {...charts} />}
+                    {page === "readings" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
                     {page === "graph" && <Graph devices={all} {...charts} />}
-                    {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
                     {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
-                    {page === "options" && <Options tab={optionTab(name)} simulated={simulated} onTab={(t) => navigate("options", t)} />}
+                    {page === "options" && <Options tab={optionTab(name)} simulated={simulated} onTab={(t) => navigate("options", t)} onSignIn={onSignIn} />}
                     {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
                     {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
                     {page === "events" && (

@@ -44,7 +44,7 @@ import { generatorChoices, generatorFormSchema, generatorUiSchema, prune } from 
 import { PageBar } from "../PageBar.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
-import { Crumbs } from "./Inputs.js";
+import { Crumbs } from "./Readings.js";
 import { hashFor } from "../router.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
