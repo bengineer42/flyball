@@ -42,6 +42,11 @@ import (
 // is already on $PATH, which it never is outside an app's own uv-managed
 // venv.
 func runDirect(args []string) error {
+	// A write to a stdout or stderr whose reader has died (`flyball run
+	// ... | tee out.txt` over SSH, the connection dropped) would kill this
+	// process with SIGPIPE and orphan the runner (D-038). Ignored, it
+	// fails with EPIPE, which the tee drops (runlog.go).
+	signal.Ignore(syscall.SIGPIPE)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigs)

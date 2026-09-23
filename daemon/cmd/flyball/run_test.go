@@ -26,8 +26,19 @@ import (
 // appends its argv to FLYBALL_FAKE_ARGS, serves the endpoint its
 // --front-dir names (fronttest), writes the marker when stopped by a
 // signal, and exits on its own after FLYBALL_FAKE_LIFETIME. With
-// FLYBALL_FAKE_EXIT=CODE:N its first N spawns exit CODE at once.
+// FLYBALL_FAKE_EXIT=CODE:N its first N spawns exit CODE at once; with
+// FLYBALL_FAKE_CHATTER=DURATION it prints a line to stdout that often.
+// With FLYBALL_TEST_RUN_DIRECT set (newline-separated arguments) it is
+// `flyball run` itself: runDirect, signals and all, against the fake runner.
 func TestMain(m *testing.M) {
+	if args := os.Getenv("FLYBALL_TEST_RUN_DIRECT"); args != "" {
+		os.Unsetenv("FLYBALL_TEST_RUN_DIRECT") // the runner it spawns is the fake runner
+		runnerCommand, _ = os.Executable()
+		if err := runDirect(strings.Split(args, "\n")); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if os.Getenv("FLYBALL_FAKE_UV") != "" {
 		os.Exit(fakeUV())
 	}
@@ -93,6 +104,13 @@ func fakeRunner(marker string) int {
 		return 4
 	}
 	defer r.Close()
+	if every, err := time.ParseDuration(os.Getenv("FLYBALL_FAKE_CHATTER")); err == nil {
+		go func() {
+			for range time.Tick(every) {
+				fmt.Println("fake runner chatter")
+			}
+		}()
+	}
 	lifetime, _ := time.ParseDuration(os.Getenv("FLYBALL_FAKE_LIFETIME"))
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)

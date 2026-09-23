@@ -94,8 +94,9 @@ equivalents under
 so a deployment that always wants the same invocation -- a Pi that runs the
 same command at every boot -- sets them once in the file; a flag given on
 the command line always wins. A runner that crashes is started again; the
-run ends with the runner. Closing the terminal does not end it: the front
-and the runner keep running, their output also goes to a log file in the
+run ends with the runner. Closing the terminal does not end it, nor does
+losing whatever reads its output (`flyball run rig.yaml | tee out.txt`,
+and `tee` dies with the SSH session): the front and the runner keep running, their output also goes to a log file in the
 state directory (`~/.local/state/flyball/front-<id>/run.log`), and a notice
 at start says so. Ctrl-C or SIGTERM ends it;
 `flyball stop` stops the rig and leaves it running. Every flag:
