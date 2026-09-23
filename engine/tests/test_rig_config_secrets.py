@@ -180,7 +180,7 @@ def sim_rig(tmp_path):
         set_rig_config(None)
         set_store(None)
         set_rig(None)
-        rig.stop()
+        rig.close()
         store.close()
 
 

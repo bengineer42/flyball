@@ -218,4 +218,4 @@ def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh,
     try:
         assert rig.polling.run(name).running is True and list(rig.controllers) == ["h.power"]
     finally:
-        rig.stop()
+        rig.close()

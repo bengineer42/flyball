@@ -86,7 +86,7 @@ def _fresh_furnace_rig():
 def furnace_rig():
     rig = _fresh_furnace_rig()
     yield rig
-    rig.stop()
+    rig.close()
 
 
 def _zone(rig, name: str) -> float:
@@ -189,7 +189,7 @@ def _run_ramp_to_700(rig, feedforward) -> float:
     programmer.join(60)
     assert programmer.running is False, "program did not finish"
     controller.detach_on_tick(record)
-    rig.stop()
+    rig.close()
     return peak - 700.0
 
 

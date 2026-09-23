@@ -31,7 +31,7 @@ def built(request):
     try:
         yield config, rig
     finally:
-        rig.stop()
+        rig.close()
 
 
 def test_every_stress_rig_validates():

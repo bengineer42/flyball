@@ -61,4 +61,4 @@ class TestFakeBlockingGoesThroughTheWriter:
 
         _wait_until(lambda: dac.link.written != [])
         assert dac.link.written == [(0x60, 0, [0, 5])]
-        rig.stop()
+        rig.close()

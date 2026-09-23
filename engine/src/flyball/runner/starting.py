@@ -46,7 +46,7 @@ def start_with_store(
     try:
         store = _open(config, rig, record, store_path)
     except BaseException:
-        rig.stop()  # nothing left polling a rig that will not be served
+        rig.close()  # nothing left polling a rig that will not be served
         raise
     return rig, store
 

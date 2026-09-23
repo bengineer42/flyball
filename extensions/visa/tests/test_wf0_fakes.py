@@ -61,4 +61,4 @@ class TestFakeBlockingGoesThroughTheWriter:
 
         _wait_until(lambda: psu.link.written != [])
         assert psu.link.written == ["SOUR:VOLT 12.000"]
-        rig.stop()
+        rig.close()

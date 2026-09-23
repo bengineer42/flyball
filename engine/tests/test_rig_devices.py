@@ -976,7 +976,7 @@ def test_a_blocking_write_with_no_readback_reports_each_committed_value(rig, fre
             time.sleep(0.005)
         assert rig.router.value(heater) == value
     assert gated.committed == [1.0, 3.0]
-    rig.stop()
+    rig.close()
 
 
 class TestNonFinite:

@@ -94,7 +94,7 @@ class InterimStopper:
 
     Writes nothing to any device, so every writable device is reported `unchanged`, never
     `stopped` -- and never "safe": what the outputs are left doing is whatever they
-    were last told. Not [Rig.stop][flyball.rig.rig.Rig.stop], which is a teardown.
+    were last told. Not [Rig.close][flyball.rig.rig.Rig.close], which is a teardown.
 
     The program is interrupted first, so no step runs after the controllers go to
     manual; a step that blocks without answering the interrupt holds the stop up with it
