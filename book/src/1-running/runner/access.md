@@ -246,6 +246,42 @@ sign-in limit; `trusted_proxies` in the
 [reference](../../7-reference/rig-file.md#the-front) names proxies whose
 `X-Forwarded-For` it may believe.
 
+An `Authorization` header that is not a flyball token is refused (`401`)
+at the `local` and `password` shapes, session cookie or not; an
+`Authorization: Basic` one says so in its `401`. nginx forwards the
+browser's `Basic` header after its own `auth_basic`, so two setups work:
+
+- **nginx is the gate.** The `proxy` shape with the `custom` preset takes
+  the user nginx checked, over the front's unix socket, one identity per
+  nginx user:
+
+    ```yaml
+    runner:
+      front:
+        listen: unix:/run/flyball/front.sock
+        auth: proxy
+        proxy:
+          preset: custom
+          user_header: Remote-User
+          grants: {all: [ben]}
+    ```
+
+    ```nginx
+    location / {
+        auth_basic           "lab";
+        auth_basic_user_file /etc/nginx/flyball.htpasswd;
+        proxy_pass           http://unix:/run/flyball/front.sock:;
+        proxy_set_header     Host $http_host;
+        proxy_set_header     Remote-User $remote_user;
+    }
+    ```
+
+- **nginx Basic and the flyball password, both.** Keep `auth: password`
+  and clear the header nginx would forward, with
+  `proxy_set_header Authorization "";` in the same `location`. flyball
+  then sees only its own session cookie, and every action is recorded as
+  `local:admin`, not the nginx user.
+
 ## The bare runner
 
 `flyball-runner rig.yaml` with no front serves its own door, and the
