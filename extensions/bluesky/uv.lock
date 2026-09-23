@@ -141,7 +141,7 @@ dev = [
     { name = "furnace", editable = "../../examples/furnace" },
     { name = "import-linter", specifier = ">=2.1" },
     { name = "ipykernel", specifier = ">=7.3.0" },
-    { name = "mypy", specifier = ">=1.13" },
+    { name = "jsonschema", specifier = ">=4.18" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.8" },
