@@ -7,7 +7,7 @@ here to try the system, to test against, and to show what a rig file is.
 | file | plant | what it shows |
 | --- | --- | --- |
 | `oven.yaml` | first-order lag with dead time, noisy | the classic control problem; the autotune case |
-| `tank.yaml` | integrator with a drain | a plant with no natural rest; why integral action matters |
+| `tank.yaml` | a leaky integrator, i.e. a first-order lag | the same lag as the oven, in litres, resting at gain / leak |
 | `bench.yaml` | scripted SCPI supply and meter over `fake_text` links | the exact file shape a real bench uses — change two link tags and it is hardware |
 | `chiller.yaml` | a lag with a *negative* gain | reverse-acting: the drive cools, so the plant rests at ambient and falls as the drive rises |
 | `dual.yaml` | an oven (°C) and a tank (L), independent | one rig file is not one plant: two controllers in different units, neither touching the other |

@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=rig.schema.json
-# A tank filled by a valve against a drain: an integrating plant. Unlike the
-# oven it has no natural resting point, so a proportional-only law leaves an
-# offset and integral action is what holds level.
+# A tank filled by a valve against a drain: a first-order lag (tau = 1/leak
+# = 20 s), resting at gain / leak = 40 L when the valve is fully open --
+# the same shape as the oven, just in litres.
 
 name: tank
 
@@ -28,10 +28,11 @@ devices:
   valve:
     driver: sim_drive
     label: Inlet valve
-    # valve.drive [W] L, smart: a demand is the level to hold. An
-    # integrator's `feedforward` has no static inverse (there is no fixed
-    # drive-to-level curve to read off, only a rate), so `limits` is given:
-    # 0..40 L, the steady state at gain / leak.
+    # valve.drive [W] L, smart: a demand is the level to hold. With leak > 0
+    # this integrator is a lag, and its `feedforward` has an exact static
+    # inverse: demand * leak / gain (plant.py:106-109). `limits` still caps
+    # it at 0..40 L, the steady state at gain / leak -- the valve cannot
+    # open past fully open.
     config:
       link: tank
       ports:
