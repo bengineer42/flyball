@@ -36,7 +36,7 @@ type Conn struct {
 
 // Dial performs the HTTP Upgrade handshake against a ws:// or wss:// URL
 // and returns a Conn ready for ReadMessage. TLS (wss) is not implemented
-// -- flyball runners are loopback/plain HTTP today, per plan.md.
+// -- flyball runners are loopback/plain HTTP today.
 func Dial(rawURL string, headers http.Header) (*Conn, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
