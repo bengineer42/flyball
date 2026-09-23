@@ -47,7 +47,7 @@ flyball watch controllers
 ```
 
 `flyball program run programs/firing.yaml` starts a firing; `flyball
-program status` says where it is; `flyball signal fire wait` answers the
+program status` says where it is; `flyball wait fire wait` answers the
 operator prompt at the end. With `clock: { stepped: true }` instead of a
 speed, the same firing runs to completion in the time the arithmetic takes
 — every poll, tick and hold in order — which is how
