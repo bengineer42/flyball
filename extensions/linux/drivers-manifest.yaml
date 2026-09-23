@@ -191,8 +191,8 @@ sensors:
     price_approx: "~$15-20 [Unverified]"
     domains: [mushroom, brewing]
     links:
-      - label: caveat
-        url: "Baseline-word write order (CO2eq then TVOC) followed Sensirion's embedded-sgp driver convention, not independently re-confirmed against a datasheet table"
+      - label: datasheet
+        url: "Sensirion SGP30 datasheet v1.0 (May 2020), 'Set and Get Baseline': baseline words are sent 'in the order as (TVOC, CO2eq)' -- confirmed against Sensirion's embedded-sgp reference driver, sgp30.c at commit 19fa58d, which writes in the same order"
 
   - tag: sgp40
     part_number: SGP40
