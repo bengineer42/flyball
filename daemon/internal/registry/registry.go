@@ -6,8 +6,10 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"flyballd/internal/backend"
@@ -30,13 +32,57 @@ type Registry struct {
 
 	mu      sync.RWMutex
 	entries map[string]*Entry
+	pending map[string]string // name -> root path, for Starts under way
 }
 
 func New(be backend.Backend) *Registry {
-	return &Registry{be: be, entries: map[string]*Entry{}}
+	return &Registry{be: be, entries: map[string]*Entry{}, pending: map[string]string{}}
 }
 
-// Start spawns a runner via the backend. The backend reports it starting
+// ErrConflict is a runner whose name is taken, or whose root path overlaps
+// another's -- one contains the other, so a path could route to either and
+// the aud a front mints for would not be the rig the scopes named (F6) --
+// or the daemon's own /api.
+var ErrConflict = errors.New("conflicts with a registered runner")
+
+// ReservedRoot is the daemon's own: its management API and /api/auth.
+const ReservedRoot = "/api"
+
+func overlaps(a, b string) bool {
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+// reserve claims m's name and root path for a Start, or says why not.
+func (r *Registry) reserve(m config.Manifest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, taken := r.entries[m.Name]; taken {
+		return fmt.Errorf("%w: a runner named %q is already registered", ErrConflict, m.Name)
+	}
+	if _, taken := r.pending[m.Name]; taken {
+		return fmt.Errorf("%w: a runner named %q is already starting", ErrConflict, m.Name)
+	}
+	if overlaps(m.RootPath, ReservedRoot) {
+		return fmt.Errorf("%w: root path %s is under flyballd's own %s", ErrConflict, m.RootPath, ReservedRoot)
+	}
+	roots := map[string]string{}
+	for name, e := range r.entries {
+		roots[name] = e.Manifest.RootPath
+	}
+	for name, root := range r.pending {
+		roots[name] = root
+	}
+	for name, root := range roots {
+		if overlaps(m.RootPath, root) {
+			return fmt.Errorf("%w: root path %s overlaps runner %q's %s", ErrConflict, m.RootPath, name, root)
+		}
+	}
+	r.pending[m.Name] = m.RootPath
+	return nil
+}
+
+// Start spawns a runner via the backend. A name that is taken, or a root
+// path that overlaps another runner's or /api, is ErrConflict. The backend reports it starting
 // until it passes the readiness handshake, so a process that is up but
 // not yet serving is not shown as running. The runner's aud is the
 // manifest's name.
@@ -44,12 +90,14 @@ func (r *Registry) Start(m config.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
-	r.mu.RLock()
-	_, taken := r.entries[m.Name]
-	r.mu.RUnlock()
-	if taken {
-		return fmt.Errorf("a runner named %q is already registered", m.Name)
+	if err := r.reserve(m); err != nil {
+		return err
 	}
+	defer func() {
+		r.mu.Lock()
+		delete(r.pending, m.Name)
+		r.mu.Unlock()
+	}()
 	endpoint, err := r.be.Start(m.Name, backend.Spec{
 		ServerConfig: m.ServerConfig, Network: m.ResolvedNetwork(), Host: m.Host, Port: m.Port,
 		RootPath: m.RootPath, Aud: m.Name, UvProject: m.UvProject, Restart: m.Restart,

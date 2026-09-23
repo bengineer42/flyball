@@ -1,25 +1,41 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"flyballd/internal/backend"
 	"flyballd/internal/config"
-	"flyballd/internal/exposure"
+	"flyballd/internal/endpoint"
+	"flyballd/internal/front"
+	"flyballd/internal/front/store"
+	"flyballd/internal/fronttest"
 	"flyballd/internal/registry"
+
+	"golang.org/x/crypto/scrypt"
 )
 
-// fakeBackend records what it was asked to start and never spawns
-// anything; what it reports as the runner's endpoint is `endpoint`.
+// fakeBackend starts, for each runner, a fronted stand-in (fronttest) on a
+// real unix socket with its own key and aud, and hands the front its
+// channel. status overrides what Status reports.
 type fakeBackend struct {
-	started  []string
-	endpoint string
-	logs     []*logReader
+	t *testing.T
+
+	mu      sync.Mutex
+	started []string
+	runners map[string]*fronttest.Runner
+	status  map[string]backend.Status
+	logs    []*logReader
 }
 
 // logReader is a log that knows whether it was closed.
@@ -31,399 +47,364 @@ type logReader struct {
 func (l *logReader) Close() error { l.closed = true; return nil }
 
 func (f *fakeBackend) Start(name string, spec backend.Spec) (string, error) {
-	f.started = append(f.started, name)
-	if f.endpoint != "" {
-		return f.endpoint, nil
+	dir, err := os.MkdirTemp("", "api")
+	if err != nil {
+		return "", err
 	}
-	return "127.0.0.1:1", nil
+	f.t.Cleanup(func() { os.RemoveAll(dir) })
+	var key [32]byte
+	rand.Read(key[:])
+	aud := spec.Aud
+	if aud == "" {
+		aud = name
+	}
+	r, err := fronttest.Serve(endpoint.Endpoint{Network: "unix", Address: filepath.Join(dir, "sock")}, key, aud, spec.RootPath)
+	if err != nil {
+		return "", err
+	}
+	f.t.Cleanup(r.Close)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.started = append(f.started, name)
+	f.runners[name] = r
+	return r.EP.String(), nil
 }
 func (f *fakeBackend) Stop(name string) error    { return nil }
 func (f *fakeBackend) Restart(name string) error { return nil }
 func (f *fakeBackend) Logs(name string) (io.ReadCloser, error) {
 	l := &logReader{Reader: strings.NewReader("log\n")}
+	f.mu.Lock()
 	f.logs = append(f.logs, l)
+	f.mu.Unlock()
 	return l, nil
 }
-func (f *fakeBackend) Status(name string) (backend.Status, error) { return backend.StatusRunning, nil }
-
-func newServer(token string) (*Server, *fakeBackend) {
-	cfg := config.DefaultDaemonConfig()
-	cfg.Auth.Token = token
-	be := &fakeBackend{}
-	return New(registry.New(be), cfg), be
+func (f *fakeBackend) Status(name string) (backend.Status, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if st, ok := f.status[name]; ok {
+		return st, nil
+	}
+	return backend.StatusRunning, nil
+}
+func (f *fakeBackend) Channel(name string) (backend.Channel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.runners[name]
+	if !ok {
+		return backend.Channel{}, fmt.Errorf("no runner %q", name)
+	}
+	return backend.Channel{Endpoint: r.EP, Aud: r.Aud, Key: r.Key}, nil
 }
 
-func do(t *testing.T, s *Server, method, path, bearer, body string) *httptest.ResponseRecorder {
+// daemon is flyballd's front over a registry, served on a real port.
+type daemon struct {
+	t      *testing.T
+	be     *fakeBackend
+	reg    *registry.Registry
+	url    string
+	tokens *store.Tokens
+}
+
+const testPassword = "correct horse"
+
+func scryptLine(password string) string {
+	salt := []byte("0123456789abcdef")
+	sum, err := scrypt.Key([]byte(password), salt, 16, 1, 1, 64)
+	if err != nil {
+		panic(err)
+	}
+	enc := base64.RawURLEncoding.EncodeToString
+	return fmt.Sprintf("$scrypt$n=16,r=1,p=1$%s$%s", enc(salt), enc(sum))
+}
+
+// newDaemon serves flyballd's front in shape (local or password).
+func newDaemon(t *testing.T, shape string) *daemon {
 	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+	be := &fakeBackend{t: t, runners: map[string]*fronttest.Runner{}, status: map[string]backend.Status{}}
+	reg := registry.New(be)
+	cfg := front.Config{Listen: "127.0.0.1:0", Auth: shape}
+	if shape == front.ShapePassword {
+		cfg.Password = scryptLine(testPassword)
 	}
-	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, req)
-	return rec
+	plan := front.Resolve(cfg, false)
+	if plan.Fallback != "" {
+		t.Fatalf("plan fell back: %s", plan.Fallback)
+	}
+	tokensPath := filepath.Join(t.TempDir(), "tokens.json")
+	f := NewFront(reg, front.Options{Plan: plan, TokensPath: tokensPath, FailDelay: 1})
+	srv := httptest.NewServer(f)
+	t.Cleanup(func() { srv.Close(); f.Close() })
+	tokens, err := store.OpenTokens(tokensPath, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &daemon{t: t, be: be, reg: reg, url: srv.URL, tokens: tokens}
 }
 
-const goodManifest = `{"name":"oven","server_config":"oven.yaml","port":8101}`
-
-func TestMutatingRoutesAreClosedWithoutAToken(t *testing.T) {
-	s, be := newServer("")
-	for _, c := range []struct{ method, path string }{
-		{"POST", "/api/runners"},
-		{"DELETE", "/api/runners/oven"},
-		{"POST", "/api/runners/oven/restart"},
-		{"GET", "/api/runners/oven/logs"},
-	} {
-		rec := do(t, s, c.method, c.path, "", goodManifest)
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Errorf("%s %s with no token configured: got %d, want 503", c.method, c.path, rec.Code)
-		}
+// token makes a named token with scopes, as `flyball token create` does.
+func (d *daemon) token(name string, scopes ...string) string {
+	d.t.Helper()
+	secret, _, err := d.tokens.Create(store.NewToken{Name: name, Scopes: scopes})
+	if err != nil {
+		d.t.Fatal(err)
 	}
-	if len(be.started) != 0 {
-		t.Errorf("a runner was started with no token configured: %v", be.started)
+	return secret
+}
+
+// login signs in with the admin password and returns the session cookie.
+func (d *daemon) login() *http.Cookie {
+	d.t.Helper()
+	req, _ := http.NewRequest("POST", d.url+"/api/auth/login", strings.NewReader(`{"password":"`+testPassword+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", d.url)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || len(resp.Cookies()) == 0 {
+		d.t.Fatalf("login: %d", resp.StatusCode)
+	}
+	return resp.Cookies()[0]
+}
+
+type cred struct {
+	bearer string
+	cookie *http.Cookie
+}
+
+func (d *daemon) do(method, path string, c cred, body string) (int, string) {
+	d.t.Helper()
+	req, _ := http.NewRequest(method, d.url+path, strings.NewReader(body))
+	req.Header.Set("Origin", d.url)
+	if c.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearer)
+	}
+	if c.cookie != nil {
+		req.AddCookie(c.cookie)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+func (d *daemon) start(name, root string) {
+	d.t.Helper()
+	if err := d.reg.Start(config.Manifest{Name: name, ServerConfig: name + ".yaml", Host: "127.0.0.1", RootPath: root}); err != nil {
+		d.t.Fatal(err)
 	}
 }
 
-// Reading the runner list or the landing page needs the token too: they
-// name every rig on the machine and where it is served.
-func TestReadRoutesNeedTheToken(t *testing.T) {
-	s, _ := newServer("s3cret")
-	if rec := do(t, s, "POST", "/api/runners", "s3cret", goodManifest); rec.Code != http.StatusAccepted {
-		t.Fatalf("start: %d", rec.Code)
-	}
-	for _, path := range []string{"/api/runners", "/api/runners/oven", "/"} {
-		for _, bearer := range []string{"", "wrong"} {
-			if rec := do(t, s, "GET", path, bearer, ""); rec.Code != http.StatusUnauthorized {
-				t.Errorf("GET %s with bearer %q: %d, want 401", path, bearer, rec.Code)
+const goodManifest = `{"name":"oven","server_config":"oven.yaml"}`
+
+// managementRoutes are flyballd's own routes: every one needs a bearer
+// token with the management scope.
+var managementRoutes = []struct{ method, path, body string }{
+	{"GET", "/api/runners", ""},
+	{"GET", "/api/runners/kiln", ""},
+	{"POST", "/api/runners", goodManifest},
+	{"POST", "/api/runners/kiln/restart", ""},
+	{"GET", "/api/runners/kiln/logs", ""},
+	{"DELETE", "/api/runners/kiln", ""},
+	{"GET", "/", ""},
+}
+
+// Merge requirement 18 (F21): management needs the management scope by
+// bearer. No credential, the local shape's console, an admin session and
+// a token without it are all refused.
+func TestManagementNeedsTheManagementScopeByBearer(t *testing.T) {
+	for _, shape := range []string{front.ShapeLocal, front.ShapePassword} {
+		t.Run(shape, func(t *testing.T) {
+			d := newDaemon(t, shape)
+			manage := d.token("ops", "manage")
+			read := d.token("viewer", "read", "operate")
+			refused := map[string]struct {
+				c    cred
+				want int
+			}{
+				"read token":   {cred{bearer: read}, 403},
+				"bad bearer":   {cred{bearer: "fbt1_" + strings.Repeat("A", 43)}, 401},
+				"no bearer":    {cred{}, map[string]int{front.ShapeLocal: 403, front.ShapePassword: 401}[shape]},
+				"unrecognised": {cred{bearer: "s3cret"}, 401},
 			}
-		}
-		if rec := do(t, s, "GET", path, "s3cret", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "oven") {
-			t.Errorf("GET %s with the token: %d %s", path, rec.Code, rec.Body.String())
-		}
-	}
-	closed, _ := newServer("")
-	for _, path := range []string{"/api/runners", "/api/runners/oven", "/"} {
-		if rec := do(t, closed, "GET", path, "", ""); rec.Code != http.StatusServiceUnavailable {
-			t.Errorf("GET %s with no token configured: %d, want 503", path, rec.Code)
-		}
-	}
-	// The per-runner proxy is the runner's own door, not the daemon's.
-	if rec := do(t, s, "GET", "/oven/api/health", "", ""); rec.Code == http.StatusUnauthorized {
-		t.Errorf("the proxy to a runner asked for the daemon's token")
-	}
-}
-
-func TestWrongOrMissingBearerIs401(t *testing.T) {
-	s, be := newServer("s3cret")
-	for _, bearer := range []string{"", "wrong", "s3cret "} {
-		rec := do(t, s, "POST", "/api/runners", bearer, goodManifest)
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("bearer %q: got %d, want 401", bearer, rec.Code)
-		}
-		if got := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(got, "Bearer") {
-			t.Errorf("bearer %q: WWW-Authenticate %q", bearer, got)
-		}
-	}
-	if len(be.started) != 0 {
-		t.Errorf("a runner was started without the token: %v", be.started)
+			if shape == front.ShapePassword {
+				refused["admin session"] = struct {
+					c    cred
+					want int
+				}{cred{cookie: d.login()}, 403}
+			}
+			for _, r := range managementRoutes {
+				d.start("kiln", "/kiln")
+				for name, c := range refused {
+					if code, body := d.do(r.method, r.path, c.c, r.body); code != c.want {
+						t.Errorf("%s %s with %s: %d %s, want %d", r.method, r.path, name, code, body, c.want)
+					}
+				}
+				code, body := d.do(r.method, r.path, cred{bearer: manage}, r.body)
+				if code >= 300 {
+					t.Errorf("%s %s with the management token: %d %s", r.method, r.path, code, body)
+				}
+				d.reg.Stop("kiln")
+				d.reg.Stop("oven")
+			}
+		})
 	}
 }
 
-func TestRightBearerStartsARunner(t *testing.T) {
-	s, be := newServer("s3cret")
-	rec := do(t, s, "POST", "/api/runners", "s3cret", goodManifest)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("got %d %s, want 202", rec.Code, rec.Body.String())
+// GET /api/auth at the daemon root is the front's AuthInfo v2.
+func TestAuthAtTheDaemonRoot(t *testing.T) {
+	d := newDaemon(t, front.ShapePassword)
+	code, body := d.do("GET", "/api/auth", cred{}, "")
+	var info front.AuthInfo
+	if code != 200 || json.Unmarshal([]byte(body), &info) != nil || info.V != 2 || info.Shape != "password" || info.Scheme != "anonymous" {
+		t.Fatalf("/api/auth: %d %s", code, body)
 	}
-	if len(be.started) != 1 || be.started[0] != "oven" {
-		t.Errorf("started %v, want [oven]", be.started)
-	}
-	if rec := do(t, s, "GET", "/api/runners/oven/logs", "s3cret", ""); rec.Code != http.StatusOK || rec.Body.String() != "log\n" {
-		t.Errorf("logs: got %d %q", rec.Code, rec.Body.String())
+	manage := d.token("ops", "manage")
+	code, body = d.do("GET", "/api/auth", cred{bearer: manage}, "")
+	if code != 200 || !strings.Contains(body, `"scheme":"token"`) {
+		t.Fatalf("/api/auth with a token: %d %s", code, body)
 	}
 }
 
-func TestAuthReportsTheCallersLevel(t *testing.T) {
-	s, _ := newServer("s3cret")
-	if rec := do(t, s, "GET", "/api/auth", "", ""); !strings.Contains(rec.Body.String(), `"level":"read"`) {
-		t.Errorf("anonymous: %s", rec.Body.String())
+// F6 / merge requirement 4: a root path that overlaps another rig's (or
+// the daemon's own /api) is refused at registration.
+func TestOverlappingRootPathsAreRefused(t *testing.T) {
+	d := newDaemon(t, front.ShapeLocal)
+	manage := d.token("ops", "manage")
+	d.start("lab", "/lab")
+	for _, body := range []string{
+		`{"name":"inner","server_config":"a.yaml","root_path":"/lab/inner"}`,
+		`{"name":"outer","server_config":"a.yaml","root_path":"/lab"}`,
+		`{"name":"api","server_config":"a.yaml"}`,
+		`{"name":"sub","server_config":"a.yaml","root_path":"/api/sub"}`,
+	} {
+		if code, resp := d.do("POST", "/api/runners", cred{bearer: manage}, body); code != http.StatusConflict {
+			t.Errorf("%s: %d %s, want 409", body, code, resp)
+		}
 	}
-	if rec := do(t, s, "GET", "/api/auth", "s3cret", ""); !strings.Contains(rec.Body.String(), `"level":"operate"`) {
-		t.Errorf("with the token: %s", rec.Body.String())
+	if code, resp := d.do("POST", "/api/runners", cred{bearer: manage}, `{"name":"lab2","server_config":"a.yaml"}`); code != http.StatusAccepted {
+		t.Errorf("/lab2 beside /lab: %d %s, want 202", code, resp)
+	}
+	if got := d.be.started; len(got) != 2 {
+		t.Errorf("started %v, want [lab lab2]", got)
+	}
+}
+
+// Merge requirement 4: aud and scopes come from the same routed entry --
+// the longest root that owns the path.
+func TestAudFromRoutedEntry(t *testing.T) {
+	d := newDaemon(t, front.ShapePassword)
+	d.start("lab", "/lab")
+	d.start("lab2", "/lab2")
+	tok := d.token("ci", "read:lab2")
+	for _, c := range []struct {
+		path, aud string
+		scp       []string
+	}{
+		{"/lab/api/echo", "lab", []string{}},
+		{"/lab2/api/echo", "lab2", []string{"read"}},
+	} {
+		code, body := d.do("GET", c.path, cred{bearer: tok}, "")
+		var e fronttest.Echo
+		if code != 200 || json.Unmarshal([]byte(body), &e) != nil {
+			t.Fatalf("%s: %d %s", c.path, code, body)
+		}
+		if e.Claims.Aud != c.aud || e.Path != c.path || fmt.Sprint(e.Claims.Scp) != fmt.Sprint(c.scp) {
+			t.Errorf("%s: aud %q scp %v path %q, want aud %q scp %v", c.path, e.Claims.Aud, e.Claims.Scp, e.Path, c.aud, c.scp)
+		}
+	}
+}
+
+// A runner that is not running is answered by the front, never proxied.
+func TestStoppedRunnerIs503(t *testing.T) {
+	d := newDaemon(t, front.ShapeLocal)
+	d.start("lab", "/lab")
+	d.be.mu.Lock()
+	d.be.status["lab"] = backend.StatusFailed
+	d.be.mu.Unlock()
+	if code, body := d.do("GET", "/lab/api/echo", cred{}, ""); code != 503 {
+		t.Fatalf("failed runner: %d %s", code, body)
+	}
+	d.be.mu.Lock()
+	d.be.status["lab"] = backend.StatusStarting
+	d.be.mu.Unlock()
+	if code, body := d.do("GET", "/lab/api/echo", cred{}, ""); code != 503 {
+		t.Fatalf("starting runner: %d %s", code, body)
+	}
+	if code, body := d.do("GET", "/nowhere/api/echo", cred{}, ""); code != 404 {
+		t.Fatalf("no rig: %d %s", code, body)
 	}
 }
 
 func TestABadNameOrRootPathIs400NotAStart(t *testing.T) {
-	s, be := newServer("s3cret")
+	d := newDaemon(t, front.ShapeLocal)
+	manage := d.token("ops", "manage")
 	for _, body := range []string{
-		`{"name":"../../etc/cron.d/x","server_config":"a.yaml","port":8101}`,
-		`{"name":"Oven","server_config":"a.yaml","port":8101}`,
-		`{"name":"","server_config":"a.yaml","port":8101}`,
-		`{"name":"oven","server_config":"","port":8101}`,
+		`{"name":"../../etc/cron.d/x","server_config":"a.yaml"}`,
+		`{"name":"Oven","server_config":"a.yaml"}`,
+		`{"name":"","server_config":"a.yaml"}`,
+		`{"name":"oven","server_config":""}`,
 		`{"name":"oven","server_config":"a.yaml","network":"tcp","port":0}`,
-		`{"name":"oven","server_config":"a.yaml","port":8101,"root_path":"oven"}`,
-		`{"name":"oven","server_config":"a.yaml","port":8101,"root_path":"/oven/../x"}`,
-		`{"name":"oven","server_config":"a.yaml","port":8101,"root_path":"/"}`,
+		`{"name":"oven","server_config":"a.yaml","root_path":"oven"}`,
+		`{"name":"oven","server_config":"a.yaml","root_path":"/oven/../x"}`,
+		`{"name":"oven","server_config":"a.yaml","root_path":"/"}`,
+		`{"name":"oven","server_config":"oven.yaml","host":"0.0.0.0"}`,
 	} {
-		rec := do(t, s, "POST", "/api/runners", "s3cret", body)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("%s: got %d, want 400", body, rec.Code)
+		if code, resp := d.do("POST", "/api/runners", cred{bearer: manage}, body); code != http.StatusBadRequest {
+			t.Errorf("%s: got %d %s, want 400", body, code, resp)
 		}
 	}
-	if len(be.started) != 0 {
-		t.Errorf("started %v from bad manifests", be.started)
+	if len(d.be.started) != 0 {
+		t.Errorf("started %v from bad manifests", d.be.started)
 	}
 }
 
 func TestLandingPageEscapesTheRootPath(t *testing.T) {
-	s, _ := newServer("s3cret")
-	rec := do(t, s, "GET", "/", "s3cret", "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
-		t.Fatalf("landing: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	d := newDaemon(t, front.ShapeLocal)
+	d.start("oven", "/oven")
+	code, body := d.do("GET", "/", cred{bearer: d.token("ops", "manage")}, "")
+	if code != http.StatusOK || !strings.Contains(body, `href="/oven/"`) {
+		t.Fatalf("landing: %d %s", code, body)
 	}
 	if got := renderLanding([]string{`/a"><b>`}); strings.Contains(got, `"><b>`) || !strings.Contains(got, "&#34;&gt;&lt;b&gt;") {
 		t.Errorf("landing page did not escape: %s", got)
 	}
 }
 
-func TestRegistryRefusesWhatValidateRefuses(t *testing.T) {
-	be := &fakeBackend{}
-	reg := registry.New(be)
-	if err := reg.Start(config.Manifest{Name: "oven", ServerConfig: "a.yaml", Port: 8101, RootPath: `/oven"><script>`}); err == nil {
-		t.Error("registry accepted a root path with HTML in it")
-	}
-	if err := reg.Start(config.Manifest{Name: "../x", ServerConfig: "a.yaml", Port: 8101, RootPath: "/x"}); err == nil {
-		t.Error("registry accepted a traversing name")
-	}
-	if len(be.started) != 0 {
-		t.Errorf("backend started %v", be.started)
-	}
-	good := config.Manifest{Name: "oven", ServerConfig: "a.yaml", Host: "127.0.0.1", Port: 8101, RootPath: "/oven"}
-	if err := reg.Start(good); err != nil {
-		t.Fatal(err)
-	}
-	if err := reg.Start(good); err == nil {
-		t.Error("registry started the same name twice")
-	}
-}
-
 // Each GET .../logs opens the log file; the handler must close it, or
 // flyballd runs out of descriptors one request at a time.
 func TestLogsClosesTheLog(t *testing.T) {
-	s, be := newServer("s3cret")
-	if rec := do(t, s, "POST", "/api/runners", "s3cret", goodManifest); rec.Code != http.StatusAccepted {
-		t.Fatalf("start: %d", rec.Code)
+	d := newDaemon(t, front.ShapeLocal)
+	manage := d.token("ops", "manage")
+	if code, body := d.do("POST", "/api/runners", cred{bearer: manage}, goodManifest); code != http.StatusAccepted {
+		t.Fatalf("start: %d %s", code, body)
 	}
 	for range 3 {
-		if rec := do(t, s, "GET", "/api/runners/oven/logs", "s3cret", ""); rec.Code != http.StatusOK {
-			t.Fatalf("logs: %d", rec.Code)
+		if code, _ := d.do("GET", "/api/runners/oven/logs", cred{bearer: manage}, ""); code != http.StatusOK {
+			t.Fatalf("logs: %d", code)
 		}
 	}
-	for i, l := range be.logs {
+	for i, l := range d.be.logs {
 		if !l.closed {
 			t.Errorf("log %d left open", i)
 		}
 	}
 }
 
-func TestANonLoopbackHostIs400(t *testing.T) {
-	s, be := newServer("s3cret")
-	rec := do(t, s, "POST", "/api/runners", "s3cret", `{"name":"oven","server_config":"oven.yaml","port":8101,"host":"0.0.0.0"}`)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "loopback") {
-		t.Errorf("host 0.0.0.0: %d %s, want 400", rec.Code, rec.Body.String())
+// GET /api/runners reports each runner's endpoint string.
+func TestRunnersReportTheEndpoint(t *testing.T) {
+	d := newDaemon(t, front.ShapeLocal)
+	d.start("oven", "/oven")
+	code, body := d.do("GET", "/api/runners", cred{bearer: d.token("ops", "manage")}, "")
+	var out []map[string]any
+	if code != 200 || json.Unmarshal([]byte(body), &out) != nil || len(out) != 1 {
+		t.Fatalf("%d %s", code, body)
 	}
-	if len(be.started) != 0 {
-		t.Errorf("started %v", be.started)
-	}
-}
-
-// fakeRunner is a runner at /oven with the given door; it counts the
-// requests that reach it other than GET /oven/api/auth.
-func fakeRunner(t *testing.T, password, token bool) (*httptest.Server, *int) {
-	t.Helper()
-	proxied := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/oven/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{"password": password, "token": token, "level": "operate"})
-			return
-		}
-		proxied++
-		io.WriteString(w, "from the runner")
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &proxied
-}
-
-func proxyingServer(t *testing.T, listen string, insecureOpen bool, runner *httptest.Server) *Server {
-	t.Helper()
-	cfg := config.DefaultDaemonConfig()
-	cfg.Listen = listen
-	cfg.Auth.InsecureOpen = insecureOpen
-	be := &fakeBackend{endpoint: strings.TrimPrefix(runner.URL, "http://")}
-	reg := registry.New(be)
-	if err := reg.Start(config.Manifest{Name: "oven", ServerConfig: "a.yaml", Host: "127.0.0.1", Port: 8101, RootPath: "/oven"}); err != nil {
-		t.Fatal(err)
-	}
-	return New(reg, cfg)
-}
-
-// flyballd beyond loopback does not proxy to an open runner: 503, and
-// the request never reaches it.
-func TestProxyRefusesAnOpenRunnerBeyondLoopback(t *testing.T) {
-	runner, proxied := fakeRunner(t, false, false)
-	for _, listen := range []string{"0.0.0.0:9000", ":9000", "192.168.1.3:9000"} {
-		s := proxyingServer(t, listen, false, runner)
-		rec := do(t, s, "POST", "/oven/api/devices/heater/commands/set", "", "{}")
-		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "open") {
-			t.Errorf("listen %s: got %d %q, want 503 naming the open runner", listen, rec.Code, rec.Body.String())
-		}
-	}
-	if *proxied != 0 {
-		t.Errorf("%d requests reached the open runner", *proxied)
-	}
-}
-
-func TestProxyServesARunnerWithAPasswordOrToken(t *testing.T) {
-	for _, door := range [][2]bool{{true, false}, {false, true}} {
-		runner, proxied := fakeRunner(t, door[0], door[1])
-		s := proxyingServer(t, "0.0.0.0:9000", false, runner)
-		rec := do(t, s, "GET", "/oven/api/devices", "", "")
-		if rec.Code != http.StatusOK || rec.Body.String() != "from the runner" || *proxied != 1 {
-			t.Errorf("door %v: got %d %q (%d proxied), want the runner's answer", door, rec.Code, rec.Body.String(), *proxied)
-		}
-	}
-}
-
-func TestProxyToAnOpenRunnerOnLoopbackOrOptedIn(t *testing.T) {
-	runner, proxied := fakeRunner(t, false, false)
-	for _, c := range []struct {
-		listen string
-		optIn  bool
-	}{{"127.0.0.1:9000", false}, {"localhost:9000", false}, {"0.0.0.0:9000", true}} {
-		s := proxyingServer(t, c.listen, c.optIn, runner)
-		if rec := do(t, s, "GET", "/oven/api/devices", "", ""); rec.Code != http.StatusOK {
-			t.Errorf("%+v: got %d %q, want 200", c, rec.Code, rec.Body.String())
-		}
-	}
-	if *proxied != 3 {
-		t.Errorf("proxied %d, want 3", *proxied)
-	}
-}
-
-// A runner whose door cannot be read is treated as open.
-func TestProxyRefusesARunnerWhoseDoorCannotBeRead(t *testing.T) {
-	broken := httptest.NewServer(http.NotFoundHandler())
-	t.Cleanup(broken.Close)
-	s := proxyingServer(t, "0.0.0.0:9000", false, broken)
-	if rec := do(t, s, "GET", "/oven/api/devices", "", ""); rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("got %d %q, want 503", rec.Code, rec.Body.String())
-	}
-}
-
-func TestStartupWarnings(t *testing.T) {
-	cfg := config.DefaultDaemonConfig()
-	if w := StartupWarnings(cfg); len(w) != 0 {
-		t.Errorf("loopback: %v, want none", w)
-	}
-	cfg.Listen = "0.0.0.0:9000"
-	if w := StartupWarnings(cfg); len(w) != 1 || !strings.Contains(w[0], "unencrypted") {
-		t.Errorf("beyond loopback: %v, want the cleartext warning", w)
-	}
-	cfg.Auth.InsecureOpen = true
-	if w := StartupWarnings(cfg); len(w) != 2 || !strings.Contains(w[1], "open") {
-		t.Errorf("opted in: %v, want the cleartext and the open warning", w)
-	}
-}
-
-// doorRunner is a runner at /oven with a door like the engine's (auth.py):
-// open, it refuses a Host that is not loopback; any refuses a request that
-// acts with an Origin that is not its Host's. Past the door it answers the
-// Host it saw.
-func doorRunner(t *testing.T, open bool) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/oven/api/auth" {
-			json.NewEncoder(w).Encode(map[string]any{"password": !open, "token": false})
-			return
-		}
-		if open && !exposure.LoopbackName(r.Host) {
-			http.Error(w, "loopback names only", http.StatusForbidden)
-			return
-		}
-		acts := r.Header.Get("Upgrade") != "" || (r.Method != "GET" && r.Method != "HEAD")
-		if o := r.Header.Values("Origin"); acts && len(o) > 0 && !exposure.SameSite(o[0], r.Host, "http") {
-			http.Error(w, "foreign Origin", http.StatusForbidden)
-			return
-		}
-		io.WriteString(w, r.Host)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// proxied sends method path to s as if addressed to host, from origin
-// (none for "").
-func proxied(s *Server, method, path, host, origin string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, path, nil)
-	req.Host = host
-	if origin != "" {
-		req.Header.Set("Origin", origin)
-	}
-	if method == "GET" && strings.HasSuffix(path, "/ws/samples") {
-		req.Header.Set("Upgrade", "websocket")
-		req.Header.Set("Connection", "Upgrade")
-	}
-	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, req)
-	return rec
-}
-
-// auth.insecure_open beyond loopback: an open runner is reached by any
-// name, so flyballd hands it its own loopback Host and a same-site Origin
-// as its own; another site's Origin is left for the runner to refuse.
-func TestProxyInsecureOpenTranslatesForAnOpenRunner(t *testing.T) {
-	runner := doorRunner(t, true)
-	s := proxyingServer(t, "0.0.0.0:9000", true, runner)
-	lan := "192.168.1.3:9000"
-	upstream := strings.TrimPrefix(runner.URL, "http://")
-	if rec := proxied(s, "GET", "/oven/api/devices", lan, ""); rec.Code != 200 || rec.Body.String() != upstream {
-		t.Fatalf("GET by the LAN name: %d %q, want 200 from the runner's own Host", rec.Code, rec.Body.String())
-	}
-	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", lan, "http://"+lan); rec.Code != 200 {
-		t.Fatalf("same-site POST: %d %q, want accepted", rec.Code, rec.Body.String())
-	}
-	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", lan, "http://evil.example"); rec.Code != 403 {
-		t.Fatalf("another site's POST: %d, want 403", rec.Code)
-	}
-	if rec := proxied(s, "GET", "/oven/ws/samples", lan, "http://evil.example"); rec.Code != 403 {
-		t.Fatalf("another site's websocket: %d, want 403", rec.Code)
-	}
-}
-
-// flyballd on loopback: its own loopback names are translated; any other
-// name reaches the open runner unchanged and is refused (DNS rebinding).
-func TestProxyOnLoopbackKeepsTheRebindingProtection(t *testing.T) {
-	s := proxyingServer(t, "127.0.0.1:9000", false, doorRunner(t, true))
-	if rec := proxied(s, "GET", "/oven/api/devices", "evil.example", ""); rec.Code != 403 {
-		t.Fatalf("Host evil.example: %d %q, want 403", rec.Code, rec.Body.String())
-	}
-	own := "localhost:9000"
-	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", own, "http://"+own); rec.Code != 200 {
-		t.Fatalf("flyballd's own page: %d %q, want accepted", rec.Code, rec.Body.String())
-	}
-	if rec := proxied(s, "POST", "/oven/api/runner/shutdown", own, "http://evil.example"); rec.Code != 403 {
-		t.Fatalf("another site's POST: %d, want 403", rec.Code)
-	}
-}
-
-// A runner with a password sees the Host it was reached by.
-func TestProxyPasswordRunnerKeepsTheHost(t *testing.T) {
-	for _, listen := range []string{"127.0.0.1:9000", "0.0.0.0:9000"} {
-		s := proxyingServer(t, listen, true, doorRunner(t, false))
-		for _, host := range []string{"pi.lab:9000", "localhost:9000"} {
-			if rec := proxied(s, "GET", "/oven/api/devices", host, ""); rec.Code != 200 || rec.Body.String() != host {
-				t.Errorf("listen %s, Host %s: %d, the runner saw %q", listen, host, rec.Code, rec.Body.String())
-			}
-		}
+	if ep, _ := out[0]["endpoint"].(string); !strings.HasPrefix(ep, "unix:/") {
+		t.Fatalf("endpoint %v", out[0]["endpoint"])
 	}
 }
