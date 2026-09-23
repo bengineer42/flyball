@@ -281,7 +281,7 @@ export interface DeviceOut {
   readable: boolean;
   /** Implements `commit`: has demands. */
   writable: boolean;
-  /** What the device says of itself (its `conditions` signal), then what the runtime knows of polling it (`offline`, `slow`). */
+  /** What the rig holds now on the device and its signals: the runtime's (`offline`, `slow`, `write_failed`) and its driver's own (`broken`). */
   conditions: Condition[];
   run: RunOut | null;
 }

@@ -48,7 +48,6 @@ class TestEzoPh:
     def test_declares_ph_on_the_root(self):
         probe = ezo_ph.EzoPh("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
-            "conditions": "rp",
             "ph": "rp",
         }
         assert probe.signals["ph"].unit.symbol == "pH"

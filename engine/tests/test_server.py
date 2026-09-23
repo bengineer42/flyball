@@ -197,13 +197,12 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     assert furnace["kind"] == "device"
     assert furnace["driver"] is None and furnace["link"] is None and furnace["run"] is None
     assert [s["name"] for s in furnace["signals"]] == [
-        "conditions",
         "zone1",
         "zone2",
         "setpoint",
         "last",
     ]
-    zone1 = furnace["signals"][1]
+    zone1 = furnace["signals"][0]
     assert zone1 == {
         "name": "zone1",
         "address": f"{daq.name}.zone1",
@@ -226,7 +225,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "latest": None,
         "write": None,
     }
-    assert furnace["signals"][3]["access"] == "rpw", "a demand is readable, publishing and writable"
+    assert furnace["signals"][2]["access"] == "rpw", "a demand is readable, publishing and writable"
     assert furnace["commands"] == [
         {
             "name": "restore",
@@ -253,13 +252,12 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
 
     heaters = devices[drive.name]
     assert [s["name"] for s in heaters["signals"]] == [
-        "conditions",
         "heater1",
         "heater2",
         "duty",
         "last",
     ]
-    heater1 = heaters["signals"][1]
+    heater1 = heaters["signals"][0]
     assert heater1["access"] == "rpw" and heater1["limits"] == [0.0, 2500.0]
     assert heaters["commands"] == [
         {
@@ -318,9 +316,9 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     sample = deliver(rig, daq, 5_000_000_000)
     rig.write(drive.root, {"heater1": 3000.0})
     one = client.get(f"/api/devices/{daq.name}").json()
-    assert one["signals"][1]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
-    assert one["signals"][3]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
-    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][1]
+    assert one["signals"][0]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
+    assert one["signals"][2]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
+    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
     assert heater1["write"] == {
         "value": 2500.0,
         "requested": 3000.0,
@@ -334,9 +332,9 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
     sensors = Sensors(fresh("hum"))
     rig.add_device(sensors)
     tree = client.get(f"/api/devices/{sensors.name}").json()["signals"]
-    assert [n["name"] for n in tree] == ["conditions", "chamber", "dry"]
-    assert tree[2]["address"] == f"{sensors.name}.dry" and tree[2]["atomic"] is True
-    assert [s["address"] for s in tree[2]["signals"]] == [
+    assert [n["name"] for n in tree] == ["chamber", "dry"]
+    assert tree[1]["address"] == f"{sensors.name}.dry" and tree[1]["atomic"] is True
+    assert [s["address"] for s in tree[1]["signals"]] == [
         f"{sensors.name}.dry.humidity",
         f"{sensors.name}.dry.temperature",
     ]
@@ -352,7 +350,6 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
     }
     whole = client.get(f"/api/read/{sensors.name}?fresh=true").json()
     assert [s["node"] for s in whole["samples"]] == [
-        sensors.name,  # the base class's `conditions`, pushed once at build
         f"{sensors.name}.chamber",
         f"{sensors.name}.dry",
     ]
@@ -634,10 +631,10 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
             first = ws.receive_json()
             assert first == {
                 "samples": [
-                    {  # the snapshot: every publishing signal's newest, conditions included
+                    {  # the snapshot: every publishing signal's newest
                         "node": device.name,
                         "time_ns": 1,
-                        "values": {"conditions": [], "zone": 21.5},
+                        "values": {"zone": 21.5},
                         "writes": {},
                     }
                 ]
@@ -648,7 +645,7 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
                     {
                         "node": device.name,
                         "time_ns": 2,
-                        "values": {"conditions": [], "zone": 22.0},
+                        "values": {"zone": 22.0},
                         "writes": {},
                     }
                 ]
@@ -675,7 +672,6 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
         first = ws.receive_json()
         entry = next(s for s in first["samples"] if s["node"] == typed.name)
         assert entry["values"] == {
-            "conditions": [],
             "mode": "running",
             "config": {"gain": 2, "offset": 1},
         }

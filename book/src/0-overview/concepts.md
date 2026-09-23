@@ -12,8 +12,8 @@ simulation), and at any moment it is either recording or not.
 **A device** is one thing on the rig -- a sensor, a heater, a bench
 instrument, a pump blender -- and one card on the Devices page. A device
 shows its **signals**, its **commands** (buttons with a form: `set_limit`,
-`off`, `fail`) and its **conditions** (what it says is wrong with itself
-now: offline, railed).
+`off`, `fail`) and its **conditions** (what is wrong with it now: offline,
+railed, a sensor failed; each one's start and end is in the event log).
 
 **A signal** is one value on one device, with a unit: `furnace.zone1`
 reads 412.0 °C. Its **address** -- device, then dots, then name -- is

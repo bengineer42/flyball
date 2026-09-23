@@ -27,7 +27,6 @@ class TestSht4x:
     def test_declares_humidity_and_temperature_on_the_root(self):
         air = sht4x.Sht4x("air", FakeI2c(), sleep=False)
         assert {p: str(s.access) for p, s in air.signals.items()} == {
-            "conditions": "rp",
             "humidity": "rp",
             "temperature": "rp",
         }

@@ -73,7 +73,6 @@ class TestMs5611Device:
         bus = _prom_bus()
         baro = ms5611.Ms5611("baro", bus, sleep=False)
         assert {p: str(s.access) for p, s in baro.signals.items()} == {
-            "conditions": "rp",
             "pressure": "rp",
             "temperature": "rp",
         }

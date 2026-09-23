@@ -31,17 +31,15 @@ const GRID = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(m
 const clock = (ns: number) => new Date(ns / 1e6).toLocaleTimeString();
 
 /**
- * The `mode` output (if the driver declared one) and the addresses of the
- * housekeeping signals every device now carries (`mode`, `conditions`) --
- * shown once in the header, not again as ordinary rows.
+ * The `mode` output (if the driver declared one), shown once in the header,
+ * not again as an ordinary row.
  */
 function specialSignals(device: DeviceOut): { mode?: SignalOut; excluded: Set<Address> } {
   const excluded = new Set<Address>();
   let mode: SignalOut | undefined;
   for (const node of device.signals) {
     if (isNamespace(node)) continue;
-    if (node.name === "conditions") excluded.add(node.address);
-    else if (node.name === "mode") {
+    if (node.name === "mode") {
       mode = node;
       excluded.add(node.address);
     }

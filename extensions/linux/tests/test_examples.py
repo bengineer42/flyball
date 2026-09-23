@@ -46,7 +46,6 @@ def test_the_sim_rig_builds_reads_and_regulates():
     rig = load_rig_config([REAL, SIM]).build(clock=SteppedClock(0), start=False)
     rig.devices["air"].sensor.sleep = False
     assert {p: str(s.access) for p, s in rig.devices["heater"].signals.items()} == {
-        "conditions": "rp",
         "drive": "rpw",
         "frequency_hz": "rp",
         "last.set_frequency": "rp",

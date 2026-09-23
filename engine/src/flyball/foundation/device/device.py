@@ -19,9 +19,15 @@ recorded since the last commit goes to the hardware once). Methods marked
 [command][flyball.foundation.device.commands.command] are what people and programs run;
 the rig runs them, sets the device's `mode`, and records them.
 
-Every device has `conditions`: an output the driver pushes what is true of
-it now onto (railed, overdriven, waiting), beside what the runtime knows of
-polling it. The rig file wraps every device in the same
+What is true of a device now (railed, overdriven, waiting) is a
+**condition**: a driver raises one with
+[set_condition][flyball.foundation.device.device.Device.set_condition] and
+ends it with [clear_condition][flyball.foundation.device.device.Device.clear_condition],
+on the device or on one of its signals. They go to the device's own
+condition store until a rig adds it, then to the rig's, whose edges are
+events; the runtime's own (`offline`, `slow`) sit beside them there.
+
+The rig file wraps every device in the same
 [envelope][flyball.foundation.device.entry.DeviceEntry] around the driver's own
 [config][flyball.foundation.device.device.DriverConfig].
 
@@ -53,7 +59,8 @@ from flyball.model.config import Config
 from ..router.router import Router
 from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
-from .descriptors import Descriptor, Input, Namespace, Readout, _descriptors
+from .conditions import Conditions
+from .descriptors import Descriptor, Input, Namespace, _descriptors
 from .signal import (
     Access,
     Node,
@@ -66,7 +73,7 @@ from .signal import (
     Value,
     WriteState,
 )
-from .state import Condition
+from .state import Condition, Severity
 
 __all__ = [
     "Committable",
@@ -190,12 +197,6 @@ class Device:
     writable: ClassVar[bool] = False
     """Implements `commit`: a [Committable][flyball.foundation.device.device.Committable]."""
 
-    conditions = Readout(
-        "conditions", "Conditions", vtype=tuple[Condition, ...], access=Access.RP, initial=()
-    )
-    """What the driver says is true of the device now; the runtime's `offline` / `slow` are
-    kept beside it, not on it."""
-
     name: str
     label: str | None = None
     """A display name, from the rig file; None: show `name`."""
@@ -216,6 +217,9 @@ class Device:
     """The last state each W signal was committed to, for the wire."""
     router: Router
     """Where this device's values live: its own until a rig adds it, then the rig's."""
+    conditions: Conditions
+    """Where this device's conditions live: its own until a rig adds it (which takes what it
+    holds), then the rig's. A driver uses `set_condition` / `clear_condition`."""
     config_type: ClassVar[type[DriverConfig[Any]]]
     commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
     """Every command, by name: the class's, plus a synthesised `set_<path>` for each demand of a
@@ -228,9 +232,49 @@ class Device:
         self.staged = Staged()
         self.written = {}
         self.router = Router()
+        self.conditions = Conditions(now_ns=lambda: self.router.now_ns())
         self._extended = False
         self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
+
+    # region Conditions
+
+    def set_condition(
+        self,
+        code: str,
+        severity: Severity,
+        message: str,
+        details: Any = None,
+        *,
+        signal: Signal | None = None,
+    ) -> bool:
+        """Hold `code` on this device, or on one of its signals; whether that raised it.
+
+        What the driver knows is true now: railed, overdriven, a sensor
+        failed. Raised once (an event, `edge: raised`, once the device is on a
+        rig); setting it again while it holds updates the message. Safe from
+        any thread, `read` and `commit` included.
+        """
+        owner = self if signal is None else signal
+        return self.conditions.set(owner, code, severity, message, details)
+
+    def clear_condition(
+        self,
+        code: str,
+        details: Any = None,
+        *,
+        signal: Signal | None = None,
+        message: str | None = None,
+    ) -> Condition | None:
+        """End `code` on this device, or on one of its signals: what was held, or None."""
+        owner = self if signal is None else signal
+        return self.conditions.clear(owner, code, details, message=message)
+
+    def held_conditions(self) -> list[Condition]:
+        """What is held now on this device and on its signals, in the order raised."""
+        return [c for owner in (self, *self.signals.values()) for c in self.conditions.of(owner)]
+
+    # endregion
 
     # region Tree
 
@@ -389,7 +433,7 @@ class Device:
 
         # The parents' tree, then a literal `TREE` of the class's own, then its
         # descriptors; `last` is rebuilt below. A literal `TREE` adds to the
-        # base's `conditions`, it does not replace it.
+        # parents', it does not replace it.
         own = cls.__dict__.get("_declared", ())
         literal = cls.__dict__.get("TREE", ())
         parent = next((b.TREE for b in cls.__mro__[1:] if "TREE" in vars(b)), ())
@@ -432,10 +476,6 @@ class Device:
     def config(self) -> DriverConfig[Any]:
         """Default: nothing to say. Override with the config the device was built from."""
         return DriverConfig()
-
-
-Device.TREE = tuple(item.spec() for item in Device.__dict__["_declared"])  # `conditions`
-Device.DESCRIPTORS = _descriptors(Device)
 
 
 class Readable(Device):

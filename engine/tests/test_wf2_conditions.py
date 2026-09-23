@@ -493,3 +493,55 @@ class TestSlow:
 
 
 # endregion
+
+# region Driver-reported conditions
+
+
+class TestDriverConditions:
+    def test_a_device_has_no_conditions_signal(self, fresh):
+        furnace = Furnace(fresh("furnace"))
+        assert "conditions" not in furnace.signals
+
+    def test_a_driver_raises_and_clears_through_the_rig_store(self, rig, clock, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        zone1 = furnace.signals["zone1"]
+        assert furnace.set_condition("railed", Severity.WARNING, "at the power limit") is True
+        furnace.set_condition("broken", Severity.ERROR, "open circuit", signal=zone1)
+        assert [(c.code, c.scope, c.subject) for c in rig.conditions.all()] == [
+            ("railed", Scope.DEVICE, furnace.name),
+            ("broken", Scope.SIGNAL, zone1.address),
+        ]
+        assert [c.code for c in furnace.held_conditions()] == ["railed", "broken"]
+        clock.advance(2.0)
+        furnace.clear_condition("broken", signal=zone1)
+        assert _edges(rig, "broken") == [("raised", zone1.address), ("cleared", zone1.address)]
+        rig.remove_device(furnace.name)
+        assert _edges(rig, "railed") == [("raised", furnace.name), ("cleared", furnace.name)]
+        assert furnace.held_conditions() == [], "a removed device keeps nothing of the rig's"
+
+    def test_what_a_driver_raised_before_it_was_added_is_taken_into_the_rig(self, rig, fresh):
+        furnace = Furnace(fresh("furnace"))
+        furnace.set_condition("waiting", Severity.INFO, "warming up")
+        assert rig.conditions.all() == []
+        rig.add_device(furnace)
+        (held,) = rig.conditions.of(furnace)
+        assert held.code == "waiting" and _edges(rig, "waiting") == [("raised", furnace.name)]
+        furnace.clear_condition("waiting")
+        assert rig.conditions.all() == []
+
+    def test_the_sim_s_broken_sensor_is_a_condition_on_its_signal(self, rig, clock):
+        from flyball_sim import Lag, SimDaq
+        from flyball_sim.devices import DaqPort
+
+        port = DaqPort(port="output", quantity="temperature", unit="°C")
+        daq = SimDaq("daq", Lag(tau_s=10.0, value=20.0), {"t": port})
+        rig.add_device(daq)
+        daq.fail("t")
+        (broken,) = rig.conditions.all()
+        assert (broken.code, broken.scope, broken.subject) == ("broken", Scope.SIGNAL, "daq.t")
+        daq.restore("t")
+        assert rig.conditions.all() == []
+
+
+# endregion

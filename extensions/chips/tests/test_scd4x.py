@@ -40,7 +40,6 @@ class TestScd4x:
     def test_declares_co2_temperature_and_humidity_on_the_root(self):
         air = scd4x.Scd4x("air", FakeI2c(), sleep=False)
         assert {p: str(s.access) for p, s in air.signals.items()} == {
-            "conditions": "rp",
             "co2": "rp",
             "temperature": "rp",
             "humidity": "rp",

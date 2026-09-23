@@ -555,7 +555,7 @@ class TestDriverTools:
         assert report["ok"], report
         (driver,) = report["drivers"]
         assert driver["type"] == name and driver["readable"] and not driver["writable"]
-        assert driver["descriptors"] == ["conditions", "value"] and driver["commands"] == ["reset"]
+        assert driver["descriptors"] == ["value"] and driver["commands"] == ["reset"]
         assert "properties" in driver["schema"]
 
     def test_check_driver_reports_a_broken_module(self, client, tmp_path):

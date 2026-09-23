@@ -100,7 +100,7 @@ def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
 def _run_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:
     """The run, with what the rig holds on the device now (a snapshot of the store)."""
     device = rig.devices.get(name)
-    held = [] if device is None else rig.conditions.of(device)
+    held = [] if device is None else device.held_conditions()
     return {
         "name": name,
         **RUN.dump_python(run, mode="json"),

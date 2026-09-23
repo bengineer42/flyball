@@ -110,7 +110,6 @@ class TestCcs811Device:
         gas = ccs811.Ccs811("gas", bus, sleep=False)
         assert (ccs811.CCS811_ADDRESS, None, [ccs811.APP_START]) in bus.written
         assert {p: str(s.access) for p, s in gas.signals.items()} == {
-            "conditions": "rp",
             "co2eq": "rp",
             "tvoc": "rp",
         }

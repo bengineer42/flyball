@@ -106,7 +106,7 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     assert device.config == {"link": None}
     signals = {s.address: s for s in store.signals(session.id)}
     assert set(signals) == {
-        f"{furnace.name}.{n}" for n in ("conditions", "zone1", "zone2", "heater", "setpoint")
+        f"{furnace.name}.{n}" for n in ("zone1", "zone2", "heater", "setpoint")
     }, "by default everything that publishes or can be written"
     zone1 = signals[f"{furnace.name}.zone1"]
     assert (zone1.quantity, zone1.unit, zone1.access, zone1.range) == (

@@ -555,9 +555,10 @@ export function readable(signal: Pick<SignalOut, "access">): boolean {
 }
 
 /**
- * A device's own housekeeping output: the `conditions` list every device
- * declares at its root. Shown as the device's badge, never as a reading of
- * its own -- a picker, a tile grid or a "last sample" stamp skips it.
+ * A device's own housekeeping output: `last.<command>`, and the `conditions`
+ * list a session recorded before conditions left the signal tree still
+ * holds. Never shown as a reading of its own -- a picker, a tile grid or a
+ * "last sample" stamp skips it.
  */
 export function isHousekeeping(signal: Pick<SignalOut, "name" | "address">): boolean {
   const device = deviceOf(signal.address);

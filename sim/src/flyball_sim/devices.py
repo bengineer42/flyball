@@ -24,14 +24,12 @@ from flyball.foundation.device import (
     Access,
     Bounds,
     Committable,
-    Condition,
     DriverConfig,
     Node,
     NodeSpec,
     Readable,
     Role,
     Sample,
-    Scope,
     Severity,
     Signal,
     SignalSpec,
@@ -392,21 +390,6 @@ class SimDaq(Readable):
         """Signals failed by `fail`, until `restore`."""
         return tuple(str(s.path) for s in self._broken)
 
-    def _push_conditions(self) -> None:
-        self.conditions.push(
-            tuple(
-                Condition(
-                    "broken",
-                    Severity.ERROR,
-                    f"{s.path}: sensor failed (simulated)",
-                    since,
-                    Scope.SIGNAL,
-                    s.address,
-                )
-                for s, since in self._broken.items()
-            )
-        )
-
     def _advance(self, time_ns: int) -> None:
         """Step the plant to `time_ns`: once per instant, whichever device reading it asks first."""
         if isinstance(self.plant, MultiPlant):
@@ -459,15 +442,19 @@ class SimDaq(Readable):
     @command(simulation=True)
     def fail(self, signal: str) -> tuple[str, ...]:
         """Break one sensor: reads raise until `restore`; what the controller does is the test."""
-        self._broken.setdefault(self._signal(signal), self._last_ns or 0)
-        self._push_conditions()
+        broken = self._signal(signal)
+        self._broken.setdefault(broken, self._last_ns or 0)
+        self.set_condition(
+            "broken", Severity.ERROR, f"{broken.path}: sensor failed (simulated)", signal=broken
+        )
         return self.broken
 
     @command(simulation=True)
     def restore(self, signal: str) -> tuple[str, ...]:
         """Mend the sensor; a command on an offline device makes the rig poll it again."""
-        self._broken.pop(self._signal(signal), None)
-        self._push_conditions()
+        mended = self._signal(signal)
+        self._broken.pop(mended, None)
+        self.clear_condition("broken", signal=mended, message=f"{mended.path}: mended")
         return self.broken
 
 

@@ -129,7 +129,6 @@ def test_the_document_validates_against_every_registered_tag():
 
 def test_the_tree_and_the_envelope_s_overrides(rig):
     assert {p: str(s.access) for p, s in rig.devices["chip"].signals.items()} == {
-        "conditions": "rp",
         "temperature": "rp",
         "setpoint": "rpw",
     }

@@ -355,8 +355,8 @@ class DeviceOut(BaseModel):
     code; `class_name` its Python class; `kind` what claimed its name -- `device`, or
     `simulation` for an application's own simulation device, which a UI
     keeps on its simulation page. `conditions` is what the rig's condition
-    store holds on the device (`offline`, `slow`, `write_failed`, ...), then
-    what its driver reports on its `conditions` signal.
+    store holds on the device and its signals: the runtime's (`offline`,
+    `slow`, `write_failed`, ...) and its driver's own.
     """
 
     name: str
@@ -373,7 +373,7 @@ class DeviceOut(BaseModel):
     readable: bool
     writable: bool
     conditions: list[Condition]
-    """What the rig holds on the device now, then what its driver reports of itself."""
+    """What the rig holds on the device and its signals now, the driver's own included."""
     run: RunOut | None = None
 
     @classmethod
@@ -387,8 +387,6 @@ class DeviceOut(BaseModel):
         run: DeviceRun | None,
         conditions: list[Condition] | None = None,
     ) -> DeviceOut:
-        reported = latest.get(device.conditions)
-        conditions = [*(conditions or ()), *(() if reported is None else reported.value)]
         return cls(
             name=device.name,
             label=device.label,
@@ -404,7 +402,7 @@ class DeviceOut(BaseModel):
             },
             readable=device.readable,
             writable=device.writable,
-            conditions=conditions,
+            conditions=list(conditions or ()),
             run=None if run is None else RunOut.of(run),
         )
 

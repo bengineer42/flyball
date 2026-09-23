@@ -45,7 +45,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert client.get("/api/controllers/default").status_code == 503
 
     schema = client.get("/api/controllers/schema").json()
-    # Every signal publishes now (`conditions`, `last.*` included), so check the temperature
+    # Every signal publishes now (`last.*` included), so check the temperature
     # zones are among the sources, in order, rather than the whole (much longer) list.
     source_addresses = [s["address"] for s in schema["measured"]]
     assert source_addresses.index(source) < source_addresses.index(f"{daq.name}.zone2")
@@ -141,7 +141,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert reg.json()["output"] == 0.0 and reg.json()["expected"] == 0.0
     assert drive.inputs["heater1"] == 0.0
     assert reg.json()["measured"] is None, "attached after the delivery: no tick yet"
-    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][1]
+    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
     assert heater1["write"]["controller"] == target and heater1["write"]["at_limit"] == "low"
 
     # A delivery steps the law: P with kp 10 on an error of 38.5 asks for 385 W.

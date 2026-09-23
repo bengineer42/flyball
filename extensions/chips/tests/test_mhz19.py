@@ -39,7 +39,6 @@ class TestMhZ19:
     def test_declares_co2_on_the_root(self):
         sensor = mhz19.MhZ19("air", FakeUart())
         assert {p: str(s.access) for p, s in sensor.signals.items()} == {
-            "conditions": "rp",
             "co2": "rp",
         }
         assert sensor.signals["co2"].unit.symbol == "ppm"

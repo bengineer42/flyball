@@ -3,7 +3,7 @@
 A device is polled on the smallest `poll_s` in its tree; a signal with a
 longer one of its own is due only every so often. Every multi-signal
 driver asks a [Scan][flyball.hardware.scan.Scan] which of its own signals
-(registers, channels -- never `conditions` or `last.*`) are due at an
+(registers, channels -- never `last.*`) are due at an
 instant, so the rule lives once.
 """
 
@@ -34,8 +34,7 @@ class Scan:
         `whole` -- a read someone asked for -- takes every readable one;
         the runtime's poll takes the published ones whose period has
         passed. The caller passes its own registers or channels, never the
-        device's whole tree, so `conditions` and `last.*` are never among
-        them.
+        device's whole tree, so `last.*` is never among them.
         """
         found: list[Signal] = []
         for signal in signals:

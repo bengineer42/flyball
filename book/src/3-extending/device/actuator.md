@@ -136,22 +136,27 @@ unless `interrupts=True`, which puts the controller in manual first (an
 
 ## Conditions
 
-Something true of the device *now* — railed, offline, overdriven — is a
-`Condition`, pushed onto the base class's own `conditions` output:
+Something true of the device *now* — railed, overdriven, a sensor failed —
+is a condition, raised and cleared through the device:
 
 ```python
-self.conditions.push((Condition("railed", Level.WARNING, "at the power limit", time_ns),))
+self.set_condition("railed", Severity.WARNING, "at the power limit")
+...
+self.clear_condition("railed")
 ```
 
-It appears while it holds and is gone when it clears (push `()`) — a client
-joining late sees the present, not a log. `kind` is stable and
-machine-readable; `level` uses `logging`'s numbers.
+It is held while it holds and gone when it clears — a client joining late
+sees the present in `conditions`, and the event log has one `raised` and
+one `cleared` edge for it, not one per call. `code` is stable and
+machine-readable; `severity` is `debug`, `info`, `warning` or `error`.
+`signal=` puts it on one of the device's signals instead. See
+[Conditions](../model.md#conditions).
 
 For a moment rather than a condition — a demand clamped, a retry that
 worked — a device with a rig in hand records an event instead:
 
 ```python
-rig.event(Level.WARNING, "device", self.name, "clamped", f"{demand} limited to {limit}")
+rig.event(Severity.WARNING, "device", self.name, "clamped", f"{demand} limited to {limit}")
 ```
 
 The rig keeps the last few hundred, streams them on `/ws/events`, and

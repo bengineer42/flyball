@@ -33,7 +33,7 @@ class TestSimDaq:
         daq = _built(
             SimDaqConfig(link="tube", ports={"z1": "zone1", "sample": "sample"}), "f", tube
         )
-        assert [str(s) for s in daq.signals] == ["conditions", "z1", "sample"]
+        assert [str(s) for s in daq.signals] == ["z1", "sample"]
         z1 = daq.signals["z1"]
         assert z1.address == "f.z1" and z1.access == Access.RP and z1.unit.symbol == "°C"
         assert z1.quantity.name == "temperature" and z1.spec.range is None
@@ -90,12 +90,12 @@ class TestSimDaq:
         list(daq.read(5_000_000_000))
         broken = daq.fail("z2")
         assert broken == ("z2",)
-        (condition,) = daq.conditions.value
-        assert condition.code == "broken" and condition.since_ns == 5_000_000_000
+        (condition,) = daq.held_conditions()
+        assert condition.code == "broken" and condition.subject == "f.z2"  # on the signal, stamped by the device clock
         assert "z2" in condition.message
         with pytest.raises(HardwareError, match=r"f\.z2: sensor failed \(simulated\)"):
             list(daq.read(6_000_000_000))
-        assert daq.restore("z2") == () and daq.conditions.value == ()
+        assert daq.restore("z2") == () and daq.held_conditions() == []
         assert list(daq.read(6_000_000_000))
         with pytest.raises(NotFoundError, match="no signal 'z9'"):
             daq.fail("z9")
@@ -120,7 +120,7 @@ class TestNamespaces:
             tube,
         )
         rig.add_device(daq)
-        assert list(daq.signals) == ["conditions", "entry.zone", "entry.sample", "exit.zone"]
+        assert list(daq.signals) == ["entry.zone", "entry.sample", "exit.zone"]
         assert list(daq.nodes) == ["entry", "exit"] and daq.nodes["entry"].atomic
         humidity = rig.resolve("dev.entry.zone")
         assert humidity is daq.signals["entry.zone"] and humidity.address == "dev.entry.zone"

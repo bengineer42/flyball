@@ -112,8 +112,8 @@ class Modbus(Readable, Committable):
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One register read per due, publishing signal under `node`: each its own instant.
 
-        Walks `registers`, not the tree: `conditions` and any `last.*` are in
-        every device's tree now, and neither has a register behind it.
+        Walks `registers`, not the tree: any `last.*` is in the device's
+        tree too, and has no register behind it.
         """
         target = node if node is not None else self.root
         candidates = {

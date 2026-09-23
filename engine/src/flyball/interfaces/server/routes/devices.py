@@ -217,7 +217,7 @@ def device_out(rig: Rig, device: Device) -> DeviceOut:
             latest=rig.latest,
             link=link_name(rig, device),
             run=run_of(rig, device.name),
-            conditions=rig.conditions.of(device),
+            conditions=device.held_conditions(),
         )
 
 

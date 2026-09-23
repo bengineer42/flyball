@@ -168,8 +168,8 @@ class QCoDeS(Readable, Committable):
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One `get()` per due, published, actually-gettable channel under `node`.
 
-        Walks `channels`, not the tree: `conditions` and any `last.*` are in
-        every device's tree now, and neither has a parameter behind it. A
+        Walks `channels`, not the tree: any `last.*` is in the device's
+        tree too, and has no parameter behind it. A
         demand whose parameter has no getter is skipped here -- its reading
         is the value last committed, not a poll.
         """

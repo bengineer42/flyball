@@ -237,6 +237,12 @@ class Rig:
             signal.bind_limits()  # a limit naming nothing fails here, not at the first demand
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
+        # What its driver raised before it was added is raised here, on the rig's clock.
+        held, device.conditions = device.conditions.items(), self.conditions
+        for owner, condition in held:
+            self.conditions.set(
+                owner, condition.code, condition.severity, condition.message, condition.details
+            )
         own, device.router = device.router, self.router
         if own.latest:  # what it pushed before it was added: initial values, configs
             now = self.clock.now_ns()
@@ -1066,6 +1072,7 @@ class Rig:
             writer.stop(join=False)  # a write in flight lands in `written`, which drops it
         self.release(device.name)
         device.router = Router()
+        device.conditions = Conditions(now_ns=lambda: device.router.now_ns())
 
     def document(self) -> dict[str, Any]:
         """The running rig as a rig file: what `RigConfig` would load to build it again.

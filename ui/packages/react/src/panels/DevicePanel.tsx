@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { describeDevice, describeSignal, isNamespace, type Condition, type DeviceOut, type DeviceSchema, type DeviceView, type SignalOut } from "@flyball/client";
+import { describeDevice, describeSignal, isNamespace, type DeviceOut, type DeviceSchema, type DeviceView, type SignalOut } from "@flyball/client";
 import { Ref } from "../links.js";
 import { useDeviceRun, useLatestValue } from "../store/hooks.js";
 import { CommandForm, type CommandFormProps } from "./CommandForm.js";
@@ -59,12 +59,6 @@ function Section({ title, open: initial = false, children }: { title: string; op
 /** Time of day of a rig timestamp. */
 const clock = (ns: number) => new Date(ns / 1e6).toLocaleTimeString();
 
-/** The runtime's conditions (`offline`, `slow`) replace the device's own of the same kind; everything else the device reported stands. */
-function mergeConditions(base: readonly Condition[], runtime: readonly Condition[]): Condition[] {
-  const codes = new Set(runtime.map((c) => c.code));
-  return [...base.filter((c) => !codes.has(c.code)), ...runtime];
-}
-
 /** The device's `mode` output, if its driver declared one: a top-level signal named `mode`. */
 function modeSignalOf(device: DeviceOut): SignalOut | undefined {
   return device.signals.find((n): n is SignalOut => !isNamespace(n) && n.name === "mode");
@@ -84,7 +78,9 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
   const names = commands ?? (compact ? [] : Object.keys(schema.commands).filter((t) => !schema.commands[t]?.simulation));
   const live = useDeviceRun(device.name);
   const run = live ?? device.run;
-  const conditions = live ? mergeConditions(device.conditions, live.conditions) : device.conditions;
+  // The live run carries everything the rig holds on the device (the runtime's and its driver's);
+  // an unpolled device has no run, so what `GET /api/devices` said stands.
+  const conditions = live?.conditions ?? device.conditions;
   const modeSignal = modeSignalOf(device);
   const liveMode = useLatestValue(modeSignal?.address);
   const currentMode = liveMode?.value ?? modeSignal?.latest?.value ?? modeSignal?.initial;

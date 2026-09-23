@@ -102,7 +102,6 @@ class TestGpioLine:
         chip = FakeGpio()
         relay = GpioLine("relay", chip, 18, invert=True)
         assert {p: str(s.access) for p, s in relay.signals.items()} == {
-            "conditions": "rp",
             "on": "rpw",
             "last.on": "rp",
             "last.off": "rp",
@@ -133,7 +132,6 @@ class TestGpioLine:
         chip = FakeGpio(levels={17: True})
         door = GpioLine("door", chip, 17, direction="input", pull_up=True, invert=True)
         assert {p: str(s.access) for p, s in door.signals.items()} == {
-            "conditions": "rp",
             "level": "rp",
             "last.on": "rp",
             "last.off": "rp",
@@ -222,7 +220,6 @@ class TestDs18b20:
         bus = FakeOneWire({"28-1": self.GOOD})
         probe = Ds18b20("soil", bus, "28-1")
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
-            "conditions": "rp",
             "temperature": "rp",
         }
         (sample,) = probe.read(3)

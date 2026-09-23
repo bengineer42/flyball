@@ -104,7 +104,6 @@ def heater(rig: Rig) -> Heater:
 class TestStructure:
     def test_tree_roles_sections_and_synthesised_setters(self, heater: Heater) -> None:
         assert list(heater.signals) == [
-            "conditions",
             "max_duty",
             "power",
             "mode",

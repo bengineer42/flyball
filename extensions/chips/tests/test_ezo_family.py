@@ -57,7 +57,6 @@ class TestEzoEc:
     def test_declares_the_four_outputs_on_the_root(self):
         probe = ezo_ec.EzoEc("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
-            "conditions": "rp",
             "conductivity": "rp",
             "total_dissolved_solids": "rp",
             "salinity": "rp",
@@ -124,7 +123,6 @@ class TestEzoOrp:
     def test_declares_orp_on_the_root(self):
         probe = ezo_orp.EzoOrp("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
-            "conditions": "rp",
             "orp": "rp",
         }
         assert probe.signals["orp"].unit.symbol == "mV"
@@ -184,7 +182,6 @@ class TestEzoDo:
     def test_declares_dissolved_oxygen_on_the_root(self):
         probe = ezo_do.EzoDo("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
-            "conditions": "rp",
             "dissolved_oxygen": "rp",
         }
         assert probe.signals["dissolved_oxygen"].unit.symbol == "mg/L"

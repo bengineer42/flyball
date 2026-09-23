@@ -145,7 +145,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, scope, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed` on a controller, `recording_failed` on the rig), then what drivers report on their `conditions` signals; `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `warning` (counts as warn) or `error` (counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, scope, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed` on a controller, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `warning` (counts as warn) or `error` (counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{name: LawConfig}` |
@@ -207,9 +207,9 @@ built in code), `class_name` its Python class, `link` the rig file's name for th
 it was built on (or null), `signals` the tree, `commands` `[CommandOut]`,
 `inputs` `{role: InputOut}` — what the device follows, and what is bound to
 it — `readable`/`writable` whether it implements `read`/`commit`,
-`conditions` what the rig's condition store holds on the device (`offline`,
-`slow`, `write_failed`, `commit_failed`), then what its driver pushed onto its
-`conditions` output, and `run` `{period_s, running,
+`conditions` what the rig's condition store holds on the device and its
+signals (`offline`, `slow`, `write_failed`, `commit_failed`, and the
+driver's own, such as the sim's `broken`), and `run` `{period_s, running,
 last_read_ns, read_s, missed}` for a polled device (null otherwise):
 `read_s` is how long the last read took (the driver's `read` alone, in
 seconds of the rig's time, not the delivery after it), `missed` how many

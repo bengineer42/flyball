@@ -70,7 +70,7 @@ class SimFurnace(Readable, Committable):
         self.bind(tree)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        temps = {s: 20.0 for s in self.published.values() if s is not self.conditions}
+        temps = {s: 20.0 for s in self.published.values()}
         yield Sample(self.root, time_ns, temps)
 
     def write_signal(self, signal: Signal, value: float) -> None:
@@ -113,7 +113,6 @@ class TestBinding:
         assert sensors.root.spec is None and sensors.root.device is sensors
         assert list(sensors.nodes) == ["chamber", "dry", "wet"]
         assert list(sensors.signals) == [
-            "conditions",
             "chamber.humidity",
             "chamber.temperature",
             "dry.humidity",
@@ -127,12 +126,11 @@ class TestBinding:
         assert sensors.signals["dry.humidity"].node is dry
         assert dry.signals["humidity"] is sensors.signals["dry.humidity"]
         assert sensors.root.children["dry"] is dry
-        assert list(sensors.root.signals) == ["conditions"], "a literal TREE adds to the base"
+        assert list(sensors.root.signals) == [], "a literal TREE adds to the base"
 
     def test_a_dynamic_tree_is_bound_by_the_driver(self):
         furnace = SimFurnace("furnace", zones=3, power_w=(2500.0, 6000.0, 2000.0))
         assert list(furnace.signals) == [
-            "conditions",
             "zone1",
             "zone2",
             "zone3",
@@ -148,13 +146,13 @@ class TestBinding:
 
     def test_views_by_access(self):
         furnace = SimFurnace("f", zones=2, power_w=(1.0, 1.0))
-        assert list(furnace.published) == ["conditions", "zone1", "zone2", "sample"]
-        assert list(furnace.readables) == ["conditions", "zone1", "zone2", "sample"]
+        assert list(furnace.published) == ["zone1", "zone2", "sample"]
+        assert list(furnace.readables) == ["zone1", "zone2", "sample"]
         assert list(furnace.writables) == ["heater1", "heater2"]
         blender = Blender("b")
         assert list(blender.writables) == ["humidity", "dry_flow", "wet_flow", "blend_flow"]
-        assert list(blender.readables) == ["conditions", "blend_flow", "expected_humidity"]
-        assert list(blender.published) == ["conditions", "expected_humidity"]
+        assert list(blender.readables) == ["blend_flow", "expected_humidity"]
+        assert list(blender.published) == ["expected_humidity"]
 
     def test_a_namespace_two_deep(self):
         class Stage(Device):
@@ -177,10 +175,7 @@ class TestBinding:
         assert stage.nodes["left.dry"].address == "stage.left.dry"
         assert stage.signals["left.dry.humidity"].address == "stage.left.dry.humidity"
         assert stage.signals["left.dry.humidity"].path == Path.parse("left.dry.humidity")
-        assert list(stage.root.walk()) == [
-            stage.signals["conditions"],
-            stage.signals["left.dry.humidity"],
-        ]
+        assert list(stage.root.walk()) == [stage.signals["left.dry.humidity"]]
 
     def test_duplicate_names_are_refused(self):
         class Twice(Device):
@@ -192,14 +187,14 @@ class TestBinding:
         with pytest.raises(ValueError, match="'d.x' is declared twice"):
             Twice("d")
 
-    def test_a_bare_device_has_an_empty_tree_beyond_conditions(self):
+    def test_a_bare_device_has_an_empty_tree(self):
         bare = Device("bare")
-        assert list(bare.signals) == ["conditions"], "every device has this much"
+        assert list(bare.signals) == []
         assert bare.staged == {} and bare.bound == {}
         assert bare.poll_s is None and bare.label is None
         assert bare.root.address == "bare" and bare.nodes == {}
-        assert list(bare.root.walk()) == [bare.signals["conditions"]]
-        assert list(bare.published) == ["conditions"]
+        assert list(bare.root.walk()) == []
+        assert list(bare.published) == []
 
 
 class TestPollPeriod:
@@ -549,4 +544,4 @@ def test_a_device_binds_once(fresh):
         furnace.bind(())
     bare = Device(fresh("bare"))
     bare.bind((SignalSpec(name="x", quantity=TEMP, access=Access.R),))
-    assert list(bare.signals) == ["conditions", "x"], "the base tree is extended, not replaced"
+    assert list(bare.signals) == ["x"], "a bare device's tree is exactly what it binds"

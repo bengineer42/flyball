@@ -105,7 +105,6 @@ class TestAnyMultiPlant:
             chamber,
         )
         assert [s.address for s in daq.root.walk()] == [
-            "hum_sensors.conditions",
             "hum_sensors.chamber.humidity",
             "hum_sensors.dry.humidity",
             "hum_sensors.wet.humidity",

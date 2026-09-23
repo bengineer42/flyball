@@ -45,7 +45,7 @@ class Daq(Readable):
         ])
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        temps = {s: 20.0 for s in self.published.values() if s is not self.conditions}
+        temps = {s: 20.0 for s in self.published.values()}
         yield Sample(self.root, time_ns, temps)
 
 

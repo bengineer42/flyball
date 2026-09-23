@@ -135,9 +135,8 @@ class Scpi(Readable, Committable):
 
         A slow bus never claims two queries were simultaneous, so each
         yields its own [Sample][flyball.foundation.device.Sample] rather than one
-        shared dict of values. Walks `channels`, not the tree: `conditions`
-        and any `last.*` are in every device's tree now, and neither has a
-        query behind it.
+        shared dict of values. Walks `channels`, not the tree: any
+        `last.*` is in the device's tree too, and has no query behind it.
         """
         target = node if node is not None else self.root
         candidates = {

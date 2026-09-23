@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import SerializeAsAny, TypeAdapter, ValidationError
 
 from flyball.control.errors import TuningNotRegisteredError
-from flyball.foundation.device import Condition, Device, Severity
+from flyball.foundation.device import Condition, Severity
 from flyball.interfaces.server.deps import (
     RigDep,
     current_exposure,
@@ -78,21 +78,14 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
 CONDITION = TypeAdapter(Condition)
 
 
-def _device_conditions(rig: Rig, device: Device) -> tuple[Condition, ...]:
-    reading = rig.router.reading(device.conditions)
-    return () if reading is None else tuple(reading.value)
-
-
 def _conditions(rig: Rig) -> list[dict[str, Any]]:
-    """Every condition held now: the rig's store, then drivers' `conditions` signals.
+    """Every condition held now, from the rig's store: the runtime's and the drivers' alike.
 
     Each carries its `scope` and `subject`. A snapshot of the store under its
     own lock, never the rig's: the health route runs on the event loop, which
     must not wait on a delivery.
     """
-    devices = list(rig.devices.values())
-    reported = [c for device in devices for c in _device_conditions(rig, device)]
-    return [CONDITION.dump_python(c, mode="json") for c in [*rig.conditions.all(), *reported]]
+    return [CONDITION.dump_python(c, mode="json") for c in rig.conditions.all()]
 
 
 # region Health

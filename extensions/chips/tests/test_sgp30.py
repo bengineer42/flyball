@@ -83,7 +83,6 @@ class TestSgp30Device:
         bus = FakeI2c()
         gas = sgp30.Sgp30("gas", bus, sleep=False)
         assert {p: str(s.access) for p, s in gas.signals.items()} == {
-            "conditions": "rp",
             "co2eq": "rp",
             "tvoc": "rp",
             "last.baseline": "rp",

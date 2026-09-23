@@ -151,7 +151,7 @@ def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
     )
     assert furnace.broken == ("zone3",)
     furnace.restore("zone3")
-    assert furnace.conditions.value == () and furnace.broken == ()
+    assert all(c.code != "broken" for c in furnace.held_conditions()) and furnace.broken == ()
     zone1 = rig.resolve("furnace.zone1")
     assert zone1 not in rig.latest, "it failed on the first poll: nothing was ever read"
     rig.polling.restart("furnace")

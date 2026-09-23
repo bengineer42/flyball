@@ -189,9 +189,9 @@ class TestBme280Sensor:
 class TestBme280Device:
     def test_bme280_has_humidity_bmp280_does_not(self):
         wet = bme280.Bme280("wet", _bus(), sleep=False)
-        assert set(wet.signals) == {"conditions", "temperature", "pressure", "humidity"}
+        assert set(wet.signals) == {"temperature", "pressure", "humidity"}
         dry = bme280.Bme280("dry", _bus(has_humidity=False), has_humidity=False, sleep=False)
-        assert set(dry.signals) == {"conditions", "temperature", "pressure"}
+        assert set(dry.signals) == {"temperature", "pressure"}
 
     def test_read_yields_one_sample(self):
         bus = _bus()
