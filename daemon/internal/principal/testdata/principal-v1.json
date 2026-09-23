@@ -1,0 +1,257 @@
+{
+  "spec": "flyball principal v1: front-to-runner signed identity (book/src/4-server/internals.md)",
+  "header": "X-Flyball-Principal",
+  "leeway_s": 5,
+  "max_lifetime_s": 120,
+  "max_token_bytes": 4096,
+  "claim_order": [
+    "sub",
+    "nm",
+    "sid",
+    "scp",
+    "kind",
+    "aud",
+    "cip",
+    "sch",
+    "via",
+    "iat",
+    "exp"
+  ],
+  "optional_omitted_when_empty": [
+    "nm",
+    "via"
+  ],
+  "error_codes_in_check_order": [
+    "format",
+    "version",
+    "mac",
+    "json",
+    "claims",
+    "aud",
+    "lifetime",
+    "expired",
+    "future"
+  ],
+  "aud_of_verifier": "blender",
+  "vectors": [
+    {
+      "name": "ok-human-session",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "claims": {
+        "sub": "local:admin",
+        "nm": "admin",
+        "sid": "s-7Kq2mW9xR4tB1vN8",
+        "scp": [
+          "read",
+          "operate",
+          "stop"
+        ],
+        "kind": "human",
+        "aud": "blender",
+        "cip": "192.168.1.20",
+        "sch": "https",
+        "iat": 1789999990,
+        "exp": 1790000050
+      },
+      "payload": "{\"sub\":\"local:admin\",\"nm\":\"admin\",\"sid\":\"s-7Kq2mW9xR4tB1vN8\",\"scp\":[\"operate\",\"read\",\"stop\"],\"kind\":\"human\",\"aud\":\"blender\",\"cip\":\"192.168.1.20\",\"sch\":\"https\",\"iat\":1789999990,\"exp\":1790000050}",
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.7pO64zq1oeoAXrEef0rqCk0IrjzAxCCRKTclIsczwks",
+      "expect": "ok",
+      "mint": true,
+      "note": "scp is minted sorted and de-duplicated"
+    },
+    {
+      "name": "ok-service-token",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "claims": {
+        "sub": "token:ci-nightly",
+        "sid": "t-Hd81LzQp0sYc",
+        "scp": [
+          "read"
+        ],
+        "kind": "service",
+        "aud": "blender",
+        "cip": "10.0.0.7",
+        "sch": "http",
+        "iat": 1789999990,
+        "exp": 1790000050
+      },
+      "payload": "{\"sub\":\"token:ci-nightly\",\"sid\":\"t-Hd81LzQp0sYc\",\"scp\":[\"read\"],\"kind\":\"service\",\"aud\":\"blender\",\"cip\":\"10.0.0.7\",\"sch\":\"http\",\"iat\":1789999990,\"exp\":1790000050}",
+      "token": "v1.eyJzdWIiOiJ0b2tlbjpjaS1uaWdodGx5Iiwic2lkIjoidC1IZDgxTHpRcDBzWWMiLCJzY3AiOlsicmVhZCJdLCJraW5kIjoic2VydmljZSIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxMC4wLjAuNyIsInNjaCI6Imh0dHAiLCJpYXQiOjE3ODk5OTk5OTAsImV4cCI6MTc5MDAwMDA1MH0.MjO29s8uFzU1VM4fqUTxpBqP3830MubBiKoNv8aaDek",
+      "expect": "ok",
+      "mint": true,
+      "note": "nm and via omitted when empty"
+    },
+    {
+      "name": "ok-agent-mcp-remint",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "claims": {
+        "sub": "proxy:https://team.cloudflareaccess.com#7d1e9c2a-0b4f-4e8e-9a51-2c6f0d3b8e11",
+        "nm": "Zoë Ångström",
+        "sid": "s-Ag3ntMcp00001",
+        "scp": [
+          "read",
+          "author"
+        ],
+        "kind": "agent",
+        "aud": "blender",
+        "cip": "",
+        "sch": "http",
+        "via": "mcp",
+        "iat": 1789999990,
+        "exp": 1790000050
+      },
+      "payload": "{\"sub\":\"proxy:https://team.cloudflareaccess.com#7d1e9c2a-0b4f-4e8e-9a51-2c6f0d3b8e11\",\"nm\":\"Zoë Ångström\",\"sid\":\"s-Ag3ntMcp00001\",\"scp\":[\"author\",\"read\"],\"kind\":\"agent\",\"aud\":\"blender\",\"cip\":\"\",\"sch\":\"http\",\"via\":\"mcp\",\"iat\":1789999990,\"exp\":1790000050}",
+      "token": "v1.eyJzdWIiOiJwcm94eTpodHRwczovL3RlYW0uY2xvdWRmbGFyZWFjY2Vzcy5jb20jN2QxZTljMmEtMGI0Zi00ZThlLTlhNTEtMmM2ZjBkM2I4ZTExIiwibm0iOiJab8OrIMOFbmdzdHLDtm0iLCJzaWQiOiJzLUFnM250TWNwMDAwMDEiLCJzY3AiOlsiYXV0aG9yIiwicmVhZCJdLCJraW5kIjoiYWdlbnQiLCJhdWQiOiJibGVuZGVyIiwiY2lwIjoiIiwic2NoIjoiaHR0cCIsInZpYSI6Im1jcCIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.vuTAvBCBmx9IlPW_m5yjzswBsXS__t55JMBr3UWerWI",
+      "expect": "ok",
+      "mint": true,
+      "note": "non-ASCII kept as UTF-8, not \\u-escaped; cip empty over a unix socket"
+    },
+    {
+      "name": "ok-exp-leeway-edge",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000055,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.7pO64zq1oeoAXrEef0rqCk0IrjzAxCCRKTclIsczwks",
+      "expect": "ok",
+      "mint": false,
+      "note": "now == exp + 5 is still accepted"
+    },
+    {
+      "name": "reject-expired",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000056,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.7pO64zq1oeoAXrEef0rqCk0IrjzAxCCRKTclIsczwks",
+      "expect": "expired",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-wrong-aud",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImZ1cm5hY2UiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.CZEoMLKyi6U0Alj880eXm78yxXHVivYCLWgBwx3H6DE",
+      "expect": "aud",
+      "mint": false,
+      "note": "MAC is good; aud is not this runner's"
+    },
+    {
+      "name": "reject-wrong-key",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.1QQOw8YNb-yGrOI2fTl8ccyo2HU7rmI0eKnKni7kAcM",
+      "expect": "mac",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-tampered-payload",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsImFkbWluIiwic3RvcCJdLCJraW5kIjoiaHVtYW4iLCJhdWQiOiJibGVuZGVyIiwiY2lwIjoiMTkyLjE2OC4xLjIwIiwic2NoIjoiaHR0cHMiLCJpYXQiOjE3ODk5OTk5OTAsImV4cCI6MTc5MDAwMDA1MH0.7pO64zq1oeoAXrEef0rqCk0IrjzAxCCRKTclIsczwks",
+      "expect": "mac",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-truncated-mac",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.AAAAAAAAAAAAAAAAAAAAAA",
+      "expect": "mac",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-version-v2",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v2.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.idh0Op_2dDfyFPV_IoROOC6MGwQJkGQb9P5hKtCpqDQ",
+      "expect": "version",
+      "mint": false,
+      "note": "checked before the MAC"
+    },
+    {
+      "name": "reject-two-parts",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ",
+      "expect": "format",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-padding",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.7pO64zq1oeoAXrEef0rqCk0IrjzAxCCRKTclIsczwks=",
+      "expect": "format",
+      "mint": false,
+      "note": "base64url without padding only"
+    },
+    {
+      "name": "reject-future-iat",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc5MDAwMDAwNiwiZXhwIjoxNzkwMDAwMDY2fQ.9SGFWXcue1-E7d9GKQD9WmDVjLs2m3IWyyajDfFTmjc",
+      "expect": "future",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-lifetime",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAzNTkwfQ.rAsX8eh_VukQKLmeOhTsnZH8nLIkCuSJLMTouKis1TE",
+      "expect": "lifetime",
+      "mint": false,
+      "note": "exp - iat must be in (0, 120]"
+    },
+    {
+      "name": "reject-not-object",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.W10._14Vlt-YU9OpyBhml9Vc41V7DWP0thBrBfVlcx9cGvc",
+      "expect": "json",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-bad-kind",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJyb2JvdCIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.ewGutE-d2SUgTO5P9ZvyooGwenZ982gZNLSdldTQ0nk",
+      "expect": "claims",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-missing-sid",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzY3AiOlsicmVhZCIsIm9wZXJhdGUiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwfQ.2CKFyZ2OZZbYXvIfNNaF66y1M-XEMQfqy4fZTKOQjwI",
+      "expect": "claims",
+      "mint": false,
+      "note": ""
+    },
+    {
+      "name": "reject-float-iat",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MC4wLCJleHAiOjE3OTAwMDAwNTB9.5Opt9W8yrzq7y_h8pYsjFnZoQ2g4VSXG5g--YE27V60",
+      "expect": "claims",
+      "mint": false,
+      "note": "iat and exp are JSON integers, no fraction or exponent"
+    },
+    {
+      "name": "ok-unknown-claim-ignored",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "now": 1790000000,
+      "token": "v1.eyJzdWIiOiJsb2NhbDphZG1pbiIsIm5tIjoiYWRtaW4iLCJzaWQiOiJzLTdLcTJtVzl4UjR0QjF2TjgiLCJzY3AiOlsib3BlcmF0ZSIsInJlYWQiLCJzdG9wIl0sImtpbmQiOiJodW1hbiIsImF1ZCI6ImJsZW5kZXIiLCJjaXAiOiIxOTIuMTY4LjEuMjAiLCJzY2giOiJodHRwcyIsImlhdCI6MTc4OTk5OTk5MCwiZXhwIjoxNzkwMDAwMDUwLCJsb2MiOiJsYW4ifQ.m9yMUHkpUjPUXuIGFn15tSRwoUmdmAFH10kTUwAjeqM",
+      "expect": "ok",
+      "mint": false,
+      "note": "unknown claims are ignored, not rejected"
+    }
+  ]
+}
