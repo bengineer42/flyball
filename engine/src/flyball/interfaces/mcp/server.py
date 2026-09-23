@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from typing import Any
@@ -69,9 +69,10 @@ class ToolCache:
     listens, and so the stdio server does not need the rig up to start.
     """
 
-    def __init__(self, rig: Rig, mode: str) -> None:
+    def __init__(self, rig: Rig, mode: str, host_code: bool = True) -> None:
         self.rig = rig
         self.mode = mode
+        self.host_code = host_code
         self._tools: dict[str, Tool] | None = None
         self._lock = anyio.Lock()
 
@@ -83,20 +84,35 @@ class ToolCache:
         if self._tools is None:
             async with self._lock:
                 if self._tools is None:
-                    built = await to_thread.run_sync(tools_for, self.rig, self.mode)
+                    built = await to_thread.run_sync(
+                        lambda: tools_for(self.rig, self.mode, host_code=self.host_code)
+                    )
                     self._tools = {tool.name: tool for tool in built}
         return self._tools
 
 
-def build(rig: Rig, mode: str, name: str | None = None) -> Server[Any]:
+def build(
+    rig: Rig,
+    mode: str,
+    name: str | None = None,
+    *,
+    caller: Callable[[Any], Rig] | None = None,
+    host_code: bool = True,
+) -> Server[Any]:
     """The MCP server for `rig` in `mode`.
 
     `name` is the rig's own name, for `instructions`; give it when the caller already
     knows it (the runner mounting this in-process) rather than have `build` fetch it --
     the runner is not listening yet when it mounts this, and the rig's own URL, which
     only makes sense from the runner's loopback, is worse than no address at all.
+
+    `caller`, given a tool call's request context, is the rig to run that tool on: the
+    runner's HTTP mount makes it act as whoever called (see `http.py`); a
+    [RigError][flyball.interfaces.client.RigError] from it refuses the call. None: every
+    tool runs on `rig`. `rig` itself lists the tools and refreshes the schema.
+    `host_code=False` leaves out the tools that run code on this machine.
     """
-    registry = ToolCache(rig, mode)
+    registry = ToolCache(rig, mode, host_code)
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
         return types.ListToolsResult(tools=[_wire(t) for t in (await registry.get()).values()])
@@ -110,7 +126,8 @@ def build(rig: Rig, mode: str, name: str | None = None) -> Server[Any]:
         if missing:
             raise MCPError(INVALID_PARAMS, f"{tool.name}: missing required argument {missing[0]!r}")
         try:
-            result = await to_thread.run_sync(tool.run, rig, arguments)
+            acting = rig if caller is None else caller(ctx)
+            result = await to_thread.run_sync(tool.run, acting, arguments)
         except (RigError, SchemaError) as e:
             return _error(str(e))
         if tool.changes_tools:

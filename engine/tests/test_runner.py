@@ -395,6 +395,7 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
     store.close()
     with sqlite3.connect(path) as db:  # then pretend three rows predate it
         db.execute("DROP INDEX session_by_kind")  # 0010's, or it would run again too
+        db.execute("DROP TABLE audit")  # 0012's, likewise (its index and triggers go with it)
         for column in ("kind", "origin_ns", "pinned", "continues", "bytes"):
             db.execute(f"ALTER TABLE session DROP COLUMN {column}")
         db.execute("DROP TABLE rig_head")

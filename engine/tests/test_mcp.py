@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import socket
+import tempfile
+import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -33,7 +40,7 @@ class InProcess(Client):
         self.http = http
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
-        response = self.http.request(method, path, json=body)
+        response = self.http.request(method, path, json=body, headers=self.headers)
         if response.status_code >= 400:
             from flyball.interfaces.client.rig import RigError
 
@@ -646,3 +653,326 @@ class TestComposition:
                     described = await session.call_tool("describe_device", {"name": "spare"})
                     assert not described.is_error
                 tg.cancel_scope.cancel()
+
+
+# region The re-mint: an MCP tool's inner call carries its caller, capped to the mode
+
+
+class Spy:
+    """ASGI: the `X-Flyball-Principal` of every request that is not an MCP request itself."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+        self.inner: list[tuple[str, str | None]] = []
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and "/mcp/" not in scope["path"]:
+            headers = dict(scope.get("headers") or [])
+            token = headers.get(b"x-flyball-principal")
+            self.inner.append((scope["path"], None if token is None else token.decode()))
+        await self.app(scope, receive, send)
+
+
+@dataclass
+class Served:
+    """A runner's app with MCP mounted as `serve` mounts it, serving on a real socket."""
+
+    app: Any
+    spy: Spy
+    base: str
+    uds: str | None
+    key: bytes
+    aud: str
+    fronted: bool
+    token: str | None = None
+
+    def http(self) -> Any:
+        import httpx
+
+        transport = httpx.HTTPTransport(uds=self.uds) if self.uds else None
+        return httpx.Client(base_url=self.base, transport=transport, timeout=10)
+
+    def caller(self, scp: set[str], sid: str = "s-caller") -> dict[str, str]:
+        """The credential the outer request carries: a front's principal, or the token."""
+        from flyball.interfaces.server import principal
+
+        if not self.fronted:
+            return {"Authorization": f"Bearer {self.token}"}
+        now = int(time.time())
+        claims = principal.Claims(
+            sub="token:ci",
+            sid=sid,
+            scp=frozenset(scp),
+            kind="agent",
+            aud=self.aud,
+            cip="192.0.2.7",
+            sch="https",
+            iat=now,
+            exp=now + principal.LIFETIME,
+            nm="CI",
+        )
+        return {"X-Flyball-Principal": principal.mint(self.key, claims)}
+
+    def session(self, http: Any, mode: str, auth: dict[str, str]) -> dict[str, str]:
+        headers = {"Accept": "application/json, text/event-stream", **auth}
+        init = http.post(
+            f"/mcp/{mode}",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "0"},
+                },
+            },
+            headers=headers,
+        )
+        assert init.status_code == 200, init.text
+        headers["mcp-session-id"] = init.headers["mcp-session-id"]
+        http.post(
+            f"/mcp/{mode}",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=headers,
+        )
+        return headers
+
+    def call(
+        self, mode: str, tool: str, arguments: dict[str, Any] | None = None, *, scp: set[str]
+    ) -> dict[str, Any]:
+        with self.http() as http:
+            headers = self.session(http, mode, self.caller(scp))
+            body = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": arguments or {}},
+            }
+            answer = http.post(f"/mcp/{mode}", json=body, headers=headers)
+            assert answer.status_code == 200, answer.text
+            return answer.json()["result"]
+
+    def listed(self, mode: str, *, scp: set[str]) -> set[str]:
+        with self.http() as http:
+            headers = self.session(http, mode, self.caller(scp))
+            body = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+            answer = http.post(f"/mcp/{mode}", json=body, headers=headers)
+            return {t["name"] for t in answer.json()["result"]["tools"]}
+
+    def minted(self) -> list[Any]:
+        """The claims of every inner call so far, verified as the door did when it came."""
+        import base64
+
+        from flyball.interfaces.server import principal
+
+        def iat(token: str) -> int:
+            payload = token.split(".")[1]
+            return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["iat"]
+
+        return [
+            principal.verify(token, self.key, self.aud, now=iat(token))
+            for path, token in self.spy.inner
+            if token is not None
+        ]
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+@pytest.fixture(params=["fronted", "bare"])
+def served(request, rig, tmp_path) -> Any:
+    """`serve`'s app and MCP mount, fronted over a unix socket or bare over loopback TCP."""
+    import uvicorn
+
+    from flyball.interfaces.server.auth import Fronted
+    from flyball.runner.frontdir import FrontDir
+    from flyball.runner.serving import mount_mcp
+    from flyball.runtime.config import AuthConfig, RunnerConfig
+
+    rig.name = "t"
+    rig.add_device(Drive("heaters"))
+    set_rig(rig)
+    set_store(SqliteStore(tmp_path / "t.db"))
+    fronted = request.param == "fronted"
+    folder = Path(tempfile.mkdtemp(prefix="a6-"))
+    if fronted:
+        key, aud = os.urandom(32), "rig-a6"
+        sock = str(folder / "endpoint.sock")
+        front = FrontDir(folder, key, aud, f"unix:{sock}")
+        settings = RunnerConfig()
+        app = create_app(front=Fronted(key, aud))
+        bind: dict[str, Any] = {"uds": sock}
+        base, uds, token = "http://localhost", sock, None
+    else:
+        front, token, port = None, "s3cret-token", _free_port()
+        settings = RunnerConfig(port=port, auth=AuthConfig(token=token))
+        app = create_app(settings.auth, port=port, login_delay=0)
+        bind = {"host": "127.0.0.1", "port": port}
+        base, uds = f"http://127.0.0.1:{port}", None
+    mount_mcp(app, "t", settings, front)
+    door = app.state.door
+    spy = Spy(app)
+    server = uvicorn.Server(uvicorn.Config(spy, log_level="warning", **bind))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started:
+        assert time.monotonic() < deadline, "the server did not start"
+        time.sleep(0.02)
+    try:
+        yield Served(app, spy, base, uds, door.key, door.aud, fronted, token)
+    finally:
+        server.should_exit = True
+        thread.join(10)
+        set_rig(None)
+        set_store(None)
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _sneak(rig: Any, a: dict[str, Any]) -> Any:
+    """A read-tier tool that acts anyway: what the re-mint is there to catch."""
+    return rig.post("/api/devices/heaters/commands/set_duty", {"duty": 0.5})
+
+
+def _twice(rig: Any, a: dict[str, Any]) -> Any:
+    """Two inner calls with more than a principal's lifetime between them."""
+    first = rig.get("/api/health")
+    _CLOCK[0] += 70
+    second = rig.get("/api/health")
+    return {"first": first["rig"], "second": second["rig"]}
+
+
+_CLOCK = [0.0]
+
+
+@pytest.fixture
+def extra_tools(monkeypatch):
+    from flyball.interfaces.mcp import tools
+
+    extra = (
+        tools.Tool("sneak", "Acts from the read tier.", tools._object(), Tier.READ, _sneak),
+        tools.Tool("twice", "Two calls, 70 s apart.", tools._object(), Tier.READ, _twice),
+    )
+    monkeypatch.setattr(tools, "READ", (*tools.READ, *extra))
+
+
+class TestReMint:
+    def test_inner_call_carries_caller(self, served):
+        """`sub`/`sid`/`kind` are the caller's, `via` is mcp, `scp` is caller ∩ the mode."""
+        result = served.call("read", "status", scp={"read", "operate"})
+        assert not result.get("isError"), result
+        inner = served.minted()
+        assert inner, "the tool's calls carry a principal"
+        calls = [c for c in inner if c.via == "mcp"]
+        assert calls, inner
+        want_sub = "token:ci" if served.fronted else "token:bare"
+        for claims in calls:
+            assert claims.sub == want_sub
+            assert claims.scp == {"read"}, "read mode: operate is dropped"
+            assert claims.aud == served.aud
+            assert claims.exp - claims.iat == 60
+        if served.fronted:
+            assert {c.sid for c in calls} == {"s-caller"}
+            assert {(c.kind, c.nm, c.cip, c.sch) for c in calls} == {
+                ("agent", "CI", "192.0.2.7", "https")
+            }
+        served.spy.inner.clear()
+        served.call("operate", "status", scp={"read", "operate"})
+        assert {c.scp for c in served.minted() if c.via == "mcp"} == {
+            frozenset({"read", "operate"})
+        }
+
+    def test_the_runner_s_own_reads_are_its_own(self, served):
+        """Listing the tools is the runner's read, not the caller's: no `via`, only read."""
+        assert "status" in served.listed("operate", scp={"read", "operate"})
+        own = [c for c in served.minted() if c.via != "mcp"]
+        assert own and {(c.sub, c.kind, c.scp) for c in own} == {
+            ("runner:mcp", "service", frozenset({"read"}))
+        }
+
+    def test_no_request_goes_without_a_principal(self, served):
+        served.call("operate", "status", scp={"read", "operate"})
+        assert served.spy.inner
+        assert all(token is not None for _, token in served.spy.inner), served.spy.inner
+
+    def test_read_caller_cannot_reach_operate_route(self, served, extra_tools, rig):
+        """F1, merge requirement 7: a read-mode tool that acts is refused at the door."""
+        refused = served.call("read", "sneak", scp={"read", "operate"})
+        assert refused.get("isError"), refused
+        assert "operate" in refused["content"][0]["text"]
+        assert rig.devices["heaters"].duty.value == 0.0
+        allowed = served.call("operate", "sneak", scp={"read", "operate"})
+        assert not allowed.get("isError"), allowed
+        assert rig.devices["heaters"].duty.value == 0.5
+
+    def test_long_tool_call_survives_60s(self, served, extra_tools, monkeypatch):
+        """Each inner call is minted when it is made, so a slow tool never sends a stale one."""
+        real = time.time
+        _CLOCK[0] = 0.0
+        monkeypatch.setattr(time, "time", lambda: real() + _CLOCK[0])
+        result = served.call("read", "twice", scp={"read"})
+        assert not result.get("isError"), result
+        assert result["structuredContent"] == {"first": "t", "second": "t"}
+        health = [c for c in served.minted() if c.via == "mcp"]
+        assert len(health) == 2 and health[1].iat - health[0].iat >= 70
+
+    def test_no_code_exec_tools_over_http(self, served):
+        for mode in ("read", "author", "operate"):
+            listed = served.listed(mode, scp={"read", "operate"})
+            assert not {"check_driver", "search_drivers"} & listed, mode
+
+    def test_stop_rig_tool(self, served):
+        assert "stop_rig" not in served.listed("author", scp={"read", "operate"})
+        result = served.call(
+            "operate", "stop_rig", {"reason": "agent saw smoke"}, scp={"read", "operate"}
+        )
+        assert not result.get("isError"), result
+        report = result["structuredContent"]
+        assert report["reason"] == "agent saw smoke"
+        assert report["actor"]["via"] == "mcp"
+        assert report["actor"]["sub"] == ("token:ci" if served.fronted else "token:bare")
+
+
+class TestSelfCall:
+    def test_self_call_over_uds(self, tmp_path):
+        """A fronted runner's tools dial its own socket, not a TCP port nothing listens on."""
+        from flyball.runner.frontdir import FrontDir
+        from flyball.runner.serving import mcp_client
+        from flyball.runtime.config import RunnerConfig
+
+        front = FrontDir(tmp_path, b"k" * 32, "a", "unix:/run/x/endpoint")
+        client = mcp_client(RunnerConfig(port=8123, root_path="/r"), front)
+        assert client.uds == "/run/x/endpoint"
+        assert client.url == "http://localhost/r"
+        bare = mcp_client(RunnerConfig(port=8123), None)
+        assert bare.uds is None and bare.url == "http://127.0.0.1:8123"
+        tcp = mcp_client(RunnerConfig(), FrontDir(tmp_path, b"k" * 32, "a", "tcp:127.0.0.1:8102"))
+        assert tcp.uds is None and tcp.url == "http://127.0.0.1:8102"
+
+    def test_stdio_keeps_the_code_exec_tools(self, client):
+        assert {"check_driver", "search_drivers"} <= names(tools_for(client, "operate"))
+        for mode in ("read", "author", "operate"):
+            over_http = names(tools_for(client, mode, host_code=False))
+            assert not {"check_driver", "search_drivers"} & over_http, mode
+
+    def test_the_cap_is_the_mode_s_verbs_and_those_below(self):
+        """Placeholder MCP_MODES admit author/operate on `operate` alone; the cap keeps read."""
+        from flyball.runner.serving import mcp_caps
+
+        caps = mcp_caps()
+        assert caps["read"] == {"read"}
+        assert caps["author"] == {"read", "operate"}
+        assert caps["operate"] == {"read", "operate"}
+
+    def test_a_signed_rig_sends_a_fresh_principal_each_request(self):
+        minted = iter(["p1", "p2"])
+        rig = Client("http://x", token="bearer-ignored").acting(lambda: next(minted))
+        assert rig.headers == {"X-Flyball-Principal": "p1"}
+        assert rig.headers == {"X-Flyball-Principal": "p2"}
+
+
+# endregion
