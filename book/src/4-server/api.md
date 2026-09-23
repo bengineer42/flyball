@@ -38,7 +38,7 @@ Two refusals come first, both `403` (a socket: closed with 4403):
 | | route | |
 | --- | --- | --- |
 | `GET` | `/api/auth` | `{scheme, level, anonymous, password, token}`: how this caller got in (`anonymous`, `password`, `token`), what they may do (`none`, `read`, `operate`), what anyone may do, and which of a password and a token the runner has |
-| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` |
+| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https or with `X-Forwarded-Proto: https`) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address (the connection's peer; no forwarded header is trusted): `429` |
 | `POST` | `/api/auth/logout` | clears the cookie |
 
 Started with `--root-path /p`, every path below sits under `/p`

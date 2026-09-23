@@ -167,6 +167,13 @@ def test_login_sets_a_cookie_that_gets_everything_and_logout_clears_it(password)
     assert password.get("/api/health").status_code == 401
 
 
+def test_behind_a_tls_proxy_the_cookie_is_secure(password):
+    """The runner trusts no forwarded header; the cookie's `Secure` still follows a TLS proxy."""
+    headers = {"X-Forwarded-Proto": "https"}
+    signed = password.post("/api/auth/login", json={"secret": "hunter2"}, headers=headers)
+    assert "Secure" in signed.headers["set-cookie"]
+
+
 def test_the_runners_own_mcp_mount_gets_in_with_the_internal_token(password):
     assert password.post("/mcp/read", json={}).status_code == 401
     ok = password.post("/mcp/read", json={}, headers={"Authorization": "Bearer int3rnal"})

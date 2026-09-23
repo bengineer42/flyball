@@ -68,6 +68,11 @@ signed, not stored: the key is `auth.secret` if given, else a file
 only), else one made for the process -- in which case a restart signs
 everyone out. Changing the password signs everyone out too. Ten wrong
 passwords in a minute from one address are refused for the rest of it.
+The address is the connection's own: the runner trusts no
+`X-Forwarded-For` (so a caller cannot pick a fresh one per guess), which
+means that behind a proxy every caller shares the proxy's address and
+its ten. The cookie is marked `Secure` over `https`, or when a TLS proxy
+says `X-Forwarded-Proto: https`.
 
 The runner's own MCP mount still works on a password-only runner (it uses a
 token of its own, never shown); a model connecting from outside needs the

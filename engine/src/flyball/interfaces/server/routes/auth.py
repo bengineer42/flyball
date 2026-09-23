@@ -61,8 +61,10 @@ def _set_cookie(request: Request, response: Response, value: str, max_age: int |
         path=root or "/",  # two runners on one host, one cookie each
         httponly=True,  # page scripts cannot read it
         samesite="lax",  # another site cannot post with it
-        # uvicorn takes the scheme from x-forwarded-proto when the proxy is on loopback
-        secure=request.url.scheme == "https",
+        # The runner trusts no forwarded header for who is asking, but a TLS proxy's
+        # `X-Forwarded-Proto: https` may mark the cookie Secure: a forged one only makes
+        # the forger's own cookie stricter.
+        secure="https" in (request.url.scheme, request.headers.get("x-forwarded-proto")),
     )
 
 
