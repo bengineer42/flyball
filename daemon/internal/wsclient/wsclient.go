@@ -22,6 +22,12 @@ import (
 
 const magicGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+// maxFrameLength caps a single frame's payload; a runner has no reason to
+// send anything close to this over /ws/<stream>, and an unbounded length
+// (up to 2^63-1 per RFC 6455) would otherwise let a frame header alone
+// commit the client to an arbitrarily large allocation and read.
+const maxFrameLength = 16 * 1024 * 1024
+
 // Conn is an open websocket connection, text-frame reads only.
 type Conn struct {
 	rw  io.ReadWriteCloser
@@ -30,7 +36,7 @@ type Conn struct {
 
 // Dial performs the HTTP Upgrade handshake against a ws:// or wss:// URL
 // and returns a Conn ready for ReadMessage. TLS (wss) is not implemented
-// -- flyball runners are loopback/plain HTTP today, per plan.md.
+// -- flyball runners are loopback/plain HTTP today.
 func Dial(rawURL string, headers http.Header) (*Conn, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -141,8 +147,16 @@ func (c *Conn) readFrame() (fin bool, opcode byte, payload []byte, err error) {
 		return
 	}
 	fin = head[0]&0x80 != 0
+	if head[0]&0x70 != 0 {
+		err = fmt.Errorf("wsclient: reserved bits set (no extension negotiated)")
+		return
+	}
 	opcode = head[0] & 0x0F
 	masked := head[1]&0x80 != 0
+	if masked {
+		err = fmt.Errorf("wsclient: server frame is masked (RFC 6455 forbids this)")
+		return
+	}
 	length := uint64(head[1] & 0x7F)
 
 	switch length {
@@ -159,22 +173,14 @@ func (c *Conn) readFrame() (fin bool, opcode byte, payload []byte, err error) {
 		}
 		length = binary.BigEndian.Uint64(ext)
 	}
-
-	var maskKey [4]byte
-	if masked {
-		if _, err = io.ReadFull(c.buf, maskKey[:]); err != nil {
-			return
-		}
+	if length > maxFrameLength {
+		err = fmt.Errorf("wsclient: frame too large (%d bytes, cap is %d)", length, maxFrameLength)
+		return
 	}
 
 	payload = make([]byte, length)
 	if _, err = io.ReadFull(c.buf, payload); err != nil {
 		return
-	}
-	if masked {
-		for i := range payload {
-			payload[i] ^= maskKey[i%4]
-		}
 	}
 	return
 }

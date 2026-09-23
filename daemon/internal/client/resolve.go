@@ -1,8 +1,8 @@
 // Package client resolves which base URL a CLI invocation should hit,
-// per plan.md's "CLI addressing" section, and is shared between the
-// daemon (which doesn't need it) and the flyball CLI (cmd/flyball) --
-// living here so both binaries in this module can use the same
-// resolution and wire-request logic without duplicating it.
+// and is shared between the daemon (which doesn't need it) and the
+// flyball CLI (cmd/flyball) -- living here so both binaries in this
+// module can use the same resolution and wire-request logic without
+// duplicating it.
 package client
 
 import (
@@ -34,7 +34,7 @@ func (t Target) WithToken(token string) Target {
 	return t
 }
 
-// Resolve implements plan.md's precedence exactly:
+// Resolve implements this precedence exactly:
 //   - server == "": FLYBALL_URL alone, direct-to-runner, daemon not
 //     involved at all -- unchanged from today's CLI.
 //   - server != "": FLYBALLD_URL (the daemon), path prefixed with
@@ -58,7 +58,7 @@ func Resolve(server string) (Target, error) {
 // ResolveDefault implements the default-runner precedence when -s is
 // omitted but FLYBALLD_URL / --daemon points at a daemon: exactly one
 // runner registered, or one marked default (layer 1's default_server),
-// else error listing the names -- plan.md's "Default-runner precedence."
+// else error listing the names.
 func ResolveDefault(daemonURL string) (Target, error) {
 	resp, err := http.Get(strings.TrimRight(daemonURL, "/") + "/api/runners")
 	if err != nil {
@@ -84,7 +84,7 @@ func ResolveDefault(daemonURL string) (Target, error) {
 			names[i] = r.Name
 		}
 		// TODO: check layer 1's default_server before erroring, once the
-		// daemon's /api exposes it (not yet, see interface.md).
+		// daemon's /api exposes it (not yet).
 		return Target{}, fmt.Errorf(
 			"more than one runner registered (%s) -- pass -s/--server",
 			strings.Join(names, ", "),

@@ -26,10 +26,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from flyball.foundation.device import DriverConfig, Output, Readable, command
-from flyball.foundation.quantities import Quantity
-from flyball.foundation.device import Node, Sample
-from flyball.foundation.quantities import Unit
+from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample, command
+from flyball.foundation.quantities import Quantity, Unit
 
 
 class ${Title}(Readable):
