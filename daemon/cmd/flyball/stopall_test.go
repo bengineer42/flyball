@@ -207,3 +207,56 @@ func TestStopAllWithNothingVisibleIsAnError(t *testing.T) {
 		t.Fatal("stop --all NAME accepted")
 	}
 }
+
+// `flyball runners stop --all` ends every runner process through
+// flyballd's management API: a token with the manage scope, or nothing
+// is stopped.
+func TestRunnersStopAllNeedsManage(t *testing.T) {
+	d := newRigsDaemon(t)
+	op := d.token(t, "operate")
+	var err error
+	out := captureStdout(t, func() { err = runRunnersCommand(op, []string{"stop", "--all"}) })
+	if err == nil || !strings.Contains(err.Error(), "manage") {
+		t.Fatalf("runners stop --all with an operate token: %v, want a refusal naming manage\n%s", err, out)
+	}
+	if s := d.be.stoppedNames(); len(s) != 0 {
+		t.Fatalf("runners stopped without manage: %v", s)
+	}
+
+	t.Setenv("FLYBALLD_TOKEN", d.token(t, "manage"))
+	out = captureStdout(t, func() { err = runRunnersCommand("", []string{"stop", "--all"}) })
+	if err != nil {
+		t.Fatalf("runners stop --all with FLYBALLD_TOKEN manage: %v\n%s", err, out)
+	}
+	if s := strings.Join(d.be.stoppedNames(), ","); s != "kiln,oven" {
+		t.Errorf("stopped %q, want kiln,oven\n%s", s, out)
+	}
+	for _, rig := range []string{"kiln", "oven"} {
+		if !strings.Contains(out, rig+": stopped") {
+			t.Errorf("no line for %s:\n%s", rig, out)
+		}
+	}
+}
+
+// `flyball runners stop NAME` ends that one runner only.
+func TestRunnersStopName(t *testing.T) {
+	d := newRigsDaemon(t)
+	manage := d.token(t, "manage")
+	var err error
+	captureStdout(t, func() { err = runRunnersCommand(manage, []string{"stop", "kiln"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := strings.Join(d.be.stoppedNames(), ","); s != "kiln" {
+		t.Errorf("stopped %q, want kiln", s)
+	}
+	captureStdout(t, func() { err = runRunnersCommand(manage, []string{"stop", "nosuch"}) })
+	if err == nil {
+		t.Error("runners stop of an unknown runner succeeded")
+	}
+	for _, args := range [][]string{{"stop"}, {"stop", "--all", "kiln"}, {}, {"start"}} {
+		if err := runRunnersCommand(manage, args); err == nil {
+			t.Errorf("runners %q accepted", args)
+		}
+	}
+}

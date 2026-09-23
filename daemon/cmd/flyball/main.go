@@ -94,6 +94,17 @@ func main() {
 		return
 	}
 
+	// `runners stop NAME|--all` ends runner processes through flyballd's
+	// management API (D-037) -- daemon-addressed, with the daemon's own
+	// token (--token, else FLYBALLD_TOKEN), never routed through a runner.
+	if args[0] == "runners" {
+		if err := runRunnersCommand(flagToken(), args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// `logs` is also daemon-addressed (interface.md's GET
 	// /api/runners/{name}/logs is the daemon's own endpoint, not
 	// pass-through routing), so it's dispatched the same way, before -s
@@ -248,6 +259,8 @@ daemon-managed (talks to flyballd via FLYBALLD_URL, never routed through a runne
   daemon runners                      list registered runners
   daemon start MANIFEST.json          POST /api/runners
   daemon stop NAME                    DELETE /api/runners/{name}
+  runners stop NAME | --all           end runner processes (needs a manage token: --token or FLYBALLD_TOKEN);
+                                      flyballd leaves its runners running when it stops, and adopts them again
   daemon restart NAME                 POST /api/runners/{name}/restart
   logs NAME                           GET /api/runners/{name}/logs
 `)
