@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from flyball.foundation.router import Latest, Topic
 
@@ -53,3 +54,37 @@ def test_topic_delivers_to_subscribers_and_drops_oldest():
             return [queue.get_nowait(), queue.get_nowait()]
 
     assert asyncio.run(main()) == [3, 4]
+
+
+def test_a_key_stored_while_a_reader_asks_is_never_missed():
+    """The writer's version bump and its store are one step to a reader on another thread.
+
+    The key's hash stalls the writer between the two, as a preempted thread would.
+    """
+    inside, go = threading.Event(), threading.Event()
+
+    class Slow:
+        armed = True
+
+        def __hash__(self) -> int:
+            if Slow.armed:
+                Slow.armed = False
+                inside.set()
+                go.wait(2.0)
+            return 1
+
+    cell: Latest[Slow, int] = Latest()
+    key = Slow()
+    writer = threading.Thread(target=cell.set, args=(key, 1), daemon=True)
+    writer.start()
+    assert inside.wait(1.0), "the writer is between its version bump and its store"
+    asked: list[tuple[int, dict[Slow, int]]] = []
+    reader = threading.Thread(target=lambda: asked.append(cell.changed_since(0)), daemon=True)
+    reader.start()
+    reader.join(0.1)
+    go.set()
+    writer.join(1.0)
+    reader.join(1.0)
+    [(version, changed)] = asked
+    later = cell.changed_since(version)[1]
+    assert {**changed, **later} == {key: 1}, "seen on the first ask or the next"

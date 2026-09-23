@@ -161,7 +161,8 @@ thread nothing.
 
 `Latest` keeps only the newest value per key. The writer does one dict store
 per update; readers poll at their own rate and ask for what changed since the
-version they last saw. A controller at any tick rate costs the same, and a
+version they last saw. A store and a read share a short lock, so a reader on
+another thread never sees a version before the value stored under it. A controller at any tick rate costs the same, and a
 socket sends at most one frame per flush. Controller states, write states,
 polling runs and trigger outcomes all go through `Latest`; only samples are
 a `Topic`. Both are filled only while someone is watching.
