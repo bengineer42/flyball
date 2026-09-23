@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from threading import Event, Thread, current_thread
 from time import monotonic
@@ -11,6 +12,8 @@ from ..typing import Positive
 
 if TYPE_CHECKING:
     from .clock import Clock
+
+log = logging.getLogger("flyball.loop")
 
 
 class PeriodicLoop:
@@ -87,7 +90,13 @@ class PeriodicLoop:
             if self._stop_on_error:
                 self.stop()
 
+    @property
+    def erroring(self) -> Exception | None:
+        """The last exception the loop's function raised, or None: it last ran clean."""
+        return self._erroring
+
     def set_error(self, error: Exception | None) -> None:
+        log.error("periodic loop's function raised", exc_info=error)
         self._erroring = error
 
     def set_ok(self) -> None:
