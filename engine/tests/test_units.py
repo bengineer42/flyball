@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pickle
+import subprocess
+import sys
 from typing import Annotated
 
 import pytest
@@ -174,6 +176,18 @@ class TestUnitLookup:
         from flyball.foundation.quantities.dimension import Unit
 
         assert Unit.get("°C") is Celsius and Unit.get("K") is Kelvin
+
+    def test_get_finds_the_non_si_units_in_a_process_that_never_imported_them(self):
+        # This module imports `other` itself, so only a fresh interpreter shows the gap.
+        code = (
+            "from flyball.foundation.quantities import Unit;"
+            "print(Unit.get('°F').name, Unit.get('°R').name)"
+        )
+        run = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.stdout.split() == ["fahrenheit", "rankine"]
 
     def test_unknown_symbol_is_a_typed_not_found(self):
         from flyball.foundation.errors import NotFoundError
