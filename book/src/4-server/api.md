@@ -1,7 +1,10 @@
 # HTTP and websocket API
 
 All routes are under `/api`; websockets under `/ws`. Bodies and responses
-are JSON. OpenAPI is served at `/docs`.
+are JSON. OpenAPI is `/openapi.json`, and `/docs` shows it in Swagger UI --
+bundled with the runner (npm `swagger-ui-dist`, Apache-2.0), so the page
+loads nothing from another host and works with no internet. There is no
+`/redoc`.
 
 Everything on the wire is named by **address**: a signal's
 (`furnace.zone1`), a namespace's (`hum_sensors.dry`), a device's

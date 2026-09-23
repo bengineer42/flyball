@@ -89,7 +89,7 @@ says how it is configured and driven.
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
 | `/ws/controllers`, `/ws/waits` | a snapshot on connect, then what changed |
-| `/docs` | OpenAPI, from FastAPI |
+| `/docs` | OpenAPI in Swagger UI, served by the runner itself, so it works offline (`/openapi.json` is the document) |
 
 Full list: [HTTP and websocket API](../../4-server/api.md).
 

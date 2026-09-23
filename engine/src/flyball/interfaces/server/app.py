@@ -12,7 +12,8 @@ from typing import Any
 from anyio import to_thread
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from flyball.foundation.errors import (
@@ -76,6 +77,14 @@ def _find_dashboard_dist() -> Path:
 
 
 DASHBOARD_DIST = _find_dashboard_dist()
+
+# Swagger UI for `/docs`, served by the runner so the page works with no internet (FastAPI's
+# default loads it from a CDN). Vendored verbatim from npm `swagger-ui-dist` 5.33.0, whose
+# tarball's integrity is sha512-wpdK+m6BU5yj6pmUdMskZVTSWYG4DLglAx3sIhylloY37i8O37IrH+YEpqd
+# XNfpaTGxILRBFzUqLF2jKqbfI7A== (one string, split here): `swagger-ui-bundle.js`,
+# `swagger-ui.css` and `favicon-32x32.png`. Apache-2.0: `LICENSE`, `NOTICE` and the
+# bundle's third-party notices are beside them.
+SWAGGER = Path(__file__).parent / "swagger"
 
 
 @contextlib.asynccontextmanager
@@ -144,6 +153,25 @@ class RootPath:
         await response(scope, receive, send)
 
 
+def _docs(app: FastAPI) -> None:
+    """`/docs`: Swagger UI from `SWAGGER`, every URL on the page the runner's own."""
+    app.mount("/docs/assets", StaticFiles(directory=SWAGGER), name="swagger")
+
+    @app.get("/docs", include_in_schema=False)
+    def docs(request: Request) -> HTMLResponse:
+        root = (request.scope.get("root_path") or "").rstrip("/")
+        return get_swagger_ui_html(
+            openapi_url=f"{root}{app.openapi_url}",
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url=f"{root}/docs/assets/swagger-ui-bundle.js",
+            swagger_css_url=f"{root}/docs/assets/swagger-ui.css",
+            swagger_favicon_url=f"{root}/docs/assets/favicon-32x32.png",
+            oauth2_redirect_url=None,
+            # Swagger UI's default sends the spec to validator.swagger.io for a badge.
+            swagger_ui_parameters={"validatorUrl": None},
+        )
+
+
 def create_app(
     auth: AuthConfig | None = None,
     root_path: str | None = None,
@@ -166,7 +194,10 @@ def create_app(
         summary="flyball control rig",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=None,  # served below, from the package rather than a CDN
+        redoc_url=None,  # ReDoc too loads from a CDN; `/docs` is the one API page
     )
+    _docs(app)
 
     app.add_middleware(
         CORSMiddleware,

@@ -7,7 +7,9 @@ simulation, or a database copied from another machine.
 
 ## Assembly
 
-`create_app(auth, root_path)` adds CORS, one exception handler per error
+`create_app(auth, root_path)` adds `/docs` (Swagger UI from the vendored
+`server/swagger/` -- `swagger-ui-dist` 5.33.0, Apache-2.0 -- mounted at
+`/docs/assets`, no CDN), CORS, one exception handler per error
 base, the routers, and then -- outermost -- two plain ASGI middlewares:
 `Auth`, always (`server/auth.py`: on an open runner, a `Host` that is not
 loopback is 403 / 4403; in every mode, a request that acts -- not
