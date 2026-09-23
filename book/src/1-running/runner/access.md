@@ -105,7 +105,7 @@ not a `$scrypt$` line, TLS files that cannot be read, a `url` that does not
 parse, or a `proxy` block that cannot be vouched for -- or when the
 `runner.front` block fails validation or cannot be read because the rig file's
 `extends` cannot be resolved, so its shape is unknown, the address it was
-asked to listen on answers every request `503` with the reason, and the
+asked to listen on answers every request `503`, and the
 `local` shape is served somewhere else: a fresh port on `127.0.0.1`, or a
 socket beside a `unix:` one (`front.sock.local` next to `front.sock`). A
 reverse proxy on the same machine keeps forwarding to the address it was
@@ -119,7 +119,11 @@ flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 A plain `flyball stop` goes to that address too, and gets the `503`, so
 the `503` starts with the stops that work: Ctrl-C in the `flyball run`
 terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
-rig's host, or `systemctl stop` for `flyballd`. `flyball run`'s start notice
+rig's host, or `systemctl stop` for `flyballd`. It then says only that
+authentication is misconfigured and where the reason is -- the `flyball
+run` terminal and its `run.log`, or `journalctl -u flyballd` -- since
+whoever the proxy lets reach that address may be anyone, and a reason
+can quote the file. `flyball run`'s start notice
 then names `flyball stop --front-dir` with its own front-dir.
 
 A `listen` that does not parse serves the `local` shape on

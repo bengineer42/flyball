@@ -244,8 +244,10 @@ func TestRefusedPresetAnswers503WhereTheProxyPoints(t *testing.T) {
 	}
 	code, body := send(requested, "POST", h("Origin", "http://"+requested, "Content-Type", "application/json",
 		"Remote-User", "mallory", SecretHeader, "s3cret-s3cret-s3cret", "X-Forwarded-For", "203.0.113.9"))
-	if code != 503 || !strings.Contains(body, "misconfigured") || !strings.Contains(body, "readable by every user") {
-		t.Fatalf("the address the proxy points at answered %d %q, want 503", code, body)
+	// The body is generic; the reason is in the banner, not here (D-028, amended).
+	if code != 503 || !strings.Contains(body, "misconfigured") || strings.Contains(body, "readable by every user") ||
+		!strings.Contains(plan.Banner(), "readable by every user") {
+		t.Fatalf("the address the proxy points at answered %d %q, want a generic 503", code, body)
 	}
 	if strings.Contains(body, "s3cret") {
 		t.Fatalf("the refusal leaks the secret: %q", body)

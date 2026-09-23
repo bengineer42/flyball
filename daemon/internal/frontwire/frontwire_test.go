@@ -80,6 +80,48 @@ func TestPlanBadConfigFallsBackToLoopback(t *testing.T) {
 	}
 }
 
+// A block whose YAML type error quotes a secret (yaml.v3 quotes a short
+// scalar in full: a secret pasted where a block belongs) keeps it out of
+// the refused address's 503: the body is generic (D-028, amended), and the
+// reason stays in the banner.
+func TestRefusedBodyCarriesNoSecret(t *testing.T) {
+	c, bad := Decode(map[string]any{"auth": "proxy", "proxy": "hunter2"})
+	if bad == nil || !strings.Contains(bad.Error(), "hunter2") {
+		t.Fatalf("the YAML error does not quote the value, so this test shows nothing: %v", bad)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Listen = ln.Addr().String()
+	ln.Close()
+	p, _ := Plan(c, bad, false, ProxyOptions{})
+	defer p.Close()
+	if p.Refused != c.Listen || !strings.Contains(p.Banner(), "hunter2") {
+		t.Fatalf("plan %+v", p)
+	}
+	f := front.New(front.Options{Plan: p})
+	defer f.Close()
+	var resp *http.Response
+	for i := 0; i < 50; i++ {
+		if resp, err = http.Get("http://" + c.Listen + "/api/auth"); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 503 || !strings.Contains(string(b), "authentication is misconfigured") {
+		t.Fatalf("refused address: %d %q", resp.StatusCode, b)
+	}
+	if strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "cannot unmarshal") {
+		t.Fatalf("the 503 body carries the reason, and the secret with it: %q", b)
+	}
+}
+
 // A good block is ResolveWith's plan, with the hook's factory; without
 // one, a proxy shape falls back.
 func TestPlanUsesThePresetsHook(t *testing.T) {
