@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -227,4 +229,160 @@ func TestSIGINTToFlyballdsGroupLeavesTheRunnerRunning(t *testing.T) {
 		t.Fatalf("runner %d died with flyballd's process group\n%s", first.Pid, d.logs)
 	}
 	answers(t, ovenDir(t, dir, cfg), first.Pid)
+}
+
+type runnerRow struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Pid     int    `json:"pid"`
+	Adopted bool   `json:"adopted"`
+	Reason  string `json:"reason"`
+}
+
+// row waits for /api/runners to show oven as ok says.
+func row(t *testing.T, d *testDaemon, manage string, ok func(runnerRow) bool) runnerRow {
+	t.Helper()
+	var got runnerRow
+	d.until("/api/runners", manage, 20*time.Second, func(b []byte) bool {
+		var rows []runnerRow
+		if json.Unmarshal(b, &rows) != nil || len(rows) != 1 {
+			return false
+		}
+		got = rows[0]
+		return ok(got)
+	})
+	return got
+}
+
+// D-037: a flyballd that starts while its runner is still running adopts
+// it -- the same process, the same key (control never interrupted),
+// reachable through the front, shown adopted with its pid -- and, when
+// that runner later dies, respawns it by its policy.
+func TestARestartedFlyballdAdoptsItsRunner(t *testing.T) {
+	fakeOnPath(t)
+	dir, cfg := daemonFixture(t, "", "name: oven\n")
+	t.Cleanup(func() { killRunners(t, dir) })
+	d1 := spawnDaemon(t, dir, cfg)
+	manage := d1.token("manage")
+	first := echo(t, d1.testDaemon, nil)
+	d1.cmd.Process.Signal(syscall.SIGTERM)
+	d1.exit(t)
+
+	d2 := spawnDaemon(t, dir, cfg)
+	r := row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" })
+	if !r.Adopted || r.Pid != first.Pid {
+		t.Fatalf("/api/runners: %+v, want adopted, pid %d\n%s", r, first.Pid, d2.logs)
+	}
+	again := echo(t, d2.testDaemon, nil)
+	if again.Pid != first.Pid || again.Key != first.Key {
+		t.Fatalf("through the restarted front: pid %d key %s, want the same runner (pid %d key %s)", again.Pid, again.Key, first.Pid, first.Key)
+	}
+
+	syscall.Kill(first.Pid, syscall.SIGKILL)
+	respawned := echo(t, d2.testDaemon, func(e fronttest.Echo) bool { return e.Pid != first.Pid })
+	if respawned.Key == first.Key {
+		t.Error("the respawn kept the adopted runner's key")
+	}
+	r = row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" && r.Pid == respawned.Pid })
+	if r.Adopted {
+		t.Errorf("the respawned runner shows adopted: %+v", r)
+	}
+}
+
+// A runner.lock held by a runner flyballd cannot adopt -- one too old to
+// enforce the principal, or one under another key -- leaves the rig busy
+// with the reason; its key is never rewritten and the front does not
+// route to it.
+func TestAForeignRunnerLeavesTheRigBusy(t *testing.T) {
+	for _, c := range []struct{ name, reason string }{{"old", "401"}, {"foreign", "401"}} {
+		t.Run(c.name, func(t *testing.T) {
+			fakeOnPath(t)
+			dir, cfg := daemonFixture(t, "", "name: oven\n")
+			fd := ovenDir(t, dir, cfg)
+			if err := os.MkdirAll(filepath.Dir(fd), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := frontdir.Prepare(fd); err != nil {
+				t.Fatal(err)
+			}
+			ep := endpoint.Endpoint{Network: "unix", Address: filepath.Join(fd, frontdir.Sock)}
+			if _, err := frontdir.Write(fd, "oven", ep); err != nil {
+				t.Fatal(err)
+			}
+			key, _ := os.ReadFile(filepath.Join(fd, frontdir.Key))
+			lock, err := os.OpenFile(filepath.Join(fd, frontdir.Lock), os.O_RDWR|os.O_CREATE, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			lock.WriteString("pid " + strconv.Itoa(os.Getpid()) + " rig oven\n")
+			if c.name == "old" {
+				// Too old for a front: answers without a principal.
+				ln, err := net.Listen("unix", ep.Address)
+				if err != nil {
+					t.Fatal(err)
+				}
+				srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Write([]byte(`{"protocol":1,"aud":"oven"}`))
+				})}
+				go srv.Serve(ln)
+				defer srv.Close()
+			} else {
+				r, err := fronttest.Serve(ep, [32]byte{7, 7, 7}, "oven", "/oven")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Close()
+			}
+
+			d := spawnDaemon(t, dir, cfg)
+			manage := d.token("manage")
+			r := row(t, d.testDaemon, manage, func(r runnerRow) bool { return r.Status == "busy" })
+			if !strings.Contains(r.Reason, c.reason) || r.Adopted {
+				t.Errorf("/api/runners: %+v, want busy naming %q", r, c.reason)
+			}
+			if code, body := d.get("/oven/api/echo", ""); code != 503 {
+				t.Errorf("the front routed to a busy rig: %d %s", code, body)
+			}
+			if k, _ := os.ReadFile(filepath.Join(fd, frontdir.Key)); string(k) != string(key) {
+				t.Error("the key of a live front-dir was rewritten")
+			}
+		})
+	}
+}
+
+// The real flyball-runner (examples/simulated/oven.yaml) outlives a
+// SIGTERM'd flyballd and is adopted by the next one: the same pid,
+// reachable through the front.
+func TestRealRunnerIsAdopted(t *testing.T) {
+	bin, _ := filepath.Abs("../../../engine/.venv/bin")
+	if _, err := os.Stat(filepath.Join(bin, "flyball-runner")); err != nil {
+		t.Skipf("no flyball-runner in %s (cd engine && UV_FROZEN=1 uv sync --all-extras)", bin)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	rig, err := os.ReadFile("../../../examples/simulated/oven.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, cfg := daemonFixture(t, "", string(rig))
+	t.Cleanup(func() { killRunners(t, dir) })
+	d1 := spawnDaemon(t, dir, cfg)
+	manage := d1.token("manage")
+	first := row(t, d1.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" && r.Pid != 0 })
+	d1.until("/oven/api/runner", "", 30*time.Second, nil)
+	d1.cmd.Process.Signal(syscall.SIGTERM)
+	d1.exit(t)
+	time.Sleep(500 * time.Millisecond)
+	if !alive(first.Pid) {
+		t.Fatalf("the runner %d died with flyballd", first.Pid)
+	}
+
+	d2 := spawnDaemon(t, dir, cfg)
+	r := row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" })
+	if !r.Adopted || r.Pid != first.Pid {
+		t.Fatalf("/api/runners: %+v, want adopted, pid %d\n%s", r, first.Pid, d2.logs)
+	}
+	body := d2.until("/oven/api/runner", "", 10*time.Second, nil)
+	t.Logf("adopted pid %d; /oven/api/runner through the new front: %.120s", r.Pid, body)
 }

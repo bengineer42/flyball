@@ -24,7 +24,9 @@ type Status string
 // waits out a crash backoff, stopped once it has exited cleanly or been
 // stopped, failed once it has crashed and will not be restarted, busy
 // when another runner already has its rig (exit 3) or its front-dir
-// (runner.lock held).
+// (runner.lock held by a runner that cannot be adopted). A runner found
+// alive in its front-dir at Start is adopted (D-037): starting while it
+// is verified, then running, without a restart.
 const (
 	StatusStarting   Status = "starting"
 	StatusRunning    Status = "running"
@@ -94,6 +96,28 @@ type Channel struct {
 	Dir      string
 	Aud      string
 	Key      [32]byte
+}
+
+// Detail is what a status line shows of one runner beyond its Status.
+type Detail struct {
+	Status Status
+	// Endpoint is where the runner listens now (an adopted runner listens
+	// where its front-dir says).
+	Endpoint string
+	// Pid is the live process: the one flyballd spawned, or, for an
+	// adopted runner, the pid its runner.lock names. 0 when none.
+	Pid int
+	// Adopted: the live process was already running when this flyballd
+	// started, and was taken over without a restart (D-037).
+	Adopted bool
+	// Reason says why a runner is busy or failed, when that is known.
+	Reason string
+}
+
+// Inspector is a Backend that can say more about a runner than its
+// Status. ProcessBackend is one.
+type Inspector interface {
+	Detail(name string) (Detail, error)
 }
 
 // Fronted is a Backend that can hand a front its runners' channels.

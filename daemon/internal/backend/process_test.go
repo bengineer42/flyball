@@ -522,9 +522,9 @@ func TestLiveLockKeepsKey(t *testing.T) {
 	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", FrontDir: dir}); err != nil {
 		t.Fatal(err)
 	}
-	if st := status(b, "r"); st != StatusBusy {
-		t.Errorf("status %s, want busy", st)
-	}
+	// Starting while the front-dir's holder is looked at (adoption,
+	// D-037), then busy: it names no pid and has no aud or endpoint.
+	eventually(t, "busy", func() bool { return status(b, "r") == StatusBusy })
 	time.Sleep(5 * b.minBackoff)
 	if n := spawned(); n != 0 {
 		t.Errorf("%d runners spawned into a live front-dir", n)
@@ -638,7 +638,8 @@ func fakeSign(r *http.Request, key [32]byte, aud string) error {
 }
 
 // fakeRunnerMain is a fronted runner: it reads key/aud/endpoint from
-// --front-dir, exits 4 without them, binds the endpoint, and answers GET
+// --front-dir, exits 4 without them, holds runner.lock (exit 3 if it
+// cannot), binds the endpoint, and answers GET
 // <root>/api/auth/front as §WP0-8 says.
 func fakeRunnerMain(args []string) {
 	var dir, root string
@@ -661,6 +662,13 @@ func fakeRunnerMain(args []string) {
 		os.Exit(4)
 	}
 	want := strings.TrimSpace(string(key)) + "/" + strings.TrimSpace(string(aud))
+	// runner.lock for its life, naming its pid, as the real runner does.
+	lock, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		os.Exit(3)
+	}
+	lock.Truncate(0)
+	fmt.Fprintf(lock, "pid %d rig %s\n", os.Getpid(), strings.TrimSpace(string(aud)))
 	l, err := net.Listen(e.Network, e.Address)
 	if err != nil {
 		os.Exit(1)

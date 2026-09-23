@@ -154,6 +154,9 @@ func runnerJSON(e *registry.Entry) map[string]any {
 		"restart":   e.Manifest.Restart,
 		"status":    e.Status,
 		"endpoint":  e.Endpoint,
+		"pid":       e.Pid,     // the live process, 0 when none
+		"adopted":   e.Adopted, // taken over from a previous flyballd, not spawned (D-037)
+		"reason":    e.Reason,  // why it is busy or failed, "" when not known
 	}
 }
 

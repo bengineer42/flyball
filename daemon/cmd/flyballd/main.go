@@ -84,7 +84,14 @@ func run(ctx context.Context, configPath string, insecureOpen bool, ready func(n
 	if err != nil {
 		return err
 	}
-	be.SetFront(backend.FrontOptions{Root: frontdir.Root(id), Sign: front.ProbeSigner(nil)})
+	root := frontdir.Root(id)
+	if root == "" {
+		log.Printf("WARNING: no private runtime dir (RUNTIME_DIRECTORY or XDG_RUNTIME_DIR, mode 0700): runners get temp front-dirs," +
+			" which a restarted flyballd cannot find -- runners left running by this flyballd (D-037) will not be adopted")
+	}
+	// A runner already alive in its front-dir (left by a previous
+	// flyballd) is adopted, not restarted (D-037).
+	be.SetFront(backend.FrontOptions{Root: root, Sign: front.ProbeSigner(nil)})
 	reg := registry.New(be)
 
 	logger := slog.Default()
