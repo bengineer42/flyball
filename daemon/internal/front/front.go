@@ -382,7 +382,8 @@ func NewServer(p Plan, h http.Handler) *http.Server {
 
 // Listen opens the plan's listener: TCP, or `unix:/path` (a stale socket
 // file nobody answers on is replaced), wrapped in TLS when the plan has it.
-// A unix socket is made 0660, whatever the umask, and is refused in a
+// A unix socket is made 0660, whatever the umask (on Linux before bind, so
+// it is never connectable with a wider mode), and is refused in a
 // directory another user could replace it in or, when the front owns the
 // directory, reach it through: an unsigned proxy preset believes whoever
 // connects.
@@ -400,8 +401,10 @@ func Listen(p Plan) (net.Listener, error) {
 			}
 			os.Remove(path)
 		}
-		ln, err = net.Listen("unix", path)
+		lc := net.ListenConfig{Control: socketControl} // the mode, before bind
+		ln, err = lc.Listen(context.Background(), "unix", path)
 		if err == nil {
+			listenedHook(path)
 			if err = os.Chmod(path, 0o660); err != nil {
 				ln.Close()
 			}
@@ -417,6 +420,9 @@ func Listen(p Plan) (net.Listener, error) {
 	}
 	return ln, nil
 }
+
+// listenedHook runs as soon as a unix socket listens, for a test.
+var listenedHook = func(string) {}
 
 // Serve listens on the plan's address and serves h until ctx is done, then
 // shuts down (5 s grace).

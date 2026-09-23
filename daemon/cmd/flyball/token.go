@@ -10,7 +10,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +82,11 @@ func runTokenCreate(args []string) error {
 	for _, w := range warnings {
 		fmt.Fprintln(os.Stderr, "token create: "+w)
 	}
+	audit, err := openTokenAudit(path)
+	if err != nil {
+		return fmt.Errorf("%w; a token change must be recorded, so no token was created", err)
+	}
+	defer audit.Close()
 	tokens, err := store.OpenTokens(path, store.TokensOptions{Lifetimes: lifetimes})
 	if err != nil {
 		return err
@@ -87,7 +95,16 @@ func runTokenCreate(args []string) error {
 
 	secret, tok, err := tokens.Create(store.NewToken{Name: name, Scopes: normalized, Kind: kind, ExpiresIn: life})
 	if err != nil {
+		var pathErr *fs.PathError
+		if !errors.As(err, &pathErr) {
+			audit.Event("token.create.refused", slog.String("by", subCLI), slog.String("name", name), slog.String("why", err.Error()))
+		}
 		return err
+	}
+	if err := audit.Event("token.create", slog.String("by", subCLI), slog.String("id", tok.ID),
+		slog.String("name", tok.Name), slog.Any("scopes", tok.Scopes), slog.String("kind", tok.Kind)); err != nil {
+		tokens.Revoke(tok.ID)
+		return fmt.Errorf("%w; a token change must be recorded, so no token was created", err)
 	}
 	// The secret, and only the secret, on stdout -- everything else
 	// (usable for scripting a systemd EnvironmentFile, say) on stderr, so
@@ -148,11 +165,50 @@ func runTokenRevoke(args []string) error {
 		return err
 	}
 	defer tokens.Close()
-	if err := tokens.Revoke(args[0]); err != nil {
-		return err
+	// Revoke first, then record how it ended, as the front does: a revoke
+	// is the safe direction, so one that cannot be recorded still happens.
+	id := args[0]
+	err = tokens.Revoke(id)
+	outcome := "revoked"
+	switch {
+	case errors.Is(err, store.ErrTokenNotFound):
+		outcome = "not found"
+	case err != nil:
+		outcome = "failed"
 	}
-	fmt.Println("revoked", args[0])
+	audit, auditErr := openTokenAudit(path)
+	if auditErr == nil {
+		auditErr = audit.Event("token.revoke", slog.String("by", subCLI), slog.String("id", id), slog.String("outcome", outcome))
+		audit.Close()
+	}
+	switch {
+	case err != nil:
+		return err
+	case auditErr != nil:
+		return fmt.Errorf("token %s is revoked, but %w", id, auditErr)
+	}
+	fmt.Println("revoked", id)
 	return nil
+}
+
+// subCLI is who a token change made by this command is recorded as, in
+// the front's audit (beside local:console and local:admin, auth.go).
+const subCLI = "local:cli"
+
+// openTokenAudit opens the audit of the front whose tokens file is
+// tokensPath: frontwire.AuditFile beside it, the file that front appends
+// to (frontwire.OpenAudit). Appending from here while that front runs is
+// safe: each holds its own O_APPEND descriptor and writes one whole record
+// per write(2) (slog's handler), which the kernel appends at the end of
+// the file without interleaving another's -- on a local filesystem, not
+// NFS. The sequence numbers are this command's own, under its own boot id.
+func openTokenAudit(tokensPath string) (*front.Audit, error) {
+	path := filepath.Join(filepath.Dir(tokensPath), frontwire.AuditFile)
+	audit, err := front.OpenAudit(path)
+	if err != nil {
+		return nil, fmt.Errorf("the front's audit log %s cannot be opened (%v)", path, errors.Unwrap(err))
+	}
+	return audit, nil
 }
 
 // addReadScopes adds read on the same rig for every non-read, non-management

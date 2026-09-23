@@ -35,6 +35,19 @@ import (
 // nothing on the network can block a stop.
 var stopTimeout = 5 * time.Second
 
+// stopClient is the HTTP client for every call a stop makes. It follows
+// no redirect: a 3xx (an SSO proxy sending the CLI to its sign-in page)
+// would turn the POST into a GET and the sign-in page's 200 into a
+// "success", so the 3xx itself is the answer, and is refused.
+var stopClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}}
+
+// redirected is the refusal for a 3xx answer, naming where it pointed.
+func redirected(resp *http.Response) error {
+	return fmt.Errorf("%s, redirecting to %q (not followed): whatever answers there wants a sign-in the CLI cannot give -- pass --token, or address the front directly", resp.Status, resp.Header.Get("Location"))
+}
+
 func runStopCommand(server, token string, args []string) error {
 	all, args := popBool(args, "--all")
 	pidFlag, args, hasPID := popValue(args, "--pid")
@@ -151,12 +164,15 @@ func stopAllRigs(token, reason string) error {
 			req.Header.Add(k, v)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := stopClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("flyballd at %s cannot be reached (%v): nothing was stopped; stop each runner with `flyball stop --pid N` or `--front-dir DIR`", base, err)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("listing the rigs at %s: %v; nothing was stopped", base, redirected(resp))
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("listing the rigs at %s: %s: %s; nothing was stopped", base, resp.Status, strings.TrimSpace(string(body)))
 	}
@@ -189,10 +205,11 @@ func stopAllRigs(token, reason string) error {
 }
 
 // postStop sends the stop request. refused is true when the front
-// answered (a real refusal, e.g. missing OPERATE, or any other >=400):
+// answered with anything but a stop report (a real refusal, e.g. missing
+// OPERATE, any other >=400, a redirect, or a 200 that is not a report):
 // the caller should report that error, not fall back to a signal. A nil
-// error with refused false is success (the report was printed already).
-// ctx bounds the whole exchange (stopTimeout).
+// error with refused false is success: a 200 whose body is a stop report,
+// printed already. ctx bounds the whole exchange (stopTimeout).
 func postStop(ctx context.Context, t client.Target, reason string) (refused bool, err error) {
 	body := map[string]string{}
 	if reason != "" {
@@ -215,7 +232,7 @@ func postStop(ctx context.Context, t client.Target, reason string) (refused bool
 			req.Header.Add(k, v)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := stopClient.Do(req)
 	if err != nil {
 		return false, err // network-level: not a refusal, the caller falls back
 	}
@@ -224,10 +241,17 @@ func postStop(ctx context.Context, t client.Target, reason string) (refused bool
 	if err != nil {
 		return false, err
 	}
-	if resp.StatusCode >= 400 {
+	switch {
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		return true, fmt.Errorf("stop: %v; nothing was stopped", redirected(resp))
+	case resp.StatusCode != http.StatusOK:
 		return true, fmt.Errorf("stop: %s: %s", resp.Status, strings.TrimSpace(string(out)))
 	}
-	printStopReport(out)
+	var r stopReport
+	if err := json.Unmarshal(out, &r); err != nil || r.AtNS == 0 {
+		return true, fmt.Errorf("stop: %s, but the answer is not a stop report, so the stop is not known to have happened: %.200s", resp.Status, strings.TrimSpace(string(out)))
+	}
+	printStopReport(r)
 	return false, nil
 }
 
@@ -255,14 +279,8 @@ type stopDeviceState struct {
 	Detail string `json:"detail"`
 }
 
-// printStopReport renders r to stdout; an unrecognised shape is printed
-// as raw JSON rather than silently dropped.
-func printStopReport(raw []byte) {
-	var r stopReport
-	if err := json.Unmarshal(raw, &r); err != nil {
-		fmt.Println(string(raw))
-		return
-	}
+// printStopReport renders r to stdout.
+func printStopReport(r stopReport) {
 	fmt.Printf("software stop: %s by %s (%s) via %s\n", r.Reason, r.Actor.Sub, r.Actor.Kind, r.Actor.Via)
 	if r.Interim {
 		fmt.Println("  controllers to manual; nothing written -- outputs left as they were")

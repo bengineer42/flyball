@@ -5,6 +5,7 @@ package front
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -86,4 +87,33 @@ func TestListenUnixSocketDir(t *testing.T) {
 		t.Fatalf("/tmp: %v", err)
 	}
 	ln.Close()
+}
+
+// The socket is 0660 from the moment it can be connected to, not only
+// once Listen has returned: between bind and a later chmod, a umask with
+// o+w (here 0) would let any local user in -- to an unsigned proxy
+// preset's identities, or a local-shape console. listenedHook runs as
+// soon as the socket listens, before anything else Listen does.
+func TestListenUnixSocketModeFromTheStart(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the mode is set before bind on Linux only")
+	}
+	old := syscall.Umask(0)
+	defer syscall.Umask(old)
+	path := filepath.Join(sockDir(t, 0o750), "front.sock")
+	var atListen os.FileMode
+	listenedHook = func(p string) {
+		if fi, err := os.Stat(p); err == nil {
+			atListen = fi.Mode().Perm()
+		}
+	}
+	defer func() { listenedHook = func(string) {} }()
+	ln, err := Listen(Plan{Listen: "unix:" + path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if atListen&0o007 != 0 || atListen == 0 {
+		t.Fatalf("socket mode when it began listening, under umask 0: %v, want nothing for others", atListen)
+	}
 }

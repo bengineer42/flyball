@@ -97,7 +97,7 @@ func (f *Front) authenticate(r *http.Request, lenient bool) (Caller, error) {
 		// signed preset's own Bearer); elsewhere it is terminal, cookie
 		// or not.
 		if f.plan.Shape != ShapeProxy {
-			return Caller{}, &authError{status: 401, detail: "Unrecognised credential"}
+			return Caller{}, unrecognised(scheme)
 		}
 	}
 	if f.plan.Shape == ShapePassword {
@@ -128,9 +128,22 @@ func (f *Front) authenticate(r *http.Request, lenient bool) (Caller, error) {
 		}
 	}
 	if presented {
-		return Caller{}, &authError{status: 401, detail: "Unrecognised credential"}
+		scheme, _, _ := strings.Cut(auth[0], " ")
+		return Caller{}, unrecognised(scheme)
 	}
 	return f.anonymous(), nil
+}
+
+// unrecognised is the 401 for an Authorization header that is not a
+// flyball credential. Basic never is one: it is a proxy doing HTTP Basic
+// auth (nginx auth_basic) and forwarding the browser's header, so the
+// detail says where to clear it.
+func unrecognised(scheme string) *authError {
+	if strings.EqualFold(scheme, "Basic") {
+		return &authError{status: 401, detail: "Authorization: Basic is not a flyball credential; " +
+			"if a proxy in front adds it, clear it there (nginx: proxy_set_header Authorization \"\";)"}
+	}
+	return &authError{status: 401, detail: "Unrecognised credential"}
 }
 
 // staleCookie is not a failure: GET /api/auth answers anonymous and

@@ -5,6 +5,7 @@ package front
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"syscall"
 )
 
@@ -25,4 +26,20 @@ func checkSocketDir(dir string) error {
 		return fmt.Errorf("%s is world-accessible (%v): give it no permissions for others (0750, or 0700)", dir, perm)
 	}
 	return nil
+}
+
+// socketControl gives the front's unix socket its mode before bind. On
+// Linux bind creates the file with the socket's own mode less the umask,
+// so it is never connectable with a wider one; Listen's chmod after bind
+// then only adds back what the umask took. Elsewhere it does nothing, and
+// that chmod is all there is.
+func socketControl(_, _ string, c syscall.RawConn) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	var err error
+	if cerr := c.Control(func(fd uintptr) { err = syscall.Fchmod(int(fd), 0o660) }); cerr != nil {
+		return cerr
+	}
+	return err
 }

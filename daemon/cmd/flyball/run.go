@@ -42,6 +42,11 @@ import (
 // is already on $PATH, which it never is outside an app's own uv-managed
 // venv.
 func runDirect(args []string) error {
+	// A write to a stdout or stderr whose reader has died (`flyball run
+	// ... | tee out.txt` over SSH, the connection dropped) would kill this
+	// process with SIGPIPE and orphan the runner (D-038). Ignored, it
+	// fails with EPIPE, which the tee drops (runlog.go).
+	signal.Ignore(syscall.SIGPIPE)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigs)
@@ -107,8 +112,6 @@ func run(args []string, sigs <-chan os.Signal) error {
 			fmt.Fprintln(out, "flyball:", line)
 		}
 	}
-	fmt.Fprintf(out, "flyball: closing this terminal does not stop the rig -- Ctrl-C or `flyball stop` does; the log is %s; for a rig that survives reboots use flyballd\n", rl.path)
-
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -128,6 +131,12 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if root == "" || filepath.Dir(dir) != filepath.Clean(root) {
 		defer os.RemoveAll(dir) // a temp dir: ours alone
 	}
+	stop := "`flyball stop`"
+	if plan.Refused != "" {
+		// A bare `flyball stop` goes to the refused address and gets its 503.
+		stop = "`flyball stop --front-dir " + dir + "`"
+	}
+	fmt.Fprintf(out, "flyball: closing this terminal does not stop the rig -- Ctrl-C or %s does; the log is %s; for a rig that survives reboots use flyballd\n", stop, rl.path)
 
 	s := &supervisor{
 		dir: dir, aud: "run-" + randomHex(4), rig: rig,

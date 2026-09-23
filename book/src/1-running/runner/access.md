@@ -110,6 +110,12 @@ flyball: front: the password is not a $scrypt$ line (…); plaintext passwords a
 flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 ```
 
+A plain `flyball stop` goes to that address too, and gets the `503`, so
+the `503` starts with the stops that work: Ctrl-C in the `flyball run`
+terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
+rig's host, or `systemctl stop` for `flyballd`. `flyball run`'s start notice
+then names `flyball stop --front-dir` with its own front-dir.
+
 A `listen` that does not parse serves the `local` shape on
 `127.0.0.1:8000`, with nothing to refuse.
 
@@ -246,6 +252,42 @@ sign-in limit; `trusted_proxies` in the
 [reference](../../7-reference/rig-file.md#the-front) names proxies whose
 `X-Forwarded-For` it may believe.
 
+An `Authorization` header that is not a flyball token is refused (`401`)
+at the `local` and `password` shapes, session cookie or not; an
+`Authorization: Basic` one says so in its `401`. nginx forwards the
+browser's `Basic` header after its own `auth_basic`, so two setups work:
+
+- **nginx is the gate.** The `proxy` shape with the `custom` preset takes
+  the user nginx checked, over the front's unix socket, one identity per
+  nginx user:
+
+    ```yaml
+    runner:
+      front:
+        listen: unix:/run/flyball/front.sock
+        auth: proxy
+        proxy:
+          preset: custom
+          user_header: Remote-User
+          grants: {all: [ben]}
+    ```
+
+    ```nginx
+    location / {
+        auth_basic           "lab";
+        auth_basic_user_file /etc/nginx/flyball.htpasswd;
+        proxy_pass           http://unix:/run/flyball/front.sock:;
+        proxy_set_header     Host $http_host;
+        proxy_set_header     Remote-User $remote_user;
+    }
+    ```
+
+- **nginx Basic and the flyball password, both.** Keep `auth: password`
+  and clear the header nginx would forward, with
+  `proxy_set_header Authorization "";` in the same `location`. flyball
+  then sees only its own session cookie, and every action is recorded as
+  `local:admin`, not the nginx user.
+
 ## The bare runner
 
 `flyball-runner rig.yaml` with no front serves its own door, and the
@@ -334,7 +376,10 @@ as `local:signal`; the signal's sender is not recorded.
   record cannot be written does not happen (`503`); a revoke still happens,
   and its `503` says so. If the file cannot be opened at all, the front
   still serves the rig and says so at start, but refuses every sign-in and
-  new token.
+  new token. `flyball token create` and `flyball token revoke`, which work
+  on the files directly, append their `token.create` and `token.revoke` to
+  the same file, by `local:cli`, under the same rule: no record, no new
+  token; a revoke still happens and exits non-zero saying so.
 - **The runner's audit**, the `audit` table in the rig's store: one row for
   every request that needs more than `read` from a caller who is not
   anonymous -- refused ones included -- and every stop, `SIGUSR1` included:
