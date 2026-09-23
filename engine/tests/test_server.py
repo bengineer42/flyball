@@ -25,6 +25,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.router import Trigger
 from flyball.interfaces.server import create_app, set_rig
+from flyball.sequencing.devices import RunCommand
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -927,6 +928,22 @@ class TestSimRoutes:
 
 
 # endregion
+
+
+def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
+    daq.poll_s = 0.5
+    daq.broken = True
+    rig.start_polling(daq)
+    try:
+        rig.polling.stop_all()
+        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        assert rig.polling.run(daq.name).running is False
+
+        RunCommand(device_command="restore", device=daq.name).run(rig)
+        assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
+        assert rig.polling.run(daq.name).conditions == ()
+    finally:
+        rig.polling.stop_all()
 
 
 def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):

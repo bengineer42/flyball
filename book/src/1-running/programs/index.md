@@ -30,7 +30,9 @@ Device commands (`@command` methods on a device) are reachable as `command`
 steps; a humidity rig's `set_blend` is one. Its `blend` is a `Setting`
 signal — shown on the wire, `RP` — but a setting is re-set by a command,
 not a demand, so it stays a `command` step; only a `Demand` signal (`RPW`)
-can be reached as a `set` step.
+can be reached as a `set` step. As over HTTP, a `command` step that succeeds
+on an offline device (`restore`, a reset) restarts its polling; one still
+broken goes offline again with a fresh event.
 
 ## Activities and signals
 
