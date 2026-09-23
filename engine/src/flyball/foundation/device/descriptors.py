@@ -281,10 +281,10 @@ class Input(Descriptor[BoundInput]):
 
     Not in the device's tree: `self.dry_supply` is the source signal once
     bound, and reads `default` (a number, or a config descriptor) before
-    that or when nothing has been read on it yet.
+    that or when nothing has been read on it yet. It has no `Role` and no
+    access: an input is a binding, never a signal of this device, so it is
+    told apart by its type and never becomes a `SignalSpec`.
     """
-
-    role = Role.INPUT
 
     def __init__(
         self,
@@ -297,7 +297,7 @@ class Input(Descriptor[BoundInput]):
         parent: Namespace | None = None,
         **meta: Any,
     ) -> None:
-        super().__init__(name, label, quantity, vtype, parent=parent, **meta)
+        super().__init__(name, label, quantity, vtype, access=Access(0), parent=parent, **meta)
         self.default = default
 
     def on(self, device: Device) -> BoundInput:

@@ -162,12 +162,11 @@ class Role(Enum):
     - `SETTING`: re-set by a command while the device runs, shown; not a
       scalar a controller could drive (a blend flow, a PWM frequency). `RP`.
     - `CONFIG`: effective at build, shown, never set at run time. `R`.
-    - `INPUT`: another device's signal, bound by the rig to a role; not in
-      the tree, but declared beside it so the schema can show what the
-      device follows.
+
+    An input (another device's signal, bound by the rig) is not a role: it is
+    not in the device's tree. See [Input][flyball.foundation.device.descriptors.Input].
     """
 
-    INPUT = "input"
     DEMAND = "demand"
     OUTPUT = "output"
     SETTING = "setting"
@@ -179,7 +178,6 @@ class Role(Enum):
 
 
 _ROLE_ACCESS.update({
-    Role.INPUT: Access(0),
     Role.DEMAND: Access.RPW,
     Role.OUTPUT: Access.RP,
     Role.SETTING: Access.RP,

@@ -51,7 +51,7 @@ const SIGNAL: SignalOut = {
   dimension: null,
   dtype: "float",
   shape: [],
-  role: "input",
+  role: "demand",
   tags: {},
   initial: null,
   range: null,

@@ -287,8 +287,6 @@ class Device:
             if spec.name in node.signals or spec.name in node.children:
                 raise ValueError(f"'{address}' is declared twice")
             if isinstance(spec, SignalSpec):
-                if spec.role is Role.INPUT:
-                    raise ValueError(f"'{address}' is an input: bound by the rig, not in the tree")
                 if above:  # a namespace's tags, under the signal's own
                     spec = replace(spec, tags={**above, **spec.tags})
                 node.signals[spec.name] = Signal(
