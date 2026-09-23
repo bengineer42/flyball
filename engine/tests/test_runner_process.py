@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -236,17 +236,27 @@ KEY_HEX = "0a1b2c3d" * 8
 AUD = "run-5e5e5e5e"
 
 
-def _front_dir(key_hex: str | None = KEY_HEX) -> Path:
-    """A front-dir as a front writes it, short enough for a socket path."""
+@pytest.fixture
+def front_dir() -> Iterator[Callable[..., Path]]:
+    """Makes front-dirs as a front writes them, short enough for a socket path; removed after."""
+    import shutil
     import tempfile
 
-    folder = Path(tempfile.mkdtemp(prefix="fb-"))  # 0700
-    files = {"key": key_hex, "aud": AUD, "endpoint": f"unix:{folder}/sock"}
-    for name, text in files.items():
-        if text is not None:
-            (folder / name).write_text(text + "\n")
-            os.chmod(folder / name, 0o600)
-    return folder
+    made: list[Path] = []
+
+    def make(key_hex: str | None = KEY_HEX) -> Path:
+        folder = Path(tempfile.mkdtemp(prefix="fb-"))  # 0700; tmp_path is too long for a socket
+        made.append(folder)
+        files = {"key": key_hex, "aud": AUD, "endpoint": f"unix:{folder}/sock"}
+        for name, text in files.items():
+            if text is not None:
+                (folder / name).write_text(text + "\n")
+                os.chmod(folder / name, 0o600)
+        return folder
+
+    yield make
+    for folder in made:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def _principal(key_hex: str = KEY_HEX, scp: tuple[str, ...] = ("operate", "read")) -> dict:
@@ -283,8 +293,8 @@ def _wait_fronted(proc: subprocess.Popen, folder: Path, key_hex: str = KEY_HEX) 
     raise AssertionError("the runner never answered on its socket")
 
 
-def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path):
-    folder = _front_dir(key_hex=None)
+def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path, front_dir):
+    folder = front_dir(key_hex=None)
     store = tmp_path / "s.sqlite"
     argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
     with runner(tmp_path, *argv) as proc:
@@ -295,10 +305,10 @@ def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path):
     assert not store.exists(), "nor touched the store"
 
 
-def test_a_fronted_runner_takes_only_the_principal(tmp_path):
+def test_a_fronted_runner_takes_only_the_principal(tmp_path, front_dir):
     import fcntl
 
-    folder = _front_dir()
+    folder = front_dir()
     store = tmp_path / "s.sqlite"
     argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
     env = {"FLYBALL_TOKEN": "s3cret", "FLYBALL_ANONYMOUS": "read"}
@@ -328,9 +338,9 @@ def test_a_fronted_runner_takes_only_the_principal(tmp_path):
     assert "link?n=" not in err
 
 
-def test_a_restart_keeps_the_runner_fronted(tmp_path):
+def test_a_restart_keeps_the_runner_fronted(tmp_path, front_dir):
     """`os.execv` re-runs the same argv: still on the socket, still the principal only."""
-    folder = _front_dir()
+    folder = front_dir()
     store = tmp_path / "s.sqlite"
     argv = [
         str(EXAMPLES / "oven.yaml"),

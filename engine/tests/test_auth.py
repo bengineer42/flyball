@@ -7,6 +7,7 @@ front reaches it.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -524,7 +525,8 @@ def uds(rig) -> Iterator[Path]:
     rig.name = "t"
     set_rig(rig)
     app = create_app(AuthConfig(token="s3cret", anonymous="read"), front=Fronted(KEY, AUD))
-    where = Path(tempfile.mkdtemp(prefix="fb-")) / "sock"
+    folder = Path(tempfile.mkdtemp(prefix="fb-"))  # tmp_path is too long for a socket path
+    where = folder / "sock"
     server = uvicorn.Server(uvicorn.Config(app, uds=str(where), log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -538,6 +540,7 @@ def uds(rig) -> Iterator[Path]:
         server.should_exit = True
         thread.join(10)
         set_rig(None)
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def test_over_the_socket_unsigned_is_401_and_signed_is_200(uds):
