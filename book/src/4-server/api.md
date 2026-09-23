@@ -195,7 +195,7 @@ lists them all with their signal trees.
 | `GET` | `/api/devices/{name}` | `DeviceOut`; 404 if no device has that name |
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
 | `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline device restarts its polling |
-| `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut` |
+| `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut`. 409 while a read of it is in flight (a device hung in its driver is not waited on), or when the old poll loop is still in a read 2 s after being stopped |
 | `PUT` | `/api/devices/{name}/write` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one atomic write, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal write; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
 
@@ -253,7 +253,7 @@ properties linked to a demand also carry `x-signal`, `unit` and
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/read/{address}?fresh=` | what the address names: a signal → `{reading: {signal, time_ns, value}}`; an atomic namespace → `{sample: {node, time_ns, values}}`, `values` keyed relative to the node; a device or a namespace read over several transactions → `{samples: [...]}`; `fresh=true` reads the hardware first, which is how a setting (`rw`, never published) is read; 503 until the first read, 404 for an unknown address |
+| `GET` | `/api/read/{address}?fresh=` | what the address names: a signal → `{reading: {signal, time_ns, value}}`; an atomic namespace → `{sample: {node, time_ns, values}}`, `values` keyed relative to the node; a device or a namespace read over several transactions → `{samples: [...]}`; `fresh=true` reads the hardware first, which is how a setting (`rw`, never published) is read; 409 when another read of the device (a poll, a fresh read) has been in flight for 5 s; 503 until the first read, 404 for an unknown address |
 | `GET` | `/api/read?at=a,b,c&fresh=` | several addresses at once, a list in the order given; a fresh read costs each device one read |
 
 ## Controllers
@@ -466,10 +466,10 @@ message: one `raised` per outage, never one per poll or per step.
 
 | scope | conditions (raised / cleared) | point events |
 | --- | --- | --- |
-| `device` | `offline` (cleared by a restart), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored` |
+| `device` | `offline` (cleared by a restart), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted) |
 | `signal` | a driver's own (the sim's `broken`) | |
 | `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown` | `interrupted` |
-| `program` | | `started`, `step`, `step_timed_out`, `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
+| `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
 | `rig` | `recording_failed` (cleared by the next recording) | `delivery_failed`, `restored` |
 
 There is no separate "recovered" code: `offline` cleared is what

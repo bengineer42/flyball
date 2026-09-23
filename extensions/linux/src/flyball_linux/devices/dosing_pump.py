@@ -18,20 +18,17 @@ Calibration is a single `ml_per_s` figure: how many ml/s the pump delivers at fu
 while on, for the GPIO case). This is deliberately the simplest possible model -- linear,
 one point, no flow curve -- and is a placeholder until real calibration data exists.
 
-`dispense` is synchronous: it runs the pump for `volume_ml / ml_per_s` seconds and blocks the
-caller. Nothing in this codebase's `sequencing/` models a durational *command* as anything
-other than a step whose duration the program itself waits out (see
-`flyball.sequencing`), and there is no existing precedent here for a device-level timed
-action tracked by the runtime -- `PwmChannel` and `GpioLine` commands are all instantaneous.
-Rather than invent a new asynchronous-action mechanism for this one driver, `dispense` blocks
-like any other slow I/O call a driver might make, and -- critically for a real dosing skid --
-the pump is switched off in a `finally`, so an exception partway through (an interrupted
-sleep, a hardware error from the underlying link) never leaves it running.
+`dispense` is a long command (`@command(long=True)`): it runs the pump for
+`volume_ml / ml_per_s` seconds of the rig's time and blocks its caller, but the rig runs it
+off its lock, so polling, deliveries and a `stop` carry on meanwhile. It waits on
+`Device.wait`, so `stop` (which calls `Device.cancel`) ends the dose at once, and a scaled or
+stepped sim clock scales or steps the dose. Critically for a real dosing skid, the pump is
+switched off in a `finally`, so a stop, or an exception partway through (a hardware error
+from the underlying link), never leaves it running.
 """
 
 from __future__ import annotations
 
-import time
 from typing import Literal
 
 from flyball.foundation.device import (
@@ -124,11 +121,13 @@ class DosingPump(Committable):
             else:
                 self.pump.off()
 
-    @command
+    @command(long=True)
     def dispense(self, volume_ml: float) -> None:
         """Run the pump for `volume_ml / ml_per_s` seconds, then stop it.
 
-        Stops the pump even if interrupted or the hardware call raises.
+        Stops the pump even if stopped early or the hardware call raises.
+        `dispensed_ml` grows by what ran: the whole volume, or the share of
+        it dosed before a `stop`.
         """
         if volume_ml <= 0:
             raise ValueError("volume_ml must be positive")
@@ -137,16 +136,21 @@ class DosingPump(Committable):
                 f"volume_ml {volume_ml} exceeds max_dispense_ml {self.max_dispense_ml}"
             )
         duration_s = self.duration_s(volume_ml)
+        clock = self.clock_source()
+        started = clock.monotonic()
         try:
             self._run(True)
-            time.sleep(duration_s)
+            stopped = self.wait(duration_s)
         finally:
             self._run(False)
-        self.signals["dispensed_ml"].push(self.signals["dispensed_ml"].value + volume_ml)
+        ran_s = min(duration_s, clock.monotonic() - started) if stopped else duration_s
+        dosed = volume_ml * ran_s / duration_s
+        self.signals["dispensed_ml"].push(self.signals["dispensed_ml"].value + dosed)
 
     @command
     def stop(self) -> None:
-        """Stop the pump immediately, whatever it is doing."""
+        """Stop the pump immediately, whatever it is doing: a dose in progress ends now."""
+        self.cancel()
         self._run(False)
 
 

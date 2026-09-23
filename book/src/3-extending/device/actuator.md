@@ -134,6 +134,39 @@ device, so it is refused while a controller drives one of its demands —
 unless `interrupts=True`, which puts the controller in manual first (an
 `interrupted` event) and runs anyway.
 
+A command runs under the rig lock, so it must return promptly: nothing
+waits while holding it. One that takes time — a dose, a move — is
+`@command(long=True)`. The rig makes its checks under the lock, runs the
+method off it (polling, control and other commands carry on), and takes
+the lock back only to record what ran. Such a command waits with
+`self.wait(seconds)`, never `time.sleep`: the wait is in the rig's time
+(a scaled or stepped sim clock scales or steps it) and returns `True` at
+once when `self.cancel()` is called. The device's `stop` command calls
+`self.cancel()` first, so a stop ends the long command straight away;
+the long command's `finally` leaves the hardware safe:
+
+```python
+@command(long=True)
+def dispense(self, volume_ml: float) -> None:
+    """Run the pump for the dose, then stop it."""
+    try:
+        self._run(True)
+        stopped = self.wait(volume_ml / self.ml_per_s.value)
+    finally:
+        self._run(False)
+
+@command
+def stop(self) -> None:
+    """Stop the pump now: a dose in progress ends."""
+    self.cancel()
+    self._run(False)
+```
+
+A device runs one long command at a time: a second is refused (409)
+until the first ends. A long command cannot be run by a caller already
+holding the rig lock (refused, 409); a program's `command` step does not
+hold it.
+
 ## Conditions
 
 Something true of the device *now* — railed, overdriven, a sensor failed —

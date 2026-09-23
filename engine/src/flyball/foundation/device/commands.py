@@ -90,6 +90,12 @@ class CommandSpec:
     interrupts: bool = False
     """Puts a controller driving one of the device's demands into manual and runs (`stop`,
     a manual flow); without it, such a command is refused while the controller is active."""
+    long: bool = False
+    """The method waits (a dose, a move): the rig runs it off its lock, so polling, deliveries
+    and a `stop` carry on meanwhile. It waits with
+    [Device.wait][flyball.foundation.device.device.Device.wait], which the device's `stop`
+    ends early through [Device.cancel][flyball.foundation.device.device.Device.cancel]. One
+    long command at a time per device."""
     demand_of: str | None = None
     """For a synthesised `set_<name>`: the path of the demand it sets; the rig routes it through
     its demand path."""
@@ -109,6 +115,7 @@ def command[F: Callable[..., Any]](
     commit: bool = False,
     mode: Any = None,
     interrupts: bool = False,
+    long: bool = False,
 ) -> Callable[[F], F]: ...
 def command(
     fn: Any = None,
@@ -119,6 +126,7 @@ def command(
     commit: bool = False,
     mode: Any = None,
     interrupts: bool = False,
+    long: bool = False,
 ) -> Any:
     """Mark a device method as a command, under the method's name or `name`.
 
@@ -130,7 +138,9 @@ def command(
     for a method that only records and needs the device committed after.
     `interrupts=True` puts a controller
     driving the device into manual and runs; without it the command is
-    refused while one is active. `simulation=True` marks one that only
+    refused while one is active. `long=True` for one that waits (a dose, a
+    move): it runs off the rig lock and waits with `self.wait`, which the
+    device's `stop` ends through `self.cancel`. `simulation=True` marks one that only
     makes sense on a simulated device (a scripted fault, a disturbance): it
     is served like any other, but the schema says so, so a UI can keep it
     off the device's page.
@@ -143,6 +153,7 @@ def command(
             "commit": commit,
             "mode": mode,
             "interrupts": interrupts,
+            "long": long,
         }
         return f
 

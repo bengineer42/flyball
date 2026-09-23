@@ -10,16 +10,26 @@ and detach bracket the wait in `Programmer._wait_out`, and teardown is one
 `finally` reached by completion, failure and cancellation alike.
 
 Locking:
-    On the worker path the two locks are never nested: `_apply` takes the
-    programmer's lock, releases it, emits the step event with no lock held,
-    takes the rig's lock to run the command, then takes the programmer's lock
-    again. On `start`, `_apply_atomics` holds the programmer's lock around its
-    `_apply` calls, so there the rig's lock is taken inside it (programmer, then
-    rig). No thread is joined under either lock.
+    The programmer's lock is never held while the rig's is taken: `_apply`
+    takes the programmer's lock, releases it, emits the step event with no lock
+    held, takes the rig's lock to run the step (unless the step takes it itself:
+    a device command, which may wait), then takes the programmer's lock again;
+    `_apply_atomics` on `start` does the same, step by step. So the only order
+    is rig, then programmer -- `on_revoke` -> `interrupt` from a thread holding
+    the rig's lock -- and it cannot deadlock against the other. No thread is
+    joined under the programmer's lock, and `cancel`/`interrupt` join the
+    worker for at most `END_JOIN_S`: a caller holding the rig's lock (which the
+    worker's next step needs) waits that long, not for ever, and a step still
+    running then is reported (`step_still_running`).
+
+    [Inference, traced 23 Sep] Nothing revokes the programmer's operator today:
+    no step claims a resource and no `Arbiter` is built outside tests, so
+    `on_revoke` is not called. The order above is what keeps it safe when one is.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
@@ -34,6 +44,12 @@ from .program import Program
 if TYPE_CHECKING:
     from flyball.rig import Rig
     from flyball.sequencing.step import Activity, Step
+
+log = logging.getLogger("flyball.programmer")
+
+END_JOIN_S = 5.0
+"""How long `cancel`/`interrupt` wait for the worker to unwind before reporting it still running
+and returning. A stop must return promptly; a step in a driver cannot be cut from outside."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,19 +199,28 @@ class Programmer:
         if thread is not None and thread is not current_thread():
             thread.join(timeout)
 
-    def cancel(self) -> None:
-        """End whatever is running, as a person asked: it ends `cancelled`. Outputs are kept."""
-        self._end(None)
+    def cancel(self) -> bool:
+        """End whatever is running, as a person asked: it ends `cancelled`. Outputs are kept.
 
-    def interrupt(self, reason: str) -> None:
+        Returns whether the worker unwound within `END_JOIN_S`.
+        """
+        return self._end(None)
+
+    def interrupt(self, reason: str) -> bool:
         """End whatever is running because the engine must (a stop, a shutdown).
 
-        It ends `interrupted`, with `reason`. Outputs are kept.
+        It ends `interrupted`, with `reason`. Outputs are kept. Returns whether
+        the worker unwound within `END_JOIN_S`.
         """
-        self._end(reason)
+        return self._end(reason)
 
-    def _end(self, reason: str | None) -> None:
-        """Stop whatever is running, and wait for the worker to unwind."""
+    def _end(self, reason: str | None) -> bool:
+        """Stop whatever is running, and wait at most `END_JOIN_S` for the worker to unwind.
+
+        A worker still in its step then (a command in its driver, which Python
+        cannot cut) is left to finish on its own: it applies nothing more, and a
+        `step_still_running` event names the step. Returns whether it unwound.
+        """
         with self.lock:
             if self._program is not None and not self._abort:
                 self._interrupted = reason
@@ -205,10 +230,26 @@ class Programmer:
                 # instead of moving on. Its finally clause detaches.
                 self._activity.interrupt()
             thread = self._thread
+            program, step = self._program, self._step
         # Never join under the lock: the worker takes it on the way out, and
         # an RLock held by another thread does not help us here.
-        if thread is not None and thread is not current_thread():
-            thread.join()
+        if thread is None or thread is current_thread():
+            return True
+        thread.join(END_JOIN_S)
+        if not thread.is_alive():
+            return True
+        name = program.name if program is not None and program.name else "program"
+        tag = program[step].tag if program is not None and step < len(program) else "?"
+        log.warning("%s[%s]: %s had not returned %.1f s after the end", name, step, tag, END_JOIN_S)
+        self.rig.event(
+            Severity.WARNING,
+            Scope.PROGRAM,
+            f"{name}[{step}]",
+            Code.STEP_STILL_RUNNING,
+            f"{tag} had not returned {END_JOIN_S:g} s after the program ended: it may still act",
+            {"step": step, "command": tag, "waited_s": END_JOIN_S},
+        )
+        return False
 
     def _apply_atomics(self, program: Program) -> Activity | None:
         """Apply steps from the current one until one has to be waited on.
@@ -216,12 +257,18 @@ class Programmer:
         Returns:
             That step's activity, or `None` if the rest of the program applied.
         """
-        with self.lock:
-            while self._step < len(program) and not self._abort:
-                if (activity := self._apply(program[self._step])) is not None:
-                    return activity
+        while True:
+            # The programmer's lock is released around each step: it is never held while
+            # the step takes the rig's (the rig-then-programmer order stays the only one),
+            # nor while a device command waits, which `cancel` would otherwise queue behind.
+            with self.lock:
+                if self._step >= len(program) or self._abort:
+                    return None
+                step = program[self._step]
+            if (activity := self._apply(step)) is not None:
+                return activity
+            with self.lock:
                 self._step += 1
-        return None
 
     # endregion
     # region Internals
@@ -313,7 +360,7 @@ class Programmer:
                 self._interrupted = None
 
     def _apply(self, command: Step) -> Activity | None:
-        """Apply one step under the rig's lock.
+        """Apply one step: under the rig's lock, unless the step takes it itself (`locked`).
 
         Returns:
             The activity to wait out before the next step, or `None` to move
@@ -329,7 +376,10 @@ class Programmer:
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
             {"step": step, "command": command.tag},
         )
-        with self.rig.lock:
+        if command.locked:
+            with self.rig.lock:
+                activity = command.run(self.rig, self.operator)
+        else:
             activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity

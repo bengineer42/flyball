@@ -105,7 +105,11 @@ overloads on what `target` is: a `Signal` gives a `Reading`, an atomic
 sequence of targets gives a list of results in address order, and `fresh`
 reads the hardware first (one `device.read()` per device that owns a
 target, on the node they share or the device's root) before answering from
-what was just delivered.
+what was just delivered. The fresh read runs off the rig lock, under the
+device's `read_lock`, which the poller takes around each `read` too, so reads
+of one device never overlap; a fresh read waits `FRESH_READ_WAIT_S` (5 s) for
+one in flight and is then refused (409). Only its delivery takes the rig
+lock, and what a device removed meanwhile read is dropped.
 
 ## Polling
 
@@ -136,7 +140,14 @@ store's own thread, never under the rig's lock.
 Only `read` itself can put a device offline: a raised exception raises an
 `offline` condition, and the device's loop stops itself until `restart`
 (which clears it), or until a command on it succeeds (`Polling.revive`,
-called by the command route and by a program's `command` step alike). A
+called by the command route and by a program's `command` step alike).
+Neither waits on a read in flight: `restart` is refused (409) while one is
+(`Polling.reading_for`), and stops the old loop for at most `STOP_JOIN_S`
+before refusing too; `revive` on a device whose poll has been stuck in a
+read for longer than its period leaves it alone and says so with a
+`not_revived` event on the device. A loop left to finish its read after a
+restart does not stop the newer loop if that read raises
+(`PeriodicLoop.runs_here`). A
 controller whose law raises is kept to itself: a `step_failed` condition on
 the controller, raised on the first failure and cleared when it steps
 again, its mode left as it was, and every other controller, commit,
@@ -169,7 +180,9 @@ tick — is arithmetic under the lock. What leaves it:
 | --- | --- |
 | a blocking device's `commit` (`Device.blocking = True`: SCPI, Modbus, QCoDeS, PyMeasure) | a `Writer` thread per device; `rig.written` delivers its states, publishes and records them once the write completes. A commit or a `rig.written` that raises is a `write_failed` condition and event, never the end of the thread |
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
+| a device's `read` | the poll loop's thread, or the fresh reader's (`rig.read(..., fresh=True)`), under the device's `read_lock` and never the rig's; the delivery after it takes the rig's. A fresh read asked for by a caller already holding the rig lock is refused |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
+| a long command (`@command(long=True)`: `dosing_pump.dispense`, `stepper.move`) | the caller's thread, off the lock: `Rig.run_command` makes its checks and claims the device's one long-command slot under it (a second is refused), runs the method without it, and takes it back to push `mode`, the linked readings and `last.<command>` and to commit. The method waits with `Device.wait`, on the rig's clock and an event `Device.cancel` sets, so the device's `stop` (a short command, under the lock) ends it at once. A caller already holding the lock is refused rather than made to wait under it; a program's `command` step runs without it (`Step.locked = False`). Removing the device, or closing the rig, cancels it |
 
 `rig.close()` stops all of it: polling, writers, recording, then closes the
 rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
@@ -184,10 +197,33 @@ own thread, finds under the lock that its device is gone (by identity: a
 device re-added under the same name is another one) and drops what it read
 or wrote.
 
-The server's async routes answer on the event loop and do not take the lock,
-which a delivery may hold for a bus transaction: they iterate a
-`list(...)` snapshot of the rig's dicts, so a device or controller added
-meanwhile is not an error. `Rig.document` and `attach_controller` take it.
+The server's async routes and websockets answer on the event loop and never
+take the lock, which a delivery may hold for a bus transaction: they iterate a
+`list(...)` snapshot of the rig's dicts (`Polling.snapshot()` for the runs,
+`Controllers.get` for one controller), so a device or controller added or
+removed meanwhile is not an error. `/api/health` is lock-free. What must take
+the lock (`Rig.document`, `attach_controller`, `recent_readings`) is reached
+only from plain `def` routes, on the threadpool. A test fixture
+(`tests/conftest.py`) fails any test in which a thread running an event loop
+took `rig.lock`, as another does for the store's.
+
+The programmer's lock is never held while the rig's is taken: each step is
+applied with the programmer's released, on `start` as on the worker. So the
+only nesting is rig, then programmer (an operator's `on_revoke` calls
+`Programmer.interrupt` from whoever revoked it, perhaps under the rig's lock),
+and it cannot meet the reverse. `cancel`/`interrupt` join the worker for at
+most `END_JOIN_S` (5 s), since a caller may hold the rig's lock the worker's
+next step needs; a step still running then is a `step_still_running` event,
+and the call returns False.
+
+A collection that more than one thread changes is either changed and iterated
+under one lock or iterated through a C-level `list(...)` copy (`dict(d)`,
+`list(d.items())` do not let another thread in part-way). `Polling` keeps
+its dicts (`by_name`, `periodic`, the runs, the `slow` streaks) under a lock
+of its own, taken after the rig's and never held across a join, so a run
+noted by a poll thread cannot put back one a `stop` just removed; `stop_all`
+and `rig.close` walk copies of the loops, writers and links, as a request
+may add one while the rig shuts down.
 
 ## Controllers
 

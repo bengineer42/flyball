@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient as _StarletteClient
 from flyball_sim.clock import SteppedClock
 
 import flyball.record.sqlite
+import flyball.rig.rig
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
@@ -46,12 +47,12 @@ def _catalog() -> Iterator[Catalogs]:
 
 
 class _LoopGuardedLock:
-    """The store's `RLock`, noting every acquisition made on a thread running an event loop.
+    """An `RLock` (the store's, the rig's), noting each acquisition on an event loop's thread.
 
-    The server's loop must never wait for the store (`deps.py`); a TestClient
-    runs the app's loop on a thread of its own, so an acquisition there is a
-    route or task calling the store on the loop. The main thread is left out:
-    an `async def` test may call the store itself.
+    The server's loop must never wait for the store (`deps.py`) nor for the rig
+    (a delivery holds its lock); a TestClient runs the app's loop on a thread of
+    its own, so an acquisition there is a route or task taking the lock on the
+    loop. The main thread is left out: an `async def` test may take it itself.
     """
 
     def __init__(self, seen: list[str]) -> None:
@@ -71,6 +72,9 @@ class _LoopGuardedLock:
     def release(self) -> None:
         self._inner.release()
 
+    def _is_owned(self) -> bool:
+        return self._inner._is_owned()  # type: ignore[attr-defined]
+
     def __enter__(self) -> bool:
         return self.acquire()
 
@@ -85,6 +89,19 @@ def _store_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(flyball.record.sqlite, "RLock", lambda: _LoopGuardedLock(seen))
     yield
     assert not seen, "the store was called on the event loop:\n" + seen[0]
+
+
+@pytest.fixture(autouse=True)
+def _rig_lock_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Fail any test in which the app's event loop took `rig.lock` (ENG-26).
+
+    A delivery holds it for as long as it runs; the loop that waits for it
+    stalls every request and websocket the runner serves.
+    """
+    seen: list[str] = []
+    monkeypatch.setattr(flyball.rig.rig, "RLock", lambda: _LoopGuardedLock(seen))
+    yield
+    assert not seen, "rig.lock was taken on the event loop:\n" + seen[0]
 
 
 @pytest.fixture

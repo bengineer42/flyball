@@ -15,8 +15,8 @@ def make_pwm_pump(monkeypatch, ml_per_s=2.0, drive_fraction=1.0, max_dispense_ml
     pwm = FakePwm()
     channel = PwmChannel("motor", pwm, 0, frequency_hz=1000)
     slept: list[float] = []
-    monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", lambda s: slept.append(s))
     pump = DosingPump("dosing", channel, ml_per_s, drive_fraction, max_dispense_ml, label=None)
+    monkeypatch.setattr(pump, "wait", lambda s: slept.append(s))  # the dose's wait, not run
     return pump, pwm, slept
 
 
@@ -24,8 +24,8 @@ def make_gpio_pump(monkeypatch, ml_per_s=2.0, max_dispense_ml=None):
     chip = FakeGpio()
     line = GpioLine("motor", chip, 3)
     slept: list[float] = []
-    monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", lambda s: slept.append(s))
     pump = DosingPump("dosing", line, ml_per_s, max_dispense_ml=max_dispense_ml)
+    monkeypatch.setattr(pump, "wait", lambda s: slept.append(s))  # the dose's wait, not run
     return pump, chip, slept
 
 
@@ -75,7 +75,7 @@ class TestPwmDrivenPump:
             # capture the duty mid-run, before dispense's finally turns it off
             seen_mid_sleep["duty"] = pwm.channels[0][1] / pwm.channels[0][0]
 
-        monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", sleeping)
+        monkeypatch.setattr(pump, "wait", sleeping)
         pump.dispense(2.0)
         assert seen_mid_sleep["duty"] == pytest.approx(0.5), "ran at drive_fraction while dosing"
         assert pwm.channels[0][1] == 0, "stopped after the run"
@@ -86,7 +86,7 @@ class TestPwmDrivenPump:
         def boom(s):
             raise RuntimeError("simulated interrupt mid-dispense")
 
-        monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", boom)
+        monkeypatch.setattr(pump, "wait", boom)
         with pytest.raises(RuntimeError, match="simulated interrupt"):
             pump.dispense(2.0)
         assert pwm.channels[0][1] == 0, "the pump was switched off despite the failure"
@@ -108,7 +108,7 @@ class TestGpioDrivenPump:
         def sleeping(s):
             seen_mid_sleep["on"] = chip.get(3)
 
-        monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", sleeping)
+        monkeypatch.setattr(pump, "wait", sleeping)
         pump.dispense(2.0)
         assert seen_mid_sleep["on"] is True
         assert chip.get(3) is False, "off after the run"
@@ -119,7 +119,7 @@ class TestGpioDrivenPump:
         def boom(s):
             raise RuntimeError("simulated interrupt")
 
-        monkeypatch.setattr("flyball_linux.devices.dosing_pump.time.sleep", boom)
+        monkeypatch.setattr(pump, "wait", boom)
         with pytest.raises(RuntimeError):
             pump.dispense(2.0)
         assert chip.get(3) is False, "the relay was switched off despite the failure"

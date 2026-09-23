@@ -86,6 +86,9 @@ async def read_health() -> dict[str, Any]:
 
     `ok` is false with any fault condition at `error`; a band alarm is not a
     fault, and is counted in `alarms` instead.
+
+    Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
+    rig's lock, so it reads C-level `list(...)` snapshots of the rig's dicts instead.
     """
     rig = current_rig()
     if rig is None:
@@ -99,9 +102,9 @@ async def read_health() -> dict[str, Any]:
         "uptime_s": rig.clock.elapsed_s(),
         "devices": {
             name: {"running": run.running, "last_read_ns": run.last_read_ns}
-            for name, run in ((n, rig.polling.run(n)) for n in rig.polling.by_name)
+            for name, run in rig.polling.snapshot().items()
         },
-        "controllers": {name: c.mode.value for name, c in rig.controllers.items()},
+        "controllers": {name: c.mode.value for name, c in list(rig.controllers.items())},
         "conditions": conditions,
         "alarms": _alarm_summary(conditions),
         "activities": sorted(rig.triggers.states()),

@@ -83,7 +83,7 @@ class Program(Protocol):
 
     @property
     def state(self) -> _Running: ...
-    def interrupt(self, reason: str) -> None: ...
+    def interrupt(self, reason: str) -> bool: ...
 
 
 UNCHANGED = "interim stop: controllers to manual; nothing written — outputs left as they were"
@@ -97,8 +97,9 @@ class InterimStopper:
     were last told. Not [Rig.close][flyball.rig.rig.Rig.close], which is a teardown.
 
     The program is interrupted first, so no step runs after the controllers go to
-    manual; a step that blocks without answering the interrupt holds the stop up with it
-    (signal-faults S6 makes blocking commands pre-emptable). Stops are serialised; a
+    manual. A step that does not answer the interrupt (a command in its driver) holds the
+    stop up for at most the programmer's `END_JOIN_S`, then a `step_still_running` event
+    names it and the stop goes on. Stops are serialised; a
     second one finds nothing running and changes nothing.
     """
 

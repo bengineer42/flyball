@@ -91,6 +91,9 @@ class Code(StrEnum):
     STARTED = "started"
     STEP = "step"
     STEP_TIMED_OUT = "step_timed_out"
+    STEP_STILL_RUNNING = "step_still_running"
+    """The program was ended, but its step had not returned `END_JOIN_S` later (a command
+    still in its driver): it may still act. The program is reported ended regardless."""
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -99,6 +102,9 @@ class Code(StrEnum):
     RECORDING_FAILED = "recording_failed"
     """A condition on the rig: the recorder stopped on a store error; cleared by the next
     recording that starts."""
+    NOT_REVIVED = "not_revived"
+    """A command on a device succeeded, but its polling was not restarted: a read of it has
+    been in flight for longer than its period (hung in its driver). Not waited on."""
     RESTORED = "restored"
     RESTARTED = "restarted"
     """The runner's own, when it is restarted (not yet raised). A device's polling that starts
