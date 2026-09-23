@@ -419,6 +419,12 @@
           "title": "Replies",
           "type": "object"
         },
+        "blocking": {
+          "default": false,
+          "description": "Run this fake's writes on the Writer thread, as a real bus would.",
+          "title": "Blocking",
+          "type": "boolean"
+        },
         "tag": {
           "const": "fake_i2c",
           "default": "fake_i2c",
@@ -479,6 +485,12 @@
           "title": "Registers",
           "type": "object"
         },
+        "blocking": {
+          "default": false,
+          "description": "Run this fake's writes on the Writer thread, as a real bus would.",
+          "title": "Blocking",
+          "type": "boolean"
+        },
         "tag": {
           "const": "fake_registers",
           "default": "fake_registers",
@@ -519,6 +531,12 @@
           },
           "title": "Replies",
           "type": "object"
+        },
+        "blocking": {
+          "default": false,
+          "description": "Run this fake's writes on the Writer thread, as a real instrument would.",
+          "title": "Blocking",
+          "type": "boolean"
         },
         "tag": {
           "const": "fake_text",
@@ -933,6 +951,12 @@
           "default": 502,
           "title": "Port",
           "type": "integer"
+        },
+        "timeout_s": {
+          "default": 3.0,
+          "description": "Socket timeout for the pymodbus client.",
+          "title": "Timeout S",
+          "type": "number"
         },
         "tag": {
           "const": "modbus_tcp",
@@ -1771,7 +1795,7 @@
     },
     "SignalOverride": {
       "additionalProperties": false,
-      "description": "The envelope's per-signal keys: metadata to override, access to remove.\n\n`access` names the set to keep (`\"r\"`); `readable`, `publishing` and\n`writable` drop one flag each and take only `false` -- the driver\ndeclares what it can honour, the file cannot add to it.",
+      "description": "The envelope's per-signal keys: metadata to override, access to remove.\n\n`access` names the set to keep (`\"r\"`); `readable`, `publishing` and\n`writable` drop one flag each and take only `false` -- the driver\ndeclares what it can honour, the file cannot add to it. `limits` only\nnarrows the driver's: a demand is clamped to both.\n\nA key left out leaves the driver's value; a key given as `null` clears\nit back to the unset default (`label: null` is the titlecased name,\n`warn: null` no band). `limits: null` clears only the file's narrowing,\nnever the driver's limits.",
       "properties": {
         "label": {
           "anyOf": [

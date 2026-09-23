@@ -19,6 +19,8 @@ class SmbusI2c:
     with another's read.
     """
 
+    blocking = True
+
     def __init__(self, bus: int) -> None:
         from smbus2 import SMBus
 

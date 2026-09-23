@@ -9,7 +9,7 @@ from .descriptors import (
     Output,
     Setting,
 )
-from .device import Committable, Device, DriverConfig, Readable
+from .device import Committable, Device, DriverConfig, Pending, Readable
 from .entry import DeviceEntry
 from .signal import (
     Access,
@@ -17,6 +17,7 @@ from .signal import (
     Band,
     Limit,
     LimitNotKnownError,
+    LimitsInvertedError,
     Node,
     NodeSpec,
     Path,
@@ -56,11 +57,13 @@ __all__ = [
     "Level",
     "Limit",
     "LimitNotKnownError",
+    "LimitsInvertedError",
     "Namespace",
     "Node",
     "NodeSpec",
     "Output",
     "Path",
+    "Pending",
     "Readable",
     "Reading",
     "Role",

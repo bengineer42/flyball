@@ -6,6 +6,7 @@ made of is under `/api/devices` and `/api/controllers`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict
 from typing import Any
 
@@ -36,8 +37,15 @@ router = APIRouter(prefix="/api", tags=["rig"])
 # isn't `get_catalog()`/`Catalogs.discover()`.
 
 
-def _outside(value: float, band: tuple[float, float] | None) -> bool:
-    return band is not None and not (band[0] <= value <= band[1])
+def _outside(value: object, band: tuple[float, float] | None) -> bool:
+    """Whether a number is outside `band`.
+
+    Anything else -- None, NaN, an infinity, a string -- says nothing about
+    the band: neither in nor out, so neither warn nor alarm.
+    """
+    if band is None or isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return math.isfinite(value) and not (band[0] <= value <= band[1])
 
 
 def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]:

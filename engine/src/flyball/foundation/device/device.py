@@ -71,9 +71,79 @@ __all__ = [
     "Committable",
     "Device",
     "DriverConfig",
+    "Pending",
     "Readable",
     "command",
 ]
+
+
+class Pending(dict[Signal, float]):
+    """`Committable.pending`: what `apply` recorded, noting which demands the driver read.
+
+    A plain dict to a driver. Looking a demand up (`[]`, `get`, `pop`, `in`,
+    `signal.pending`) marks it read; walking the whole (`items`, `keys`,
+    `values`, iterating, `copy`) marks all of them. After `commit` the rig
+    asks which were never read -- a demand the driver did not look at, so
+    nothing was set -- and `clear` forgets the marks with the demands.
+    """
+
+    __slots__ = ("_all", "_read")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._read: set[Signal] = set()
+        self._all = False
+
+    def unread(self) -> list[Signal]:
+        """The demands the driver has not looked at since the last `clear`, in apply order."""
+        if self._all:
+            return []
+        return [signal for signal in dict.keys(self) if signal not in self._read]
+
+    def _saw(self, key: object) -> None:
+        if isinstance(key, Signal):
+            self._read.add(key)
+
+    def __getitem__(self, key: Signal) -> float:
+        self._saw(key)
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        self._saw(key)
+        return super().__contains__(key)
+
+    def get(self, key: Signal, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._saw(key)
+        return super().get(key, default)
+
+    def pop(self, key: Signal, *default: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._saw(key)
+        return super().pop(key, *default)
+
+    def __iter__(self) -> Iterator[Signal]:
+        self._all = True
+        return super().__iter__()
+
+    def keys(self) -> Any:
+        self._all = True
+        return super().keys()
+
+    def values(self) -> Any:
+        self._all = True
+        return super().values()
+
+    def items(self) -> Any:
+        self._all = True
+        return super().items()
+
+    def copy(self) -> dict[Signal, float]:
+        self._all = True
+        return dict(super().items())
+
+    def clear(self) -> None:
+        super().clear()
+        self._read.clear()
+        self._all = False
 
 
 def _declared_return(cls: type, prop: str) -> Any:
@@ -139,8 +209,8 @@ class Device:
     bound: dict[str, Signal | Node]
     """Inputs this device follows on other devices, by role (`"dry"`): a signal, or a whole
     namespace read as one message; the rig resolves them."""
-    pending: dict[Signal, float]
-    """What `apply` recorded since the last `commit`."""
+    pending: Pending
+    """What `apply` recorded since the last `commit`; the rig clears it after each."""
     written: dict[Signal, WriteState]
     """The last state each W signal was committed to, for the wire."""
     router: Router
@@ -154,7 +224,7 @@ class Device:
         self.name = name
         self.label = label
         self.bound = {}
-        self.pending = {}
+        self.pending = Pending()
         self.written = {}
         self.router = Router()
         self._extended = False

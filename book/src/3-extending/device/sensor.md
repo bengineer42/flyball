@@ -46,8 +46,9 @@ register map -- builds descriptors at run time instead;
 ## Choose a unit
 
 Units come from `flyball.foundation.quantities`: the SI base and derived units, °C,
-°F, litres, minutes, and prefixes (`Pascal.prefixed(Kilo)`, both from
-`flyball.foundation.quantities.si` and `.dimension`). Anything not there is one line:
+litres and minutes (`flyball.foundation.quantities.si`), °F and °R (`.other`), and
+prefixes (`Pascal.prefixed(Kilo)`, `Kilo` from `.dimension`). A rig file names any of
+them by symbol. Anything not there is one line:
 
 ```python
 from flyball.foundation.quantities import DIMENSIONLESS

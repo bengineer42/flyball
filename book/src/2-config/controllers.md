@@ -48,7 +48,18 @@ Enough to choose a law and a feedforward; the full mechanics are
 
 ### One tick
 
-Every time a reading arrives on the controller's source, it ticks:
+Every time a reading arrives on the controller's source, it ticks. First it
+checks the write would land. If the source has gone stale
+(`stale_after`), or a limit on the target follows a signal that has no
+value yet (a supply humidity not read yet) or a non-finite one (NaN,
+infinite), the controller is **held** and the tick stops here: the law
+does not step, nothing is written, the target keeps what it last took,
+and an event says why, once per hold (`stale_input`; `limit_unknown`,
+then `limit_known` when writes resume). A held law cannot wind up, and
+the first step after the hold counts as one ordinary interval, so the
+time spent held is not integrated either.
+
+Then:
 
 1. **Resolve the setpoint** for this instant. The reference is either a
    fixed value or a *generator* — a function of time, such as a ramp —
@@ -59,12 +70,13 @@ Every time a reading arrives on the controller's source, it ticks:
 4. **Write it**: the controller calls `rig.demand(target.node, {target:
    demand}, by=self)`, which validates, clamps to `limits`, and commits;
    `expected` is what came back — `None` if the commit is deferred (a
-   blocking device's writer thread) or the driver cannot say. If a limit
-   follows a signal that has no value yet (a supply humidity not read
-   yet) or a non-finite one (NaN, infinite), or the source has gone stale (`stale_after`), the write is
-   **held**: nothing is applied, `expected` is `None`, and an event says
-   why (`limit_unknown` once, then `limit_known` when writes resume;
-   `stale_input`). A law that raises (no law set, say) is a `step_failed`
+   blocking device's writer thread) or the driver cannot say. A target
+   with `max_rate` moves at most `max_rate` × one update period per write
+   (its `poll_s`, else this controller's `min_period_s`, else 1 s), so the
+   first write after a hold does not spend the allowance banked during it. The rig
+   makes the same check on every write it is handed by a
+   controller (a `regulate` while held is applied to the controller, not
+   the target). A law that raises (no law set, say) is a `step_failed`
    event, once, and `step_recovered` when it steps again; the other
    controllers on the rig are not held up by it. A setpoint that is NaN or
    infinite is refused (422) before the controller changes.

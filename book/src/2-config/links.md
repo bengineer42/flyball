@@ -47,6 +47,9 @@ A serial port, one command per line.
 
 A scripted instrument: `replies: {command: reply}`. An unknown command
 raises, so a typo in a `scpi` table fails on the fake before the bench.
+`blocking` (default `false`) makes a device built on it run its writes on
+the Writer thread, as a real instrument does -- for a test that exercises
+that path without real hardware.
 
 ## Register instruments
 
@@ -59,6 +62,7 @@ A **register link** reads and writes numbered registers. The
 | --- | --- | --- |
 | `host` | required | |
 | `port` | `502` | |
+| `timeout_s` | `3.0` | the pymodbus client's socket timeout |
 
 ### `modbus_rtu`
 
@@ -70,7 +74,9 @@ A **register link** reads and writes numbered registers. The
 ### `fake_registers`
 
 `registers: {address: value}`; a write updates the table, so a readback
-round-trips.
+round-trips. `blocking` (default `false`) makes a device built on it run
+its writes on the Writer thread, as a real link does -- for a test that
+exercises that path without real hardware.
 
 ## Simulated plants
 
@@ -136,7 +142,10 @@ raw byte-level serial port: `write`, `read` an exact length, or `read_until`
 a terminator, for chips with their own binary or ASCII framing (`mhz19`,
 `ezo_ph`) rather than the line-based text protocol `serial` speaks. Its
 `port` (e.g. `/dev/ttyUSB0`) is refused at config time if it is empty or
-contains a byte no device path can (a NUL or a newline).
+contains a byte no device path can (a NUL or a newline). `fake_i2c`
+also takes `blocking` (default `false`), so a device built on it runs
+its writes on the Writer thread, as `SmbusI2c` does -- for a test that
+exercises that path without real hardware.
 
 ## From a package
 

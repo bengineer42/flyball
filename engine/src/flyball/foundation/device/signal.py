@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
 from typing import TYPE_CHECKING, Any
 
-from ..errors import NotFoundError, NotReadyError
+from ..errors import NotFoundError, NotReadyError, UnachievableError
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
@@ -527,6 +527,17 @@ def _name(bound: Followed) -> str:
     return str(bound.path) if isinstance(bound, Signal) else bound.input.name
 
 
+def _shown(limits: tuple[Bound, Bound]) -> str:
+    """A driver's limits for a message: numbers as numbers, a reference by its path."""
+    return (
+        "("
+        + ", ".join(
+            str(bound) if isinstance(bound, (int, float)) else repr(bound.path) for bound in limits
+        )
+        + ")"
+    )
+
+
 def _finite(value: Any) -> float | None:
     """A referenced bound as a number, or None: not known -- no value, or not a finite one."""
     if value is None:
@@ -556,6 +567,25 @@ class LimitNotKnownError(NotReadyError):
         )
 
 
+class LimitsInvertedError(UnachievableError):
+    """A demand was refused: the effective limits, as they resolve now, have low above high.
+
+    A limit that follows a signal (a dry supply read wetter than the wet
+    one), or a rig file's narrowing that the driver's live band has moved
+    clear of, leaves no value a demand could be clamped to. Refused rather
+    than held at either end.
+    """
+
+    def __init__(self, address: str, limits: Band) -> None:
+        self.address = address
+        self.limits = limits
+        self.unknown: list[str] = []
+        super().__init__(
+            f"Demand on '{address}' refused: its limits are inverted now,"
+            f" low {limits[0]:g} above high {limits[1]:g}"
+        )
+
+
 @dataclass(eq=False, slots=True)
 class Signal:
     """A bound signal: the spec, the node it hangs off, and its address.
@@ -575,6 +605,9 @@ class Signal:
     at_limit: Limit | None = None
     """What the driver says of the last demand on it: railed low or high, or neither. Set in
     `commit`; the rig puts it on the demand's write state."""
+    narrowed: Band | None = None
+    """The rig file's `limits`: a band a demand is held inside as well as the driver's, never
+    instead of them. Set through [narrow][flyball.foundation.device.signal.Signal.narrow]."""
     _bounds: tuple[Followed, Followed] | None = field(default=None, repr=False)
     """`spec.limits` with each `SignalRef` resolved to what it follows; see `bind_limits`."""
     _bounds_for: SignalSpec | None = field(default=None, repr=False)
@@ -621,21 +654,56 @@ class Signal:
 
     @property
     def limits(self) -> Band | None:
-        """The effective limits now: a referenced signal's current value stands for it.
+        """The effective limits now: the driver's, intersected with the rig file's narrowing.
 
-        A reference names a signal of the device by path, or one of its
-        inputs by role (the bound source's newest value, or the input's
-        default). None if there are none, or a reference has no value yet or
-        a non-finite one (NaN, inf) -- for display; a demand goes through
+        A reference in the driver's names a signal of the device by path, or
+        one of its inputs by role (the bound source's newest value, or the
+        input's default); its current value stands for it. None if there are
+        none, if a reference has no value yet or a non-finite one (NaN, inf),
+        or if the band is inverted now -- for display; a demand goes through
         [clamp][flyball.foundation.device.signal.Signal.clamp], which refuses
-        it in the second case rather than pass it unclamped.
+        it in the last two cases rather than pass it unclamped.
         """
-        if (bounds := self.bind_limits()) is None:
+        band, unknown = self._resolved()
+        if unknown or band is None or band[0] > band[1]:
             return None
+        return band
+
+    def _resolved(self) -> tuple[Band | None, list[str]]:
+        """The effective band, maybe inverted, and the bounds that are not known now."""
+        narrowed = self.narrowed
+        if (bounds := self.bind_limits()) is None:
+            return narrowed, []
         low, high = _value_of(bounds[0]), _value_of(bounds[1])
         if low is None or high is None:
-            return None
-        return (low, high)
+            return None, [_name(bound) for bound in bounds if _value_of(bound) is None]
+        if narrowed is not None:
+            low, high = max(low, narrowed[0]), min(high, narrowed[1])
+        return (low, high), []
+
+    def narrow(self, band: Band | None) -> None:
+        """Hold demands inside `band` as well as the driver's limits; None drops the narrowing.
+
+        The rig file's `limits`. The effective limits are the intersection,
+        worked out at every clamp: a driver bound that follows a signal is
+        intersected with its value then. A rig file may only narrow.
+
+        Raises:
+            ValueError: `band` is inverted or not finite, or reaches past an
+                end of the driver's limits that is a number.
+        """
+        if band is not None:
+            _check_band(self.name, "limits", band)
+            if (declared := self.spec.limits) is not None:
+                low, high = declared
+                if (isinstance(low, (int, float)) and band[0] < low) or (
+                    isinstance(high, (int, float)) and band[1] > high
+                ):
+                    raise ValueError(
+                        f"'{self.address}': limits {tuple(band)!r} reach outside the driver's"
+                        f" {_shown(declared)}; a rig file may only narrow them"
+                    )
+        self.narrowed = band
 
     def bind_limits(self) -> tuple[Followed, Followed] | None:
         """The spec's limits with each reference resolved to the signal or input it follows.
@@ -672,22 +740,26 @@ class Signal:
     def clamp(self, value: float) -> float:
         """`value` held inside the effective limits; unchanged for a signal without limits.
 
-        Fails closed: when a bound follows a signal with no value yet, or a
-        non-finite one (NaN, inf), the demand is refused rather than passed
-        through unclamped -- even when the other end is a number, since the
-        unknown end is the one that matters (a supply's humidity, a max flow
-        read from the device).
+        The effective limits are the driver's intersected with the rig
+        file's narrowing, resolved now. Fails closed: when a bound follows a
+        signal with no value yet, or a non-finite one (NaN, inf), the demand
+        is refused rather than passed through unclamped -- even when the
+        other end is a number, since the unknown end is the one that matters
+        (a supply's humidity, a max flow read from the device).
 
         Raises:
             LimitNotKnownError: A bound follows a signal that has no value yet,
                 or a non-finite one.
+            LimitsInvertedError: The limits resolve with low above high.
         """
-        if (limits := self.limits) is not None:
-            return min(max(value, limits[0]), limits[1])
-        if (bounds := self.bind_limits()) is None:
+        band, unknown = self._resolved()
+        if unknown:
+            raise LimitNotKnownError(self.address, unknown)
+        if band is None:
             return value
-        unknown = [_name(bound) for bound in bounds if _value_of(bound) is None]
-        raise LimitNotKnownError(self.address, unknown)
+        if band[0] > band[1]:
+            raise LimitsInvertedError(self.address, band)
+        return min(max(value, band[0]), band[1])
 
     @property
     def pending(self) -> float | None:

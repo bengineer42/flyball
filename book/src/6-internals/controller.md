@@ -61,9 +61,13 @@ def tick(self, reading):
         return                                # too soon: reading recorded, nothing else runs this tick
 
     if self.mode.active():                                  # open or regulating
+        if (reason := self.hold()) is not None:           # the rig would refuse the write
+            self.held = reason                            # frozen: no step, no write
+            return
+        resumed, self.held = self.held is not None, None
         setpoint = self.setpoint_at(time_ns)
         if reading is not None and self.mode is ControllerMode.REGULATING:
-            self._skip_outage(time_ns)                    # a gap counts as one ordinary step
+            self._skip_outage(time_ns, resumed=resumed)   # a gap counts as one ordinary step
             self._last_step_ns = time_ns
             self.correction = self.required_law.step(
                 self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
@@ -79,7 +83,7 @@ def _apply_demand(self, setpoint, rate=0.0):
     self.delivered_correction = None if self.expected is None else self.expected - base
 ```
 
-Six things to note:
+Seven things to note:
 
 1. **The reading is recorded, and `attach_on_tick` callbacks run, before the
    `min_period_s` gate.** A fast source updates `controller.reading` every
@@ -106,9 +110,9 @@ Six things to note:
    intervals, `_skip_outage` moves `offset_ns` on by the gap less one
    interval, so the law's `dt` for that step is one ordinary interval, not
    the outage; `reset_law` forgets the last step, so the first step after a
-   `regulate` is never mistaken for one. This is an interim bound: what a
-   controller does across and after an outage (freeze, reset, wait for fresh
-   readings) is still to be decided. Separately, `regulate` and
+   `regulate` is never mistaken for one. This is an interim bound for a
+   source that goes quiet; a source the rig calls stale is a hold (7).
+   Separately, `regulate` and
    `set_reference` refuse a NaN or infinite setpoint before anything
    changes, and the rig runs each controller's step on its own
    (`Rig._step`): one that raises is a `step_failed` event and does not stop
@@ -139,6 +143,26 @@ Six things to note:
    from the *previous* tick; `None` skips the back-calculation term (see
    below), so an unwired or permanently-deferred controller runs open,
    correction-wise, exactly as a law with no `tt` would.
+7. **A held write freezes the controller.** Before stepping, the controller
+   asks `self.hold()` -- the rig's
+   [`hold_reason`][flyball.rig.rig.Rig.hold_reason], injected like `write`
+   -- whether the rig would refuse its write: `stale_input` (the source is
+   older than `stale_after`) or `limit_unknown` (a limit on the target
+   follows a signal with no finite value, D-030). If so the tick returns
+   there: the law does not step, `correction`, `demand`, `expected` and
+   `delivered_correction` keep their last values, and `held` records the
+   reason. Stepping anyway would integrate the error against a write that
+   never lands -- with no `delivered_correction`, back-calculation is off --
+   and slam the output when the hold ends; `smith` would also drive its
+   model with an output the plant never saw. The first step after the hold
+   is `_skip_outage(..., resumed=True)`: `offset_ns` moves on by the gap
+   less one usual interval (the whole gap if there is no usual interval
+   yet), so the law's `dt` is at most one ordinary interval and the result
+   is what it would have been had the held ticks never happened. The rig
+   emits each hold's event once, on entering it (`limit_known` on leaving a
+   `limit_unknown` hold), and `demand(by=controller)` asks `hold_reason`
+   again for the write itself. Unattached, `hold` is
+   `Controller._never_held`.
 
 ## The feedforward
 
@@ -296,13 +320,17 @@ at all — the `PUT /api/controllers/{address}/reference` route.
 Back-calculation. `PI`/`PID`'s `step_integral` is handed `last_applied` —
 `self.delivered_correction` from the *previous* tick, i.e. what the target
 actually reported committing minus what the feedforward alone asked for —
-and pulls the integral back by `(last_applied − last_raw) * dt / (tt * ki)`,
-where `last_raw` is the raw (unclamped) correction the law itself computed
-last step. A target whose `write` returns `None` — unwired, or a commit
+and moves the integral's contribution toward it by
+`(last_applied − last_raw) * (1 − exp(−dt / tt))`, where `last_raw` is the
+raw (unclamped) correction the law itself computed last step. That is the
+continuous law `dI/dt = (last_applied − last_raw) / tt` integrated exactly
+over the step, so the gap closes by at most all of it: the output never
+crosses what was applied, however long `dt` is. (The forward-Euler form it
+replaced, `* dt / tt`, overshot once `dt > tt` and diverged past
+`2·tt`: a long step off a railed output swung it far past the rail.) A target whose `write` returns `None` — unwired, or a commit
 still pending inside a delivery — reports no `delivered_correction`, so that
 tick gets no anti-windup term rather than a wrong one. `tt` omitted or 0
-turns this off outright (`(tt * ki)` is 0, so the term is skipped rather
-than dividing by zero): a reasonable `tt` is about `Ti` (`kp/ki`), or
+(or `ki` 0) turns this off outright: a reasonable `tt` is about `Ti` (`kp/ki`), or
 `√(Ti·Td)` once a derivative term also acts.
 
 `smith`'s own internal model is driven by the same `last_applied` when it is

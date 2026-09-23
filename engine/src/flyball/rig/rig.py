@@ -34,7 +34,9 @@ from flyball.foundation.device import (
     Level,
     Limit,
     LimitNotKnownError,
+    LimitsInvertedError,
     Node,
+    Pending,
     Readable,
     Reading,
     Role,
@@ -114,11 +116,25 @@ class Rig:
     _limit_held: set[str]
     """Controllers whose writes are held because a limit follows a signal with no value yet:
     one event on entering the hold, one on leaving it, none per step between."""
+    _stale_held: set[str]
+    """Controllers whose writes are held because their source is past `stale_after`:
+    one event on entering the hold, none per step while it lasts."""
     _failing: set[str]
     """Controllers whose step raised: one event on the first failure, one when a step succeeds
     again, none per failing step between. The others in the delivery carry on regardless."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
+    _stepped: set[Controller] | None
+    """The controllers stepped since the outermost delivery began, through every delivery of
+    what its commits pushed; None outside one. A controller steps at most once in that chain:
+    a commit that pushes back its own source would otherwise step it again, for ever."""
+    _ignored: set[Signal]
+    """Demands whose driver's `commit` did not read them: one event when a signal's demand
+    first goes unread, none per demand after, until one is read again."""
+    _commit_failures: dict[Device, Condition]
+    """Devices whose last `commit` on the delivery path raised, with what it raised: one
+    event on the first failure, one when a commit succeeds again, none per failing commit
+    between. A blocking device's writer keeps its own."""
     entries: dict[str, DeviceEntry]
     """What each device was built from: its rig-file entry, for rendering the rig back out."""
     link_entries: dict[str, Any]
@@ -145,7 +161,7 @@ class Rig:
         self._claims = {}
         self._writers = {}
         self.lock = RLock()
-        self.triggers = Triggers(self.clock)
+        self.triggers = Triggers(lambda: self.clock)
         self.events = Topic()
         self.recent = deque(maxlen=500)
         self.tunings = Tunings()
@@ -163,8 +179,12 @@ class Rig:
         self._node_observers = {}
         self._requested = {}
         self._limit_held = set()
+        self._stale_held = set()
         self._failing = set()
         self._touched = None
+        self._stepped = None
+        self._commit_failures = {}
+        self._ignored = set()
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -254,7 +274,7 @@ class Rig:
         return event
 
     def write_conditions(self) -> list[tuple[str, Condition]]:
-        """Bus failures the writers of blocking devices are seeing now, by device name.
+        """Bus failures seen now, by device name: a blocking device's writer's, a commit's.
 
         Read from a snapshot, not under the lock: the async health route
         calls it on the event loop, which must not wait on a delivery.
@@ -263,7 +283,7 @@ class Rig:
             (device.name, failed)
             for device, writer in list(self._writers.items())
             if (failed := writer.failed) is not None
-        ]
+        ] + [(device.name, failed) for device, failed in list(self._commit_failures.items())]
 
     def stop(self) -> None:
         """Stop what runs on threads: polling, writers, recording. The rig can be built again."""
@@ -489,10 +509,11 @@ class Rig:
         recorded -- every key a W signal, none driven by an active
         controller, every limit known -- then clamped to `limits` and
         fanned out to `device.apply`. A limit that follows a signal with no
-        value yet fails closed: a manual demand is refused whole, and a
-        controller's is held (nothing applied, `{}` returned) with a
-        `limit_unknown` event on entering the hold and `limit_known` on
-        leaving it. A demand
+        value yet fails closed: a manual demand is refused whole. A
+        controller's demand is held (nothing applied, `{}` returned) for
+        any reason [hold_reason][flyball.rig.rig.Rig.hold_reason] gives --
+        that limit, or a stale source -- which the controller has already
+        asked before stepping its law. A demand
         from outside a delivery is committed now and its states returned;
         one from inside a delivery (a controller's, a command's) is
         committed with everything else at its end, and this returns nothing.
@@ -507,6 +528,9 @@ class Rig:
             LimitNotKnownError: A signal's limit follows a signal with no
                 value yet (a `NotReadyError`); not raised for a controller's
                 demand, which is held instead.
+            LimitsInvertedError: A signal's limits resolve inverted now, low
+                above high (an `UnachievableError`); held for a controller's
+                demand, like an unknown limit.
             ValueError: No values, one signal named twice, or a value that is
                 not finite (NaN, infinity).
         """
@@ -515,20 +539,8 @@ class Rig:
         device = node.device
         if not isinstance(device, Committable):
             raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
-        if by is not None and (stale_after := by.source.spec.stale_after) is not None:
-            source = by.source
-            reading = self.router.latest.get(source)
-            age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
-            if age_s is None or age_s > stale_after:
-                self.event(
-                    Level.WARNING,
-                    Scope.CONTROLLER,
-                    by.name,
-                    Kind.STALE_INPUT,
-                    f"'{source.address}' has not been read in over {stale_after:g}s: held",
-                    {"age_s": age_s},
-                )
-                return {}
+        if by is not None and self.hold_reason(by) is not None:
+            return {}
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
             if isinstance(key, Signal):
@@ -563,34 +575,16 @@ class Rig:
             original = value
             try:
                 value = signal.clamp(value)
-            except LimitNotKnownError as e:
+            except (LimitNotKnownError, LimitsInvertedError) as e:
                 if by is None:
                     raise
-                if by.name not in self._limit_held:
-                    self._limit_held.add(by.name)
-                    self.event(
-                        Level.WARNING,
-                        Scope.CONTROLLER,
-                        by.name,
-                        Kind.LIMIT_UNKNOWN,
-                        f"{e}: held",
-                        {"signal": signal.address, "unknown": e.unknown},
-                    )
+                self._limit_unknown(by, e)
                 return {}
             if (max_rate := signal.spec.max_rate) is not None:
-                value = self._rate_clamped(signal, value, max_rate, now_ns)
+                value = self._rate_clamped(signal, value, max_rate, now_ns, by)
             if value != original:
                 requested[signal] = original
             clamped[signal] = value
-        if by is not None and by.name in self._limit_held:
-            self._limit_held.discard(by.name)
-            self.event(
-                Level.INFO,
-                Scope.CONTROLLER,
-                by.name,
-                Kind.LIMIT_KNOWN,
-                "every limit on its target is known: writing again",
-            )
         with self.lock:
             time_ns = self.clock.now_ns()
             writer = self._writer_for(device)
@@ -613,8 +607,80 @@ class Rig:
             self._flush_pushed()
             return states
 
-    def _rate_clamped(self, signal: Signal, value: float, max_rate: Rate, now_ns: int) -> float:
+    def hold_reason(self, controller: Controller) -> Kind | None:
+        """Why a write by `controller` would be held now, or None if it would go through.
+
+        `stale_input`: its source has not been read within `stale_after`.
+        `limit_unknown`: a limit on its target follows a signal with no value
+        yet, or a non-finite one (D-030), or the limits resolve inverted
+        (D-040). Each is one event on entering the hold, not one per call;
+        `limit_known` marks leaving the second. The controller asks this
+        before it steps its law, so a held write freezes the law as well as
+        the target; `demand` asks it again for its own writes.
+        """
+        name = controller.name
+        if (stale_after := controller.source.spec.stale_after) is not None:
+            source = controller.source
+            reading = self.router.latest.get(source)
+            age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
+            if age_s is None or age_s > stale_after:
+                if name not in self._stale_held:
+                    self._stale_held.add(name)
+                    self.event(
+                        Level.WARNING,
+                        Scope.CONTROLLER,
+                        name,
+                        Kind.STALE_INPUT,
+                        f"'{source.address}' has not been read in over {stale_after:g}s: held",
+                        {"age_s": age_s},
+                    )
+                return Kind.STALE_INPUT
+            self._stale_held.discard(name)
+        try:
+            controller.target.clamp(0.0)
+        except (LimitNotKnownError, LimitsInvertedError) as e:
+            self._limit_unknown(controller, e)
+            return Kind.LIMIT_UNKNOWN
+        if name in self._limit_held:
+            self._limit_held.discard(name)
+            self.event(
+                Level.INFO,
+                Scope.CONTROLLER,
+                name,
+                Kind.LIMIT_KNOWN,
+                "every limit on its target is known: writing again",
+            )
+        return None
+
+    def _limit_unknown(
+        self, controller: Controller, error: LimitNotKnownError | LimitsInvertedError
+    ) -> None:
+        """Enter a `limit_unknown` hold: the event once, not per step."""
+        if controller.name not in self._limit_held:
+            self._limit_held.add(controller.name)
+            self.event(
+                Level.WARNING,
+                Scope.CONTROLLER,
+                controller.name,
+                Kind.LIMIT_UNKNOWN,
+                f"{error}: held",
+                {"signal": error.address, "unknown": error.unknown},
+            )
+
+    def _rate_clamped(
+        self,
+        signal: Signal,
+        value: float,
+        max_rate: Rate,
+        now_ns: int,
+        by: Controller | None = None,
+    ) -> float:
         """`value`, held to at most `max_rate` away from the last commit's, over the elapsed time.
+
+        The elapsed time counts up to one update period and no further: the
+        signal's `poll_s`, else the demanding controller's `min_period_s`,
+        else 1 s. A demand after a long quiet spell (a hold, an idle signal)
+        moves one period's worth, not the whole allowance banked meanwhile.
 
         Nothing to compare against yet (no prior commit), or a last value
         that is not finite (a readback gone wrong): `value` passes through
@@ -623,7 +689,8 @@ class Rig:
         last = self.router.latest.get(signal)
         if last is None or not math.isfinite(last.value):
             return value
-        elapsed_s = (now_ns - last.time_ns) / 1e9
+        window_s = signal.poll_s or (by.min_period_s if by is not None else None) or 1.0
+        elapsed_s = min((now_ns - last.time_ns) / 1e9, window_s)
         if elapsed_s <= 0:
             return last.value
         step = max_rate.per_second * elapsed_s
@@ -645,11 +712,25 @@ class Rig:
         finally:
             self._touched = None
 
-    def _commit(self, devices: Iterable[Device], time_ns: int) -> dict[Signal, WriteState]:
+    def _commit(
+        self,
+        devices: Iterable[Device],
+        time_ns: int,
+        failed: dict[Signal, WriteState] | None = None,
+    ) -> dict[Signal, WriteState]:
         """One commit per device, and the states filled in with what the rig knows.
 
         A blocking device's commit is handed to its writer instead, and its
         states come back through `written` when the write completes.
+
+        A commit that raises is that device's alone: its demands are dropped
+        (not left in `pending` to go out with a later commit, over a newer
+        write), it becomes a `commit_failed` event once per outage and a
+        condition, and the other devices commit regardless. Into `failed`,
+        when given, go the states of what it dropped (`value` None: nothing
+        was set), for the controllers driving them; without it -- a manual
+        demand or a command, one device -- the error is raised to the caller
+        too.
         """
         states: dict[Signal, WriteState] = {}
         for device in devices:
@@ -657,11 +738,51 @@ class Rig:
                 continue  # touched by an input landing; nothing to commit
             if (writer := self._writer_for(device)) is not None:
                 writer.request(time_ns)
-            else:
-                before = dict(self.router.seq)
+                continue
+            before = dict(self.router.seq)
+            try:
                 device.commit(time_ns)
-                states.update(self._states(device, time_ns, before))
+            except Exception as error:
+                dropped = self._commit_failed(device, error)
+                if failed is None:
+                    raise
+                failed.update(dropped)
+                continue
+            if self._commit_failures.pop(device, None) is not None:
+                self.event(
+                    Level.INFO, Scope.DEVICE, device.name, Kind.COMMIT_RECOVERED, "commits succeed"
+                )
+            states.update(self._states(device, time_ns, before))
         return states
+
+    def _commit_failed(self, device: Committable, error: Exception) -> dict[Signal, WriteState]:
+        """A commit raised: drop its demands, report the outage once; what each demand became."""
+        message = f"{type(error).__name__}: {error}"
+        first = device not in self._commit_failures
+        self._commit_failures[device] = Condition(
+            Kind.COMMIT_FAILED, Level.ERROR, message, self.clock.now_ns()
+        )
+        if first:  # one event per outage, not one per delivery
+            log.warning("%s: commit failed: %s", device.name, message, exc_info=error)
+            self.event(
+                Level.ERROR,
+                Scope.DEVICE,
+                device.name,
+                Kind.COMMIT_FAILED,
+                message,
+                {"signals": [signal.address for signal in device.pending]},
+            )
+        dropped: dict[Signal, WriteState] = {}
+        for signal in device.pending:
+            holder = self.controllers.driving(signal)
+            dropped[signal] = WriteState(
+                value=None,
+                requested=self._requested.pop(signal, None),
+                controller=None if holder is None else holder.name,
+            )
+            signal.at_limit = None
+        device.pending.clear()
+        return dropped
 
     def _states(
         self, device: Committable, time_ns: int, before: Mapping[Signal, int]
@@ -675,14 +796,32 @@ class Rig:
         asked for, when the clamp changed it, and which controller drives
         the signal; the device's `written` gets the filled-in state too, so
         the wire shows one thing.
+
+        A demand the driver's `commit` never read (a composite that drives
+        from its target and ignores its line demands while blending) was not
+        set: it is not echoed as a reading, its state keeps the reading
+        as it was (None with none) with the demand as `requested`, and a
+        `demand_ignored` event says so, once until one is read again.
         """
         states: dict[Signal, WriteState] = {}
         seq = self.router.seq
-        for signal, value in device.pending.items():
-            if seq.get(signal, 0) != before.get(signal, 0):  # the driver pushed the readback
+        pending = device.pending
+        unread = set(pending.unread()) if isinstance(pending, Pending) else set()
+        for signal, value in dict.items(pending):
+            pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
+            requested = self._requested.pop(signal, None)
+            ignored = signal in unread
+            if ignored:
+                self._demand_ignored(device, signal, value)
+                requested = value if requested is None else requested
+                reading = self.router.latest.get(signal)
+                value = None if reading is None else reading.value
+            else:
+                self._ignored.discard(signal)
+            if pushed:
                 value = self.router.value(signal)
             at_limit = signal.at_limit
-            if at_limit is None and (limits := signal.limits) is not None:
+            if at_limit is None and (limits := signal.limits) is not None and value is not None:
                 if value <= limits[0]:
                     at_limit = Limit.LOW
                 elif value >= limits[1]:
@@ -690,7 +829,7 @@ class Rig:
             holder = self.controllers.driving(signal)
             state = WriteState(
                 value=value,
-                requested=self._requested.pop(signal, None),
+                requested=requested,
                 at_limit=at_limit,
                 controller=None if holder is None else holder.name,
             )
@@ -698,7 +837,7 @@ class Rig:
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
-            if seq.get(signal, 0) == before.get(signal, 0):  # no readback: the value stands
+            if not pushed and not ignored:  # no readback: the value stands
                 signal.push(value, time_ns)
             # Fold the write record into the reading itself, so it rides the samples stream
             # with the value instead of a separate `/ws/writes` cell.
@@ -712,11 +851,37 @@ class Rig:
         device.pending.clear()
         return states
 
+    def _demand_ignored(self, device: Committable, signal: Signal, value: float) -> None:
+        if signal in self._ignored:
+            return
+        self._ignored.add(signal)
+        self.event(
+            Level.WARNING,
+            Scope.DEVICE,
+            device.name,
+            Kind.DEMAND_IGNORED,
+            f"'{signal.address}': {value} was not read by the driver's commit; nothing was set",
+            {"signal": signal.address, "demand": value},
+        )
+
     def _flush_pushed(self) -> None:
-        """Deliver what commits pushed, each batch as one more delivery, until nothing is left."""
-        while self._pushed:
-            pushed, self._pushed = self._pushed, []
-            self._deliver_samples(pushed, noted=True)
+        """Deliver what commits pushed, each batch as one more delivery, until nothing is left.
+
+        One chain: a controller already stepped in it is not stepped again
+        on a reading its own commit pushed (its target's device reading its
+        source back). The reading still lands; the controller steps on the
+        next delivery that starts a chain.
+        """
+        outer = self._stepped
+        if outer is None:
+            self._stepped = set()
+        try:
+            while self._pushed:
+                pushed, self._pushed = self._pushed, []
+                self._deliver_samples(pushed, noted=True)
+        finally:
+            if outer is None:
+                self._stepped = None
 
     def written(self, device: Committable, time_ns: int, before: Mapping[Signal, int]) -> None:
         """A blocking device's writer finished a commit: publish, deliver and record its states.
@@ -871,6 +1036,8 @@ class Rig:
             self.router.seq.pop(signal, None)
             self.write_states.discard(signal.address)
             self._requested.pop(signal, None)
+            self._ignored.discard(signal)
+        self._commit_failures.pop(device, None)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)
             self.router.cuts.pop(node, None)
@@ -959,6 +1126,8 @@ class Rig:
                 no value yet.
             LimitNotKnownError: A linked argument's demand has a limit that
                 follows a signal with no value yet: refused, not run unclamped.
+            LimitsInvertedError: A linked argument's demand has limits that
+                resolve inverted now: refused.
         """
         try:
             spec = device.commands[tag]
@@ -1079,6 +1248,7 @@ class Rig:
                 feedforward=feedforward,
                 min_period_s=min_period_s,
                 write=write,
+                hold=lambda: self.hold_reason(controller),
             )
             self.controllers.add(controller, default=default)
             self._changed(f"attached controller {controller.name}")
@@ -1095,8 +1265,10 @@ class Rig:
         with self.lock:
             controller = self.controllers.remove(name)
             self._limit_held.discard(name)
+            self._stale_held.discard(name)
             controller.manual()
             controller.write = Controller._unwired
+            controller.hold = Controller._never_held
             # A watcher primes from this cell; a name the rig no longer has must not be in it.
             self.controller_states.discard(name)
             self._changed(f"detached controller {name}")
@@ -1133,8 +1305,12 @@ class Rig:
                     self.router.note(sample)
                 self._pushed.extend(samples)
                 return
-            self._deliver_samples(samples)
-            self._flush_pushed()
+            self._stepped = set()
+            try:
+                self._deliver_samples(samples)
+                self._flush_pushed()
+            finally:
+                self._stepped = None
 
     def _deliver_samples(self, samples: Sequence[Sample], *, noted: bool = False) -> None:
         """One delivery, under the lock: note, observers, controllers, commits, recorder."""
@@ -1174,7 +1350,9 @@ class Rig:
                         for device in self._node_observers.get(node, ()):
                             messages[device, node] = None
                         node = node.parent
-                    if (controller := self.controllers.find(signal)) is not None:
+                    if (controller := self.controllers.find(signal)) is not None and (
+                        self._stepped is None or controller not in self._stepped
+                    ):
                         ticks.append((controller, reading))
                 for device, node in messages:
                     # A subscriber hears what publishes, as a signal-level
@@ -1185,11 +1363,15 @@ class Rig:
                     ) is not None:
                         touched[device] = None
             for controller, reading in ticks:
+                if self._stepped is not None:
+                    self._stepped.add(controller)
                 self._step(controller, reading)
             time_ns = max(s.time_ns for s in samples)
-            states = self._commit(touched, time_ns)
+            failed: dict[Signal, WriteState] = {}
+            states = self._commit(touched, time_ns, failed)
         finally:
             self._touched = None
+        self._deliver(failed)
         self._deliver(states)
         if self.controller_states.watched:
             for controller, _ in ticks:

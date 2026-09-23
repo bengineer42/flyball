@@ -27,7 +27,7 @@ from flyball.hardware.links import RegisterLink
 from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from ._links import FakeRegisterLink, RegisterLinkConfig
+from ._links import RegisterLinkConfig
 
 Kind = Literal["holding", "input", "coil"]
 
@@ -86,8 +86,9 @@ class Modbus(Readable, Committable):
         self.unit_id = unit_id
         self.registers = dict(registers)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
-        # per instance, at build.
-        self.blocking = not isinstance(link, FakeRegisterLink)  # pyright: ignore[reportAttributeAccessIssue]
+        # per instance, at build. The link itself says whether it wants the Writer
+        # thread -- a real bus always does, a fake only if configured to.
+        self.blocking = link.blocking  # pyright: ignore[reportAttributeAccessIssue]
         self._scan = Scan()
         self.bind([
             SignalSpec(name=key, quantity=Quantity(key, reg.unit), access=reg.access, role=reg.role)

@@ -144,6 +144,14 @@ composite one (blending two pumps into one settable humidity) overrides
 it reads from its inputs, so a new target, a changed input reading and a
 new setting arriving in one delivery still cost one write.
 
+What a commit pushes is delivered next, as one more delivery, and so on
+until nothing is left. A controller steps at most once in that chain: when
+its target's device reads its source back in `commit` (one instrument's
+output and process value), the readback lands -- in the router, the
+streams, the recorder -- without stepping the controller again, which
+would otherwise commit, push and step for ever. It steps on the next
+delivery that starts a chain: the next poll.
+
 ## Errors
 
 Six bases, classified by what a caller can do about a failure rather than

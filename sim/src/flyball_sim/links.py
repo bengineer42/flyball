@@ -41,10 +41,13 @@ class FakeI2c:
         registers: dict[int, dict[int, list[int]]] | None = None,
         replies: dict[int, list[list[int]]] | None = None,
         short_reads: bool = False,
+        blocking: bool = False,
     ) -> None:
         self.registers = {a: dict(r) for a, r in (registers or {}).items()}
         self.replies = {a: list(r) for a, r in (replies or {}).items()}
         self.short_reads = short_reads
+        self.blocking = blocking
+        """Whether a device built over this link should run its writes on the Writer thread."""
         self.written: list[tuple[int, int | None, list[int]]] = []
         """`(address, register or None, data)` per write, in order."""
 
@@ -96,9 +99,13 @@ class FakeI2cConfig(Config[I2cLink], tag="fake_i2c"):
 
     registers: dict[int, dict[int, list[int]]] = Field(default_factory=dict)
     replies: dict[int, list[list[int]]] = Field(default_factory=dict)
+    blocking: bool = Field(
+        default=False,
+        description="Run this fake's writes on the Writer thread, as a real bus would.",
+    )
 
     def build(self) -> I2cLink:
-        return FakeI2c(self.registers, self.replies)
+        return FakeI2c(self.registers, self.replies, blocking=self.blocking)
 
 
 # endregion

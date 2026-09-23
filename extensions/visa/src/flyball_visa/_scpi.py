@@ -29,7 +29,7 @@ from flyball.hardware.links import TextLink
 from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ._links import FakeTextLink, TextLinkConfig
+from ._links import TextLinkConfig
 
 Parser = Callable[[str], float]
 
@@ -103,8 +103,9 @@ class Scpi(Readable, Committable):
         self.parse = parse
         self.channels = dict(channels)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
-        # per instance, at build.
-        self.blocking = not isinstance(link, FakeTextLink)  # pyright: ignore[reportAttributeAccessIssue]
+        # per instance, at build. The link itself says whether it wants the Writer
+        # thread -- a real bus always does, a fake only if configured to.
+        self.blocking = link.blocking  # pyright: ignore[reportAttributeAccessIssue]
         self._scan = Scan()
         self.bind([
             SignalSpec(

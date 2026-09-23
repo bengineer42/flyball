@@ -618,13 +618,13 @@ name = "furnace"
 version = "0.1.0"
 source = { editable = "../examples/furnace" }
 dependencies = [
-    { name = "flyball" },
+    { name = "flyball", extra = ["server"] },
     { name = "flyball-sim" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "flyball", editable = "." },
+    { name = "flyball", extras = ["server"], editable = "." },
     { name = "flyball-sim", editable = "../sim" },
 ]
 

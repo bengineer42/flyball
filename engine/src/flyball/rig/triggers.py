@@ -7,6 +7,7 @@ fire or interrupt it. Outcomes are pushed through `latest` as they settle.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Lock
 
@@ -35,8 +36,10 @@ class _Entry:
 class Triggers:
     """The rig's named signals. One name at a time; removed when its wait is over."""
 
-    def __init__(self, clock: Clock) -> None:
+    def __init__(self, clock: Callable[[], Clock]) -> None:
         self._clock = clock
+        """A provider, not the clock itself: the rig may re-bind its `clock` later (a scaled
+        sim clock, swapped in after construction), and this must see the current one."""
         self._lock = Lock()
         self._entries: dict[str, _Entry] = {}
         self.latest: Latest[str, TriggerState] = Latest()
@@ -53,7 +56,7 @@ class Triggers:
         """Name a signal while something waits on it.
 
         Args:
-            name: What it is fired by: `POST /api/signals/{name}/fire`.
+            name: What it is fired by: `POST /api/waits/{name}/fire`.
             signal: What is waited on.
             message: What the wait is for, for a person.
             timeout_s: When the wait gives up, if it does.
@@ -63,7 +66,9 @@ class Triggers:
         Raises:
             ConflictError: `name` is already waiting on something else.
         """
-        state = TriggerState(name, message, signal.outcome, self._clock.now_ns(), timeout_s, prompt)
+        state = TriggerState(
+            name, message, signal.outcome, self._clock().now_ns(), timeout_s, prompt
+        )
         with self._lock:
             if (existing := self._entries.get(name)) is not None and existing.signal is not signal:
                 raise ConflictError(f"Trigger {name!r} is already pending")

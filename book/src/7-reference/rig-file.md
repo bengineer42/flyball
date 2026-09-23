@@ -27,6 +27,11 @@ YAML loader that rejects duplicate keys (plain PyYAML keeps the last
 silently). Links are a separate namespace — a link may share a name with a
 device.
 
+Booleans are YAML 1.2's: only `true` and `false` (in any case). The YAML
+1.1 words `yes`, `no`, `on` and `off` stay strings, so a GPIO's `on`
+signal is a key and `on_stop: off` is the word `off`, not `false`. The same
+holds for a program file, a library upload and a `--set` value.
+
 ## Top level
 
 | key | type | |
@@ -109,10 +114,15 @@ stale_after, limits, max_rate, tags, access, readable, publishing, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by; `stale_after` is seconds since the last reading beyond which a
-controller regulated from the signal holds its demand rather than apply it;
+controller regulated from the signal is held -- its law does not step and
+its demand is not applied;
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
-elapsed time allows, not refused); `access` names the set to keep (`"r"`), and
+elapsed time allows, up to one update period (`poll_s`, else the controller's
+`min_period_s`, else 1 s), not refused; `limits` only narrows: a demand is clamped
+to the intersection of the driver's limits and the file's, resolved at each
+demand, and a file bound past a numeric driver bound is refused at load);
+`access` names the set to keep (`"r"`), and
 `readable`/`publishing`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
 it, unless the driver also names a ceiling for that signal (a Python-level
@@ -120,6 +130,13 @@ option, not a rig-file key), in which case `access` may ask for anything up
 to and including it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, recursing
 the same way into a namespace's own children; its `tags` apply to every
 signal under it, a signal's own winning.
+
+A key left out of an override leaves the driver's value; a key given as
+`null` clears it to the unset default (`label` the titlecased name, a band
+none, `poll_s` inherited) -- `limits: null` clears only the file's
+narrowing, never the driver's limits. `poll_s` (on a device, namespace or
+signal) and `stale_after` must be finite and above zero; `0`, a negative
+number or `.nan` is refused at load.
 
 ## Links
 

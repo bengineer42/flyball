@@ -15,8 +15,8 @@ links:
     tag: sim_plant
     model: lag
     tau_s: 1.0
-    gain: 1.0
-    ambient: 0.0
+    gain: 20.0      # with ambient -10, drive1's -10..10 V span settles the output at the drive
+    ambient: -10.0
     initial: 0.0
     noise: 3.0
     seed: 1
@@ -168,9 +168,10 @@ devices:
   drive1:
     driver: sim_drive
     label: Channel 1 drive
-    config: { link: t1, ports: { drive: input } }
-    signals:
-      drive: { limits: [-10.0, 10.0] }
+    config:
+      link: t1
+      ports:
+        drive: { port: input, quantity: drive, unit: V, limits: [-10.0, 10.0] }
 
 controllers:
   drive1.drive:

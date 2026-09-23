@@ -13,8 +13,14 @@ from pydantic import Field
 class FakeTextLink:
     """Answers from a table or a function; remembers every write and query."""
 
-    def __init__(self, replies: dict[str, str] | Callable[[str], str] | None = None) -> None:
+    def __init__(
+        self,
+        replies: dict[str, str] | Callable[[str], str] | None = None,
+        blocking: bool = False,
+    ) -> None:
         self.replies = replies or {}
+        self.blocking = blocking
+        """Whether a device built over this link should run its writes on the Writer thread."""
         self.written: list[str] = []
         self.queried: list[str] = []
 
@@ -35,9 +41,13 @@ class FakeTextLinkConfig(Config[TextLink], tag="fake_text"):
     """A scripted instrument, for a rig file that runs without hardware."""
 
     replies: dict[str, str] = Field(default_factory=dict)
+    blocking: bool = Field(
+        default=False,
+        description="Run this fake's writes on the Writer thread, as a real instrument would.",
+    )
 
     def build(self) -> TextLink:
-        return FakeTextLink(self.replies)
+        return FakeTextLink(self.replies, blocking=self.blocking)
 
 
 class VisaLink:
@@ -46,6 +56,8 @@ class VisaLink:
     One lock per link, so a reader and an actuator sharing an instrument
     cannot interleave a query with a write.
     """
+
+    blocking = True
 
     def __init__(self, resource: str, timeout_ms: int = 2000, backend: str = "@py") -> None:
         import pyvisa
@@ -80,6 +92,8 @@ class VisaLinkConfig(Config[TextLink], tag="visa"):
 
 class SerialLink:
     """A serial port through pyserial, one command per line. Needs the `serial` extra."""
+
+    blocking = True
 
     def __init__(
         self, port: str, baud: int = 9600, terminator: str = "\n", timeout_s: float = 1.0

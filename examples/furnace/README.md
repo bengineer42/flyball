@@ -1,8 +1,8 @@
 # The furnace
 
 A three-zone tube furnace: the complicated simulated rig. No hardware --
-it needs only `flyball` and `flyball-sim` -- kept as its own package
-because it registers `sim_furnace`, a worked
+it needs only `flyball[server]` (for `flyball-runner`) and `flyball-sim`
+-- kept as its own package because it registers `sim_furnace`, a worked
 [`MultiPlant`][flyball_sim.plant.MultiPlant] example whose ports know their
 own quantity, rather than the generic `sim_plant`/`sim_daq`/`sim_drive`
 `examples/simulated/` uses.
