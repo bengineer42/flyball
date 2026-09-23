@@ -607,6 +607,13 @@ func (b *ProcessBackend) takeOver(rp *runnerProc) (cmd *exec.Cmd, adopted bool) 
 			b.mu.Unlock()
 			return cmd, false
 		}
+		// A runner that has taken the lock but not yet named itself in it
+		// is starting, as is one not listening yet: each is retried
+		// within adoptWindow.
+		if errors.Is(err, errNoPid) && time.Now().Before(deadline) {
+			b.pause(rp, b.probeInterval)
+			continue
+		}
 		var info endpoint.FrontInfo
 		if err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*endpoint.ProbeTimeout)
@@ -742,6 +749,10 @@ type holder struct {
 
 var lockPid = regexp.MustCompile(`^pid (\d+)`)
 
+// errNoPid: runner.lock is held but names no pid -- its runner has taken
+// it and not yet written its pid (a front's Write leaves it empty).
+var errNoPid = errors.New(frontdir.Lock + " names no pid")
+
 // inspect reads the front-dir dir of a runner for aud: whether its
 // runner.lock is held, and if so the key, endpoint and pid a runner there
 // was given. An error: the dir fails frontdir.Check, or it holds what no
@@ -765,12 +776,6 @@ func inspect(dir, aud string) (holder, error) {
 	if err != nil {
 		return h, err
 	}
-	m := lockPid.FindSubmatch(lock)
-	if m == nil {
-		return h, fmt.Errorf("%s names no pid (%q)", frontdir.Lock, strings.TrimSpace(string(lock)))
-	}
-	h.pid, _ = strconv.Atoi(string(m[1]))
-	h.start = processStart(h.pid)
 	if got, err := r.ReadFile(frontdir.Aud); err != nil {
 		return h, err
 	} else if a := strings.TrimSpace(string(got)); a != aud {
@@ -786,6 +791,14 @@ func inspect(dir, aud string) (holder, error) {
 	if h.key, err = frontdir.ReadKey(dir); err != nil {
 		return h, err
 	}
+	// Last: a dir written for this runner whose lock names no pid yet is
+	// one whose runner is starting (errNoPid), not a foreign one.
+	m := lockPid.FindSubmatch(lock)
+	if m == nil {
+		return h, fmt.Errorf("%w (%q)", errNoPid, strings.TrimSpace(string(lock)))
+	}
+	h.pid, _ = strconv.Atoi(string(m[1]))
+	h.start = processStart(h.pid)
 	return h, nil
 }
 

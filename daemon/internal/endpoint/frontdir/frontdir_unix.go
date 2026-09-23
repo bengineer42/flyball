@@ -38,7 +38,11 @@ func lockHeld(r *os.Root) (bool, error) {
 }
 
 // lockForWrite takes runner.lock (creating it, 0600) exclusively for
-// Write: held true, and nothing taken, when a runner holds it.
+// Write: held true, and nothing taken, when a runner holds it. Taken, it
+// is emptied: the pid it named is the runner before, which has exited
+// (else the lock would be held), and that pid may since be another
+// process's -- from now until the next runner writes its own, the file
+// names none, so `flyball stop` finds "starting", never a stale pid.
 func lockForWrite(r *os.Root) (release func(), held bool, err error) {
 	f, err := r.OpenFile(Lock, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -48,6 +52,9 @@ func lockForWrite(r *os.Root) (release func(), held bool, err error) {
 	if errors.Is(err, syscall.EWOULDBLOCK) {
 		f.Close()
 		return nil, true, nil
+	}
+	if err == nil {
+		err = f.Truncate(0)
 	}
 	if err != nil {
 		f.Close()

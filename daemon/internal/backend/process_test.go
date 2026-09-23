@@ -765,6 +765,9 @@ func fakeRunnerMain(args []string) {
 	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
 		os.Exit(3)
 	}
+	if d, err := time.ParseDuration(os.Getenv("FLYBALLD_TEST_NAME_DELAY")); err == nil {
+		time.Sleep(d) // a runner that has taken the lock but not yet named itself in it
+	}
 	lock.Truncate(0)
 	fmt.Fprintf(lock, "pid %d\n", os.Getpid())
 	key, err1 := os.ReadFile(filepath.Join(dir, "key"))

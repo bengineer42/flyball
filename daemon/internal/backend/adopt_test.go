@@ -293,3 +293,56 @@ func TestExit3WithTheFrontDirHeldAdopts(t *testing.T) {
 		t.Fatalf("detail %+v, want adopted, pid %d", d, live.Process.Pid)
 	}
 }
+
+// liveRunner starts the fake runner in root/oven, as a flyballd that has
+// since exited left it, with env (its FLYBALLD_TEST_* knobs), and waits
+// until it holds runner.lock.
+func liveRunner(t *testing.T, root string, env ...string) *exec.Cmd {
+	t.Helper()
+	dir := filepath.Join(root, "oven")
+	if err := frontdir.Prepare(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := frontdir.Write(dir, "oven", endpoint.Endpoint{Network: "unix", Address: filepath.Join(dir, frontdir.Sock)}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := helperCommand("", []string{"rig.yaml", "--front-dir", dir, "--root-path", "/oven"})
+	cmd.Env = append(cmd.Env, env...)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	eventually(t, "the runner holds runner.lock", func() bool { h, _ := frontdir.LockHeld(dir); return h })
+	return cmd
+}
+
+// adoptedWithin waits up to wait for oven to run adopted, as pid.
+func adoptedWithin(t *testing.T, b *ProcessBackend, pid int, wait time.Duration) {
+	t.Helper()
+	if _, err := b.Start("oven", Spec{ServerConfig: "rig.yaml", RootPath: "/oven"}); err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(wait); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if status(b, "oven") == StatusRunning {
+			break
+		}
+	}
+	if d := detail(t, b, "oven"); d.Status != StatusRunning || !d.Adopted || d.Pid != pid {
+		t.Fatalf("detail %+v, want running, adopted, pid %d", d, pid)
+	}
+}
+
+// A runner that holds runner.lock but has not yet written its pid there
+// (it takes the lock first; a front's Write leaves the file empty) is
+// starting: waited out within the adopt window, then adopted -- not left
+// busy for good.
+func TestAdoptsARunnerThatHasNotNamedItselfYet(t *testing.T) {
+	root := shortDir(t)
+	live := liveRunner(t, root, "FLYBALLD_TEST_NAME_DELAY=300ms")
+	b, spawned := frontedBackend(t, root)
+	b.adoptWindow = 5 * time.Second
+	adoptedWithin(t, b, live.Process.Pid, 5*time.Second)
+	if n := spawned(); n != 0 {
+		t.Errorf("%d runners spawned; adoption spawns none", n)
+	}
+}

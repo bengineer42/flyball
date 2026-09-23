@@ -126,9 +126,15 @@ stop the rig there: use `--front-dir` or the rig file.
 
 A `runner.lock` outlives its runner, and the pid in it may since have been
 given to another process, so a pid read from one is signalled only while a
-runner holds that lock and, on Linux (`/proc/locks`), only when the pid it
-names is the one holding it. A stale lock is refused with an error naming
-the pid, and nothing is signalled; `--pid N` is signalled as given.
+runner holds that lock and that pid is known to be the one holding it: on
+Linux, `/proc/locks` shows it; on macOS, the process started before the
+file was last written, so it is the runner that wrote it. Where neither
+can be known, nothing is signalled, and the error names `--pid N` and
+Ctrl-C in the `flyball run` terminal instead. A stale lock is refused with
+an error naming the pid, and nothing is signalled. While a front rewrites
+its front-dir, and until a runner that has just taken the lock writes its
+pid, `runner.lock` names no pid: the stop says the runner is starting, and
+signals nothing -- try again in a moment. `--pid N` is signalled as given.
 
 `flyball stop --all` asks `flyballd` (`$FLYBALLD_URL`) for the rigs this
 credential holds a verb on (`GET /api/rigs`, no `manage` needed) and stops
