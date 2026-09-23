@@ -140,7 +140,7 @@
               "wait"
             ],
             "additionalProperties": false,
-            "description": "Pause the program until the named signal is fired.\n\n`name` is what it is fired by (`POST /api/signals/{name}/fire`), default\n`wait`. `timeout` gives up and ends the program."
+            "description": "Pause the program until the named wait is fired.\n\n`name` is what it is fired by (`POST /api/waits/{name}/fire`), default\n`wait`. `timeout` gives up and ends the program."
           },
           {
             "type": "object",

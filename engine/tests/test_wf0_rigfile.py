@@ -229,3 +229,17 @@ class TestOverridePeriods:
     def test_a_positive_value_and_null_are_accepted(self, field):
         assert getattr(SignalOverride.model_validate({field: 0.5}), field) == 0.5
         assert getattr(SignalOverride.model_validate({field: None}), field) is None
+
+
+class TestWaitRouteNamed:
+    def test_the_docstrings_name_the_real_route(self):
+        import inspect
+
+        from flyball.interfaces.server.routes.waits import router
+        from flyball.rig.triggers import Triggers
+        from flyball.sequencing.activities import Wait
+
+        assert "/api/waits/{name}/fire" in {route.path for route in router.routes}  # type: ignore[attr-defined]
+        for text in (inspect.getdoc(Wait), inspect.getsource(Triggers)):
+            assert "/api/signals/" not in (text or "")
+            assert "POST /api/waits/{name}/fire" in (text or "")
