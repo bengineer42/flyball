@@ -373,6 +373,14 @@ type AuthInfo struct {
 	Anonymous string    `json:"anonymous"`
 	Login     AuthLogin `json:"login"`
 	Exposure  *Exposure `json:"exposure"`
+	// Rig is the name of the rig the request's path routes to -- B1's
+	// Rig.Name, what Verbs is matched against: the one rig under
+	// `flyball run` (SingleRig), the named rig under flyballd's
+	// `/<name>/api/auth`, and omitted at flyballd's own root. Lets a
+	// bare `flyball login --scope operate` resolve the rig it is
+	// logging in to without a path segment or `-s NAME` (a follow-up to
+	// D-036 safeguard 2).
+	Rig string `json:"rig,omitempty"`
 }
 
 // AuthUser is AuthInfo.user.
@@ -432,6 +440,9 @@ func (f *Front) info(c Caller, rig *Rig) AuthInfo {
 	}
 	if c.Scheme != SchemeAnonymous {
 		info.User = &AuthUser{ID: c.Sub, Name: c.Name, Kind: c.Kind}
+	}
+	if rig != nil {
+		info.Rig = rig.Name
 	}
 	return info
 }
