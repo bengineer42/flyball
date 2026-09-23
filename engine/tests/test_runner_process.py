@@ -315,6 +315,19 @@ def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path, front_dir):
     assert not store.exists(), "nor touched the store"
 
 
+def test_a_symlinked_runner_lock_exits_4(tmp_path, front_dir):
+    folder = front_dir()
+    (folder / "runner.lock").symlink_to(tmp_path / "elsewhere")
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
+    with runner(tmp_path, *argv) as proc:
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 4, err[-2000:]
+    assert "runner.lock" in err and "Traceback" not in err
+    assert not (tmp_path / "elsewhere").exists(), "the symlink's target was not touched"
+    assert not store.exists()
+
+
 def test_an_endpoint_outside_the_front_dir_exits_4(tmp_path, front_dir):
     folder = front_dir()
     elsewhere = Path(tempfile.mkdtemp(prefix="fb-"))

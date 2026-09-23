@@ -40,7 +40,9 @@ user, checked with `lstat` (not a symlink) before every spawn:
 The front passes the directory in argv, `flyball-runner --front-dir DIR`;
 the key is never in argv or the environment. A runner given a front-dir
 that is unsafe, or whose `key`, `aud` or `endpoint` is missing or
-malformed, exits **4** before it takes the rig's lock or touches hardware;
+malformed (a socket anywhere but in the front-dir itself included), or
+whose `runner.lock` it cannot open as its own (a symlink, say), exits
+**4** before it takes the rig's lock or touches hardware;
 the front rewrites the directory and starts it once more. A second runner
 for the same store exits **3**: the rig's own `<store>.lock` is held. The
 runner takes `runner.lock` first, before it reads `key` (exit **3** if

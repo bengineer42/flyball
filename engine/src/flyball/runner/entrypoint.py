@@ -92,6 +92,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except locking.RigBusy as e:
         print(f"flyball-runner: {e}", file=sys.stderr)
         return RIG_BUSY
+    except OSError as e:  # runner.lock a symlink (O_NOFOLLOW), not ours to open, ...
+        print(f"flyball-runner: --front-dir {args.front_dir}: runner.lock: {e}", file=sys.stderr)
+        return FRONT_DIR
     with mine:
         try:
             front = frontdir.read(args.front_dir)
