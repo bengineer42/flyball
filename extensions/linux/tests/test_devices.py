@@ -1,7 +1,7 @@
 """Each device against its fake bus, to the byte."""
 
 import pytest
-from flyball.foundation.device import Access
+from flyball.foundation.device import Access, Role
 from flyball.foundation.errors import ConflictError, HardwareError
 
 from flyball_linux.devices.gpio import GpioLine
@@ -38,6 +38,14 @@ class TestRegister:
     def test_write_makes_it_writable(self):
         assert Register(address=0).access is Access.RP
         assert Register(address=0, write=True).access is Access.RPW
+
+    def test_a_writable_register_is_a_demand_unless_declared_a_setting(self):
+        """C13: `role: setting` keeps a configuration register out of a controller's reach."""
+        assert Register(address=0, write=True).signal_role is Role.DEMAND
+        assert Register(address=0, write=True, role="setting").signal_role is Role.SETTING
+        assert Register(address=0).signal_role is Role.READOUT
+        with pytest.raises(ValueError, match="only a writable register"):
+            Register(address=0, role="setting")
 
 
 class TestI2cTable:

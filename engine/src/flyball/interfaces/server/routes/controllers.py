@@ -4,8 +4,9 @@ A controller binds one published signal (`measured`) to one demand (its
 `output`) through a law and a feedforward, and is named by its output's
 address, so `/{address}` carries dots (`heaters.heater1`). `schema` says
 what a form needs: every P signal a controller may regulate and every
-demand it may drive, with units and dimensions, the law and feedforward
-unions, the stored tunings, and which signals are already spoken for.
+writable demand it may drive (a setting never is one), with units and
+dimensions, the law and feedforward unions, the stored tunings, and which
+signals are already spoken for.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pydantic import BaseModel, TypeAdapter
 from flyball.control import Affine, GeneratorConfig, Table
 from flyball.control.errors import LastReadingNotAvailableError
 from flyball.foundation.config import discriminated_union
-from flyball.foundation.device import Access, Signal
+from flyball.foundation.device import Access, Role, Signal
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep
@@ -113,7 +114,7 @@ class ControllerSchema(BaseModel):
     measured: list[SignalChoice]
     """Every published signal: what a controller may regulate."""
     outputs: list[SignalChoice]
-    """Every writable signal: what a controller may drive."""
+    """Every writable demand (role `demand` and `W`): what a controller may drive."""
     laws: dict[str, Any]
     """JSON Schema of the law config union, discriminated on ``tag``."""
     feedforwards: dict[str, Any]
@@ -126,6 +127,15 @@ class ControllerSchema(BaseModel):
     """Measured signals already regulated, and by which controller."""
     driven: dict[str, str]
     """Outputs already driven, and by which controller."""
+
+
+def drivable(signal: Signal) -> bool:
+    """Whether a controller may drive `signal`: a demand, and writable (C13).
+
+    A setting is never a controller's output, however writable; a demand
+    only its group drives (the blender's `flows.*`, `RP`) is not writable.
+    """
+    return signal.role is Role.DEMAND and Access.W in signal.access
 
 
 def _out(rig: Rig, name: str | None = None) -> ControllerOut:
@@ -183,7 +193,7 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
     signals = [s for device in devices for s in list(device.signals.values())]
     return ControllerSchema(
         measured=[SignalChoice.of(s) for s in signals if Access.P in s.access],
-        outputs=[SignalChoice.of(s) for s in signals if Access.W in s.access],
+        outputs=[SignalChoice.of(s) for s in signals if drivable(s)],
         laws=TypeAdapter(LawConfig).json_schema(),
         feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
         generators=TypeAdapter(GeneratorConfig).json_schema(),

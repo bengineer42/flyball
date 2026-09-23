@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from flyball.foundation.device import Access
+from flyball.foundation.device import Access, Role
 from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
@@ -51,6 +51,15 @@ class TestModbusRegister:
 
     def test_write_true_adds_w(self):
         assert ModbusRegister(address=1, unit="°C", write=True).access == Access.RPW
+
+    def test_a_writable_register_is_a_demand_unless_declared_a_setting(self):
+        """C13: `role: setting` keeps a configuration register out of a controller's reach."""
+        assert ModbusRegister(address=1, unit="°C", write=True).signal_role is Role.DEMAND
+        setting = ModbusRegister(address=1, unit="Hz", write=True, role="setting")
+        assert setting.signal_role is Role.SETTING and setting.access == Access.RPW
+        assert ModbusRegister(address=1, unit="°C").signal_role is Role.READOUT
+        with pytest.raises(ValidationError, match="only a writable register"):
+            ModbusRegister(address=1, unit="Hz", role="setting")
 
     def test_an_input_register_cannot_be_written(self):
         with pytest.raises(ValidationError, match="input register cannot be written"):

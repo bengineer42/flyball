@@ -89,6 +89,18 @@ class TestPyMeasure:
         assert inst.written == [2.0]
         assert device.pending[bias] == 2.0, "the rig clears pending, not the driver"
 
+    def test_a_settable_property_declared_a_setting_is_one(self, fresh):
+        """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
+        inst = FakePyMeasureInstrument()
+        channels = {"v": PyMeasureSignal(property="source_voltage", role="setting")}
+        device = PyMeasure(fresh("smu"), inst, channels)
+        assert device.signals["v"].role is Role.SETTING
+        assert device.signals["v"].access is Access.RPW
+        with pytest.raises(ValueError, match="only a settable property"):
+            PyMeasure(
+                fresh("smu"), inst, {"v": PyMeasureSignal(property="voltage", role="setting")}
+            )
+
     def test_a_setter_only_property_is_a_demand_too(self, fresh):
         inst = FakePyMeasureInstrument()
         device = PyMeasure(

@@ -44,7 +44,7 @@ holds for a program file, a library upload and a `--set` value.
 | `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat or layered](#devices) |
-| `controllers` | `{target-address: ControllerEntry}` | keyed by the writable signal driven |
+| `controllers` | `{output-address: ControllerEntry}` | keyed by the demand driven, the controller's output |
 
 ## Several files: overlays
 
@@ -159,7 +159,8 @@ for that label fill in, and anything the entry already gives wins.
 ## Controllers
 
 Keyed by the **output's address** — a controller is named by the demand it
-drives, its output.
+drives, its output. The output must be a demand (`role` `demand`) with `W`;
+a setting, or an `RP` demand, is refused when the rig is built.
 
 | key | type | |
 | --- | --- | --- |
@@ -185,7 +186,7 @@ setpoint's own rate of change in the measured unit *per second* (zero off
 a ramp): output unit per measured-unit-per-second — a zone's
 `capacity_j_per_k` (J/K = W per °C/s) is the extra power a ramp needs to
 charge its own thermal mass. Not on `setpoint`: that feedforward already
-hands the target the source's own unit, so a rate term there would be a
+hands the output the measured signal's own unit, so a rate term there would be a
 lead compensator, a different job from the plant-capacity model this is.
 
 ## The front

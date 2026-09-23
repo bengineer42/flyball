@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from flyball.foundation.device import Access, Reading, Signal
+from flyball.foundation.device import Access, Reading, Role, Signal
 from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
@@ -22,6 +22,15 @@ class TestScpiSignal:
 
     def test_both_is_rpw(self):
         assert ScpiSignal(query="V?", write="V {value}", unit="V").access == Access.RPW
+
+    def test_a_write_is_a_demand_unless_declared_a_setting(self):
+        """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
+        assert ScpiSignal(write="V {value}", unit="V").signal_role is Role.DEMAND
+        setting = ScpiSignal(query="RANG?", write="RANG {value}", unit="V", role="setting")
+        assert setting.signal_role is Role.SETTING and setting.access == Access.RPW
+        assert ScpiSignal(query="V?", unit="V").signal_role is Role.READOUT
+        with pytest.raises(ValidationError, match="only a signal with `write`"):
+            ScpiSignal(query="V?", unit="V", role="setting")
 
     def test_neither_is_refused(self):
         with pytest.raises(ValidationError, match="needs `query`, `write`, or both"):

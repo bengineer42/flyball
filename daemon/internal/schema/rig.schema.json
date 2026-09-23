@@ -2829,6 +2829,20 @@
           "description": "Also a demand: a DAC output, a setpoint.",
           "title": "Write",
           "type": "boolean"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "const": "setting",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
+          "title": "Role"
         }
       },
       "required": [
@@ -2868,6 +2882,20 @@
           "default": false,
           "title": "Write",
           "type": "boolean"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "const": "setting",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
+          "title": "Role"
         }
       },
       "required": [
@@ -2903,6 +2931,20 @@
           "default": false,
           "title": "Publish",
           "type": "boolean"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "const": "setting",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
+          "title": "Role"
         }
       },
       "required": [
@@ -2937,6 +2979,20 @@
           "default": false,
           "title": "Publish",
           "type": "boolean"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "const": "setting",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
+          "title": "Role"
         }
       },
       "required": [
@@ -2997,6 +3053,20 @@
           "description": "A reply or a demand is multiplied/divided by this.",
           "title": "Scale",
           "type": "number"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "const": "setting",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
+          "title": "Role"
         }
       },
       "required": [

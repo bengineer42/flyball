@@ -65,6 +65,15 @@ class TestQCoDeS:
         assert device.signals["bias"].access is Access.RPW, "a demand, whatever `publish` says"
         assert "bias" in device.publishing, "a demand publishes its readback"
 
+    def test_a_settable_parameter_declared_a_setting_is_one(self, fresh):
+        """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
+        inst = FakeInstrument("smu")
+        device = QCoDeS(fresh("smu"), inst, {"v": QCoDeSSignal(property="volt", role="setting")})
+        assert device.signals["v"].role is Role.SETTING
+        assert device.signals["v"].access is Access.RPW
+        with pytest.raises(ValueError, match="only a settable parameter"):
+            QCoDeS(fresh("smu"), inst, {"t": QCoDeSSignal(property="temp", role="setting")})
+
     def test_a_read_only_parameter_is_an_output(self, fresh):
         inst = FakeInstrument("smu")
         device = QCoDeS(fresh("smu"), inst, {"temp": QCoDeSSignal(property="temp")})

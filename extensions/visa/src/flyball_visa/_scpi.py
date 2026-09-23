@@ -10,6 +10,7 @@ default; give `parse` for an instrument that answers `1.234 V`.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
+from typing import Literal
 
 from flyball.foundation.config import resolve
 from flyball.foundation.device import (
@@ -64,16 +65,28 @@ class ScpiSignal(BaseModel):
     scale: float = Field(
         default=1.0, description="A reply or a demand is multiplied/divided by this."
     )
+    role: Literal["setting"] | None = Field(
+        default=None,
+        description=(
+            "`setting`: a writable entry that changes how the instrument behaves (a range,"
+            " a frequency, a configuration register), not what controls the process; a"
+            " controller cannot drive it. Omitted: a writable entry is a demand."
+        ),
+    )
 
     @model_validator(mode="after")
     def _needs_query_or_write(self) -> ScpiSignal:
         if self.query is None and self.write is None:
             raise ValueError("a scpi signal needs `query`, `write`, or both")
+        if self.role is not None and self.write is None:
+            raise ValueError("only a signal with `write` can be declared a setting")
         return self
 
     @property
-    def role(self) -> Role:
-        return Role.DEMAND if self.write is not None else Role.READOUT
+    def signal_role(self) -> Role:
+        if self.write is None:
+            return Role.READOUT
+        return Role.SETTING if self.role == "setting" else Role.DEMAND
 
     @property
     def access(self) -> Access:
@@ -112,7 +125,7 @@ class Scpi(Readable, Committable):
                 name=key,
                 quantity=Quantity(sig.quantity or key, sig.unit),
                 access=sig.access,
-                role=sig.role,
+                role=sig.signal_role,
             )
             for key, sig in self.channels.items()
         ])

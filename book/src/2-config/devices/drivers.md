@@ -68,7 +68,7 @@ both `[RPW]`. Replies are parsed as a number (`+1.2E-3 V` → 0.0012).
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a [text link](../links.md#text-instruments), by name |
-| `channels` | required | `{signal: {query?, write?, unit, quantity?, scale?}}` -- `write` is a template with `{value}` (`"SOUR:VOLT {value:.3f}"`); `scale` multiplies a reply and divides a demand; `quantity` names the quantity when it differs from the signal's name |
+| `channels` | required | `{signal: {query?, write?, unit, quantity?, scale?, role?}}` -- `write` is a template with `{value}` (`"SOUR:VOLT {value:.3f}"`); `scale` multiplies a reply and divides a demand; `quantity` names the quantity when it differs from the signal's name; `role: setting` makes a signal with `write` a setting (a range, a mode) rather than a demand, so no controller can drive it -- only with `write` |
 
 ```yaml
 psu:
@@ -94,7 +94,7 @@ One device per unit, a register per signal. `value = raw * scale`.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a [register link](../links.md#register-instruments) |
-| `registers` | required | `{signal: {address, kind?, unit, scale?, write?}}` -- `kind` is `holding` (default), `input` or `coil`; `write: true` makes a `holding` register `[RPW]` (refused on `input`) |
+| `registers` | required | `{signal: {address, kind?, unit, scale?, write?, role?}}` -- `kind` is `holding` (default), `input` or `coil`; `write: true` makes a `holding` register `[RPW]`, a demand (refused on `input`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
 | `unit_id` | `1` | the Modbus unit (slave) id |
 
 ```yaml
@@ -122,7 +122,7 @@ wrapper imports its library until built, so `import flyball` needs nothing.
 | `instrument_name` | the device's name | the QCoDeS instrument's own `name` |
 | `args`, `kwargs` | `[]`, `{}` | passed to the class |
 | `link` | none | a transport by name, where the class takes one |
-| `channels` | required | `{signal: {property, unit?, publish?}}` -- `property` is the parameter, dotted for a submodule (`source.voltage`); `unit` overrides the parameter's own; `publish: true` polls it (needs a getter) |
+| `channels` | required | `{signal: {property, unit?, publish?, role?}}` -- `property` is the parameter, dotted for a submodule (`source.voltage`); `unit` overrides the parameter's own; `publish: true` polls it (needs a getter); `role: setting` makes a settable parameter a setting (a range, a mode) rather than a demand, so no controller can drive it |
 
 ```yaml
 smu:
@@ -132,7 +132,8 @@ smu:
     voltage: { property: source.voltage, publish: true }
 ```
 
-A gettable numeric parameter is a signal; a settable one is writable too.
+A gettable numeric parameter is a signal; a settable one is writable too,
+and a demand unless it says `role: setting`.
 
 ### `pymeasure`
 
@@ -142,7 +143,7 @@ A gettable numeric parameter is a signal; a settable one is writable too.
 | `adapter` | required | `"GPIB::24"`, `"ASRL/dev/ttyUSB0"`, a VISA string |
 | `kwargs` | `{}` | |
 | `link` | none | a transport by name |
-| `channels` | required | `{signal: {property, unit?, publish?}}` -- the `measurement` / `control` / `setting` property; `unit` overrides what its docstring says (`"in volts"` → V) |
+| `channels` | required | `{signal: {property, unit?, publish?, role?}}` -- the `measurement` / `control` / `setting` property; `unit` overrides what its docstring says (`"in volts"` → V); a settable property is a demand unless `role: setting` makes it a setting, which no controller can drive |
 
 ```yaml
 smu:
@@ -214,7 +215,7 @@ MCP9808, INA219, LM75.
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | required | the chip's bus address |
-| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, scale?, offset?, unit, write?}}` |
+| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
 
 ```yaml
 board_temp:

@@ -5,7 +5,7 @@ from flyball_sim.clock import SteppedClock
 
 from flyball.control import Affine, Table
 from flyball.control.laws import P
-from flyball.foundation.device import Access, Device, Reading, SignalSpec
+from flyball.foundation.device import Access, Device, Reading, Role, SignalSpec
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.model.catalog import get_catalog
@@ -20,7 +20,9 @@ class Oven(Device):
 
     TREE = (
         SignalSpec(name="zone", quantity=Quantity("temperature", Celsius), access=Access.RP),
-        SignalSpec(name="heater", quantity=Quantity("power", Watt), access=Access.W),
+        SignalSpec(
+            name="heater", quantity=Quantity("power", Watt), access=Access.W, role=Role.DEMAND
+        ),
     )
 
 

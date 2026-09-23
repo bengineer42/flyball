@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from flyball.foundation.config import import_object
 from flyball.foundation.device import (
@@ -126,6 +126,14 @@ class PyMeasureSignal(BaseModel):
     property: str = Field(description="The instrument's attribute name.")
     unit: str | None = Field(default=None, description="Overrides the docstring's unit.")
     publish: bool = False
+    role: Literal["setting"] | None = Field(
+        default=None,
+        description=(
+            "`setting`: a writable entry that changes how the instrument behaves (a range,"
+            " a frequency, a configuration register), not what controls the process; a"
+            " controller cannot drive it. Omitted: a writable entry is a demand."
+        ),
+    )
 
 
 class PyMeasure(Readable, Committable):
@@ -168,9 +176,12 @@ class PyMeasure(Readable, Committable):
                 raise ValueError(f"{key!r}: {channel.property} is neither readable nor writable")
             if channel.publish and not gettable:
                 raise ValueError(f"{key!r}: publish needs a readable property")
+            if channel.role is not None and not settable:
+                raise ValueError(f"{key!r}: only a settable property can be declared a setting")
             self._gettable[key] = gettable
             if settable:
-                role, access = Role.DEMAND, Access.RPW
+                role = Role.SETTING if channel.role == "setting" else Role.DEMAND
+                access = Access.RPW
             else:
                 role, access = Role.READOUT, (Access.RP if channel.publish else Access.R)
             unit = Unit.get(channel.unit) if channel.unit else unit_from_doc(prop.__doc__)

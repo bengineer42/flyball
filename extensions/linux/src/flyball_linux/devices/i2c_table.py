@@ -29,7 +29,7 @@ from flyball.foundation.device import (
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.scan import Scan
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from flyball_linux.links.i2c import I2cLinkConfig
 
@@ -53,14 +53,30 @@ class Register(BaseModel):
         default=None, description="The quantity's own name, if it differs from the signal's."
     )
     write: bool = Field(default=False, description="Also a demand: a DAC output, a setpoint.")
+    role: Literal["setting"] | None = Field(
+        default=None,
+        description=(
+            "`setting`: a writable entry that changes how the instrument behaves (a range,"
+            " a frequency, a configuration register), not what controls the process; a"
+            " controller cannot drive it. Omitted: a writable entry is a demand."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _setting_is_writable(self) -> Register:
+        if self.role is not None and not self.write:
+            raise ValueError("only a writable register can be declared a setting")
+        return self
 
     @property
     def access(self) -> Access:
         return Access.RPW if self.write else Access.RP
 
     @property
-    def role(self) -> Role:
-        return Role.DEMAND if self.write else Role.READOUT
+    def signal_role(self) -> Role:
+        if not self.write:
+            return Role.READOUT
+        return Role.SETTING if self.role == "setting" else Role.DEMAND
 
     def decode(self, data: bytes) -> float:
         if len(data) != self.length:
@@ -99,7 +115,10 @@ class I2cTable(Readable, Committable):
         self._scan = Scan()
         self.bind([
             SignalSpec(
-                name=key, quantity=Quantity(r.quantity or key, r.unit), access=r.access, role=r.role
+                name=key,
+                quantity=Quantity(r.quantity or key, r.unit),
+                access=r.access,
+                role=r.signal_role,
             )
             for key, r in self.registers.items()
         ])

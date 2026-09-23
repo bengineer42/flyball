@@ -25,7 +25,7 @@ from flyball.foundation.device import (
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import RegisterLink
 from flyball.hardware.scan import Scan
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ._links import RegisterLinkConfig
 
@@ -47,16 +47,28 @@ class ModbusRegister(BaseModel):
     unit: str
     scale: float = 1.0
     write: bool = False
+    role: Literal["setting"] | None = Field(
+        default=None,
+        description=(
+            "`setting`: a writable entry that changes how the instrument behaves (a range,"
+            " a frequency, a configuration register), not what controls the process; a"
+            " controller cannot drive it. Omitted: a writable entry is a demand."
+        ),
+    )
 
     @model_validator(mode="after")
     def _input_is_read_only(self) -> ModbusRegister:
         if self.kind == "input" and self.write:
             raise ValueError("an input register cannot be written")
+        if self.role is not None and not self.write:
+            raise ValueError("only a writable register can be declared a setting")
         return self
 
     @property
-    def role(self) -> Role:
-        return Role.DEMAND if self.write else Role.READOUT
+    def signal_role(self) -> Role:
+        if not self.write:
+            return Role.READOUT
+        return Role.SETTING if self.role == "setting" else Role.DEMAND
 
     @property
     def access(self) -> Access:
@@ -91,7 +103,9 @@ class Modbus(Readable, Committable):
         self.blocking = link.blocking  # pyright: ignore[reportAttributeAccessIssue]
         self._scan = Scan()
         self.bind([
-            SignalSpec(name=key, quantity=Quantity(key, reg.unit), access=reg.access, role=reg.role)
+            SignalSpec(
+                name=key, quantity=Quantity(key, reg.unit), access=reg.access, role=reg.signal_role
+            )
             for key, reg in self.registers.items()
         ])
 

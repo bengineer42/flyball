@@ -48,9 +48,9 @@ device's life. The role sets the signal's default access:
 
 | role | access | meaning |
 | --- | --- | --- |
-| `Role.DEMAND` | `RPW` | settable, with a current value (its readback) that updates — the only thing a controller drives |
+| `Role.DEMAND` | `RPW` | settable, with a current value (its readback) that updates — the only thing a controller drives, and only while it is `W` |
 | `Role.READOUT` | `RP` | produced by the device, never written from outside: a measurement, a derived value, a mode |
-| `Role.SETTING` | `RP` | re-set by a command while the device runs, shown; not driven by a controller |
+| `Role.SETTING` | `RP` | re-set by a command while the device runs, shown; never a controller's output, even when a driver or the rig file makes it `W` |
 | `Role.CONFIG` | `R` | effective at build, shown, never set at run time |
 
 An **input** is not a role: it is another device's signal, bound by the rig

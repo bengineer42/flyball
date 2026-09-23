@@ -17,7 +17,15 @@ from flyball.control import (
     SetPointGenerator,
 )
 from flyball.control.laws import P
-from flyball.foundation.device import Access, Device, Reading, Sample, SignalSpec, WriteState
+from flyball.foundation.device import (
+    Access,
+    Device,
+    Reading,
+    Role,
+    Sample,
+    SignalSpec,
+    WriteState,
+)
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
@@ -34,9 +42,13 @@ POWER = Quantity("power", Watt)
 class Furnace(Device):
     TREE = (
         SignalSpec(name="zone1", quantity=TEMP, access=Access.RP),
-        SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW),
-        SignalSpec(name="heater1", quantity=POWER, access=Access.W, limits=(0.0, 2500.0)),
-        SignalSpec(name="bath", quantity=TEMP, access=Access.W),
+        SignalSpec(name="setpoint", quantity=TEMP, access=Access.RW, role=Role.DEMAND),
+        SignalSpec(
+            name="heater1", quantity=POWER, access=Access.W, role=Role.DEMAND, limits=(0.0, 2500.0)
+        ),
+        SignalSpec(name="bath", quantity=TEMP, access=Access.W, role=Role.DEMAND),
+        SignalSpec(name="range", quantity=TEMP, access=Access.RW, role=Role.SETTING),
+        SignalSpec(name="flow", quantity=POWER, access=Access.RP, role=Role.DEMAND),
     )
 
 
@@ -62,10 +74,16 @@ def test_named_by_its_target(furnace):
     )
 
 
-def test_the_target_must_be_writable_and_the_source_publishing(furnace):
+def test_the_output_must_be_a_writable_demand_and_the_measured_signal_publishing(furnace):
+    """C13: a controller drives only a demand, and only one it may write."""
     clock = SteppedClock()
-    with pytest.raises(ConflictError, match=r"furnace.zone1 \[rp\] is not writable"):
-        Controller(clock, furnace.signals["zone1"], furnace.signals["zone1"])
+    zone1 = furnace.signals["zone1"]
+    with pytest.raises(ConflictError, match=r"'furnace.zone1' is a readout, not a demand"):
+        Controller(clock, zone1, zone1)
+    with pytest.raises(ConflictError, match=r"'furnace.range' is a setting, not a demand"):
+        Controller(clock, furnace.signals["range"], zone1)  # writable, but a setting
+    with pytest.raises(ConflictError, match=r"furnace.flow \[rp\] is not writable"):
+        Controller(clock, furnace.signals["flow"], zone1)  # a demand only its group drives
     with pytest.raises(ConflictError, match=r"furnace.setpoint \[rw\] is not publishing"):
         Controller(clock, furnace.signals["heater1"], furnace.signals["setpoint"])
 

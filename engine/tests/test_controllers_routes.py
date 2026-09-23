@@ -6,9 +6,14 @@ import pytest
 
 from conftest import TestClient
 from flyball.control.laws import P
+from flyball.foundation.device import Access, Device, Role, SignalSpec
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
 from flyball.interfaces.server import create_app, set_rig
 from flyball.model.law import Transfer
 from test_server import Daq, Drive, deliver
+
+TEMP = Quantity("temperature", Celsius)
 
 
 @pytest.fixture
@@ -161,6 +166,33 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert client.delete(f"/api/controllers/{target}").status_code == 404
     assert client.put(f"/api/signals/{target}", json=5.0).status_code == 200, "free again"
     assert client.get(f"/api/controllers/{target}").status_code == 404
+
+
+class Tuned(Device):
+    """A writable setting beside a demand: only the demand may be a controller's output."""
+
+    TREE = (
+        SignalSpec(name="range", quantity=TEMP, access=Access.RW, role=Role.SETTING),
+        SignalSpec(name="power", quantity=TEMP, access=Access.RW, role=Role.DEMAND),
+    )
+
+
+def test_a_setting_is_never_offered_nor_accepted_as_an_output(client, rig, daq, fresh):
+    """C13: a controller's output is a demand with `W`, never a writable setting.
+
+    The setting is neither listed in the schema's `outputs` nor accepted by a POST.
+    """
+    tuned = Tuned(fresh("tuned"))
+    rig.add_device(tuned)
+    outputs = [s["address"] for s in client.get("/api/controllers/schema").json()["outputs"]]
+    assert f"{tuned.name}.power" in outputs and f"{tuned.name}.range" not in outputs
+    refused = client.post(
+        "/api/controllers", json={"output": f"{tuned.name}.range", "measured": f"{daq.name}.zone1"}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == (
+        f"'{tuned.name}.range' is a setting, not a demand: a controller drives only demands"
+    )
 
 
 def test_tunings_are_stored_on_the_rig(client, rig):

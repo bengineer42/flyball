@@ -3,7 +3,13 @@
 `Controller` regulates one publishing **measured** signal, through one law
 and a feedforward, by writing one demand, its **output** — one reference,
 one law, one output. It is named after the output it drives
-(`controller.name` is `output_signal.address`). This chapter is the arithmetic;
+(`controller.name` is `output_signal.address`). `Controller.__init__`
+refuses an output whose role is not `Role.DEMAND` ("`'<address>' is a
+setting, not a demand: a controller drives only demands`") and one without
+`W` (a demand only its group drives, `RP`), both as `ConflictError` (409);
+`GET /api/controllers/schema` offers only writable demands as `outputs`
+(C13). A signal known only once its device is built (a `qcodes` or
+`pymeasure` channel) is refused then, with the same message. This chapter is the arithmetic;
 [How a controller works](../2-config/controllers.md#how-a-controller-works) is the shape. Programs still name a
 controller with a `loop:` field (the output's address) — the class is
 `Controller`, the concept is "the loop a controller closes", and the field

@@ -4,6 +4,18 @@ Who drives what. A controller (a software control loop, not a device)
 regulates one **measured** signal by writing one demand, its **output**.
 It is keyed by the output's address, so a demand can have at most one.
 
+The output must be a **demand** (`role` `demand`) that is **writable**
+(`W`). A setting is never an output, however writable -- a range, a PWM
+frequency, a configuration register changes how a device behaves, not what
+it does to the process -- and neither is a demand only its device drives
+(the humidity blender's `flows.*`, `[RP]`). Attaching one is refused, at
+load or from the API, with "`'<address>' is a setting, not a demand: a
+controller drives only demands`" (or "`… is not writable`"); the
+controller form lists only writable demands. A generic adapter
+(`scpi`, `modbus`, `i2c_table`, `qcodes`, `pymeasure`) makes every writable
+entry a demand unless the entry says `role: setting`
+([Drivers](devices/drivers.md#generic-instruments)).
+
 ```yaml
 controllers:
   heaters.heater2:

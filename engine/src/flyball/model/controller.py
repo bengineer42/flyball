@@ -35,7 +35,7 @@ from flyball.foundation import (
     WriteState,
     require,
 )
-from flyball.foundation.device import Access, Kind
+from flyball.foundation.device import Access, Kind, Role
 from flyball.model.errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
@@ -190,6 +190,11 @@ class Controller:
         write: Callable[[float], float | None] | None = None,
         hold: Callable[[], Kind | None] | None = None,
     ) -> None:
+        if output_signal.role is not Role.DEMAND:
+            raise ConflictError(
+                f"'{output_signal.address}' is a {output_signal.role.value}, not a demand:"
+                " a controller drives only demands"
+            )
         if Access.W not in output_signal.access:
             raise ConflictError(f"{output_signal.address} [{output_signal.access}] is not writable")
         if Access.P not in measured_signal.access:
