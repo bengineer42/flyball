@@ -74,7 +74,9 @@ unsigned `GET <root>/api/auth/front` must get `401`, which shows it enforces
 the principal, and a signed one must get `200`
 `{"protocol": 1, "aud", "pid", "flyball"}`. A socket that is not there yet
 counts as starting (the front answers `503` with `Retry-After: 1`, and the
-dashboard shows *starting…*). A runner that answers otherwise -- one too old
+dashboard shows *starting…*), and so does one that does not answer a probe
+within 2 s, or closes the connection first -- a runner still building its
+rig (about 20 s on a Raspberry Pi 3B+) listens before it answers. A runner that answers otherwise -- one too old
 to know `--front-dir` exits 2 on the unknown flag -- is never proxied to:
 the front answers `502` "too old for this front".
 

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"flyballd/internal/endpoint"
 	"flyballd/internal/front/store"
 	"flyballd/internal/principal"
 )
@@ -1596,6 +1597,22 @@ func TestTooOldRunner(t *testing.T) {
 		if r.Path != "/api/auth/front" {
 			t.Fatalf("an old runner was proxied to: %s", r.Path)
 		}
+	}
+}
+
+// A runner that does not answer its readiness probe in time (a Pi 3B+
+// takes ~20 s to start, ~37 s under load) is starting, not too old: 503
+// with Retry-After, and the next request once it answers is proxied.
+func TestSlowProbeIsStarting(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.runner.probeDelay.Store(int64(endpoint.ProbeTimeout + 500*time.Millisecond))
+	resp := h.do("GET", "/api/echo", "", nil)
+	if b := body(resp); resp.StatusCode != 503 || resp.Header.Get("Retry-After") == "" || !strings.Contains(b, "starting") {
+		t.Fatalf("a runner slow to answer its probe: %d %q, Retry-After %q; want the starting 503", resp.StatusCode, b, resp.Header.Get("Retry-After"))
+	}
+	h.runner.probeDelay.Store(0)
+	if resp := h.do("GET", "/api/echo", "", nil); resp.StatusCode != 200 {
+		t.Fatalf("once the runner answers: %d, want 200", resp.StatusCode)
 	}
 }
 

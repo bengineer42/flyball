@@ -39,8 +39,11 @@ type fakeRunner struct {
 	key principal.Key
 	aud string
 
-	tooOld bool   // answers an unsigned probe with 200: a runner that ignores the principal
-	root   string // its root_path (flyballd: /<name>)
+	tooOld bool // answers an unsigned probe with 200: a runner that ignores the principal
+	// probeDelay holds each readiness probe this long (ns) before it is
+	// answered: a runner too busy starting to answer in time.
+	probeDelay atomic.Int64
+	root       string // its root_path (flyballd: /<name>)
 
 	hits   atomic.Int64 // every request that reached it, the readiness handshake included
 	bodies atomic.Int64 // /mcp/body requests reading their body now
@@ -110,6 +113,13 @@ func (fr *fakeRunner) requests() []seenRequest {
 func (fr *fakeRunner) serve(w http.ResponseWriter, r *http.Request) {
 	fr.hits.Add(1)
 	path := strings.TrimPrefix(r.URL.Path, fr.root)
+	if d := time.Duration(fr.probeDelay.Load()); d > 0 && path == "/api/auth/front" {
+		select {
+		case <-time.After(d):
+		case <-r.Context().Done():
+			return
+		}
+	}
 	if path == "/api/auth/front" {
 		if fr.tooOld {
 			w.Write([]byte(`{"level":"operate"}`))
