@@ -13,6 +13,7 @@ controller and nothing is written.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -46,6 +47,10 @@ from flyball.model.law import (
 )
 
 type ControllerTickCallback = Callable[["Controller", Reading | None], None]
+
+
+OUTAGE_STEPS = 3
+"""A gap in the readings longer than this many usual intervals is an outage, not a slow step."""
 
 
 class ControllerMode(Enum):
@@ -202,6 +207,7 @@ class Controller:
         self._on_tick = {}
         self.min_period_s: float | None = min_period_s
         self._last_step_ns: int | None = None
+        self._step_interval_ns: int | None = None
 
     @staticmethod
     def _unwired(demand: float) -> float | None:
@@ -314,6 +320,7 @@ class Controller:
     def reset_law(self, time_ns: int | None = None) -> None:
         time_ns = self.get_time_ns(time_ns)
         self.offset_ns = time_ns
+        self._last_step_ns = None
 
         if self.law is not None:
             self.law.reset()
@@ -348,7 +355,7 @@ class Controller:
         with self.lock:
             time_ns = self.get_time_ns(time_ns)
             held = self.expected if self.expected is not None else self.demand
-            setpoint = self.resolve_value(at, time_ns)
+            setpoint = _finite_aim(self.resolve_value(at, time_ns), at)
 
             if tuning is not None:
                 self._set_law(tuning)
@@ -389,7 +396,7 @@ class Controller:
         time_ns: int | None = None,
     ) -> None:
         with self.lock:
-            setpoint = self.resolve_value(at)
+            setpoint = _finite_aim(self.resolve_value(at), at)
             self.reference = setpoint
             if generator is not None:
                 generator.start(self.clock.from_start_s(self.get_time_ns(time_ns)), setpoint)
@@ -440,11 +447,30 @@ class Controller:
         if self.mode.active():
             setpoint = self.setpoint_at(time_ns)
             if reading is not None and self.mode is ControllerMode.REGULATING:
+                self._skip_outage(time_ns)
                 self._last_step_ns = time_ns
                 self.correction = self.required_law.step(
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
             self._apply_demand(setpoint, self.rate_at(time_ns))
+
+    def _skip_outage(self, time_ns: int) -> None:
+        """Keep a gap in the readings out of the law's time.
+
+        A source that went quiet (a sensor offline, a stalled poll) comes back
+        with one reading after the whole gap; stepped as is, the law would
+        integrate the error over all of it at once. Past `OUTAGE_STEPS` usual
+        intervals, the law's clock is moved on by the gap less one interval,
+        so the first step after an outage counts as one ordinary step.
+        """
+        last, interval = self._last_step_ns, self._step_interval_ns
+        if last is None:
+            return
+        gap = time_ns - last
+        if interval is not None and gap > OUTAGE_STEPS * interval:
+            self.offset_ns += gap - interval
+        elif gap > 0:
+            self._step_interval_ns = gap
 
     def _apply_demand(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
         self.setpoint = setpoint
@@ -473,3 +499,10 @@ class Controller:
         self.delivered_correction = (
             None if state.value is None or self._base is None else state.value - self._base
         )
+
+
+def _finite_aim(setpoint: float, at: ValueSource | float) -> float:
+    """`setpoint`, or a refusal before anything changes: a NaN or infinite aim poisons the law."""
+    if not math.isfinite(setpoint):
+        raise ValueError(f"Setpoint is not finite: {setpoint!r} (from {at!r})")
+    return setpoint

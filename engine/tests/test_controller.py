@@ -247,6 +247,60 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
     assert reset.demand == 50.0 and reset.bump == pytest.approx(50.0 - held)
 
 
+@pytest.mark.parametrize("aim", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_aim_is_refused_before_anything_changes(furnace, aim):
+    clock = SteppedClock(0)
+    controller, writes = _regulating(furnace, clock, law=PI(kp=1.0, ki=0.5))
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 40.0))
+    controller.regulate(50.0)
+    controller.on_reading(Reading(zone1, 1_000_000_000, 41.0))
+    before = (controller.mode, controller.reference, controller.correction, len(writes))
+
+    with pytest.raises(ValueError, match="not finite"):
+        controller.regulate(aim)
+    with pytest.raises(ValueError, match="not finite"):
+        controller.set_reference(aim)
+    assert (controller.mode, controller.reference, controller.correction, len(writes)) == before
+
+
+def test_a_generator_with_a_non_finite_argument_is_refused():
+    with pytest.raises(ValueError):
+        TypeAdapter(GeneratorConfig).validate_python({"tag": "hold", "value": float("nan")})
+
+
+def test_the_first_step_after_an_outage_counts_as_one_ordinary_step(furnace):
+    clock = SteppedClock(0)
+    law = PI(kp=0.0, ki=1.0)  # the output is the integral alone
+    controller, writes = _regulating(furnace, clock, law=law)
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 40.0))
+    controller.regulate(50.0, transfer=Transfer.RESET)
+    for i in range(1, 6):  # a 10-degree error, one second apart: +10 a step
+        controller.on_reading(Reading(zone1, i * 1_000_000_000, 40.0))
+    before = law.integral
+
+    # the source goes quiet for ten minutes, then reads again
+    controller.on_reading(Reading(zone1, 605 * 1_000_000_000, 40.0))
+    assert law.integral - before == pytest.approx(10.0), "one ordinary step, not 600 s of error"
+    controller.on_reading(Reading(zone1, 606 * 1_000_000_000, 40.0))
+    assert law.integral - before == pytest.approx(20.0), "and the steps after it are ordinary"
+
+
+def test_a_slower_but_steady_source_is_not_an_outage(furnace):
+    clock = SteppedClock(0)
+    law = PI(kp=0.0, ki=1.0)
+    controller, _ = _regulating(furnace, clock, law=law)
+    zone1 = furnace.signals["zone1"]
+    controller.on_reading(Reading(zone1, 0, 40.0))
+    controller.regulate(50.0, transfer=Transfer.RESET)
+    t = 0
+    for step_s in (1, 1, 2, 2, 2):  # the interval widens, never more than threefold at once
+        t += step_s * 1_000_000_000
+        controller.on_reading(Reading(zone1, t, 40.0))
+    assert law.integral == pytest.approx(10.0 * 8), "every second of error counted"
+
+
 def test_linear_ramp_setpoint_config_round_trips_and_builds():
     assert get_catalog().generators["linear_ramp_setpoint"] is LinearRampSetpoint
     config = LinearRampSetpoint.config.model_validate({
