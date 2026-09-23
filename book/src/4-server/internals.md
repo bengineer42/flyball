@@ -47,7 +47,8 @@ and the runner share a key and verify each other is in
 
 Between the door and `RootPath` sits `Audit` (`server/audit.py`): each
 request that acts -- its verb neither read nor open -- and carries a verified
-principal is one row in the store's append-only `audit` table, written off
+principal that is not anonymous is one row (a caller's refusals at most ten a
+minute) in the store's append-only `audit` table, written off
 the loop; an audit write that fails is logged and refuses nothing
 ([Storage](../6-internals/db.md#sqlite)).
 

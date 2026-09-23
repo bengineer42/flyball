@@ -299,7 +299,10 @@ as `local:signal`; the signal's sender is not recorded.
   every request that needs more than `read` from a caller who is not
   anonymous -- refused ones included -- and every stop, `SIGUSR1` included:
   who (`sub`, session, kind, from where), what, and how it ended. It is
-  append-only and outside retention. [Storage](../../6-internals/db.md)
+  append-only and outside retention, so what an unknown caller asks is not
+  kept there, and one caller's refusals are kept to ten rows a minute (a
+  refused demand to its first 16 signals); the runner's log counts the
+  rest. [Storage](../../6-internals/db.md)
   has the columns. A write that fails is logged and refuses nothing: a
   full disk does not block a stop.
 

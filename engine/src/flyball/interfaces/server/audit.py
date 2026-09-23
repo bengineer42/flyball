@@ -2,12 +2,15 @@
 
 `Audit` sits outside the door, so it sees what the door decided. A request is recorded
 when its verb (`verbs.needed`) is neither read nor open -- or it has no verb-table row, which
-the door refuses -- and it came with a verified principal that is not anonymous. So a 403 for
-a principal lacking the verb is recorded, `denied`; a request with no principal, or a bad
-one, is not: it identifies no one, and recording it would let anyone who reaches the
-runner fill its disk (the front records authentication failures). A CORS preflight
-(`OPTIONS`) and a websocket (every one needs only read) act on nothing and are not
-recorded either.
+the door refuses -- and it came with a verified principal that is not anonymous (neither
+the bare door's `anonymous` scheme nor the `anon:` subject, which is how the front's
+visitor with no credential arrives). So a 403 for a principal lacking the verb is recorded,
+`denied`; a request with no principal, a bad one or an anonymous one is not: it identifies
+no one, and recording it would let anyone who reaches the runner fill its disk (the front
+records authentication failures). An identified caller's denials are kept to
+`DENIED_PER_MINUTE` rows a minute, each demand's to `DENIED_WRITES` addresses; what is
+left out is counted in the log. A CORS preflight (`OPTIONS`) and a websocket (every one
+needs only read) act on nothing and are not recorded either.
 
 For a demand (`PUT /api/signals/{address}`, `PUT /api/devices/{name}/demand`) the row
 carries each signal's old value (its last write, else its latest reading, as the rig had it
@@ -29,6 +32,7 @@ import logging
 import re
 import secrets
 import time
+from collections import deque
 from typing import Any, Final
 
 from fastapi import HTTPException
@@ -37,6 +41,7 @@ from starlette.routing import compile_path
 from flyball.foundation.device import Signal
 from flyball.interfaces.server import verbs
 from flyball.interfaces.server.deps import current_rig, get_store
+from flyball.interfaces.server.principal import ANONYMOUS
 from flyball.record.audit import Action, Auditor, Write, outcome
 from flyball.record.store import Store
 from flyball.rig.stopping import Actor
@@ -68,6 +73,12 @@ _BODIES: Final = (_SIGNAL, _DEMAND, _STOP)
 _ROUTES: Final = tuple((rule.method, compile_path(rule.path)[0], rule.path) for rule in verbs.TABLE)
 _MAX_BODY: Final = 64 * 1024
 """A body longer than this is not kept for the row (the route still gets all of it)."""
+DENIED_PER_MINUTE: Final = 10
+"""Denied rows recorded a minute for one caller (`sub`); the rest are counted in the log."""
+DENIED_WRITES: Final = 16
+"""The addresses a denied demand's row keeps of those it asked for."""
+_DENIED_CALLERS: Final = 1024
+"""Callers whose recent denials are remembered before the idle ones are forgotten."""
 
 
 def _route(method: str, path: str) -> tuple[str, dict[str, str]]:
@@ -100,6 +111,8 @@ class Audit:
     def __init__(self, app: Any, auditor: Auditor = AUDITOR) -> None:
         self.app = app
         self.auditor = auditor
+        self._denied: dict[str, deque[float]] = {}
+        self._left_out: dict[str, int] = {}
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         if not _audited(scope):
@@ -166,8 +179,13 @@ class Audit:
         state = scope.get("state") or {}
         claims = state.get("principal")
         scheme = str(state.get("scheme", ""))
-        if claims is None or scheme == "anonymous":
+        if claims is None or scheme == "anonymous" or claims.sub == ANONYMOUS:
             return
+        denied = outcome(status) == "denied"
+        if denied and not self._denial_kept(claims.sub):
+            return
+        if denied:
+            asked = dict(list(asked.items())[:DENIED_WRITES])
         writes: dict[str, Write] | None = None
         if asked:
             applied = _applied(answer) if status < 300 else {}
@@ -200,6 +218,30 @@ class Audit:
                 detail=detail,
             )
         )
+
+    def _denial_kept(self, sub: str) -> bool:
+        """Whether a denial of `sub`'s gets a row: `DENIED_PER_MINUTE` a minute do."""
+        now = time.monotonic()
+        if len(self._denied) > _DENIED_CALLERS:
+            for idle in [k for k, v in self._denied.items() if not v or now - v[-1] > 60]:
+                del self._denied[idle]
+        recent = self._denied.setdefault(sub, deque())
+        while recent and now - recent[0] > 60:
+            recent.popleft()
+        if len(recent) >= DENIED_PER_MINUTE:
+            if sub not in self._left_out:
+                log.warning(
+                    "audit: %r was denied more than %d times in a minute;"
+                    " its denials are counted, not recorded, until it slows",
+                    sub,
+                    DENIED_PER_MINUTE,
+                )
+            self._left_out[sub] = self._left_out.get(sub, 0) + 1
+            return False
+        if left_out := self._left_out.pop(sub, 0):
+            log.warning("audit: %d denials of %r were not recorded", left_out, sub)
+        recent.append(now)
+        return True
 
 
 def _safely(finish: Any, status: int) -> None:
