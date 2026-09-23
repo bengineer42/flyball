@@ -41,7 +41,7 @@ holds for a program file, a library upload and a `--set` value.
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
-| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
+| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are, the default `reads: {fail_after: 3, backoff_s: [1, 2, 5, 15, 60]}` for every device; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat beside it](#devices) |
 | `controllers` | `{output-address: ControllerEntry}` | keyed by the demand driven, the controller's output |
@@ -89,6 +89,7 @@ field named like an envelope key). A nested `config:` is refused.
 | `poll_s` | number, optional | inherited down the tree; a namespace's or signal's own wins |
 | `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
 | `inputs` | `{input: address}` | what this device follows on another device: an input's name from the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
+| `reads` | `{fail_after?, backoff_s?, give_up_after_s?}`, optional | reads that raise in a row before the device is `offline` (integer ≥ 1), the waits between retries while offline (non-empty, each finite and > 0; the last repeats), and how long after going offline to stop retrying (finite, > 0; `null`: never). A key left out is `runner.reads`', then `3` / `[1, 2, 5, 15, 60]` / never. [Devices: `reads`](../2-config/devices/index.md#reads) |
 
 ```yaml
 devices:

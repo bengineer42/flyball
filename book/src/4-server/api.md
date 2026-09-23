@@ -194,8 +194,8 @@ lists them all with their signal trees.
 | `GET` | `/api/devices` | `[DeviceOut]` |
 | `GET` | `/api/devices/{name}` | `DeviceOut`; 404 if no device has that name |
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
-| `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline device restarts its polling |
-| `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut`. 409 while a read of it is in flight (a device hung in its driver is not waited on), or when the old poll loop is still in a read 2 s after being stopped |
+| `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline or stopped device restarts its polling (its next read one period later, not at the end of its backoff) |
+| `POST` | `/api/devices/{name}/restart` | poll a device again on its period, its next read one period later: one that is offline and backing off, or stopped (given up); clears nothing -- `offline` stays until a read succeeds; `DeviceOut`. 409 while a read of it is in flight (a device hung in its driver is not waited on), or when the old poll loop is still in a read 2 s after being stopped |
 | `PUT` | `/api/devices/{name}/write` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one atomic write, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal write; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
 
@@ -210,10 +210,17 @@ it — `readable`/`writable` whether it implements `read`/`commit`,
 `conditions` what the rig's condition store holds on the device and its
 signals (`offline`, `slow`, `write_failed`, `commit_failed`, and the
 driver's own, such as the sim's `broken`), and `run` `{period_s, running,
-last_read_ns, read_s, missed}` for a polled device (null otherwise):
-`read_s` is how long the last read took (the driver's `read` alone, in
-seconds of the rig's time, not the delivery after it), `missed` how many
-reads have taken longer than the period since polling began.
+last_read_ns, read_s, missed, reading_since_ns, consecutive_failures,
+next_retry_ns}` for a polled device (null otherwise): `read_s` is how long
+the last read took (the driver's `read` alone, in seconds of the rig's
+time, not the delivery after it), `missed` how many reads have taken
+longer than the period since polling began, `reading_since_ns` when the
+read in flight began (rig clock; null when none is), `consecutive_failures`
+the reads in a row that raised (0 after one that succeeds), and
+`next_retry_ns` when an offline device is next read (rig clock; null
+unless it is offline and backing off). An offline device keeps `running:
+true` while it retries; `running: false` is a device whose polling was
+stopped, or that gave up (`reads.give_up_after_s`).
 
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
@@ -466,7 +473,7 @@ message: one `raised` per outage, never one per poll or per step.
 
 | scope | conditions (raised / cleared) | point events |
 | --- | --- | --- |
-| `device` | `offline` (cleared by a restart), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted) |
+| `device` | `offline` (after `reads.fail_after` failed reads in a row; cleared by the first read that succeeds), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted), `gave_up` (retries ran past `reads.give_up_after_s`; polling stopped) |
 | `signal` | a driver's own (the sim's `broken`) | |
 | `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown` | `interrupted` |
 | `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
@@ -508,7 +515,7 @@ flush sends nothing.
 
 | socket | on connect | then |
 | --- | --- | --- |
-| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
+| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, reading_since_ns, consecutive_failures, next_retry_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
 | `/ws/activities` | every registered activity | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |

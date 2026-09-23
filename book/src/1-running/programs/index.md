@@ -31,8 +31,9 @@ steps; a humidity rig's `set_blend` is one. Its `blend` is a `Setting`
 signal — shown on the wire, `RP` — but a setting is re-set by a command,
 not a demand, so it stays a `command` step; only a `Demand` signal (`RPW`)
 can be reached as a `set` step. As over HTTP, a `command` step that succeeds
-on an offline device (`restore`, a reset) restarts its polling; one still
-broken goes offline again with a fresh event.
+on an offline device (`restore`, a reset) restarts its polling, read one
+period later rather than at the end of its backoff; one still broken stays
+offline and backs off again.
 
 ## Activities and signals
 

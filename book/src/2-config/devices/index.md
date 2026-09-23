@@ -24,6 +24,7 @@ devices:
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
 | `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
 | `inputs` | `{input: address}` | what this device follows on another, by the input's name: `{dry_humidity: hum_sensors.dry.humidity}` |
+| `reads` | `{fail_after, backoff_s, give_up_after_s}` | when failed reads put it `offline`, and how it is retried, [below](#reads) |
 | any other key | | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board`. A nested `config:` is refused |
 
 ## `signals`
@@ -65,6 +66,31 @@ devices:
 
 What a driver may declare as an input, and how it reads one, is in
 [Writing an actuator](../../3-extending/device/actuator.md).
+
+## `reads`
+
+```yaml
+devices:
+  hum_sensors:
+    driver: sht4x_set
+    poll_s: 2
+    reads: { fail_after: 5, backoff_s: [2, 30], give_up_after_s: 3600 }
+```
+
+| key | type | |
+| --- | --- | --- |
+| `fail_after` | integer, at least 1 | reads that raise in a row before the device is `offline`. Unset: the runner's, else 3 |
+| `backoff_s` | `[seconds, …]`, not empty | the waits between retries while offline, in turn; the last repeats. Unset: the runner's, else `[1, 2, 5, 15, 60]` |
+| `give_up_after_s` | number, or `null` | stop retrying this long after the device went offline: polling stops, `offline` stays, and a `gave_up` event says so; a restart polls it again. `null` (the default): never give up |
+
+Each key left out is the [runner's `reads:`](../runner.md#reads-when-a-failed-read-puts-a-device-offline),
+then the default; that section describes the budget, the backoff and what
+clears `offline`. The keys are per device, not per namespace or signal: the
+runtime calls the driver's `read` once per period for the whole device, and
+a raise ends that call whichever namespace it came from. A driver whose
+namespaces fail on their own (one sensor of a set) can catch that one's
+error and leave it out of the sample -- its last value stands until it goes
+stale -- rather than raise, so the others keep being read.
 
 ## What a device gives you
 

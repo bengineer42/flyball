@@ -84,7 +84,9 @@ psu:
 
 Adds two commands for bring-up, `write` and `query`, that send any text
 outside the declared tree. An instrument that stops answering marks the
-device `offline` until the next good read; polling goes on. Replies that
+device `offline` after [`reads.fail_after`](index.md#reads) timeouts in a
+row (default 3); polling goes on, retrying with backoff, and the next good
+read clears it. Replies that
 are not a number need a `parse=` in Python: [Writing a sensor](../../3-extending/device/sensor.md#talking-to-an-instrument).
 
 ### `modbus`

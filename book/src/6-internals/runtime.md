@@ -137,16 +137,40 @@ streamed like any event (under the store's own lock, so in order), and
 in-process subscribers (`rig.conditions.subscribe`) hear each one on the
 store's own thread, never under the rig's lock.
 
-Only `read` itself can put a device offline: a raised exception raises an
-`offline` condition, and the device's loop stops itself until `restart`
-(which clears it), or until a command on it succeeds (`Polling.revive`,
-called by the command route and by a program's `command` step alike).
-Neither waits on a read in flight: `restart` is refused (409) while one is
+Only `read` itself can put a device offline. `_read` iterates the driver's
+`read` into a list, so samples yielded before a raise are delivered all the
+same; the raise then goes to `Polling._failed`, which counts it in
+`DeviceRun.consecutive_failures` against the device's
+[ReadPolicy][flyball.rig.polling.ReadPolicy] -- its entry's `reads:` key by
+key over `Polling.defaults` (`runner.reads`, set by `RigConfig.build`),
+resolved when its polling starts. Below `fail_after` it is a log line. At
+`fail_after` it sets `offline` (raised once; each later failure only
+updates its message) and the loop keeps running: `PeriodicLoop.defer(wait)`
+puts its next run `backoff_s[n]` from now, `n` counting retries and the
+last wait repeating, and `DeviceRun.next_retry_ns` says when. `defer`
+moves one run: on a thread it resets `_next_loop_time`, on a stepped clock
+it swaps the periodic schedule for a one-shot that puts the period back
+before it runs; either way the rig's clock times it, and `stop` ends the
+wait at once, so a removal or `close` does not wait out a 60 s backoff.
+The first read that succeeds (`_recovered`) zeroes the count, clears
+`next_retry_ns` and clears `offline`, and the loop is on its period again.
+A device's `give_up_after_s`, once `offline` has been held that long,
+stops the loop from inside (`running: false`) with a `gave_up` event;
+`offline` stays. `DeviceRun.reading_since_ns` is set on the rig's clock
+while a poll's `read` is in flight, and pushed, so a read that never
+returns shows on the runs stream.
+
+`restart` stops the loop and starts a new one on the period (its first
+read one period later), clearing nothing: `offline` and the count stay
+until a read succeeds. A command that succeeds on a device that is offline
+or stopped (`Polling.revive`, called by the command route and by a
+program's `command` step alike) restarts it the same way. Neither waits on
+a read in flight: `restart` is refused (409) while one is
 (`Polling.reading_for`), and stops the old loop for at most `STOP_JOIN_S`
 before refusing too; `revive` on a device whose poll has been stuck in a
 read for longer than its period leaves it alone and says so with a
 `not_revived` event on the device. A loop left to finish its read after a
-restart does not stop the newer loop if that read raises
+restart neither backs off nor stops the newer loop if that read raises
 (`PeriodicLoop.runs_here`). A
 controller whose law raises is kept to itself: a `step_failed` condition on
 the controller, raised on the first failure and cleared when it steps

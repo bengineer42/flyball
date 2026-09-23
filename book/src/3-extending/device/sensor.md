@@ -129,8 +129,13 @@ fields, a `link`, the envelope around it.
 ## What the runtime adds
 
 The rig keeps a run record beside each polled device: its period, when it
-last delivered, and an `offline` condition if a read raised. Polling
-continues after a failure, and the next successful delivery clears the
-condition; nothing else in the rig stops. `GET /api/devices/{name}` shows
-both the device's own state and the run (`run: {period_s, running,
-last_read_ns, read_s, missed}`).
+last delivered, a read in flight, and failed reads in a row. A `read`
+that raises counts toward the device's budget (`reads.fail_after`,
+default 3); samples it yielded before raising are still delivered. At the
+budget the device is `offline`, and polling carries on: it is retried
+after each wait of `reads.backoff_s` (default `[1, 2, 5, 15, 60]` s, the
+last repeating) until a read succeeds, which clears the condition and
+puts it back on its period ([The runner section](../../2-config/runner.md#reads-when-a-failed-read-puts-a-device-offline)).
+Nothing else in the rig stops. `GET /api/devices/{name}` shows both the
+device's own state and the run (`run: {period_s, running, last_read_ns,
+read_s, missed, reading_since_ns, consecutive_failures, next_retry_ns}`).
