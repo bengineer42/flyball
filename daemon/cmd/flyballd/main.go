@@ -87,7 +87,9 @@ func run(ctx context.Context, configPath string, insecureOpen bool, ready func(n
 	root := frontdir.Root(id)
 	if root == "" {
 		log.Printf("WARNING: no private runtime dir (RUNTIME_DIRECTORY or XDG_RUNTIME_DIR, mode 0700): runners get temp front-dirs," +
-			" which a restarted flyballd cannot find -- runners left running by this flyballd (D-037) will not be adopted")
+			" which a restarted flyballd cannot find. A runner this flyballd leaves running (D-037) is not adopted by the next one:" +
+			" that one's runner exits 3 on the rig's lock and the rig is busy while the old runner runs on, unreachable through" +
+			" the front -- end it with `kill <pid>` (its pid is in <store>.lock) or stop the rig with `flyball stop --pid <pid>`")
 	}
 	// A runner already alive in its front-dir (left by a previous
 	// flyballd) is adopted, not restarted (D-037).

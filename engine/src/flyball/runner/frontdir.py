@@ -3,8 +3,9 @@
 The front makes one directory per runner, mode 0700, and writes three files into it, each
 0600: `key` (64 lower-case hex characters, the principal's HMAC key, fresh at every
 spawn), `aud` (the audience the front assigned) and `endpoint` (`unix:<abs path>`, or
-`tcp:<loopback>:<port>`). The runner binds `endpoint` and nothing else, takes a principal
-only if it verifies with `key` for `aud`, and holds `runner.lock` there for its life.
+`tcp:<loopback>:<port>`). The runner holds `runner.lock` there for its life, taken before it
+reads `key`; it binds `endpoint` and nothing else, and takes a principal only if it verifies
+with `key` for `aud`.
 
 Anything unsafe or missing means the front and the runner disagree about how they talk, not
 a setting a user got wrong: the runner exits 4 (`FRONT_DIR`) before it takes the rig's lock
@@ -100,9 +101,18 @@ def parse_endpoint(text: str) -> str:
     raise Unusable(f"endpoint: {text!r} is neither unix:<path> nor tcp:<host>:<port>")
 
 
+def check(path: Path) -> None:
+    """`path` is a directory of this user's, not a symlink, closed to group and others.
+
+    What `read` checks of the directory itself: done first on its own, before the runner takes
+    `runner.lock` in it (`locking.hold_front`) and then reads its files.
+    """
+    _private(path, "front-dir", stat.S_IFDIR)
+
+
 def read(path: Path) -> FrontDir:
     """The front-dir at `path`, checked; raises [Unusable][flyball.runner.frontdir.Unusable]."""
-    _private(path, "front-dir", stat.S_IFDIR)
+    check(path)
     for name in ("key", "aud", "endpoint"):
         _private(path / name, name, stat.S_IFREG)
     try:

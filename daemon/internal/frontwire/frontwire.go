@@ -127,23 +127,30 @@ func InsecureOpenEnv() bool {
 	return false
 }
 
-// StateHome is $XDG_STATE_HOME, else ~/.local/state.
-func StateHome() string {
+// StateHome is $XDG_STATE_HOME, else ~/.local/state. With neither
+// (no HOME: a unit file or cron without it) it is an error: never a
+// shared, predictable directory such as one under $TMPDIR, for what is
+// kept there (named tokens, the audit, run.log).
+func StateHome() (string, error) {
 	if s := os.Getenv("XDG_STATE_HOME"); s != "" && filepath.IsAbs(s) {
-		return s
+		return s, nil
 	}
 	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.TempDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return "", errors.New("no state directory: set HOME, or XDG_STATE_HOME to an absolute path")
 	}
-	return filepath.Join(home, ".local", "state")
+	return filepath.Join(home, ".local", "state"), nil
 }
 
 // RunDir is where `flyball run` keeps a front's tokens and audit:
 // <StateHome>/flyball/front-<frontID>, frontID being
 // frontdir.FrontID(the first rig file).
-func RunDir(frontID string) string {
-	return filepath.Join(StateHome(), "flyball", "front-"+frontID)
+func RunDir(frontID string) (string, error) {
+	home, err := StateHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "flyball", "front-"+frontID), nil
 }
 
 // RunRig is the rig name a `flyball run` front-dir is made for.

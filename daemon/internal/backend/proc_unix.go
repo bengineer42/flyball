@@ -24,6 +24,12 @@ func ownGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// killGroup SIGKILLs p's process group (ownGroup made p its leader), so
+// a runner under uv goes with uv.
+func killGroup(p *os.Process) error {
+	return syscall.Kill(-p.Pid, syscall.SIGKILL)
+}
+
 // processStart is pid's start time (field 22 of /proc/<pid>/stat), which
 // tells the process apart from a later one given the same pid; "" where
 // there is no /proc.

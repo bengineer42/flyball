@@ -447,7 +447,8 @@ func TestRunExitCodes(t *testing.T) {
 
 // A second `flyball run` of the same rig file finds the first's runner
 // holding the front-dir, and stops without touching its key. The refusal
-// names the pid holding it and `flyball stop <rig file>`.
+// names the pid holding it and how to end that runner -- not `flyball
+// stop`, which stops the rig and leaves the runner running.
 func TestRunTwiceRefusesTheLiveFrontDir(t *testing.T) {
 	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
 	first := echoAt(t, r, r.addr(), nil)
@@ -457,8 +458,9 @@ func TestRunTwiceRefusesTheLiveFrontDir(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "runner.lock") {
 		t.Fatalf("second run = %v, want refused on runner.lock", err)
 	}
-	if !strings.Contains(err.Error(), fmt.Sprint(first.Pid)) || !strings.Contains(err.Error(), "flyball stop "+rig) {
-		t.Fatalf("second run = %v, want the pid %d and `flyball stop %s`", err, first.Pid, rig)
+	if !strings.Contains(err.Error(), fmt.Sprint(first.Pid)) || !strings.Contains(err.Error(), fmt.Sprintf("kill %d", first.Pid)) ||
+		strings.Contains(err.Error(), "`flyball stop "+rig+"` to stop it") {
+		t.Fatalf("second run = %v, want the pid %d and `kill %d`, not `flyball stop` as the way to end it", err, first.Pid, first.Pid)
 	}
 	runOut = r
 	again := echoAt(t, r, r.addr(), nil)

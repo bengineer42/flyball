@@ -14,7 +14,7 @@ import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
@@ -61,13 +61,32 @@ def _needed_extras(args: Any) -> list[str]:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     logs.configure(args.log_level or "info")
-    front = None
-    if args.front_dir is not None:  # before the lock, the drivers, the store: before anything
+    if args.front_dir is None:
+        return _main(args)
+    # Before the rig's lock, the drivers, the store: before anything. `runner.lock` before
+    # the key: a front never rewrites the key of a front-dir whose lock is held, so from the
+    # moment this runner has read it, a front that starts meanwhile finds it (and adopts it)
+    # instead of giving the key it holds to a second runner.
+    try:
+        frontdir.check(args.front_dir)
+        mine = locking.hold_front(args.front_dir)
+    except frontdir.Unusable as e:
+        print(f"flyball-runner: --front-dir {args.front_dir}: {e}", file=sys.stderr)
+        return FRONT_DIR
+    except locking.RigBusy as e:
+        print(f"flyball-runner: {e}", file=sys.stderr)
+        return RIG_BUSY
+    with mine:
         try:
             front = frontdir.read(args.front_dir)
         except frontdir.Unusable as e:
             print(f"flyball-runner: --front-dir {args.front_dir}: {e}", file=sys.stderr)
             return FRONT_DIR
+        return _main(args, front, mine)
+
+
+def _main(args: Any, front: frontdir.FrontDir | None = None, mine: IO[str] | None = None) -> int:
+    """Everything after the front-dir: the rig file, the rig's lock, the rig."""
     first = args.rig[0] if args.rig else Path("rig")
     # Checked before any of the real work below, so a bare `pip install flyball`
     # names the extra to add instead of failing opaquely, deep inside `serve()`
@@ -96,15 +115,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"flyball-runner: {e}", file=sys.stderr)
         return RIG_BUSY
     with lock:
-        if front is None:
-            return _run(args, settings, document, files, first)
-        try:
-            mine = locking.hold_front(front.path, name if isinstance(name, str) else first.stem)
-        except locking.RigBusy as e:
-            print(f"flyball-runner: {e}", file=sys.stderr)
-            return RIG_BUSY
-        with mine:
-            return _run(args, settings, document, files, first, front)
+        if mine is not None:
+            locking.name_front(mine, name if isinstance(name, str) else first.stem)
+        return _run(args, settings, document, files, first, front)
 
 
 def _run(

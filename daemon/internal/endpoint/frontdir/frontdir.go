@@ -7,7 +7,8 @@
 //	endpoint  the endpoint's string form ("unix:<dir>/sock" or "tcp:127.0.0.1:<port>") and "\n", 0600
 //
 // -- and what the runner makes there: `sock` (its unix socket) and
-// `runner.lock` (flocked for its life). The runner is handed the
+// `runner.lock` (flocked for its life, taken before it reads `key`; Write
+// creates it and holds it while it writes). The runner is handed the
 // directory in argv (`--front-dir DIR`); the key never travels in argv or
 // the environment.
 //
@@ -200,7 +201,10 @@ func open(dir string) (*os.Root, error) {
 // Write gives the runner in dir a fresh key, and writes aud and ep
 // beside it -- each file 0600, replaced atomically. It removes a stale
 // `sock`. It refuses with ErrLive, touching nothing, while a runner holds
-// runner.lock: a live runner's key is never rewritten.
+// runner.lock: a live runner's key is never rewritten. It holds
+// runner.lock itself while it writes, so a runner starting meanwhile
+// (which takes the lock before it reads the key) waits, then reads the
+// new key -- never the old one with the new one written after it.
 func Write(dir, aud string, ep endpoint.Endpoint) (key [32]byte, err error) {
 	if aud == "" || strings.ContainsFunc(aud, func(r rune) bool { return r < 0x21 || r == 0x7f }) {
 		return key, fmt.Errorf("front-dir %s: aud %q: empty, or a space or control character in it", dir, aud)
@@ -213,13 +217,14 @@ func Write(dir, aud string, ep endpoint.Endpoint) (key [32]byte, err error) {
 		return key, err
 	}
 	defer r.Close()
-	held, err := lockHeld(r)
+	release, held, err := lockForWrite(r)
 	if err != nil {
 		return key, fmt.Errorf("front-dir %s: %w", dir, err)
 	}
 	if held {
 		return key, fmt.Errorf("front-dir %s: %w", dir, ErrLive)
 	}
+	defer release()
 	if _, err := rand.Read(key[:]); err != nil {
 		return key, err
 	}

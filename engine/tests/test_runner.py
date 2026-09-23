@@ -773,22 +773,170 @@ def test_main_serves_fronted_and_holds_the_runner_lock(tmp_path, monkeypatch):
     assert oct((folder / "runner.lock").stat().st_mode & 0o777) == "0o600"
 
 
+def test_main_holds_the_runner_lock_before_it_reads_the_key(tmp_path, monkeypatch):
+    """`runner.lock` is held from the moment the key is read.
+
+    Or a front that starts while this runner is starting rewrites the key under a runner that
+    already read the old one (then spawns a second runner: exit 3, the rig busy for ever).
+    """
+    import fcntl
+
+    from flyball.runner import frontdir
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    folder = front_dir(tmp_path / "f")
+    real = frontdir.read
+    seen: dict = {}
+
+    def read(path):
+        with open(folder / "runner.lock", "a") as probe:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                seen["held"] = False
+            except BlockingIOError:
+                seen["held"] = True
+        return real(path)
+
+    monkeypatch.setattr(frontdir, "read", read)
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: None)
+    argv = [str(rig_file), "--store", str(tmp_path / "s.sqlite"), "--front-dir", str(folder)]
+    assert runner.main(argv) == 0
+    assert seen == {"held": True}, "the key was read before runner.lock was taken"
+
+
+def test_a_held_runner_lock_is_exit_3_before_the_key_is_read(tmp_path, monkeypatch, capsys):
+    """Another runner lives in the front-dir: this one leaves at once, whatever the files say."""
+    import fcntl
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    folder = front_dir(tmp_path / "f", key="not a key\n")
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: None)
+    monkeypatch.setattr("flyball.runner.locking.FRONT_PATIENCE_S", 0.05, raising=False)
+    argv = [str(rig_file), "--store", str(tmp_path / "s.sqlite"), "--front-dir", str(folder)]
+    with open(folder / "runner.lock", "a") as live:
+        fcntl.flock(live, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert runner.main(argv) == 3
+    assert "another runner lives in" in capsys.readouterr().err
+    assert not (tmp_path / "s.sqlite.lock").exists(), "nor took the rig's lock"
+
+
+def test_hold_front_waits_out_a_front_s_probe(tmp_path):
+    """A runner taking `runner.lock` while a front probes it does not give up (exit 3).
+
+    A front asks "is a runner here?" with a shared lock held for an instant.
+    """
+    import fcntl
+    import threading
+
+    from flyball.runner import locking
+
+    folder = front_dir(tmp_path / "f")
+    probe = open(folder / "runner.lock", "a")  # noqa: SIM115 -- released by the timer
+    fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    timer = threading.Timer(0.2, probe.close)
+    timer.start()
+    try:
+        with locking.hold_front(folder, "lab"):
+            pass
+    finally:
+        timer.cancel()
+        probe.close()
+
+
+def test_hold_front_still_refuses_a_live_runner(tmp_path, monkeypatch):
+    import fcntl
+
+    from flyball.runner import locking
+
+    monkeypatch.setattr(locking, "FRONT_PATIENCE_S", 0.1, raising=False)
+    folder = front_dir(tmp_path / "f")
+    with open(folder / "runner.lock", "a") as live:
+        fcntl.flock(live, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(locking.RigBusy, match="another runner lives in"):
+            locking.hold_front(folder, "lab")
+
+
+def test_the_store_lock_is_owner_only_from_its_creation_and_holds_no_secret(tmp_path, monkeypatch):
+    import fcntl
+    import os
+    import stat
+
+    from flyball.runner import locking
+
+    argv = ["flyball-runner", "rig.yaml", "--token", "s3cret", "--password=hunter2"]
+    argv += ["--set", "runner.auth.token=t0ken", "--port", "8100"]
+    monkeypatch.setattr(sys, "argv", argv)
+    modes = []
+    real = fcntl.flock
+
+    def flock(handle, how):
+        modes.append(stat.S_IMODE(os.fstat(handle.fileno()).st_mode))
+        return real(handle, how)
+
+    monkeypatch.setattr(locking.fcntl, "flock", flock)
+    old = os.umask(0o022)
+    try:
+        held = locking.hold(tmp_path / "s.sqlite")
+    finally:
+        os.umask(old)
+    with held:
+        assert modes and modes[0] == 0o600, f"created {oct(modes[0])} before the chmod"
+        text = (tmp_path / "s.sqlite.lock").read_text()
+        with pytest.raises(locking.RigBusy) as busy:
+            locking.hold(tmp_path / "s.sqlite")
+    for secret in ("s3cret", "hunter2", "t0ken"):
+        assert secret not in text and secret not in str(busy.value)
+    assert "--port 8100" in text and "--token ***" in text
+
+
+def test_the_restart_log_line_holds_no_secret(monkeypatch, caplog):
+    from flyball.rig import Rig
+
+    def fake_run(self):
+        from flyball.interfaces.server import deps
+
+        deps.current_runner().restart()
+
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
+    monkeypatch.setattr("os.execv", lambda exe, argv: None)
+    monkeypatch.setattr("sys.orig_argv", ["python3", "flyball-runner", "--token", "s3cret"])
+    with caplog.at_level("INFO", logger="flyball.runner"):
+        runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning"))
+    assert "restarting" in caplog.text and "s3cret" not in caplog.text
+
+
 def test_serve_fronted_binds_the_endpoint_only(tmp_path, monkeypatch, capsys):
+    import os
+    import socket
+    import stat
+
     from flyball.rig import Rig
     from flyball.runner.frontdir import read
     from flyball.runtime.config import AuthConfig
 
     seen = {}
-    monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.update(config=self.config))
+
+    def run(self):
+        sock = socket.socket(fileno=os.dup(self.config.fd))
+        with sock:
+            seen.update(config=self.config, name=sock.getsockname())
+        seen["mode"] = stat.S_IMODE(os.lstat(tmp_path / "f" / "sock").st_mode)
+
+    monkeypatch.setattr("uvicorn.Server.run", run)
     front = read(front_dir(tmp_path / "f"))
     settings = RunnerConfig(host="0.0.0.0", port=9, auth=AuthConfig(token="x", anonymous="read"))
     runner.serve(Rig("t"), settings, front=front)
     config = seen["config"]
-    assert config.uds == f"{tmp_path}/f/sock"
+    assert seen["name"] == f"{tmp_path}/f/sock" and seen["mode"] == 0o600
+    assert config.uds is None and config.fd is not None
+    assert not (tmp_path / "f" / "sock").exists(), "removed after serving"
     assert config.app.state.door.fronted is not None and config.app.state.door.aud == front.aud
     lines = [line for line in capsys.readouterr().err.splitlines() if "WARNING" in line]
     assert len(lines) == 1 and "--front-dir" in lines[0] and "link?n=" not in lines[0]
     tcp = read(front_dir(tmp_path / "t", endpoint="tcp:127.0.0.1:8102\n"))
+    monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.update(config=self.config))
     runner.serve(Rig("t"), RunnerConfig(), front=tcp)
     assert (seen["config"].host, seen["config"].port, seen["config"].uds) == (
         "127.0.0.1",

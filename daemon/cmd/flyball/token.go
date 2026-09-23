@@ -312,7 +312,11 @@ func tokensPathFor(config string, forceDaemon bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", config, err)
 	}
-	return filepath.Join(frontwire.RunDir(id), frontwire.TokensFile), nil
+	state, err := frontwire.RunDir(id)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(state, frontwire.TokensFile), nil
 }
 
 // daemonOnlyKeys are flyballd.yaml's own top-level keys

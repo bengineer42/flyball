@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -255,6 +256,21 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 		return "", fmt.Errorf("runner %s: %w", name, err)
 	}
 
+	var warnings []string
+	if network == "tcp" {
+		warnings = append(warnings, fmt.Sprintf("runner %s: network: tcp, on %s: any local user can connect to that port"+
+			" (the runner still demands the front's signed principal), and a process that binds it first is taken for the runner;"+
+			" a unix socket in a 0700 front-dir has neither exposure", name, ep.Address))
+	}
+	if tempDir && b.front.Root != "" {
+		warnings = append(warnings, fmt.Sprintf("runner %s: %s/%s/%s would be over %d bytes, so its front-dir is a temp dir (%s):"+
+			" a restarted flyballd cannot find it, and this runner will not be adopted -- the next flyballd's runner exits 3 and the rig is busy"+
+			" while this one runs on; use a shorter runtime dir", name, b.front.Root, name, frontdir.Sock, endpoint.MaxSocketPath, dir))
+	}
+	for _, w := range warnings {
+		log.Printf("WARNING: %s", w)
+	}
+
 	logPath := filepath.Join(b.logDir, name+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -269,6 +285,10 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 			os.RemoveAll(dir)
 		}
 		return "", fmt.Errorf("restricting log file for %s: %w", name, err)
+	}
+
+	for _, w := range warnings {
+		fmt.Fprintf(logFile, "flyballd: WARNING: %s\n", w)
 	}
 
 	// No --host/--port: the runner binds what <front-dir>/endpoint says.
@@ -449,6 +469,15 @@ func (b *ProcessBackend) watch(rp *runnerProc, cmd *exec.Cmd) (live bool) {
 				rp.reason = "exit 2: a bad rig file, or a flyball-runner too old for --front-dir"
 				fmt.Fprintf(rp.logFile, "flyballd: exit 2: a bad rig file, or a flyball-runner too old for --front-dir; not restarting\n")
 			case exitRigBusy:
+				if held, _ := frontdir.LockHeld(rp.dir); held {
+					// A runner took this front-dir between its Write and
+					// this spawn's start (one a flyballd before this one
+					// started): not a busy rig but a runner to adopt.
+					fmt.Fprintf(rp.logFile, "flyballd: exit 3: a runner holds %s in %s; adopting it\n", frontdir.Lock, rp.dir)
+					rp.status = StatusStarting
+					b.mu.Unlock()
+					return true
+				}
 				again, final = false, StatusBusy
 				rp.reason = "exit 3: another runner holds the rig's store lock"
 			case exitFrontDir:
@@ -928,8 +957,15 @@ func (b *ProcessBackend) killIfStill(rp *runnerProc, cmd *exec.Cmd) {
 
 // signal sends sig to rp's live process: the one flyballd spawned, or the
 // adopted pid, if it is still the process that was adopted. b.mu held.
+// SIGKILL to a spawned runner goes to its whole process group: under
+// `uv_project:` the process flyballd spawned is uv, which forwards SIGTERM
+// to the runner but cannot forward SIGKILL. SIGTERM goes to that process
+// alone, so the runner gets it once. An adopted pid is the runner itself.
 func (b *ProcessBackend) signal(rp *runnerProc, sig os.Signal) error {
 	if rp.cmd != nil {
+		if sig == os.Kill {
+			return killGroup(rp.cmd.Process)
+		}
 		return rp.cmd.Process.Signal(sig)
 	}
 	if !rp.adopted || !processAlive(rp.pid, rp.pidStart) {

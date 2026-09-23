@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -149,6 +150,100 @@ func TestStopKillsARunnerThatIgnoresSIGTERM(t *testing.T) {
 		t.Errorf("runner %d still there after Stop returned (kill -0: %v)", pid, err)
 	}
 }
+
+// Stop's SIGKILL reaches the runner's whole process group. Under
+// `uv_project:` flyballd's child is uv, which forwards SIGTERM but cannot
+// forward SIGKILL: a runner stuck in its shutdown must not outlive Stop
+// as an orphan holding the rig's locks.
+func TestStopKillsTheRunnersGroup(t *testing.T) {
+	out := t.TempDir()
+	runner := `trap '' TERM; echo $$ > ` + out + `/runner; while :; do sleep 0.02; done`
+	uv := `sh -c "$0" & c=$!; trap 'kill -TERM $c' TERM; while kill -0 $c 2>/dev/null; do wait $c; done`
+	b := newTestBackend(t, "")
+	b.command = func(string, []string) *exec.Cmd { return exec.Command("sh", "-c", uv, runner) }
+	b.stopTimeout = 200 * time.Millisecond
+	mustStart(t, b, "r")
+	var pid int
+	eventually(t, "the runner under uv", func() bool {
+		b, err := os.ReadFile(out + "/runner")
+		if err != nil {
+			return false
+		}
+		_, err = fmt.Sscan(string(b), &pid)
+		return err == nil
+	})
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	time.Sleep(100 * time.Millisecond) // let the traps be installed
+
+	if err := b.Stop("r"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for processAlive(pid, "") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if processAlive(pid, "") {
+		t.Errorf("the runner (pid %d) under uv survived Stop", pid)
+	}
+}
+
+// network: tcp is logged when the runner is started (flyballd's log and
+// the runner's): its port is open to every local user.
+func TestTCPIsLogged(t *testing.T) {
+	var buf strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.Write(p) }))
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	if _, err := b.Start("r", Spec{ServerConfig: "rig.yaml", Network: "tcp", Port: 8123}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	logged := buf.String()
+	mu.Unlock()
+	if !strings.Contains(logged, "network: tcp") || !strings.Contains(logged, "127.0.0.1:8123") {
+		t.Errorf("flyballd's log: %q, want a line naming network: tcp and the port", logged)
+	}
+	if l := readFile(t, filepath.Join(b.logDir, "r.log")); !strings.Contains(l, "network: tcp") {
+		t.Errorf("the runner's log: %q, want the tcp line", l)
+	}
+	buf.Reset()
+	b.Start("u", Spec{ServerConfig: "rig.yaml"})
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Contains(buf.String(), "network: tcp") {
+		t.Errorf("a unix runner logged %q", buf.String())
+	}
+}
+
+// A runtime dir too deep for a socket path under it gives a runner a temp
+// front-dir, which the next flyballd cannot find: its runner will not be
+// adopted. That is logged, naming the runner.
+func TestATempFrontDirUnderARootIsLogged(t *testing.T) {
+	var buf strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.Write(p) }))
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	deep := filepath.Join(t.TempDir(), strings.Repeat("d", 90))
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	b.SetFront(FrontOptions{Root: deep})
+	mustStart(t, b, "r")
+	if dir := frontDirOf(t, b, "r"); strings.HasPrefix(dir, deep) {
+		t.Fatalf("front-dir %s under the too-deep root", dir)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(buf.String(), "runner r") || !strings.Contains(buf.String(), "not be adopted") {
+		t.Errorf("flyballd's log: %q, want a warning that runner r's front-dir is temporary", buf.String())
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // Restart kills a runner that ignores SIGTERM after Stop's timeout -- a
 // read stuck in a driver must not make it wait for ever -- and a new
@@ -651,10 +746,21 @@ func fakeRunnerMain(args []string) {
 			root = args[i+1]
 		}
 	}
+	if dir == "" {
+		os.Exit(4)
+	}
+	// runner.lock for its life, naming its pid, taken before the key is
+	// read, as the real runner does.
+	lock, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		os.Exit(3)
+	}
+	lock.Truncate(0)
+	fmt.Fprintf(lock, "pid %d\n", os.Getpid())
 	key, err1 := os.ReadFile(filepath.Join(dir, "key"))
 	aud, err2 := os.ReadFile(filepath.Join(dir, "aud"))
 	ep, err3 := os.ReadFile(filepath.Join(dir, "endpoint"))
-	if dir == "" || err1 != nil || err2 != nil || err3 != nil {
+	if err1 != nil || err2 != nil || err3 != nil {
 		os.Exit(4)
 	}
 	e, err := endpoint.Parse(strings.TrimSpace(string(ep)))
@@ -662,13 +768,6 @@ func fakeRunnerMain(args []string) {
 		os.Exit(4)
 	}
 	want := strings.TrimSpace(string(key)) + "/" + strings.TrimSpace(string(aud))
-	// runner.lock for its life, naming its pid, as the real runner does.
-	lock, err := os.OpenFile(filepath.Join(dir, "runner.lock"), os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
-		os.Exit(3)
-	}
-	lock.Truncate(0)
-	fmt.Fprintf(lock, "pid %d rig %s\n", os.Getpid(), strings.TrimSpace(string(aud)))
 	l, err := net.Listen(e.Network, e.Address)
 	if err != nil {
 		os.Exit(1)

@@ -52,10 +52,12 @@ One runner per rig: before it imports a driver, opens a link or touches the
 store, the runner takes an exclusive lock on `<store>.lock` beside the store
 (`flock`, so it goes with the process however that ends). A second runner
 for the same rig -- the same store, which by default means the same rig
-file -- exits 3 at once, naming the process that holds it, and leaves the
-live one's session and hardware alone. Started by a front
-(`--front-dir`), it also holds `runner.lock` in its front-dir, and exits 4,
-before touching anything, if that directory is unsafe or incomplete.
+file -- exits 3 at once, naming the process that holds it (its pid and
+command line, with any `--token`/`--password` value masked; the file is
+0600), and leaves the live one's session and hardware alone. Started by a
+front (`--front-dir`), it first takes `runner.lock` in its front-dir (exit 3
+if another runner holds it), and exits 4, before touching anything, if that
+directory is unsafe or incomplete.
 
 Every log line -- the runner's own, uvicorn's and its access log -- starts
 with the local time and its offset (`2026-09-23T10:35:20+0100 INFO
@@ -95,8 +97,8 @@ the command line always wins. A runner that crashes is started again; the
 run ends with the runner. Closing the terminal does not end it: the front
 and the runner keep running, their output also goes to a log file in the
 state directory (`~/.local/state/flyball/front-<id>/run.log`), and a notice
-at start says so. Ctrl-C, SIGTERM or
-`flyball stop` stop it. Every flag:
+at start says so. Ctrl-C or SIGTERM ends it;
+`flyball stop` stops the rig and leaves it running. Every flag:
 [`flyball run`](../../7-reference/cli.md#flyball-run).
 
 ## Unattended runs

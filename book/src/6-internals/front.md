@@ -34,8 +34,8 @@ user, checked with `lstat` (not a symlink) before every spawn:
 | `key` | the front, fresh at **every** spawn | 0600 | 64 lower-case hex characters (32 bytes) and a newline |
 | `aud` | the front | 0600 | the audience: the manifest name under `flyballd`, `run-<8 hex>` under `flyball run` |
 | `endpoint` | the front | 0600 | `unix:<front-dir>/sock`, or `tcp:127.0.0.1:<port>` |
-| `sock` | the runner (uvicorn) | 0666, protected by the directory | |
-| `runner.lock` | the runner, `flock`ed for its life | 0600 | `pid <n> rig <name>` |
+| `sock` | the runner | 0600, bound so before it listens | |
+| `runner.lock` | the runner, `flock`ed for its life; the front creates it and holds it while it writes the directory | 0600 | `pid <n> rig <name>` (`pid <n>` until the rig file is read) |
 
 The front passes the directory in argv, `flyball-runner --front-dir DIR`;
 the key is never in argv or the environment. A runner given a front-dir
@@ -43,11 +43,21 @@ that is unsafe, or whose `key`, `aud` or `endpoint` is missing or
 malformed, exits **4** before it takes the rig's lock or touches hardware;
 the front rewrites the directory and starts it once more. A second runner
 for the same store exits **3**: the rig's own `<store>.lock` is held. The
-front never rewrites `key` while `runner.lock` is held.
+runner takes `runner.lock` first, before it reads `key` (exit **3** if
+another runner holds it; a front's probe or write, which holds it for an
+instant, is waited out), and the front never rewrites `key` while
+`runner.lock` is held -- so a front that starts while a runner is starting
+finds it, rather than giving a second runner a new key. A build for a
+platform with no `flock` (Windows) cannot tell a held `runner.lock`: there
+a restarted front rewrites a live runner's key, and the rig is protected
+only by its `<store>.lock`.
 
 TCP is used only where a unix socket cannot be: on Windows, and for a
 `flyballd` manifest that says `network: tcp` (a runner in another network
-namespace). The same signed principal protects both.
+namespace). The same signed principal protects both, but a loopback port
+is open to every local user, and one who binds it first (while the runner
+is down) would be taken for the runner; `flyballd` logs a warning when it
+starts a runner on TCP.
 
 ## Readiness
 
@@ -159,4 +169,11 @@ and the `pid`. A runner that does not answer within 60 s, or answers for
 another audience, is left alone and the rig is `busy`, with the `reason`.
 An adopted runner is not `flyballd`'s child, so its exit status cannot be
 known: when its pid goes, the manifest's `restart` policy treats it as a
-crash. `flyball run` has no adoption: its runner stops with it.
+crash. A runner spawned into a front-dir that another runner took
+meanwhile exits 3 on its `runner.lock`; that one is adopted the same way.
+A runner in a temporary front-dir (no private runtime directory, or one
+too deep for a socket path under it) cannot be found: `flyballd` warns of
+it at start. `flyball run` has no adoption: when it ends normally its
+runner ends first, but a `flyball run` that is killed (`SIGKILL`, a crash)
+or a second Ctrl-C leaves its runner running, to be ended with
+`kill <pid>` (`runner.lock` names it).

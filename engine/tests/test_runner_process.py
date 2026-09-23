@@ -338,6 +338,22 @@ def test_a_fronted_runner_takes_only_the_principal(tmp_path, front_dir):
     assert "link?n=" not in err
 
 
+def test_the_fronted_socket_is_owner_only(tmp_path, front_dir):
+    """The socket is 0600 (uvicorn's own is 0666): the front-dir's 0700 is not the only guard."""
+    import stat
+
+    folder = front_dir()
+    argv = [str(EXAMPLES / "oven.yaml"), "--store", str(tmp_path / "s.sqlite")]
+    with runner(tmp_path, *argv, "--front-dir", str(folder)) as proc:
+        _wait_fronted(proc, folder)
+        info = os.lstat(folder / "sock")
+        assert stat.S_ISSOCK(info.st_mode)
+        assert oct(stat.S_IMODE(info.st_mode)) == "0o600"
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 0, err[-2000:]
+
+
 def test_a_restart_keeps_the_runner_fronted(tmp_path, front_dir):
     """`os.execv` re-runs the same argv: still on the socket, still the principal only."""
     folder = front_dir()

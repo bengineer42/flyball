@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 	"flyballd/internal/principal"
 )
@@ -66,7 +67,8 @@ func startProgram(t *testing.T, c *http.Client, base string, hdr h) {
 }
 
 // A runner given --front-dir without a usable key exits 4, before it takes
-// its store's lock (so before any hardware), and binds nothing.
+// its store's lock (so before any hardware), and binds nothing. It took
+// runner.lock first (before it read the key) and let go of it.
 func TestFrontDirWithoutKeyExits4(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -87,10 +89,13 @@ func TestFrontDirWithoutKeyExits4(t *testing.T) {
 			if code := p.wait(90 * time.Second); code != 4 {
 				t.Fatalf("exit %d, want 4 (FRONT_DIR); output:\n%s", code, p.output())
 			}
-			for _, f := range []string{e.path(sub, "oven.sqlite.lock"), filepath.Join(fd, "sock"), filepath.Join(fd, "runner.lock")} {
+			for _, f := range []string{e.path(sub, "oven.sqlite.lock"), filepath.Join(fd, "sock")} {
 				if fileExists(f) {
 					t.Errorf("%s exists: the runner went past the front-dir check", f)
 				}
+			}
+			if held, err := frontdir.LockHeld(fd); err != nil || held {
+				t.Errorf("runner.lock after exit 4: held %v, %v", held, err)
 			}
 		})
 	}
