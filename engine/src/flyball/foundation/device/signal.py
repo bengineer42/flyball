@@ -14,6 +14,7 @@ hot path looks a name up. Addresses are parsed once, at the boundary.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
@@ -117,6 +118,23 @@ def _excess(requested: Access, allowed: Access) -> str:
     """
     extra = requested.value & ~allowed.value
     return "".join(letter for letter, flag in _LETTERS if extra & flag.value)
+
+
+def _check_band(name: str, field_name: str, band: tuple[Any, Any] | None) -> None:
+    """Refuse an inverted or non-finite band, when both ends are plain numbers.
+
+    A `limits` bound may be a [SignalRef][flyball.foundation.device.signal.SignalRef]
+    rather than a number; those are resolved on the instance and are not checked here.
+    """
+    if band is None:
+        return
+    lo, hi = band
+    if not (isinstance(lo, (int, float)) and isinstance(hi, (int, float))):
+        return
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        raise ValueError(f"signal {name!r}: {field_name} {band!r}: must be finite")
+    if lo > hi:
+        raise ValueError(f"signal {name!r}: {field_name} {band!r}: inverted, low above high")
 
 
 type Band = tuple[float, float]
@@ -274,6 +292,10 @@ class SignalSpec:
                 )
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
+        _check_band(self.name, "range", self.range)
+        _check_band(self.name, "warn", self.warn)
+        _check_band(self.name, "alarm", self.alarm)
+        _check_band(self.name, "limits", self.limits)
         if self.section is not None and self.section.axis not in self.tags:
             object.__setattr__(self, "tags", {self.section.axis: self.section.name, **self.tags})
 

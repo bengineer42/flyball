@@ -133,13 +133,13 @@ class TestResolveDocumentsAndLoadRigConfig:
         config = load_rig_config([tmp_path / "oven.yaml"], ["links.chamber.noise=0.9"])
         assert config.links["chamber"].noise == 0.9
 
-    def test_a_legacy_section_is_refused_naming_the_plan(self, tmp_path):
+    def test_a_legacy_section_is_refused_naming_the_reference(self, tmp_path):
         from flyball.runtime.config import load_rig_config
 
         (tmp_path / "old.yaml").write_text("readers:\n  - device: {tag: x}\n")
         with pytest.raises(
             ValueError,
             match="readers/actuators/loops are no longer rig-file sections; devices and"
-            r" controllers replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6",
+            r" controllers replace them, see book/src/7-reference/rig-file\.md",
         ):
             load_rig_config(tmp_path / "old.yaml")

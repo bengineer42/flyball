@@ -17,6 +17,7 @@ from flyball.foundation.device import (
     Signal,
     SignalSpec,
 )
+from flyball.foundation.device.entry import SignalOverride
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
@@ -122,6 +123,26 @@ class Blender(Committable):
 class BlenderConfig(DriverConfig[Blender]):
     def build(self, name: str, label: str | None = None) -> Blender:
         return Blender(name, label=label)
+
+
+@pytest.fixture
+def closing_link_tag(fresh, _catalog):
+    """A link config whose built object records whether it was closed."""
+    from flyball.model.config import Config
+
+    tag = fresh("closing_link")
+    closed: list[bool] = []
+
+    class Built:
+        def close(self) -> None:
+            closed.append(True)
+
+    class ClosingLinkConfig(Config[Built], tag=tag):
+        def build(self) -> Built:
+            return Built()
+
+    _catalog.register_link(ClosingLinkConfig)
+    return tag, closed
 
 
 @pytest.fixture
@@ -253,13 +274,13 @@ class TestParsing:
 
 
 class TestChecks:
-    def test_the_legacy_sections_are_refused_naming_the_plan(self, daq_tag):
+    def test_the_legacy_sections_are_refused_naming_the_reference(self, daq_tag):
         for section in ("readers", "actuators", "loops"):
             document = {"devices": {"x": {"driver": daq_tag, "zones": 1}}, section: []}
             with pytest.raises(
                 ValueError,
                 match="readers/actuators/loops are no longer rig-file sections; devices and"
-                r" controllers replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6",
+                r" controllers replace them, see book/src/7-reference/rig-file\.md",
             ):
                 RigConfig.model_validate(document)
 
@@ -410,6 +431,17 @@ class TestBuild:
         with pytest.raises(NotFoundError, match="nope"):
             RigConfig.model_validate(document).build(start=False)
 
+    def test_a_built_link_is_closed_when_build_fails_later(self, daq_tag, closing_link_tag):
+        link_tag, closed = closing_link_tag
+        document = {
+            "links": {"l1": {"tag": link_tag}},
+            "devices": {"f": {"driver": daq_tag, "zones": 1}},
+            "controllers": {"f.nope": {"signal": "f.zone1"}},
+        }
+        with pytest.raises(NotFoundError, match="nope"):
+            RigConfig.model_validate(document).build(start=False)
+        assert closed == [True]
+
     def test_furnace_zone1_resolves_to_a_signal(self, daq_tag, heaters_tag):
         document = {
             "devices": {
@@ -423,6 +455,29 @@ class TestBuild:
         rig = RigConfig.model_validate(document).build(start=False)
         assert isinstance(rig.resolve("furnace.zone1"), Signal)
         assert "heaters.heater1" in rig.controllers
+
+
+class TestSignalOverride:
+    def test_an_inverted_range_override_is_refused(self):
+        with pytest.raises(ValueError, match="range"):
+            SignalOverride(range=(100.0, 0.0))
+
+    def test_a_non_finite_limits_override_is_refused(self):
+        with pytest.raises(ValueError, match="limits"):
+            SignalOverride(limits=(0.0, float("nan")))
+
+    def test_rig_build_refuses_an_inverted_override_band(self, daq_tag):
+        document = {
+            "devices": {
+                "furnace": {
+                    "driver": daq_tag,
+                    "zones": 1,
+                    "signals": {"zone1": {"range": [1200.0, 0.0]}},
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="range"):
+            RigConfig.model_validate(document).build(start=False)
 
 
 class TestOverlay:

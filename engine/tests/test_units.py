@@ -158,6 +158,18 @@ class TestUnitLookup:
         unit = Unit.get(symbol)
         assert unit.dimension.label == label and unit.factor == pytest.approx(factor)
 
+    def test_get_splits_a_multi_slash_symbol_at_the_last_slash(self):
+        from flyball.foundation.quantities.dimension import Unit
+
+        unit = Unit.get("m/s/s")
+        assert unit.dimension.label == "Acceleration" and unit.factor == pytest.approx(1.0)
+
+    def test_get_still_resolves_a_slash_then_dot_symbol(self):
+        from flyball.foundation.quantities.dimension import Unit
+
+        unit = Unit.get("W/m²·K")
+        assert unit.factor == pytest.approx(1.0)
+
     def test_get_returns_the_registered_object_for_an_exact_symbol(self):
         from flyball.foundation.quantities.dimension import Unit
 
