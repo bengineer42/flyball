@@ -137,15 +137,17 @@ def test_a_firing_runs_deterministically_on_the_stepped_clock(furnace_rig):
         assert rig.controllers[f"heaters.{name.replace('zone', 'heater')}"].mode.value == "manual"
 
 
-def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
+def test_a_failed_thermocouple_takes_the_daq_offline_and_it_retries(furnace_rig):
     rig = furnace_rig
     furnace = rig.devices["furnace"]
     furnace.fail("zone3")
     rig.clock.advance(2)
+    assert rig.conditions.of(furnace) == [], "two failed reads: under the budget of 3"
+    rig.clock.advance(1)
     run = rig.polling.run("furnace")
     (offline,) = rig.conditions.of(furnace)
-    assert run.running is False and offline.code == "offline"
-    assert "zone3" in offline.message
+    assert run.running is True and offline.code == "offline", "offline, and still retrying"
+    assert "zone3" in offline.message and run.consecutive_failures == 3
     assert any(
         e.code == "offline" and e.edge == "raised" and e.subject == "furnace" for e in rig.recent
     )
@@ -153,9 +155,9 @@ def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
     furnace.restore("zone3")
     assert all(c.code != "broken" for c in furnace.held_conditions()) and furnace.broken == ()
     zone1 = rig.resolve("furnace.zone1")
-    assert zone1 not in rig.latest, "it failed on the first poll: nothing was ever read"
-    rig.polling.restart("furnace")
-    rig.clock.advance(2)
+    assert zone1 not in rig.latest, "it failed from the first poll: nothing was ever read"
+    rig.clock.advance(1)  # the first retry, 1 s after going offline
+    assert rig.conditions.of(furnace) == [], "the first good read clears it"
     assert rig.latest[zone1].time_ns > 0, "polled again"
 
 
