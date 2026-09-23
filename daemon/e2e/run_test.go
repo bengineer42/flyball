@@ -285,7 +285,7 @@ func TestRunLocal(t *testing.T) {
 	t.Run("flyball stop through the front", func(t *testing.T) {
 		startProgram(t, hc, base, same)
 		out, errOut, code := e.run([]string{"FLYBALL_URL=" + base}, "flyball", "stop", "--reason", "e2e-cli")
-		if code != 0 || !strings.Contains(out, "stopped: e2e-cli by local:console") || !strings.Contains(out, "program interrupted") {
+		if code != 0 || !strings.Contains(out, "software stop: e2e-cli by local:console") || !strings.Contains(out, "program interrupted") {
 			t.Fatalf("flyball stop: %d\n%s%s", code, out, errOut)
 		}
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "detail": "e2e-cli"})
@@ -586,7 +586,7 @@ func TestRunPassword(t *testing.T) {
 		}
 		startProgram(t, hc, base, bearer(secret))
 		out, errOut, code := e.run([]string{"FLYBALL_URL=" + base}, "flyball", "--token", secret, "stop", "--reason", "e2e-token")
-		if code != 0 || !strings.Contains(out, "stopped: e2e-token by token:cli-op") || !strings.Contains(out, "program interrupted") {
+		if code != 0 || !strings.Contains(out, "software stop: e2e-token by token:cli-op") || !strings.Contains(out, "program interrupted") {
 			t.Fatalf("flyball stop with a token: %d\n%s%s", code, out, errOut)
 		}
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:cli-op", "kind": "service", "detail": "e2e-token"})

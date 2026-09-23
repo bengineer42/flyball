@@ -185,7 +185,7 @@ func TestDaemonTwoRigs(t *testing.T) {
 
 	t.Run("flyball stop through flyballd", func(t *testing.T) {
 		out, errOut, code := e.run([]string{"FLYBALLD_URL=" + base}, "flyball", "-s", "a", "--token", opA, "stop", "--reason", "e2e-daemon-cli")
-		if code != 0 || !strings.Contains(out, "stopped: e2e-daemon-cli by token:op-a") {
+		if code != 0 || !strings.Contains(out, "software stop: e2e-daemon-cli by token:op-a") {
 			t.Fatalf("flyball -s a stop: %d\n%s%s", code, out, errOut)
 		}
 	})

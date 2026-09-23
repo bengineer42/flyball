@@ -452,7 +452,7 @@ func TestStopAllsAgainstRealRunners(t *testing.T) {
 
 	code, out := cli(t, flyball, d.addr, "--token", operate, "stop", "--all", "--reason", "D-037 test")
 	t.Logf("flyball stop --all: exit %d\n%s", code, out)
-	if code != 0 || !strings.Contains(out, "oven:") || !strings.Contains(out, "chiller:") || strings.Count(out, "\nstopped: D-037 test") != 2 {
+	if code != 0 || !strings.Contains(out, "oven:") || !strings.Contains(out, "chiller:") || strings.Count(out, "\nsoftware stop: D-037 test") != 2 {
 		t.Fatalf("flyball stop --all: exit %d, want 0 and both rigs' reports", code)
 	}
 	for _, r := range rows {
