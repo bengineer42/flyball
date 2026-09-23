@@ -112,6 +112,9 @@ class Rig:
     _limit_held: set[str]
     """Controllers whose writes are held because a limit follows a signal with no value yet:
     one event on entering the hold, one on leaving it, none per step between."""
+    _failing: set[str]
+    """Controllers whose step raised: one event on the first failure, one when a step succeeds
+    again, none per failing step between. The others in the delivery carry on regardless."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
     entries: dict[str, DeviceEntry]
@@ -158,6 +161,7 @@ class Rig:
         self._node_observers = {}
         self._requested = {}
         self._limit_held = set()
+        self._failing = set()
         self._touched = None
         self.entries = {}
         self.link_entries = {}
@@ -1175,7 +1179,7 @@ class Rig:
                     ) is not None:
                         touched[device] = None
             for controller, reading in ticks:
-                controller.on_reading(reading)
+                self._step(controller, reading)
             time_ns = max(s.time_ns for s in samples)
             states = self._commit(touched, time_ns)
         finally:
@@ -1186,6 +1190,35 @@ class Rig:
                 self.controller_states.set(controller.name, controller.state)
         if self.recorder is not None:
             self.recorder.record(published, ticks, states, time_ns=time_ns)
+
+    def _step(self, controller: Controller, reading: Reading) -> None:
+        """One controller's step, kept from the rest of the delivery.
+
+        A law that raises (no law set, a NaN it cannot take) would otherwise
+        abort the whole delivery: every other controller's step, the commits,
+        the readings, the recorder and the stream. It becomes an event
+        instead, and the controller's mode is left as it was -- what a
+        faulted controller should do is a separate decision.
+        """
+        name = controller.name
+        try:
+            controller.on_reading(reading)
+        except Exception as error:
+            if name not in self._failing:
+                self._failing.add(name)
+                log.exception("controller %s failed its step", name)
+                self.event(
+                    Level.ERROR,
+                    "controller",
+                    name,
+                    "step_failed",
+                    f"{type(error).__name__}: {error}",
+                    {"source": reading.signal.address},
+                )
+            return
+        if name in self._failing:
+            self._failing.discard(name)
+            self.event(Level.INFO, "controller", name, "step_recovered", "stepping again")
 
     @staticmethod
     def _check_sample(sample: Sample) -> None:

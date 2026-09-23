@@ -240,7 +240,8 @@ class Tick:
     controller: str
     offset_ns: int
     mode: str
-    correction: float
+    correction: float | None
+    """None when the law's output was not a number (a NaN integral)."""
     reading: float | None = None
     setpoint: float | None = None
     demand: float | None = None

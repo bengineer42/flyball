@@ -133,3 +133,29 @@ def test_a_slow_read_raises_a_warning_condition(rig, furnace):
     (condition,) = rig.polling.run(slow.name).conditions
     assert condition.kind == "slow" and condition.level is Level.WARNING
     assert rig.recent[-1].kind == "slow"
+
+
+def test_revive_restarts_only_an_offline_polled_device(rig, clock, furnace):
+    rig.start_polling(furnace)
+    clock.advance(1.0)
+    assert rig.polling.revive(furnace.name) is False, "running: nothing to do"
+    furnace.fail = True
+    clock.advance(1.0)
+    assert rig.polling.run(furnace.name).running is False
+    furnace.fail = False
+    assert rig.polling.revive(furnace.name) is True
+    assert rig.polling.run(furnace.name).running is True
+    assert rig.polling.revive("nope") is False, "not polled: not an error"
+
+
+def test_a_restart_of_a_still_broken_device_ends_offline_again(rig, clock, furnace):
+    rig.start_polling(furnace)
+    clock.advance(1.0)
+    furnace.fail = True
+    clock.advance(1.0)
+    rig.polling.restart(furnace.name)  # still broken
+    clock.advance(1.0)
+    run = rig.polling.run(furnace.name)
+    assert run.running is False and run.conditions and run.conditions[0].kind == "offline"
+    kinds = [e.kind for e in rig.recent if e.subject == furnace.name]
+    assert kinds[-2:] == ["restarted", "offline"], "the offline lands after the restart"

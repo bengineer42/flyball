@@ -594,6 +594,32 @@ class TestDemand:
         assert thermo.written[heater].value == 10.0, "held: the last applied value stands"
 
 
+class TestOneControllerFailing:
+    """A controller whose step raises is an event, not the end of everyone else's delivery."""
+
+    def test_the_others_still_commit_and_the_failure_is_one_event(self, rig, furnace, clock):
+        zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
+        good = rig.attach_controller(furnace.signals["heater1"], zone1, law=P(kp=10.0))
+        bad = rig.attach_controller(furnace.signals["heater2"], zone2)  # no law
+        good.regulate(30.0)
+        bad.regulate(30.0)
+
+        for _ in range(3):
+            clock.advance(1.0)
+            rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
+        assert good.expected == pytest.approx(100.0), "10 * (30 - 20), committed each time"
+        assert furnace.commits >= 3
+        failed = [e for e in rig.recent if e.kind == "step_failed"]
+        assert len(failed) == 1 and failed[0].subject == bad.name, "one event per outage"
+        assert bad.mode.value == "regulating", "its mode is left alone"
+        assert rig.latest[zone1].value == 20.0, "the delivery's readings landed"
+
+        bad.set_law(P(kp=1.0))
+        clock.advance(1.0)
+        rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
+        assert rig.recent[-1].kind == "step_recovered" and rig.recent[-1].subject == bad.name
+
+
 class TestLimitsThatFollowASignal:
     """A limit bound to a signal with no value yet fails closed: never an unclamped demand."""
 

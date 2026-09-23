@@ -84,11 +84,31 @@ class Polling:
         """
         device = self.get(name)
         period = self._runs[name].period_s
-        if period is not None:
-            self.start(device, period)
+        # Cleared and announced before the loop starts: a device still broken
+        # fails its first read on the loop's thread, and that `offline` must
+        # land after the clearing, not be wiped by it.
         self._update(device, conditions=())
         self.rig.event(Level.INFO, "device", name, "restarted", "polling again")
+        if period is not None:
+            self.start(device, period)
         return self._runs[name]
+
+    def revive(self, name: str) -> bool:
+        """Poll `name` again if it is polled on a period and has gone offline.
+
+        Called after a command on the device succeeds -- from the HTTP route
+        and from a program step alike -- since a command that runs on an
+        offline device is taken as the fix (`restore`, a reset, a reconnect).
+        A device still broken goes offline again with a fresh event.
+
+        Returns:
+            Whether polling was restarted.
+        """
+        run = self._runs.get(name)
+        if name not in self.by_name or run is None or run.running or run.period_s is None:
+            return False
+        self.restart(name)
+        return True
 
     def stop(self, name: str) -> None:
         """Stop polling one device and forget it; a device that was never polled is a no-op.

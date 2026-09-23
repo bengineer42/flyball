@@ -27,7 +27,8 @@ class SetPointGeneratorConfig(BaseModel):
     gives laws.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # A NaN or infinite end, value or rate would carry straight into the setpoint.
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     generator: ClassVar[type[SetPointGenerator]]
     init_names: ClassVar[tuple[str, ...]] = ()

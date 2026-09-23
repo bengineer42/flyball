@@ -122,9 +122,16 @@ lock and notes the run (`last_read_ns`, cleared conditions) in `Polling.runs`.
 
 Only `read` itself can put a device offline: a raised exception becomes an
 `offline` condition and an `offline` event, and the device's loop stops
-itself until `restart`. A failure *downstream* of the read — an observer, a
-controller's law, the recorder — is the rig's, not the read's: a
-`delivery_failed` event, and the device's samples are still noted as read.
+itself until `restart`, or until a command on it succeeds (`Polling.revive`,
+called by the command route and by a program's `command` step alike). A
+controller whose law raises is kept to itself: a `step_failed` event on the
+first failure and `step_recovered` when it steps again, its mode left as it
+was, and every other controller, commit, reading and the recorder carry on.
+Any other failure *downstream* of the read — an observer, a commit, the
+recorder — is the rig's, not the read's: a `delivery_failed` event, and the
+device's samples are still noted as read. After a gap in its readings
+longer than three usual intervals (an outage), a controller's next step
+counts as one ordinary step, not the whole gap.
 A poll that takes longer than its period logs a `slow` condition but does
 not resynchronise or catch up; it just runs again next period.
 

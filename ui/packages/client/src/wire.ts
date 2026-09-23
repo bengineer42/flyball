@@ -871,8 +871,8 @@ export interface Tick {
   controller: Address;
   offset_ns: Nanoseconds;
   mode: string;
-  /** The law's share of the demand, in the target's unit. */
-  correction: number;
+  /** The law's share of the demand, in the target's unit; null when it was not a number (a NaN integral). */
+  correction: number | null;
   reading: number | null;
   /** The setpoint resolved at this tick, in the source's unit (a ramp's value, not its name). */
   setpoint: number | null;

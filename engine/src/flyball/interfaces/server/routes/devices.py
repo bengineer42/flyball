@@ -283,7 +283,5 @@ def run_command(
     """
     device = device_of(rig, name)
     result = run(rig, device, tag, body)
-    run_ = run_of(rig, name)
-    if run_ is not None and not run_.running and run_.period_s is not None:
-        rig.polling.restart(name)
+    rig.polling.revive(name)
     return result

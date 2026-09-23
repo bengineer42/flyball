@@ -70,6 +70,7 @@ class RunCommand(Command, tag="command"):
         except KeyError:
             raise NotFoundError(f"device {self.device!r} not found") from None
         rig.run_command(found, self.device_command, self.args)
+        rig.polling.revive(found.name)  # as the HTTP route does: a command that succeeds is the fix
         return None
 
     def missing(self, rig: Rig) -> list[str]:
