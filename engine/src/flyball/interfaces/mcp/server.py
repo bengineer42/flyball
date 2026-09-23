@@ -3,28 +3,51 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
-from typing import Any
-
-import anyio
-from anyio import to_thread
-from mcp import types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.stdio import stdio_server
-from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS
+from typing import TYPE_CHECKING, Any
 
 import flyball
 from flyball.interfaces.client import Rig, RigError, SchemaError
 
 from .tools import GUIDES, MODES, Tier, Tool, tools_for
 
+if TYPE_CHECKING:
+    # Only for annotations (`from __future__ import annotations` keeps these
+    # as strings at runtime): the real imports are inside `build`/`main`, so
+    # the `mcp` package (the `mcp` extra) is not needed to build the parser
+    # or print --help on a bare install -- see `_require` below.
+    from mcp import types
+    from mcp.server.lowlevel import Server
+
 DEFAULT_URL = "http://127.0.0.1:8000"
+
+
+def _require(extra: str, modules: Sequence[str]) -> None:
+    """Import each of `modules`; on the first genuinely missing one, one line and exit(2).
+
+    A private copy of [flyball.foundation.optional.require][] -- this package
+    is one of the ones import-linter's "stand alone" contract keeps free of
+    `flyball.foundation` and everything below it, so it runs (this check
+    included) against nothing but the rig it is pointed at.
+    """
+    for module in modules:
+        try:
+            importlib.import_module(module)
+        except ModuleNotFoundError as e:
+            if e.name != module and not (e.name and module.startswith(e.name + ".")):
+                raise  # a broken import inside an installed package, not a missing one
+            print(
+                f"flyball-mcp: needs the {extra} extra -- pip install 'flyball[{extra}]'"
+                f" (missing: {module})",
+                file=sys.stderr,
+            )
+            raise SystemExit(2) from None
 
 
 def _version() -> str:
@@ -48,28 +71,20 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, indent=2, default=str)
 
 
-def _wire(tool: Tool) -> types.Tool:
-    return types.Tool(
-        name=tool.name,
-        description=tool.description,
-        input_schema=tool.schema,
-        output_schema=tool.output_schema,
-        annotations=types.ToolAnnotations(
-            read_only_hint=tool.tier == Tier.READ,
-            destructive_hint=tool.destructive,
-            open_world_hint=False,
-        ),
-    )
-
-
 class ToolCache:
     """The tools for one rig and mode, built from the schema on first use.
 
     Lazy so a server mounted in the runner can be made before the runner
     listens, and so the stdio server does not need the rig up to start.
+    `anyio` is only imported inside these methods (not at class-body time),
+    so building a `ToolCache` needs the `mcp` extra, but merely importing
+    this module does not -- `flyball-mcp --help` still works on a bare
+    install (see `require` in `main`).
     """
 
     def __init__(self, rig: Rig, mode: str) -> None:
+        import anyio
+
         self.rig = rig
         self.mode = mode
         self._tools: dict[str, Tool] | None = None
@@ -83,6 +98,8 @@ class ToolCache:
         if self._tools is None:
             async with self._lock:
                 if self._tools is None:
+                    from anyio import to_thread
+
                     built = await to_thread.run_sync(tools_for, self.rig, self.mode)
                     self._tools = {tool.name: tool for tool in built}
         return self._tools
@@ -95,7 +112,46 @@ def build(rig: Rig, mode: str, name: str | None = None) -> Server[Any]:
     knows it (the runner mounting this in-process) rather than have `build` fetch it --
     the runner is not listening yet when it mounts this, and the rig's own URL, which
     only makes sense from the runner's loopback, is worse than no address at all.
+
+    Needs the `mcp` extra: every import it uses is deferred to inside this
+    function (and the functions it builds), so loading this module -- for
+    `parser()`/`--help`, or before `main` has checked for the extra -- does
+    not.
     """
+    from anyio import to_thread
+    from mcp import types
+    from mcp.server.lowlevel import NotificationOptions, Server
+    from mcp.shared.exceptions import MCPError
+    from mcp_types import INVALID_PARAMS
+
+    class _Server(Server[Any]):
+        """Says it will announce tool-list changes, whichever transport drives it."""
+
+        def create_initialization_options(
+            self, notification_options: Any = None, *args: Any, **kwargs: Any
+        ) -> Any:
+            return super().create_initialization_options(
+                NotificationOptions(tools_changed=True), *args, **kwargs
+            )
+
+    def _wire(tool: Tool) -> types.Tool:
+        return types.Tool(
+            name=tool.name,
+            description=tool.description,
+            input_schema=tool.schema,
+            output_schema=tool.output_schema,
+            annotations=types.ToolAnnotations(
+                read_only_hint=tool.tier == Tier.READ,
+                destructive_hint=tool.destructive,
+                open_world_hint=False,
+            ),
+        )
+
+    def _error(message: str) -> types.CallToolResult:
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=message)], is_error=True
+        )
+
     registry = ToolCache(rig, mode)
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
@@ -160,23 +216,6 @@ def build(rig: Rig, mode: str, name: str | None = None) -> Server[Any]:
     )
 
 
-class _Server(Server[Any]):
-    """Says it will announce tool-list changes, whichever transport drives it."""
-
-    def create_initialization_options(
-        self, notification_options: Any = None, *args: Any, **kwargs: Any
-    ) -> Any:
-        return super().create_initialization_options(
-            NotificationOptions(tools_changed=True), *args, **kwargs
-        )
-
-
-def _error(message: str) -> types.CallToolResult:
-    return types.CallToolResult(
-        content=[types.TextContent(type="text", text=message)], is_error=True
-    )
-
-
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="flyball-mcp", description="An MCP server for a running rig.")
     p.add_argument(
@@ -201,12 +240,20 @@ def parser() -> argparse.ArgumentParser:
 
 
 async def _serve(server: Server[Any]) -> None:
+    from mcp.server.stdio import stdio_server
+
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    # Checked before anything that needs the `mcp` extra, so `--help` above
+    # still works on a bare `pip install flyball` and any other failure gets
+    # one clear line instead of a traceback out of `import mcp`/`import anyio`.
+    _require("mcp", ["mcp", "httpx"])
+    import anyio
+
     rig = Rig(args.url, timeout=args.timeout, token=args.token)
     try:
         rig.schema  # fail now, with a message, rather than on the first tool call  # ruff: ignore[useless-expression]
