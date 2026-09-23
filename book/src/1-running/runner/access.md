@@ -113,7 +113,9 @@ not a `$scrypt$` line, TLS files that cannot be read, a `url` that does not
 parse, or a `proxy` block that cannot be vouched for -- or when the
 `runner.front` block fails validation or cannot be read because the rig file's
 `extends` cannot be resolved, so its shape is unknown, the address it was
-asked to listen on answers every request `503`, and the
+asked to listen on answers every request `503` (over TLS when `tls:` names a
+certificate and key that load, so a browser or an `https` upstream can read
+it; in plain HTTP when they do not), and the
 `local` shape is served somewhere else: a fresh port on `127.0.0.1`, or a
 socket beside a `unix:` one (`front.sock.local` next to `front.sock`). A
 reverse proxy on the same machine keeps forwarding to the address it was

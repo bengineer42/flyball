@@ -15,7 +15,7 @@ func (f *Front) holdRefused() {
 	if f.plan.Refused == "" {
 		return
 	}
-	at := Plan{Listen: f.plan.Refused}
+	at := Plan{Listen: f.plan.Refused, TLS: f.plan.RefusedTLS}
 	ln, err := Listen(at)
 	if err != nil {
 		f.log.Error("front: cannot hold the requested address to answer 503 on it", "listen", f.plan.Refused, "err", err)

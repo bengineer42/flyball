@@ -131,9 +131,12 @@ type Plan struct {
 	// local shape on a fresh loopback address (Listen) instead -- a reverse
 	// proxy pointed at the requested address must not reach an open
 	// console. "" otherwise.
-	Refused   string
-	Warnings  []string // cleartext, open, ignored reference keys, ...
-	HostAllow []string // nil = any Host (credential shapes without url:); loopback names match any port
+	Refused string
+	// RefusedTLS: Refused is answered over TLS with it -- the tls: pair
+	// asked for, where it loads. nil: plain HTTP.
+	RefusedTLS *tlsfile.Reloader
+	Warnings   []string // cleartext, open, ignored reference keys, ...
+	HostAllow  []string // nil = any Host (credential shapes without url:); loopback names match any port
 	// HostKnown: HostAllow also takes an IP address and this machine's own
 	// names (exposure.KnownHost) -- the local shape served beyond loopback
 	// by --insecure-open, never another DNS name (D-043).
@@ -171,10 +174,13 @@ func (p Plan) Banner() string {
 	return strings.Join(lines, "\n")
 }
 
-// Close stops the TLS reloader, if any.
+// Close stops the TLS reloaders, if any.
 func (p Plan) Close() {
 	if p.TLS != nil {
 		p.TLS.Close()
+	}
+	if p.RefusedTLS != nil {
+		p.RefusedTLS.Close()
 	}
 }
 
@@ -294,6 +300,16 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 			fallback("proxy: %v", err)
 		} else {
 			client = cl
+		}
+	}
+
+	// The refused listen keeps the TLS it was asked for when the pair
+	// loads, so a TLS client (a browser, an https upstream) reads its 503.
+	// When TLS itself is what failed, plain HTTP is the only way left to
+	// answer there.
+	if p.Refused != "" && c.TLS != nil {
+		if r, err := tlsfile.NewReloader(c.TLS.Cert, c.TLS.Key); err == nil {
+			p.RefusedTLS = r
 		}
 	}
 

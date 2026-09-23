@@ -1694,3 +1694,30 @@ func TestProbeSigner(t *testing.T) {
 		t.Fatalf("%+v %v", info, err)
 	}
 }
+
+// Wave 3 F6: where the certificate loads, the refused listen answers its
+// 503 over TLS, so a TLS client (a browser, an https upstream) reads it
+// rather than failing its handshake. Where TLS itself is what failed, it
+// can only answer in plain HTTP (TestFallbackRefusesRequestedListen).
+func TestRefusedListenKeepsTLS(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := filepath.Join(dir, "c.pem"), filepath.Join(dir, "k.pem")
+	writeCert(t, cert, key)
+	listen := freeLoopback(t)
+	plan := Resolve(Config{Listen: listen, Auth: "password", Password: "hunter2", TLS: &TLSFiles{Cert: cert, Key: key}}, false)
+	t.Cleanup(plan.Close)
+	if plan.Refused != listen || plan.TLS != nil {
+		t.Fatalf("plan: refused %q, TLS %v; want %s refused and the console in plain HTTP", plan.Refused, plan.TLS, listen)
+	}
+	f := New(Options{Plan: plan})
+	t.Cleanup(f.Close)
+	c := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: insecureTLS()}}
+	resp, err := c.Get("https://" + listen + "/api/echo")
+	if err != nil {
+		t.Fatalf("https to the refused listen: %v", err)
+	}
+	defer resp.Body.Close()
+	if b := body(resp); resp.StatusCode != 503 || !strings.Contains(b, "authentication is misconfigured") {
+		t.Fatalf("https to the refused listen: %d %q, want the 503", resp.StatusCode, b)
+	}
+}
