@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from flyball.model.catalog import Catalogs, set_catalog
-from flyball.runtime.config import RigConfig, RunnerConfig, check_exposure, resolve_documents
+from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 
@@ -45,7 +45,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         section = RunnerConfig.model_validate(document.get("runner") or {})
         name = document.get("name")
         settings = settle(section, args, first, name if isinstance(name, str) else None, files)
-        check_exposure(settings)  # before anything is built: an open runner stays on loopback
         logging.getLogger().setLevel(settings.log_level.upper())
         assert settings.store is not None and settings.drivers is not None
         report = load_drivers(settings.drivers)
@@ -87,5 +86,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # still escapes uvicorn's internals and would otherwise print a raw traceback
     # here on top of that, for no reason: the process is exiting cleanly either way.
     with contextlib.suppress(KeyboardInterrupt):
-        serve(rig, settings, simulation=simulation, store=store, config=config)
+        serve(
+            rig,
+            settings,
+            simulation=simulation,
+            store=store,
+            config=config,
+            insecure_open=bool(args.insecure_open),
+        )
     return 0

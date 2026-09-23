@@ -13,9 +13,26 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from flyball.interfaces.server.auth import COOKIE, Auth, Level, Principal, Scheme
+from flyball.interfaces.server.deps import current_exposure
 from flyball.runtime.config import Anonymous
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class ExposureOut(BaseModel):
+    """Where the runner serves, against where it was asked to."""
+
+    requested: str = Field(description="The bind address asked for.")
+    host: str = Field(description="The bind address served on.")
+    port: int
+    open: bool = Field(description="No password and no token: whoever reaches it may operate.")
+    restricted: bool = Field(
+        description="Asked for an address beyond loopback while open, so served on 127.0.0.1."
+    )
+    open_network: bool = Field(
+        description="Open and reachable beyond this machine (`--insecure-open`): warn everyone."
+    )
+    warning: str | None = Field(description="What the runner said about it on stderr, if any.")
 
 
 class AuthOut(BaseModel):
@@ -26,6 +43,11 @@ class AuthOut(BaseModel):
     anonymous: Anonymous = Field(description="What a caller who has not signed in may do.")
     password: bool = Field(description="Whether the runner has a password to sign in with.")
     token: bool = Field(description="Whether the runner has a bearer token for machines.")
+    exposure: ExposureOut | None = Field(
+        default=None,
+        description="Where the runner serves against where it was asked to; None when not"
+        " served by `flyball-runner`.",
+    )
 
 
 class Login(BaseModel):
@@ -38,9 +60,16 @@ def _auth(request: Request) -> Auth | None:
 
 def _out(request: Request) -> AuthOut:
     auth = _auth(request)
+    exposure = current_exposure()
+    shown = None if exposure is None else ExposureOut.model_validate(exposure)
     if auth is None:  # no password, no token: the runner is open
         return AuthOut(
-            scheme="anonymous", level="operate", anonymous="none", password=False, token=False
+            scheme="anonymous",
+            level="operate",
+            anonymous="none",
+            password=False,
+            token=False,
+            exposure=shown,
         )
     principal: Principal = request.state.auth
     return AuthOut(
@@ -49,6 +78,7 @@ def _out(request: Request) -> AuthOut:
         anonymous=auth.config.anonymous,
         password=auth.config.password is not None,
         token=auth.config.token is not None,
+        exposure=shown,
     )
 
 

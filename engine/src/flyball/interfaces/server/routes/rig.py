@@ -16,6 +16,7 @@ from flyball.control.errors import TuningNotRegisteredError
 from flyball.foundation.device import Condition, Device
 from flyball.interfaces.server.deps import (
     RigDep,
+    current_exposure,
     current_rig,
     current_rig_config,
     current_simulation,
@@ -96,7 +97,7 @@ async def read_health() -> dict[str, Any]:
     """One look: is anything offline, slow or pending. What a watchdog or a status line polls."""
     rig = current_rig()
     if rig is None:
-        return {"ok": False, "rig": None}
+        return {"ok": False, "rig": None, "exposure": current_exposure()}
     conditions = _conditions(rig)
     return {
         "ok": not any(c["level"] >= 40 for c in conditions),
@@ -111,6 +112,7 @@ async def read_health() -> dict[str, Any]:
         "alarms": _alarm_summary(rig, conditions),
         "waits": sorted(rig.triggers.states()),
         "recording": rig.recording is not None,
+        "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }
 
 

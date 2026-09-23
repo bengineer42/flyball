@@ -30,7 +30,7 @@ from .dialect import Dialect
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Device
-    from flyball.runtime.config import RigConfig, RunnerConfig
+    from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
 
@@ -229,6 +229,8 @@ class Runner(Protocol):
     def settings(self) -> RunnerConfig: ...
     @property
     def files(self) -> list[Path]: ...
+    @property
+    def exposure(self) -> Exposure | None: ...
     def shutdown(self) -> None: ...
     def restart(self) -> None: ...
 
@@ -244,6 +246,12 @@ def set_runner(runner: Runner | None) -> None:
 
 def current_runner() -> Runner | None:
     return _runner
+
+
+def current_exposure() -> dict[str, Any] | None:
+    """Where the runner serves against where it was asked to; None where nothing is."""
+    exposure = None if _runner is None else _runner.exposure
+    return None if exposure is None else exposure.as_dict()
 
 
 def save_allowed() -> bool:

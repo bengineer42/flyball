@@ -101,6 +101,7 @@ def test_mcp_is_behind_it_but_the_docs_and_the_door_are_not(secured):
         "anonymous": "none",
         "password": False,
         "token": True,
+        "exposure": None,
     }
 
 
@@ -209,6 +210,7 @@ def test_anyone_may_read_but_only_a_login_may_operate(public):
         "anonymous": "read",
         "password": True,
         "token": False,
+        "exposure": None,
     }
     refused = public.post("/api/recording/start", json={})
     assert refused.status_code == 401 and "Sign in" in refused.json()["detail"]

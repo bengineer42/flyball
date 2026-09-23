@@ -30,8 +30,8 @@ def parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--host",
-        help="bind address (default: loopback only); beyond loopback it needs a password or a"
-        " token, or --insecure-open",
+        help="bind address (default: loopback only); beyond loopback an open runner (no password,"
+        " no token) is served on 127.0.0.1 instead, unless --insecure-open",
     )
     p.add_argument(
         "--compose",
@@ -50,14 +50,16 @@ def parser() -> argparse.ArgumentParser:
         "--token",
         default=os.environ.get("FLYBALL_TOKEN") or None,
         help="bearer token for the CLI, MCP clients and scripts (env FLYBALL_TOKEN); default: none."
-        " With neither this nor a password the runner is open, and serves on loopback only",
+        " With neither this nor a password the runner is open, and served on loopback only",
     )
     p.add_argument(
         "--insecure-open",
         action="store_const",
         const=True,
-        help="serve with no password and no token on an address beyond loopback: anyone who"
-        " reaches it may operate the rig. Without this such a runner refuses to start",
+        default=True if _truthy(os.environ.get("FLYBALL_INSECURE_OPEN")) else None,
+        help="serve with no password and no token on the address asked for, even beyond"
+        " loopback: anyone who reaches it may operate the rig (env FLYBALL_INSECURE_OPEN=1)."
+        " Per run only; there is no rig-file key. Without it such a runner serves on 127.0.0.1",
     )
     p.add_argument(
         "--anonymous",
@@ -167,6 +169,10 @@ def parser() -> argparse.ArgumentParser:
         help="override a value after loading, e.g. devices.furnace.config.noise=0.3; repeatable",
     )
     return p
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def settle(

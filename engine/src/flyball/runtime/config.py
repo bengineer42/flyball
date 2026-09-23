@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -202,8 +203,9 @@ class AuthConfig(BaseModel):
     caller with neither may do is `anonymous`: nothing, or read. Levels are
     `none < read < operate`; a later scheme (several sign-ins, a part of the
     rig locked) changes who gets which level, not what a level admits.
-    An open runner is served on loopback only unless `insecure_open` says
-    otherwise (see [check_exposure][flyball.runtime.config.check_exposure]).
+    An open runner is served on loopback only unless the run itself says otherwise
+    (see [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is
+    never a key here, so no file -- nor anything it `extends` -- can open a runner.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -226,11 +228,6 @@ class AuthConfig(BaseModel):
         default=None,
         description="The key that signs sessions; default: a key file beside the store, else one"
         " made for the process (a restart then signs everyone out).",
-    )
-    insecure_open: bool = Field(
-        default=False,
-        description="Serve with no password and no token on an address beyond loopback: anyone"
-        " who can reach it may operate the rig. Without this such a runner refuses to start.",
     )
 
     @field_validator("session", mode="before")
@@ -265,41 +262,90 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def check_exposure(settings: RunnerConfig) -> str | None:
-    """Refuse an open runner beyond loopback; return a warning worth logging, if any.
+LOOPBACK = "127.0.0.1"
+"""Where an open runner asked for a network address is served instead."""
+
+
+@dataclass(frozen=True)
+class Exposure:
+    """Where the runner serves, against where it was asked to, and what to say about it."""
+
+    requested: str
+    """The bind address asked for (`runner.host`, `--host`)."""
+    host: str
+    """The bind address served on: `requested`, or loopback for an open runner."""
+    port: int
+    open: bool
+    """No password and no token: whoever reaches the port may operate the rig."""
+    warning: str | None = None
+    """One line for stderr, or None when there is nothing to say."""
+
+    @property
+    def restricted(self) -> bool:
+        """Moved to loopback because the runner is open."""
+        return self.host != self.requested
+
+    @property
+    def open_network(self) -> bool:
+        """Open, and reachable beyond this machine: opted into by the run."""
+        return self.open and not is_loopback(self.host)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "requested": self.requested,
+            "host": self.host,
+            "port": self.port,
+            "open": self.open,
+            "restricted": self.restricted,
+            "open_network": self.open_network,
+            "warning": self.warning,
+        }
+
+
+def settle_exposure(settings: RunnerConfig, insecure_open: bool = False) -> Exposure:
+    """Where to bind: a misconfiguration removes exposure, never operation.
 
     Open is no password and no token (`runner.auth`, `--password`/`--token`, or
     `FLYBALL_PASSWORD`/`FLYBALL_TOKEN`, all settled into `settings` by then): anyone
-    who reaches the port may operate the rig. On loopback that is only this machine;
-    on any other address it is the network, so it needs `auth.insecure_open`.
-
-    Returns:
-        A warning when the runner serves beyond loopback: open by choice, or with
-        credentials over plain HTTP. None on loopback.
-
-    Raises:
-        ValueError: Open, beyond loopback, and not opted in.
+    who reaches the port may operate the rig. On loopback that is only this machine.
+    Asked for any other address, an open runner still starts -- a control process
+    that will not start leaves the equipment uncontrolled -- but binds loopback on
+    the same port, and the warning says why and how to fix it. `insecure_open`
+    (`--insecure-open`, `FLYBALL_INSECURE_OPEN=1`: per run, never a rig-file key)
+    serves it where asked. Credentials beyond loopback over plain HTTP get a warning.
     """
-    auth = settings.auth
-    if is_loopback(settings.host):
-        return None
-    if not auth.enabled:
-        if not auth.insecure_open:
-            raise ValueError(
-                f"refusing to serve an open runner (no password, no token) on"
-                f" {settings.host or 'every interface'!r}: anyone who can reach it could operate"
-                " the rig. Set a password or a token (--password, --token, FLYBALL_PASSWORD,"
-                " FLYBALL_TOKEN, or runner.auth in the rig file), serve on 127.0.0.1, or, to"
-                " allow it knowingly, --insecure-open (runner.auth.insecure_open: true)"
-            )
-        return (
-            f"serving an OPEN runner on {settings.host or 'every interface'!r}"
-            " (insecure_open): anyone who can reach it may operate the rig"
+    requested, port = settings.host, settings.port
+    where = f"{requested or 'every interface'!r}"
+    if is_loopback(requested):
+        return Exposure(requested, requested, port, open=not settings.auth.enabled)
+    if settings.auth.enabled:
+        return Exposure(
+            requested,
+            requested,
+            port,
+            open=False,
+            warning=f"serving plain HTTP on {where}: the password, the token and session"
+            " cookies cross the network unencrypted; put TLS in front, or serve on 127.0.0.1",
         )
-    return (
-        f"serving plain HTTP on {settings.host or 'every interface'!r}: the password, the token"
-        " and session cookies cross the network unencrypted; put TLS in front, or serve on"
-        " 127.0.0.1"
+    if insecure_open:
+        return Exposure(
+            requested,
+            requested,
+            port,
+            open=True,
+            warning=f"serving an OPEN runner on {where} (--insecure-open): anyone who can reach"
+            " it may operate the rig",
+        )
+    return Exposure(
+        requested,
+        LOOPBACK,
+        port,
+        open=True,
+        warning=f"host is {where} but the runner has no password and no token: serving on"
+        f" {LOOPBACK}:{port} only, so nothing beyond this machine can reach the rig. To serve it"
+        " on the network give it a password or a token (runner.auth in the rig file,"
+        " --password/--token, FLYBALL_PASSWORD/FLYBALL_TOKEN; `flyball password` makes one),"
+        " or, knowingly, --insecure-open or FLYBALL_INSECURE_OPEN=1",
     )
 
 

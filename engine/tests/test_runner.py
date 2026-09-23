@@ -348,18 +348,22 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
 
 
 class TestExposure:
-    """An open runner -- no password, no token -- is served on loopback only, unless asked."""
+    """An open runner -- no password, no token -- is served on loopback only, unless asked.
+
+    A misconfiguration removes exposure, never operation: the runner still starts.
+    """
 
     @pytest.fixture(autouse=True)
     def _no_env(self, monkeypatch):
-        for name in ("FLYBALL_PASSWORD", "FLYBALL_TOKEN"):
+        for name in ("FLYBALL_PASSWORD", "FLYBALL_TOKEN", "FLYBALL_INSECURE_OPEN"):
             monkeypatch.delenv(name, raising=False)
 
     @pytest.fixture
     def served(self, monkeypatch):
         seen: dict = {}
         monkeypatch.setattr(
-            "flyball.runner.entrypoint.serve", lambda rig, settings, **kw: seen.update(s=settings)
+            "flyball.runner.entrypoint.serve",
+            lambda rig, settings, **kw: seen.update(s=settings, kw=kw),
         )
         return seen
 
@@ -375,17 +379,28 @@ class TestExposure:
         assert not served["s"].auth.enabled
 
     @pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.3", "", "pi.local"])
-    def test_an_open_runner_beyond_loopback_refuses_to_start(self, lab, served, capsys, host):
-        assert runner.main([str(lab), "--host", host]) == 2
-        err = capsys.readouterr().err
-        assert "open" in err and "--password" in err and "--insecure-open" in err
-        assert "s" not in served, "nothing is built or served"
+    def test_an_open_runner_beyond_loopback_still_starts(self, lab, served, host):
+        assert runner.main([str(lab), "--host", host]) == 0, "the rig runs; only exposure goes"
+        assert served["kw"]["insecure_open"] is False
 
-    def test_the_rig_file_s_host_counts_too(self, tmp_path, served, capsys):
-        rig_file = tmp_path / "lab.yaml"
-        rig_file.write_text("name: lab\nrunner: {host: 0.0.0.0}\n")
+    @pytest.mark.parametrize("value", ["1", "true", "yes"])
+    def test_the_opt_in_is_a_flag_or_the_environment(self, lab, served, monkeypatch, value):
+        assert runner.main([str(lab), "--host", "0.0.0.0", "--insecure-open"]) == 0
+        assert served["kw"]["insecure_open"] is True
+        monkeypatch.setenv("FLYBALL_INSECURE_OPEN", value)
+        assert runner.main([str(lab), "--host", "0.0.0.0"]) == 0
+        assert served["kw"]["insecure_open"] is True
+
+    def test_the_opt_in_is_never_a_rig_file_key(self, tmp_path, served, capsys):
+        # A file can be pasted from a forum or pulled in by `extends:`; the switch is per run.
+        rig_file = tmp_path / "opt.yaml"
+        rig_file.write_text("name: lab\nrunner: {host: 0.0.0.0, auth: {insecure_open: true}}\n")
         assert runner.main([str(rig_file)]) == 2
         assert "insecure_open" in capsys.readouterr().err
+        assert "s" not in served
+        from flyball.runtime.config import AuthConfig
+
+        assert "insecure_open" not in AuthConfig.model_json_schema()["properties"]
 
     @pytest.mark.parametrize(
         "argv, env",
@@ -402,31 +417,45 @@ class TestExposure:
         assert runner.main([str(lab), "--host", "0.0.0.0", *argv]) == 0
         assert served["s"].auth.enabled
 
-    def test_the_explicit_opt_in_lets_it_start_open(self, tmp_path, lab, served):
-        assert runner.main([str(lab), "--host", "0.0.0.0", "--insecure-open"]) == 0
-        assert served["s"].auth.insecure_open and not served["s"].auth.enabled
-        rig_file = tmp_path / "opt.yaml"
-        rig_file.write_text("name: lab\nrunner: {host: 0.0.0.0, auth: {insecure_open: true}}\n")
-        assert runner.main([str(rig_file)]) == 0
+    def test_the_decision(self):
+        from flyball.runtime.config import AuthConfig, settle_exposure
 
-    def test_the_check_and_its_warnings(self):
-        from flyball.runtime.config import AuthConfig, check_exposure
+        loopback = settle_exposure(RunnerConfig())
+        assert (loopback.host, loopback.restricted, loopback.warning) == ("127.0.0.1", False, None)
+        moved = settle_exposure(RunnerConfig(host="0.0.0.0", port=8123))
+        assert moved.host == "127.0.0.1" and moved.requested == "0.0.0.0" and moved.restricted
+        assert not moved.open_network and moved.open
+        assert moved.warning is not None
+        for needed in ("127.0.0.1:8123", "password", "token", "--insecure-open"):
+            assert needed in moved.warning, needed
+        assert "FLYBALL_INSECURE_OPEN" in moved.warning
+        assert settle_exposure(RunnerConfig(host="::")).host == "127.0.0.1"
+        opened = settle_exposure(RunnerConfig(host="0.0.0.0"), insecure_open=True)
+        assert opened.host == "0.0.0.0" and opened.open_network and not opened.restricted
+        assert opened.warning is not None and "anyone" in opened.warning
+        clear = settle_exposure(RunnerConfig(host="0.0.0.0", auth=AuthConfig(password="x")))
+        assert clear.host == "0.0.0.0" and not clear.open and not clear.open_network
+        assert clear.warning is not None and "unencrypted" in clear.warning
+        assert settle_exposure(RunnerConfig(auth=AuthConfig(token="x"))).warning is None
 
-        assert check_exposure(RunnerConfig()) is None
-        with pytest.raises(ValueError, match="open"):
-            check_exposure(RunnerConfig(host="0.0.0.0"))
-        opened = check_exposure(RunnerConfig(host="0.0.0.0", auth=AuthConfig(insecure_open=True)))
-        assert opened is not None and "anyone" in opened
-        clear = check_exposure(RunnerConfig(host="0.0.0.0", auth=AuthConfig(password="x")))
-        assert clear is not None and "unencrypted" in clear
-        assert check_exposure(RunnerConfig(auth=AuthConfig(token="x"))) is None
-
-    def test_serve_refuses_too(self, monkeypatch):
+    def test_serve_binds_loopback_and_says_why_once(self, monkeypatch, capsys):
         from flyball.rig import Rig
 
-        monkeypatch.setattr("uvicorn.Server.run", lambda self: None)
-        with pytest.raises(ValueError, match="open"):
-            runner.serve(Rig("t"), RunnerConfig(host="0.0.0.0", port=1))
+        bound: list = []
+        monkeypatch.setattr("uvicorn.Server.run", lambda self: bound.append(self.config.host))
+        runner.serve(Rig("t"), RunnerConfig(host="0.0.0.0", port=1))
+        assert bound == ["127.0.0.1"]
+        err = capsys.readouterr().err
+        assert err.count("WARNING") == 1 and "127.0.0.1:1" in err
+
+    def test_serve_binds_where_asked_when_opted_in(self, monkeypatch, capsys):
+        from flyball.rig import Rig
+
+        bound: list = []
+        monkeypatch.setattr("uvicorn.Server.run", lambda self: bound.append(self.config.host))
+        runner.serve(Rig("t"), RunnerConfig(host="0.0.0.0", port=1), insecure_open=True)
+        assert bound == ["0.0.0.0"]
+        assert capsys.readouterr().err.count("OPEN") == 1
 
     def test_serve_warns_of_cleartext_once(self, monkeypatch, caplog):
         from flyball.rig import Rig
