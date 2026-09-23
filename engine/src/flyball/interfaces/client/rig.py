@@ -15,9 +15,10 @@ The CLI is this with argparse in front.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from urllib.parse import quote
 
@@ -128,7 +129,8 @@ class Rig:
     """A running rig, over HTTP. `schema` may be given to work from a saved one.
 
     `token` is sent as a bearer token when the runner was started with one;
-    `FLYBALL_TOKEN` in the environment is the default.
+    `FLYBALL_TOKEN` in the environment is the default. `uds` is a unix socket to reach
+    the runner through, `url` then naming only the host header and the path prefix.
     """
 
     def __init__(
@@ -137,27 +139,45 @@ class Rig:
         timeout: float = 5.0,
         schema: dict[str, Any] | None = None,
         token: str | None = None,
+        *,
+        uds: str | None = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self._schema = schema
         self.token = os.environ.get("FLYBALL_TOKEN") if token is None else token
+        self.uds = uds
+        self.principal: Callable[[], str] | None = None
+
+    def acting(self, principal: Callable[[], str]) -> Rig:
+        """This rig, each request carrying `principal()` as `X-Flyball-Principal`, not the token.
+
+        The runner's own MCP tools call it back this way: `principal` mints a fresh one
+        per request, so however long a tool runs no request carries a stale one. The copy
+        starts from this one's schema, if fetched, and keeps its own from then on.
+        """
+        other = copy.copy(self)
+        other.principal = principal
+        return other
 
     # region Transport
 
     @property
     def headers(self) -> dict[str, str]:
+        if self.principal is not None:
+            return {"X-Flyball-Principal": self.principal()}
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         import httpx  # the one dependency, imported here so the schema-only paths need nothing
 
+        transport = None if self.uds is None else httpx.HTTPTransport(uds=self.uds)
         try:
-            response = httpx.request(
-                method, self.url + path, json=body, timeout=self.timeout, headers=self.headers
-            )
+            with httpx.Client(transport=transport, timeout=self.timeout) as http:
+                response = http.request(method, self.url + path, json=body, headers=self.headers)
         except httpx.HTTPError as e:
-            raise Unreachable(self.url, e) from e
+            where = self.url if self.uds is None else f"{self.url} (over {self.uds})"
+            raise Unreachable(where, e) from e
         if response.status_code >= 400:
             raise RigError(response.status_code, _detail(response))
         return response.json() if response.content else None

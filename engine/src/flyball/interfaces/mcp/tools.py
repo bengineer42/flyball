@@ -53,6 +53,9 @@ class Tool:
     output_schema: dict[str, Any] | None = None
     """Declared shape of a non-text result; set on a tool whose `run` returns a named
     envelope (`_list_of`) rather than the client's bare JSON, so the two stay in sync."""
+    host_code: bool = False
+    """Runs code on the machine this server runs on, making no call the runner's door
+    sees (`check_driver`, `search_drivers`): stdio only, never over HTTP MCP."""
 
 
 # region Schema shorthands
@@ -620,6 +623,16 @@ WAIT = _str("The wait's name, from `waits`.")
 
 DRIVE: tuple[Tool, ...] = (
     Tool(
+        "stop_rig",
+        "Stop the rig: the program interrupted, every controller to manual, each device "
+        "stopped. For when something is wrong; returns what happened to each device.",
+        _object({"reason": _str("Why, for the record.", maxLength=500)}),
+        Tier.DRIVE,
+        lambda rig, a: rig.post("/api/rig/stop", {"reason": a.get("reason", "")}),
+        route=("post", "/api/rig/stop"),
+        destructive=True,
+    ),
+    Tool(
         "set_demand",
         "Put a value on one writable signal. Refused while a controller drives it.",
         _object(
@@ -1024,6 +1037,7 @@ DRIVERS: tuple[Tool, ...] = (
         _object({"path": _str("The module's path, where this server runs.")}, "path"),
         Tier.DRIVE,
         _check_driver,
+        host_code=True,
     ),
     Tool(
         "search_drivers",
@@ -1053,6 +1067,7 @@ DRIVERS: tuple[Tool, ...] = (
         Tier.DRIVE,
         _search_drivers,
         output_schema=_list_of("drivers", "Matching catalogue entries."),
+        host_code=True,
     ),
     Tool(
         "list_drivers",
@@ -1249,8 +1264,11 @@ def _served(rig: Rig) -> set[tuple[str, str]]:
 # endregion
 
 
-def tools_for(rig: Rig, mode: str) -> list[Tool]:
+def tools_for(rig: Rig, mode: str, *, host_code: bool = True) -> list[Tool]:
     """Every tool the mode allows, fixed ones first, then the rig's own commands.
+
+    `host_code=False` leaves out the tools that run code on this server's machine
+    (`Tool.host_code`): the runner's HTTP MCP, where that machine is the rig's host.
 
     A name defined at more than one tier -- `read`, `read_many` and `probe_hardware`
     each have a plain form at `read` and a full-power form, with `fresh`/`scan`, at
@@ -1261,6 +1279,8 @@ def tools_for(rig: Rig, mode: str) -> list[Tool]:
     served = _served(rig)
     by_name: dict[str, Tool] = {}
     for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS):
+        if t.host_code and not host_code:
+            continue
         if t.tier <= tier and (t.route is None or t.route in served):
             by_name[t.name] = t
     tools = list(by_name.values())

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,10 +22,15 @@ from flyball.runtime.retention import Retention
 from . import logs
 
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from flyball.interfaces.client import Rig as Client
+
     # A structural type, not an import: `flyball-sim` is an optional package
     # (see `flyball.interfaces.server.deps.Simulation`), so `runner`/`server` never
     # import the concrete `flyball_sim.simulation.Simulation` at module load.
     from flyball.interfaces.server.deps import Simulation
+    from flyball.interfaces.server.principal import Claims
 
     from .frontdir import FrontDir
 
@@ -71,6 +79,83 @@ def _terminate_as_interrupt() -> signal.Handlers | Callable[..., object] | int |
     if threading.current_thread() is not threading.main_thread():
         return None
     return signal.signal(signal.SIGTERM, _interrupt)
+
+
+# region The MCP mount: its tools call the runner back, as whoever called them
+
+
+def mcp_client(settings: RunnerConfig, front: FrontDir | None) -> Client:
+    """The client the MCP tools call the runner back with.
+
+    Over the front-dir's endpoint when fronted (its unix socket, or its loopback port);
+    over loopback TCP when bare.
+    """
+    from flyball.interfaces.client import Rig as Client
+
+    root = settings.root_path or ""
+    if front is not None and front.network == "unix":
+        return Client(f"http://localhost{root}", token="", uds=front.address)
+    if front is not None:
+        return Client(f"http://{front.address}{root}", token="")
+    return Client(f"http://127.0.0.1:{settings.port}{root}", token="")
+
+
+def mcp_caps() -> dict[str, frozenset[str]]:
+    """Per MCP mode, the verbs a tool's call may carry: the mode's own and every lower mode's.
+
+    A mode serves its tier's tools and every tier below (`mcp.tools.MODES`), so its cap is
+    the union of `verbs.MCP_MODES` over those modes -- `MCP_MODES` alone says who may
+    enter, and with the placeholder vocabulary `operate` would lose `read`.
+    """
+    from flyball.interfaces.mcp.tools import MODES
+    from flyball.interfaces.server.verbs import MCP_MODES
+
+    return {
+        mode: frozenset().union(*(MCP_MODES[m] for m, t in MODES.items() if t <= tier))
+        for mode, tier in MODES.items()
+    }
+
+
+def mcp_signer(key: bytes, aud: str) -> Callable[[Claims | None, str], str]:
+    """`sign(caller, mode)` for [mount][flyball.interfaces.mcp.http.mount].
+
+    Each call mints a principal now, for one request, with `key` for `aud` (the door's own).
+    For a caller: its `sub`, `sid`, `kind`, `nm`, `cip` and `sch`, `scp` = its verbs ∩ the
+    mode's cap (`mcp_caps`), `via: "mcp"`. For None, the runner's own read: `runner:mcp`,
+    a service with `read` only. No principal is kept: each lives 60 s and is used once.
+    """
+    from flyball.interfaces.server.principal import LIFETIME, Claims, mint
+    from flyball.interfaces.server.verbs import READ
+
+    caps = mcp_caps()
+    sid = f"mcp-{secrets.token_urlsafe(12)}"
+
+    def sign(caller: Claims | None, mode: str) -> str:
+        now = int(time.time())
+        if caller is None:
+            claims = Claims(
+                sub="runner:mcp", sid=sid, scp=frozenset({READ}), kind="service",
+                aud=aud, cip="", sch="http", iat=now, exp=now + LIFETIME,
+            )  # fmt: skip
+        else:
+            scp = caller.scp & caps[mode]
+            claims = replace(caller, scp=scp, aud=aud, via="mcp", iat=now, exp=now + LIFETIME)
+        return mint(key, claims)
+
+    return sign
+
+
+def mount_mcp(
+    app: FastAPI, name: str | None, settings: RunnerConfig, front: FrontDir | None
+) -> None:
+    """`/mcp/<mode>` on `app`, its tools calling back as their caller (`mcp_signer`)."""
+    from flyball.interfaces.mcp.http import mount
+
+    door = app.state.door
+    mount(app, mcp_client(settings, front), name=name, sign=mcp_signer(door.key, door.aud))
+
+
+# endregion
 
 
 def _print_link(nonce: str, host: str, settings: RunnerConfig) -> None:
@@ -131,8 +216,6 @@ def serve(
     """
     import uvicorn
 
-    from flyball.interfaces.client import Rig as Client
-    from flyball.interfaces.mcp.http import mount
     from flyball.interfaces.server import create_app, set_programmer, set_rig, set_simulation
     from flyball.interfaces.server.auth import Fronted
     from flyball.interfaces.server.deps import (
@@ -195,11 +278,7 @@ def serve(
     else:
         bind = {"host": settings.host, "port": settings.port}
     if settings.mcp:  # `/mcp/<mode>`: a model's way in
-        # The tools call the runner back over HTTP. Bare: loopback TCP, with the token. A
-        # fronted runner's inner calls need a principal minted per call over its endpoint:
-        # the MCP re-mint (package A6) supplies that; until then they are refused.
-        base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
-        mount(app, Client(base, token=None if front is not None else auth.token), name=rig.name)
+        mount_mcp(app, rig.name, settings, front)
     server = uvicorn.Server(
         uvicorn.Config(
             app,
