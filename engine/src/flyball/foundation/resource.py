@@ -216,7 +216,7 @@ class Resource:
 
     def revoke(self, resource: Resource | None = None) -> None:
         if resource is not None:
-            self.raise_if_not_in(self._claimed, NotClaimantError, self)
+            resource.raise_if_not_in(self._claimed, NotClaimantError, self)
             self._claimed.remove(resource)
         if claimant := self.claimant:
             claimant.revoke(self)
