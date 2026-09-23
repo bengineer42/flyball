@@ -173,6 +173,29 @@ class TestSettle:
         s = runner.settle(section, self.parse("--token", "given"), tmp_path / "r.yaml")
         assert s.auth.token == "given"
 
+    def test_a_fronted_runner_ignores_the_file_s_root_path(self, tmp_path, capsys):
+        # A rig file's own runner.root_path would put the runner out of step with its
+        # front (flyball run always serves at "/"; flyballd passes its own --root-path
+        # from the manifest) -- a 404 on the handshake (docs pass, 23 Sep).
+        section = RunnerConfig(root_path="/from-the-file")
+        s = runner.settle(section, self.parse("--front-dir", str(tmp_path)), tmp_path / "r.yaml")
+        assert s.root_path is None
+        err = capsys.readouterr().err
+        assert "root_path" in err and "ignored" in err
+
+    def test_a_fronted_runner_still_takes_root_path_from_the_front_itself(self, tmp_path):
+        # flyballd passes --root-path explicitly (its manifest's, not the file's): that one
+        # is authoritative, matching what the front proxies to.
+        section = RunnerConfig(root_path="/from-the-file")
+        args = self.parse("--front-dir", str(tmp_path), "--root-path", "/from-flyballd")
+        s = runner.settle(section, args, tmp_path / "r.yaml")
+        assert s.root_path == "/from-flyballd"
+
+    def test_a_bare_runner_still_takes_root_path_from_the_file(self, tmp_path):
+        section = RunnerConfig(root_path="/from-the-file")
+        s = runner.settle(section, self.parse(), tmp_path / "r.yaml")
+        assert s.root_path == "/from-the-file"
+
     def test_the_auth_section_settles_like_the_rest(self, tmp_path, monkeypatch):
         for var in ("FLYBALL_TOKEN", "FLYBALL_PASSWORD", "FLYBALL_ANONYMOUS", "FLYBALL_SESSION"):
             monkeypatch.delenv(var, raising=False)
