@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -114,19 +115,58 @@ func InsecureOpenEnv() bool {
 	return false
 }
 
-// StateHome is $XDG_STATE_HOME, else ~/.local/state. With neither
-// (no HOME: a unit file or cron without it) it is an error: never a
-// shared, predictable directory such as one under $TMPDIR, for what is
-// kept there (named tokens, the audit, run.log).
+// StateHome is $XDG_STATE_HOME, else ~/.local/state: HOME's, or with no
+// HOME (a unit file without User=, cron, a minimal init script) the home
+// the password database gives this user, e.g. /root -- so a missing HOME
+// never stops the rig starting (D-028). With none of them, or a passwd
+// home that is shared or unsafe (not a private directory of this user's),
+// it is an error: never a shared, predictable directory such as one under
+// $TMPDIR, for what is kept there (named tokens, the audit, run.log).
 func StateHome() (string, error) {
 	if s := os.Getenv("XDG_STATE_HOME"); s != "" && filepath.IsAbs(s) {
 		return s, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || !filepath.IsAbs(home) {
-		return "", errors.New("no state directory: set HOME, or XDG_STATE_HOME to an absolute path")
+	if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) {
+		return filepath.Join(home, ".local", "state"), nil
+	}
+	home, err := passwdHome()
+	if err != nil {
+		return "", fmt.Errorf("no state directory: set HOME, or XDG_STATE_HOME to an absolute path (and this user's home cannot be looked up: %v)", err)
+	}
+	if !privateDir(home) {
+		return "", fmt.Errorf("no state directory: set HOME, or XDG_STATE_HOME to an absolute path (this user's home, %q, is not a private directory of its own)", home)
 	}
 	return filepath.Join(home, ".local", "state"), nil
+}
+
+// passwdHome is this user's home from the password database (getpwuid), a
+// variable so a test can play another; StateHome's fallback when HOME is
+// not set.
+var passwdHome = func() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
+
+// privateDir: dir is an absolute, existing directory other than /, not
+// under $TMPDIR, owned by this euid and writable by no one else -- fit to
+// keep tokens and an audit under.
+func privateDir(dir string) bool {
+	if !filepath.IsAbs(dir) {
+		return false
+	}
+	dir = filepath.Clean(dir)
+	tmp := filepath.Clean(os.TempDir())
+	if dir == string(filepath.Separator) || dir == tmp || strings.HasPrefix(dir, tmp+string(filepath.Separator)) {
+		return false
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() || fi.Mode().Perm()&0o022 != 0 {
+		return false
+	}
+	return ownedByMe(fi)
 }
 
 // RunDir is where `flyball run` keeps a front's tokens and audit:

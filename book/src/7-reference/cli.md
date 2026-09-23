@@ -226,8 +226,12 @@ stop the rig: it says so, and the rig runs on, stoppable by signal or
 The front keeps its named tokens and its audit in
 `$XDG_STATE_HOME/flyball/front-<id>/` (`~/.local/state/…`), the id derived
 from the rig file's absolute path, so each rig file has its own. With
-neither `XDG_STATE_HOME` nor `HOME` set, `flyball run` (and `flyball token
---config RIG-FILE`) refuses rather than use a shared directory.
+neither `XDG_STATE_HOME` nor `HOME` set (a systemd unit with no `User=`, a
+minimal init script), `~` is the user's home from the password database,
+such as `/root`. Only if that cannot be looked up, or is not a directory
+the user owns and no one else can write (`/`, anything under `$TMPDIR`),
+does `flyball run` (and `flyball token --config RIG-FILE`) refuse rather
+than use a shared directory.
 
 ### Named tokens
 

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -147,17 +148,60 @@ func TestPlanUsesThePresetsHook(t *testing.T) {
 	}
 }
 
-// With no HOME (and no XDG_STATE_HOME) there is no private state dir:
-// never a shared, predictable one under $TMPDIR.
+// With no HOME (and no XDG_STATE_HOME) the state dir is the user's home
+// from the password database (a unit without User= runs as root, with no
+// HOME, D-028: that must not stop the rig starting) -- never a shared,
+// predictable one under $TMPDIR.
+func TestStateHomeWithoutHomeUsesThePasswdHome(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "")
+	u, err := user.Current()
+	if err != nil {
+		t.Skipf("no passwd entry for this user: %v", err)
+	}
+	if !privateDir(u.HomeDir) {
+		t.Skipf("this user's home %s is not private here", u.HomeDir)
+	}
+	got, err := StateHome()
+	if err != nil || got != filepath.Join(u.HomeDir, ".local", "state") {
+		t.Fatalf("StateHome with no HOME = %q, %v; want %s/.local/state", got, err, u.HomeDir)
+	}
+	if got, err := RunDir("abcd1234"); err != nil || got != filepath.Join(u.HomeDir, ".local", "state", "flyball", "front-abcd1234") {
+		t.Fatalf("RunDir with no HOME = %q, %v", got, err)
+	}
+}
+
+// The passwd home is refused when there is none, or it is shared or
+// unsafe: never a shared, predictable directory such as one under $TMPDIR.
 func TestStateHomeWithoutHomeIsNotTempDir(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("HOME", "")
-	if got, err := StateHome(); err == nil || strings.HasPrefix(got, os.TempDir()) {
-		t.Fatalf("StateHome with no HOME = %q, %v; want an error, not a shared temp path", got, err)
+	old := passwdHome
+	defer func() { passwdHome = old }()
+	open := t.TempDir()
+	os.Chmod(open, 0o777)
+	for what, home := range map[string]func() (string, error){
+		"no passwd entry":  func() (string, error) { return "", errors.New("unknown user") },
+		"$TMPDIR":          func() (string, error) { return os.TempDir(), nil },
+		"under $TMPDIR":    func() (string, error) { return filepath.Join(os.TempDir(), "x"), nil },
+		"world-writable":   func() (string, error) { return open, nil },
+		"root":             func() (string, error) { return "/", nil },
+		"relative":         func() (string, error) { return "home", nil },
+		"not there":        func() (string, error) { return "/nonexistent", nil },
+		"another's (root)": func() (string, error) { return "/root", nil },
+	} {
+		if what == "another's (root)" && os.Geteuid() == 0 {
+			continue
+		}
+		passwdHome = home
+		if got, err := StateHome(); err == nil || strings.HasPrefix(got, os.TempDir()) {
+			t.Errorf("%s: StateHome with no HOME = %q, %v; want an error, not a shared temp path", what, got, err)
+		}
+		if got, err := RunDir("abcd1234"); err == nil {
+			t.Errorf("%s: RunDir with no HOME = %q, want an error", what, got)
+		}
 	}
-	if got, err := RunDir("abcd1234"); err == nil {
-		t.Fatalf("RunDir with no HOME = %q, want an error", got)
-	}
+	passwdHome = func() (string, error) { return "", errors.New("unknown user") }
 	t.Setenv("XDG_STATE_HOME", "relative/state")
 	if got, err := StateHome(); err == nil {
 		t.Fatalf("StateHome with a relative XDG_STATE_HOME and no HOME = %q, want an error", got)
