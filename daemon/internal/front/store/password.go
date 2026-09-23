@@ -94,11 +94,15 @@ type Hasher struct {
 }
 
 // NewHasher returns a Hasher with n slots (HashingSlots in the front).
-func NewHasher(n int) *Hasher {
+func NewHasher(n int) *Hasher { return NewHasherWith(n, scrypt.Key) }
+
+// NewHasherWith is NewHasher checking with hash in place of scrypt.Key
+// (a test's check that holds its slot until told).
+func NewHasherWith(n int, hash func(plain, salt []byte, n, r, p, size int) ([]byte, error)) *Hasher {
 	if n < 1 {
 		n = 1
 	}
-	return &Hasher{slots: make(chan struct{}, n), hash: scrypt.Key}
+	return &Hasher{slots: make(chan struct{}, n), hash: hash}
 }
 
 // Verify reports whether plain is the password stored holds. It returns

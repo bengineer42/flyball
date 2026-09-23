@@ -378,16 +378,20 @@ func TestLoginLimits(t *testing.T) {
 		t.Fatalf("cip from an untrusted XFF: %q", c.Cip)
 	}
 
-	// The hashing semaphore: a slow line (n=2^15, r=8: 32 MiB) keeps both
-	// slots busy; a third check is refused at once.
-	slow := newHarness(t, Config{Auth: "password", Password: scryptLine(testPassword, 1<<15, 8)})
+	// The hashing semaphore: two checks that hold their slots until
+	// released keep both busy; a third check is refused at once.
+	slow := newHarness(t, Config{Auth: "password", Password: testScrypt})
+	entered, release := make(chan struct{}), make(chan struct{})
+	slow.front.hasher = store.NewHasherWith(store.HashingSlots, func(_, _ []byte, _, _, _, size int) ([]byte, error) {
+		entered <- struct{}{}
+		<-release
+		return make([]byte, size), nil
+	})
 	var wg sync.WaitGroup
-	start := make(chan struct{})
 	for i := 0; i < store.HashingSlots; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			<-start
 			req, _ := http.NewRequest("POST", slow.srv.URL+"/api/auth/login", strings.NewReader(`{"password":"x"}`))
 			req.Header.Set("Origin", slow.srv.URL)
 			if resp, err := noRedirect.Do(req); err == nil {
@@ -395,9 +399,15 @@ func TestLoginLimits(t *testing.T) {
 			}
 		}()
 	}
-	close(start)
-	time.Sleep(100 * time.Millisecond)
+	for i := 0; i < store.HashingSlots; i++ {
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%d of %d checks started", i, store.HashingSlots)
+		}
+	}
 	resp = slow.do("POST", "/api/auth/login", `{"password":"x"}`, slow.origin())
+	close(release)
 	wg.Wait()
 	if resp.StatusCode != 429 || resp.Header.Get("Retry-After") == "" || body(resp) != `{"detail":"Too many attempts; try again later"}` {
 		t.Fatalf("third concurrent check: %d", resp.StatusCode)
