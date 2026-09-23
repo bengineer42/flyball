@@ -57,7 +57,12 @@ def test_sysfs_pwm_exports_and_orders_writes(tmp_path):
     chip.mkdir()
     (chip / "export").write_text("")
     pwm = SysfsPwm(0, tmp_path)
-    (chip / "pwm1").mkdir()  # the kernel creates this on export; here it exists already
+    # the kernel creates the dir and its period/duty_cycle/enable files together on
+    # export (drivers/pwm/core.c); here they exist already, `enable` writable at once
+    (chip / "pwm1").mkdir()
+    (chip / "pwm1" / "period").write_text("0")
+    (chip / "pwm1" / "duty_cycle").write_text("0")
+    (chip / "pwm1" / "enable").write_text("0")
     pwm.configure(1, 1_000_000, 500_000)
     assert (chip / "export").read_text() == ""
     assert (chip / "pwm1" / "period").read_text() == "1000000"
