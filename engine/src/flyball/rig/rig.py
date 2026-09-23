@@ -288,7 +288,7 @@ class Rig:
         ] + [(device.name, failed) for device, failed in list(self._commit_failures.items())]
 
     def close(self) -> None:
-        """Stop what runs on threads: polling, writers, recording. The rig can be built again.
+        """Tear down: polling, writers, recording, links. The rig can be built again.
 
         Idempotent; a second call is a no-op.
         """
@@ -299,6 +299,14 @@ class Rig:
         for writer in self._writers.values():
             writer.stop()
         self._stop_recording()
+        for name, link in self.links.items():
+            close = getattr(link, "close", None)
+            if close is None:
+                continue
+            try:
+                close()
+            except Exception:
+                log.exception("link %r: close failed", name)
 
     # region Recording
 
