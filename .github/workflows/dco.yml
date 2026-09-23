@@ -1,0 +1,66 @@
+# Checks the Developer Certificate of Origin sign-off on every commit a pull
+# request adds. See CONTRIBUTING.md for what the line means and how to add it.
+#
+# Hand-rolled rather than the DCO GitHub App: it is a dozen lines, there is no
+# third-party app to install or trust, and it cannot stop working because
+# someone else's service changed.
+#
+# This only *reports* until it is made a required status check:
+#   Settings -> Branches -> branch protection rule -> Require status checks to
+#   pass -> add "sign-off". Without that a pull request can still be merged red.
+#
+# Merge commits are skipped: GitHub generates them and the contributor cannot
+# sign one.
+name: dco
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sign-off:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Every commit carries a Signed-off-by matching its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author=$(git show -s --format='%ae' "$sha")
+            name=$(git show -s --format='%an' "$sha")
+            subject=$(git show -s --format='%h %s' "$sha")
+            # The trailer block, not the whole message: a sign-off quoted in
+            # the body of a commit does not certify anything.
+            if git show -s --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" |
+               grep -qiF "<$author>"; then
+              continue
+            fi
+            missing=1
+            echo "::error::$subject is not signed off by its author. Add: Signed-off-by: $name <$author>"
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "One or more commits lack a Signed-off-by line matching the commit's own author."
+            echo ""
+            echo "  the last commit only   git commit --amend -s"
+            echo "  every commit in a PR   git rebase --signoff origin/main"
+            echo "  then                   git push --force-with-lease"
+            echo ""
+            echo "Sign-off is automatic if you install the repository hook once:"
+            echo "  git config core.hooksPath .githooks"
+            echo ""
+            echo "CONTRIBUTING.md explains what the line certifies."
+            exit 1
+          fi
+
+          echo "All commits are signed off."
