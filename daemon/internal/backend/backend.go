@@ -9,12 +9,37 @@ import "io"
 
 type Status string
 
+// A runner's status follows its process: starting until it answers
+// /api/auth, running, restarting while it waits out a crash backoff,
+// stopped once it has exited cleanly or been stopped, failed once it has
+// crashed and will not be restarted.
 const (
-	StatusStarting Status = "starting" // spawned, not yet answering /api/auth
-	StatusRunning  Status = "running"
-	StatusCrashed  Status = "crashed"
-	StatusStopped  Status = "stopped"
+	StatusStarting   Status = "starting"
+	StatusRunning    Status = "running"
+	StatusRestarting Status = "restarting"
+	StatusStopped    Status = "stopped"
+	StatusFailed     Status = "failed"
 )
+
+// Restart policies, from a manifest's `restart:`. Stop and Restart
+// requests override them.
+const (
+	RestartOnFailure = "on-failure" // the default: restart after a crash, not after a clean exit
+	RestartAlways    = "always"     // restart after any exit
+	RestartNever     = "never"      // never restart: a crash leaves it failed
+)
+
+// Spec is what a runner is started from.
+type Spec struct {
+	ServerConfig string // the rig file
+	Host         string
+	Port         int
+	RootPath     string
+	// UvProject, when non-empty, launches flyball-runner via `uv run
+	// --project UvProject` instead of execing it bare.
+	UvProject string
+	Restart   string // a Restart* policy; empty is on-failure
+}
 
 type RunnerInfo struct {
 	Name     string
@@ -24,14 +49,11 @@ type RunnerInfo struct {
 
 // Backend is interface.md's internal sketch, implemented for real here.
 type Backend interface {
-	// Start spawns a runner and returns its endpoint. Does not block
-	// until the runner answers /api/auth -- that's the registry's job
-	// (plan.md's "knowing it actually started" polling). uvProject, when
-	// non-empty, launches flyball-runner via `uv run --project uvProject`
-	// instead of execing it bare (Manifest.UvProject).
-	Start(name, serverConfig, host string, port int, rootPath, uvProject string) (endpoint string, err error)
+	// Start spawns a runner and returns its endpoint. It does not block
+	// until the runner answers /api/auth; Status says starting until then.
+	Start(name string, spec Spec) (endpoint string, err error)
 	Stop(name string) error
 	Restart(name string) error
-	Logs(name string) (io.Reader, error)
+	Logs(name string) (io.ReadCloser, error)
 	Status(name string) (Status, error)
 }

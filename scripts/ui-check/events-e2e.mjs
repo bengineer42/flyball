@@ -6,7 +6,7 @@
 // for a fresh event while elsewhere; the nav badge shows the right unread count; dismissing a toast
 // removes it and decrements the badge; visiting Events + "Mark all read" clears the badge. Prints
 // PASS/FAIL per step and the console counts; exits non-zero on any FAIL.
-import { chromium } from '/home/ben/.npm/_npx/9833c18b2d85bc59/node_modules/playwright-core/index.mjs';
+import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
 
 const [ui, api, ...rest] = process.argv.slice(2);
@@ -18,7 +18,7 @@ let shots = null;
 for (let i = 0; i < rest.length; i++) if (rest[i] === '--shots') shots = rest[++i];
 if (shots) fs.mkdirSync(shots, { recursive: true });
 
-const browser = await chromium.launch({ executablePath: '/home/ben/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' });
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 const counts = { error: 0, warning: 0, pageerror: 0 };

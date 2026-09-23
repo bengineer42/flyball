@@ -1,24 +1,28 @@
-# Searchable catalogue of every flyball_linux driver/link, pre-existing and new.
-# Every entry here is decoded from a datasheet and, per brain/plans/roadmap-upgrades.md,
-# has never been run against real hardware -- see each driver's own module docstring
-# for the authoritative "what's verified vs [Unverified]" statement; `verified` below
-# is a coarse summary of that, not a substitute for reading it.
+# Searchable catalogue of every flyball_linux/flyball_chips driver and link.
+# Every entry here is decoded from a datasheet and has never been run against
+# real hardware except where `hardware_tested: true` says otherwise -- see
+# each driver's own module docstring for the authoritative "what's checked
+# vs [Unverified]" statement; `datasheet_checked` below is a coarse summary
+# of that, not a substitute for reading it.
 #
 # Fields:
-#   tag            the DriverConfig/Config tag string used in a rig file's `driver:`
+#   tag                the DriverConfig/Config tag string used in a rig file's `driver:`
 #   part_number, manufacturer
-#   category       temp | humidity | pressure | gas | liquid | weight | light | actuator | link
-#   interface      i2c_table | i2c_bespoke | uart | spi | analog_adc | gpio | pulse | 4-20ma | onewire | pwm
-#   tier           config_only | generic_link | bespoke_driver
-#   file           path under src/flyball_linux/
+#   category           temp | humidity | pressure | gas | liquid | weight | light | actuator | link
+#   interface          i2c_table | i2c_bespoke | uart | spi | analog_adc | gpio | pulse | 4-20ma | onewire | pwm
+#   tier               config_only | generic_link | bespoke_driver
+#   file               path from the repo root -- `extensions/linux/src/flyball_linux/...` or
+#                      `extensions/chips/src/flyball_chips/...` depending which package ships it
 #   loc_estimate, loc_actual
-#   status         done | in_progress | planned
-#   verified       true (datasheet-confirmed throughout) | partial (some fields [Unverified]) | false
-#   price_approx   rough unit cost, [Unverified] unless noted -- for BOM planning, not a quote
-#   domains        which roadmap leads this serves (see brain/plans/roadmap-upgrades.md)
-#   links          relatively-static reference URLs (datasheet, product page, purchase link,
-#                  reference driver source) -- only URLs an agent actually cited; "TODO" where
-#                  none was captured, never a guessed URL
+#   status             done | in_progress | planned
+#   datasheet_checked  true (datasheet-confirmed throughout) | partial (some fields [Unverified]) | false
+#   hardware_tested    true only where this driver has actually run against real hardware;
+#                      false (the default) everywhere else
+#   price_approx       rough unit cost, [Unverified] unless noted -- for BOM planning, not a quote
+#   domains            which application(s) this serves
+#   links              relatively-static reference URLs (datasheet, product page, purchase link,
+#                      reference driver source) -- only URLs actually checked while building the
+#                      entry; "TODO" where none was captured, never a guessed URL
 
 sensors:
   - tag: sht4x
@@ -27,13 +31,16 @@ sensors:
     category: humidity
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/sht4x.py
+    file: extensions/chips/src/flyball_chips/sht4x.py
     loc_actual: 274
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: true
     price_approx: "~$3-5 [Unverified]"
     domains: [pre-existing, humidity-example]
-    links: []
+    links:
+      - label: note
+        url: "Same module also implements the sht4x_set (multi-sensor) tag; both run on the real humidity rig"
 
   - tag: sht31
     part_number: SHT30/31/35
@@ -41,11 +48,12 @@ sensors:
     category: humidity
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/sht31.py
+    file: extensions/chips/src/flyball_chips/sht31.py
     loc_estimate: "200-250"
     loc_actual: 167
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$5-8 [Unverified]"
     domains: [mushroom, aging, greenhouse]
     links:
@@ -58,11 +66,12 @@ sensors:
     category: humidity
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/htu21d.py
+    file: extensions/chips/src/flyball_chips/htu21d.py
     loc_estimate: "120-180"
     loc_actual: 201
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$4-7 [Unverified]"
     domains: [mushroom, aging]
     links:
@@ -75,16 +84,19 @@ sensors:
     category: pressure
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/ms5611.py
+    file: extensions/chips/src/flyball_chips/ms5611.py
     loc_estimate: "100-150"
     loc_actual: 194
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$5-10 [Unverified]"
     domains: [greenhouse, brewing]
     links:
       - label: datasheet
         url: "TODO -- checked against the datasheet's own worked numeric example (matched to 4dp), URL not captured"
+      - label: known issue
+        url: "The PROM's CRC-4 checksum is read but not verified -- a corrupted calibration block could be trusted silently"
 
   - tag: bme280
     part_number: BME280 / BMP280
@@ -92,35 +104,17 @@ sensors:
     category: temp
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/bme280.py
+    file: extensions/chips/src/flyball_chips/bme280.py
     loc_estimate: "30-60 (compensation layer only; grew to a full driver once built)"
     loc_actual: 401
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$2-5 [Unverified]"
     domains: [greenhouse, dosing_skids, all]
     links:
       - label: note
         url: "No official Bosch worked numeric example exists for BME280 (unlike MS5611) -- tests are structural/self-consistency only, flagged [Unverified] in the module docstring"
-
-  - tag: bme680
-    part_number: BME680
-    manufacturer: Bosch Sensortec
-    category: gas
-    interface: i2c_bespoke
-    tier: bespoke_driver
-    file: devices/chips/bme680.py
-    loc_estimate: "100-150 (gas channel only)"
-    loc_actual: 483
-    status: done
-    verified: partial
-    price_approx: "~$8-15 [Unverified]"
-    domains: [greenhouse, mushroom]
-    links:
-      - label: reference source
-        url: "Bosch BME68x_SensorAPI (bme68x.c) -- compensation formula confirmed to genuinely differ from BME280's, transcribed verbatim"
-      - label: caveat
-        url: "Calibration register byte offsets and gas-block layout (low- vs high-range variant) are [Unverified], transcribed from community driver ports not re-derived from a raw datasheet table -- treat as needing a datasheet cross-check before trusting"
 
   - tag: scd30
     part_number: SCD30
@@ -128,11 +122,12 @@ sensors:
     category: gas
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/scd30.py
+    file: extensions/chips/src/flyball_chips/scd30.py
     loc_estimate: "220-280"
     loc_actual: 202
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$40-50 [Unverified]"
     domains: [mushroom, aging]
     links:
@@ -147,11 +142,12 @@ sensors:
     category: gas
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/scd4x.py
+    file: extensions/chips/src/flyball_chips/scd4x.py
     loc_estimate: "220-280"
     loc_actual: 213
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$30-45 [Unverified]"
     domains: [mushroom, aging, greenhouse]
     links:
@@ -166,16 +162,17 @@ sensors:
     category: gas
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/sgp30.py
+    file: extensions/chips/src/flyball_chips/sgp30.py
     loc_estimate: "180-220"
     loc_actual: 217
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$15-20 [Unverified]"
     domains: [mushroom, brewing]
     links:
-      - label: caveat
-        url: "Baseline-word write order (CO2eq then TVOC) followed Sensirion's embedded-sgp driver convention, not independently re-confirmed against a datasheet table"
+      - label: datasheet
+        url: "Sensirion SGP30 datasheet v1.0 (May 2020), 'Set and Get Baseline': baseline words are sent 'in the order as (TVOC, CO2eq)' -- confirmed against Sensirion's embedded-sgp reference driver, sgp30.c at commit 19fa58d, which writes in the same order"
 
   - tag: sgp40
     part_number: SGP40
@@ -183,11 +180,12 @@ sensors:
     category: gas
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/sgp40.py
+    file: extensions/chips/src/flyball_chips/sgp40.py
     loc_estimate: "130-180"
     loc_actual: 204
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$10-15 [Unverified]"
     domains: [greenhouse, mushroom]
     links:
@@ -200,11 +198,12 @@ sensors:
     category: gas
     interface: i2c_bespoke
     tier: bespoke_driver
-    file: devices/chips/ccs811.py
+    file: extensions/chips/src/flyball_chips/ccs811.py
     loc_estimate: "80-120"
     loc_actual: 214
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$8-12 [Unverified]"
     domains: [mushroom, brewing]
     links:
@@ -217,10 +216,11 @@ sensors:
     category: gas
     interface: uart
     tier: bespoke_driver
-    file: devices/chips/mhz19.py
+    file: extensions/chips/src/flyball_chips/mhz19.py
     loc_actual: 106
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$8-15 [Unverified]"
     domains: [mushroom, aging]
     links: []
@@ -231,11 +231,12 @@ sensors:
     category: liquid
     interface: uart
     tier: bespoke_driver
-    file: devices/chips/ezo_ph.py
+    file: extensions/chips/src/flyball_chips/ezo_ph.py
     loc_estimate: "150-250"
     loc_actual: 133
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$70-90 circuit + ~$40-70 probe [Unverified]"
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links:
@@ -248,11 +249,12 @@ sensors:
     category: liquid
     interface: uart
     tier: bespoke_driver
-    file: devices/chips/ezo_ec.py
+    file: extensions/chips/src/flyball_chips/ezo_ec.py
     loc_estimate: "30-50, once the shared EZO command layer exists"
     loc_actual: 169
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$70-90 circuit + probe [Unverified]"
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links:
@@ -265,11 +267,12 @@ sensors:
     category: liquid
     interface: uart
     tier: bespoke_driver
-    file: devices/chips/ezo_orp.py
+    file: extensions/chips/src/flyball_chips/ezo_orp.py
     loc_estimate: "30-50, once the shared EZO command layer exists"
     loc_actual: 118
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$70-90 circuit + probe [Unverified]"
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links: []
@@ -280,11 +283,12 @@ sensors:
     category: liquid
     interface: uart
     tier: bespoke_driver
-    file: devices/chips/ezo_do.py
+    file: extensions/chips/src/flyball_chips/ezo_do.py
     loc_estimate: "30-50, once the shared EZO command layer exists"
     loc_actual: 135
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     price_approx: "~$70-90 circuit + probe [Unverified]"
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links:
@@ -297,11 +301,12 @@ sensors:
     category: weight
     interface: gpio
     tier: bespoke_driver
-    file: devices/chips/hx711.py
+    file: extensions/chips/src/flyball_chips/hx711.py
     loc_estimate: "150-250"
     loc_actual: 222
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     price_approx: "~$1-3 module [Unverified]"
     domains: [brewing, dosing_skids, plant_growth_chambers]
     links:
@@ -314,9 +319,10 @@ sensors:
     category: light
     interface: i2c_table
     tier: config_only
-    file: examples/sensors/tsl2591.yaml
+    file: extensions/linux/examples/sensors/tsl2591.yaml
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [plant_growth_chambers]
     links:
       - label: datasheet
@@ -328,9 +334,10 @@ sensors:
     category: light
     interface: i2c_table
     tier: config_only
-    file: examples/sensors/veml7700.yaml
+    file: extensions/linux/examples/sensors/veml7700.yaml
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [plant_growth_chambers]
     links:
       - label: datasheet
@@ -342,9 +349,10 @@ sensors:
     category: pressure
     interface: i2c_table
     tier: config_only
-    file: examples/sensors/lps22hb.yaml
+    file: extensions/linux/examples/sensors/lps22hb.yaml
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [greenhouse, brewing]
     links:
       - label: datasheet
@@ -356,9 +364,10 @@ sensors:
     category: liquid
     interface: analog_adc
     tier: config_only
-    file: examples/sensors/ph_probe.yaml
+    file: extensions/linux/examples/sensors/ph_probe.yaml
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links:
       - label: note
@@ -370,9 +379,10 @@ sensors:
     category: liquid
     interface: analog_adc
     tier: config_only
-    file: examples/sensors/turbidity.yaml
+    file: extensions/linux/examples/sensors/turbidity.yaml
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [water_treatment, aquaculture]
     links: []
 
@@ -382,9 +392,10 @@ sensors:
     category: actuator
     interface: gpio
     tier: config_only
-    file: examples/sensors/solenoid_valve.yaml
+    file: extensions/linux/examples/sensors/solenoid_valve.yaml
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [dosing_skids, brewing, irrigation]
     links: []
 
@@ -394,10 +405,11 @@ sensors:
     category: liquid
     interface: 4-20ma
     tier: generic_link
-    file: devices/current_loop.py
+    file: extensions/linux/src/flyball_linux/devices/current_loop.py
     loc_actual: 193
     status: done
-    verified: partial
+    datasheet_checked: partial
+    hardware_tested: false
     domains: [dosing_skids, aquaculture, industrial_process]
     links:
       - label: caveat
@@ -409,10 +421,11 @@ sensors:
     category: liquid
     interface: pulse
     tier: generic_link
-    file: devices/pulse_counter.py
+    file: extensions/linux/src/flyball_linux/devices/pulse_counter.py
     loc_actual: 129
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [dosing_skids, brewing]
     links:
       - label: note
@@ -424,22 +437,50 @@ sensors:
     category: actuator
     interface: pwm
     tier: bespoke_driver
-    file: devices/dosing_pump.py
+    file: extensions/linux/src/flyball_linux/devices/dosing_pump.py
     loc_actual: 183
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [dosing_skids, aquaculture, hydroponics, brewing]
     links:
       - label: note
         url: "Stepper-driven pumps (step/direction) are out of scope for this version -- no pulse-generating actuator link exists yet, only PWM-DC and GPIO-relay are supported"
 
+  - tag: dual_pump_blender
+    part_number: "(the humidity rig's own composite actuator, two PWM-driven pumps)"
+    manufacturer: n/a
+    category: actuator
+    interface: pwm
+    tier: bespoke_driver
+    file: "examples/humidity/src/humidity/blender.py -- its own nested repo, not tracked here"
+    status: done
+    datasheet_checked: true
+    hardware_tested: true
+    domains: [humidity-example]
+    links:
+      - label: note
+        url: "Runs on the real Pi humidity rig (dry/wet pump split-range blend); the fields and physics are in the humidity book: https://bengineer42.github.io/humctrl/3-devices/blender/"
+
 links:
   - tag: uart
-    file: links/uart.py
+    file: extensions/linux/src/flyball_linux/links/uart.py
     loc_actual: 109
     status: done
-    verified: true
+    datasheet_checked: true
+    hardware_tested: false
     domains: [dosing_skids, aquaculture, hydroponics, brewing, mushroom, aging]
     links:
       - label: note
         url: "Highest-leverage new infrastructure in this catalogue -- unlocks the entire Atlas EZO family plus MH-Z19; needed a new `serial` optional-dependency extra (pyserial) in pyproject.toml, mirroring how `i2c` gates smbus2"
+
+  - tag: pwm
+    file: extensions/linux/src/flyball_linux/links/pwm.py
+    loc_actual: 105
+    status: done
+    datasheet_checked: true
+    hardware_tested: true
+    domains: [humidity-example]
+    links:
+      - label: note
+        url: "Linux kernel sysfs PWM class ABI (Documentation/ABI/testing/sysfs-class-pwm) -- run against the real PWM chip on the Pi humidity rig"

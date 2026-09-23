@@ -28,7 +28,7 @@ devices:
     config:
       link: room
       ports:
-        chamber.humidity: { port: output, quantity: humidity, unit: "%RH" }
+        chamber.humidity: { port: output, quantity: humidity, unit: "%" }
         chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
 
   humidifier:
@@ -37,4 +37,4 @@ devices:
     config:
       link: room
       ports:
-        drive: { port: input }
+        drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }

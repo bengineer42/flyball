@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // alone -- stubbed out, same as `canOperate.test.tsx`.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     cursor = { idx: null };
     data = [[]];
     setData() {}
@@ -119,7 +120,7 @@ describe("ControllerPanel's trends open the same full-screen overlay as any othe
   });
 
   it("stays open through a double-click: the second click must not dismiss it", () => {
-    // Ben double-clicked a controller's trend on the real rig and saw nothing happen: the first
+    // Double-clicking a controller's trend on a real rig showed nothing happening: the first
     // click opened the overlay, the second landed on its backdrop and closed it again.
     render(withRig(createElement(ControllerPanel, { controller: CONTROLLER, source: SOURCE, trends: true })));
 

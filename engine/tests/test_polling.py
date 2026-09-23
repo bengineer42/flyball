@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
+
 import pytest
 
 from flyball.foundation.device import Access, Committable, Device, Level, Reading, SignalSpec
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Watt
-from flyball.rig import poll_period
+from flyball.rig import Rig, poll_period, polling
 from test_rig_devices import Furnace
 
 
@@ -133,3 +137,59 @@ def test_a_slow_read_raises_a_warning_condition(rig, furnace):
     (condition,) = rig.polling.run(slow.name).conditions
     assert condition.kind == "slow" and condition.level is Level.WARNING
     assert rig.recent[-1].kind == "slow"
+
+
+def test_stop_gives_up_on_a_read_stuck_in_its_driver(monkeypatch, caplog, fresh):
+    """A hung read must not hang `rig.stop()` -- SIGTERM and a daemon Restart run it."""
+    monkeypatch.setattr(polling, "STOP_JOIN_S", 0.3)
+    entered, release = threading.Event(), threading.Event()
+
+    class Stuck(Furnace):
+        def read(self, time_ns, node=None):
+            entered.set()
+            release.wait()
+            return super().read(time_ns, node)
+
+    rig = Rig()  # wall time: the poller runs on its own thread
+    stuck = Stuck(fresh("stuck"))
+    stuck.poll_s = 0.01
+    rig.add_device(stuck)
+    rig.start_polling(stuck)
+    try:
+        assert entered.wait(2.0), "the read never started"
+        started = time.monotonic()
+        with caplog.at_level(logging.WARNING, logger="flyball.polling"):
+            rig.stop()
+        took = time.monotonic() - started
+        assert took < 0.3 + 0.5, f"stop took {took:.2f} s"
+        stuck_logs = [r for r in caplog.records if stuck.name in r.getMessage()]
+        assert len(stuck_logs) == 1, [r.getMessage() for r in caplog.records]
+        assert rig.polling.run(stuck.name).running is False
+    finally:
+        release.set()
+
+
+def test_revive_restarts_only_an_offline_polled_device(rig, clock, furnace):
+    rig.start_polling(furnace)
+    clock.advance(1.0)
+    assert rig.polling.revive(furnace.name) is False, "running: nothing to do"
+    furnace.fail = True
+    clock.advance(1.0)
+    assert rig.polling.run(furnace.name).running is False
+    furnace.fail = False
+    assert rig.polling.revive(furnace.name) is True
+    assert rig.polling.run(furnace.name).running is True
+    assert rig.polling.revive("nope") is False, "not polled: not an error"
+
+
+def test_a_restart_of_a_still_broken_device_ends_offline_again(rig, clock, furnace):
+    rig.start_polling(furnace)
+    clock.advance(1.0)
+    furnace.fail = True
+    clock.advance(1.0)
+    rig.polling.restart(furnace.name)  # still broken
+    clock.advance(1.0)
+    run = rig.polling.run(furnace.name)
+    assert run.running is False and run.conditions and run.conditions[0].kind == "offline"
+    kinds = [e.kind for e in rig.recent if e.subject == furnace.name]
+    assert kinds[-2:] == ["restarted", "offline"], "the offline lands after the restart"

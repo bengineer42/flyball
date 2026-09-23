@@ -7,17 +7,35 @@ simulation, or a database copied from another machine.
 
 ## Assembly
 
-`create_app(auth, root_path)` adds CORS, one exception handler per error
-base, the routers, and then -- outermost -- two plain ASGI middlewares as
-asked: `Auth` (`server/auth.py`: one principal per request -- cookie,
-bearer, or anonymous -- with a level `none < read < operate` that one
-`allows()` compares with what the request needs; 401 / 4401 otherwise) and
-`RootPath` (sets
+`create_app(auth, root_path)` adds `/docs` (Swagger UI from the vendored
+`server/swagger/` -- `swagger-ui-dist` 5.33.0, Apache-2.0 -- mounted at
+`/docs/assets`, no CDN), CORS, one exception handler per error
+base, the routers, and then -- outermost -- two plain ASGI middlewares:
+`Auth`, always (`server/auth.py`: on an open runner, a `Host` that is not
+loopback is 403 / 4403, unless `create_app(open_network=True)` -- the
+runner's `--insecure-open`; in every mode, a request that acts -- not
+`GET`/`HEAD`/`OPTIONS`, or a websocket -- with a foreign or `null` `Origin`
+and no valid bearer token is 403 / 4403; then one principal per request --
+bearer, cookie, or anonymous, a wrong token being 401 -- with a level
+`none < read < operate` that one `allows()` compares with what the request
+needs; 401 / 4401 otherwise; a `GET` outside `/api`, `/ws` and `/mcp` needs
+nothing) and, when asked, `RootPath` (sets
 `scope["root_path"]` under the prefix so Starlette routes and links as at
 the root; 404 / 4404 elsewhere; lifespan passes through). `app` is a
 module-level instance for `uvicorn flyball.interfaces.server:app`. Routes take the rig and store through
 dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError` (503) when
 nothing is attached.
+
+The store is synchronous and serialised by one lock
+([Storage](../6-internals/db.md#sqlite)), so a route that touches it is a plain
+`def` — FastAPI runs it on a worker thread — or, when it must be `async` (to
+read a request body), hands the store call to `anyio.to_thread`. `StoreDep`
+holds one of a few `STORE_SLOTS` for the request, so store requests queued
+behind a long one wait on the loop, not on worker threads. `async def` is for
+routes and websockets that never reach the store or the rig's lock. The
+same holds for any other slow, blocking work: the login's scrypt hash goes
+to `anyio.to_thread`, at most `Auth.max_hashing` (2) at once, and a login
+past that is `429` rather than a queued thread.
 
 `server/routes/` is one module per concern, not per device:
 

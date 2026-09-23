@@ -16,10 +16,12 @@ from flyball.control.errors import TuningNotRegisteredError
 from flyball.foundation.device import Condition, Device
 from flyball.interfaces.server.deps import (
     RigDep,
+    current_exposure,
     current_rig,
     current_rig_config,
     current_simulation,
 )
+from flyball.interfaces.server.redact import without_credentials
 from flyball.interfaces.server.schemas import ClockOut, LawConfig
 from flyball.library.tunings import Tuning
 from flyball.model.law import ControlLawConfig, ControlLawView
@@ -95,7 +97,7 @@ async def read_health() -> dict[str, Any]:
     """One look: is anything offline, slow or pending. What a watchdog or a status line polls."""
     rig = current_rig()
     if rig is None:
-        return {"ok": False, "rig": None}
+        return {"ok": False, "rig": None, "exposure": current_exposure()}
     conditions = _conditions(rig)
     return {
         "ok": not any(c["level"] >= 40 for c in conditions),
@@ -110,6 +112,7 @@ async def read_health() -> dict[str, Any]:
         "alarms": _alarm_summary(rig, conditions),
         "waits": sorted(rig.triggers.states()),
         "recording": rig.recording is not None,
+        "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }
 
 
@@ -137,12 +140,15 @@ async def read_rig_schema() -> dict[str, Any]:
 
 @router.get("/rig/config")
 async def read_rig_config() -> dict[str, Any]:
-    """The rig file as it now stands: a simulation's with its changes, else what was loaded."""
+    """The rig file as it now stands: a simulation's with its changes, else what was loaded.
+
+    `runner.auth`'s credentials are never included, only its non-secret settings.
+    """
     if (simulation := current_simulation()) is not None:
-        return simulation.config_document()
+        return without_credentials(simulation.config_document())
     if (config := current_rig_config()) is None:
         raise HTTPException(status_code=404, detail="This server was not started from a rig file")
-    return canonical(config)
+    return without_credentials(canonical(config))
 
 
 @router.post("/rig/check")
@@ -177,7 +183,7 @@ async def read_tuning(rig: RigDep, tag: str) -> SerializeAsAny[ControlLawConfig 
 
 
 @router.put("/tunings/{tag}")
-async def set_tuning(rig: RigDep, tag: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
+def set_tuning(rig: RigDep, tag: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
     """Store `body` under `tag` on the live rig, replacing any tuning already there."""
     tuning = Tuning(tag=tag, config=body)
     with rig.lock:

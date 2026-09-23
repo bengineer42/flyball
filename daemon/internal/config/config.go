@@ -10,6 +10,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,8 +31,14 @@ type DaemonConfig struct {
 	// Auth.Token is the bearer token every mutating route (start, stop,
 	// restart, logs) requires, the same shape as a runner's own --token.
 	// Empty: those routes answer 503 until one is set.
+	//
+	// Auth.InsecureOpen lets flyballd, listening beyond loopback, proxy to
+	// a runner that has no password and no token. Off: such a runner's
+	// routes answer 503 (api.go's guard) -- anyone who reached them could
+	// operate its rig.
 	Auth struct {
-		Token string `yaml:"token"`
+		Token        string `yaml:"token"`
+		InsecureOpen bool   `yaml:"insecure_open"`
 	} `yaml:"auth"`
 }
 
@@ -73,7 +80,7 @@ type Manifest struct {
 	Name         string `yaml:"name" json:"name"`
 	ServerConfig string `yaml:"server_config" json:"server_config"` // path to the layer-3 daemon: file
 	Restart      string `yaml:"restart" json:"restart"`             // always | on-failure | never
-	Host         string `yaml:"host" json:"host"`                   // always 127.0.0.1 when daemon-supervised
+	Host         string `yaml:"host" json:"host"`                   // loopback only (default 127.0.0.1): reached through flyballd's proxy
 	Port         int    `yaml:"port" json:"port"`
 	RootPath     string `yaml:"root_path" json:"root_path"`
 	Store        string `yaml:"store" json:"store"`
@@ -105,13 +112,29 @@ func (m Manifest) Validate() error {
 	if m.ServerConfig == "" {
 		return fmt.Errorf("runner %s: server_config is required", m.Name)
 	}
+	if !isLoopback(m.Host) {
+		return fmt.Errorf("runner %s: host %q is not a loopback address: a daemon-supervised runner listens on 127.0.0.1 (the default) or ::1 and is reached through flyballd's proxy under its root_path", m.Name, m.Host)
+	}
 	if m.Port <= 0 || m.Port > 65535 {
 		return fmt.Errorf("runner %s: port %d is not a TCP port", m.Name, m.Port)
 	}
 	if rp := m.RootPath; !rootPathPattern.MatchString(rp) || path.Clean(rp) != rp {
 		return fmt.Errorf("runner %s: root_path %q must be /segments of lower-case letters, digits, - and _, such as /%s", m.Name, rp, m.Name)
 	}
+	switch m.Restart {
+	case "", "always", "on-failure", "never":
+	default:
+		return fmt.Errorf("runner %s: restart %q: use always, on-failure (the default) or never", m.Name, m.Restart)
+	}
 	return nil
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // LoadManifests reads every *.yaml file in dir as one runner's layer-2

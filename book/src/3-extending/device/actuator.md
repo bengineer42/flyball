@@ -9,7 +9,7 @@ signal (`RPW`, or `RW` — a setting re-set by a command sits beside it).
 The minimum is a class, a `Demand` descriptor, and a `write_signal`:
 
 ```python
---8<-- "oven.py:33:43"
+--8<-- "oven.py:heater"
 ```
 
 ## The write side: `apply`, `commit`
@@ -49,7 +49,16 @@ another signal of the same device (`limits=(0.0, max_flow_config)`,
 resolved live) — are enforced by the rig before `apply` is ever called: a
 demand outside them is clamped, and the committed state's `at_limit` says
 which rail it landed on. `signal.limits` always gives the effective
-numbers, whichever way they were declared. A controller drives at most one
+numbers, whichever way they were declared, and `None` while a referenced
+signal has no value yet or a non-finite one (NaN, inf). That case fails closed: the rig clamps through
+`signal.clamp(value)`, which raises `LimitNotKnownError` (a
+`NotReadyError`, 503 over HTTP) rather than let the demand through --
+even when the other end is a number, because the unknown end is usually
+the one that matters. A manual demand or a command's linked argument is
+refused whole; a controller's write is held (nothing applied) with a
+`limit_unknown` event, and `limit_known` once the bound reads a finite value. A driver
+whose reference should never block a demand gives that signal an
+`initial` value. A controller drives at most one
 writable signal; the signal knows which one, so the committed state's
 `controller` names it and a manual demand against a controlled signal is
 refused.
@@ -63,7 +72,7 @@ descriptor is its spec; on an instance it is the bound signal. Checked on
 subclassing: pydantic must be able to describe every `vtype`.
 
 ```python
---8<-- "device.py:36:54"
+--8<-- "device.py:heater"
 ```
 
 - **`demand`** has no command of its own, so the rig synthesises
@@ -76,7 +85,7 @@ subclassing: pydantic must be able to describe every `vtype`.
   [Config and build](config.md).
 
 ```python
---8<-- "device.py:56:64"
+--8<-- "device.py:heater-read-commit"
 ```
 
 `commit` reads what was just applied from `self.demand.pending`, not
@@ -96,11 +105,12 @@ when the parameter must be called something else, when it is annotated
 `Annotated[<type>, <descriptor>]` (`dry: Annotated[Flow, dry_flow]`; legal
 in the class body because the descriptor's name is already bound there).
 Either way it is filled from the demand's current value when left out,
-clamped to its effective limits, and shown in the schema with the
+clamped to its effective limits (the command is refused, not run, while
+one of them is not known yet), and shown in the schema with the
 demand's address, unit and limits:
 
 ```python
---8<-- "device.py:66:69"
+--8<-- "device.py:heater-command"
 ```
 
 Every parameter and the return type must be describable by pydantic; this
@@ -148,8 +158,8 @@ GET  /api/devices/heater/schema              the config schema, every signal's a
 PUT  /api/devices/heater/demand              {"demand": 120.0}
 POST /api/devices/heater/commands/set_limit  {"fraction": 0.5}
 
-flyball heater
-flyball heater set_limit 0.5
+flyball view heater
+flyball invoke heater set_limit fraction=0.5
 ```
 
 and, on `/ws/samples`, a sample per commit carrying each demand's readback

@@ -5,9 +5,10 @@ application is simulating: [Plant][flyball_sim.plant.Plant] and
 [MultiPlant][flyball_sim.plant.MultiPlant] models, the clocks that step them,
 and the `sim_plant`/`sim_daq`/`sim_drive` devices a rig file declares. An
 application composes these into its own simulator (`examples/furnace`'s
-`Furnace`, `examples/humidity`'s `HumidityChamber`); `flyball.runtime` must
-never import this package directly -- only through the `flyball.configs`
-entry point, the same seam every other optional package uses.
+`Furnace`, [humctrl](https://github.com/bengineer42/humctrl)'s
+`HumidityChamber`); `flyball.runtime` must never import this package
+directly -- only through the `flyball.configs` entry point, the same seam
+every other optional package uses.
 
 The one exception is [Simulation][flyball_sim.simulation.Simulation]: it
 *does* know what is simulated -- a rig whose every link is `sim_*`/`fake_*`

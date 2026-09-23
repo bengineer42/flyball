@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_drivers_dir
 from flyball.rig import Rig
@@ -88,7 +88,12 @@ def test_the_routes_list_reload_and_query(drivers: Path) -> None:
             assert r.status_code == 200 and r.json() == {"reply": "ACME,DMM,1"}
             assert c.post("/api/links/plain/query", json={"text": "x"}).status_code == 409
             assert c.post("/api/links/nope/query", json={"text": "x"}).status_code == 404
-            assert c.get("/api/probe").status_code in (200, 404)  # flyball-linux may not be here
+            # A scan is a bus transaction: a POST, so no page on another site can make one. A GET
+            # is 405 from the router, or 404 from a built UI's static files -- never the probe.
+            got = c.get("/api/probe")
+            assert got.status_code in (404, 405) and "flyball-linux" not in got.text
+            probed = c.post("/api/probe?scan=false")
+            assert probed.status_code == 200 or "flyball-linux" in probed.json()["detail"]
     finally:
         set_drivers_dir(None)
         set_rig(None)

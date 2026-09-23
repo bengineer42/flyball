@@ -2,14 +2,15 @@
 
 A `sim_plant` under `links` is one plant model shared by the devices that
 use it: a `sim_daq` reads chosen plant outputs as its signals and advances
-the plant by the time since the last read; a `sim_drive` sets chosen plant
-inputs from demands on its signals. Several of each may share one plant, so
-a multi-zone plant's zones interact through it (`examples/furnace`'s worked
-scenario, or an application's own [MultiPlant][flyball_sim.plant.MultiPlant]
-such as `examples/humidity`'s chamber). A rig of these runs on a laptop,
-ticks like a real one, records, tunes and serves the same API -- with
-nothing plugged in -- and, laid over a real rig's file, stands in for its
-hardware under the same names (plan §1.6).
+the plant to the read's instant -- once, however many devices read it; a
+`sim_drive` sets chosen plant inputs from demands on its signals. Several of
+each may share one plant, so a multi-zone plant's zones interact through it
+(`examples/furnace`'s worked scenario, or an application's own
+[MultiPlant][flyball_sim.plant.MultiPlant] such as
+[humctrl](https://github.com/bengineer42/humctrl)'s chamber). A rig of these
+runs on a laptop, ticks like a real one, records, tunes and serves the same
+API -- with nothing plugged in -- and, laid over a real rig's file, stands
+in for its hardware under the same names.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant
+from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant, advancer
 
 # A plant's drive is a fraction of full power: 0 is off, 1 is everything it has.
 Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
@@ -253,7 +254,7 @@ def _tree(device: str, leaves: Mapping[str, SignalSpec]) -> tuple[NodeSpec | Sig
     `{"dry.humidity": …, "dry.temperature": …, "wet.humidity": …}` becomes
     namespaces `dry` and `wet`, each read whole -- one plant advance yields
     everything at one instant -- so a sim overlay can mirror a namespaced
-    real device address for address (plan §1.6). A flat key is a leaf on
+    real device address for address. A flat key is a leaf on
     the root, as before.
 
     Raises:
@@ -315,7 +316,10 @@ class DaqPort(BaseModel):
 
 
 class SimDaq(Readable):
-    """Reads a plant's outputs as its signals, advancing the plant by the time since the last read.
+    """Reads a plant's outputs as its signals, advancing the plant to each read's instant.
+
+    A plant is stepped once per instant however many devices read it, so two
+    `sim_daq`s on one bare `sim_plant` do not run its time at twice the rate.
 
     Every signal is an `[RP]` output. Each is read when its own `poll_s` is
     due, so a slow sample thermocouple beside fast zone ones costs one
@@ -364,6 +368,8 @@ class SimDaq(Readable):
         if not leaves:
             raise ValueError(f"{name}: a sim_daq reads at least one port")
         self.bind(_tree(name, leaves))
+        self._advancer = None if isinstance(plant, MultiPlant) else advancer(plant)
+        """A bare plant's stepper, shared with every other device reading the same plant."""
         self._last_ns: int | None = None
         self._last_read: dict[Signal, int] = {}
         self._broken: dict[Signal, int] = {}
@@ -393,11 +399,11 @@ class SimDaq(Readable):
         )
 
     def _advance(self, time_ns: int) -> None:
-        """Step the plant to `time_ns`; a multi-port plant steps once per instant, whoever asks."""
+        """Step the plant to `time_ns`: once per instant, whichever device reading it asks first."""
         if isinstance(self.plant, MultiPlant):
             self.plant.advance(time_ns)
-        elif self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
-            self.plant.step((time_ns - self._last_ns) / 1e9)
+        elif self._advancer is not None:
+            self._advancer.advance(time_ns)
         self._last_ns = time_ns
 
     def _due(self, signal: Signal, time_ns: int) -> bool:
@@ -424,7 +430,7 @@ class SimDaq(Readable):
         node = self.root if node is None else node
         signals = [self.signals[path] for path in self.ports if node.contains(self.signals[path])]
         if broken := [s.path for s in signals if s in self._broken]:
-            raise HardwareError(f"{self.name}.{broken[0]}: thermocouple open circuit (simulated)")
+            raise HardwareError(f"{self.name}.{broken[0]}: sensor failed (simulated)")
         self._advance(time_ns)
         by_node: dict[Node, dict[Signal, float]] = {}
         for signal in signals:
@@ -459,10 +465,10 @@ class SimDaq(Readable):
 class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
     """Read chosen outputs of a simulated plant as this device's `[RP]` signals."""
 
-    link: PlantLink = Field(
+    link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         description="The plant link read: `sim_plant`, or another package's own `MultiPlant`"
         " link, such as `examples/furnace`'s `sim_furnace`."
-    )  # pyright: ignore[reportIncompatibleVariableOverride]
+    )
     ports: dict[str, str | DaqPort] = Field(
         description="Signal path -> the plant's output port; spelled out with `quantity` and"
         " `unit` when the plant does not say what a port measures (a bare `sim_plant`)."
@@ -642,10 +648,10 @@ class SimDrive(Committable):
 class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
     """Drive chosen inputs of a simulated plant from this device's `[W]` signals."""
 
-    link: PlantLink = Field(
+    link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         description="The plant link driven: `sim_plant`, or another package's own `MultiPlant`"
         " link, such as `examples/furnace`'s `sim_furnace`."
-    )  # pyright: ignore[reportIncompatibleVariableOverride]
+    )
     ports: dict[str, str | DrivePort] = Field(
         description="Signal path -> the plant's input port, or spelled out with the `quantity`,"
         " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive),"

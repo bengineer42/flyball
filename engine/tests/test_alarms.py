@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 from flyball_sim.simulation import Simulation
 
+from conftest import TestClient
 from flyball.foundation.device import Access, SignalSpec
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius

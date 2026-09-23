@@ -2,7 +2,7 @@
 
 A tree of tagged configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
-config (plan §1.5), keyed by name; a controller is keyed by the address of
+config, keyed by name; a controller is keyed by the address of
 the signal it drives and names its source. Formats are
 [flyball.foundation.files][]'s business; which driver and link kinds exist is
 [flyball.model.catalog.Catalogs][]'s, read here via
@@ -22,7 +22,7 @@ its pins. `board = "rpi5"` is looked up on the board path; the file's own
 the link and line the profile says.
 
 The `readers`, `actuators` and `loops` sections of the legacy model no
-longer parse; `temp-docs/DEVICE-MODEL-PLAN.md` §6 says so.
+longer parse; devices and controllers replace them (`book/src/7-reference/rig-file.md`).
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterator, Sequence
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -85,7 +87,7 @@ Role = Literal["link", "driver"]
 LEGACY_SECTIONS = ("readers", "actuators", "loops")
 LEGACY_MESSAGE = (
     "readers/actuators/loops are no longer rig-file sections; devices and controllers"
-    " replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6"
+    " replace them, see book/src/7-reference/rig-file.md"
 )
 
 
@@ -202,6 +204,9 @@ class AuthConfig(BaseModel):
     caller with neither may do is `anonymous`: nothing, or read. Levels are
     `none < read < operate`; a later scheme (several sign-ins, a part of the
     rig locked) changes who gets which level, not what a level admits.
+    An open runner is served on loopback only unless the run itself says otherwise
+    (see [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is
+    never a key here, so no file -- nor anything it `extends` -- can open a runner.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -240,6 +245,109 @@ class AuthConfig(BaseModel):
     @property
     def session_s(self) -> float:
         return parse_duration_ns(self.session) / 1e9
+
+
+def is_loopback(host: str) -> bool:
+    """Whether a bind address reaches this machine only: `localhost`, `127.0.0.0/8`, `::1`.
+
+    Anything else -- `0.0.0.0`, `::`, an empty host, a LAN address, a name that is not
+    `localhost` -- may be reachable from elsewhere, and counts as not.
+    """
+    import ipaddress
+
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip().strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+LOOPBACK = "127.0.0.1"
+"""Where an open runner asked for a network address is served instead."""
+
+
+@dataclass(frozen=True)
+class Exposure:
+    """Where the runner serves, against where it was asked to, and what to say about it."""
+
+    requested: str
+    """The bind address asked for (`runner.host`, `--host`)."""
+    host: str
+    """The bind address served on: `requested`, or loopback for an open runner."""
+    port: int
+    open: bool
+    """No password and no token: whoever reaches the port may operate the rig."""
+    warning: str | None = None
+    """One line for stderr, or None when there is nothing to say."""
+
+    @property
+    def restricted(self) -> bool:
+        """Moved to loopback because the runner is open."""
+        return self.host != self.requested
+
+    @property
+    def open_network(self) -> bool:
+        """Open, and reachable beyond this machine: opted into by the run."""
+        return self.open and not is_loopback(self.host)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "requested": self.requested,
+            "host": self.host,
+            "port": self.port,
+            "open": self.open,
+            "restricted": self.restricted,
+            "open_network": self.open_network,
+            "warning": self.warning,
+        }
+
+
+def settle_exposure(settings: RunnerConfig, insecure_open: bool = False) -> Exposure:
+    """Where to bind: a misconfiguration removes exposure, never operation.
+
+    Open is no password and no token (`runner.auth`, `--password`/`--token`, or
+    `FLYBALL_PASSWORD`/`FLYBALL_TOKEN`, all settled into `settings` by then): anyone
+    who reaches the port may operate the rig. On loopback that is only this machine.
+    Asked for any other address, an open runner still starts -- a control process
+    that will not start leaves the equipment uncontrolled -- but binds loopback on
+    the same port, and the warning says why and how to fix it. `insecure_open`
+    (`--insecure-open`, `FLYBALL_INSECURE_OPEN=1`: per run, never a rig-file key)
+    serves it where asked. Credentials beyond loopback over plain HTTP get a warning.
+    """
+    requested, port = settings.host, settings.port
+    where = f"{requested or 'every interface'!r}"
+    if is_loopback(requested):
+        return Exposure(requested, requested, port, open=not settings.auth.enabled)
+    if settings.auth.enabled:
+        return Exposure(
+            requested,
+            requested,
+            port,
+            open=False,
+            warning=f"serving plain HTTP on {where}: the password, the token and session"
+            " cookies cross the network unencrypted; put TLS in front, or serve on 127.0.0.1",
+        )
+    if insecure_open:
+        return Exposure(
+            requested,
+            requested,
+            port,
+            open=True,
+            warning=f"serving an OPEN runner on {where} (--insecure-open): anyone who can reach"
+            " it may operate the rig",
+        )
+    return Exposure(
+        requested,
+        LOOPBACK,
+        port,
+        open=True,
+        warning=f"host is {where} but the runner has no password and no token: serving on"
+        f" {LOOPBACK}:{port} only, so nothing beyond this machine can reach the rig. To serve it"
+        " on the network give it a password or a token (runner.auth in the rig file,"
+        " --password/--token, FLYBALL_PASSWORD/FLYBALL_TOKEN; `flyball password` makes one),"
+        " or, knowingly, --insecure-open or FLYBALL_INSECURE_OPEN=1",
+    )
 
 
 class RunnerConfig(BaseModel):
@@ -538,7 +646,6 @@ class RigConfig(BaseModel):
                 [get_catalog][flyball.model.catalog.get_catalog].
         """
         catalogs = catalogs or get_catalog()
-        links = {name: config.build() for name, config in self.links.items()}
         if clock is None and self.simulated:
             from flyball_sim.clock import ScaledClock, SteppedClock
 
@@ -546,7 +653,6 @@ class RigConfig(BaseModel):
             clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
 
         rig = Rig(self.name)
-        rig.links = links
         rig.link_entries = dict(self.links)
         rig.files = list(self.files)
         rig.header = {
@@ -557,11 +663,16 @@ class RigConfig(BaseModel):
         if clock is not None:
             rig.clock = clock
         # Build everything before anything runs: a failure part-way leaves no
-        # thread polling and no name claimed for a retry to trip on.
+        # thread polling and no name claimed for a retry to trip on, and no
+        # link (a serial port, a socket) held open behind it.
         built_devices: list[Device] = []
+        built_links: dict[str, Any] = {}
         try:
+            for name, config in self.links.items():
+                built_links[name] = config.build()
+            rig.links = built_links
             for name, entry in self.devices.items():
-                device = entry.build(name, links, catalogs)
+                device = entry.build(name, built_links, catalogs)
                 rig.add_device(device)
                 rig.entries[name] = entry
                 built_devices.append(device)
@@ -589,6 +700,11 @@ class RigConfig(BaseModel):
         except Exception:
             for device in built_devices:
                 rig.release(device.name)
+            for link in built_links.values():
+                close = getattr(link, "close", None)
+                if close is not None:
+                    with suppress(Exception):
+                        close()
             raise
         if start:
             for device in built_devices:
@@ -636,7 +752,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     `config` (`DeviceEntry`'s own before-validator normalises this, not a
     pydantic discriminated union), so pydantic alone cannot describe the two
     shapes as one type. `oneOf` per registered driver, each with a flat and a
-    layered variant (plan §1.5); before any driver registers, `devices` is
+    layered variant; before any driver registers, `devices` is
     just a plain `DeviceEntry` map.
     """
     base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")

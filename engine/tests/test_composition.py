@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 from flyball_sim import SteppedClock
 
-from conftest import FakeRunner
+from conftest import FakeRunner, TestClient
 from flyball.foundation.config import Config
 from flyball.foundation.files import load_document
 from flyball.interfaces.server import create_app, set_rig
@@ -184,6 +183,9 @@ class TestRoutes:
         assert r.status_code == 200, r.text
         assert rig.devices == {} and list(rig.controllers) == [] and rig.links == {}
         assert client.get("/api/rig/changes").json() == {}
+        restored = [e for e in rig.recent if e.kind == "restored"]
+        assert len(restored) == 1, "a restore is recorded on the rig's event stream"
+        assert restored[0].scope == "rig" and restored[0].details == {"version_id": first}
         after = client.get("/api/rig/versions").json()
         assert len(after) == len(versions), "a restore writes no version"
         assert [v["id"] for v in after if v["head"]] == [first], "the head moved to it"
@@ -224,6 +226,44 @@ class TestRoutes:
         assert (
             client.post("/api/rig/save", json={"path": str(tmp_path / "x.txt")}).status_code == 422
         )
+
+    def test_overwriting_a_rig_file_keeps_its_runner_section(
+        self, client: TestClient, rig: Rig, tmp_path
+    ) -> None:
+        # The runner section is not part of the rig, so `rig.document()` has none; a save over
+        # the file must not drop it, or the password goes and the next start is open.
+        base = tmp_path / "base.yaml"
+        base.write_text("runner:\n  auth:\n    token: base-token\n  allow_save: true\n")
+        rig_file = tmp_path / "lab.yaml"
+        rig_file.write_text(
+            "name: lab\nextends: [base.yaml]\nrunner:\n  auth:\n    password: hunter2\n"
+        )
+        rig.files = [rig_file]
+        set_runner(FakeRunner(RunnerConfig(allow_save=True)))
+        assert client.post("/api/links", json=PLANT).status_code == 201
+        r = client.post("/api/rig/save", json={"path": str(rig_file), "overwrite": True})
+        assert r.status_code == 200, r.text
+        assert "runner" not in r.json()["document"], "the secrets are not sent back"
+        saved = load_document(rig_file)
+        assert saved["runner"] == {
+            "auth": {"token": "base-token", "password": "hunter2"},
+            "allow_save": True,
+        }, "the file's own runner section, with what it extended, is kept"
+        assert "t1" in saved["links"]
+        # Any existing file is overwritten the same way; a new one has no runner section.
+        other = tmp_path / "other.yaml"
+        other.write_text("runner:\n  auth:\n    token: other-token\n")
+        assert client.post("/api/rig/save", json={"path": str(other)}).status_code == 200
+        assert load_document(other)["runner"] == {"auth": {"token": "other-token"}}
+        fresh = tmp_path / "fresh.yaml"
+        assert client.post("/api/rig/save", json={"path": str(fresh)}).status_code == 200
+        assert "runner" not in load_document(fresh)
+        # A file whose runner section cannot be read is not overwritten blind.
+        broken = tmp_path / "broken.yaml"
+        broken.write_text("runner: [unclosed\n")
+        r = client.post("/api/rig/save", json={"path": str(broken)})
+        assert r.status_code == 409 and "runner" in r.json()["detail"]
+        assert broken.read_text() == "runner: [unclosed\n"
 
 
 class TestHardwareGate:

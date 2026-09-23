@@ -20,6 +20,7 @@ from flyball.interfaces.server.deps import (
     current_simulation_device,
     save_allowed,
 )
+from flyball.interfaces.server.redact import without_credentials
 
 from .devices import device_schema, run
 
@@ -97,8 +98,11 @@ def reset_plant(name: str, body: ResetIn, simulation: SimulationDep) -> dict[str
 
 @router.get("/config")
 async def read_config(simulation: SimulationDep) -> dict[str, Any]:
-    """The rig file as it now stands, with every change applied."""
-    return simulation.config_document()
+    """The rig file as it now stands, with every change applied.
+
+    Never `runner.auth`'s credentials: this route needs only `read`.
+    """
+    return without_credentials(simulation.config_document())
 
 
 @router.post("/save")

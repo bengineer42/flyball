@@ -13,12 +13,12 @@ uv run flyball-linux probe    # what this machine has, as rig-file fragments
 
 The package registers its tags through the `flyball.configs` entry point, so
 the runner knows them once it is installed alongside `flyball`. The `flyball`
-Go CLI's own `rig check`/`rig schema` are a separate story: they validate
-against a schema baked into the binary from a bare `engine/` install (see
-`daemon/internal/schema/regen.sh`), which never has `flyball_linux` on it --
-so they don't know these tags at all, on any machine. A rig using them is
-only ever validated live, by starting a runner that has this package
-installed.
+Go CLI's own `rig check`/`rig schema` validate against a schema baked into
+the binary, generated with every first-party package installed -- this one
+and `flyball-chips` included (`daemon/internal/schema/regen.sh`) -- so they
+know these tags too. What they do not do is apply a `board:` profile: a rig
+that names pins by header label (`examples/greenhouse.yaml`) is only
+validated in full by starting a runner.
 
 ## Links
 
@@ -33,7 +33,8 @@ installed.
 ## Devices
 
 Every driver is a `Device` with a tree of signals, each `[R]`eadable,
-`[P]`ublishing or `[W]`ritable (`temp-docs/DEVICE-MODEL-PLAN.md`). Its own
+`[P]`ublishing or `[W]`ritable (see the book, *Signals: R, P, W*,
+`book/src/3-extending/model.md`). Its own
 settings sit flat beside the envelope (`driver`, `label`, `poll_s`,
 `signals`, `bound`) or under `config`; the envelope's `signals:` overrides
 range, precision, bands, limits and `poll_s` per signal.

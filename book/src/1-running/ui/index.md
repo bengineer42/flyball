@@ -129,6 +129,13 @@ looking** to come back without one.
 to a browser -- still works: it is signed in with once and dropped from the
 visible address, so it is not left in history.
 
+A runner with no password and no token that is open to the network
+(started with `--insecure-open`) puts a red banner above every page saying
+anyone who reaches it may operate the rig; one asked for the network but
+served on this machine only, for want of a password, gets an amber one
+saying so. Neither has a close button: it goes when the runner is given a
+password or a token, or moved back to loopback.
+
 ## Design rationale
 
 Colour is reserved for abnormal states (ISA-101): a normal reading is

@@ -7,8 +7,28 @@ Who may reach the runner, where, and what the API is allowed to do to the proces
 Three ways a runner can stand:
 
 - **Open** (the default): no password, no token; anyone who can reach the
-  port can read and drive the rig. Fine on loopback; not on `--host 0.0.0.0`,
-  and not on a rig a model can drive.
+  port can read and drive the rig. For one person on their own machine, so
+  it is served on loopback only: an open runner asked for any other
+  `--host` (`0.0.0.0`, a LAN address, a host name other than `localhost`)
+  still starts and runs the rig -- a control process that will not start
+  leaves the equipment uncontrolled -- but binds `127.0.0.1` on the same
+  port, and prints one `WARNING` line on stderr saying why and how to fix
+  it. `GET /api/auth` and `GET /api/health` report it as `exposure`
+  (`restricted: true`). It also answers only when it is addressed as
+  `localhost`, `127.0.0.1` or `[::1]` (any port), and refuses every other
+  name with `403`, so a web page that points its own name at your machine
+  (DNS rebinding) is refused too. To reach a runner by any other name, give
+  it a password or a token. To serve one open on the network anyway, say so
+  for that run: `--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in its
+  environment. There is no rig-file key for it: a file can be copied from
+  anywhere, and `extends:` would pass it on. The runner then prints a
+  warning each start, `exposure.open_network` is `true`, and the dashboard
+  shows a banner on every page that cannot be dismissed. It also answers to
+  whatever name it is reached by (`http://pi:8000`, `http://192.168.1.3:8000`),
+  so the DNS-rebinding refusal is gone with it -- a page elsewhere that
+  points its name at the rig can read it -- and the MCP transport's own
+  loopback-only check is off too; the `Origin` check below still refuses
+  another site's page anything that acts. Not on a rig a model can drive.
 - **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
   the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
   The login page trades it for a session -- an `HttpOnly` cookie the browser
@@ -20,24 +40,51 @@ Three ways a runner can stand:
   Python client (`flyball.interfaces.client.Rig`), `flyball-mcp` and any script send it
   as `Authorization: Bearer T`; a websocket, or a plain `GET` the browser
   navigates to (an export link), may pass `?token=T` instead, since a browser
-  cannot set headers on either -- a URL is logged where a header is not, so
+  cannot set headers on either -- a URL is logged where a header is not
+  (the runner's own request log drops the query, but a proxy's may not), so
   the header is the form to use wherever it can be set. The Go CLI
   (`flyball`) takes it the same way -- `flyball --token T ...` or
   `FLYBALL_TOKEN=T` in the environment. The login page takes the token too,
   so a browser on a token-only runner still ends up with a cookie and
   nothing in its storage.
 
+A password or a token given in the environment counts the same as one on
+the command line or in the file.
+
+**Plain HTTP.** The runner does not do TLS: a password, a token and a
+session cookie sent to it from another machine cross the network in the
+clear, and anyone on the path can take them. A runner with a password or a
+token that serves beyond loopback logs a warning saying so at start; put a
+proxy that terminates TLS in front of it on anything but a network you
+trust.
+
 Either one shuts the door: everything under `/api`, `/ws` and `/mcp` needs a
-session or the token, bar `/api/auth` (the door itself) and `/docs`.
-Refused is `401` with a `detail` (a socket is closed with code 4401).
+session or the token, bar `/api/auth` (the door itself). The rest -- the
+bundled UI, whose login page has to load before anyone has signed in,
+`/docs` and `/openapi.json` -- is open to a `GET`. Refused is `401` with a
+`detail` (a socket is closed with code 4401). A token that is sent and
+wrong is refused the same way, even where anonymous callers may read.
+
+**Other web pages.** Whatever the door, a request that changes something
+(anything but `GET`, `HEAD` and `OPTIONS`) and every websocket is refused
+with `403` when the browser says it comes from another site: an `Origin`
+header that is not the runner's own address, or `Origin: null`. A page on
+another site therefore cannot drive the rig through your browser -- not
+with your session cookie, and not on an open runner. Tools that send no
+`Origin` (the CLI, the Python client, `curl`) are unaffected, and so is
+anything that sends the bearer token, which another site cannot know.
+Behind a proxy, pass the browser's `Host` through (nginx: `proxy_set_header
+Host $http_host;`), or the runner cannot tell its own address from
+another's; a TLS proxy (`https://` outside, plain HTTP to the runner) is
+recognised as the same site.
 
 **Who may look without either** is `auth.anonymous` (`--anonymous`,
 `FLYBALL_ANONYMOUS`): `none` (the default -- nothing until signed in) or
 `read` -- every `GET` and every stream is served to anyone, and only a
 session or the token may do anything else. `read` is how a rig goes on the
 public internet to be watched but not driven, with or without a proxy's
-`limit_except GET` in front of it; the one `GET` with a side effect,
-`/api/probe`, stays behind the door. With `read` the UI shows the rig
+`limit_except GET` in front of it -- no `GET` has a side effect (a bus
+probe is `POST /api/probe`). With `read` the UI shows the rig
 read-only, says so in the app bar, and offers to sign in when a control is
 refused.
 
@@ -47,13 +94,80 @@ signed, not stored: the key is `auth.secret` if given, else a file
 only), else one made for the process -- in which case a restart signs
 everyone out. Changing the password signs everyone out too. Ten wrong
 passwords in a minute from one address are refused for the rest of it.
+The address is the connection's own: the runner trusts no
+`X-Forwarded-For` (so a caller cannot pick a fresh one per guess), which
+means that behind a proxy every caller shares the proxy's address and
+its ten. Checking a hashed password takes a moment and some memory, so
+the runner checks two at a time, off the loop that serves everything
+else, and answers a third `429` straight away. The cookie is marked `Secure` over `https`, or when a TLS proxy
+says `X-Forwarded-Proto: https`.
 
 The runner's own MCP mount still works on a password-only runner (it uses a
 token of its own, never shown); a model connecting from outside needs the
 runner to have `--token` as well. `GET /api/runner` reports none of these
 values; `GET /api/auth` says which the runner has (`password`, `token`,
 `passkey`) -- never whether one is actually registered, only whether the
-door exists, so a stranger cannot learn that from an unauthenticated call.
+door exists, so a stranger cannot learn that from an unauthenticated call. Its `exposure` (also
+in `GET /api/health`) says where it serves against where it was asked to:
+
+```json
+{"requested": "0.0.0.0", "host": "127.0.0.1", "port": 8000, "open": true,
+ "restricted": true, "open_network": false,
+ "warning": "host is '0.0.0.0' but the runner has no password and no token: serving on 127.0.0.1:8000 only, ..."}
+```
+
+## Behind `flyball run --serve-ui`
+
+`flyball run rig.yaml --serve-ui ADDR` (or `runner.run.serve_ui`) serves the
+UI on `ADDR` and proxies `/api`, `/ws` and `/mcp` to the runner on loopback,
+with no door of its own -- so the runner's door is the only one, and the
+runner, being on loopback, is content to be open. The front makes the
+same decision for `ADDR` instead: on an address beyond loopback (`:8000` is
+every interface) it serves nothing until the runner answers
+`GET /api/auth`, and
+
+- a runner with no password and no token -- in the file, on the command
+  line or in its environment -- keeps running, and the UI is served on
+  `127.0.0.1` on the same port instead, with one `WARNING` line naming the
+  fixes;
+- unless `--insecure-open` is given (it is passed on to the runner too) or
+  `FLYBALL_INSECURE_OPEN=1` is in the environment: then it is served where
+  asked, with a warning;
+- a runner with either is served, with the plain-HTTP warning.
+
+A runner that answers `/api/auth` with anything but its door (a 404, a
+page that is not JSON) counts as open. Either way the front puts its own
+`exposure` into the `GET /api/auth` it passes on, so the dashboard's banner
+describes the front people actually reach. `flyballd` does the same for every
+runner it proxies to when its `listen` is beyond loopback: an open runner's
+routes answer 503 unless `auth.insecure_open` is set in `flyballd.yaml`
+([the daemon](../../7-reference/cli.md#the-daemon)).
+
+The browser addresses the front, not the runner, and an open runner behind
+it answers only a loopback `Host` and an `Origin` of its own. So both fronts
+translate what they pass an open runner, where the name has been vouched
+for: when the request came in on a loopback name (`localhost`, `127.0.0.1`,
+`[::1]`), or when the front serves an open runner beyond loopback by choice
+(`--insecure-open`, `auth.insecure_open`), the runner is sent its own
+loopback address as `Host`, and an `Origin` that is the front's own site
+(the same host, any case, and port, or `https` in front of `http`) as its
+own origin. Any other `Origin` is passed on as it came, and the runner
+refuses it: another site's page still cannot act through the front. A
+request that came in on any other name, to a front not opted in, is passed
+on untouched and refused -- the DNS-rebinding protection. With the opt-in
+there is none: any name that reaches the front is served, as it is by a
+runner given `--insecure-open` itself. A runner with a password or a token
+sees the `Host` and `Origin` the browser sent, as it would directly.
+
+For the usual Pi setup, that means a password in the file:
+
+```yaml
+runner:
+  auth:
+    password: $scrypt$…      # flyball password
+  run:
+    serve_ui: ":8000"
+```
 
 ## Passkeys
 
@@ -157,8 +271,10 @@ several rigs on one domain behind a proxy that passes the path through
 unchanged -- one runner and one `location` each, no rewriting:
 
 ```nginx
-location /flyball/humidity/api/ { proxy_pass http://127.0.0.1:8001; }
+location /flyball/humidity/api/ { proxy_pass http://127.0.0.1:8001;
+                                  proxy_set_header Host $http_host; }
 location /flyball/humidity/ws/  { proxy_pass http://127.0.0.1:8001;
+                                  proxy_set_header Host $http_host;
                                   proxy_http_version 1.1;
                                   proxy_set_header Upgrade $http_upgrade;
                                   proxy_set_header Connection "upgrade"; }

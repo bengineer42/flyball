@@ -59,11 +59,13 @@ def reload_drivers(catalog: CatalogDep) -> dict[str, Any]:
     }
 
 
-@router.get("/probe")
+@router.post("/probe")
 def probe(scan: bool = True) -> dict[str, str]:
     """The board this runner runs on: its buses, GPIO chips and, with `scan`, I²C addresses.
 
-    404 where flyball-linux is not installed.
+    A POST, not a GET: a scan is a transaction on every I²C bus, which a GET must never
+    be (a page on another site can make a browser send one). `scan=false` for the list
+    alone. 404 where flyball-linux is not installed.
     """
     try:
         from flyball_linux.probe import report  # pyright: ignore[reportMissingImports]

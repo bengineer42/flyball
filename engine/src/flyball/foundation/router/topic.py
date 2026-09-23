@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
+from threading import Lock
 
 
 class Topic[T]:
@@ -58,13 +59,17 @@ class Latest[K, V]:
 
     The writer does one dict store per update, so a loop at any rate costs the
     same. A reader asks for what changed since the version it last saw and gets
-    at most one value per key. Each reader keeps its own version.
+    at most one value per key. Each reader keeps its own version. Writers and
+    readers may be on different threads: a store and a read each take a lock
+    for the length of a dict operation, so a version is never seen before
+    the value stored under it.
     """
 
     def __init__(self) -> None:
         self._values: dict[K, tuple[int, V]] = {}
         self._version = 0
         self._watchers = 0
+        self._lock = Lock()
 
     @property
     def watched(self) -> bool:
@@ -72,9 +77,10 @@ class Latest[K, V]:
         return self._watchers > 0
 
     def set(self, key: K, value: V) -> None:
-        """Record the newest value for `key`. Never blocks, never raises."""
-        self._version += 1
-        self._values[key] = (self._version, value)
+        """Record the newest value for `key`. Never raises; waits only on another store or read."""
+        with self._lock:
+            self._version += 1
+            self._values[key] = (self._version, value)
 
     def get(self, key: K) -> V | None:
         """The newest value for `key`, or None."""
@@ -82,7 +88,8 @@ class Latest[K, V]:
         return None if held is None else held[1]
 
     def discard(self, key: K) -> None:
-        self._values.pop(key, None)
+        with self._lock:
+            self._values.pop(key, None)
 
     @property
     def version(self) -> int:
@@ -91,11 +98,14 @@ class Latest[K, V]:
     def changed_since(self, version: int) -> tuple[int, dict[K, V]]:
         """Every key updated after `version` (0 for all), and the version to ask from next.
 
-        A key stored during the call may be missed now but is caught next time.
+        The version and the values are read together, under the lock: a key
+        stored after the call is newer than the version it returns, so the
+        next call catches it.
         """
-        current = self._version
-        changed = {key: value for key, (at, value) in list(self._values.items()) if at > version}
-        return current, changed
+        with self._lock:
+            current = self._version
+            held = list(self._values.items())
+        return current, {key: value for key, (at, value) in held if at > version}
 
     @contextmanager
     def watch(self) -> Generator[None]:

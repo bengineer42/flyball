@@ -11,44 +11,47 @@ Most bench instruments need one of the first four; a chip on a Raspberry Pi
 one of the board drivers; a simulation the two `sim_*`. If none fits,
 [Extending](../../3-extending/index.md) is one short class.
 
-| driver | for | on a link | ships in |
-| --- | --- | --- | --- |
-| [`scpi`](#scpi) | any text instrument: a query and/or a write template per signal | `visa`, `serial`, `fake_text` | `flyball-visa` |
-| [`modbus`](#modbus) | PID controllers, MFCs, chillers, PLCs: a register per signal | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball-modbus` |
-| [`qcodes`](#qcodes) | ~200 QCoDeS drivers, parameters as signals | its own | `flyball-qcodes[qcodes]` |
-| [`pymeasure`](#pymeasure) | ~150 PyMeasure drivers, properties as signals | its own | `flyball-pymeasure[pymeasure]` |
-| [`sim_daq`](#sim_daq) | read a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` |
-| [`sim_drive`](#sim_drive) | drive a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` |
-| [`i2c_table`](#i2c_table) | any register-mapped I²C chip | `i2c` | `flyball-linux` |
-| [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-chips` |
-| [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-chips` |
-| [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` |
-| [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` |
-| [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` |
-| [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` |
-| [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` |
-| [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` |
-| [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` |
-| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-chips` |
-| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` |
-| [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` |
-| [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` |
-| [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` |
-| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-chips` |
-| [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-chips` |
-| [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` |
-| [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` |
-| [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` |
-| [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` |
-| [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` |
-| [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` |
+| driver | for | on a link | ships in | status |
+| --- | --- | --- | --- | --- |
+| [`scpi`](#scpi) | any text instrument: a query and/or a write template per signal | `visa`, `serial`, `fake_text` | `flyball-visa` | — |
+| [`modbus`](#modbus) | PID controllers, MFCs, chillers, PLCs: a register per signal | `modbus_tcp`, `modbus_rtu`, `fake_registers` | `flyball-modbus` | — |
+| [`qcodes`](#qcodes) | ~200 QCoDeS drivers, parameters as signals | its own | `flyball-qcodes[qcodes]` | — |
+| [`pymeasure`](#pymeasure) | ~150 PyMeasure drivers, properties as signals | its own | `flyball-pymeasure[pymeasure]` | — |
+| [`sim_daq`](#sim_daq) | read a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` | — |
+| [`sim_drive`](#sim_drive) | drive a simulated plant | `sim_plant`, or another package's own `MultiPlant` link such as `sim_furnace` | `flyball-sim` | — |
+| [`i2c_table`](#i2c_table) | any register-mapped I²C chip | `i2c` | `flyball-linux` | — |
+| [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-chips` | hardware-tested |
+| [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-chips` | — |
+| [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` | — |
+| [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` | datasheet-checked |
+| [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` | — |
+| [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` | — |
+| [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` | datasheet-checked |
+| [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` | known issue |
+| [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` | partial |
+| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
+| [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
+| [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
+| [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` | datasheet-checked |
+| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-chips` | partial (`ezo_ec`) |
+| [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-chips` | partial |
+| [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` | partial |
+| [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` | datasheet-checked |
+| [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` | datasheet-checked |
+| [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` | — |
+| [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` | — |
+| [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` | hardware-tested |
 
-Browsing what's available before wiring a rig: `extensions/linux/drivers-manifest.yaml`
-(part number, manufacturer, verification status, price, which application
-each serves) and `extensions/linux/scripts/search_drivers.py` (filter it by category,
-interface, unit or physical dimension -- units and dimensions are read
-straight from each driver's own signals, not hand-maintained) -- or the
-MCP `search_drivers` tool, the same catalogue over a running server.
+`—` means not in `drivers-manifest.yaml` (the generic/wrapped-library drivers
+and a few board-level ones aren't itemised there); `partial` and `unverified`
+carry a caveat in the driver's own section below and in the manifest's
+`links:` entries. Browsing what's available before wiring a rig:
+`extensions/linux/drivers-manifest.yaml` (part number, manufacturer,
+datasheet/hardware verification status, price, which application each
+serves) and `extensions/linux/scripts/search_drivers.py` (filter it by
+category, interface, unit or physical dimension -- units and dimensions
+are read straight from each driver's own signals, not hand-maintained) --
+or the MCP `search_drivers` tool, the same catalogue over a running server.
 
 `GET /api/drivers` on a running runner lists exactly what *it* can build --
 these plus anything from a `drivers/` directory or another installed
@@ -345,6 +348,11 @@ TE MS5611 barometric pressure: `pressure` (Pa) and `temperature`, both
 | `link` | required | an `i2c` link |
 | `address` | `0x77` | `0x76` on the CSB-low variant |
 
+!!! note "Known issue"
+    The PROM's CRC-4 checksum is read but not verified -- a corrupted
+    calibration block would be trusted silently rather than raising.
+    Whether to implement the check is still open.
+
 ### `bme280`
 
 Bosch BME280/BMP280: `temperature`, `pressure`, and (BME280 only)
@@ -357,21 +365,6 @@ don't convert linearly.
 | `link` | required | an `i2c` link |
 | `address` | `0x76` | `0x77` on SDO-high |
 | `has_humidity` | `true` | `false` for a BMP280 (no humidity registers) |
-
-### `bme680`
-
-Bosch BME680: `temperature`, `pressure`, `humidity`, `gas_resistance`, all
-`[RP]`. Its compensation formula genuinely differs from BME280's -- not
-reused. The gas channel runs a timed heater profile before each reading;
-a reading taken before the heater is stable raises rather than returning a
-silently-wrong resistance.
-
-| field | default | |
-| --- | --- | --- |
-| `link` | required | an `i2c` link |
-| `address` | `0x76` | `0x77` on SDO-high |
-| `osrs_t`, `osrs_p`, `osrs_h` | `2`, `4`, `2` | oversampling per channel: `0` (skip), `1`, `2`, `4`, `8` or `16` |
-| `gas_heater_c`, `gas_wait_ms` | `320`, `150` | the gas-sensing heater profile used on every read, 0-400 °C and 0-4032 ms |
 
 ### `scd30`
 
@@ -409,8 +402,8 @@ Sensirion SGP30: `co2eq` (ppm) and `tvoc` (ppb), both `[RP]`. Needs a
 periodic baseline (get/set) for long-term accuracy. The driver class has
 `get_baseline`/`set_baseline`; a baseline read back earlier can be restored
 at startup with the `baseline` field, so the chip need not settle from
-scratch on every power cycle. There is still no device command for saving
-one back out -- that stays application-side for now.
+scratch on every power cycle. The `baseline` command reads the current
+baseline back out, to save for that field.
 
 | field | default | |
 | --- | --- | --- |

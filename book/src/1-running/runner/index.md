@@ -6,21 +6,67 @@ Python at all:
 
 ```
 flyball-runner rig.yaml                          # loopback, port 8000
-flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
+FLYBALL_PASSWORD=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
 ```
 
+Reachable needs a password or a token: an open runner (neither) asked for
+any other address still runs the rig but serves on `127.0.0.1` only, with a
+warning, and answers only to the names `localhost`, `127.0.0.1` and
+`[::1]`, unless that run says `--insecure-open` (or
+`FLYBALL_INSECURE_OPEN=1`) -- [the door](access.md#the-door-a-password-a-token-or-open).
+
 The file is validated first (`flyball rig check rig.yaml` does the same
-without serving); a bad file is a one-line message and exit code 2. With
+without serving); a bad file is a one-line message and exit code 2, and so
+is a rig that validates but cannot be built -- a driver that refuses its
+config, a device that is not there -- so a supervisor can tell a config to
+fix from a crash. With
 `recording: true` in the file, or `--record`, a session is opened in
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
-shutdown the programmer is interrupted, the session closed and the polled
-devices stopped.
+shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyballd` and systemd
+stop it -- the programmer is interrupted, the session closed and the polled
+devices stopped, and the runner exits 0. A read stuck in its driver is waited
+on for 2 s at most (over all devices together), then abandoned with a
+warning naming the device, so a hung read does not hold up the shutdown.
+
+One runner per rig: before it imports a driver, opens a link or touches the
+store, the runner takes an exclusive lock on `<store>.lock` beside the store
+(`flock`, so it goes with the process however that ends). A second runner
+for the same rig -- the same store, which by default means the same rig
+file -- exits 3 at once, naming the process that holds it, and leaves the
+live one's session and hardware alone.
+
+Every log line -- the runner's own, uvicorn's and its access log -- starts
+with the local time and its offset (`2026-09-23T10:35:20+0100 INFO
+flyball.runner: …`), so a log `flyballd` or systemd keeps can be matched
+against readings and events. `--log-level` sets how much.
 
 The rest of this section: [access and safety](access.md) -- the door, a
 sub-path behind a proxy, stopping and restarting from the API -- and
 [building a rig while it runs](building.md) -- the composition API,
 versions, saving, `--resume`. Every setting the runner takes, as a file
 rather than flags: [The runner section](../../2-config/runner.md).
+
+## With the dashboard: `flyball run`
+
+`flyball-runner` on its own is API and websocket only -- no dashboard. The
+Go [CLI](../cli/index.md)'s `flyball run RIG-FILE --serve-ui ADDR` starts
+the runner and reverse-proxies the built dashboard, `/api`, `/ws` and
+`/mcp` on `ADDR`, so one command is enough to get a rig with a UI:
+
+```
+flyball run rig.yaml --serve-ui :8000
+```
+
+`--uv` runs `flyball-runner` via `uv run --project <rig file's directory>`
+instead of a bare exec, for a rig whose application (`examples/humidity`,
+`examples/furnace`) manages its own venv rather than putting
+`flyball-runner` on `$PATH`. Both flags, and `--port` (where the proxy
+expects the runner to be listening), have a rig-file equivalent under
+`runner.run` -- so a deployment that always wants the same invocation (a
+Pi that runs the same command at every boot) can set it once in the file
+and drop the flags; a flag given on the command line always wins. Full
+flag and key reference: [`flyball run`](../../7-reference/cli.md#local-no-runner-or-daemon-involved),
+[`runner.run`](../../2-config/runner.md#run-flyball-runs-own-flags-in-the-file).
 
 ## Installing
 
@@ -63,7 +109,7 @@ says how it is configured and driven.
 | `/api/history` | sessions, series, ticks, events, spans, stored tunings |
 | `/ws/samples` | every sample as it arrives, each demand's write record beside its readback, and the polling runs |
 | `/ws/controllers`, `/ws/waits` | a snapshot on connect, then what changed |
-| `/docs` | OpenAPI, from FastAPI |
+| `/docs` | OpenAPI in Swagger UI, served by the runner itself, so it works offline (`/openapi.json` is the document) |
 
 Full list: [HTTP and websocket API](../../4-server/api.md).
 
@@ -80,7 +126,10 @@ decides its own:
 | `NotReadyError` | 503 | rig not configured, or no reading yet |
 | `HardwareError` | 503 | a device failed; usually transient |
 
-The body is `{"detail": "<the exception's message>"}`.
+The body is `{"detail": "<the exception's message>"}`. The store's failures
+land on the same rows: a write it refuses (`ConstraintError`) is 409, a store
+it cannot reach (`StoreUnavailableError`) is 503, and anything else it raises
+is a bug and answers 500.
 
 ## Recording
 

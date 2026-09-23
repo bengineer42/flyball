@@ -26,7 +26,9 @@ knows anything the API does not publish.
 
 ## Finding a rig
 
-`http://host:8000` by default; `--host 0.0.0.0` to be reachable; a
+`http://host:8000` by default; `--host 0.0.0.0` and a password or a token
+to be reachable ([an open runner stays on loopback](../1-running/runner/access.md#the-door-a-password-a-token-or-open),
+and answers only to loopback names); a
 [sub-path](../1-running/runner/access.md#a-sub-path) (`--root-path /furnace`) puts
 everything under a prefix. `GET /api/health` is the one-look status;
 `GET /api/schema` describes every device; `GET /api/runner` says how the

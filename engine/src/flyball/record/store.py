@@ -144,7 +144,18 @@ class Store(Protocol):
         ...
 
     def delete_session(self, session_id: int) -> None:
-        """Everything the session owns goes with it."""
+        """Everything the session owns goes with it.
+
+        Need not be atomic: a store may delete a large session a piece at a
+        time, so as not to shut everyone else out meanwhile, and marks it
+        `details.deleting` before it starts. A reader between the pieces sees
+        it partly gone; one cut off part-way is in `deleting_sessions()`, and
+        deleting it again finishes it.
+        """
+        ...
+
+    def deleting_sessions(self) -> list[SessionRow]:
+        """Sessions whose `delete_session` never finished: delete each again."""
         ...
 
     def set_pinned(self, session_id: int, pinned: bool) -> SessionRow:
@@ -164,7 +175,9 @@ class Store(Protocol):
 
         Its `start_ns` moves up to `before_ns` -- the oldest it can now hold --
         but never past its end. A span still open, or ending later, stays.
-        How the runner keeps a scratch session to the last `keep`.
+        How the runner keeps a scratch session to the last `keep`. Need not be
+        atomic, as `delete_session`; one cut off part-way leaves `start_ns`
+        where it was, and the next trim finishes it.
         """
         ...
 

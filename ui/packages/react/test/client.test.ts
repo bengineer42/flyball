@@ -200,7 +200,7 @@ describe("titles from labels", () => {
 describe("fixed() is total", () => {
   // A generator-based controller write records an object, not a number; it reaches
   // formatting through uPlot's legend and axis callbacks, where a throw takes the page
-  // down. Ben hit exactly that twice on 22 Sep, from two different call sites.
+  // down, hit from two different call sites on a real rig.
   it.each([
     ["an object, as a ramp's recorded value is", { kind: "ramp", to: 80 }],
     ["a string", "80"],

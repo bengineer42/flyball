@@ -60,9 +60,20 @@ class TestScd4x:
             "humidity": pytest.approx(55.0, abs=0.01),
         }
         assert bus.written == [
+            (0x62, None, [0x3F, 0x86]),
             (0x62, None, [0x21, 0xB1]),
             (0x62, None, [0xEC, 0x05]),
         ]
+
+    def test_start_waits_500_ms_after_stopping_a_measurement_left_running(self, monkeypatch):
+        # SCD4x datasheet v1.5 3.5.3: the sensor only responds to other commands 500 ms
+        # after stop_periodic_measurement; a restart may find it still measuring.
+        events: list[object] = []
+        bus = FakeI2c()
+        monkeypatch.setattr(bus, "write", lambda address, data: events.append(list(data)))
+        monkeypatch.setattr(scd4x.time, "sleep", lambda s: events.append(s))
+        scd4x.Scd4xSensor(bus, sleep=True)
+        assert events == [[0x3F, 0x86], 0.5, [0x21, 0xB1]]
 
     def test_read_polls_data_ready_before_reading(self):
         bus = FakeI2c(
@@ -94,7 +105,11 @@ class TestScd4x:
         air = scd4x.Scd4x("air", bus, variant="scd41", single_shot=True, sleep=False)
         (sample,) = air.read(0)
         assert sample.by_name()["co2"] == pytest.approx(600.0, abs=1.0)
-        assert bus.written == [(0x62, None, [0x21, 0x9D]), (0x62, None, [0xEC, 0x05])]
+        assert bus.written == [
+            (0x62, None, [0x3F, 0x86]),
+            (0x62, None, [0x21, 0x9D]),
+            (0x62, None, [0xEC, 0x05]),
+        ]
 
     def test_a_missing_chip_raises_so_the_device_goes_offline(self):
         air = scd4x.Scd4x("air", FakeI2c(), sleep=False)

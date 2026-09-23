@@ -27,11 +27,10 @@ export const pointCap = (widthPx: number): number => Math.max(300, Math.min(4000
  * offline, anything with no samples for a while. uPlot already treats a
  * `NaN`/`null` value as a break in the line (the same way a non-numeric
  * reading is hidden, see `store/telemetry.ts`) -- without this, a chart
- * draws a straight line through dead time as if it were continuous data
- * (brain/plans/ui-fixes.md). Both real endpoints either side of the gap
- * stay in the output untouched; only a synthetic point between them is
- * added. Returns `t`/`v` themselves, no copy, when there is no gap to
- * break -- the common case, every redraw.
+ * draws a straight line through dead time as if it were continuous data.
+ * Both real endpoints either side of the gap stay in the output untouched;
+ * only a synthetic point between them is added. Returns `t`/`v` themselves,
+ * no copy, when there is no gap to break -- the common case, every redraw.
  */
 export function breakGaps(t: readonly number[], v: readonly number[], maxGapS: number | undefined): [readonly number[], readonly number[]] {
   if (!maxGapS || t.length < 2) return [t, v];

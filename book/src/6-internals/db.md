@@ -21,7 +21,7 @@ another, and either can be replaced without the other noticing.
 | `sample` | every reading, by signal, under one node's instant |
 | `write_state` | what a writable signal was set to: one row per commit that touched it |
 | `controller` | what was driven, named by its target's address, with its source, law and feedforward |
-| `tick` | one controller step: reading, setpoint, correction, demand, expected |
+| `tick` | one controller step: reading, setpoint, correction, demand, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
 | `event` | something non-numeric that happened: a fault, a retune, a flag |
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |
@@ -105,14 +105,44 @@ databroker consume. `write_jsonl` saves them as JSON lines.
 
 ## SQLite
 
-One locked connection per `SqliteStore`. The rig's writer and the server's
-reader normally each open their own on the same file, and WAL lets them
-overlap. Declarations are interned in the writer so the hot path — a
-delivery — is one `executemany` per table with integer keys already known.
+One connection per `SqliteStore`, and one `RLock` around it: every query
+and every transaction holds the lock for its whole length. `flyball-runner`
+opens one store and shares it — the recorder's thread writes through it, the
+server reads through it, the retention sweep deletes through it — so they
+take turns at that lock. Another process (a copy being read, `sqlite3` at a
+shell) can open the same file beside it, and WAL lets them overlap.
+Declarations are interned in the writer so the hot path — a delivery — is one
+`executemany` per table with integer keys already known.
+
+Whoever waits for the lock waits as long as the holder takes, so nothing on
+the server's event loop calls the store. A route that takes `StoreDep` is a
+plain `def`, which FastAPI runs on its threadpool; one that must stay `async`
+(reading a request body) hands the store call to `anyio.to_thread`. An
+`async` route that called the store would, while another thread held the
+lock, freeze every request and websocket the runner serves. `StoreDep` also
+takes one of four `STORE_SLOTS` for the request, so a pile of history reads
+queued at the lock waits on the loop rather than filling the 40 worker
+threads that every other sync route (demands, commands) shares. The test
+suite fails any test in which the app's loop took the store's lock. Nor does
+a delete or a trim hold the lock for long, however large the session:
+[Deleting a session](#deleting-a-session) below.
 
 Migrations are numbered SQL files in `flyball/record/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
 database brings it forward. `":memory:"` for tests.
+
+Every statement goes through one of two helpers, `_query` (reads) and
+`_transaction` (writes), and they classify what sqlite raises: an
+`IntegrityError` becomes `ConstraintError` (a `ConflictError`, 409), an
+`OperationalError` `StoreUnavailableError` (a `HardwareError`, 503), with
+sqlite's error kept as `__cause__`. Anything else -- a `ProgrammingError`
+from a closed store -- passes through unchanged, because it is a bug and an
+honest 500 beats an outage nobody can wait out. `OperationalError` also
+covers a transaction begun inside another, which is a bug too; sqlite's
+message in `detail` tells the two apart. A failed `ROLLBACK` is swallowed so
+it cannot replace the error that caused it. `used_bytes` reads the page
+counts directly and raises raw; its only caller, retention's sweep, catches
+everything.
 
 The rig's history is `rig_version`: one row per version, the whole document
 each time (never a diff, so any row stands alone), `parent_id` the version
@@ -134,3 +164,36 @@ downwards, below the writer's own count, so the recorder need not know. The
 sweep itself is `flyball.runtime.retention.Retention`, started by `serve()`
 when there is a store; what it does and in what order is
 [What ages out](../1-running/runner/index.md#what-ages-out).
+
+### Deleting a session
+
+A week of 1 Hz samples took 8 s to delete in one transaction, all of it with
+the store's lock held. `delete_session` goes in pieces instead:
+
+1. one transaction marks the row: `details.deleting: true`;
+2. the data — samples (their readings by the cascade), ticks, write states,
+   events — goes a batch at a time, `_DELETE_ROWS` (1000) readings or rows
+   per transaction, the lock released between batches;
+3. one last transaction deletes the row, and its declarations and spans by
+   the cascade.
+
+That same week is now 610 transactions of at most ~35 ms each (desktop SSD).
+`trim_session` deletes the rows before its cut the same way, then moves
+`start_ns`.
+
+What is traded is atomicity. A reader between batches sees the session
+partly gone, and a runner killed mid-delete leaves the row marked and
+part-deleted. That is visible and recoverable, not silent: the row is still
+listed, `details.deleting` says why it is short, `deleting_sessions()` lists
+every such row, and deleting it again finishes the job — `flyball-runner`
+does that for each one when it opens the store, before anything reads it. A
+trim cut off part-way leaves `start_ns` where it was, over a few missing
+rows at the start, and the next sweep's trim finishes it.
+
+Still whole transactions, and so still as long as their data is large:
+copying a range (`keep_range`, `backfill` — 0.8 s for a day, 4.6 s for a
+week here) and reads of a long session without a window (`samples` 1.6 s,
+`series` 0.4 s, for a week). None of them runs on the event loop, so they
+delay only other store calls: the recorder's flush, which buffers; retention;
+and starting or stopping a recording, which calls the store under the rig's
+lock, so deliveries wait for as long as it does.

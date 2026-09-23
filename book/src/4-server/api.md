@@ -1,7 +1,10 @@
 # HTTP and websocket API
 
 All routes are under `/api`; websockets under `/ws`. Bodies and responses
-are JSON. OpenAPI is served at `/docs`.
+are JSON. OpenAPI is `/openapi.json`, and `/docs` shows it in Swagger UI --
+bundled with the runner (npm `swagger-ui-dist`, Apache-2.0), so the page
+loads nothing from another host and works with no internet. There is no
+`/redoc`.
 
 Everything on the wire is named by **address**: a signal's
 (`furnace.zone1`), a namespace's (`hum_sensors.dry`), a device's
@@ -16,17 +19,29 @@ door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)),
 every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
 `flyball_session` a login set; `Authorization: Bearer T` with the token;
 `?token=T` on a websocket or a `GET`. Without: `401` with a `detail` and
-`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. With
-`auth.anonymous: read`, a `GET` or a stream passes without any of them
-(bar `/api/probe`). `/api/auth`, `/docs` and `/openapi.json` are always
-reachable, and so is the dashboard bundle itself (`/`, its assets) -- a
-locked runner still serves its own login page; only `/api`, `/ws` and `/mcp`
-are behind the door.
+`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. A token
+that is sent and wrong is `401` too, never anonymous. With
+`auth.anonymous: read`, a `GET` or a stream passes without any of them;
+no `GET` changes anything. `/api/auth` is always reachable, and so is a `GET`
+outside `/api`, `/ws` and `/mcp`: the bundled UI (its login page
+included), `/docs` and `/openapi.json`.
+
+Two refusals come first, both `403` (a socket: closed with 4403):
+
+- **An open runner** (no password, no token) answers only a `Host` of
+  `localhost`, `127.0.0.1` or `[::1]`, on any port.
+- **In every mode**, a request that acts -- any method but `GET`, `HEAD`
+  and `OPTIONS`, and every websocket -- is refused when its `Origin`
+  header is present and is not the runner's own: the same host and port
+  as the `Host` header, and the request's scheme (or `https` where the
+  runner itself is reached over plain HTTP, a TLS proxy in front of it).
+  `Origin: null` is refused. No `Origin` at all (the CLI, a script) is
+  not. A request with the right bearer token is exempt.
 
 | | route | |
 | --- | --- | --- |
-| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token, passkey}`: how this caller got in (`anonymous`, `password`, `token`, `passkey`), what they may do (`none`, `read`, `operate`), what anyone may do, and which doors the runner has -- `passkey` says a door exists, never whether one is registered |
-| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` |
+| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token, passkey, exposure}`: how this caller got in (`anonymous`, `password`, `token`, `passkey`), what they may do (`none`, `read`, `operate`), what anyone may do, and which doors the runner has -- `passkey` says a door exists, never whether one is registered. `exposure` is where it serves against where it was asked to -- `{requested, host, port, open, restricted, open_network, warning}`: `restricted` an open runner moved to `127.0.0.1`, `open_network` an open one on the network by `--insecure-open` ([the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)); `null` when not served by `flyball-runner`. `flyball run --serve-ui` replaces it with its own front's |
+| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https or with `X-Forwarded-Proto: https`) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address (the connection's peer; no forwarded header is trusted): `429`; `429` with `Retry-After: 1` too while two other logins are being checked (the hash runs off the event loop, two at a time) |
 | `POST` | `/api/auth/logout` | clears the cookie |
 
 Started with `--root-path /p`, every path below sits under `/p`
@@ -43,7 +58,8 @@ it each answers **501** and `GET /api/auth` reports `passkey: false`. Both
 ceremonies require user verification, so an authenticator that only reports
 user *presence* is refused: 400 registering, 401 signing in. On an open
 runner (no password, no token) every one of them is 409: there is no door for a passkey
-to open.
+to open. Each `POST` and the `DELETE` acts, so the `Origin` check above applies
+to it as to any other: a page on another site cannot run a ceremony here.
 
 | | | |
 | --- | --- | --- |
@@ -81,11 +97,19 @@ a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
 `HardwareError`; 401 with `WWW-Authenticate: Bearer` from the door
 ([authentication](#authentication)), 429 for too many wrong passwords.
 
+The store's own failures take the same map. A write it refuses -- a tuning
+whose `session_id` names no session, a duplicate of a unique row -- is 409
+`ConstraintError`; a store it cannot reach -- locked by another writer, out
+of disk -- is 503 `StoreUnavailableError`. Both carry sqlite's message in
+`detail`. Anything else from the store is a bug and answers 500, never 503,
+so a 500 is not worth retrying. A 503 usually is, though sqlite files a
+transaction begun inside another under the same error; `detail` says which.
+
 ## Rig
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `{ok: false, rig: null}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` as in `GET /api/auth`; `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
@@ -106,7 +130,7 @@ saving are never gated.
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
-| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes) |
+| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); `runner.auth` shows only `anonymous` and `session`, never a password, token or secret |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
 | `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
 | `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
@@ -117,12 +141,12 @@ saving are never gated.
 | `GET` | `/api/rig/changes` | what differs from the rig as this run started, as an overlay (a removed key is `null`); `{}` when nothing |
 | `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files, parent, head}]`, newest first; `?limit=`. `parent`: the version this was made from (the head when it was saved; `null` for a first); `head`: whether the running rig is at it |
 | `GET` | `/api/rig/versions/{id}` | the same with `document` |
-| `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}` |
+| `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}`; a `rig`/`versions`/`restored` event marks it on the event stream |
 | `GET` | `/api/drivers` | every registered tag: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
-| `GET` | `/api/probe` | `{report}`: the board's buses, GPIO chips and, with `?scan=true`, I²C addresses (flyball-linux); 404 where it is not installed |
+| `POST` | `/api/probe` | `{report}`: the board's buses, GPIO chips and I²C addresses (flyball-linux); `?scan=false` for the list without a bus transaction; 404 where it is not installed. A `POST` because a scan drives every I²C bus |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
-| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`); returns `{path, document}` |
+| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the changes to `<rig>.d/added.<suffix>` beside the first rig file (409 if the runner was not started from a file); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`; an existing file keeps its own `runner:` section, which is not returned; 409 if that section cannot be read); returns `{path, document}` |
 
 ## Devices
 
@@ -134,10 +158,10 @@ lists them all with their signal trees.
 | `GET` | `/api/devices` | `[DeviceOut]` |
 | `GET` | `/api/devices/{name}` | `DeviceOut`; 404 if no device has that name |
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
-| `POST` | `/api/devices/{name}/commands/{tag}` | body: the command's arguments; returns what the method returns; a command that succeeds on an offline device restarts its polling |
+| `POST` | `/api/devices/{name}/commands/{tag}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline device restarts its polling |
 | `POST` | `/api/devices/{name}/restart` | poll an offline device again on its period; `DeviceOut` |
-| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 404 for a name not under the device |
-| `PUT` | `/api/signals/{address}` | body a number: the single-signal demand; returns `{address: WriteOut}`; 409 if the address is a namespace |
+| `PUT` | `/api/devices/{name}/demand` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one demand, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
+| `PUT` | `/api/signals/{address}` | body a number: the single-signal demand; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
 
 A `DeviceOut` is `{name, label, kind, driver, type, link, poll_s, signals,
 commands, inputs, readable, writable, conditions, run}`: `kind` is
@@ -276,7 +300,7 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, source, law, feedforward}]` |
 | `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
 | `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
-| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick]`; query `start_ns`, `end_ns` |
+| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral) |
 | `GET` | `/api/history/sessions/{id}/events` | `[Event]`; query `start_ns`, `end_ns` |
 | `GET` | `/api/history/sessions/{id}/spans` | `[Span]`, in start order; nest by `parent_id` |
 | `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per signal (each row holds every signal's last value; `step_s` resamples onto a grid), `long` one row per value (`device, signal, unit, value`), `zip` both (`signals-wide.csv`, `signals-long.csv`) plus each controller's ticks (`controller-{name}.csv`), each write's states (`write-{address}.csv`), `events.csv` and `session.json` (`devices`, `signals`, `controllers`) |
@@ -363,7 +387,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |
 | `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
-| `GET` | `/api/sim/config` | the rig file as it now stands |
+| `GET` | `/api/sim/config` | the rig file as it now stands; never `runner.auth`'s credentials |
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the runner runs with `--allow-save` |
 | `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |

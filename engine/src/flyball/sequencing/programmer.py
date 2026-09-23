@@ -10,9 +10,12 @@ and detach bracket the wait in `Programmer._wait_out`, and teardown is one
 `finally` reached by completion, failure and cancellation alike.
 
 Locking:
-    The programmer's lock is always the inner lock. `_apply` takes the rig's
-    lock, then this one; nothing takes them the other way round, and no thread
-    is joined under it.
+    On the worker path the two locks are never nested: `_apply` takes the
+    programmer's lock, releases it, emits the step event with no lock held,
+    takes the rig's lock to run the command, then takes the programmer's lock
+    again. On `start`, `_apply_atomics` holds the programmer's lock around its
+    `_apply` calls, so there the rig's lock is taken inside it (programmer, then
+    rig). No thread is joined under either lock.
 """
 
 from __future__ import annotations
@@ -210,8 +213,12 @@ class Programmer:
             step = self._step
         try:
             while True:
-                if activity is not None and not self._wait_out(activity, program[step]):
-                    break
+                if activity is not None:
+                    with self.lock:
+                        if self._abort:
+                            break
+                    if not self._wait_out(activity, program[step]):
+                        break
                 step += 1
                 with self.lock:
                     if self._abort or self._program is not program or step >= len(program):
@@ -289,6 +296,10 @@ class Programmer:
             activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity
+            if self._abort and activity is not None:
+                # `interrupt` landed while the step applied, so it cancelled the
+                # previous activity rather than this one.
+                activity.interrupt()
         return activity
 
     def _failed(self, program: Program, step: int, error: Exception) -> None:
@@ -342,43 +353,3 @@ class Programmer:
         )
 
     # endregion
-
-
-# =============================================================================
-# NOT DONE YET -- what this file needs from elsewhere.
-#
-# 1. Rig.attach / Rig.detach do not exist (rig.py). Membership only, under
-#    rig.lock; the loop never detaches, because the programmer owns lifetime:
-#
-#        def attach(self, activity: Activity) -> None:
-#            with self.lock:
-#                if self._activity is not None:
-#                    raise ActivityAlreadyRunningError(self._activity, activity)
-#                self._activity = activity
-#
-#        def detach(self, activity: Activity) -> None:
-#            with self.lock:
-#                if self._activity is activity:
-#                    self._activity = None
-#                    activity.detach(self)
-#
-# 2. rig.main_step (rig.py:661) still steps `self._runner`. It should step
-#    `self._activity` when the signal is not already set, with the call
-#    wrapped so a raising activity fails its signal rather than throwing every
-#    tick -- `activity.fail(error)`.
-#
-# 3. command.parse_response tests `isinstance(value, Trigger)` and puts the
-#    result in the `activity` slot. Since Activity now holds a signal rather
-#    than being one, that branch wants `Activity`, or a bare signal wrapped
-#    in one.
-#
-# 4. Ownership. The rig must not own the programmer, or the split is undone.
-#    `runner.py` builds both and `server/deps.py` injects both; the route
-#    composes `rig.state` with `programmer.state` rather than `Rig.state`
-#    reaching for a back-reference.
-#
-# Open question, not decided: a program that ends leaves the last generator
-# installed and the controller running. Correct for a soak, wrong for a run
-# that should return the rig to idle. Probably a terminal step rather than
-# implicit teardown here.
-# =============================================================================

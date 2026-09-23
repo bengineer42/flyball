@@ -56,10 +56,10 @@ number 4, `"on"` stays a string, matching the old CLI's literal parsing.
 
 | command | | |
 | --- | --- | --- |
-| `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print` |
+| `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print`. The schema holds the drivers and links of every first-party package (the engine, `flyball-sim`, `-modbus`, `-visa`, `-chips`, `-linux`, `-qcodes`, `-pymeasure`, and `examples/furnace`), not those of a package of your own; and a `board:` profile is not applied, so a device that names a `pin:` is refused here though the runner accepts it |
 | `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
 | `program schema` | the program file's JSON Schema |
-| `run RIG-FILE [--serve-ui ADDR] [--port PORT] [--uv] [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig". `--uv` runs it via `uv run --project <rig file's directory> flyball-runner` instead of a bare exec, so it works outside an app's own uv-managed venv (e.g. `examples/humidity`, `examples/furnace`) without first `cd`-ing there. `--serve-ui ADDR` additionally serves the embedded dashboard UI on `ADDR`, reverse-proxying `/api`, `/ws` and `/mcp` to the runner -- no separate reverse proxy needed. `--port PORT` is where the UI proxy expects the runner to be listening (default `8000`; set the runner's own `runner.port` in the rig file to match if it differs). All three have a rig-file equivalent -- `runner.run.serve_ui`, `runner.run.uv`, `runner.run.port` -- read from the rig file (`extends` resolved) as the default when the matching flag isn't given; a flag on the command line always wins. `runner.run` is Go-CLI-only: `flyball-runner`'s own config (`RunnerConfig`) accepts the key but never reads or validates its contents |
+| `run RIG-FILE [--serve-ui ADDR] [--port PORT] [--uv] [flyball-runner flags...]` | start a runner directly in the foreground, no daemon involved -- the escape hatch for "just run one rig". `--uv` runs it via `uv run --project <rig file's directory> flyball-runner` instead of a bare exec, so it works outside an app's own uv-managed venv (e.g. `examples/humidity`, `examples/furnace`) without first `cd`-ing there. `uv` and the runner then run in a process group of their own, and a SIGINT or SIGTERM sent to `flyball run` -- from a terminal, a script or a service manager -- goes to that group once (`uv` itself ignores SIGINT, leaving it to the terminal). `--serve-ui ADDR` additionally serves the embedded dashboard UI on `ADDR`, reverse-proxying `/api`, `/ws` and `/mcp` to the runner -- no separate reverse proxy needed. Its server gives a client 10 s to send its headers, closes a keep-alive connection after 120 s idle and refuses headers over 64 KiB (431); a websocket or a download is not cut short. `--port PORT` is the runner's port, passed on to it, and where the UI proxy sends `/api`, `/ws` and `/mcp`; without it the proxy follows the rig file's own `runner.port` (`extends` resolved), then `runner.run.port` (passed on to the runner too), then `8000`. On an `ADDR` beyond loopback (`:8000`, `0.0.0.0:8000`, a LAN address) nothing is served until the runner answers `GET /api/auth`: a runner with no password and no token (from its file, flags or environment) keeps running and the UI is served on `127.0.0.1` on the same port instead, with a warning, unless `--insecure-open` (passed on to the runner too) or `FLYBALL_INSECURE_OPEN=1` says to serve it where asked (per run: there is no rig-file key), in which case the front answers any name and passes an open runner its own loopback `Host` and, for a same-site page, its own `Origin` -- another site's `Origin` is still refused ([behind `flyball run --serve-ui`](../1-running/runner/access.md#behind-flyball-run-serve-ui)); on loopback the front does the same for its loopback names only, so a rebound name is refused; a runner with either is served with a warning that plain HTTP carries its credentials in the clear. All three have a rig-file equivalent -- `runner.run.serve_ui`, `runner.run.uv`, `runner.run.port` -- read from the rig file (`extends` resolved) as the default when the matching flag isn't given; a flag on the command line always wins. `runner.run` is Go-CLI-only: `flyball-runner`'s own config (`RunnerConfig`) accepts the key but never reads or validates its contents |
 | `password [PASSWORD]` | hash a password for `runner.auth.password` (prompts if omitted) |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
 
@@ -77,34 +77,67 @@ no local, offline-against-installed-commands mode as `cli.py` had.
 ## The daemon
 
 `flyballd` starts one `flyball-runner` per manifest and proxies each under
-its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
+its `root_path`; `/` lists them. `flyballd --config flyballd.yaml`; every key has a default:
 
 | key | default | |
 | --- | --- | --- |
-| `listen` | `127.0.0.1:9000` | the address it serves on |
-| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
-| `data_dir` | `data` | captured runner logs, under `logs/` |
-| `log_max_size` | 10 MiB | per-runner captured-log cap |
-| `auth.token` | none | the bearer token the registration routes below need. **With no token they answer 503**: the runners in `manifests_dir` still start, but nothing can start, stop, restart or read one over the API |
+| `listen` | `127.0.0.1:9000` | the address it serves on. A client has 10 s to send its request headers, in at most 64 KiB, and an idle keep-alive connection is closed after 120 s; a response has no time limit, so log streaming and websockets proxied to a runner stay open. Beyond loopback it logs a warning at start (plain HTTP: its token and every runner's password, token and cookies cross the network in the clear) and will not proxy to an open runner |
+| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host` (default `127.0.0.1`; a loopback address only -- the runner is reached through `flyballd`'s proxy, and anything else, `0.0.0.0` included, is refused), `root_path` (default `/NAME`), `restart` (below), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
+| `data_dir` | `data` | captured runner logs, under `logs/`: `NAME.log`, and `NAME.log.1` once it has been capped. A log can hold secrets (a `?token=` in a request line), so `logs/` is made `0700` and each file `0600`, also when they already exist |
+| `log_max_size` | 10 MiB (`10485760`, in bytes) | per-runner captured-log cap; `0` for none. Checked every 2 s: past it, `NAME.log` is copied to `NAME.log.1` (replacing the last one) and emptied, so a runner's logs take at most about twice the cap. The runner keeps writing to the same file, so a daemon crash does not cut its output; a line written at the moment of the copy can be lost |
+| `auth.token` | none | the bearer token every route of the daemon's own needs -- the runner list, `/`, and the commands below; only `GET /api/auth` is open. **With no token they answer 503**: the runners in `manifests_dir` still start and are proxied, but nothing can list, start, stop, restart or read one over the API |
+| `auth.insecure_open` | `false` | with `listen` beyond loopback, proxy to a runner that has no password and no token anyway, by whatever name `flyballd` is reached: such a runner is passed its own loopback `Host`, and a same-site page's `Origin` as its own, while another site's `Origin` is still refused ([behind `flyball run --serve-ui`](../1-running/runner/access.md#behind-flyball-run-serve-ui)). Off: such a runner's routes answer 503, since anyone who reached them could operate its rig. `flyballd` asks each runner's `GET /api/auth` before proxying to it, and believes a runner with a door for 2 s; on loopback it translates for its loopback names only |
 
 A runner's `name` is lower-case letters, digits, `-` and `_` (it names the
-log file and the URL prefix); `root_path` is `/segments` of the same. A
-manifest that says otherwise is refused, at start-up or over the API (400).
+log file and the URL prefix); `root_path` is `/segments` of the same; `host`
+is loopback; `restart` is one of the three below. A manifest that says otherwise is refused, at start-up or over the API (400).
+
+A runner's `status` (in `GET /api/runners`) follows its process:
+
+| status | |
+| --- | --- |
+| `starting` | spawned, not yet answering `GET <root_path>/api/auth` (probed every 0.5 s) |
+| `running` | answering |
+| `restarting` | it exited, its `restart` policy restarts it, and it is waiting out the backoff: 1 s, doubling to 30 s, back to 1 s once a restart reaches `running` |
+| `stopped` | it exited cleanly on its own, and its `restart` policy says not to restart it |
+| `failed` | it crashed and its `restart` policy says not to restart it, it exited 2 (a bad rig file), or it could not be started again |
+
+A manifest's `restart` says what happens when a runner exits on its own:
+
+| `restart` | a crash (non-zero exit) | a clean exit (0) |
+| --- | --- | --- |
+| `on-failure` (default) | restarted, after the backoff | `stopped` |
+| `always` | restarted, after the backoff | restarted, after the backoff |
+| `never` | `failed` | `stopped` |
+
+Exit code 2 is never restarted, under any policy: it is `flyball-runner`'s
+code for a rig file that does not validate or a rig that cannot be built
+(and `uv`'s, for a project or command it cannot find), which a restart
+cannot fix. The runner is `failed` until `daemon restart`.
+
+`daemon restart` restarts a runner at once, whatever its exit code, and
+cuts short a crash backoff; a `stopped` or `failed` runner starts again. It
+sends `SIGTERM` and returns; a runner still there after 10 s is `SIGKILL`ed
+and the new one started all the same. `daemon stop` sends `SIGTERM`, `SIGKILL`s a
+runner still there after 10 s, and returns once it is gone -- also for a
+runner in backoff, which does not come back.
 
 ### Daemon-managed commands (via `$FLYBALLD_URL`, never routed through a runner)
 
 | command | | |
 | --- | --- | --- |
-| `daemon runners` | `GET /api/runners` | list registered runners; open |
+| `daemon runners` | `GET /api/runners` | list registered runners and their status |
 | `daemon start MANIFEST.json` | `POST /api/runners` | register and start one |
 | `daemon stop NAME` | `DELETE /api/runners/NAME` | stop and deregister it |
 | `daemon restart NAME` | `POST /api/runners/NAME/restart` | restart it |
-| `logs NAME` | `GET /api/runners/NAME/logs` | its captured stdout/stderr |
+| `logs NAME` | `GET /api/runners/NAME/logs` | its captured stdout/stderr (`NAME.log`; not the capped-off `NAME.log.1`) |
 
-All but `daemon runners` send `Authorization: Bearer $FLYBALLD_TOKEN` --
-the daemon's token, not a runner's -- and are 401 without it. `GET
-/api/auth` says which you are: `level: read` anonymously, `operate` with
-the token.
+All of them send `Authorization: Bearer $FLYBALLD_TOKEN` -- the daemon's
+token, not a runner's -- and are 401 without it; so does picking the one
+registered runner when `-s` is omitted. The proxy under a runner's
+`root_path` does not ask for it: the runner behind it has its own access
+control. `GET /api/auth` says which you are: `level: read` anonymously,
+`operate` with the token.
 
 ## Exit codes
 

@@ -73,7 +73,17 @@ before touching anything:
 3. Each value is clamped to the signal's `limits` — numbers, or a reference
    to another signal of the same device, resolved live — and the original
    value kept (as `_requested`) only where the clamp changed it — that is
-   what `WriteState.requested` reports later.
+   what `WriteState.requested` reports later. A reference with no value yet,
+   or a non-finite one (NaN, inf: a NaN bound drops its side of the
+   clamp, `min(max(-50, nan), 100)` is `-50`), fails closed (`Signal.clamp` raises `LimitNotKnownError`, a
+   `NotReadyError`): a manual demand is refused before anything is
+   applied; a controller's demand is *held* — `demand()` returns `{}`,
+   nothing is applied, as for a stale source — and the rig emits one
+   `limit_unknown` event (`WARNING`, scope `controller`) on entering the
+   hold and one `limit_known` (`INFO`) on the first write after it, not
+   one per step. Refusing rather than clamping to the known end is
+   deliberate: in `(0, max_flow)` or `(dry_supply, wet_supply)` the end
+   that is not known yet is the one that protects the hardware.
 
 Only once all of this holds does anything happen: `device.apply` (or, for a
 blocking device, `writer.apply`) is called once per signal, under the rig's
@@ -113,9 +123,16 @@ lock and notes the run (`last_read_ns`, cleared conditions) in `Polling.runs`.
 
 Only `read` itself can put a device offline: a raised exception becomes an
 `offline` condition and an `offline` event, and the device's loop stops
-itself until `restart`. A failure *downstream* of the read — an observer, a
-controller's law, the recorder — is the rig's, not the read's: a
-`delivery_failed` event, and the device's samples are still noted as read.
+itself until `restart`, or until a command on it succeeds (`Polling.revive`,
+called by the command route and by a program's `command` step alike). A
+controller whose law raises is kept to itself: a `step_failed` event on the
+first failure and `step_recovered` when it steps again, its mode left as it
+was, and every other controller, commit, reading and the recorder carry on.
+Any other failure *downstream* of the read — an observer, a commit, the
+recorder — is the rig's, not the read's: a `delivery_failed` event, and the
+device's samples are still noted as read. After a gap in its readings
+longer than three usual intervals (an outage), a controller's next step
+counts as one ordinary step, not the whole gap.
 A poll that takes longer than its period logs a `slow` condition but does
 not resynchronise or catch up; it just runs again next period.
 
@@ -132,7 +149,22 @@ tick — is arithmetic under the lock. What leaves it:
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
 
-`rig.stop()` stops all of it: polling, writers, recording.
+`rig.stop()` stops all of it: polling, writers, recording. It waits for
+reads in progress for `STOP_JOIN_S` (2 s) in total; a poll thread still in
+its driver's `read` after that is abandoned -- it is a daemon thread -- and
+logged once by device name.
+
+`rig.remove_device` waits for neither thread. It runs under the lock, which
+a read or a write in flight needs in order to report, so it stops the
+device's poll loop and writer without joining them. Each finishes on its
+own thread, finds under the lock that its device is gone (by identity: a
+device re-added under the same name is another one) and drops what it read
+or wrote.
+
+The server's async routes answer on the event loop and do not take the lock,
+which a delivery may hold for a bus transaction: they iterate a
+`list(...)` snapshot of the rig's dicts, so a device or controller added
+meanwhile is not an error. `Rig.document` and `attach_controller` take it.
 
 ## Controllers
 

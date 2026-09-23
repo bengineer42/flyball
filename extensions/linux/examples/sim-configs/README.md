@@ -1,7 +1,8 @@
 # Simulated sensor configs
 
-One overlay per sensor in `../sensors/`, on the humidity example's pattern
-(`examples/humidity/sim.yaml`): the device keeps its real driver's signal
+One overlay per sensor in `../sensors/`, on the pattern of
+[the humidity rig](https://bengineer42.github.io/humctrl/)'s `sim.yaml`:
+the device keeps its real driver's signal
 names, units and (where namespaced) addresses, but the driver itself is
 swapped for the engine's generic `sim_daq`, bound to `sim_plant` links
 (`engine/src/flyball/sim/plant.py`) instead of real hardware. A program or
@@ -25,14 +26,14 @@ temperature/pressure) gets one small plant *per quantity*, not one shared
 plant -- a shared plant would make every signal read the same number under
 different units, not correlated values. Real correlation (temperature and
 humidity moving together as a room breathes) would need a bespoke
-multi-output plant class, like `examples/humidity`'s `sim_humidity_chamber`;
-that's Python, so it's out of scope for this config-only pass and noted
+multi-output plant class, like [the humidity rig](https://bengineer42.github.io/humctrl/)'s
+`sim_humidity_chamber`; that's Python, so it's out of scope for this config-only pass and noted
 per file where it would otherwise apply.
 
 ## Covered
 
 Every driver that reads a sensor value: `sht31`, `htu21d`, `bme280`,
-`bme680`, `ms5611`, `scd30`, `scd40` (SCD40/41), `sgp30`, `sgp40`, `ccs811`,
+`ms5611`, `scd30`, `scd40` (SCD40/41), `sgp30`, `sgp40`, `ccs811`,
 `mhz19`, `ezo_ph`, `hx711`, `tsl2591`, `veml7700`, `lps22hb`, `ph_probe`
 (generic analog pH), `turbidity` (generic analog).
 

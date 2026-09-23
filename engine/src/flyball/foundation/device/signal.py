@@ -14,12 +14,13 @@ hot path looks a name up. Addresses are parsed once, at the boundary.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
 from typing import TYPE_CHECKING, Any
 
-from ..errors import NotFoundError
+from ..errors import NotFoundError, NotReadyError
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
@@ -117,6 +118,23 @@ def _excess(requested: Access, allowed: Access) -> str:
     """
     extra = requested.value & ~allowed.value
     return "".join(letter for letter, flag in _LETTERS if extra & flag.value)
+
+
+def _check_band(name: str, field_name: str, band: tuple[Any, Any] | None) -> None:
+    """Refuse an inverted or non-finite band, when both ends are plain numbers.
+
+    A `limits` bound may be a [SignalRef][flyball.foundation.device.signal.SignalRef]
+    rather than a number; those are resolved on the instance and are not checked here.
+    """
+    if band is None:
+        return
+    lo, hi = band
+    if not (isinstance(lo, (int, float)) and isinstance(hi, (int, float))):
+        return
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        raise ValueError(f"signal {name!r}: {field_name} {band!r}: must be finite")
+    if lo > hi:
+        raise ValueError(f"signal {name!r}: {field_name} {band!r}: inverted, low above high")
 
 
 type Band = tuple[float, float]
@@ -256,7 +274,9 @@ class SignalSpec:
     # write side (W)
     limits: tuple[Bound, Bound] | None = None
     """What a demand is clamped to, in the signal's unit: numbers, or references to signals of
-    the same device whose current values bound it (a config's max flow, an input's humidity)."""
+    the same device whose current values bound it (a config's max flow, an input's humidity).
+    A demand while a referenced signal has no value yet, or a non-finite one (NaN, inf), is
+    refused, never passed unclamped."""
     max_rate: Rate | None = None
     """How fast a demand may move, in the signal's unit per `Rate.per`: a demand that would
     move further than the elapsed time since the last commit allows is clamped to the
@@ -274,6 +294,10 @@ class SignalSpec:
                 )
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
+        _check_band(self.name, "range", self.range)
+        _check_band(self.name, "warn", self.warn)
+        _check_band(self.name, "alarm", self.alarm)
+        _check_band(self.name, "limits", self.limits)
         if self.section is not None and self.section.axis not in self.tags:
             object.__setattr__(self, "tags", {self.section.axis: self.section.name, **self.tags})
 
@@ -477,6 +501,35 @@ class Node:
         self.spec = replace(self.spec, **changes)
 
 
+def _finite(value: Any) -> float | None:
+    """A referenced bound as a number, or None: not known -- no value, or not a finite one."""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+class LimitNotKnownError(NotReadyError):
+    """A demand was refused: a limit follows a signal that has no value yet, or a non-finite one.
+
+    Fail closed: an unresolved limit never lets a demand through unclamped
+    -- nor clamped to the other end, as `min(max(v, lo), nan)` would be.
+    The demand succeeds once the bound reads a finite value.
+    """
+
+    def __init__(self, address: str, unknown: list[str]) -> None:
+        self.address = address
+        self.unknown = unknown
+        which = ", ".join(repr(path) for path in unknown) or "a referenced signal"
+        super().__init__(
+            f"Demand on '{address}' refused: its limit follows {which}, which has no value yet, "
+            "or not a finite one"
+        )
+
+
 @dataclass(eq=False, slots=True)
 class Signal:
     """A bound signal: the spec, the node it hangs off, and its address.
@@ -542,20 +595,48 @@ class Signal:
 
         A reference names a signal of the device by path, or one of its
         inputs by role (the bound source's newest value, or the input's
-        default). None if there are none, or a reference has no value yet.
+        default). None if there are none, or a reference has no value yet or
+        a non-finite one (NaN, inf) -- for display; a demand goes through
+        [clamp][flyball.foundation.device.signal.Signal.clamp], which refuses
+        it in the second case rather than pass it unclamped.
         """
         if (limits := self.spec.limits) is None:
             return None
         resolved: list[float] = []
         for bound in limits:
             if isinstance(bound, SignalRef):
-                value = self.node.device.referenced(bound.path)
+                value = _finite(self.node.device.referenced(bound.path))
                 if value is None:
                     return None
-                resolved.append(float(value))
+                resolved.append(value)
             else:
                 resolved.append(bound)
         return (resolved[0], resolved[1])
+
+    def clamp(self, value: float) -> float:
+        """`value` held inside the effective limits; unchanged for a signal without limits.
+
+        Fails closed: when a bound follows a signal with no value yet, or a
+        non-finite one (NaN, inf), the demand is refused rather than passed
+        through unclamped -- even when the other end is a number, since the
+        unknown end is the one that matters (a supply's humidity, a max flow
+        read from the device).
+
+        Raises:
+            LimitNotKnownError: A bound follows a signal that has no value yet,
+                or a non-finite one.
+        """
+        if (limits := self.limits) is not None:
+            return min(max(value, limits[0]), limits[1])
+        if (declared := self.spec.limits) is None:
+            return value
+        device = self.node.device
+        unknown = [
+            bound.path
+            for bound in declared
+            if isinstance(bound, SignalRef) and _finite(device.referenced(bound.path)) is None
+        ]
+        raise LimitNotKnownError(self.address, unknown)
 
     @property
     def pending(self) -> float | None:

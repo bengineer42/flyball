@@ -43,15 +43,29 @@ def _duration_ns(value: Td) -> int | None:
 
 
 class TimeBase:
-    _nanoseconds: int = 0
+    """A span of nanoseconds.
+
+    Immutable once constructed: hashed by `_nanoseconds`, so nothing may change it
+    under a caller holding it as a dict key or in a set.
+    """
+
+    __slots__ = ("_nanoseconds",)
 
     def __init__(self, seconds: Numeric | None = 0, nanoseconds: int | None = 0) -> None:
-        self._nanoseconds = round((seconds or 0) * 1_000_000_000) + (nanoseconds or 0)
+        object.__setattr__(
+            self, "_nanoseconds", round((seconds or 0) * 1_000_000_000) + (nanoseconds or 0)
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable")
 
     @classmethod
     def from_nanoseconds(cls, nanoseconds: int) -> Self:
         time = cls.__new__(cls)
-        time._nanoseconds = nanoseconds
+        object.__setattr__(time, "_nanoseconds", nanoseconds)
         return time
 
     @classmethod
@@ -60,9 +74,7 @@ class TimeBase:
 
     @classmethod
     def from_parts(cls, seconds: int, nanoseconds: int) -> Self:
-        time = cls.__new__(cls)
-        time.set_parts(seconds, nanoseconds)
-        return time
+        return cls.from_nanoseconds(seconds * 1_000_000_000 + nanoseconds)
 
     @classmethod
     def _from_wire(cls, value: Any) -> Self:
@@ -132,15 +144,6 @@ class TimeBase:
     def parts(self) -> tuple[int, int]:
         return divmod(self._nanoseconds, 1_000_000_000)
 
-    def set_nanoseconds(self, nanoseconds: int) -> None:
-        self._nanoseconds = nanoseconds
-
-    def set_seconds(self, seconds: float) -> None:
-        self._nanoseconds = round(seconds * 1e9)
-
-    def set_parts(self, seconds: int, nanoseconds: int) -> None:
-        self._nanoseconds = seconds * 1_000_000_000 + nanoseconds
-
     def _is_compatible(self, other: object) -> TypeGuard[Tm]:
         return isinstance(other, (type(self), int, float)) and not isinstance(other, bool)
 
@@ -186,6 +189,8 @@ class TimeBase:
 
 
 class Time(TimeBase):
+    __slots__ = ()
+
     def __add__(self, other: Td) -> Self:
         nanoseconds = _duration_ns(other)
         if nanoseconds is None:
@@ -208,6 +213,8 @@ class Time(TimeBase):
 
 
 class Duration(TimeBase):
+    __slots__ = ()
+
     def __add__(self, other: Td) -> Self:
         nanoseconds = _duration_ns(other)
         if nanoseconds is None:
@@ -320,10 +327,6 @@ class Clock:
         return event.wait(timeout)
 
     # endregion
-
-    @classmethod
-    def from_time(cls, time: Time) -> Self:
-        return cls(time.nanoseconds)
 
     @classmethod
     def from_nanoseconds(cls, nanoseconds: int) -> Self:

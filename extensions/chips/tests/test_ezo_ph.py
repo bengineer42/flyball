@@ -28,7 +28,7 @@ class TestEzoPhProbe:
         assert uart.written == [b"R\r"]
 
     def test_read_skips_a_leading_ok_response_code(self):
-        uart = FakeUart([b"*OK\r", b"9.180\r"])
+        uart = FakeUart([b"*OK\r9.180\r"])  # one stream, as on the wire
         probe = ezo_ph.EzoPhProbe(uart, sleep=False)
         assert probe.read() == pytest.approx(9.180)
 

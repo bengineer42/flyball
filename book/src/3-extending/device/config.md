@@ -5,7 +5,7 @@ A **config** is a description that builds something: a pydantic model with
 eventually described in a file rather than in code.
 
 ```python
---8<-- "device.py:27:33"
+--8<-- "device.py:heater-config"
 ```
 
 A device's config is a `DriverConfig[D]` — `Config[D]` with `build(name,
@@ -43,9 +43,11 @@ class InstrumentConfig(DriverConfig["Instrument"]):
 
 A file then says `link: {tag: visa, address: "GPIB0::12"}`, and the schema
 says exactly which fields follow `tag: visa`. Tags are one namespace across
-the process — `Config.registry` — so `driver:`, a link's `kind:`, a law's
-`kind:` and a program step's tag all share it, and a clash is an error at
-class definition.
+the process — a [Catalog][flyball.model.catalog.Catalog] per kind, held in
+[Catalogs][flyball.model.catalog.Catalogs] — so `driver:`, a link's `kind:`,
+a law's `kind:` and a program step's tag each collision-check against their
+own catalog, explicitly, through a `register(catalog)` entry point rather
+than as a side effect of importing the module.
 
 ## Envelope keys are reserved
 
@@ -97,5 +99,5 @@ Rebuilding is the only way to change it; a controller driving the device
 never sees its config.
 
 ```python
---8<-- "device.py:47:54"
+--8<-- "device.py:heater-init"
 ```

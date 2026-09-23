@@ -40,7 +40,7 @@ devices:
     config:
       link: humidity_plant
       ports:
-        chamber.humidity: { port: output, quantity: humidity, unit: "%RH" }
+        chamber.humidity: { port: output, quantity: humidity, unit: "%" }
         chamber.temperature: { port: output, quantity: temperature, unit: "°C" }   # not separately modelled; mirrors the address only
 
   co2:
@@ -58,7 +58,7 @@ devices:
     config:
       link: humidity_plant
       ports:
-        drive: { port: input }
+        drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }
 
   fan:
     driver: sim_drive
@@ -66,4 +66,4 @@ devices:
     config:
       link: co2_plant
       ports:
-        drive: { port: input }
+        drive: { port: input, quantity: "fraction of full drive", unit: "of full", limits: [0, 1] }

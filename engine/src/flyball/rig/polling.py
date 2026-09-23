@@ -11,6 +11,7 @@ device's own state, and is pushed through `runs`.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,9 @@ from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
 
 log = logging.getLogger("flyball.polling")
+
+STOP_JOIN_S = 2.0
+"""How long `stop_all` waits, over all polling threads together, for reads in progress."""
 
 if TYPE_CHECKING:
     from .rig import Rig
@@ -84,23 +88,60 @@ class Polling:
         """
         device = self.get(name)
         period = self._runs[name].period_s
-        if period is not None:
-            self.start(device, period)
+        # Cleared and announced before the loop starts: a device still broken
+        # fails its first read on the loop's thread, and that `offline` must
+        # land after the clearing, not be wiped by it.
         self._update(device, conditions=())
         self.rig.event(Level.INFO, "device", name, "restarted", "polling again")
+        if period is not None:
+            self.start(device, period)
         return self._runs[name]
 
+    def revive(self, name: str) -> bool:
+        """Poll `name` again if it is polled on a period and has gone offline.
+
+        Called after a command on the device succeeds -- from the HTTP route
+        and from a program step alike -- since a command that runs on an
+        offline device is taken as the fix (`restore`, a reset, a reconnect).
+        A device still broken goes offline again with a fresh event.
+
+        Returns:
+            Whether polling was restarted.
+        """
+        run = self._runs.get(name)
+        if name not in self.by_name or run is None or run.running or run.period_s is None:
+            return False
+        self.restart(name)
+        return True
+
     def stop(self, name: str) -> None:
-        """Stop polling one device and forget it; a device that was never polled is a no-op."""
+        """Stop polling one device and forget it; a device that was never polled is a no-op.
+
+        Does not wait for a read in progress: the caller holds the rig lock,
+        which that read's delivery needs. The read finishes on its own
+        thread, finds the device no longer polled, and drops what it read.
+        """
         if (loop := self.periodic.pop(name, None)) is not None:
-            loop.stop()
+            loop.stop(join=False)
         self.by_name.pop(name, None)
         self._runs.pop(name, None)
         self.runs.discard(name)
 
     def stop_all(self) -> None:
+        """Stop polling every device, waiting at most `STOP_JOIN_S` for reads in progress.
+
+        A read stuck in its driver is not waited on for ever -- SIGTERM and a
+        daemon restart both come through here. Its thread (a daemon thread)
+        is abandoned and logged once by name; if the read ever returns, the
+        loop exits without reading again.
+        """
+        for loop in self.periodic.values():
+            loop.stop(join=False)
+        deadline = time.monotonic() + STOP_JOIN_S
         for name, loop in self.periodic.items():
-            loop.stop()
+            loop.stop(timeout=max(0.0, deadline - time.monotonic()))
+            if loop.running:
+                log.warning("gave up waiting for %s's read after %.1f s", name, STOP_JOIN_S)
             self._update(self.by_name[name], running=False)
 
     def delivered(self, device: Device, samples: Sequence[Sample]) -> None:
@@ -112,6 +153,8 @@ class Polling:
         """
         try:
             with self.rig.lock:
+                if not self._polled(device):
+                    return  # removed while it was being read
                 self.rig.on_samples(samples)
         except Exception as error:
             log.exception("delivering %s's samples", device.name)
@@ -123,7 +166,8 @@ class Polling:
                 f"{type(error).__name__}: {error}",
                 {"device": device.name},
             )
-        run = self._runs[device.name]
+        if (run := self._runs.get(device.name)) is None:
+            return
         last_read_ns = max(s.time_ns for s in samples) if samples else run.last_read_ns
         self._update(device, last_read_ns=last_read_ns, conditions=())
 
@@ -140,6 +184,8 @@ class Polling:
                 raise TypeError(f"{type(device).__name__} has nothing to read")
             samples = tuple(device.read(self.rig.clock.now_ns()))
         except Exception as error:
+            if not self._polled(device):
+                return  # removed while it was being read: nothing to put offline
             offline = Condition(
                 "offline", Level.ERROR, f"{type(error).__name__}: {error}", self.rig.clock.now_ns()
             )
@@ -148,8 +194,12 @@ class Polling:
             if (loop := self.periodic.get(device.name)) is not None:
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
+        if not self._polled(device):
+            return  # removed while it was being read: what it read goes nowhere
         self.delivered(device, samples)
-        period = self._runs[device.name].period_s
+        if (run := self._runs.get(device.name)) is None:
+            return
+        period = run.period_s
         took = self.rig.clock.monotonic() - started
         if period is not None and took > period:
             slow = Condition(
@@ -161,8 +211,15 @@ class Polling:
             self._update(device, conditions=(slow,))
             self.rig.event(Level.WARNING, "device", device.name, "slow", slow.message)
 
+    def _polled(self, device: Device) -> bool:
+        """Whether `device` itself is still polled: not removed, nor replaced under its name."""
+        return self.by_name.get(device.name) is device
+
     def _update(self, device: Device, **changes: Any) -> None:
-        run = replace(self._runs[device.name], **changes)
+        """Note a change to `device`'s run; a no-op once it is no longer polled."""
+        if not self._polled(device) or (run := self._runs.get(device.name)) is None:
+            return
+        run = replace(run, **changes)
         self._runs[device.name] = run
         if self.runs.watched:
             self.runs.set(device.name, run)

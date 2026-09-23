@@ -72,10 +72,20 @@ client sends the token as a header:
 ```
 
 The stdio server takes `--token` or `FLYBALL_TOKEN`. With neither a token
-nor a password on the runner there is no authentication at all: anyone who
-can reach the port can drive the rig, over `/api` as much as over `/mcp`.
-Put a token on any runner a model can drive; the read tier is what
-`auth.anonymous: read` lets through without one.
+nor a password on the runner there is no authentication at all: anyone on
+the runner's own machine can drive the rig, over `/api` as much as over
+`/mcp`. Such an open runner answers only to `localhost`, `127.0.0.1` and
+`[::1]`, and its MCP transport checks the same itself (the MCP SDK's DNS
+rebinding protection: `Host` and any `Origin` on a loopback name, else
+`421` / `403`), so `http://localhost:8000/mcp/author` works and
+`http://pi:8000/mcp/author` needs the token -- unless the runner was served
+open on the network by `--insecure-open`, which lifts both loopback-name
+checks (the door's `Origin` check stays). On a runner with a door the
+transport's check is off -- the runner does not know every name it is
+reached by -- and the door refuses a foreign `Origin` instead (see
+[Authentication](api.md#authentication)). Put a token on any runner a
+model can drive; the read tier is what `auth.anonymous: read` lets
+through without one.
 
 ## What the model sees
 
@@ -90,6 +100,12 @@ Put a token on any runner a model can drive; the read tier is what
   way. A tool that answers a list wraps it in a named key (`{"devices":
   [...]}`, `{"controllers": [...]}`, and so on), not a bare array, and
   declares that shape as its output schema.
+- A name, address or id the model passes goes into the route's path as
+  exactly one segment, percent-encoded (so a `?` or `#` in it cannot add a
+  query or cut the path short); an empty one, `.`, `..` or one holding a
+  `/` is refused with a tool error before anything is sent, so no argument
+  can reach a route other than the tool's own. The Python client does the
+  same (`flyball.interfaces.client.segment`).
 - `describe_device` is the schema; `widget_schema` every dashboard widget
   kind with its `config`; `program_schema` the program dialect. Together
   they are what a model needs to write a program or a dashboard that names
@@ -122,8 +138,8 @@ Put a token on any runner a model can drive; the read tier is what
   search script, so it is drive-tier like `check_driver`);
   `probe_hardware` says what buses the board has and `link_query` sends
   one raw command down a link, to find out what an instrument is before
-  writing its entry. `probe_hardware` is read-tier for the board and bus
-  list; `operate` has the same tool with a `scan` argument for the
+  writing its entry. `probe_hardware` (`POST /api/probe`) is read-tier for
+  the board and bus list; `operate` has the same tool with a `scan` argument for the
   addresses answering on each I2C bus, a bus transaction some devices
   mind, so it is not offered below that tier. Most instruments need no
   code: the `scpi` and `modbus` drivers take their signals from the

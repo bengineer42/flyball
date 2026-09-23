@@ -3,13 +3,22 @@
 The server owns no hardware and no database; whatever builds them calls
 [set_rig][flyball.interfaces.server.deps.set_rig] and
 [set_store][flyball.interfaces.server.deps.set_store] before serving.
+
+The store is synchronous and one lock serialises it, so nothing on the event
+loop may call it: a route that takes `StoreDep` is a plain `def` (FastAPI runs
+it on its threadpool), or hands the store call to `anyio.to_thread`. `StoreDep`
+also takes one of `STORE_SLOTS`' few tokens for the request, so requests queued
+behind a long store call wait on the loop, not on threadpool threads the rest of
+the API needs.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
+from anyio import CapacityLimiter
 from fastapi import Depends, HTTPException
 
 from flyball.model.catalog import Catalogs, current_catalog
@@ -21,7 +30,7 @@ from .dialect import Dialect
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Device
-    from flyball.runtime.config import RigConfig, RunnerConfig
+    from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
 
@@ -225,6 +234,8 @@ class Runner(Protocol):
     def settings(self) -> RunnerConfig: ...
     @property
     def files(self) -> list[Path]: ...
+    @property
+    def exposure(self) -> Exposure | None: ...
     def shutdown(self) -> None: ...
     def restart(self) -> None: ...
 
@@ -240,6 +251,12 @@ def set_runner(runner: Runner | None) -> None:
 
 def current_runner() -> Runner | None:
     return _runner
+
+
+def current_exposure() -> dict[str, Any] | None:
+    """Where the runner serves against where it was asked to; None where nothing is."""
+    exposure = None if _runner is None else _runner.exposure
+    return None if exposure is None else exposure.as_dict()
 
 
 def save_allowed() -> bool:
@@ -263,6 +280,23 @@ def get_store() -> Store:
     return _store
 
 
+STORE_SLOTS = CapacityLimiter(4)
+"""How many requests may be using the store at once.
+
+The store serialises on one lock, so more in flight only queue for it -- and a
+queued sync route holds one of anyio's 40 worker threads, shared with every
+other sync route (demands, commands). Past this many, a store request waits
+for a slot on the event loop, costing no thread.
+"""
+
+
+async def store_slot() -> AsyncIterator[Store]:
+    """`get_store()`, holding one of `STORE_SLOTS` until the request is answered."""
+    store = get_store()
+    async with STORE_SLOTS:
+        yield store
+
+
 def get_catalog() -> Catalogs:
     """`current_catalog()`, or a 503: what `/api/drivers` and rig validation build from.
 
@@ -279,7 +313,7 @@ def get_catalog() -> Catalogs:
 
 
 RigDep = Annotated[Rig, Depends(get_rig)]
-StoreDep = Annotated[Store, Depends(get_store)]
+StoreDep = Annotated[Store, Depends(store_slot)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
 DialectDep = Annotated[Dialect, Depends(get_dialect)]
 SimulationDep = Annotated[Simulation, Depends(get_simulation)]

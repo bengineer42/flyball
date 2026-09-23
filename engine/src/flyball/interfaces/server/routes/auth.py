@@ -11,14 +11,32 @@ import asyncio
 import time
 from typing import Any
 
+from anyio import to_thread
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from flyball.interfaces.server import deps, passkeys
 from flyball.interfaces.server.auth import COOKIE, Auth, Level, Principal, Scheme
+from flyball.interfaces.server.deps import current_exposure
 from flyball.runtime.config import Anonymous
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class ExposureOut(BaseModel):
+    """Where the runner serves, against where it was asked to."""
+
+    requested: str = Field(description="The bind address asked for.")
+    host: str = Field(description="The bind address served on.")
+    port: int
+    open: bool = Field(description="No password and no token: whoever reaches it may operate.")
+    restricted: bool = Field(
+        description="Asked for an address beyond loopback while open, so served on 127.0.0.1."
+    )
+    open_network: bool = Field(
+        description="Open and reachable beyond this machine (`--insecure-open`): warn everyone."
+    )
+    warning: str | None = Field(description="What the runner said about it on stderr, if any.")
 
 
 class AuthOut(BaseModel):
@@ -33,6 +51,11 @@ class AuthOut(BaseModel):
         description="Whether this runner takes passkey sign-in at all (a door exists; say "
         "nothing about whether one is registered yet -- that would leak it to a stranger)."
     )
+    exposure: ExposureOut | None = Field(
+        default=None,
+        description="Where the runner serves against where it was asked to; None when not"
+        " served by `flyball-runner`.",
+    )
 
 
 class Login(BaseModel):
@@ -45,7 +68,9 @@ def _auth(request: Request) -> Auth | None:
 
 def _out(request: Request) -> AuthOut:
     auth = _auth(request)
-    if auth is None:  # no password, no token: the runner is open, so no door to register one at
+    exposure = current_exposure()
+    shown = None if exposure is None else ExposureOut.model_validate(exposure)
+    if auth is None:  # no password, no token: the runner is open
         return AuthOut(
             scheme="anonymous",
             level="operate",
@@ -53,6 +78,7 @@ def _out(request: Request) -> AuthOut:
             password=False,
             token=False,
             passkey=False,
+            exposure=shown,
         )
     principal: Principal = request.state.auth
     return AuthOut(
@@ -64,6 +90,7 @@ def _out(request: Request) -> AuthOut:
         # not config-gated like password/token -- any signed-in caller can add one, as long
         # as this runner was installed with the `passkeys` extra to verify them with
         passkey=passkeys.AVAILABLE,
+        exposure=shown,
     )
 
 
@@ -76,8 +103,10 @@ def _set_cookie(request: Request, response: Response, value: str, max_age: int |
         path=root or "/",  # two runners on one host, one cookie each
         httponly=True,  # page scripts cannot read it
         samesite="lax",  # another site cannot post with it
-        # uvicorn takes the scheme from x-forwarded-proto when the proxy is on loopback
-        secure=request.url.scheme == "https",
+        # The runner trusts no forwarded header for who is asking, but a TLS proxy's
+        # `X-Forwarded-Proto: https` may mark the cookie Secure: a forged one only makes
+        # the forger's own cookie stricter.
+        secure="https" in (request.url.scheme, request.headers.get("x-forwarded-proto")),
     )
 
 
@@ -92,7 +121,10 @@ async def login(request: Request, response: Response, body: Login) -> AuthOut:
     """Trade the password (or the token) for a session cookie.
 
     A wrong secret is 401 after a short pause; ten wrong ones in a minute from
-    one address are 429 until the minute is up.
+    one address are 429 until the minute is up. The password's hash (scrypt: tens of
+    milliseconds and 16 MiB each) runs on a worker thread, never on the loop that serves
+    everything else, and at most `Auth.max_hashing` at once; a login past that is 429 at
+    once rather than queued.
     """
     auth = _auth(request)
     if auth is None:
@@ -100,7 +132,19 @@ async def login(request: Request, response: Response, body: Login) -> AuthOut:
     address = request.client.host if request.client else "?"
     if auth.attempts.blocked(address):
         raise HTTPException(status_code=429, detail="Too many wrong passwords; wait a minute")
-    if not auth.is_secret(body.secret):
+    # Counted on the loop's own thread, so no lock: the check and the increment are one step.
+    if auth.hashing >= auth.max_hashing:
+        raise HTTPException(
+            status_code=429,
+            detail="The runner is busy checking other logins; try again in a moment",
+            headers={"Retry-After": "1"},
+        )
+    auth.hashing += 1
+    try:
+        right = await to_thread.run_sync(auth.is_secret, body.secret)
+    finally:
+        auth.hashing -= 1
+    if not right:
         auth.attempts.failure(address)
         if auth.delay:
             await asyncio.sleep(auth.delay)

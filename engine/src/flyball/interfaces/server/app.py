@@ -9,9 +9,11 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from anyio import to_thread
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from flyball.foundation.errors import (
@@ -24,6 +26,7 @@ from flyball.foundation.errors import (
 )
 from flyball.interfaces.server.auth import Auth
 from flyball.interfaces.server.deps import current_retention, current_rig
+from flyball.interfaces.server.redact import redact_access_logs
 from flyball.interfaces.server.routes import (
     composition_router,
     controllers_router,
@@ -75,6 +78,14 @@ def _find_dashboard_dist() -> Path:
 
 DASHBOARD_DIST = _find_dashboard_dist()
 
+# Swagger UI for `/docs`, served by the runner so the page works with no internet (FastAPI's
+# default loads it from a CDN). Vendored verbatim from npm `swagger-ui-dist` 5.33.0, whose
+# tarball's integrity is sha512-wpdK+m6BU5yj6pmUdMskZVTSWYG4DLglAx3sIhylloY37i8O37IrH+YEpqd
+# XNfpaTGxILRBFzUqLF2jKqbfI7A== (one string, split here): `swagger-ui-bundle.js`,
+# `swagger-ui.css` and `favicon-32x32.png`. Apache-2.0: `LICENSE`, `NOTICE` and the
+# bundle's third-party notices are beside them.
+SWAGGER = Path(__file__).parent / "swagger"
+
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -82,17 +93,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        rig = current_rig()
-        if rig is not None:
+        # Joins threads and writes the store: on a worker thread, as every store call is.
+        await to_thread.run_sync(_stop)
+
+
+def _stop() -> None:
+    rig = current_rig()
+    if rig is not None:
+        with contextlib.suppress(Exception):
+            rig.polling.stop_all()
+        # Close the session so it does not stay "open" forever in the store;
+        # the runner's sweeps stop first, or they would open the scratch record again.
+        if (retention := current_retention()) is not None:
             with contextlib.suppress(Exception):
-                rig.polling.stop_all()
-            # Close the session so it does not stay "open" forever in the store;
-            # the runner's sweeps stop first, or they would open the scratch record again.
-            if (retention := current_retention()) is not None:
-                with contextlib.suppress(Exception):
-                    retention.stop()
-            with contextlib.suppress(Exception):
-                rig.stop_recording()
+                retention.stop()
+        with contextlib.suppress(Exception):
+            rig.stop_recording()
 
 
 class _Installed:
@@ -137,6 +153,25 @@ class RootPath:
         await response(scope, receive, send)
 
 
+def _docs(app: FastAPI) -> None:
+    """`/docs`: Swagger UI from `SWAGGER`, every URL on the page the runner's own."""
+    app.mount("/docs/assets", StaticFiles(directory=SWAGGER), name="swagger")
+
+    @app.get("/docs", include_in_schema=False)
+    def docs(request: Request) -> HTMLResponse:
+        root = (request.scope.get("root_path") or "").rstrip("/")
+        return get_swagger_ui_html(
+            openapi_url=f"{root}{app.openapi_url}",
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url=f"{root}/docs/assets/swagger-ui-bundle.js",
+            swagger_css_url=f"{root}/docs/assets/swagger-ui.css",
+            swagger_favicon_url=f"{root}/docs/assets/favicon-32x32.png",
+            oauth2_redirect_url=None,
+            # Swagger UI's default sends the spec to validator.swagger.io for a badge.
+            swagger_ui_parameters={"validatorUrl": None},
+        )
+
+
 def create_app(
     auth: AuthConfig | None = None,
     root_path: str | None = None,
@@ -144,20 +179,27 @@ def create_app(
     secret: bytes | None = None,
     internal_token: str | None = None,
     login_delay: float = 0.5,
+    open_network: bool = False,
 ) -> FastAPI:
     """The app.
 
-    With `auth` naming a password or a token, everything it serves is behind
-    the door (see [flyball.interfaces.server.auth][]; `secret` signs the sessions,
-    `internal_token` is the runner's own way in for its MCP mount); with
-    `root_path`, everything it serves is under that prefix (see `RootPath`).
+    With `auth` naming a password or a token, the API is behind the door (see
+    [flyball.interfaces.server.auth][]; `secret` signs the sessions, `internal_token`
+    is the runner's own way in for its MCP mount); without, the runner is open, to
+    loopback names only -- or to any name with `open_network`, an open runner the user
+    chose to serve on the network (`--insecure-open`). With `root_path`, everything it
+    serves is under that prefix (see `RootPath`).
     """
+    redact_access_logs()  # uvicorn's request lines would keep `?token=`
     app = FastAPI(
         title="flyball",
         summary="flyball control rig",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=None,  # served below, from the package rather than a CDN
+        redoc_url=None,  # ReDoc too loads from a CDN; `/docs` is the one API page
     )
+    _docs(app)
 
     app.add_middleware(
         CORSMiddleware,
@@ -209,18 +251,21 @@ def create_app(
     app.include_router(library_router)
     app.include_router(telemetry_router)
     app.include_router(auth_router)
-    app.state.auth = None  # open: no password, no token
-    if auth is not None and auth.enabled:
-        door = Auth(
-            app,
-            auth,
-            secret if secret is not None else secrets.token_bytes(32),
-            internal_token=internal_token,
-            delay=login_delay,
-        )
-        app.state.auth = door
-        # `add_middleware` would build its own instance; the routes need this one.
-        app.add_middleware(_Installed, instance=door)
+    # Every runner has the door: an open one (no password, no token) still refuses other
+    # names for itself and other sites' pages; `app.state.auth` is None there, which the
+    # routes read as "open".
+    door = Auth(
+        app,
+        auth if auth is not None else AuthConfig(),
+        secret if secret is not None else secrets.token_bytes(32),
+        internal_token=internal_token,
+        delay=login_delay,
+        open_network=open_network,
+    )
+    app.state.auth = None if door.open else door
+    app.state.open_network = door.open_network  # the MCP transport's rebinding check reads it
+    # `add_middleware` would build its own instance; the routes need this one.
+    app.add_middleware(_Installed, instance=door)
     if root_path and root_path != "/":
         if not root_path.startswith("/"):
             raise ValueError(f"root_path must start with '/': {root_path!r}")

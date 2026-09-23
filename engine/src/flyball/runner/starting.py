@@ -12,6 +12,14 @@ from flyball.runtime.config import RigConfig
 log = logging.getLogger("flyball.runner")
 
 
+class BuildFailed(Exception):
+    """The rig could not be built from its config: a driver refused it, a device was not there.
+
+    The config's to fix, not the process's: `flyball-runner` says so in one line and
+    exits 2, as for a file that does not validate, rather than crash into a restart loop.
+    """
+
+
 def start(
     config: RigConfig, record: bool | None = None, store_path: str | Path = "flyball.sqlite"
 ) -> Rig:
@@ -27,11 +35,30 @@ def start_with_store(
 
     The store is opened whether or not a session is: past sessions are
     readable and recording can be started from the API either way.
+
+    Raises:
+        BuildFailed: The rig could not be built; nothing is left running.
     """
+    try:
+        rig = config.build()
+    except Exception as e:
+        raise BuildFailed(str(e) or type(e).__name__) from e
+    try:
+        store = _open(config, rig, record, store_path)
+    except BaseException:
+        rig.stop()  # nothing left polling a rig that will not be served
+        raise
+    return rig, store
+
+
+def _open(config: RigConfig, rig: Rig, record: bool | None, store_path: str | Path) -> Store:
     from flyball.record.sqlite import SqliteStore
 
-    rig = config.build()
     store = SqliteStore(store_path)
+    # A delete cut off part-way (it goes in batches) is finished before anything reads.
+    for half in store.deleting_sessions():
+        store.delete_session(half.id)
+        log.warning("finished deleting session %d, begun by an earlier run", half.id)
     # A session still open in the store was left by a runner that died: close
     # it at its last sample, or it would look live and overlap the next one.
     for orphan in store.sessions():
@@ -44,7 +71,7 @@ def start_with_store(
     if record if record is not None else config.recording:
         rig.start_recording(store, config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)
-    return rig, store
+    return store
 
 
 START_REASONS = ("loaded", "started bare", "resumed")

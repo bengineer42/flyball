@@ -37,6 +37,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.dimension import Unit
 from flyball.foundation.quantities.errors import UnitNotFoundError
 from flyball.foundation.quantities.si import One
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -128,7 +129,7 @@ class QCoDeS(Readable, Committable):
         self.channels = dict(channels)
         self._parameters: dict[str, Any] = {}
         self._gettable: dict[str, bool] = {}
-        self._last_read: dict[Signal, int] = {}
+        self._scan = Scan()
         tree: list[SignalSpec] = []
         for key, channel in self.channels.items():
             parameter = _parameter(instrument, channel.property)
@@ -153,13 +154,6 @@ class QCoDeS(Readable, Committable):
             )
         self.bind(tree)
 
-    def _due(self, signal: Signal, time_ns: int) -> bool:
-        poll_s = signal.poll_s
-        if poll_s is None:
-            return True
-        last = self._last_read.get(signal)
-        return last is None or (time_ns - last) >= poll_s * 1e9
-
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One `get()` per due, published, actually-gettable channel under `node`.
 
@@ -169,16 +163,13 @@ class QCoDeS(Readable, Committable):
         is the value last committed, not a poll.
         """
         target = node if node is not None else self.root
-        for key in self.channels:
-            if not self._gettable[key]:
-                continue
-            signal = self.signals[key]
-            if Access.P not in signal.access or not target.contains(signal):
-                continue
-            if not self._due(signal, time_ns):
-                continue
-            value = self._parameters[key].get()
-            self._last_read[signal] = time_ns
+        candidates = {
+            self.signals[key]: key
+            for key in self.channels
+            if self._gettable[key] and target.contains(self.signals[key])
+        }
+        for signal in self._scan.due(candidates, time_ns, whole=False):
+            value = self._parameters[candidates[signal]].get()
             yield Sample(self.root, time_ns, {signal: float(value)})
 
     def write_signal(self, signal: Signal, value: float) -> None:

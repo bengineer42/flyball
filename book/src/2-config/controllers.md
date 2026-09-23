@@ -15,7 +15,7 @@ controllers:
 | key | type | |
 | --- | --- | --- |
 | `signal` | address | the source, a publishing signal |
-| `law` | `{tag, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b}` (`tt`: anti-windup tracking time; `b`: setpoint weight); `IMC {gain, tau, dead_time, lam, derivative}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …]}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
+| `law` | `{tag, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
 | `feedforward` | `{tag, …}` | `setpoint` (the source's unit passed through); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `setpoint` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | step the law at most this often |
@@ -59,7 +59,15 @@ Every time a reading arrives on the controller's source, it ticks:
 4. **Write it**: the controller calls `rig.demand(target.node, {target:
    demand}, by=self)`, which validates, clamps to `limits`, and commits;
    `expected` is what came back — `None` if the commit is deferred (a
-   blocking device's writer thread) or the driver cannot say.
+   blocking device's writer thread) or the driver cannot say. If a limit
+   follows a signal that has no value yet (a supply humidity not read
+   yet) or a non-finite one (NaN, infinite), or the source has gone stale (`stale_after`), the write is
+   **held**: nothing is applied, `expected` is `None`, and an event says
+   why (`limit_unknown` once, then `limit_known` when writes resume;
+   `stale_input`). A law that raises (no law set, say) is a `step_failed`
+   event, once, and `step_recovered` when it steps again; the other
+   controllers on the rig are not held up by it. A setpoint that is NaN or
+   infinite is refused (422) before the controller changes.
 5. **Remember** the reading, the demand and what was delivered, so the next
    tick's anti-windup and any `attach_on_tick` observer can see them.
 

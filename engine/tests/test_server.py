@@ -7,8 +7,8 @@ from collections.abc import Iterator
 from enum import Enum
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.foundation.device import (
     Committable,
     Demand,
@@ -25,6 +25,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.router import Trigger
 from flyball.interfaces.server import create_app, set_rig
+from flyball.sequencing.devices import RunCommand
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -115,6 +116,20 @@ class Sensors(Readable):
         nodes = self.root.descendants() if node is None or node is self.root else (node,)
         for n in nodes:
             yield Sample(n, time_ns, {n.signals["humidity"]: 45.0, n.signals["temperature"]: 21.9})
+
+
+class Supplied(Committable):
+    """A demand bounded by a supply humidity that may not have been read yet."""
+
+    supply = Output("supply", "Supply humidity", HUMIDITY)
+    humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
+
+    def __init__(self, name: str, label: str | None = None) -> None:
+        super().__init__(name, label)
+        self.inputs: dict[str, float] = {}
+
+    def write_signal(self, signal: Signal, value: float) -> None:
+        self.inputs[signal.name] = value
 
 
 class Mode(Enum):
@@ -477,6 +492,27 @@ def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
     assert read["reading"]["value"] == 60.0
 
 
+def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(client, rig, fresh):
+    supplied = Supplied(fresh("supplied"))
+    rig.add_device(supplied)
+    for r in (
+        client.put(f"/api/devices/{supplied.name}/demand", json={"humidity": 150.0}),
+        client.put(f"/api/signals/{supplied.name}.humidity", json=150.0),
+    ):
+        assert r.status_code == 503, "not ready: never passed through unclamped"
+        assert (
+            "limit" in r.json()["detail"]
+            and "follows 'supply', which has no value yet" in r.json()["detail"]
+        )
+    assert supplied.inputs == {}
+
+    rig.on_samples([Sample(supplied.root, rig.clock.now_ns(), {supplied.signals["supply"]: 95.0})])
+    r = client.put(f"/api/devices/{supplied.name}/demand", json={"humidity": 150.0})
+    assert r.status_code == 200
+    assert r.json()[f"{supplied.name}.humidity"]["value"] == 95.0
+    assert supplied.inputs == {"humidity": 95.0}
+
+
 # endregion
 
 # region Waits, clock, health, events
@@ -545,7 +581,7 @@ def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig
 def test_health_without_a_rig_says_so():
     set_rig(None)
     with TestClient(create_app()) as c:
-        assert c.get("/api/health").json() == {"ok": False, "rig": None}
+        assert c.get("/api/health").json() == {"ok": False, "rig": None, "exposure": None}
 
 
 def test_events_are_kept_and_streamed(client, rig):
@@ -892,6 +928,22 @@ class TestSimRoutes:
 
 
 # endregion
+
+
+def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
+    daq.poll_s = 0.5
+    daq.broken = True
+    rig.start_polling(daq)
+    try:
+        rig.polling.stop_all()
+        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        assert rig.polling.run(daq.name).running is False
+
+        RunCommand(device_command="restore", device=daq.name).run(rig)
+        assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
+        assert rig.polling.run(daq.name).conditions == ()
+    finally:
+        rig.polling.stop_all()
 
 
 def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):

@@ -164,16 +164,23 @@ def _generator_start(controller: Controller) -> float:
     return start
 
 
+# The async routes here read the rig on the event loop, so they do not take
+# `rig.lock` (a delivery may hold it for a bus transaction). Each iterates a
+# snapshot taken in one C-level `list(...)` instead, so a controller or a
+# device added or removed meanwhile is not an error.
+
+
 @router.get("")
 async def read_controllers(rig: RigDep) -> list[ControllerOut]:
-    return [
-        ControllerOut.of(c, name == rig.controllers.default) for name, c in rig.controllers.items()
-    ]
+    default = rig.controllers.default
+    return [ControllerOut.of(c, name == default) for name, c in list(rig.controllers.items())]
 
 
 @router.get("/schema")
 async def read_controller_schema(rig: RigDep) -> ControllerSchema:
-    signals = [s for device in rig.devices.values() for s in device.signals.values()]
+    devices = list(rig.devices.values())
+    controllers = list(rig.controllers.items())
+    signals = [s for device in devices for s in list(device.signals.values())]
     return ControllerSchema(
         sources=[SignalChoice.of(s) for s in signals if Access.P in s.access],
         targets=[SignalChoice.of(s) for s in signals if Access.W in s.access],
@@ -184,8 +191,8 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
             TuningChoice(name=name, law=config.tag, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()
         ],
-        regulated={source.address: c.name for source, c in rig.controllers.entries()},
-        driven={name: name for name in rig.controllers},
+        regulated={c.source.address: c.name for _, c in controllers},
+        driven={name: name for name, _ in controllers},
     )
 
 

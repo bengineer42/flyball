@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from flyball.foundation.config import Config
-from flyball.foundation.device import DeviceEntry
+from flyball.foundation.device import DeviceEntry, Level
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.files import SUFFIXES, dumps_without_none
 from flyball.interfaces.server.deps import (
@@ -35,6 +35,7 @@ from flyball.interfaces.server.schemas import DeviceOut
 from flyball.record import RigVersionRow
 from flyball.rig import Rig
 from flyball.runtime.config import RigConfig, canonical, is_simulated, registered
+from flyball.runtime.overlay import resolve_layers
 
 router = APIRouter(prefix="/api", tags=["composition"])
 
@@ -281,6 +282,14 @@ def restore_version(rig: RigDep, version_id: int) -> dict[str, Any]:
         finally:
             rig.on_change = hook
         get_store().set_rig_head(version_id)
+    rig.event(
+        Level.INFO,
+        "rig",
+        "versions",
+        "restored",
+        f"restored to version {version_id}",
+        {"version_id": version_id},
+    )
     return rig.document()
 
 
@@ -359,11 +368,33 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
                 detail=f"{target} is a file the rig was loaded from; overwrite: true to flatten it",
             )
         document = rig.document()
-    text = dumps_without_none(document, target.suffix)
+    text = dumps_without_none({**document, **_runner_section(target)}, target.suffix)
     partial = target.with_name(target.name + ".tmp")
     partial.write_text(text)
     os.replace(partial, target)
     return {"path": str(target), "document": document}
+
+
+def _runner_section(target: Path) -> dict[str, Any]:
+    """`{"runner": ...}` from the file about to be overwritten, its `extends` resolved; else `{}`.
+
+    The rig's document has no runner section -- how the process serves is not part of the
+    rig -- so a save over a file would otherwise drop its `runner.auth`, and the next start
+    from that file would be open. Written to the file, never returned: it may hold secrets.
+    A file whose section cannot be read is not overwritten.
+    """
+    if not target.exists():
+        return {}
+    try:
+        existing, _ = resolve_layers([target])
+    except Exception as e:  # a broken file: saving over it could drop a password unseen
+        raise HTTPException(
+            status_code=409,
+            detail=f"{target} exists and its runner section cannot be read ({e}); not"
+            " overwriting it: save to a new path, or fix or remove the file",
+        ) from e
+    section = existing.get("runner")
+    return {} if section is None else {"runner": section}
 
 
 # endregion

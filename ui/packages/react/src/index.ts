@@ -3,6 +3,7 @@ export { useQuery, type QueryState } from "./hooks/useQuery.js";
 export { useStream, type StreamStatus } from "./hooks/useStream.js";
 export { useWaits } from "./hooks/useWaits.js";
 export { WaitPrompt, type WaitPromptProps } from "./panels/WaitPrompt.js";
+export { ExposureBanner, type ExposureBannerProps } from "./panels/ExposureBanner.js";
 export { useRigSchema, useHealth, useDevices, useDevice, useDeviceSchema, useCommands, type CommandRunner } from "./hooks/useDevices.js";
 export { useRigFileSchema, useRigDocument, useRigChanges, useRigVersions } from "./hooks/useRigComposition.js";
 export { SchemaForm, type SchemaFormProps } from "./form/SchemaForm.js";

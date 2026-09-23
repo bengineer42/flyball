@@ -3,7 +3,7 @@
 // Prints CDP Performance.getMetrics TaskDuration delta, JS heap at start/end, long tasks
 // (PerformanceObserver 'longtask'), app-root renders (`window.__fb.renders`), chart redraws
 // (`window.__fb.chartsById`), and console error/warning counts over the window.
-import { chromium } from '/home/ben/.npm/_npx/9833c18b2d85bc59/node_modules/playwright-core/index.mjs';
+import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 
 const args = process.argv.slice(2);
 const [uiUrl, route] = args;
@@ -19,7 +19,7 @@ for (let i = 2; i < args.length; i++) {
   else if (/^\d+$/.test(a)) opt.seconds = +a;
 }
 
-const browser = await chromium.launch({ executablePath: '/home/ben/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' });
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ viewport: { width: opt.width, height: opt.height } });
 const page = await ctx.newPage();
 const counts = { error: 0, warning: 0, pageerror: 0 };
