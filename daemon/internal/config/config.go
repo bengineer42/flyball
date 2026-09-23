@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 
 	"gopkg.in/yaml.v3"
 )
@@ -80,17 +81,37 @@ type Manifest struct {
 	Name         string `yaml:"name" json:"name"`
 	ServerConfig string `yaml:"server_config" json:"server_config"` // path to the layer-3 daemon: file
 	Restart      string `yaml:"restart" json:"restart"`             // always | on-failure | never
-	Host         string `yaml:"host" json:"host"`                   // loopback only (default 127.0.0.1): reached through flyballd's proxy
-	Port         int    `yaml:"port" json:"port"`
-	RootPath     string `yaml:"root_path" json:"root_path"`
-	Store        string `yaml:"store" json:"store"`
-	Enabled      *bool  `yaml:"enabled" json:"enabled"`
+	// Network is how flyballd reaches the runner: "unix" (a socket in its
+	// 0700 front-dir) or "tcp" (loopback Host:Port). "" is unix, or tcp on
+	// Windows, where uvicorn has no unix sockets; say tcp explicitly for
+	// a runner in another network namespace.
+	Network string `yaml:"network" json:"network"`
+	Host    string `yaml:"host" json:"host"` // loopback only (default 127.0.0.1); meaningful only for tcp
+	Port    int    `yaml:"port" json:"port"` // required only when the network resolves to tcp
+	// Anonymous is what a caller with no credential gets on this rig at
+	// the front: "none" or "read"; "" follows the daemon's setting.
+	Anonymous string `yaml:"anonymous" json:"anonymous"`
+	RootPath  string `yaml:"root_path" json:"root_path"`
+	Store     string `yaml:"store" json:"store"`
+	Enabled   *bool  `yaml:"enabled" json:"enabled"`
 	// UvProject, when set, launches flyball-runner via `uv run --project
 	// UvProject flyball-runner ...` instead of execing it bare -- needed
 	// whenever flyball-runner isn't already on flyballd's own $PATH, which
 	// it never is outside an app's own uv-managed venv (same problem, same
 	// fix, as `flyball run`'s --uv flag).
 	UvProject string `yaml:"uv_project" json:"uv_project"`
+}
+
+// ResolvedNetwork is Network with its default applied: "unix", or
+// "tcp" on Windows.
+func (m Manifest) ResolvedNetwork() string {
+	if m.Network != "" {
+		return m.Network
+	}
+	if runtime.GOOS == "windows" {
+		return "tcp"
+	}
+	return "unix"
 }
 
 func (m Manifest) IsEnabled() bool {
@@ -115,8 +136,25 @@ func (m Manifest) Validate() error {
 	if !isLoopback(m.Host) {
 		return fmt.Errorf("runner %s: host %q is not a loopback address: a daemon-supervised runner listens on 127.0.0.1 (the default) or ::1 and is reached through flyballd's proxy under its root_path", m.Name, m.Host)
 	}
-	if m.Port <= 0 || m.Port > 65535 {
+	switch m.Network {
+	case "", "tcp":
+	case "unix":
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("runner %s: network unix: not on Windows, where the runner has no unix sockets; use tcp", m.Name)
+		}
+	default:
+		return fmt.Errorf("runner %s: network %q: use unix (the default) or tcp", m.Name, m.Network)
+	}
+	if m.Port < 0 || m.Port > 65535 {
 		return fmt.Errorf("runner %s: port %d is not a TCP port", m.Name, m.Port)
+	}
+	if m.ResolvedNetwork() == "tcp" && m.Port == 0 {
+		return fmt.Errorf("runner %s: network tcp needs a port", m.Name)
+	}
+	switch m.Anonymous {
+	case "", "none", "read":
+	default:
+		return fmt.Errorf("runner %s: anonymous %q: use none or read", m.Name, m.Anonymous)
 	}
 	if rp := m.RootPath; !rootPathPattern.MatchString(rp) || path.Clean(rp) != rp {
 		return fmt.Errorf("runner %s: root_path %q must be /segments of lower-case letters, digits, - and _, such as /%s", m.Name, rp, m.Name)
