@@ -71,7 +71,9 @@ passwords in a minute from one address are refused for the rest of it.
 The address is the connection's own: the runner trusts no
 `X-Forwarded-For` (so a caller cannot pick a fresh one per guess), which
 means that behind a proxy every caller shares the proxy's address and
-its ten. The cookie is marked `Secure` over `https`, or when a TLS proxy
+its ten. Checking a hashed password takes a moment and some memory, so
+the runner checks two at a time, off the loop that serves everything
+else, and answers a third `429` straight away. The cookie is marked `Secure` over `https`, or when a TLS proxy
 says `X-Forwarded-Proto: https`.
 
 The runner's own MCP mount still works on a password-only runner (it uses a

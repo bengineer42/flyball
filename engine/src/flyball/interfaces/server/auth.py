@@ -308,6 +308,9 @@ class Auth:
         self.internal_token = internal_token
         self.delay = delay  # after a wrong password, before the 401
         self.attempts = Attempts()
+        # Logins hashing a password right now, and how many may: a scrypt hash holds 16 MiB.
+        self.hashing = 0
+        self.max_hashing = 2
         self.anonymous = ANONYMOUS_READ if config.anonymous == "read" else ANONYMOUS_NONE
         self.open = not config.enabled
 

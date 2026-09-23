@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
+from anyio import to_thread
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
@@ -79,7 +80,10 @@ async def login(request: Request, response: Response, body: Login) -> AuthOut:
     """Trade the password (or the token) for a session cookie.
 
     A wrong secret is 401 after a short pause; ten wrong ones in a minute from
-    one address are 429 until the minute is up.
+    one address are 429 until the minute is up. The password's hash (scrypt: tens of
+    milliseconds and 16 MiB each) runs on a worker thread, never on the loop that serves
+    everything else, and at most `Auth.max_hashing` at once; a login past that is 429 at
+    once rather than queued.
     """
     auth = _auth(request)
     if auth is None:
@@ -87,7 +91,19 @@ async def login(request: Request, response: Response, body: Login) -> AuthOut:
     address = request.client.host if request.client else "?"
     if auth.attempts.blocked(address):
         raise HTTPException(status_code=429, detail="Too many wrong passwords; wait a minute")
-    if not auth.is_secret(body.secret):
+    # Counted on the loop's own thread, so no lock: the check and the increment are one step.
+    if auth.hashing >= auth.max_hashing:
+        raise HTTPException(
+            status_code=429,
+            detail="The runner is busy checking other logins; try again in a moment",
+            headers={"Retry-After": "1"},
+        )
+    auth.hashing += 1
+    try:
+        right = await to_thread.run_sync(auth.is_secret, body.secret)
+    finally:
+        auth.hashing -= 1
+    if not right:
         auth.attempts.failure(address)
         if auth.delay:
             await asyncio.sleep(auth.delay)

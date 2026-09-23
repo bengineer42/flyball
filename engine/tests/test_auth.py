@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import stat
+import threading
+import time
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -185,6 +187,49 @@ def test_ten_wrong_passwords_in_a_minute_lock_the_door(password):
     for _ in range(10):
         assert password.post("/api/auth/login", json={"secret": "no"}).status_code == 401
     assert password.post("/api/auth/login", json={"secret": "hunter2"}).status_code == 429
+
+
+def test_a_login_does_not_stall_the_rest_of_the_api(password, monkeypatch):
+    """The hash runs on a worker thread: the loop keeps serving while it runs."""
+    door = password.app.state.auth
+    monkeypatch.setattr(door, "is_secret", lambda given: time.sleep(0.8) or False)
+    login = threading.Thread(
+        target=lambda: password.post("/api/auth/login", json={"secret": "slow"})
+    )
+    login.start()
+    time.sleep(0.1)  # the login is hashing by now
+    start = time.perf_counter()
+    assert password.get("/api/auth").status_code == 200
+    took = time.perf_counter() - start
+    login.join()
+    assert took < 0.4, f"/api/auth waited {took:.2f} s behind a login"
+
+
+def test_logins_hashing_at_once_are_bounded_and_the_rest_refused(password, monkeypatch):
+    """Each scrypt hash takes 16 MiB: past a few at once a login is 429, not queued."""
+    door = password.app.state.auth
+    release = threading.Event()
+    hashing = threading.Semaphore(0)
+
+    def slow(given: str) -> bool:
+        hashing.release()
+        release.wait(2)
+        return False
+
+    monkeypatch.setattr(door, "is_secret", slow)
+    first = [
+        threading.Thread(target=lambda: password.post("/api/auth/login", json={"secret": "x"}))
+        for _ in range(2)
+    ]
+    for thread in first:
+        thread.start()
+    for _ in first:
+        assert hashing.acquire(timeout=2), "both logins are hashing"
+    refused = password.post("/api/auth/login", json={"secret": "x"})
+    release.set()
+    for thread in first:
+        thread.join()
+    assert refused.status_code == 429 and "busy" in refused.json()["detail"]
 
 
 def test_a_tampered_or_expired_cookie_is_nobody(password):

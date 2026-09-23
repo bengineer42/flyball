@@ -29,7 +29,10 @@ The store is synchronous and serialised by one lock
 read a request body), hands the store call to `anyio.to_thread`. `StoreDep`
 holds one of a few `STORE_SLOTS` for the request, so store requests queued
 behind a long one wait on the loop, not on worker threads. `async def` is for
-routes and websockets that never reach the store or the rig's lock.
+routes and websockets that never reach the store or the rig's lock. The
+same holds for any other slow, blocking work: the login's scrypt hash goes
+to `anyio.to_thread`, at most `Auth.max_hashing` (2) at once, and a login
+past that is `429` rather than a queued thread.
 
 `server/routes/` is one module per concern, not per device:
 
