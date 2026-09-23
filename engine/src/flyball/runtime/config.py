@@ -27,6 +27,7 @@ longer parse; devices and controllers replace them (`book/src/7-reference/rig-fi
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections.abc import Iterator, Sequence
@@ -35,7 +36,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    create_model,
+    field_validator,
+    model_validator,
+)
 from pydantic.json_schema import GenerateJsonSchema
 
 # Nothing built into flyball core registers a tag implicitly any more --
@@ -64,6 +74,8 @@ from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
 from flyball.model.feedforward import NoFeedforward, Setpoint
 from flyball.rig import Rig
+
+log = logging.getLogger(__name__)
 
 # `LawConfig`/`FeedforwardConfig` are static pydantic field types
 # (`ControllerEntry` below), so they need every built-in law/feedforward at
@@ -195,56 +207,149 @@ Anonymous = Literal["none", "read"]
 
 
 class AuthConfig(BaseModel):
-    """The `runner.auth` section: who may reach the runner, and for what.
+    """The `runner.auth` section: who may reach a *bare* runner, one with no front.
 
-    A *password* is for a person at the UI: the login page trades it for a
-    session cookie, so the browser never keeps the secret. A *token* is for
-    machines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.
-    Either one turns the door on; with neither the runner is open. What a
-    caller with neither may do is `anonymous`: nothing, or read. Levels are
-    `none < read < operate`; a later scheme (several sign-ins, a part of the
-    rig locked) changes who gets which level, not what a level admits.
-    An open runner is served on loopback only unless the run itself says otherwise
-    (see [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is
-    never a key here, so no file -- nor anything it `extends` -- can open a runner.
+    A *token* is the one credential: machines send it as a bearer header, and a person
+    trades it (or the one-time link the runner prints at start) for a session cookie. What a
+    caller with neither may do is `anonymous`: nothing, or read. With no token the runner is
+    open, and served on loopback only unless the run itself says otherwise (see
+    [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is never a key
+    here, so no file -- nor anything it `extends` -- can open a runner.
+
+    A runner the front started (`--front-dir`) ignores this section: the front decides who
+    gets in. `password`, `session` and `secret` are removed: parsed, so an old file still
+    starts, and ignored with a warning.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    password: str | None = Field(
-        default=None,
-        description="The password the login page takes: a `$scrypt$` line from `flyball password`,"
-        " or the plain text.",
-    )
     token: str | None = Field(
-        default=None, description="Bearer token for the CLI, MCP clients and scripts."
+        default=None, description="Bearer token for the CLI, MCP clients, scripts and the UI."
     )
     anonymous: Anonymous = Field(
         default="none",
         description="What a caller with no session and no token may do: nothing, or read"
         " (every GET and every stream).",
     )
-    session: str = Field(default="12h", description="How long a login lasts (`12h`, `30m`).")
+    password: str | None = Field(
+        default=None,
+        description="Removed: ignored with a warning. The bare runner has no password login;"
+        " use `token`, or run it under `flyball run` (`runner.front`).",
+        json_schema_extra={"deprecated": True},
+    )
+    session: str | None = Field(
+        default=None,
+        description="Removed: ignored with a warning. A token-link session lasts 12 h.",
+        json_schema_extra={"deprecated": True},
+    )
     secret: str | None = Field(
         default=None,
-        description="The key that signs sessions; default: a key file beside the store, else one"
-        " made for the process (a restart then signs everyone out).",
+        description="Removed: ignored with a warning. Sessions are no longer signed.",
+        json_schema_extra={"deprecated": True},
     )
-
-    @field_validator("session", mode="before")
-    @classmethod
-    def _duration(cls, value: Any) -> str:
-        parse_duration_ns(value)
-        return str(value)
 
     @property
     def enabled(self) -> bool:
-        """Whether anyone is refused: a password or a token is set."""
-        return bool(self.password or self.token)
+        """Whether anyone is refused: a token is set."""
+        return bool(self.token)
 
     @property
-    def session_s(self) -> float:
-        return parse_duration_ns(self.session) / 1e9
+    def removed(self) -> list[str]:
+        """The removed keys this section sets, each ignored."""
+        return [key for key in ("password", "session", "secret") if getattr(self, key) is not None]
+
+
+class TlsFiles(BaseModel):
+    """`runner.front.tls`: the certificate the front serves, reloaded when renewed."""
+
+    model_config = ConfigDict(extra="forbid")
+    cert: Path
+    key: Path
+
+
+class CustomJwt(BaseModel):
+    """`runner.front.proxy.jwt`: a signed assertion the `custom` preset verifies."""
+
+    model_config = ConfigDict(extra="forbid")
+    header: str
+    jwks_url: str
+    issuer: str
+    audience: str
+    algorithms: list[str]
+
+
+class ProxyConfig(BaseModel):
+    """`runner.front.proxy`: the identity layer in front of the front (`auth: proxy`)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    preset: Literal[
+        "tailscale", "authelia", "oauth2-proxy", "authentik", "pomerium", "cloudflare", "custom"
+    ]
+    from_: Literal["unix"] | list[str] | None = Field(
+        default=None,
+        alias="from",
+        description="Whose unsigned headers are believed: `unix` (the front's socket), or"
+        " addresses and CIDRs.",
+    )
+    secret_file: Path | None = None
+    team: str | None = Field(default=None, description="cloudflare: the Access team name.")
+    issuer: str | None = None
+    audience: str | None = None
+    grants: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="A role (names pending D-034) -> subjects and `group:<id>`s.",
+    )
+    user_header: str | None = None
+    groups_header: str | None = None
+    separator: str | None = None
+    jwt: CustomJwt | None = None
+
+
+class TokensConfig(BaseModel):
+    """`runner.front.tokens` (or flyballd.yaml's top-level `tokens:`): named-token lifetimes.
+
+    Read and validated by the front (Go, `daemon/internal/front.ResolveLifetimes`); this side
+    only shapes the block and forbids unknown keys. An unparseable, out-of-range or
+    otherwise invalid value falls back to the built-in, with a warning at start -- it never
+    stops the runner (D-028).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    default_lifetime: str | None = Field(
+        default=None,
+        description="A token's lifetime when created without an explicit `expires_in`. A Go"
+        " duration plus a `d` suffix for days (e.g. `90d`, `36h`). Unset: the built-in 90 days.",
+    )
+    max_lifetime: str | None = Field(
+        default=None,
+        description="The hard cap on a token's lifetime, for tokens that are neither cleartext"
+        " nor kind `agent` (those keep a fixed 30-day cap, tightened further if this is"
+        " smaller). May only tighten the built-in ceiling of 365 days, never loosen it."
+        " Unset: the built-in 365 days.",
+    )
+
+
+class FrontConfig(BaseModel):
+    """`runner.front`: how `flyball run`'s front serves this rig. Read by the front, never here."""
+
+    model_config = ConfigDict(extra="forbid")
+    listen: str = Field(default="127.0.0.1:8000", description="Where the front listens.")
+    auth: Literal["local", "password", "proxy", "sso"] = Field(
+        default="local", description="Who gets in: the shape."
+    )
+    url: str | None = Field(default=None, description="The external URL the rig is reached at.")
+    tls: TlsFiles | None = None
+    password: str | None = Field(
+        default=None, description="`auth: password`: a `$scrypt$` line from `flyball password`."
+    )
+    anonymous: Anonymous = "none"
+    proxy: ProxyConfig | None = None
+    uv: bool = False
+    session: str = "12h"
+    trusted_proxies: list[str] = Field(default_factory=list)
+    tokens: TokensConfig | None = Field(
+        default=None, description="Named-token lifetime ceilings: default_lifetime, max_lifetime."
+    )
 
 
 def is_loopback(host: str) -> bool:
@@ -280,6 +385,12 @@ class Exposure:
     """No password and no token: whoever reaches the port may operate the rig."""
     warning: str | None = None
     """One line for stderr, or None when there is nothing to say."""
+    endpoint: str | None = None
+    """What the runner binds, `tcp:<host>:<port>` or `unix:<path>` (fronted)."""
+    fronted: bool = False
+    """Started by a front (`--front-dir`): the principal is the only credential."""
+    notes: tuple[str, ...] = ()
+    """Settings the runner ignores (removed keys; `runner.auth` when fronted), one line each."""
 
     @property
     def restricted(self) -> bool:
@@ -300,53 +411,100 @@ class Exposure:
             "restricted": self.restricted,
             "open_network": self.open_network,
             "warning": self.warning,
+            "endpoint": self.endpoint,
+            "fronted": self.fronted,
+            "notes": list(self.notes),
         }
 
 
-def settle_exposure(settings: RunnerConfig, insecure_open: bool = False) -> Exposure:
+def ignored_auth(auth: AuthConfig, fronted: bool) -> tuple[str, ...]:
+    """What the runner says it ignores of `auth`: removed keys, and all of it when fronted."""
+    notes = []
+    for key in auth.removed:
+        flag = {
+            "password": " (--password, FLYBALL_PASSWORD)",
+            "session": " (--session, FLYBALL_SESSION)",
+        }.get(key, "")
+        notes.append(
+            f"runner.auth.{key}{flag} is removed and ignored: the bare runner has no password"
+            " login; give it a token (runner.auth.token, --token, --token-file), or run it"
+            " under `flyball run`"
+        )
+    if fronted and (auth.token or auth.anonymous != "none"):
+        notes.append(
+            "started by a front (--front-dir): runner.auth, --token and --anonymous are"
+            " ignored; the front decides who gets in (runner.front)"
+        )
+    return tuple(notes)
+
+
+def _tcp(host: str, port: int) -> str:
+    return f"tcp:[{host}]:{port}" if ":" in host else f"tcp:{host}:{port}"
+
+
+def settle_exposure(
+    settings: RunnerConfig, insecure_open: bool = False, *, endpoint: str | None = None
+) -> Exposure:
     """Where to bind: a misconfiguration removes exposure, never operation.
 
-    Open is no password and no token (`runner.auth`, `--password`/`--token`, or
-    `FLYBALL_PASSWORD`/`FLYBALL_TOKEN`, all settled into `settings` by then): anyone
-    who reaches the port may operate the rig. On loopback that is only this machine.
-    Asked for any other address, an open runner still starts -- a control process
-    that will not start leaves the equipment uncontrolled -- but binds loopback on
-    the same port, and the warning says why and how to fix it. `insecure_open`
-    (`--insecure-open`, `FLYBALL_INSECURE_OPEN=1`: per run, never a rig-file key)
-    serves it where asked. Credentials beyond loopback over plain HTTP get a warning.
+    Open is no token (`runner.auth.token`, `--token`, `--token-file` or `FLYBALL_TOKEN`, all
+    settled into `settings` by then): anyone who reaches the port may operate the rig. On
+    loopback that is only this machine. Asked for any other address, an open runner still
+    starts -- a control process that will not start leaves the equipment uncontrolled --
+    but binds loopback on the same port, and the warning says why and how to fix it.
+    `insecure_open` (`--insecure-open`, `FLYBALL_INSECURE_OPEN=1`: per run, never a
+    rig-file key) serves it where asked. A token beyond loopback over plain HTTP gets a
+    warning. A removed `runner.auth` key (`password`, `session`, `secret`) counts as absent:
+    a password-only runner is open, so it serves loopback.
+
+    With `endpoint` (a fronted runner: the front-dir's `endpoint`) the runner binds that and
+    nothing else; `runner.host`/`port` and `runner.auth` are ignored, and `notes` says so.
     """
+    if endpoint is not None:
+        notes = ignored_auth(settings.auth, fronted=True)
+        return Exposure(
+            endpoint,
+            endpoint,
+            0,
+            open=False,
+            warning="; ".join(notes) or None,
+            endpoint=endpoint,
+            fronted=True,
+            notes=notes,
+        )
+    notes = ignored_auth(settings.auth, fronted=False)
     requested, port = settings.host, settings.port
     where = f"{requested or 'every interface'!r}"
+
+    def exposure(host: str, open: bool, warning: str | None = None) -> Exposure:
+        said = "; ".join(filter(None, (*notes, warning))) or None
+        return Exposure(requested, host, port, open, said, endpoint=_tcp(host, port), notes=notes)
+
     if is_loopback(requested):
-        return Exposure(requested, requested, port, open=not settings.auth.enabled)
+        return exposure(requested, not settings.auth.enabled)
     if settings.auth.enabled:
-        return Exposure(
+        return exposure(
             requested,
-            requested,
-            port,
-            open=False,
-            warning=f"serving plain HTTP on {where}: the password, the token and session"
-            " cookies cross the network unencrypted; put TLS in front, or serve on 127.0.0.1",
+            False,
+            f"serving plain HTTP on {where}: the token and session cookies cross the network"
+            " unencrypted; put TLS in front (`flyball run` with runner.front.tls), or serve on"
+            " 127.0.0.1",
         )
     if insecure_open:
-        return Exposure(
+        return exposure(
             requested,
-            requested,
-            port,
-            open=True,
-            warning=f"serving an OPEN runner on {where} (--insecure-open): anyone who can reach"
+            True,
+            f"serving an OPEN runner on {where} (--insecure-open): anyone who can reach"
             " it may operate the rig",
         )
-    return Exposure(
-        requested,
+    return exposure(
         LOOPBACK,
-        port,
-        open=True,
-        warning=f"host is {where} but the runner has no password and no token: serving on"
+        True,
+        f"host is {where} but the runner has no token: serving on"
         f" {LOOPBACK}:{port} only, so nothing beyond this machine can reach the rig. To serve it"
-        " on the network give it a password or a token (runner.auth in the rig file,"
-        " --password/--token, FLYBALL_PASSWORD/FLYBALL_TOKEN; `flyball password` makes one),"
-        " or, knowingly, --insecure-open or FLYBALL_INSECURE_OPEN=1",
+        " on the network give it a token (runner.auth.token in the rig file, --token,"
+        " --token-file, FLYBALL_TOKEN) or run it under `flyball run`, or, knowingly,"
+        " --insecure-open or FLYBALL_INSECURE_OPEN=1",
     )
 
 
@@ -381,7 +539,12 @@ class RunnerConfig(BaseModel):
     )
     auth: AuthConfig = Field(
         default_factory=AuthConfig,
-        description="Who may reach the runner: password, token, anonymous.",
+        description="Who may reach a bare runner (no front): token, anonymous.",
+    )
+    front: FrontConfig | None = Field(
+        default=None,
+        description="How `flyball run`'s front serves the rig: listen, auth, url, tls. Read by"
+        " the front only; a runner the front started ignores `host`, `port` and `auth`.",
     )
     compose: bool = Field(default=False, description="Build up a hardware rig over the API.")
     mcp: bool = Field(default=True, description="Mount the MCP servers at /mcp.")
@@ -417,10 +580,40 @@ class RunnerConfig(BaseModel):
     )
     run: dict[str, Any] = Field(
         default_factory=dict,
-        description="Freeform defaults for `flyball run`'s own CLI flags (e.g. `serve_ui`,"
-        ' `uv`) -- Go-CLI-only, never read or validated here; present only so `extra="forbid"`'
-        " doesn't reject keys that belong to the Go binary, not the runner.",
+        description="Deprecated: `runner.front`. Accepted for one release: `serve_ui` is read"
+        " as `front.listen`, `uv` as `front.uv`, with a warning.",
+        json_schema_extra={"deprecated": True},
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _run_is_front(cls, data: Any) -> Any:
+        # `runner.run` before `runner.front` existed: its two keys move there, unless the file
+        # already says `front`, which wins.
+        if not isinstance(data, dict) or not data.get("run") or "front" in data:
+            return data
+        run = data["run"]
+        if not isinstance(run, dict):
+            return data
+        front = {new: run[old] for old, new in (("serve_ui", "listen"), ("uv", "uv")) if old in run}
+        log.warning("runner.run is deprecated: write runner.front (serve_ui is now front.listen)")
+        return {**data, "front": front}
+
+    @field_validator("front", mode="wrap")
+    @classmethod
+    def _front_never_stops_the_runner(
+        cls, value: Any, handler: ValidatorFunctionWrapHandler
+    ) -> Any:
+        # D-028: `runner.front` is the front's; a mistake in it must not stop the rig. The
+        # strict check is the schema's, which `flyball rig check` enforces.
+        try:
+            return handler(value)
+        except ValidationError as e:
+            said = "; ".join(
+                f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors()
+            )
+            log.warning("runner.front is not valid and is ignored here: %s", said)
+            return None
 
     @model_validator(mode="before")
     @classmethod

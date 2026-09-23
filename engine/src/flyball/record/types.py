@@ -176,20 +176,6 @@ class DashboardRow:
     sha256: str
 
 
-@dataclass(frozen=True, slots=True)
-class PasskeyRow:
-    """A registered passkey. `public_key` is COSE bytes -- fine to hold, never to send."""
-
-    id: int
-    credential_id: bytes
-    public_key: bytes
-    sign_count: int
-    aaguid: bytes | None
-    transports: list[str]
-    label: str
-    created_ns: int
-
-
 # endregion
 
 # region Data

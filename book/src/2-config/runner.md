@@ -10,17 +10,15 @@ relative to the first rig file's directory.
 
 | key | type | default | flag | |
 | --- | --- | --- | --- | --- |
-| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable. Anything else needs `auth.password` or `auth.token`: an open runner asked for it serves on `127.0.0.1` instead, with a warning, and answers only to `localhost`, `127.0.0.1` and `[::1]`, unless run with `--insecure-open` / `FLYBALL_INSECURE_OPEN=1` (a per-run switch; no key here) |
-| `port` | int | `8000` | `--port` | |
-| `root_path` | `/prefix` | none | `--root-path`, `FLYBALL_ROOT_PATH` | serve everything under a path: `/furnace/api`, `/furnace/ws`, … for several rigs on one origin -- [a sub-path](../1-running/runner/access.md#a-sub-path) |
-| `log_level` | string | `info` | `--log-level` | uvicorn's; its request lines keep the path and drop the query (`/api/export/1.csv?…`), so a `?token=` is never written |
-| `auth` | table | open (loopback names only) | | who may reach the runner -- [the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open); the keys below |
-| `auth.password` | string | none | `--password`, `FLYBALL_PASSWORD` | what the UI's login page takes: the plain text, or the `$scrypt$` line from `flyball password` |
-| `auth.token` | string | none | `--token`, `FLYBALL_TOKEN` | bearer token for the CLI, MCP clients and scripts (`runner.token` at the top level still parses) |
-| `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with neither may do: nothing, or every `GET` and stream |
-| `auth.session` | duration | `12h` | `--session`, `FLYBALL_SESSION` | how long a login lasts |
-| `auth.secret` | string | a key file beside the store | | what signs sessions; set it to keep sessions across machines or without a store |
-| *(no `auth.passkey` key)* | | | | passkeys are not config -- any door open at all (`auth.password` or `auth.token`) lets a signed-in person register one from the UI; see [passkeys](../1-running/runner/access.md#passkeys) |
+| `host` | string | `127.0.0.1` | `--host` | a [bare runner](../1-running/runner/access.md#the-bare-runner)'s bind address; loopback unless the rig should be reachable. Anything else needs `auth.token`: an open runner asked for it serves on `127.0.0.1` instead, with a warning, and answers only to `localhost`, `127.0.0.1` and `[::1]`, unless run with `--insecure-open` / `FLYBALL_INSECURE_OPEN=1` (a per-run switch; no key here). Ignored behind a front, which gives the runner a socket instead |
+| `port` | int | `8000` | `--port` | a bare runner's port; ignored behind a front |
+| `root_path` | `/prefix` | none | `--root-path`, `FLYBALL_ROOT_PATH` | serve everything under a path: `/furnace/api`, `/furnace/ws`, … for several bare runners on one origin -- [a sub-path](../1-running/runner/access.md#a-sub-path). `flyballd` sets it from the manifest's `root_path`. Under a front (`flyball run`, or `flyballd` without a manifest `root_path`) the rig file's own value is ignored, with a warning: the front decides where the rig is served, and `flyball run` serves it at `/` |
+| `log_level` | string | `info` | `--log-level` | uvicorn's; its request lines keep the path and drop the query (`/api/export/1.csv?…`) |
+| `front` | table | the `local` shape on `127.0.0.1:8000` | | how `flyball run`'s front serves the rig -- [below](#front-how-flyball-run-serves-the-rig) |
+| `auth` | table | open (loopback names only) | | who may reach a *bare* runner, one with no front -- [the bare runner](../1-running/runner/access.md#the-bare-runner); the keys below. Ignored behind a front, with a warning |
+| `auth.token` | string | none | `--token`, `--token-file PATH`, `FLYBALL_TOKEN` | the bare runner's one credential: a bearer token for machines, which a person trades for a session through the link the runner prints at start or at the login page (`runner.token` at the top level still parses) |
+| `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with no token and no session may do: nothing, or every `GET` and stream |
+| `auth.password`, `auth.session`, `auth.secret` | | | `--password`, `--session`, `FLYBALL_PASSWORD`, `FLYBALL_SESSION` | removed: read, so an old file still starts, and ignored with a warning. A password is the front's now (`front.password`) |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
 | `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
@@ -42,37 +40,55 @@ A **duration** is a number with `ns`, `us`, `ms`, `s`, `m`, `h`, `d` or `w`
 the file loads. What the five retention keys do at run time -- sweeps,
 what ages out, pins -- is [What ages out](../1-running/runner/index.md#what-ages-out).
 
-`GET /api/runner` reports what was resolved, less `auth` -- the five
+`GET /api/runner` reports what was resolved, less `auth` and `front`, with
+`endpoint` (`tcp:<host>:<port>`, or `unix:<path>` behind a front) for
+`host` and `port` -- the five
 retention keys both as written and resolved (`keep_ns`, `keep_bytes`,
 `retain_ns`, `rotate_ns`, `max_bytes`; 0 = off). Command-line only:
 `--record`, `--resume`, `--set KEY=VALUE`.
 
-## `run:` -- `flyball run`'s own flags, in the file
+## `front:` -- how `flyball run` serves the rig
 
-`runner.run` is a freeform table, never validated or read by `flyball-runner`
-itself (`RunnerConfig.run` accepts any keys so `extra: forbid` doesn't reject
-them; they mean nothing to Python). It exists only for `flyball run`, the Go
-CLI's no-daemon "start one runner directly" command -- so its own flags
-(`--serve-ui`, `--port`, `--uv`, none of which the Python side has any
-concept of) can have a default in the rig file instead of being retyped on
-every invocation, e.g. on a Pi where the same command runs at every boot:
+`runner.front` is read by `flyball run`'s front (the Go CLI), never by
+`flyball-runner`: which [shape](../1-running/runner/access.md#shapes-who-gets-in)
+the door has, where it listens, and its name and certificate. `flyballd`
+reads the same keys from the top level of `flyballd.yaml`. Nothing set is
+the `local` shape on `127.0.0.1:8000`: the dashboard, no sign-in, this
+machine only.
 
 ```yaml
 runner:
-  run:
-    serve_ui: ":8000"  # same as `flyball run rig.yaml --serve-ui :8000`
-    uv: true            # same as `--uv`
+  front:
+    listen: 0.0.0.0:8000          # --listen ADDR
+    auth: password                # local (default) | password | proxy
+    password: $scrypt$…           # flyball password
+    anonymous: read               # anyone may watch
+    url: https://pi.lab.example   # the address people use (optional)
+    tls: {cert: /etc/flyball/tls/cert.pem, key: /etc/flyball/tls/key.pem}   # optional
+    uv: true                      # --uv
 ```
 
-| key | type | same as | |
+| key | type | default | |
 | --- | --- | --- | --- |
-| `serve_ui` | string | `--serve-ui ADDR` | a non-empty value serves the embedded dashboard UI on `ADDR`. `":8000"` is every interface: the runner then needs a password or a token, or the UI is served on `127.0.0.1` only (unless `--insecure-open` / `FLYBALL_INSECURE_OPEN=1`) -- see [behind `flyball run --serve-ui`](../1-running/runner/access.md#behind-flyball-run-serve-ui) |
-| `uv` | bool | `--uv` | run `flyball-runner` via `uv run --project <dir>` instead of a bare exec |
-| `port` | string or int | `--port PORT` | the runner's port under `flyball run` (passed on as `--port`) when the section's own `port` is not set; `--serve-ui`'s proxy follows `--port`, then `runner.port`, then this, then `8000` |
+| `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` | where the front listens; `flyball run --listen ADDR` wins |
+| `auth` | `local` / `password` / `proxy` | `local` | the shape. `local` serves loopback only; `sso` is not in this release and falls back |
+| `password` | `$scrypt$` line | none | the admin password for `auth: password`, as `flyball password` prints it; a plain one is refused |
+| `anonymous` | `none` / `read` | `none` | what a caller who has not signed in may do, under `password` and `proxy` |
+| `url` | `http(s)://host[:port]` | none | the address people use: the names and origins the front accepts, and a `Secure` cookie when `https` |
+| `tls` | `{cert, key}` | none | serve HTTPS from these PEM files, re-read when renewed |
+| `proxy` | table | none | `auth: proxy`: the identity proxy in front -- `{preset: authelia}` and the like |
+| `uv` | bool | `false` | run `flyball-runner` via `uv run --project <the rig file's directory>`, for an application with its own venv; `flyball run --uv` does the same |
 
-A flag given on the command line always wins over the matching `run:` key;
-`run:` only supplies the default when the flag is absent. `flyball run` with
-no rig-file `run:` section behaves exactly as before -- a bare exec, no UI.
+`session`, `trusted_proxies`, `tokens` (lifetimes) and every `proxy` key
+are reference material: [The front](../7-reference/rig-file.md#the-front).
+A wrong value in this block never stops the rig: the front falls back to
+the `local` shape on `127.0.0.1` and says why
+([Access](../1-running/runner/access.md#when-a-setting-is-wrong)).
+
+`runner.run`, this block's name before, is still read for one release,
+with a warning: `serve_ui` as `listen`, `uv` as `uv`; its `port` means
+nothing now, since the runner behind a front listens on a socket. When
+both are set, `front` wins and `run` is ignored.
 
 ## A runner file
 
@@ -89,15 +105,17 @@ runner:
   store_dir: stores          # stores/humidity-sim.sqlite
   auth:
     anonymous: read          # anyone may watch
-    password: $scrypt$…      # flyball password; needed to drive
+    token: …                 # or FLYBALL_TOKEN; needed to drive
 ```
 
 ```
 flyball-runner humidity.yaml
 ```
 
-What each of these does at run time -- the door, a sub-path behind a
-proxy, stopping and restarting, saving -- is in
+That is a bare runner, with its own token. The same file under `flyball
+run` would carry a `front:` block instead, and `port`, `root_path` and
+`auth` would be ignored. What each of these does at run time -- the door, a
+sub-path behind a proxy, stopping and restarting, saving -- is in
 [Starting a rig](../1-running/runner/index.md); what the API then answers, in
 [The server](../4-server/index.md).
 

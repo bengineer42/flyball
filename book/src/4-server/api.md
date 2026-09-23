@@ -14,68 +14,89 @@ slashes, so they sit in one path segment.
 
 ## Authentication
 
-None by default. With a password or a token configured ([the
-door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)),
-every `/api`, `/ws` and `/mcp` request needs one of: the session cookie
-`flyball_session` a login set; `Authorization: Bearer T` with the token;
-`?token=T` on a websocket or a `GET`. Without: `401` with a `detail` and
-`WWW-Authenticate: Bearer`, and a socket is closed with code 4401. A token
-that is sent and wrong is `401` too, never anonymous. With
-`auth.anonymous: read`, a `GET` or a stream passes without any of them;
-no `GET` changes anything. `/api/auth` is always reachable, and so is a `GET`
-outside `/api`, `/ws` and `/mcp`: the bundled UI (its login page
-included), `/docs` and `/openapi.json`.
+Every request comes through a door: the [front](../1-running/runner/access.md)
+`flyball run` or `flyballd` starts, or a bare runner's own. Everything
+under `/api`, `/ws` and `/mcp` needs a verb, which the runner's verb table
+names per route: `read` for a `GET`, a stream, `POST /api/rig/check` and
+`POST /api/programs/check`; `operate` for everything else. The verbs are a
+placeholder until D-034 (pending) is decided. `/api/auth` and its
+sub-routes need nothing, and neither does a `GET` of the bundled UI on a
+bare runner, nor `/docs` and `/openapi.json` there.
 
-Two refusals come first, both `403` (a socket: closed with 4403):
+A caller is one of, in this order: a bearer token (`Authorization: Bearer
+T`: a named token `fbt1_…` at a front, the runner's token at a bare
+runner); the session cookie a sign-in set; at a `proxy` front, the identity
+the proxy asserts; otherwise anonymous, who gets what `anonymous` says
+(`none`, or `read`). At the `local` shape, or a bare runner with no token,
+everyone gets every verb. A credential that is presented and wrong is
+refused, never taken as anonymous. A token in the URL (`?token=`) is never
+read: a bare runner refuses the request, a front ignores it.
 
-- **An open runner** (no password, no token) answers only a `Host` of
-  `localhost`, `127.0.0.1` or `[::1]`, on any port.
-- **In every mode**, a request that acts -- any method but `GET`, `HEAD`
-  and `OPTIONS`, and every websocket -- is refused when its `Origin`
-  header is present and is not the runner's own: the same host and port
-  as the `Host` header, and the request's scheme (or `https` where the
-  runner itself is reached over plain HTTP, a TLS proxy in front of it).
-  `Origin: null` is refused. No `Origin` at all (the CLI, a script) is
-  not. A request with the right bearer token is exempt.
+| refusal | HTTP | websocket |
+| --- | --- | --- |
+| no credential where one is needed, or a wrong one | `401` `{detail}`, `WWW-Authenticate: Bearer` | the handshake completes, then closed with `4401`; the UI stops retrying |
+| a caller lacking the route's verb | `403` `{detail, needed}` (`"needed": "operate"`); anonymous: `401` instead, so the UI offers sign-in | closed with `4403` (anonymous: `4401`) |
+| a path no row of the verb table covers (an unknown `/api/…`) | `403` `{detail, needed: null}`, never `404`; a known path with the wrong method is `405` | `403` |
+| the front and the runner out of step (the runner refused the front's principal) | `502` | closed with `1014` |
+| the runner still starting | `503`, `Retry-After: 1` | `503` |
+| a front whose store or identity provider cannot answer | `503` | `503` |
+
+Before any of that, a front refuses a path with a `.` or `..` segment, a
+backslash or an encoded `.`, `/` or `\` (`400`); a `Host` it does not
+answer to (`403`); and a request that acts -- any method but `GET`, `HEAD`
+and `OPTIONS`, and every websocket -- whose `Origin` is missing, `null` or
+another site's, unless it carries a named token (`403`). A bare runner
+refuses the same `Origin`s (a missing one passes there), and, with no
+token, any `Host` but a loopback name. [Access](../1-running/runner/access.md#other-names-other-pages)
+has the rules.
 
 | | route | |
 | --- | --- | --- |
-| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token, passkey, exposure}`: how this caller got in (`anonymous`, `password`, `token`, `passkey`), what they may do (`none`, `read`, `operate`), what anyone may do, and which doors the runner has -- `passkey` says a door exists, never whether one is registered. `exposure` is where it serves against where it was asked to -- `{requested, host, port, open, restricted, open_network, warning}`: `restricted` an open runner moved to `127.0.0.1`, `open_network` an open one on the network by `--insecure-open` ([the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)); `null` when not served by `flyball-runner`. `flyball run --serve-ui` replaces it with its own front's |
-| `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https or with `X-Forwarded-Proto: https`) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address (the connection's peer; no forwarded header is trusted): `429`; `429` with `Retry-After: 1` too while two other logins are being checked (the hash runs off the event loop, two at a time) |
-| `POST` | `/api/auth/logout` | clears the cookie |
+| `GET` | `/api/auth` | **AuthInfo v2**: `{v: 2, shape, scheme, user, verbs, anonymous, login, exposure, rig?}`. `shape` is the door's: `local`, `password` or `proxy` at a front; `local` (no token) or `bare` at a bare runner. `scheme` is how this caller got in: `local`, `anonymous`, `session`, `token` or `proxy`. `user` is `{id, name, kind}` (`id` the principal's `sub`, `kind` `human`, `service` or `agent`), `null` when anonymous. `verbs` are the caller's verbs on this rig. `login` is `{password, token, passkey, sso}`: what the sign-in page may offer (`passkey` is always `false`, `sso` `null`, in this release). `exposure`, when there is anything to say, is `{requested, host, port, open, restricted, open_network, warning}`: where the door serves against where it was asked to, and why (`warning` carries a front's fallback reason). `rig` is the rig this path routes to, at a front (absent at `flyballd`'s own root). A stale cookie here answers anonymous and clears it, rather than `401` |
+| `POST` | `/api/auth/login` | a `password` front: `{"password": "…"}`; a bare runner with a token: `{"token": "…"}`. Sets the session cookie (`HttpOnly; SameSite=Lax`) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` with `Retry-After`; at a front also `429` with `Retry-After: 1` while two other passwords are being checked. A front without the password shape answers `404`. Needs a same-site `Origin` at a front |
+| `POST` | `/api/auth/logout` | ends the session (its open streams and sockets closed within a second) and clears the cookie |
+| `GET` | `/api/auth/tokens` | a front's named tokens, `[{id, name, scopes, kind, created, expires, last_used}]`, never a secret. The admin session or the `local` shape only: anonymous `401`, anyone else `403` |
+| `POST` | `/api/auth/tokens` | `{name, scopes?, kind?, expires_in?}` (`scopes` default `["read"]`, `kind` default `service`, `expires_in` seconds, capped as [the lifetimes](../7-reference/rig-file.md#token-lifetimes) say) → `201` `{token, id, name, scopes, kind, created, expires, last_used}`; `token` is shown this once. `manage` is refused (`403`): only `flyball token create` issues it. The same callers as `GET`; a record the front cannot write in its audit means no token (`503`) |
+| `DELETE` | `/api/auth/tokens/{id}` | `204`; the token's open streams and sockets closed within a second. The same callers |
+| `GET` | `/api/auth/link?n=NONCE` | a bare runner with a token: a one-time sign-in link (printed at start; ten minutes). `302` to `<root>/` with a session cookie, `Referrer-Policy: no-referrer`; used, expired or wrong: `401` |
+| `POST` | `/api/auth/link` | a bare runner, with its token as a bearer: `{url, expires_in}`, a fresh link for a person |
+| `GET` | `/api/auth/front` | a fronted runner's readiness probe: `401` without a valid principal, `200` `{protocol: 1, aud, pid, flyball}` with one; `404` on a bare runner |
+
+A bare runner's session cookie is `flyball-bare-<port>`, path `<root
+path>/`, in memory for 12 hours; a front's is `flyball-<port>`, or
+`__Host-flyball` under HTTPS, path `/`, and ends after 12 idle hours or 7
+days. The cookie's value is opaque to a client.
 
 Started with `--root-path /p`, every path below sits under `/p`
 (`/p/api/health`, `/p/ws/samples`, `/p/mcp/read`); anything not under it
-is `404` (a socket is closed with 4404).
+is `404` (a socket is closed with 4404). Under `flyballd`, each rig's paths
+sit under its `root_path` the same way.
 
-With any door open at all (a password or a token configured), a person may
-also register **passkeys**: each one grants the same `operate` level as a
-bearer token, additively -- registering one needs an already-authenticated
-caller, there is no separate bootstrap. `/api/auth/passkey/login*` is how
-one signs in with a passkey instead of the password. All of them need the
-optional `passkeys` extra (`pip install "flyball[web,passkeys]"`); without
-it each answers **501** and `GET /api/auth` reports `passkey: false`. Both
-ceremonies require user verification, so an authenticator that only reports
-user *presence* is refused: 400 registering, 401 signing in. A store that
-cannot be reached is `503` either way, and does not count as a failed sign-in.
-On an open
-runner (no password, no token) every one of them is 409: there is no door for a passkey
-to open. Each `POST` and the `DELETE` acts, so the `Origin` check above applies
-to it as to any other: a page on another site cannot run a ceremony here.
+## Stopping the rig
 
 | | | |
 | --- | --- | --- |
-| `POST` | `/api/auth/passkey/challenge` | A registration challenge (WebAuthn `PublicKeyCredentialCreationOptions`). Needs a signed-in caller who may operate. |
-| `POST` | `/api/auth/passkey/register` | `{credential, label}` -> the stored credential's `{id, label, created_ns, transports}`. |
-| `POST` | `/api/auth/passkey/login/challenge` | An authentication challenge (`PublicKeyCredentialRequestOptions`). No prior auth needed; 429 for an address the password limiter has blocked. |
-| `POST` | `/api/auth/passkey/login` | `{credential}` -> a session cookie like the password login's, bound to that credential; the caller's scheme is then `passkey`. |
-| `GET` | `/api/auth/passkey` | This runner's registered credentials: `label`, `created_ns`, `transports` -- never the public key. |
-| `DELETE` | `/api/auth/passkey/{id}` | Revoke a credential; every session it opened ends with it. |
+| `POST` | `/api/rig/stop` | the [software stop](../1-running/runner/access.md#stopping-the-rig). Body optional: `{"reason": "…"}` (cut to 500 characters). Needs `operate`; never rate-limited, and it runs on threads of its own. `503` with no rig. Answers the report: `{at_ns, actor: {sub, sid, kind, via, detail}, reason, devices: {name: {state, detail}}, program_interrupted, controllers_manual, interim}` -- `via` is `http`, `mcp` or `signal`; `state` is `stopped`, `unchanged` or `failed` for each device with a writable signal; `controllers_manual` names every controller in manual afterwards. In this release `interim` is `true` and nothing is written, so each device is `unchanged` |
 
-The RP ID is the request's own hostname; a runner reached under more than
-one name needs a credential registered under each. Credentials persist in
-the store when one is attached; a store-less runner keeps them only for
-the life of the process (see `flyball.interfaces.server.passkeys`).
+## The daemon's own routes
+
+`flyballd` answers these at its root, not under a rig's `root_path`.
+
+| | | |
+| --- | --- | --- |
+| `GET` | `/api/rigs` | the rigs the caller holds any verb on: `[{name, root_path, status}]`, sorted by name. Any credential; `flyball stop --all` uses it |
+| `GET` | `/api/runners` | every registered runner: `[{name, root_path, restart, status, endpoint, pid, adopted, reason}]` |
+| `GET` | `/api/runners/{name}` | one of them |
+| `POST` | `/api/runners` | a manifest as JSON: register and start it, `202`; `400` a bad manifest, `409` a name or root path taken |
+| `DELETE` | `/api/runners/{name}` | stop the runner process and deregister it, `204` |
+| `POST` | `/api/runners/{name}/restart` | `204` |
+| `GET` | `/api/runners/{name}/logs` | its captured output, as plain text |
+| `GET` | `/` | the landing page: a link to each rig |
+
+All but `/api/rigs` are management: a named token with the `manage` scope
+as a bearer; `401` without a credential, `403` with any other (a session
+never has it). Statuses and what each field means: [the
+daemon](../7-reference/cli.md#a-runners-status).
 
 ## The runner
 
@@ -85,8 +106,8 @@ without a handle).
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/runner` | `{host, port, root_path, mcp, compose, allow_save, allow_shutdown, store, programs, tunings, drivers, files, keep, keep_size, retain, rotate, max_store, keep_ns, keep_bytes, retain_ns, rotate_ns, max_bytes}`: the settings as resolved (the `runner:` section under the command line), never the token; `files` the rig files loaded; the five retention keys as written and as resolved (0 = off / no cap) |
-| `POST` | `/api/runner/shutdown` | 202 `{detail}`; the rig stops and the process exits. 409 unless started with `--allow-shutdown` |
+| `GET` | `/api/runner` | `{endpoint, root_path, mcp, compose, allow_save, allow_shutdown, store, programs, tunings, drivers, files, keep, keep_size, retain, rotate, max_store, keep_ns, keep_bytes, retain_ns, rotate_ns, max_bytes}`: the settings as resolved (the `runner:` section under the command line), never the token; `endpoint` is what the runner binds, `tcp:<host>:<port>`, or `unix:<path>` behind a front; `files` the rig files loaded; the five retention keys as written and as resolved (0 = off / no cap) |
+| `POST` | `/api/runner/shutdown` | 202 `{detail}`; the rig stops and the process exits. 409 unless started with `--allow-shutdown`. Not the [software stop](#stopping-the-rig) |
 | `POST` | `/api/runner/restart` | 202 `{detail}`; as shutdown, then the same command line runs again in the same process. 409 the same |
 
 ## Errors
@@ -96,8 +117,8 @@ without a handle).
 `ConflictError` (a demand the rig refuses, a signal already spoken for,
 a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
 `NotReadyError` (no rig, nothing read yet, no default controller) or
-`HardwareError`; 401 with `WWW-Authenticate: Bearer` from the door
-([authentication](#authentication)), 429 for too many wrong passwords.
+`HardwareError`; 401, 403 and 429 from the door, and 502 and 503 from a
+front ([authentication](#authentication)).
 
 The store's own failures take the same map. A write it refuses -- a tuning
 whose `session_id` names no session, a duplicate of a unique row -- is 409
@@ -111,7 +132,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` as in `GET /api/auth`; `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |
@@ -132,7 +153,7 @@ saving are never gated.
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
-| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); `runner.auth` shows only `anonymous` and `session`, never a password, token or secret |
+| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); of `runner:` only what a reader needs -- `host`, `port`, `log_level`, `compose`, `mcp`, `root_path`, `allow_save`, `allow_shutdown`, the retention keys, `auth.anonymous`, and `front`'s `listen`, `auth`, `url` and `anonymous`. No credential (`auth.token`, `front.password`), no path (`store`, `drivers`, `front.tls`, ...), none of `front.proxy` or `front.trusted_proxies` |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
 | `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
 | `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
@@ -389,7 +410,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |
 | `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
-| `GET` | `/api/sim/config` | the rig file as it now stands; never `runner.auth`'s credentials |
+| `GET` | `/api/sim/config` | the rig file as it now stands; `runner:` cut down as for `/api/rig/config` |
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the runner runs with `--allow-save` |
 | `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |

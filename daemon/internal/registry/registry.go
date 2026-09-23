@@ -6,8 +6,10 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"flyballd/internal/backend"
@@ -16,10 +18,19 @@ import (
 
 // Entry is one registered runner. Status is read from the backend each
 // time an entry is fetched -- it follows the process, it is not kept here.
+// Endpoint is the backend's string form of where the runner listens
+// ("unix:/run/flyball/oven/sock", "tcp:127.0.0.1:8102"; endpoint.Parse
+// reads it) -- what GET /api/runners reports.
 type Entry struct {
 	Manifest config.Manifest
 	Endpoint string
 	Status   backend.Status
+	// Pid, Adopted and Reason come from a backend.Inspector: the live
+	// process, whether it was adopted rather than spawned (D-037), and why
+	// the runner is busy or failed.
+	Pid     int
+	Adopted bool
+	Reason  string
 }
 
 type Registry struct {
@@ -27,28 +38,75 @@ type Registry struct {
 
 	mu      sync.RWMutex
 	entries map[string]*Entry
+	pending map[string]string // name -> root path, for Starts under way
 }
 
 func New(be backend.Backend) *Registry {
-	return &Registry{be: be, entries: map[string]*Entry{}}
+	return &Registry{be: be, entries: map[string]*Entry{}, pending: map[string]string{}}
 }
 
-// Start spawns a runner via the backend. The backend reports it starting
-// until it answers /api/auth, so a process that is up but not yet serving
-// is not shown as running.
+// ErrConflict is a runner whose name is taken, or whose root path overlaps
+// another's -- one contains the other, so a path could route to either and
+// the aud a front mints for would not be the rig the scopes named (F6) --
+// or the daemon's own /api.
+var ErrConflict = errors.New("conflicts with a registered runner")
+
+// ReservedRoot is the daemon's own: its management API and /api/auth.
+const ReservedRoot = "/api"
+
+func overlaps(a, b string) bool {
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+// reserve claims m's name and root path for a Start, or says why not.
+func (r *Registry) reserve(m config.Manifest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, taken := r.entries[m.Name]; taken {
+		return fmt.Errorf("%w: a runner named %q is already registered", ErrConflict, m.Name)
+	}
+	if _, taken := r.pending[m.Name]; taken {
+		return fmt.Errorf("%w: a runner named %q is already starting", ErrConflict, m.Name)
+	}
+	if overlaps(m.RootPath, ReservedRoot) {
+		return fmt.Errorf("%w: root path %s is under flyballd's own %s", ErrConflict, m.RootPath, ReservedRoot)
+	}
+	roots := map[string]string{}
+	for name, e := range r.entries {
+		roots[name] = e.Manifest.RootPath
+	}
+	for name, root := range r.pending {
+		roots[name] = root
+	}
+	for name, root := range roots {
+		if overlaps(m.RootPath, root) {
+			return fmt.Errorf("%w: root path %s overlaps runner %q's %s", ErrConflict, m.RootPath, name, root)
+		}
+	}
+	r.pending[m.Name] = m.RootPath
+	return nil
+}
+
+// Start spawns a runner via the backend. A name that is taken, or a root
+// path that overlaps another runner's or /api, is ErrConflict. The backend reports it starting
+// until it passes the readiness handshake, so a process that is up but
+// not yet serving is not shown as running. The runner's aud is the
+// manifest's name.
 func (r *Registry) Start(m config.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
-	r.mu.RLock()
-	_, taken := r.entries[m.Name]
-	r.mu.RUnlock()
-	if taken {
-		return fmt.Errorf("a runner named %q is already registered", m.Name)
+	if err := r.reserve(m); err != nil {
+		return err
 	}
+	defer func() {
+		r.mu.Lock()
+		delete(r.pending, m.Name)
+		r.mu.Unlock()
+	}()
 	endpoint, err := r.be.Start(m.Name, backend.Spec{
-		ServerConfig: m.ServerConfig, Host: m.Host, Port: m.Port,
-		RootPath: m.RootPath, UvProject: m.UvProject, Restart: m.Restart,
+		ServerConfig: m.ServerConfig, Network: m.ResolvedNetwork(), Host: m.Host, Port: m.Port,
+		RootPath: m.RootPath, Aud: m.Name, UvProject: m.UvProject, Restart: m.Restart,
 	})
 	if err != nil {
 		return err
@@ -80,6 +138,24 @@ func (r *Registry) Logs(name string) (io.ReadCloser, error) {
 	return r.be.Logs(name)
 }
 
+// Channel is what a front needs to reach runner name: its endpoint, aud
+// and current key. It comes from the same registered entry the front
+// routes by, so aud and route cannot disagree. An error if name is not
+// registered or the backend is not backend.Fronted.
+func (r *Registry) Channel(name string) (backend.Channel, error) {
+	r.mu.RLock()
+	_, ok := r.entries[name]
+	r.mu.RUnlock()
+	if !ok {
+		return backend.Channel{}, fmt.Errorf("no runner named %q", name)
+	}
+	f, ok := r.be.(backend.Fronted)
+	if !ok {
+		return backend.Channel{}, fmt.Errorf("runner %q: the backend hands out no channels", name)
+	}
+	return f.Channel(name)
+}
+
 // Get returns a copy of the entry, its status read from the backend.
 func (r *Registry) Get(name string) (*Entry, bool) {
 	r.mu.RLock()
@@ -108,6 +184,15 @@ func (r *Registry) List() []*Entry {
 
 func (r *Registry) withStatus(e *Entry) *Entry {
 	c := *e
+	if in, ok := r.be.(backend.Inspector); ok {
+		if d, err := in.Detail(e.Manifest.Name); err == nil {
+			c.Status, c.Pid, c.Adopted, c.Reason = d.Status, d.Pid, d.Adopted, d.Reason
+			if d.Endpoint != "" {
+				c.Endpoint = d.Endpoint
+			}
+			return &c
+		}
+	}
 	st, err := r.be.Status(e.Manifest.Name)
 	if err != nil {
 		st = backend.StatusStopped

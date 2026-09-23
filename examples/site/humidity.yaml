@@ -11,5 +11,5 @@ runner:
   programs: ../humidity/programs      # the daemon looks beside THIS file otherwise
   tunings: ../humidity/tunings
   auth:
-    anonymous: read  # anyone may watch; the password below to drive
-    password: change-me  # `flyball password` for a hashed line, or FLYBALL_PASSWORD
+    anonymous: read  # anyone may watch; the token below to drive
+    token: change-me  # a bare runner has no password login -- put a real token here, or set FLYBALL_TOKEN

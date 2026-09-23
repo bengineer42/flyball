@@ -7,24 +7,49 @@ simulation, or a database copied from another machine.
 
 ## Assembly
 
-`create_app(auth, root_path)` adds `/docs` (Swagger UI from the vendored
-`server/swagger/` -- `swagger-ui-dist` 5.33.0, Apache-2.0 -- mounted at
-`/docs/assets`, no CDN), CORS, one exception handler per error
-base, the routers, and then -- outermost -- two plain ASGI middlewares:
-`Auth`, always (`server/auth.py`: on an open runner, a `Host` that is not
-loopback is 403 / 4403, unless `create_app(open_network=True)` -- the
-runner's `--insecure-open`; in every mode, a request that acts -- not
-`GET`/`HEAD`/`OPTIONS`, or a websocket -- with a foreign or `null` `Origin`
-and no valid bearer token is 403 / 4403; then one principal per request --
-bearer, cookie, or anonymous, a wrong token being 401 -- with a level
-`none < read < operate` that one `allows()` compares with what the request
-needs; 401 / 4401 otherwise; a `GET` outside `/api`, `/ws` and `/mcp` needs
-nothing) and, when asked, `RootPath` (sets
-`scope["root_path"]` under the prefix so Starlette routes and links as at
-the root; 404 / 4404 elsewhere; lifespan passes through). `app` is a
-module-level instance for `uvicorn flyball.interfaces.server:app`. Routes take the rig and store through
-dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError` (503) when
-nothing is attached.
+`create_app(auth, root_path, *, front, port, login_delay, open_network)`
+adds `/docs` (Swagger UI from the vendored `server/swagger/` --
+`swagger-ui-dist` 5.33.0, Apache-2.0 -- mounted at `/docs/assets`, no CDN),
+CORS, one exception handler per error base, the routers, the built
+dashboard (a bare runner only, when one is installed), and then --
+outermost -- two plain ASGI middlewares: the door, `Door`
+(`server/auth.py`), and, when asked, `RootPath` (sets `scope["root_path"]`
+under the prefix so Starlette routes and links as at the root; 404 / 4404
+elsewhere; lifespan passes through). `app` is a module-level instance for
+`uvicorn flyball.interfaces.server:app`. Routes take the rig and store
+through dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError`
+(503) when nothing is attached.
+
+The door puts one principal on every request (`request.state.principal`,
+a `principal.Claims`, and how it got in on `request.state.scheme`) and
+admits it if `verbs.allows(claims.scp, scope)`: the verb table in
+`server/verbs.py` names what each route needs, and a route with no row is
+refused (`403`, `needed: null`). It works in one of two modes:
+
+- **fronted** (`front=Fronted(key, aud)`, from `flyball-runner --front-dir`):
+  the `X-Flyball-Principal` the front signed is the only credential. None,
+  two, one that does not verify, or any other `x-flyball-*` header in any
+  spelling is `401` with `X-Flyball-Principal-Error: <code>` (a socket is
+  accepted, then closed with 4401). `runner.auth`, bearer tokens, cookies
+  and `?token=` are ignored; `Host` and `Origin` are the front's.
+- **bare** (no front): `runner.auth.token` is the one credential -- a bearer
+  token, or a session cookie traded for it (`routes/auth.py`: the pasted
+  token, or the one-time link). The door makes principals in the same
+  shape as the front's, with an in-memory key and audience (`bare-<8 hex>`).
+  With no token it is open: every verb, loopback `Host` names only unless
+  `open_network`. In every bare mode a request that acts with a foreign or
+  `null` `Origin` and no token is `403`, and `?token=` is `401`.
+
+A principal lacking the route's verb is `403` `{detail, needed}` (4403); an
+anonymous one gets `401` instead, so the UI offers sign-in. How the front
+and the runner share a key and verify each other is in
+[The front and the runner](../6-internals/front.md).
+
+Between the door and `RootPath` sits `Audit` (`server/audit.py`): each
+request that acts -- its verb neither read nor open -- and carries a verified
+principal is one row in the store's append-only `audit` table, written off
+the loop; an audit write that fails is logged and refuses nothing
+([Storage](../6-internals/db.md#sqlite)).
 
 The store is synchronous and serialised by one lock
 ([Storage](../6-internals/db.md#sqlite)), so a route that touches it is a plain
@@ -33,13 +58,9 @@ read a request body), hands the store call to `anyio.to_thread`. `StoreDep`
 holds one of a few `STORE_SLOTS` for the request, so store requests queued
 behind a long one wait on the loop, not on worker threads. `async def` is for
 routes and websockets that never reach the store or the rig's lock. The
-same holds for any other slow, blocking work: the login's scrypt hash goes
-to `anyio.to_thread`, at most `Auth.max_hashing` (2) at once, and a login
-past that is `429` rather than a queued thread. The door itself reaches the
-store for one thing -- whether a passkey session's credential is still
-registered -- and does it the same way: on a worker thread, holding a slot. The
-passkey routes take their store through a like dependency, since a runner
-without a store keeps its passkeys in memory rather than answering 503.
+same holds for any other slow, blocking work. `POST /api/rig/stop` runs its
+stop on a limiter of its own (four threads), so a stop never queues behind
+the worker threads other routes share.
 
 `server/routes/` is one module per concern, not per device:
 
@@ -47,6 +68,8 @@ without a store keeps its passkeys in memory rather than answering 503.
 | --- | --- |
 | `rig.py` | the live rig read-only — health, clock, tunings; what the rig is *made of* is elsewhere |
 | `runner.py` | `/api/runner*`: the process's resolved settings, shutdown and restart, through the handle `flyball-runner` sets with `set_runner` (404 without one) |
+| `auth.py` | `/api/auth*`: AuthInfo v2, a bare runner's token sign-in, logout and one-time link, and the fronted runner's readiness probe `/api/auth/front` |
+| `stop.py` | `POST /api/rig/stop`: calls the `Stopper` (`deps.current_stopper()`) and answers its `StopReport` |
 | `devices.py` | `/api/devices*`: the tree, commands, demands |
 | `read.py` | `/api/read*`: readings, samples, fresh reads |
 | `controllers.py` | `/api/controllers*`: wiring, regulate/manual, reference |

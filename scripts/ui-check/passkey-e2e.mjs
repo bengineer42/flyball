@@ -1,3 +1,5 @@
+// For Phase 3: needs passkeys in the Go front (the /api/auth/passkey/* routes). It does not run
+// against Phase 1, where nothing serves those routes and the passkey UI stays hidden.
 // Passkey/WebAuthn login, end to end, headless. Usage:
 //   node passkey-e2e.mjs <ui-url> <password> [--shots <dir>]
 // Against a runner started with --password: password-login (to bootstrap), open "Manage passkeys",

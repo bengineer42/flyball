@@ -1,29 +1,32 @@
-"""`/api/auth`: the door. Who the caller is, sign in, sign out.
+"""`/api/auth`: the door. Who the caller is, sign in with the token, sign out, the token link.
 
-Always reachable, whatever the runner's settings, so the UI can ask which door
-to draw before its first refused request. The login sets the session cookie
-described in [flyball.interfaces.server.auth][]; the browser carries it from then on.
+A bare runner (no front) answers these; they are reachable whatever its settings, so the UI
+can ask which door to draw before its first refused request. A fronted runner answers only
+`/api/auth/front`, the front's readiness probe: the front answers the rest itself. The
+cookie is the in-memory session described in [flyball.interfaces.server.auth][].
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
-from collections.abc import AsyncIterator
-from functools import partial
-from typing import Annotated, Any
+import os
+from typing import Literal
 
-from anyio import to_thread
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from flyball.interfaces.server import deps, passkeys
-from flyball.interfaces.server.auth import COOKIE, Auth, Level, Principal, Scheme
+import flyball
+from flyball.interfaces.server.auth import LINK_S, SESSION_S, Door, Scheme
 from flyball.interfaces.server.deps import current_exposure
-from flyball.record.errors import StoreError
+from flyball.interfaces.server.principal import Claims
+from flyball.interfaces.server.verbs import READ, VOCABULARY
 from flyball.runtime.config import Anonymous
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+PROTOCOL = 1
+"""The front <-> runner channel's version, reported by `/api/auth/front`."""
 
 
 class ExposureOut(BaseModel):
@@ -32,7 +35,7 @@ class ExposureOut(BaseModel):
     requested: str = Field(description="The bind address asked for.")
     host: str = Field(description="The bind address served on.")
     port: int
-    open: bool = Field(description="No password and no token: whoever reaches it may operate.")
+    open: bool = Field(description="No token: whoever reaches it may operate.")
     restricted: bool = Field(
         description="Asked for an address beyond loopback while open, so served on 127.0.0.1."
     )
@@ -40,20 +43,40 @@ class ExposureOut(BaseModel):
         description="Open and reachable beyond this machine (`--insecure-open`): warn everyone."
     )
     warning: str | None = Field(description="What the runner said about it on stderr, if any.")
-
-
-class AuthOut(BaseModel):
-    """Who the caller is here, and what the runner's door is like."""
-
-    scheme: Scheme = Field(description="How the caller got in: a session, a token, or not at all.")
-    level: Level = Field(description="What the caller may do: nothing, read, or operate.")
-    anonymous: Anonymous = Field(description="What a caller who has not signed in may do.")
-    password: bool = Field(description="Whether the runner has a password to sign in with.")
-    token: bool = Field(description="Whether the runner has a bearer token for machines.")
-    passkey: bool = Field(
-        description="Whether this runner takes passkey sign-in at all (a door exists; say "
-        "nothing about whether one is registered yet -- that would leak it to a stranger)."
+    endpoint: str | None = Field(
+        default=None, description="What it binds: `tcp:<host>:<port>` or `unix:<path>`."
     )
+    fronted: bool = Field(default=False, description="Started by a front (`--front-dir`).")
+    notes: list[str] = Field(
+        default_factory=list, description="Settings the runner ignores, one line each."
+    )
+
+
+class User(BaseModel):
+    id: str
+    name: str
+    kind: Literal["human", "service", "agent"]
+
+
+class Logins(BaseModel):
+    password: bool = Field(description="The front offers the admin password; never here.")
+    token: bool = Field(description="A token may be pasted (a bare runner with a token).")
+    passkey: bool = False
+    sso: str | None = None
+
+
+class AuthInfo(BaseModel):
+    """AuthInfo v2: who the caller is here, and what the door is like."""
+
+    v: Literal[2] = 2
+    shape: Literal["local", "password", "proxy", "bare"] = Field(
+        description="`bare` for a runner with a token; `local` for one with none (open)."
+    )
+    scheme: Scheme = Field(description="How the caller got in.")
+    user: User | None
+    verbs: list[str] = Field(description="The caller's verbs on this rig, sorted.")
+    anonymous: Anonymous = Field(description="What a caller with no credential gets.")
+    login: Logins
     exposure: ExposureOut | None = Field(
         default=None,
         description="Where the runner serves against where it was asked to; None when not"
@@ -62,48 +85,63 @@ class AuthOut(BaseModel):
 
 
 class Login(BaseModel):
-    secret: str = Field(description="The password; the runner's bearer token is taken too.")
+    token: str = Field(description="The runner's bearer token, pasted by a person.")
 
 
-def _auth(request: Request) -> Auth | None:
-    return getattr(request.app.state, "auth", None)
+class LinkOut(BaseModel):
+    url: str = Field(description="Open this once, within `expires_in` seconds, to sign in.")
+    expires_in: int
 
 
-def _out(request: Request) -> AuthOut:
-    auth = _auth(request)
+class FrontOut(BaseModel):
+    protocol: int
+    aud: str
+    pid: int
+    flyball: str
+
+
+def _door(request: Request) -> Door:
+    door: Door = request.app.state.door
+    if door.fronted is not None:
+        raise HTTPException(status_code=404, detail="The front answers /api/auth for this rig")
+    return door
+
+
+_NAMES = {"local:console": "local", "token:bare": "token"}
+
+
+def _out(request: Request, claims: Claims | None, scheme: Scheme) -> AuthInfo:
+    door = _door(request)
     exposure = current_exposure()
-    shown = None if exposure is None else ExposureOut.model_validate(exposure)
-    if auth is None:  # no password, no token: the runner is open
-        return AuthOut(
-            scheme="anonymous",
-            level="operate",
-            anonymous="none",
-            password=False,
-            token=False,
-            passkey=False,
-            exposure=shown,
-        )
-    principal: Principal = request.state.auth
-    return AuthOut(
-        scheme=principal.scheme,
-        level=principal.level,
-        anonymous=auth.config.anonymous,
-        password=auth.config.password is not None,
-        token=auth.config.token is not None,
-        # not config-gated like password/token -- any signed-in caller can add one, as long
-        # as this runner was installed with the `passkeys` extra to verify them with
-        passkey=passkeys.AVAILABLE,
-        exposure=shown,
+    user = None
+    if claims is not None and scheme != "anonymous":
+        kind: Literal["human", "service", "agent"] = claims.kind  # type: ignore[assignment]
+        user = User(id=claims.sub, name=claims.nm or _NAMES.get(claims.sub, claims.sub), kind=kind)
+    return AuthInfo(
+        shape="local" if door.open else "bare",
+        scheme=scheme,
+        user=user,
+        verbs=[] if claims is None else sorted(claims.scp),
+        anonymous=door.config.anonymous,
+        login=Logins(password=False, token=not door.open),
+        exposure=None if exposure is None else ExposureOut.model_validate(exposure),
     )
 
 
-def _set_cookie(request: Request, response: Response, value: str, max_age: int | None) -> None:
-    root = request.scope.get("root_path") or ""
+def _anonymous(request: Request) -> AuthInfo:
+    door = _door(request)
+    scp = frozenset({READ}) if door.config.anonymous == "read" else frozenset()
+    claims = door.claims(request.scope, "anon:", "", scp, "human")
+    return _out(request, claims, "anonymous")
+
+
+def _set_cookie(request: Request, response: Response, value: str, max_age: int) -> None:
+    root = (request.scope.get("root_path") or "").rstrip("/")
     response.set_cookie(
-        COOKIE,
+        _door(request).cookie,
         value,
         max_age=max_age,
-        path=root or "/",  # two runners on one host, one cookie each
+        path=f"{root}/",  # two runners on one host, one cookie each
         httponly=True,  # page scripts cannot read it
         samesite="lax",  # another site cannot post with it
         # The runner trusts no forwarded header for who is asking, but a TLS proxy's
@@ -113,289 +151,96 @@ def _set_cookie(request: Request, response: Response, value: str, max_age: int |
     )
 
 
+def _session_claims(request: Request, value: str) -> Claims:
+    door = _door(request)
+    found = door.session(value)
+    assert found is not None
+    return door.claims(request.scope, "token:bare", found.sid, VOCABULARY, "human")
+
+
 @router.get("")
-def read_auth(request: Request) -> AuthOut:
-    """Who the caller is, and whether this runner needs a password, a token, or nothing."""
-    return _out(request)
+def read_auth(request: Request) -> AuthInfo:
+    """Who the caller is, and whether this runner takes a token or nothing (AuthInfo v2)."""
+    return _out(request, request.state.principal, request.state.scheme)
 
 
 @router.post("/login")
-async def login(request: Request, response: Response, body: Login) -> AuthOut:
-    """Trade the password (or the token) for a session cookie.
+async def login(request: Request, response: Response, body: Login) -> AuthInfo:
+    """Trade the token for a session cookie, so the browser keeps no secret.
 
-    A wrong secret is 401 after a short pause; ten wrong ones in a minute from
-    one address are 429 until the minute is up. The password's hash (scrypt: tens of
-    milliseconds and 16 MiB each) runs on a worker thread, never on the loop that serves
-    everything else, and at most `Auth.max_hashing` at once; a login past that is 429 at
-    once rather than queued.
+    A wrong token is 401 after a short pause; ten wrong ones in a minute from one address
+    are 429 until the minute is up.
     """
-    auth = _auth(request)
-    if auth is None:
-        return _out(request)  # nothing to sign in to
+    door = _door(request)
+    if door.open:
+        return _out(request, request.state.principal, request.state.scheme)  # nothing to sign in to
     address = request.client.host if request.client else "?"
-    if auth.attempts.blocked(address):
-        raise HTTPException(status_code=429, detail="Too many wrong passwords; wait a minute")
-    # Counted on the loop's own thread, so no lock: the check and the increment are one step.
-    if auth.hashing >= auth.max_hashing:
+    if door.attempts.blocked(address):
         raise HTTPException(
             status_code=429,
-            detail="The runner is busy checking other logins; try again in a moment",
-            headers={"Retry-After": "1"},
+            detail="Too many wrong tokens; wait a minute",
+            headers={"Retry-After": "60"},
         )
-    auth.hashing += 1
-    try:
-        right = await to_thread.run_sync(auth.is_secret, body.secret)
-    finally:
-        auth.hashing -= 1
-    if not right:
-        auth.attempts.failure(address)
-        if auth.delay:
-            await asyncio.sleep(auth.delay)
-        raise HTTPException(status_code=401, detail="Wrong password")
-    _set_cookie(request, response, auth.sessions.mint(), int(auth.config.session_s))
-    request.state.auth = Principal("password", "operate")
-    return _out(request)
+    if not door.is_token(body.token):
+        door.attempts.failure(address)
+        if door.delay:
+            await asyncio.sleep(door.delay)
+        raise HTTPException(status_code=401, detail="Wrong token")
+    value = door.open_session()
+    _set_cookie(request, response, value, SESSION_S)
+    return _out(request, _session_claims(request, value), "session")
 
 
 @router.post("/logout")
-def logout(request: Request, response: Response) -> AuthOut:
-    """Drop the session: the cookie is cleared; the token, if any, is untouched."""
-    auth = _auth(request)
-    if auth is not None:
+def logout(request: Request, response: Response) -> AuthInfo:
+    """Drop the session: forgotten here and the cookie cleared; the token is untouched."""
+    door = _door(request)
+    if not door.open:
+        value = request.cookies.get(door.cookie)
+        if value:
+            door.close_session(value)
         _set_cookie(request, response, "", 0)
-        request.state.auth = auth.anonymous
-    return _out(request)
+        return _anonymous(request)
+    return _out(request, request.state.principal, request.state.scheme)
 
 
-# region Passkeys
-#
-# Additive to password/token: each registered credential grants the same
-# `operate` level as a bearer token (flyball.interfaces.server.auth.PASSKEY). Registering
-# one needs an already-authenticated caller -- the existing password login;
-# there is no separate bootstrap. An open runner (no password, no token) has no
-# door at all, so it takes no passkeys either: otherwise anyone passing by could
-# register a credential that would still open the door once one is fitted. The
-# RP ID is the request's own hostname; a runner reached under more than one name
-# needs the credential registered under each.
+@router.get("/link", response_class=RedirectResponse, status_code=302)
+def follow_link(request: Request, n: str = "") -> Response:
+    """The one-time link the runner prints: a session cookie, then the UI at `<root>/`.
 
-
-def _rp_id(request: Request) -> str:
-    return request.url.hostname or "localhost"
-
-
-def _origin(request: Request) -> str:
-    return f"{request.url.scheme}://{request.url.netloc}"
-
-
-def _door(request: Request) -> Auth:
-    """The runner's `Auth`, or 501 without the extra, or 409 for an open runner.
-
-    Every passkey route below reaches the door through here, so this is the one
-    place either refusal has to be made.
+    The nonce is spent on first use and lasts ten minutes; a used, expired or made-up one
+    is 401. The redirect drops it from the address bar and sends no referrer.
     """
-    if not passkeys.AVAILABLE:
+    door = _door(request)
+    if door.open or not door.take_link(n):
+        raise HTTPException(status_code=401, detail="This link is used, expired or wrong")
+    root = (request.scope.get("root_path") or "").rstrip("/")
+    response = RedirectResponse(f"{root}/", status_code=302)
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    _set_cookie(request, response, door.open_session(), SESSION_S)
+    return response
+
+
+@router.post("/link")
+def make_link(request: Request) -> LinkOut:
+    """A fresh one-time sign-in link for a person, asked for with the token (`flyball open`)."""
+    door = _door(request)
+    if door.open or request.state.scheme != "token":
         raise HTTPException(
-            status_code=501,
-            detail='This runner has no passkey support installed (pip install "flyball[passkeys]")',
+            status_code=401,
+            detail="A link is made with the token (Authorization: Bearer ...)",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    auth = _auth(request)
-    if auth is None:
-        raise HTTPException(
-            status_code=409,
-            detail="This runner is open (no password, no token); passkeys need a door to open",
-        )
-    return auth
+    base = str(request.base_url).rstrip("/")
+
+    return LinkOut(url=f"{base}/api/auth/link?n={door.mint_link()}", expires_in=LINK_S)
 
 
-def _require_operate(request: Request) -> Auth:
-    """The door, after a 401 unless the caller may operate.
-
-    Passkey routes are under the open `/api/auth` prefix, so `Auth` never blocks
-    them; registration and revocation gate on the caller's level themselves.
-    """
-    auth = _door(request)
-    principal: Principal = request.state.auth
-    if principal.level != "operate":
-        raise HTTPException(status_code=401, detail="Sign in first")
-    return auth
-
-
-async def _repo_slot() -> AsyncIterator[passkeys.PasskeyRepo]:
-    """The passkey repo, holding one of `STORE_SLOTS` until the request is answered.
-
-    `StoreDep`'s contract (D-029) for a store that may be absent: the routes that
-    take it are plain `def`, or hand the store call to a worker thread, so the
-    event loop never waits on the store's lock.
-    """
-    repo = passkeys.repo_for(deps.current_store())
-    async with deps.STORE_SLOTS:
-        yield repo
-
-
-RepoDep = Annotated[passkeys.PasskeyRepo, Depends(_repo_slot)]
-
-
-class PasskeyOut(BaseModel):
-    id: int = Field(description="This runner's id for the credential; used to revoke it.")
-    label: str = Field(description="What the operator called it when they registered it.")
-    created_ns: int = Field(description="When it was registered, the rig clock's epoch.")
-    transports: list[str] = Field(description='What the authenticator reported, e.g. "internal".')
-
-
-def _passkey_out(row: Any) -> PasskeyOut:
-    return PasskeyOut(
-        id=row.id, label=row.label, created_ns=row.created_ns, transports=row.transports
-    )
-
-
-class PasskeyRegister(BaseModel):
-    credential: dict[str, Any] = Field(description="The browser's PublicKeyCredential, as JSON.")
-    label: str = Field(description='A name for this credential, e.g. "Ben\'s laptop".')
-
-
-class PasskeyLogin(BaseModel):
-    credential: dict[str, Any] = Field(description="The browser's PublicKeyCredential, as JSON.")
-
-
-@router.post("/passkey/challenge")
-def passkey_challenge(request: Request, repo: RepoDep) -> Response:
-    """A registration challenge. Needs a signed-in caller who may operate."""
-    _require_operate(request)
-    challenge = passkeys.challenges.issue()
-    options = passkeys.registration_options(
-        repo, rp_id=_rp_id(request), rp_name="flyball", challenge=challenge
-    )
-    return Response(content=passkeys.options_json(options), media_type="application/json")
-
-
-@router.post("/passkey/register")
-def passkey_register(request: Request, body: PasskeyRegister, repo: RepoDep) -> PasskeyOut:
-    """Verify the response and store the credential.
-
-    Attestation itself is not checked: `none` is what was requested. A store that
-    refuses the row or cannot be reached is its own answer (409, 503; D-027), not a
-    credential that did not verify.
-    """
-    _require_operate(request)
-    try:
-        challenge = passkeys.client_data_challenge(body.credential)
-    except (KeyError, ValueError) as e:
-        raise HTTPException(status_code=400, detail="malformed credential") from e
-    if not passkeys.challenges.consume(challenge):
-        raise HTTPException(status_code=400, detail="challenge expired or already used")
-    try:
-        row = passkeys.verify_registration(
-            repo,
-            body.credential,
-            expected_challenge=challenge,
-            rp_id=_rp_id(request),
-            origin=_origin(request),
-            label=body.label,
-            now_ns=time.time_ns(),
-        )
-    except StoreError:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"registration did not verify: {e}") from e
-    return _passkey_out(row)
-
-
-def _address(request: Request) -> str:
-    return request.client.host if request.client else "?"
-
-
-@router.post("/passkey/login/challenge")
-def passkey_login_challenge(request: Request, repo: RepoDep) -> Response:
-    """An authentication challenge. No prior auth needed -- this is how one signs in.
-
-    The same address-based limiter as the password login applies, so an address
-    that has failed ten times in a minute gets no new challenge either; the
-    challenge cache itself is capped, so a flood costs bounded memory.
-    """
-    auth = _door(request)
-    if auth.attempts.blocked(_address(request)):
-        raise HTTPException(status_code=429, detail="Too many failed attempts; wait a minute")
-    challenge = passkeys.challenges.issue()
-    options = passkeys.login_options(repo, rp_id=_rp_id(request), challenge=challenge)
-    return Response(content=passkeys.options_json(options), media_type="application/json")
-
-
-@router.post("/passkey/login")
-async def passkey_login(
-    request: Request, response: Response, body: PasskeyLogin, repo: RepoDep
-) -> AuthOut:
-    """Trade a verified assertion for a session cookie bound to that credential.
-
-    Like `login`'s cookie, but its scheme names the credential (`passkey:<id>`),
-    so revoking the credential ends every session it opened. The verification reads
-    the credential and bumps its sign count, so it runs on a worker thread (D-029). A
-    store that cannot be reached is a 503 and no failed attempt: the caller did
-    nothing wrong.
-    """
-    auth = _door(request)
-    address = _address(request)
-    if auth.attempts.blocked(address):
-        raise HTTPException(status_code=429, detail="Too many failed attempts; wait a minute")
-    try:
-        challenge = passkeys.client_data_challenge(body.credential)
-    except (KeyError, ValueError):
-        challenge = b""
-    if not challenge or not passkeys.challenges.consume(challenge):
-        auth.attempts.failure(address)
-        raise HTTPException(status_code=400, detail="challenge expired or already used")
-    try:
-        row = await to_thread.run_sync(
-            partial(
-                passkeys.verify_login,
-                repo,
-                body.credential,
-                expected_challenge=challenge,
-                rp_id=_rp_id(request),
-                origin=_origin(request),
-            )
-        )
-    except StoreError:
-        raise
-    except Exception as e:
-        auth.attempts.failure(address)
-        if auth.delay:
-            await asyncio.sleep(auth.delay)
-        raise HTTPException(status_code=401, detail="passkey did not verify") from e
-    scheme = f"passkey:{passkeys.credential_ref(row.credential_id)}"
-    _set_cookie(request, response, auth.sessions.mint(scheme), int(auth.config.session_s))
-    request.state.auth = Principal("passkey", "operate")
-    return _out(request)
-
-
-class PasskeyListOut(BaseModel):
-    store_backed: bool = Field(
-        description="Whether this runner has a store -- false means a registered passkey does "
-        "not survive a restart."
-    )
-    passkeys: list[PasskeyOut]
-
-
-@router.get("/passkey")
-def list_passkeys(request: Request, repo: RepoDep) -> PasskeyListOut:
-    """This runner's registered credentials -- never the public keys themselves."""
-    _require_operate(request)
-    return PasskeyListOut(
-        store_backed=deps.current_store() is not None,
-        passkeys=[_passkey_out(row) for row in repo.passkeys()],
-    )
-
-
-@router.delete("/passkey/{passkey_id}")
-def revoke_passkey(request: Request, passkey_id: int, repo: RepoDep) -> None:
-    """Forget a credential.
-
-    Its sessions end with it: each passkey cookie names the credential it came
-    from, and `Auth` looks that up on every request -- so anyone using it is
-    refused from their next request, including the caller if it is their own.
-    """
-    _require_operate(request)
-    if not repo.delete_passkey(passkey_id):
-        raise HTTPException(status_code=404, detail="no such passkey")
-
-
-# endregion
+@router.get("/front")
+def front(request: Request) -> FrontOut:
+    """The front's readiness probe: answered only with a valid principal, on a fronted runner."""
+    door: Door = request.app.state.door
+    if door.fronted is None:
+        raise HTTPException(status_code=404, detail="Not started by a front")
+    return FrontOut(protocol=PROTOCOL, aud=door.aud, pid=os.getpid(), flyball=flyball.__version__)

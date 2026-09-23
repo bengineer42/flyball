@@ -1,3 +1,4 @@
+// For Phase 3 (passkeys in the Go front). Dormant in Phase 1: only the passkey client methods use it.
 /**
  * The browser side of a WebAuthn ceremony: the server hands JSON with base64url-encoded
  * `ArrayBuffer` fields (`challenge`, credential/user ids, ...); `navigator.credentials`

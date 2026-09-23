@@ -652,8 +652,8 @@ export interface RigVersion {
  * resolved (flags over environment over file). The token is never returned.
  */
 export interface RunnerInfo {
-  host: string;
-  port: number;
+  /** Where the runner listens: `unix:/abs/path` behind a front, `tcp:<host>:<port>` bare; null when unknown. */
+  endpoint: string | null;
   root_path: string | null;
   mcp: boolean;
   compose: boolean;
@@ -679,25 +679,84 @@ export interface RunnerInfo {
 }
 
 /**
- * `GET /api/auth`: who the caller is here, and what the runner's door is like.
- * `level` is what this caller may do -- `none` (sign in first), `read` (an
- * anonymous reader on a runner with `auth.anonymous: read`), `operate`.
- * `scheme` is how they got in: a session cookie (`password` or `passkey`), a
- * bearer `token`, or not at all. `password` / `token` / `passkey` say which
- * the runner takes at all -- not whether one is registered yet, that would
- * leak it to a stranger; with none of the three it is open and `level` is
- * `operate` for everyone.
+ * The operator verb (pending D-034): the stop button, and everything else that drives the rig,
+ * needs it. The only verb string this client hard-codes; D-034 may rename it, nothing else here
+ * changes shape.
+ */
+export const OPERATE = "operate";
+
+/**
+ * `GET <root>/api/auth`: who this caller is here, and what this rig's door is like. Answered by
+ * the front for fronted rigs, and by the runner when bare -- the same shape either way, so the UI
+ * never has to know which one it is talking to.
+ *
+ * The UI's rules, read off this and nothing else:
+ * - `canOperate = verbs.includes(OPERATE)`;
+ * - `signedIn = user !== null && scheme !== "local"`;
+ * - `open = shape === "local"`;
+ * - show the stop button iff `verbs.includes(OPERATE)`;
+ * - `v !== 2`: show "front and UI versions differ" rather than guessing at an unknown shape.
  */
 export interface AuthInfo {
-  scheme: "anonymous" | "password" | "token" | "passkey";
-  level: "none" | "read" | "operate";
+  v: 2;
+  /** How this rig's door is set up. */
+  shape: "local" | "password" | "proxy" | "bare";
+  /** How this caller got in. */
+  scheme: "local" | "anonymous" | "session" | "token" | "proxy";
+  user: { id: string; name: string; kind: "human" | "service" | "agent" } | null;
+  /** This caller's verbs on this rig, sorted; the UI decides from these, never from `scheme` or `shape` alone. */
+  verbs: string[];
+  /** What a caller with no credential gets. */
   anonymous: "none" | "read";
-  password: boolean;
-  token: boolean;
-  passkey: boolean;
+  login: {
+    /** The front offers the admin password (shape `password`). */
+    password: boolean;
+    /** A token may be pasted (bare runner). */
+    token: boolean;
+    /** Phase 3; false in Phase 1. */
+    passkey: boolean;
+    /** Phase 3: the IdP's display name. */
+    sso: string | null;
+  };
   /** Where the runner (or `flyball run`'s front) serves against where it was asked to; null or absent when not known. */
   exposure?: Exposure | null;
+  /** The rig this request's path routes to (B1's Rig.Name); absent at a flyballd root, where no single rig applies. */
+  rig?: string;
 }
+
+/** Who asked for the stop (`StopReport.actor`), and how they reached it. */
+export interface StopActor {
+  sub: string;
+  sid: string;
+  kind: string;
+  via: "http" | "mcp" | "signal";
+  detail: string;
+}
+
+/** One device's outcome of a stop. */
+export interface DeviceStopOut {
+  state: "stopped" | "unchanged" | "failed";
+  detail: string;
+}
+
+/**
+ * `POST <root>/api/rig/stop`: what stopping did. Needs `OPERATE`; never rate-limited. `interim`
+ * is true until package A8's real `Stopper` replaces the placeholder that only interrupts the
+ * program and puts controllers in manual (the signals work lands the rest). The route answers
+ * 501 `{"detail": ...}` until A8 lands -- callers must not treat that as success.
+ */
+export interface StopReport {
+  at_ns: Nanoseconds;
+  actor: StopActor;
+  reason: string;
+  devices: Record<Address, DeviceStopOut>;
+  program_interrupted: boolean;
+  controllers_manual: Address[];
+  interim: boolean;
+}
+
+// Passkey wire types: for Phase 3 (passkeys in the Go front). Nothing serves /api/auth/passkey/* in
+// Phase 1; the shape is kept for the Go front to answer.
 
 /** A registered passkey, as `GET /api/auth/passkey` and registration report it. */
 export interface PasskeyOut {

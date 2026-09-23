@@ -1,276 +1,317 @@
-# Access: the door, a sub-path, stopping
+# Access: the front, sign-in, stopping
 
-Who may reach the runner, where, and what the API is allowed to do to the process. All of it is set by flags or the [`runner:` section](../../2-config/runner.md) of the config file.
+Who may reach a rig, how they prove it, and how anyone allowed to can stop
+it. People and machines reach a rig through the **front**: the Go server
+that `flyball run` and `flyballd` start in front of each runner. A runner
+started on its own, with no front, keeps a small door of its own: a token,
+or nothing.
 
-## The door: a password, a token, or open
+## Three ways a rig is served
 
-Three ways a runner can stand:
+| started with | the door | for |
+| --- | --- | --- |
+| `flyball run rig.yaml` | a front, on `runner.front.listen` (default `127.0.0.1:8000`), serving the dashboard and passing `/api`, `/ws` and `/mcp` to the runner | one rig: a laptop, a Pi |
+| `flyballd` | one front for every rig it supervises, each under its root path (default `127.0.0.1:9000`) | several rigs on one machine ([the daemon](../../7-reference/cli.md#the-daemon)) |
+| `flyball-runner rig.yaml` alone | the runner's own: a token, or nothing ([the bare runner](#the-bare-runner)) | a container, a script, a public demo |
 
-- **Open** (the default): no password, no token; anyone who can reach the
-  port can read and drive the rig. For one person on their own machine, so
-  it is served on loopback only: an open runner asked for any other
-  `--host` (`0.0.0.0`, a LAN address, a host name other than `localhost`)
-  still starts and runs the rig -- a control process that will not start
-  leaves the equipment uncontrolled -- but binds `127.0.0.1` on the same
-  port, and prints one `WARNING` line on stderr saying why and how to fix
-  it. `GET /api/auth` and `GET /api/health` report it as `exposure`
-  (`restricted: true`). It also answers only when it is addressed as
-  `localhost`, `127.0.0.1` or `[::1]` (any port), and refuses every other
-  name with `403`, so a web page that points its own name at your machine
-  (DNS rebinding) is refused too. To reach a runner by any other name, give
-  it a password or a token. To serve one open on the network anyway, say so
-  for that run: `--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in its
-  environment. There is no rig-file key for it: a file can be copied from
-  anywhere, and `extends:` would pass it on. The runner then prints a
-  warning each start, `exposure.open_network` is `true`, and the dashboard
-  shows a banner on every page that cannot be dismissed. It also answers to
-  whatever name it is reached by (`http://pi:8000`, `http://192.168.1.3:8000`),
-  so the DNS-rebinding refusal is gone with it -- a page elsewhere that
-  points its name at the rig can read it -- and the MCP transport's own
-  loopback-only check is off too; the `Origin` check below still refuses
-  another site's page anything that acts. Not on a rig a model can drive.
-- **A password** (`--password P`, `FLYBALL_PASSWORD`, or `auth.password` in
-  the [`runner:` section](../../2-config/runner.md)): for a person at the UI.
-  The login page trades it for a session -- an `HttpOnly` cookie the browser
-  then carries on every request, socket and download by itself -- so the
-  browser never keeps the password. The value may be the plain text, or the
-  hashed line `flyball password` prints (`$scrypt$…`), which is what belongs
-  in a file that is committed anywhere.
-- **A token** (`--token T`, `FLYBALL_TOKEN`, `auth.token`): for machines. The
-  Python client (`flyball.interfaces.client.Rig`), `flyball-mcp` and any script send it
-  as `Authorization: Bearer T`; a websocket, or a plain `GET` the browser
-  navigates to (an export link), may pass `?token=T` instead, since a browser
-  cannot set headers on either -- a URL is logged where a header is not
-  (the runner's own request log drops the query, but a proxy's may not), so
-  the header is the form to use wherever it can be set. The Go CLI
-  (`flyball`) takes it the same way -- `flyball --token T ...` or
-  `FLYBALL_TOKEN=T` in the environment. The login page takes the token too,
-  so a browser on a token-only runner still ends up with a cookie and
-  nothing in its storage.
+Behind a front the runner listens only on a unix socket in a directory
+nobody else can enter, and it serves a request only if the front signed
+it: a short-lived **principal** naming the caller and the verbs it holds on
+this rig ([The front and the runner](../../6-internals/front.md)). Sign-in,
+sessions, tokens, the `Host` and `Origin` checks and TLS are all the
+front's; the runner's own `runner.auth`, `--token` and `--anonymous` are
+ignored there, with one line on stderr saying so.
 
-A password or a token given in the environment counts the same as one on
-the command line or in the file.
+## Shapes: who gets in
 
-**Plain HTTP.** The runner does not do TLS: a password, a token and a
-session cookie sent to it from another machine cross the network in the
-clear, and anyone on the path can take them. A runner with a password or a
-token that serves beyond loopback logs a warning saying so at start; put a
-proxy that terminates TLS in front of it on anything but a network you
-trust.
+One key, `auth`, picks the front's **shape**:
 
-Either one shuts the door: everything under `/api`, `/ws` and `/mcp` needs a
-session or the token, bar `/api/auth` (the door itself). The rest -- the
-bundled UI, whose login page has to load before anyone has signed in,
-`/docs` and `/openapi.json` -- is open to a `GET`. Refused is `401` with a
-`detail` (a socket is closed with code 4401). A token that is sent and
-wrong is refused the same way, even where anonymous callers may read.
+| shape | who gets in | for |
+| --- | --- | --- |
+| `local` (the default) | anyone who reaches it, with every verb; no sign-in. Loopback only | a laptop, or a Pi with a screen |
+| `password` | a person with the admin password (a session in the browser); a machine with a named token; anyone else as `anonymous` says | a lab network |
+| `proxy` | whoever an identity proxy in front vouches for, per its preset; named tokens; anyone else as `anonymous` says | behind Tailscale Serve, Authelia, oauth2-proxy, authentik, Pomerium or Cloudflare Access |
 
-**Other web pages.** Whatever the door, a request that changes something
-(anything but `GET`, `HEAD` and `OPTIONS`) and every websocket is refused
-with `403` when the browser says it comes from another site: an `Origin`
-header that is not the runner's own address, or `Origin: null`. A page on
-another site therefore cannot drive the rig through your browser -- not
-with your session cookie, and not on an open runner. Tools that send no
-`Origin` (the CLI, the Python client, `curl`) are unaffected, and so is
-anything that sends the bearer token, which another site cannot know.
-Behind a proxy, pass the browser's `Host` through (nginx: `proxy_set_header
-Host $http_host;`), or the runner cannot tell its own address from
-another's; a TLS proxy (`https://` outside, plain HTTP to the runner) is
-recognised as the same site.
+`sso` is reserved for a later release: today it falls back (see
+[below](#when-a-setting-is-wrong)), with a pointer to `proxy` and the
+oauth2-proxy preset.
 
-**Who may look without either** is `auth.anonymous` (`--anonymous`,
-`FLYBALL_ANONYMOUS`): `none` (the default -- nothing until signed in) or
-`read` -- every `GET` and every stream is served to anyone, and only a
-session or the token may do anything else. `read` is how a rig goes on the
-public internet to be watched but not driven, with or without a proxy's
-`limit_except GET` in front of it -- no `GET` has a side effect (a bus
-probe is `POST /api/probe`). With `read` the UI shows the rig
-read-only, says so in the app bar, and offers to sign in when a control is
-refused.
+With nothing configured, `flyball run rig.yaml` serves the `local` shape
+on `http://127.0.0.1:8000/`: the dashboard, no sign-in, nothing to set up.
+The `local` shape trusts every process of every user on the machine, so it
+is for a machine one person uses. It answers only to the names
+`localhost`, `127.0.0.1` and `[::1]` (on any port), so a web page that
+points its own name at your machine (DNS rebinding) is refused.
 
-A session lasts `auth.session` (`--session`; default `12h`). Sessions are
-signed, not stored: the key is `auth.secret` if given, else a file
-`<store>.key` beside the store (made on first use, readable by the owner
-only), else one made for the process -- in which case a restart signs
-everyone out. Changing the password signs everyone out too. Ten wrong
-passwords in a minute from one address are refused for the rest of it.
-The address is the connection's own: the runner trusts no
-`X-Forwarded-For` (so a caller cannot pick a fresh one per guess), which
-means that behind a proxy every caller shares the proxy's address and
-its ten. Checking a hashed password takes a moment and some memory, so
-the runner checks two at a time, off the loop that serves everything
-else, and answers a third `429` straight away. The cookie is marked `Secure` over `https`, or when a TLS proxy
-says `X-Forwarded-Proto: https`.
-
-The runner's own MCP mount still works on a password-only runner (it uses a
-token of its own, never shown); a model connecting from outside needs the
-runner to have `--token` as well. `GET /api/runner` reports none of these
-values; `GET /api/auth` says which the runner has (`password`, `token`,
-`passkey`) -- never whether one is actually registered, only whether the
-door exists, so a stranger cannot learn that from an unauthenticated call. Its `exposure` (also
-in `GET /api/health`) says where it serves against where it was asked to:
-
-```json
-{"requested": "0.0.0.0", "host": "127.0.0.1", "port": 8000, "open": true,
- "restricted": true, "open_network": false,
- "warning": "host is '0.0.0.0' but the runner has no password and no token: serving on 127.0.0.1:8000 only, ..."}
-```
-
-## Behind `flyball run --serve-ui`
-
-`flyball run rig.yaml --serve-ui ADDR` (or `runner.run.serve_ui`) serves the
-UI on `ADDR` and proxies `/api`, `/ws` and `/mcp` to the runner on loopback,
-with no door of its own -- so the runner's door is the only one, and the
-runner, being on loopback, is content to be open. The front makes the
-same decision for `ADDR` instead: on an address beyond loopback (`:8000` is
-every interface) it serves nothing until the runner answers
-`GET /api/auth`, and
-
-- a runner with no password and no token -- in the file, on the command
-  line or in its environment -- keeps running, and the UI is served on
-  `127.0.0.1` on the same port instead, with one `WARNING` line naming the
-  fixes;
-- unless `--insecure-open` is given (it is passed on to the runner too) or
-  `FLYBALL_INSECURE_OPEN=1` is in the environment: then it is served where
-  asked, with a warning;
-- a runner with either is served, with the plain-HTTP warning.
-
-A runner that answers `/api/auth` with anything but its door (a 404, a
-page that is not JSON) counts as open. Either way the front puts its own
-`exposure` into the `GET /api/auth` it passes on, so the dashboard's banner
-describes the front people actually reach. `flyballd` does the same for every
-runner it proxies to when its `listen` is beyond loopback: an open runner's
-routes answer 503 unless `auth.insecure_open` is set in `flyballd.yaml`
-([the daemon](../../7-reference/cli.md#the-daemon)).
-
-The browser addresses the front, not the runner, and an open runner behind
-it answers only a loopback `Host` and an `Origin` of its own. So both fronts
-translate what they pass an open runner, where the name has been vouched
-for: when the request came in on a loopback name (`localhost`, `127.0.0.1`,
-`[::1]`), or when the front serves an open runner beyond loopback by choice
-(`--insecure-open`, `auth.insecure_open`), the runner is sent its own
-loopback address as `Host`, and an `Origin` that is the front's own site
-(the same host, any case, and port, or `https` in front of `http`) as its
-own origin. Any other `Origin` is passed on as it came, and the runner
-refuses it: another site's page still cannot act through the front. A
-request that came in on any other name, to a front not opted in, is passed
-on untouched and refused -- the DNS-rebinding protection. With the opt-in
-there is none: any name that reaches the front is served, as it is by a
-runner given `--insecure-open` itself. A runner with a password or a token
-sees the `Host` and `Origin` the browser sent, as it would directly.
-
-For the usual Pi setup, that means a password in the file:
+On a lab network, the password shape:
 
 ```yaml
 runner:
-  auth:
-    password: $scrypt$…      # flyball password
-  run:
-    serve_ui: ":8000"
+  front:
+    listen: 0.0.0.0:8000
+    auth: password
+    password: $scrypt$n=16384,r=8,p=1$…   # the line `flyball password` prints
 ```
 
-## Passkeys
+The password must be the hashed line `flyball password` prints; a plain
+one is refused. `anonymous: read` lets anyone who reaches the rig watch it
+without signing in (every `GET` and every stream); the default is `none`.
+Most sites need two more keys at most: `url` and `tls` (next). Every other
+key -- session length, token lifetimes, forwarded addresses, the proxy
+presets' details -- is in the [reference](../../7-reference/rig-file.md#the-front).
+`flyballd` reads the same keys from the top level of `flyballd.yaml`.
 
-Passkey support is an optional install. `webauthn` -- and the crypto stack
-it brings -- is the `passkeys` extra, not part of `web`, so a runner that
-only ever sees a password does not carry it:
+## `url:` and `tls:`
 
-```bash
-pip install "flyball[web,passkeys]"   # or flyball[all]
+**`url`** is the address people use to reach the rig
+(`https://pi.lab.example`), when it is not simply the address the front
+listens on -- a host name, or a TLS proxy in front. It adds that host to the
+names the front answers to and its origin to the pages that may act, and
+when it is `https` the session cookie is marked `Secure` and named
+`__Host-flyball`, also when TLS ends at the proxy. Without it, a password
+or proxy front answers any `Host`, and a request that acts must come from a
+page on the same site as that `Host`.
+
+**`tls: {cert, key}`** has the front serve HTTPS itself from a certificate
+and key file (PEM), TLS 1.2 at least. It re-reads both files at most every
+10 s, and at once on `SIGHUP`, so a renewed certificate is picked up with no
+restart; a renewal it cannot read leaves the last good pair in use. flyball
+obtains no certificate itself: `tailscale cert`, an ACME client using the
+DNS challenge, or a site CA make one. A self-signed certificate still
+encrypts the password and the cookie, but browsers warn about it. On a
+Raspberry Pi prefer an ECDSA certificate to RSA: the handshake is cheaper.
+Leave `tls` out when nginx, Caddy or Tailscale in front terminates TLS, and
+set `url` instead.
+
+A password or proxy front listening beyond loopback without `tls` prints a
+warning at start: the password, tokens and cookies cross the network in the
+clear.
+
+## When a setting is wrong
+
+A wrong setting in the front never stops the rig: it narrows who can reach
+it. A shape that is not one of the three, `sso`, a password that is missing
+or not a `$scrypt$` line, TLS files that cannot be read, a `proxy` block
+that cannot be vouched for, a `listen` that does not parse, or a
+`runner.front` block that fails validation -- each makes the front serve the
+`local` shape on `127.0.0.1` (same port) instead, and say why:
+
+```
+flyball: front: the password is not a $scrypt$ line (…); plaintext passwords are refused -- `flyball password` makes one -- serving the local shape on 127.0.0.1:8000 only; the rig keeps running (D-028)
 ```
 
-Without it the runner starts and serves exactly as before, `GET /api/auth`
-reports `passkey: false`, the UI shows no passkey button, and every passkey
-route answers 501 rather than failing at some later, stranger point.
+The same line is in `GET /api/auth` (`exposure.warning`), and a
+`fallback` record goes to the front's [audit](#what-is-recorded). The
+`local` shape asked for an address beyond loopback falls back the same
+way. To serve it on the network anyway, say so for that run:
+`--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in the environment of
+`flyball run` or `flyballd`. There is no file key for it: a file can be
+copied from anywhere, and `extends:` would pass it on. The front then
+answers any name, warns at every start, and the dashboard shows a banner
+that cannot be dismissed. Not on a rig a model can drive.
 
-A signed-in person (with a password, a token, or `auth.anonymous: read`
-already inside the door) may add a passkey from the UI's account menu
-("Manage passkeys") and sign in with it afterwards -- 1Password, a phone,
-a YubiKey, whatever the browser's own WebAuthn UI offers. Additive to
-password/token, never a replacement: registering one needs an
-already-authenticated session, so there is no separate passkey bootstrap.
-A passkey grants the same `operate` level a token does; several passkeys
-on one runner are equal, not tiered by whose they are. An **open** runner
-(no password, no token) takes no passkeys at all -- every passkey route
-answers 409 and the UI shows no passkey button -- because there is no door
-for one to open, and a credential registered while the runner was open
-would still open the door once a password was set.
+## Signing in, sessions and tokens
 
-**The authenticator must verify the person, not just their presence.** A
-passkey grants `operate` -- it can drive the rig -- so both ceremonies ask
-for user verification and the runner checks the flag the authenticator set
-rather than taking its word for it: a PIN, a fingerprint or a face every
-time, not a bare touch. A security key with no PIN set, or one configured
-to skip verification, is refused at registration (400) and at sign-in
-(401); set a PIN on it and it works. Platform authenticators (Touch ID,
-Windows Hello, a phone) do this already and nothing changes for them.
+**People**, at a `password` front, sign in at the dashboard's login page
+with the admin password. The front keeps the session in memory and gives
+the browser an `HttpOnly` cookie (`flyball-<port>`, or `__Host-flyball`
+under HTTPS); the page keeps no secret. A session ends after 12 idle hours
+(`session:` changes that), 7 days at most, at **Sign out**, or when the
+front restarts. A wrong password is refused after half a second; ten wrong
+in a minute from one address are refused until the oldest is a minute
+old. There is one admin password and no user accounts, so the record of an
+action says `local:admin` and a session id, not a person; per-person
+records come with the `proxy` shape.
 
-The runner is the WebAuthn relying party, keyed off whatever hostname the
-browser reached it under -- a runner served under more than one hostname
-(a raw IP and a proxied domain, say) needs a separate passkey registered
-per name, since a credential is bound to the RP ID it was made for. **The
-browser will not attempt the ceremony at all unless the page is served
-from `localhost` or over HTTPS** -- WebAuthn's own secure-context rule, not
-a flyball restriction; a plain-HTTP runner reached by IP has no passkey
-button in the UI at all.
+**Machines** -- scripts, the CLI, MCP clients -- send a **named token**:
+`Authorization: Bearer fbt1_…`. A token is made on the rig's host, before
+or while the front runs, into the file the front reads:
 
-Passkey credentials live in the runner's own sqlite store alongside
-sessions and readings. A runner started without one (`--store` pointed
-nowhere writable, or none configured) still accepts registration --
-credentials are then held in the process's own memory instead, silently:
-gone on the next restart, not persisted anywhere. The UI's passkey manager
-shows a discreet warning when this is the case, so it is a visible choice,
-not a surprise. Revoking a passkey is immediate and does not need the
-credential itself present: a passkey session's cookie names the credential
-it came from, and the runner checks that credential still exists on every
-request, so revoking it ends every session it opened -- including your own,
-if you revoke the one you signed in with. (A password session is not tied
-to any passkey; it is unaffected.) That check runs inside the door, so if
-the store cannot be asked at all -- locked, closed, gone -- the passkey
-session is refused rather than the request failing: you are asked to sign
-in again, by password if need be, instead of every request answering 500.
-The refusal is logged with the underlying error. Registering or signing in
-while the store cannot be reached is a 503 -- try again -- and a sign-in
-refused that way does not count against your address.
+```
+flyball token create --name ci --config rig.yaml                   # read only, 90 days
+flyball token create --name bench --config rig.yaml --scope operate --expires 30d
+```
 
-The login challenge is under the same guard as the password login: an
-address that has failed ten times in a minute is refused a new challenge
-for the rest of it, and the runner holds at most a few hundred live
-challenges, so a flood of requests costs it nothing that grows.
+It prints the token once; the file keeps only its hash. Every token
+expires: after 90 days unless it says otherwise, a year at most, and 30
+days at most for `--kind agent` or a token made over plain HTTP from
+another machine. `flyball token list` and `flyball token revoke ID` work on
+the same file; a revoked or expired token's open streams and sockets are
+closed within a second. Revoking a token never changes what the hardware is
+doing: a program it started keeps running. The admin session (or anyone
+at a `local` front) can do the same from the browser side:
+`POST /api/auth/tokens`, `GET`, `DELETE /api/auth/tokens/{id}`
+([the API](../../4-server/api.md#authentication)); under the `proxy` shape
+tokens are made with `flyball token create` only.
 
-A sign-in attempt with no passkey registered on that runner fails
-silently in the browser's own UI (a `NotAllowedError` the page treats as
-"cancelled, nothing to say") -- expected, not a bug, but there is
-currently no on-page message beyond the button going idle again.
+`flyball login` trades the admin password for a named token of its own,
+saved for the CLI (`read` unless `--scope` asks for more): [the CLI
+reference](../../7-reference/cli.md#signing-in).
 
-## The password, from the Go CLI
+**What a token may do** is its scopes: `read` or `operate`, on every rig
+(`operate`) or one (`operate:furnace`), and `manage` for `flyballd`'s own
+routes. `read` is every `GET` and every stream, plus checking a rig or a
+program file; `operate` is everything else, stopping the rig included.
+These two verbs are a placeholder: which verbs there are, and what each
+route needs, is still being decided (D-034, pending), so expect the list
+to change.
 
-The Go CLI signs in the same way as the UI's login page: `flyball login`
-prompts for the password (or takes it as an argument, `flyball login
-SECRET` -- careful, that lands in shell history), POSTs it to
-`/api/auth/login`, and saves the session cookie the runner returns to a
-file under `$XDG_CONFIG_HOME/flyball` (`~/.config/flyball` on Linux), one
-file per runner URL, mode `0600`. Every later `flyball` invocation against
-that same URL picks the saved cookie back up automatically -- no need to
-log in again until the session expires (`--session`, default 12h) or
-`flyball logout` clears it. A wrong password is refused (401, after a
-short pause; ten wrong ones in a minute from one address are 429). This is
-separate from the daemon's own access control (`flyballd`'s `auth.token`,
-[the CLI reference](../../7-reference/cli.md#the-daemon))
--- `flyball login` authenticates to a *runner*, whether reached direct
-(`FLYBALL_URL`) or through the daemon's proxy (`-s`/`FLYBALLD_URL`).
+## Behind an identity proxy
 
-`--no-mcp` (or `FLYBALL_NO_MCP=1`) leaves the MCP servers off: the runner
-serves `/api` and `/ws` only, and `/mcp/…` is 404. For a rig a model has no
-business driving, or one that a proxy exposes read-only.
+The `proxy` shape puts the rig behind a login the site already has. One
+preset line says which, and the front reads the identity the proxy
+asserts -- a signed token, or plain headers from a proxy it can vouch for.
+
+Authelia (or oauth2-proxy, or authentik, unsigned), with the proxy talking
+to the front over a unix socket, so no other process can pose as it:
+
+```yaml
+runner:
+  front:
+    listen: unix:/run/flyball/front.sock
+    auth: proxy
+    proxy:
+      preset: authelia
+      grants: {all: ["group:lab-admins"]}
+```
+
+Tailscale Serve is the same with `preset: tailscale` and
+`tailscale serve unix:/run/flyball/front.sock` on the Tailscale side
+(Tailscale documents a unix-socket target; not tried against a live
+tailnet here). A tagged device and a Funnel visitor carry no Tailscale
+identity, so they are anonymous.
+
+`grants` says who may do what: a role, `all` (every verb) or `viewer`
+(read), mapped to user names and `group:<name>`s as the proxy sends them.
+Anyone the proxy vouches for who matches nothing gets `read` on every rig.
+The role names are pending D-034 with the verbs. A user is known by the
+proxy's own stable id, never by its e-mail address, which grants
+nothing. Named tokens work under the proxy shape too, so a proxy never
+needs to wave some paths through unauthenticated for machines.
+
+Every preset, what each needs and what is not yet tried against the real
+product: [the proxy presets](../../7-reference/rig-file.md#proxy-presets).
+
+## Other names, other pages
+
+For every request the front refuses, before anything else:
+
+- a path with a `.` or `..` segment, a backslash, or an encoded `.`, `/` or
+  `\` (`400`);
+- a `Host` it does not answer to (`403`): at the `local` shape, anything but
+  a loopback name; with `url`, anything but that host or a loopback name;
+- a request that acts -- any method but `GET`, `HEAD` and `OPTIONS`, and
+  every websocket -- whose `Origin` is missing, `null`, or not the same site
+  as its `Host` (or `url`'s origin) (`403`). A request with no `Origin` passes
+  only if the browser says `Sec-Fetch-Site: same-origin`. A request with a
+  named token is exempt: another site's page cannot have one.
+
+Behind nginx or another proxy, pass the browser's `Host` through (nginx:
+`proxy_set_header Host $http_host;`), and set `url` when the proxy
+terminates TLS. The front takes the client's address from the connection,
+so behind a proxy every client shares the proxy's address for the
+sign-in limit; `trusted_proxies` in the
+[reference](../../7-reference/rig-file.md#the-front) names proxies whose
+`X-Forwarded-For` it may believe.
+
+## The bare runner
+
+`flyball-runner rig.yaml` with no front serves its own door, and the
+dashboard too when one is built beside it:
+
+- **Open** (no token, the default): anyone who reaches it may operate the
+  rig, so it serves loopback only. Asked for another `--host`, it still
+  starts and runs the rig -- a control process that will not start leaves
+  the equipment uncontrolled -- but binds `127.0.0.1` on the same port and
+  prints one warning line. It answers only the names `localhost`,
+  `127.0.0.1` and `[::1]`. `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`)
+  serves it where asked, for that run only.
+- **A token** (`runner.auth.token`, `--token`, `--token-file PATH`,
+  `FLYBALL_TOKEN`): machines send `Authorization: Bearer T`. For a person,
+  the runner prints a one-time link at start:
+
+    ```
+    flyball-runner: sign in to the UI once, within 10 minutes: http://127.0.0.1:8000/api/auth/link?n=…
+    ```
+
+    Opening it sets a session cookie (in memory, 12 hours) and lands on the
+    dashboard with the nonce gone from the address bar. `POST
+    /api/auth/link` with the token makes another. The login page also takes
+    the token pasted in. A token never goes in a URL: `?token=` is refused.
+    A `--token-file` that cannot be read leaves the runner with a token
+    nobody knows, so nothing gets in until it is restarted with a readable
+    one.
+- `runner.auth.anonymous` (`--anonymous`, `FLYBALL_ANONYMOUS`): `read` lets
+  anyone watch.
+
+A bare runner has no passwords. `runner.auth.password`, `.session` and
+`.secret`, `--password`, `--session`, `FLYBALL_PASSWORD` and
+`FLYBALL_SESSION` are still read, so an old file starts, but ignored with a
+warning -- which leaves a runner that had only a password open, so it
+serves loopback only. The way up from a bare runner is `flyball run`.
+
+A bare runner with a token that serves beyond loopback warns at start that
+the token and cookies cross the network in the clear; it does no TLS.
+
+## Stopping the rig
+
+A **software stop** interrupts any program and puts every controller in
+manual, for everyone at once. Anyone holding `operate` can do it:
+
+- the **Software stop** button in the dashboard's app bar;
+- `flyball stop` (or `flyball stop --all` on every rig a `flyballd` runs);
+- `POST /api/rig/stop` with an optional `{"reason": "…"}`;
+- the MCP tool `stop_rig`, in `operate` mode;
+- `SIGUSR1` to the runner's process, which needs no front, no credential
+  and no network: when the front cannot be reached, `flyball stop` sends
+  it to the pid in the runner's lock file (`--front-dir DIR`, `--pid N`, or
+  the rig file `flyball run` was started with).
+
+It is never rate-limited, and it answers with a report: what happened to
+each device, whether a program was interrupted, which controllers are in
+manual. **In this release it writes nothing to any device**: outputs are
+left at whatever they were last told, and each device is reported
+`unchanged` (`interim: true` in the report). A `SIGUSR1` stop writes its
+report to the runner's log (`stop report: {…}`) and does not end the
+process. Every stop is in the [audit](#what-is-recorded), the `SIGUSR1` one
+as `local:signal`; the signal's sender is not recorded.
+
+!!! warning "Not an emergency stop"
+    The software stop is a control function, not an emergency stop in the
+    sense of IEC 60204-1 or ISO 13850, and flyball is not a safety system.
+    Put the protection outside it: thermal cut-outs, a hardware emergency
+    stop that removes power, and wiring such that de-energised is safe. A
+    crash, `kill -9`, a power loss or a hung machine leaves each output at
+    its last value, and so does this stop. Before the first unattended run,
+    [test a stop, a killed runner and a power cut](index.md#unattended-runs)
+    on the real hardware.
+
+## What is recorded
+
+- **The front's audit**, one JSON line per sign-in event, in `audit.jsonl`
+  beside its tokens file, mode 0600: `login.ok`, `login.fail`, `logout`,
+  `token.create`, `token.create.refused`, `token.revoke`, `token.refused`,
+  `proxy.refused`, `proxy.peer` (the local user behind a proxy's socket)
+  and `fallback`, each with its time, a sequence number and a boot id. A
+  sign-in or a token change whose record cannot be written does not happen
+  (`503`).
+- **The runner's audit**, the `audit` table in the rig's store: one row for
+  every request that needs more than `read` from a caller who is not
+  anonymous -- refused ones included -- and every stop, `SIGUSR1` included:
+  who (`sub`, session, kind, from where), what, and how it ended. It is
+  append-only and outside retention. [Storage](../../6-internals/db.md)
+  has the columns. A write that fails is logged and refuses nothing: a
+  full disk does not block a stop.
 
 ## A sub-path
 
-`--root-path /flyball/humidity` (or `FLYBALL_ROOT_PATH`) serves everything
-under that prefix: `/flyball/humidity/api`, `/flyball/humidity/ws`,
+Under `flyballd` each rig is served under its manifest's `root_path`
+(`/furnace/`), by the daemon's front. A bare runner takes `--root-path
+/flyball/humidity` (or `FLYBALL_ROOT_PATH`) and serves everything under
+that prefix: `/flyball/humidity/api`, `/flyball/humidity/ws`,
 `/flyball/humidity/mcp`, `/flyball/humidity/docs`; the root is 404. For
-several rigs on one domain behind a proxy that passes the path through
-unchanged -- one runner and one `location` each, no rewriting:
+several bare runners on one domain behind a proxy that passes the path
+through unchanged -- one runner and one `location` each, no rewriting:
 
 ```nginx
 location /flyball/humidity/api/ { proxy_pass http://127.0.0.1:8001;
@@ -290,11 +331,16 @@ finds its API from where the page was served (`https://host/flyball/humidity/`
 in the URL (`Rig("https://host/flyball/humidity")`); the CLI takes it via
 `FLYBALL_URL=https://host/flyball/humidity`.
 
-## Stopping and restarting from the API
+`--no-mcp` (or `FLYBALL_NO_MCP=1`) leaves the MCP servers off: the runner
+serves `/api` and `/ws` only, and `/mcp/…` is 404. For a rig a model has no
+business driving.
 
-`POST /api/runner/shutdown` stops the runner as Ctrl-C would; `POST
+## Stopping and restarting the runner from the API
+
+`POST /api/runner/shutdown` ends the runner as Ctrl-C would; `POST
 /api/runner/restart` does that and then starts the same command line again
-in the same process id, so a supervisor sees nothing. Both are 409 unless
-the runner runs with `--allow-shutdown` (`runner.allow_shutdown`). What was
-built over the API and not saved is gone across a restart unless the
-runner runs with `--resume`.
+in the same process id, so a supervisor sees nothing. Both need `operate`,
+and both are 409 unless the runner runs with `--allow-shutdown`
+(`runner.allow_shutdown`). What was built over the API and not saved is gone
+across a restart unless the runner runs with `--resume`. This ends the
+process; the [software stop](#stopping-the-rig) above leaves it running.

@@ -36,7 +36,7 @@ device.
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
-| `runner` | `RunnerConfig` | how the process serves -- port, who may reach it (`auth`), what the API may do, where the store and the directories are; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
+| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat or layered](#devices) |
 | `controllers` | `{target-address: ControllerEntry}` | keyed by the writable signal driven |
@@ -170,6 +170,121 @@ a ramp): target unit per source-unit-per-second — a zone's
 charge its own thermal mass. Not on `setpoint`: that feedforward already
 hands the target the source's own unit, so a rate term there would be a
 lead compensator, a different job from the plant-capacity model this is.
+
+## The front
+
+`runner.front` is read by the Go front `flyball run` starts; `flyballd`
+reads the same keys from the top level of `flyballd.yaml`, beside its own.
+`flyball-runner` never acts on it, and a block that does not validate is
+only a warning to it; `flyball rig check` holds it to this schema. An
+unknown key or a wrong type makes the front fall back to the `local` shape
+on `127.0.0.1` ([Access](../1-running/runner/access.md#when-a-setting-is-wrong)),
+as does every error the table marks *falls back*; a key marked *warns* is
+ignored with one warning line and its default used.
+
+| key | type | default | |
+| --- | --- | --- | --- |
+| `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` (`flyballd`: `127.0.0.1:9000`) | where the front listens; `flyball run --listen` wins. A unix socket file nobody answers on is replaced; one another process answers on is left, and the front does not serve (the rig runs on). Unparseable: falls back |
+| `auth` | `local` / `password` / `proxy` / `sso` | `local` | the [shape](../1-running/runner/access.md#shapes-who-gets-in). `local` asked for a non-loopback `listen` falls back unless the run says `--insecure-open`; `sso` falls back (not in this release) |
+| `password` | string | none | `auth: password`'s admin password, as the `$scrypt$` line `flyball password` prints; missing or plain text falls back |
+| `anonymous` | `none` / `read` | `none` | what a caller with no credential may do under `password` and `proxy`; the `local` shape ignores it. Another value warns |
+| `url` | `http(s)://host[:port]` | none | the external address: its host joins the `Host` allow-list (with the loopback names), its origin the `Origin` allow-list; `https` makes the cookie `Secure` and `__Host-flyball`, and the scheme the principal reports. A path, query or user part falls back |
+| `tls` | `{cert, key}` | none | PEM files the front serves HTTPS from, TLS 1.2 at least; re-read every 10 s and on `SIGHUP`, the last good pair kept. Unreadable at start: falls back |
+| `proxy` | table | none | `auth: proxy`'s identity layer: [below](#proxy-presets). Missing, or one that cannot be vouched for: falls back |
+| `session` | duration | `12h` | a session's idle lifetime (`12h`, `2d`); it ends after 7 days whatever. Unparseable warns |
+| `trusted_proxies` | `[IP or CIDR, …]` | `[]` | peers whose `X-Forwarded-For` the front believes: when the connection comes from one, the client is the right-most address in that header not in the list. That address is what the sign-in limit counts and the audit and principal record. A bad entry warns and is dropped |
+| `tokens` | `{default_lifetime, max_lifetime}` | 90 days, 365 days | [named-token lifetimes](#token-lifetimes) |
+| `uv` | bool | `false` | `flyball run` only: run `flyball-runner` via `uv run --project <the rig file's directory>` |
+
+The front's cookie is `flyball-<port>` over plain HTTP and `__Host-flyball`
+when `tls` or an `https` `url` is set: `HttpOnly`, `SameSite=Lax`,
+`Path=/`. A cookie is not port-isolated -- every service on the same host
+name receives it -- so give each front its own host name where that
+matters.
+
+### Token lifetimes
+
+Every named token expires. `tokens:` may only tighten the built-ins:
+
+| key | built-in | |
+| --- | --- | --- |
+| `default_lifetime` | `90d` | a token created without a lifetime of its own; at most `max_lifetime` |
+| `max_lifetime` | `365d` | the most any token may have; above 365 days is refused |
+
+A token of `kind: agent`, or one created over plain HTTP from another
+machine, lives at most 30 days, or `max_lifetime` if that is shorter. A
+lifetime asked for above the cap gets the cap. Durations are Go's (`36h`)
+or whole days (`30d`); a bad value warns and its built-in applies. `flyball
+token create --config PATH` reads the same block, so a token made offline
+gets the same limits.
+
+### Proxy presets
+
+`auth: proxy` takes one `proxy:` block, and `preset` says which proxy is in
+front. An **unsigned** preset reads plain headers, which the front believes
+only from a peer it can vouch for; a **signed** one verifies a JWT against
+the issuer's published keys.
+
+```yaml
+proxy: {preset: tailscale}                        # listen: unix:/run/flyball/front.sock; from: unix is the default
+proxy: {preset: authelia, grants: {all: ["group:lab-admins"]}}   # over unix
+proxy: {preset: authelia, from: [127.0.0.1], secret_file: /etc/flyball/proxy-secret}  # the proxy sends X-Flyball-Proxy-Secret
+proxy: {preset: authelia, from: [10.0.5.2]}       # a proxy on another host needs no secret
+proxy: {preset: oauth2-proxy}                     # unsigned, over unix
+proxy: {preset: oauth2-proxy, issuer: https://idp.lab.org, audience: flyball-client-id}  # Authorization: Bearer <ID token>
+proxy: {preset: authentik}                        # unsigned: X-authentik-uid, groups split on |
+proxy: {preset: authentik, issuer: https://auth.lab.org/application/o/flyball/}  # X-authentik-jwt
+proxy: {preset: pomerium}                         # needs an https url:; optional issuer:, audience:
+proxy: {preset: cloudflare, team: lab, audience: <the application's AUD tag>}
+proxy: {preset: custom, user_header: X-Lab-User, groups_header: X-Lab-Groups, separator: ";"}
+proxy: {preset: custom, jwt: {header: X-Lab-Jwt, jwks_url: https://idp.lab.org/keys, issuer: lab-idp, audience: flyball, algorithms: [ES256]}}
+```
+
+| preset | kind | identity from | groups | needs |
+| --- | --- | --- | --- | --- |
+| `tailscale` | unsigned | `Tailscale-User-Login` (name: `Tailscale-User-Name`) | none | `from:` |
+| `authelia` | unsigned | `Remote-User` (name: `Remote-Name`) | `Remote-Groups`, comma-separated | `from:` |
+| `oauth2-proxy` | unsigned | `X-Forwarded-User` | `X-Forwarded-Groups`, comma-separated | `from:` |
+| `oauth2-proxy` | signed | `Authorization: Bearer <ID token>`, RS256 or ES256, keys by OIDC discovery on `issuer` | the `groups` claim | `issuer:`, `audience:` (the client id) |
+| `authentik` | unsigned | `X-Authentik-Uid` (name: `X-Authentik-Name`) | `X-Authentik-Groups`, `|`-separated | `from:` |
+| `authentik` | signed | `X-Authentik-Jwt`, RS256 or ES256, keys at `<issuer>/jwks/` | the `groups` claim | `issuer:` (`audience:` optional) |
+| `pomerium` | signed | `X-Pomerium-Jwt-Assertion`, ES256, keys at `https://<url host>/.well-known/pomerium/jwks.json` | the `groups` claim | an `https` `url:`; `issuer` and `audience` default to its host |
+| `cloudflare` | signed | `Cf-Access-Jwt-Assertion`, RS256, keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` | the `groups` claim | `team:`, `audience:` |
+| `custom` | unsigned | `user_header` | `groups_header`, split on `separator` (default `,`) | `from:` |
+| `custom` | signed | `jwt.header` (`Authorization` means a bearer token) | the `groups` claim | `jwt: {header, jwks_url, issuer, audience, algorithms}` |
+
+| key | |
+| --- | --- |
+| `preset` | one of the above; required |
+| `from` | unsigned presets: whose headers are believed -- `unix` (the default: the front's own socket, so `listen` must be `unix:/path`; the local user behind each new identity is recorded as `proxy.peer`), or a list of the proxy's IPs or CIDRs (then `listen` must be TCP). `/0` is refused. A loopback address, or one of this host's own, stands for every local process, so it also needs `secret_file` |
+| `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused |
+| `issuer`, `audience` | signed presets: the exact `iss`, and a value `aud` must contain |
+| `team` | `cloudflare`: the Access team name (one DNS label) |
+| `grants` | role → entries. Roles: `all` (every verb) and `viewer` (read); names pending D-034, and an unknown role grants nothing (a warning says so). An entry is a subject, or `group:<id>`. Every grant is on every rig; an identity matching none gets `read` |
+| `user_header`, `groups_header`, `separator` | `custom`, unsigned. A header name is letters, digits and `-`; the front's own (`Authorization`, `Cookie`, `Host`, `Origin`, the forwarding headers, `X-Flyball-*`) are refused |
+| `jwt` | `custom`, signed: `header`, `jwks_url` (`https`, or `http` on loopback), `issuer`, `audience`, `algorithms` (RS/PS/ES 256–512 and EdDSA; never `none` or `HS*`) |
+
+For a request, the front reads a named token first, then (under
+`password`) a session, then the proxy's assertion, and only with none of
+them is the caller anonymous. An assertion that is present and wrong -- a
+bad signature, a wrong `iss` or `aud`, expired (60 s leeway on `exp`, `nbf`
+and `iat`), a second copy of an identity header, a copy under another
+spelling (`Remote_User`), groups without a user -- is `401`, never
+anonymous. Keys the front cannot fetch make every such request `503`; keys
+are refetched after an hour, and for an unknown key id at most once a
+minute. A proxy identity is `proxy:<issuer>#<subject>`: for an unsigned
+preset the issuer is the preset's name (`proxy:authelia#ben`), for a
+signed one the token's `iss`. The subject is the proxy's stable id --
+never the e-mail address: oauth2-proxy run so that the user header carries
+the e-mail (`--prefer-email-to-user`) is refused. authentik signs with its
+client secret (HS256) when its provider has no signing key, and HS256 is
+refused, so give the provider one.
+
+**Not yet tried against the real products:** Tailscale Serve proxying to a
+unix socket, Pomerium's default `iss` and `aud`, authentik's JWT claims,
+oauth2-proxy's e-mail-as-user detection, and Cloudflare service tokens
+(which carry no `sub`, so they are refused). Each preset follows the
+product's documentation; report what differs.
 
 ## Example
 

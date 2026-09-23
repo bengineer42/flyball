@@ -19,7 +19,6 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
-    PasskeyRow,
     ProgramFormat,
     ProgramRow,
     RigVersionRow,
@@ -400,38 +399,6 @@ class Store(Protocol):
 
     def set_rig_head(self, version_id: int) -> RigVersionRow:
         """Make `version_id` the head, as a restore does; nothing is copied."""
-        ...
-
-    # endregion
-
-    # region Passkeys
-
-    def passkey_user_handle(self) -> bytes:
-        """This runner's WebAuthn user handle: made once, on first use, and kept forever after."""
-        ...
-
-    def add_passkey(
-        self,
-        credential_id: bytes,
-        public_key: bytes,
-        label: str,
-        created_ns: int,
-        aaguid: bytes | None = None,
-        transports: Sequence[str] = (),
-    ) -> PasskeyRow: ...
-
-    def passkeys(self) -> list[PasskeyRow]:
-        """Every registered credential, oldest first."""
-        ...
-
-    def passkey(self, credential_id: bytes) -> PasskeyRow | None: ...
-
-    def update_passkey_sign_count(self, credential_id: bytes, sign_count: int) -> None:
-        """Set after every successful assertion; guards against a cloned authenticator."""
-        ...
-
-    def delete_passkey(self, passkey_id: int) -> bool:
-        """Whether a credential with that id existed to remove."""
         ...
 
     # endregion

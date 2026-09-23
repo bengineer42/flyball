@@ -24,11 +24,26 @@ restarting the runner have no subcommand yet; the routes are
 [Composition](../../4-server/api.md#composition) and
 [The runner](../../4-server/api.md#the-runner), and the last two answer 409
 unless the runner was started with `--allow-shutdown`
-([Access](../runner/access.md#stopping-and-restarting-from-the-api)).
+([Access](../runner/access.md#stopping-and-restarting-the-runner-from-the-api)).
+
+## Stopping the rig
+
+```
+flyball stop --reason "door open"           # the software stop: program interrupted, controllers to manual
+flyball -s furnace stop                     # one rig behind flyballd
+flyball stop --all                          # every rig flyballd runs that this credential may operate
+flyball stop --front-dir /run/flyball/furnace   # the front is down: SIGUSR1 to the runner
+```
+
+It needs `operate`, prints what happened to each device, and in this
+release writes nothing to any device: outputs are left as they were
+([the software stop](../runner/access.md#stopping-the-rig)). With the front
+unreachable it signals the runner instead, which works with no credential
+and no network ([`flyball stop`](../../7-reference/cli.md#stopping-a-rig)).
 
 ## Starting one: `flyball run`
 
 The one command here that needs no runner already up -- it starts one.
-`flyball run RIG-FILE --serve-ui ADDR` runs `flyball-runner` directly and
-serves the built dashboard on `ADDR`, reverse-proxying `/api`, `/ws` and
-`/mcp` to it: [Starting a rig](../runner/index.md#with-the-dashboard-flyball-run).
+`flyball run RIG-FILE` runs `flyball-runner` behind a front that serves the
+built dashboard on `127.0.0.1:8000` and passes `/api`, `/ws` and `/mcp` to
+it: [Starting a rig](../runner/index.md#with-the-dashboard-flyball-run).

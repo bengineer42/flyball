@@ -129,7 +129,9 @@ a delete or a trim hold the lock for long, however large the session:
 
 Migrations are numbered SQL files in `flyball/record/migrations`, each one
 transaction; `schema_version` records the last applied, so opening an older
-database brings it forward. `":memory:"` for tests.
+database brings it forward. A database at a version newer than any this
+flyball ships is refused (`SchemaError`), not opened and misread: a newer
+flyball wrote it. `":memory:"` for tests.
 
 Every statement goes through one of two helpers, `_query` (reads) and
 `_transaction` (writes), and they classify what sqlite raises: an
@@ -164,6 +166,29 @@ downwards, below the writer's own count, so the recorder need not know. The
 sweep itself is `flyball.runtime.retention.Retention`, started by `serve()`
 when there is a store; what it does and in what order is
 [What ages out](../1-running/runner/index.md#what-ages-out).
+
+The runner's action audit is migration 0012: the `audit` table, one row per
+action on the rig -- every request whose verb is not read, and every stop,
+the `SIGUSR1` break-glass included. A row is the verified principal (`sub`,
+`name`, `sid`, `kind`, `via`, `cip`, and `scheme`, how it got in), the
+`method`, the `route` (its template) and `path`, the `status` and its
+`outcome` (`done`, `denied` by the door, `refused` by the rig, `failed`), the
+`request_id` (the front's `X-Request-Id`, or one the runner makes), and as
+JSON a demand's `writes` (`{address: {old, requested, applied}}`) and a
+stop's `detail` (its reason). It is in wall time (`time_ns`), not the rig's
+clock; it names no session, so retention and deleting a session never reach
+it; and triggers refuse any `UPDATE` or `DELETE` on it. `boot` is one runner
+process and `seq` counts its actions from 1.
+
+`flyball.record.audit.Auditor` writes the rows on a thread of its own, so
+neither the event loop nor the break-glass's thread waits for the store. If
+a write fails -- the disk full, the store locked -- the action has still
+happened: the failure is logged, with the action in full as one JSON line,
+and nothing is refused; the missing `seq` shows the gap. The same when more
+than 10 000 actions are waiting. The middleware is
+`flyball.interfaces.server.audit.Audit`, outside the door so it sees who was
+refused: a request with no principal, or a bad one, identifies no one and is
+not recorded, nor is a CORS preflight.
 
 ### Deleting a session
 

@@ -142,7 +142,7 @@ async def read_rig_schema() -> dict[str, Any]:
 async def read_rig_config() -> dict[str, Any]:
     """The rig file as it now stands: a simulation's with its changes, else what was loaded.
 
-    `runner.auth`'s credentials are never included, only its non-secret settings.
+    Of `runner:`, only what a reader may see (`redact.PUBLIC_RUNNER_KEYS`): no credential, no path.
     """
     if (simulation := current_simulation()) is not None:
         return without_credentials(simulation.config_document())

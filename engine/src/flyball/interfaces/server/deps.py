@@ -25,11 +25,13 @@ from flyball.model.catalog import Catalogs, current_catalog
 from flyball.model.catalog import set_catalog as set_catalog
 from flyball.record import Store
 from flyball.rig import Rig
+from flyball.rig.stopping import InterimStopper
 
 from .dialect import Dialect
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Device
+    from flyball.rig.stopping import Stopper
     from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
     from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
@@ -208,11 +210,6 @@ def set_store(store: Store | None) -> None:
     _store = store
 
 
-def current_store() -> Store | None:
-    """The attached store, or None. For passkeys, which tolerate absence (see server.passkeys)."""
-    return _store
-
-
 _drivers_dir: Path | None = None
 _compose: bool = False
 
@@ -257,6 +254,32 @@ def current_exposure() -> dict[str, Any] | None:
     """Where the runner serves against where it was asked to; None where nothing is."""
     exposure = None if _runner is None else _runner.exposure
     return None if exposure is None else exposure.as_dict()
+
+
+_stopper: Stopper | None = None
+_interim: InterimStopper | None = None
+
+
+def set_stopper(stopper: Stopper | None) -> None:
+    """What `POST /api/rig/stop` and the break-glass signal call, in place of the interim one."""
+    global _stopper
+    _stopper = stopper
+
+
+def current_stopper() -> Stopper | None:
+    """The stopper set, else the interim one over the attached rig and programmer.
+
+    None with no rig attached: nothing to stop. The interim one is kept while the rig
+    and programmer are the same, so its stops stay serialised.
+    """
+    global _interim
+    if _stopper is not None:
+        return _stopper
+    if _rig is None:
+        return None
+    if _interim is None or _interim.rig is not _rig or _interim.program is not _programmer:
+        _interim = InterimStopper(_rig, _programmer)
+    return _interim
 
 
 def save_allowed() -> bool:

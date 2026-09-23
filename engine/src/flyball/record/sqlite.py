@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import secrets
 import sqlite3
 import time
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -44,7 +43,6 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
-    PasskeyRow,
     Point,
     ProgramFormat,
     ProgramRow,
@@ -174,19 +172,6 @@ def _dashboard_row(row: sqlite3.Row) -> DashboardRow:
         body=_loads(row["body"]),
         created_ns=row["created_ns"],
         sha256=row["sha256"],
-    )
-
-
-def _passkey_row(row: sqlite3.Row) -> PasskeyRow:
-    return PasskeyRow(
-        id=row["id"],
-        credential_id=row["credential_id"],
-        public_key=row["public_key"],
-        sign_count=row["sign_count"],
-        aaguid=row["aaguid"],
-        transports=_loads(row["transports"]) or [],
-        label=row["label"],
-        created_ns=row["created_ns"],
     )
 
 
@@ -1513,71 +1498,5 @@ class SqliteStore:
             if moved == 0:
                 raise DashboardNotFoundError(name)
         return self.dashboard_history(new_name)
-
-    # endregion
-
-    # region Passkeys
-
-    def passkey_user_handle(self) -> bytes:
-        with self._transaction() as connection:
-            row = connection.execute(
-                "SELECT user_handle FROM passkey_runner WHERE one = 1"
-            ).fetchone()
-            if row is not None:
-                return row["user_handle"]
-            handle = secrets.token_bytes(32)
-            connection.execute(
-                "INSERT INTO passkey_runner (one, user_handle) VALUES (1, ?)", (handle,)
-            )
-            return handle
-
-    def add_passkey(
-        self,
-        credential_id: bytes,
-        public_key: bytes,
-        label: str,
-        created_ns: int,
-        aaguid: bytes | None = None,
-        transports: Sequence[str] = (),
-    ) -> PasskeyRow:
-        with self._transaction() as connection:
-            cursor = connection.execute(
-                "INSERT INTO passkey_credential"
-                " (credential_id, public_key, sign_count, aaguid, transports, label, created_ns)"
-                " VALUES (?, ?, 0, ?, ?, ?, ?)",
-                (credential_id, public_key, aaguid, _dumps(list(transports)), label, created_ns),
-            )
-            row = connection.execute(
-                "SELECT * FROM passkey_credential WHERE id = ?", (cursor.lastrowid,)
-            ).fetchone()
-            return _passkey_row(row)
-
-    def passkeys(self) -> list[PasskeyRow]:
-        return [
-            _passkey_row(r)
-            for r in self._query("SELECT * FROM passkey_credential ORDER BY created_ns, id")
-        ]
-
-    def passkey(self, credential_id: bytes) -> PasskeyRow | None:
-        rows = self._query(
-            "SELECT * FROM passkey_credential WHERE credential_id = ?", (credential_id,)
-        )
-        return _passkey_row(rows[0]) if rows else None
-
-    def update_passkey_sign_count(self, credential_id: bytes, sign_count: int) -> None:
-        with self._transaction() as connection:
-            connection.execute(
-                "UPDATE passkey_credential SET sign_count = ? WHERE credential_id = ?",
-                (sign_count, credential_id),
-            )
-
-    def delete_passkey(self, passkey_id: int) -> bool:
-        with self._transaction() as connection:
-            return (
-                connection.execute(
-                    "DELETE FROM passkey_credential WHERE id = ?", (passkey_id,)
-                ).rowcount
-                > 0
-            )
 
     # endregion

@@ -1,3 +1,5 @@
+// For Phase 3 (passkeys in the Go front). Dormant in Phase 1: rendered only when AuthInfo's
+// `login.passkey` is true, which the front never sends yet.
 import { useEffect, useState } from "react";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, List, ListItem, ListItemSecondaryAction, ListItemText, TextField, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";

@@ -27,11 +27,14 @@ runner on that port unchanged. Loopback only. In production the same three
 sub-path".
 
 A rig the public may watch but not drive is the runner's own business:
-each file here sets `auth.anonymous: read` with a password, so anyone may
-read and open the streams, and a login (the UI's page, or `POST
-/api/auth/login`) is needed to do anything else. Put a real password in
-before serving -- `flyball password` prints the hashed line -- or set
-`FLYBALL_PASSWORD` in the environment. nginx's `limit_except GET` on
-`/api/` still belongs in front of it as a second wall.
+each file here sets `auth.anonymous: read`, so anyone may read and open the
+streams. These are bare runners -- no front, so no password login -- and
+driving one needs `auth.token`: put a real token in before serving, or set
+`FLYBALL_TOKEN` in the environment (never commit a real token). A script or
+the CLI sends it as `Authorization: Bearer <token>`; a person pastes it into
+the UI's login page, which posts `POST /api/auth/login {"token": ...}` and
+gets a session cookie back, or follows the one-time link a token holder
+requests from `POST /api/auth/link`. nginx's `limit_except GET` on `/api/`
+still belongs in front of it as a second wall.
 
 Stores land in `stores/<rig name>.sqlite` (`store_dir`), gitignored.

@@ -78,7 +78,7 @@ nav:
       - 1-running/index.md
       - Starting a rig:
           - 1-running/runner/index.md
-          - Access — the token, a sub-path, stopping: 1-running/runner/access.md
+          - Access — the front, sign-in, stopping: 1-running/runner/access.md
           - Building a rig while it runs: 1-running/runner/building.md
       - The UI:
           - 1-running/ui/index.md
@@ -145,6 +145,7 @@ nav:
       - The controller in detail: 6-internals/controller.md
       - Identification: 6-internals/identification.md
       - Storage: 6-internals/db.md
+      - The front and the runner: 6-internals/front.md
       - Decisions: 6-internals/decisions.md
   - Reference:
       - 7-reference/index.md

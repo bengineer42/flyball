@@ -20,11 +20,10 @@ flyball-mcp --url http://pi:8000 --mode author     # or export FLYBALL_URL
 The repository's `.mcp.json` points Claude Code at a local runner's
 `/mcp/author`, so a checkout gets the simulated rig offered on first open.
 
-`POST /mcp` (no mode) is not a fourth, default tier -- there is no default
-tier. Reached through the daemon, it 307-redirects to `/mcp/` (Go's
-`net/http.ServeMux` adding the trailing slash its `/mcp/` registration
-expects), which is still not a mode and so still answers nothing; a client
-has to name `read`, `author` or `operate`.
+`/mcp` with no mode is not a fourth, default tier -- there is no default
+tier. It has no row in the runner's verb table, so it is refused (`403`)
+like any path nobody decided on; a client has to name `read`, `author` or
+`operate`.
 
 ## Modes
 
@@ -36,7 +35,13 @@ one exists.
 | --- | --- | --- |
 | `read` (default) | every `GET`, plus `check_program` and `check_rig`, which validate and return | asking the rig questions |
 | `author` | saving programs, dashboards and tunings to the store | "write me a program that…", "make a dashboard for the blender" |
-| `operate` | one tool per device command (`blender-set_humidity`), demands, controllers, running programs, recording, a simulation's knobs | driving the rig |
+| `operate` | one tool per device command (`blender-set_humidity`), demands, controllers, running programs, recording, a simulation's knobs, and `stop_rig` (the [software stop](../1-running/runner/access.md#stopping-the-rig)) | driving the rig |
+
+Entering a mode needs a verb (pending D-034): `read` for `/mcp/read`,
+`operate` for `/mcp/author` and `/mcp/operate`. Every call a tool makes
+then carries the caller's own verbs cut to what the mode allows, so a
+`read` token at `/mcp/read` cannot reach a route that needs more, whatever
+the tool.
 
 Two entries in the client's config, one per mode you want, is the usual
 arrangement:
@@ -52,12 +57,18 @@ arrangement:
 
 ## The token
 
-A runner with a token (`--token`, `FLYBALL_TOKEN`, `auth.token`) requires it
-on everything it serves -- `/api`, `/ws` and `/mcp` alike, since any of
-them can drive the rig. A model cannot type a password at a login page,
-so a runner that has only a password needs a token too before a client
-outside it can connect (its own mount at `/mcp` keeps working). An MCP
-client sends the token as a header:
+Whoever can reach `/mcp` through the door can drive what its mode offers,
+so a model needs a credential wherever a person would:
+
+- **the `local` shape** (`flyball run` with nothing configured) needs none,
+  on the machine itself;
+- **a front with a sign-in** (`password`, `proxy`) takes a named token,
+  made on the rig's host: `flyball token create --name claude --kind agent
+  --config rig.yaml` for `read`, `--scope operate` to drive. An `agent`
+  token lives 30 days at most;
+- **a bare runner** takes its own token.
+
+The client sends it as a header:
 
 ```json
 {
@@ -71,21 +82,16 @@ client sends the token as a header:
 }
 ```
 
-The stdio server takes `--token` or `FLYBALL_TOKEN`. With neither a token
-nor a password on the runner there is no authentication at all: anyone on
-the runner's own machine can drive the rig, over `/api` as much as over
-`/mcp`. Such an open runner answers only to `localhost`, `127.0.0.1` and
-`[::1]`, and its MCP transport checks the same itself (the MCP SDK's DNS
-rebinding protection: `Host` and any `Origin` on a loopback name, else
-`421` / `403`), so `http://localhost:8000/mcp/author` works and
-`http://pi:8000/mcp/author` needs the token -- unless the runner was served
-open on the network by `--insecure-open`, which lifts both loopback-name
-checks (the door's `Origin` check stays). On a runner with a door the
-transport's check is off -- the runner does not know every name it is
-reached by -- and the door refuses a foreign `Origin` instead (see
-[Authentication](api.md#authentication)). Put a token on any runner a
-model can drive; the read tier is what `auth.anonymous: read` lets
-through without one.
+The stdio server takes `--token` or `FLYBALL_TOKEN`. A bare runner with no
+token answers only to `localhost`, `127.0.0.1` and `[::1]`, and its MCP
+transport checks the same itself (the MCP SDK's DNS rebinding protection:
+`Host` and any `Origin` on a loopback name, else `421` / `403`), unless it
+was served open on the network by `--insecure-open`. Behind a front, or
+with a token, that check is off and the door's `Host` and `Origin` rules
+apply instead ([Authentication](api.md#authentication)).
+
+Every tool call is recorded like any other request that needs more than
+`read`: in the runner's audit, as the caller, `via: mcp`.
 
 ## What the model sees
 
@@ -135,7 +141,9 @@ through without one.
   runner's `--drivers` directory again so the tag can be attached;
   `search_drivers` searches a `linux/` checkout's hardware catalogue by
   part, category, interface, unit or domain (it runs that checkout's
-  search script, so it is drive-tier like `check_driver`);
+  search script, so it is drive-tier like `check_driver`). Both run a file
+  the caller names on the machine the server runs on, so they are served
+  by the stdio server (`flyball-mcp`) only, never over HTTP;
   `probe_hardware` says what buses the board has and `link_query` sends
   one raw command down a link, to find out what an instrument is before
   writing its entry. `probe_hardware` (`POST /api/probe`) is read-tier for

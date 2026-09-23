@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
+import { OPERATE, RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type AuthInfo, type ReadOut, type Request, type StopReport, type Transport, type TreeNode } from "@flyball/client";
 
 /** A transport answering from a table of `METHOD path` → body, recording what was asked. */
-function fakeTransport(routes: Record<string, unknown>, status = 200) {
+function fakeTransport(routes: Record<string, unknown>, status = 200, token?: string) {
   const asked: Request[] = [];
   const transport: Transport = {
     base: "",
+    token,
     async request(request) {
       asked.push(request);
       const key = `${request.method} ${request.path}`;
@@ -216,5 +217,69 @@ describe("fixed() is total", () => {
   it("still formats a real number, and never prints -0", () => {
     expect(fixed(1.234, 2)).toBe("1.23");
     expect(fixed(-0.001, 2)).toBe("0.00");
+  });
+});
+
+// AuthInfo v2 (WP0-2): the wire shape a `password`-shape front, `flyball run`'s own local shape,
+// or a bare runner answers with. Not application-specific -- these are the routes, not the door's
+// UI, which is covered in apps/dashboard/test/auth.test.tsx.
+describe("RigClient.login posts the credential the door offers", () => {
+  it("posts {password} for a password-shape front", async () => {
+    const answer: AuthInfo = { v: 2, shape: "password", scheme: "session", user: { id: "local:admin", name: "admin", kind: "human" }, verbs: [OPERATE, "read"], anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const { transport, asked } = fakeTransport({ "POST /api/auth/login": answer });
+    const rig = new RigClient(transport);
+    expect(await rig.login({ password: "hunter2" })).toEqual(answer);
+    expect(asked).toEqual([{ method: "POST", path: "/api/auth/login", body: { password: "hunter2" } }]);
+  });
+
+  it("posts {token} for a bare runner's pasted token", async () => {
+    const answer: AuthInfo = { v: 2, shape: "bare", scheme: "session", user: { id: "local:console", name: "", kind: "human" }, verbs: [OPERATE, "read"], anonymous: "none", login: { password: false, token: true, passkey: false, sso: null } };
+    const { transport, asked } = fakeTransport({ "POST /api/auth/login": answer });
+    const rig = new RigClient(transport);
+    expect(await rig.login({ token: "abc.def" })).toEqual(answer);
+    expect(asked).toEqual([{ method: "POST", path: "/api/auth/login", body: { token: "abc.def" } }]);
+  });
+
+  it("logout answers the anonymous view", async () => {
+    const answer: AuthInfo = { v: 2, shape: "password", scheme: "anonymous", user: null, verbs: ["read"], anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const { transport, asked } = fakeTransport({ "POST /api/auth/logout": answer });
+    const rig = new RigClient(transport);
+    expect(await rig.logout()).toEqual(answer);
+    expect(asked).toEqual([{ method: "POST", path: "/api/auth/logout", body: undefined }]);
+  });
+});
+
+describe("RigClient.stopRig", () => {
+  it("posts to /api/rig/stop, with a reason when given", async () => {
+    const report: StopReport = { at_ns: 1, actor: { sub: "local:admin", sid: "s1", kind: "human", via: "http", detail: "" }, reason: "done", devices: {}, program_interrupted: true, controllers_manual: [], interim: true };
+    const { transport, asked } = fakeTransport({ "POST /api/rig/stop": report });
+    const rig = new RigClient(transport);
+    expect(await rig.stopRig("done")).toEqual(report);
+    expect(await rig.stopRig()).toEqual(report);
+    expect(asked.map((r) => r.body)).toEqual([{ reason: "done" }, {}]);
+  });
+
+  it("501 (not wired up yet, A8) surfaces as a RigError, never as a report", async () => {
+    const { transport } = fakeTransport({ "POST /api/rig/stop": { detail: "stop not wired yet" } }, 501);
+    const rig = new RigClient(transport);
+    await expect(rig.stopRig()).rejects.toMatchObject({ status: 501, detail: "stop not wired yet" });
+  });
+
+  it("403 without OPERATE surfaces as a RigError", async () => {
+    const { transport } = fakeTransport({ "POST /api/rig/stop": { detail: "needs operate" } }, 403);
+    const rig = new RigClient(transport);
+    await expect(rig.stopRig()).rejects.toBeInstanceOf(RigError);
+  });
+});
+
+describe("no credential rides in a URL", () => {
+  it("a download URL carries no ?token=, even when the transport holds one", async () => {
+    const { transport } = fakeTransport({}, 200, "shh-secret-token");
+    const rig = new RigClient(transport);
+    expect(rig.exportUrl(3, { format: "json" })).not.toContain("token");
+    expect(rig.seriesExportUrl(3, "furnace.zone1")).not.toContain("token");
+    expect(rig.writesExportUrl(3, "heaters.heater1")).not.toContain("token");
+    expect(rig.ticksExportUrl(3, "heaters.heater1")).not.toContain("token");
+    expect(rig.eventsExportUrl(3)).not.toContain("token");
   });
 });

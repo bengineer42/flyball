@@ -143,6 +143,24 @@ def test_a_stop_signal_runs_the_cleanup(tmp_path, sig):
     assert "Traceback" not in err
 
 
+def test_sighup_is_ignored(tmp_path):
+    # D-038: a dropped terminal (SIGHUP) never stops a runner -- unlike SIGTERM/SIGINT
+    # above, the process must still be alive and serving afterwards.
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, PORT)
+        proc.send_signal(signal.SIGHUP)
+        time.sleep(0.5)
+        assert proc.poll() is None, "SIGHUP stopped the runner"
+        assert _get(f"http://127.0.0.1:{PORT}/api/health")["rig"] == "oven"
+        assert _open_sessions(store) != [], "SIGHUP closed the recording session"
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 0, err[-2000:]
+    assert "terminal hung up" in err
+
+
 def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path):
     # Two runners on one rig would drive the same hardware; the second used to close the
     # live runner's recording session and start the rig before its port bind failed.
@@ -210,3 +228,183 @@ def test_every_log_line_has_a_timestamp(tmp_path):
     assert any("GET /api/auth" in line for line in lines), "no access log to check"
     assert any("flyball.runner" in line for line in lines), "no runner log to check"
     assert [line for line in lines if not stamp.match(line)] == []
+
+
+# region Fronted: --front-dir, over a real unix socket
+
+KEY_HEX = "0a1b2c3d" * 8
+AUD = "run-5e5e5e5e"
+
+
+def _front_dir(key_hex: str | None = KEY_HEX) -> Path:
+    """A front-dir as a front writes it, short enough for a socket path."""
+    import tempfile
+
+    folder = Path(tempfile.mkdtemp(prefix="fb-"))  # 0700
+    files = {"key": key_hex, "aud": AUD, "endpoint": f"unix:{folder}/sock"}
+    for name, text in files.items():
+        if text is not None:
+            (folder / name).write_text(text + "\n")
+            os.chmod(folder / name, 0o600)
+    return folder
+
+
+def _principal(key_hex: str = KEY_HEX, scp: tuple[str, ...] = ("operate", "read")) -> dict:
+    from flyball.interfaces.server.principal import Claims, mint
+
+    now = int(time.time())
+    claims = Claims("local:admin", "s-1", frozenset(scp), "human", AUD, "", "http", now, now + 60)
+    return {"X-Flyball-Principal": mint(bytes.fromhex(key_hex), claims)}
+
+
+def _uds(folder: Path):
+    import httpx
+
+    return httpx.Client(
+        transport=httpx.HTTPTransport(uds=str(folder / "sock")), base_url="http://localhost"
+    )
+
+
+def _wait_fronted(proc: subprocess.Popen, folder: Path, key_hex: str = KEY_HEX) -> dict:
+    import httpx
+
+    end = time.monotonic() + 30
+    while time.monotonic() < end:
+        if proc.poll() is not None:
+            raise AssertionError(f"the runner exited {proc.returncode} before serving")
+        try:
+            with _uds(folder) as c:
+                answer = c.get("/api/auth/front", headers=_principal(key_hex))
+            if answer.status_code == 200:
+                return answer.json()
+        except httpx.TransportError:
+            pass
+        time.sleep(0.1)
+    raise AssertionError("the runner never answered on its socket")
+
+
+def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path):
+    folder = _front_dir(key_hex=None)
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
+    with runner(tmp_path, *argv) as proc:
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 4, err[-2000:]
+    assert "--front-dir" in err and "key" in err and "Traceback" not in err
+    assert not (tmp_path / "s.sqlite.lock").exists(), "exited before taking the rig's lock"
+    assert not store.exists(), "nor touched the store"
+
+
+def test_a_fronted_runner_takes_only_the_principal(tmp_path):
+    import fcntl
+
+    folder = _front_dir()
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
+    env = {"FLYBALL_TOKEN": "s3cret", "FLYBALL_ANONYMOUS": "read"}
+    with runner(tmp_path, *argv, env=env) as proc:
+        hello = _wait_fronted(proc, folder)
+        assert hello["protocol"] == 1 and hello["aud"] == AUD and hello["pid"] == proc.pid
+        with _uds(folder) as c:
+            unsigned = c.get("/api/auth/front")
+            assert unsigned.status_code == 401
+            assert unsigned.headers["x-flyball-principal-error"] == "format"
+            forged = c.get("/api/health", headers=_principal("ff" * 32))
+            assert forged.status_code == 401
+            assert forged.headers["x-flyball-principal-error"] == "mac"
+            assert (
+                c.get("/api/health", headers={"Authorization": "Bearer s3cret"}).status_code == 401
+            )
+            assert c.get("/api/health").status_code == 401, "anonymous read ignored"
+            assert c.get("/api/health", headers=_principal()).status_code == 200
+        with open(folder / "runner.lock") as held, pytest.raises(BlockingIOError):
+            fcntl.flock(held, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        assert (folder / "runner.lock").read_text() == f"pid {proc.pid} rig oven\n"
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 0, err[-2000:]
+    warnings = [line for line in err.splitlines() if "WARNING" in line]
+    assert len(warnings) == 1 and "--front-dir" in warnings[0], warnings
+    assert "link?n=" not in err
+
+
+def test_a_restart_keeps_the_runner_fronted(tmp_path):
+    """`os.execv` re-runs the same argv: still on the socket, still the principal only."""
+    folder = _front_dir()
+    store = tmp_path / "s.sqlite"
+    argv = [
+        str(EXAMPLES / "oven.yaml"),
+        "--store",
+        str(store),
+        "--front-dir",
+        str(folder),
+        "--allow-shutdown",
+    ]
+    with runner(tmp_path, *argv) as proc:
+        _wait_fronted(proc, folder)
+        fresh = "5a" * 32  # the front may write a new key; the restart reads it
+        (folder / "key").write_text(fresh + "\n")
+        with _uds(folder) as c:
+            asked = c.post("/api/runner/restart", headers=_principal())
+            assert asked.status_code == 202, asked.text
+        time.sleep(0.5)
+        hello = _wait_fronted(proc, folder, fresh)
+        assert hello["pid"] == proc.pid, "execv: the same process"
+        with _uds(folder) as c:
+            assert c.get("/api/health").status_code == 401
+            assert c.get("/api/health", headers=_principal()).status_code == 401, "the old key"
+            assert c.get("/api/health", headers=_principal(fresh)).status_code == 200
+        with pytest.raises(OSError):
+            _get(f"http://127.0.0.1:{PORT}/api/auth", timeout=0.5)  # no TCP port
+
+
+# endregion
+
+# region Bare: removed flags, the token link
+
+
+@pytest.mark.parametrize("how", ["flag", "env"])
+def test_a_removed_password_warns_and_serves_loopback(tmp_path, how):
+    """D-028: an old unit file with --password still starts; the password opens nothing."""
+    argv = ["--host", "0.0.0.0", "--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+    env = {"FLYBALL_PASSWORD": "hunter2"} if how == "env" else {}
+    if how == "flag":
+        argv += ["--password", "hunter2"]
+    with runner(tmp_path, *argv, env=env) as proc:
+        _wait_up(proc, PORT)
+        exposure = _get(f"http://127.0.0.1:{PORT}/api/health")["exposure"]
+        assert exposure["open"] and exposure["host"] == "127.0.0.1" and exposure["notes"]
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate(timeout=15)
+    assert proc.returncode == 0
+    warnings = [line for line in err.splitlines() if "WARNING" in line]
+    assert len(warnings) == 1 and "removed and ignored" in warnings[0], warnings
+
+
+def test_the_printed_link_signs_in_once(tmp_path):
+    import http.client
+
+    argv = ["--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+    with runner(tmp_path, *argv, env={"FLYBALL_TOKEN": "s3cret"}) as proc:
+        assert proc.stderr is not None
+        link = ""
+        end = time.monotonic() + 30
+        while not link and time.monotonic() < end:
+            line = proc.stderr.readline()
+            if "link?n=" in line:
+                link = line.split("once, within 10 minutes: ")[1].strip()
+        assert link.startswith(f"http://127.0.0.1:{PORT}/api/auth/link?n="), link
+        _wait_up(proc, PORT)
+        path = link.removeprefix(f"http://127.0.0.1:{PORT}")
+        for expected in (302, 401):
+            conn = http.client.HTTPConnection("127.0.0.1", PORT, timeout=2)
+            conn.request("GET", path)
+            answer = conn.getresponse()
+            assert answer.status == expected
+            if expected == 302:
+                assert answer.getheader("Location") == "/"
+                assert answer.getheader("Set-Cookie", "").startswith(f"flyball-bare-{PORT}=")
+            conn.close()
+
+
+# endregion

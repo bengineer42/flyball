@@ -100,7 +100,7 @@ def reset_plant(name: str, body: ResetIn, simulation: SimulationDep) -> dict[str
 async def read_config(simulation: SimulationDep) -> dict[str, Any]:
     """The rig file as it now stands, with every change applied.
 
-    Never `runner.auth`'s credentials: this route needs only `read`.
+    Of `runner:`, only what a reader may see: this route needs only `read`.
     """
     return without_credentials(simulation.config_document())
 

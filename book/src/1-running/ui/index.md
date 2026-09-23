@@ -94,6 +94,14 @@ Every chip's tooltip lists the names behind the count (conditions, devices)
 and links to the page that explains it (Events, Sessions, Programs, Devices,
 Simulation).
 
+Beside the chips, for anyone allowed to operate the rig, is **Software
+stop**: after a confirmation it interrupts any running program and puts
+every controller in manual, for everyone ([the software
+stop](../runner/access.md#stopping-the-rig)). In this release it writes
+nothing to any device, and says so: outputs are left as they were. A
+caller without `operate` does not see the button at all. A stop that
+fails says so; it never reports a stop that did not happen.
+
 ## Density and theme
 
 One toggle in the app bar, **theme** (`flyball.theme` in `localStorage`):
@@ -108,33 +116,47 @@ height); there is no compact setting and no toggle.
 
 ## Signing in
 
-A runner with a password (or a token -- [the
-door](../runner/access.md#the-door-a-password-a-token-or-open)) shows a
-**Sign in** page instead of the app until the browser has a session: one
-field, a wrong password said inline, ten wrong ones in a minute refused for
-the rest of it. A successful login is a cookie the runner sets and the
-browser carries by itself on every request, socket and download; the app
-keeps nothing, so there is no token to find in its storage or in a copied
-link. The session lasts as long as the runner says (`auth.session`, twelve
-hours by default); when it ends, the next refusal brings the page back.
+What the app asks for depends on the door in front of the rig
+([Access](../runner/access.md)):
+
+- **the `local` shape** (`flyball run` with nothing configured, or a bare
+  runner with no token): nothing; there is no sign-in and no chip;
+- **the `password` shape**: a **Sign in** page with one field, the admin
+  password;
+- **the `proxy` shape**: the proxy's own login, before the app loads. A
+  request that reaches the rig without the proxy's sign-in gets a **Sign
+  in** page with no field, saying to open the rig through the proxy;
+- **a bare runner with a token**: the link the runner printed at start
+  signs the browser in once; the **Sign in** page also takes the token
+  pasted in.
+
+A wrong password or token is said inline; ten wrong ones in a minute are
+refused for the rest of it. A successful sign-in is a cookie the front (or
+the bare runner) sets and the browser carries by itself on every request,
+socket and download; the app keeps nothing, so there is no secret to find
+in its storage or in a copied link, and no token ever goes in the page's
+URL. A session ends after 12 idle hours by default, at **Sign out**, or
+when the front restarts; the next refusal then brings the page back.
 
 Signed in, a **signed in** chip sits in the app bar beside the other status
-chips; its menu has **Sign out**. On a runner anyone may look at
-(`auth.anonymous: read`) the app opens without a login and the chip says
-**read only**; a control that needs a login is refused with a nudge to
-sign in, and the chip (or the nudge) leads to the page, which has **Keep
-looking** to come back without one.
+chips; its menu has **Sign out**. On a rig anyone may look at
+(`anonymous: read`) the app opens without a sign-in and the chip says
+**read only**; a control that needs more is refused with a nudge to sign
+in, and the chip (or the nudge) leads to the page, which has **Keep
+looking** to come back without one. A red **version mismatch** chip means
+the dashboard and the rig disagree on the shape of `GET /api/auth`: reload,
+or update whichever is older.
 
-`?token=…` on the page's own URL -- how a runner's token used to be handed
-to a browser -- still works: it is signed in with once and dropped from the
-visible address, so it is not left in history.
+**starting…** in place of the page means the front is up and the rig's
+runner is not answering yet -- `flyball run` starts the front first. The
+app retries on its own, backing off to every 8 s, and opens when the
+runner does.
 
-A runner with no password and no token that is open to the network
-(started with `--insecure-open`) puts a red banner above every page saying
-anyone who reaches it may operate the rig; one asked for the network but
-served on this machine only, for want of a password, gets an amber one
-saying so. Neither has a close button: it goes when the runner is given a
-password or a token, or moved back to loopback.
+A front that fell back to loopback because of a setting it could not use
+puts an amber banner above every page, with its reason; one serving the
+`local` shape on the network by `--insecure-open` puts a red one saying
+anyone who reaches it may operate the rig. Neither has a close button: it
+goes when the setting is fixed.
 
 ## Design rationale
 
