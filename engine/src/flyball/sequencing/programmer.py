@@ -10,9 +10,12 @@ and detach bracket the wait in `Programmer._wait_out`, and teardown is one
 `finally` reached by completion, failure and cancellation alike.
 
 Locking:
-    The programmer's lock is always the inner lock. `_apply` takes the rig's
-    lock, then this one; nothing takes them the other way round, and no thread
-    is joined under it.
+    On the worker path the two locks are never nested: `_apply` takes the
+    programmer's lock, releases it, emits the step event with no lock held,
+    takes the rig's lock to run the command, then takes the programmer's lock
+    again. On `start`, `_apply_atomics` holds the programmer's lock around its
+    `_apply` calls, so there the rig's lock is taken inside it (programmer, then
+    rig). No thread is joined under either lock.
 """
 
 from __future__ import annotations
