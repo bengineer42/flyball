@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"flyballd/internal/client"
+	"flyballd/internal/frontwire"
 )
 
 func runStopCommand(server, token string, args []string) error {
@@ -75,9 +76,23 @@ func runStopCommand(server, token string, args []string) error {
 			return err
 		}
 		return signalStop(p)
-	default:
-		return fmt.Errorf("the front could not be reached; pass --front-dir DIR (its runner.lock names the pid) or --pid N to stop the runner directly")
 	}
+
+	// NAME may be the rig file `flyball run` was started with, addressed
+	// the same way here -- its front-dir is derivable (frontwire.
+	// RunFrontDir, the same rule `flyball run` itself uses) whenever it
+	// isn't a random temp dir, so a lock file there names the pid without
+	// requiring --front-dir to be spelled out by hand.
+	if name != "" {
+		if fi, err := os.Stat(name); err == nil && !fi.IsDir() {
+			if dir, ok := frontwire.RunFrontDir(name); ok {
+				if p, err := pidFromLockFile(dir + "/runner.lock"); err == nil {
+					return signalStop(p)
+				}
+			}
+		}
+	}
+	return fmt.Errorf("the front could not be reached; pass --front-dir DIR (its runner.lock names the pid) or --pid N to stop the runner directly")
 }
 
 // postStop sends the stop request. refused is true when the front
