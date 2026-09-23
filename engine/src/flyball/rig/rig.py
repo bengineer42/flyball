@@ -145,7 +145,7 @@ class Rig:
         self._claims = {}
         self._writers = {}
         self.lock = RLock()
-        self.triggers = Triggers(self.clock)
+        self.triggers = Triggers(lambda: self.clock)
         self.events = Topic()
         self.recent = deque(maxlen=500)
         self.tunings = Tunings()

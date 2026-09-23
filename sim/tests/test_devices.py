@@ -163,7 +163,9 @@ class TestAnyMultiPlant:
         assert drive.inputs == {"humidity": 0.25}
         assert drive.disturb("humidity", 10.0) == {"humidity": pytest.approx(0.35)}
         (state,) = rig.demand(drive.root, {"humidity": 150.0}).values()
-        assert state.at_limit == "high" and chamber.inputs["wet_fraction"] == 1.0
+        # the disturb kick (fraction 0.1) survives this commit, on top of the clamped demand
+        assert state.at_limit == "high"
+        assert chamber.inputs["wet_fraction"] == pytest.approx(1.1)
         assert drive.ports == {"humidity": "wet_fraction"}
         assert drive.config.ports["humidity"] == DrivePort(
             port="wet_fraction", quantity="humidity", unit="%", limits=(0.0, 100.0)
