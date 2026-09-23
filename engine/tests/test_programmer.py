@@ -282,7 +282,7 @@ def test_a_hold_can_time_out_like_a_wait(rig, note):
 
     Note, seen = note
     programmer = Programmer(rig)
-    programmer.start(Program([Hold(Duration(60), timeout=0.05), Note("after")]))
+    programmer.start(Program([Hold(Duration(60), timeout=Duration(0.05)), Note("after")]))
     programmer.join(2)
     assert seen == [] and programmer.running is False
     (event,) = [e for e in rig.recent if e.level == Level.WARNING]

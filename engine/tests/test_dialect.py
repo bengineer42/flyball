@@ -26,8 +26,8 @@ from flyball.sequencing.command import Command
 
 @pytest.fixture
 def commands(fresh):
-    """Four commands under unique tags, so tests never see each other's."""
-    tags = {k: fresh(k) for k in ("setpoint", "ramp", "flag", "twice")}
+    """Six commands under unique tags, so tests never see each other's."""
+    tags = {k: fresh(k) for k in ("setpoint", "ramp", "flag", "twice", "timer", "ask")}
 
     @dataclass(frozen=True)
     class Setpoint(Command, tag=tags["setpoint"], primary="at"):
@@ -58,7 +58,29 @@ def commands(fresh):
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
-    return tags, {"Setpoint": Setpoint, "Ramp": Ramp, "Flag": Flag, "Twice": Twice}
+    @dataclass(frozen=True)
+    class Timer(Command, tag=tags["timer"], primary="duration"):
+        duration: Duration
+        message: str | None = None
+        timeout: Duration | None = None
+
+        def run(self, rig: Any, operator: Any = None) -> Any: ...
+
+    @dataclass(frozen=True)
+    class Ask(Command, tag=tags["ask"], primary="message"):
+        message: str
+        timeout: Duration | None = None
+
+        def run(self, rig: Any, operator: Any = None) -> Any: ...
+
+    return tags, {
+        "Setpoint": Setpoint,
+        "Ramp": Ramp,
+        "Flag": Flag,
+        "Twice": Twice,
+        "Timer": Timer,
+        "Ask": Ask,
+    }
 
 
 @pytest.fixture
@@ -102,6 +124,33 @@ class TestNormalise:
         assert step["command"]["pace"] == {"per_minute": 2}
         step = normalise_step({tags["ramp"]: {"to": 60, "minutes": 1, "seconds": 30}}, dialect)
         assert step["command"]["pace"] == {"minutes": 1, "seconds": 30}
+
+    def test_timeout_is_never_folded(self, dialect, commands):
+        """Flat keys fold into the duration beside a timeout; the timeout stays nested."""
+        tags, classes = commands
+        fold = foldable(classes["Timer"])
+        assert fold is not None and fold[0] == "duration"
+        step = normalise_step(
+            {tags["timer"]: {"minutes": 5, "message": "soak", "timeout": {"minutes": 10}}},
+            dialect,
+        )
+        assert step["command"]["duration"] == {"minutes": 5}
+        assert step["command"]["timeout"] == {"minutes": 10}
+        program = commands_from_yaml(
+            f"steps: [{{{tags['timer']}: {{minutes: 5, timeout: 20}}}}]", dialect
+        )
+        timer = program[0]
+        assert timer.duration == Duration(300) and timer.timeout == Duration(20)
+
+    def test_a_timeout_only_command_refuses_flat_keys(self, dialect, commands):
+        tags, classes = commands
+        assert foldable(classes["Ask"]) is None
+        inside = r"write the timeout inside it: `timeout: \{minutes: 10\}`"
+        with pytest.raises(StepError, match=inside):
+            normalise_step({tags["ask"]: {"message": "load", "minutes": 10}}, dialect, 2)
+        nested = {"message": "load", "timeout": {"minutes": 10}}
+        step = normalise_step({tags["ask"]: nested}, dialect)
+        assert step["command"]["timeout"] == {"minutes": 10}
 
     @pytest.mark.parametrize(
         ("bad", "message"),

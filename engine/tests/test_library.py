@@ -14,7 +14,7 @@ from flyball.sequencing.programmer import Programmer
 YAML = """# a comment that must survive storage
 name: dry-then-hold
 steps:
-  - wait: {message: "quick", seconds: 0.01}
+  - wait: {message: "quick", timeout: {seconds: 0.01}}
 """
 
 
@@ -100,7 +100,7 @@ def test_download_converts_between_formats(client):
     assert "# a comment" not in toml.text  # comments live only in the stored text
 
     js = client.get("/api/programs/library/dry/download?format=json").json()
-    assert js["steps"] == [{"wait": {"message": "quick", "seconds": 0.01}}]
+    assert js["steps"] == [{"wait": {"message": "quick", "timeout": {"seconds": 0.01}}}]
 
 
 def test_check_and_run_and_delete(client):

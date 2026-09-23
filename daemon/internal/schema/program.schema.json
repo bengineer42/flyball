@@ -97,34 +97,6 @@
                         ],
                         "default": null,
                         "title": "Timeout"
-                      },
-                      "nanoseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "microseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "milliseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "seconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "minutes": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "hours": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "days": {
-                        "type": "number",
-                        "minimum": 0
                       }
                     },
                     "required": [
@@ -582,7 +554,49 @@
                       "timeout": {
                         "anyOf": [
                           {
-                            "type": "number"
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "minProperties": 1,
+                                "properties": {
+                                  "nanoseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "microseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "milliseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "seconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "minutes": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "hours": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "days": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              {
+                                "minimum": 0,
+                                "type": "number"
+                              }
+                            ],
+                            "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                            "title": "Duration"
                           },
                           {
                             "type": "null"
@@ -630,7 +644,7 @@
               "hold"
             ],
             "additionalProperties": false,
-            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout` (seconds; not a `Duration` -- `duration` is already the file's\none flat-foldable field, and a second `Duration` field would make that\nambiguous), like `wait`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
+            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout`, like `wait`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
           },
           {
             "type": "object",
@@ -751,34 +765,6 @@
                         ],
                         "default": null,
                         "title": "Message"
-                      },
-                      "nanoseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "microseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "milliseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "seconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "minutes": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "hours": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "days": {
-                        "type": "number",
-                        "minimum": 0
                       }
                     },
                     "title": "ArriveRequest",

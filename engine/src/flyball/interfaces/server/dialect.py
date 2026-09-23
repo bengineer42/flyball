@@ -77,26 +77,35 @@ def _time_keys(annotation: Any) -> dict[str, Any] | None:
     return keys or None
 
 
+TIMEOUT = "timeout"
+"""The field a step gives up after. Always written nested (`timeout: {minutes: 10}`), never
+folded flat: a flat `minutes:` beside it means the step's own time field, if it has one."""
+
 _TIME_FIELDS: dict[type[Command], list[tuple[str, dict[str, Any]]]] = {}
 
 
 def _time_fields(command: type[Command]) -> list[tuple[str, dict[str, Any]]]:
-    """Every duration or rate field of `command`, with the flat keys it may be spelt with."""
+    """Every duration or rate field of `command` but `timeout`, with its flat keys."""
     if command not in _TIME_FIELDS:
         _TIME_FIELDS[command] = [
             (name, keys)
             for name, annotation in get_type_hints(command).items()
-            if name != "tag" and (keys := _time_keys(annotation)) is not None
+            if name not in {"tag", TIMEOUT} and (keys := _time_keys(annotation)) is not None
         ]
     return _TIME_FIELDS[command]
+
+
+def _has_timeout(command: type[Command]) -> bool:
+    hints = get_type_hints(command)
+    return TIMEOUT in hints and _time_keys(hints[TIMEOUT]) is not None
 
 
 def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
     """The one field of `command` that may be written flat, with its keys.
 
     `ramp: {to: 60, per_minute: 2}` stands for `ramp: {to: 60, pace: {per_minute: 2}}`.
-    Only when exactly one field is a duration or rate; otherwise flat keys
-    would be ambiguous.
+    Only when exactly one field is a duration or rate, not counting `timeout`
+    (never folded); otherwise flat keys would be ambiguous.
     """
     fields = _time_fields(command)
     return fields[0] if len(fields) == 1 else None
@@ -107,11 +116,19 @@ def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> di
 
     Raises:
         StepError: A flat time key where `command` has more than one time
-            field, so it could belong to any of them.
+            field, so it could belong to any of them; or where its only time
+            field is `timeout`, which is always written nested.
     """
     fold = foldable(command)
     if fold is None:
         fields = _time_fields(command)
+        if not fields and _has_timeout(command):
+            flat = sorted(key for key in arguments if key in DURATION_KEYS)
+            if flat:
+                raise StepError(
+                    f"{where}: `{command.tag}`: write the timeout inside it: "
+                    "`timeout: {minutes: 10}`"
+                )
         if len(fields) > 1:
             names = {name for name, _ in fields}
             flat = sorted(
