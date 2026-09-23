@@ -191,8 +191,8 @@ anything but `local`, or the block cannot be read, a fallback answers `503` on `
 | `listen` | `host:port` or `unix:/path` | `127.0.0.1:8000` (`flyballd`: `127.0.0.1:9000`) | where the front listens; `flyball run --listen` wins. A unix socket file nobody answers on is replaced; one another process answers on is left, and the front does not serve (the rig runs on). The socket is made `0660`; a directory anyone may write to without the sticky bit, or the front's own directory with any permission for others, is refused the same way ([who may connect](../1-running/runner/access.md#behind-an-identity-proxy)). Unparseable: falls back |
 | `auth` | `local` / `password` / `proxy` / `sso` | `local` | the [shape](../1-running/runner/access.md#shapes-who-gets-in). `local` asked for a non-loopback `listen` falls back unless the run says `--insecure-open`; `sso` falls back (not in this release) |
 | `password` | string | none | `auth: password`'s admin password, as the `$scrypt$` line `flyball password` prints; missing or plain text falls back |
-| `anonymous` | `none` / `read` | `none` | what a caller with no credential may do under `password` and `proxy`; the `local` shape ignores it. Another value warns |
-| `url` | `http(s)://host[:port]` | none | the external address: its host joins the `Host` allow-list (with the loopback names), its origin the `Origin` allow-list; `https` makes the cookie `Secure` and `__Host-flyball`, and the scheme the principal reports. A path, query or user part falls back |
+| `anonymous` | `none` / `read` | `none` | what a caller with no credential may do under `password` and `proxy`, served only by an IP address, a loopback name, the machine's own name (`hostname`, `<hostname>.local`) or `url`'s host (DNS rebinding; signing in answers any name); the `local` shape ignores it. Another value warns |
+| `url` | `http(s)://host[:port]` | none | the external address: its host joins the `Host` allow-list (with the loopback names; under `--insecure-open` also IP addresses and the machine's own name), its origin the `Origin` allow-list; `https` makes the cookie `Secure` and `__Host-flyball`, and the scheme the principal reports when the peer is this machine or in `trusted_proxies` (a peer elsewhere without TLS is `http`). A path, query or user part falls back |
 | `tls` | `{cert, key}` | none | PEM files the front serves HTTPS from, TLS 1.2 at least; re-read every 10 s and on `SIGHUP`, the last good pair kept. Unreadable at start: falls back |
 | `proxy` | table | none | `auth: proxy`'s identity layer: [below](#proxy-presets). Missing, or one that cannot be vouched for: falls back |
 | `session` | duration | `12h` | a session's idle lifetime (`12h`, `2d`); it ends after 7 days whatever. Unparseable warns |
@@ -216,7 +216,7 @@ Every named token expires. `tokens:` may only tighten the built-ins:
 | `max_lifetime` | `365d` | the most any token may have; above 365 days is refused |
 
 A token of `kind: agent`, one created over plain HTTP from another
-machine, or one asking for a scope above `read` from the admin session
+machine (no TLS on the hop to the front, whatever `url` says), or one asking for a scope above `read` from the admin session
 (`flyball login --scope`, or anything else that holds the password and
 calls `POST /api/auth/tokens` directly) lives at most 30 days, or
 `max_lifetime` if that is shorter. A lifetime asked for above the cap gets
@@ -263,7 +263,7 @@ proxy: {preset: custom, jwt: {header: X-Lab-Jwt, jwks_url: https://idp.lab.org/k
 | --- | --- |
 | `preset` | one of the above; required |
 | `from` | unsigned presets: whose headers are believed -- `unix` (the default: the front's own socket, so `listen` must be `unix:/path`; the local user behind each new identity is recorded as `proxy.peer`), or a list of the proxy's IPs or CIDRs (then `listen` must be TCP). `/0` is refused; a range wider than one host (`/32`, `/128`) without `secret_file` warns at start, since every host in it can assert any identity. A loopback address, or one of this host's own, stands for every local process, so it also needs `secret_file` |
-| `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused |
+| `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused. Works with `from: unix` too, against other processes of the proxy's user ([Access](../1-running/runner/access.md#behind-an-identity-proxy)) |
 | `issuer`, `audience` | signed presets: the exact `iss`, and a value `aud` must contain |
 | `team` | `cloudflare`: the Access team name (one DNS label) |
 | `grants` | role → entries. Roles: `all` (every verb) and `viewer` (read); names pending D-034, and an unknown role grants nothing (a warning says so). An entry is a subject, or `group:<id>`. Every grant is on every rig; an identity matching none gets `read` |

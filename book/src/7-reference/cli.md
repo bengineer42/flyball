@@ -190,7 +190,7 @@ flyball: serving rig oven on http://127.0.0.1:8000/ (local)
 | --- | --- | --- |
 | `--listen ADDR` | `runner.front.listen` | where the front listens: `host:port` or `unix:/path`; default `127.0.0.1:8000`. `--serve-ui ADDR` is the same flag's old name |
 | `--uv` | `runner.front.uv` | run `flyball-runner` via `uv run --project <the rig file's directory>`, for an application that keeps it in its own venv (`examples/humidity`, `examples/furnace`). a SIGINT or SIGTERM to `flyball run` goes on to the runner once |
-| `--insecure-open` | `FLYBALL_INSECURE_OPEN=1` | serve the `local` shape (no sign-in) on a non-loopback `listen`, for this run only; there is no file key |
+| `--insecure-open` | `FLYBALL_INSECURE_OPEN=1` | serve the `local` shape (no sign-in) on a non-loopback `listen`, for this run only; there is no file key. It then answers only an IP address, a loopback name, the machine's own name or `url`'s host, on every route ([DNS rebinding](../1-running/runner/access.md#when-a-setting-is-wrong)) |
 
 Every other argument goes to `flyball-runner`. A flag beats the file.
 `runner.run` (`serve_ui`, `uv`) is still read for one release with a
@@ -281,7 +281,8 @@ flyballd [-config flyballd.yaml] [-insecure-open]
 ```
 
 `-insecure-open` (or `FLYBALL_INSECURE_OPEN=1`) serves the `local` shape on
-a non-loopback `listen`, for that run only. `flyballd.yaml`'s front keys --
+a non-loopback `listen`, for that run only, by an IP address, a loopback
+name, the machine's own name or `url`'s host. `flyballd.yaml`'s front keys --
 `listen`, `auth`, `password`, `anonymous`, `url`, `tls`, `proxy`, `session`,
 `trusted_proxies`, `tokens` -- sit at its top level beside the daemon's own,
 and mean what they do in [`runner.front`](rig-file.md#the-front); the

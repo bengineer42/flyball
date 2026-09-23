@@ -197,6 +197,10 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 		f.refuse(w, r, err)
 		return
 	}
+	if msg := f.HostRefusal(c, r); msg != "" {
+		detail(w, http.StatusForbidden, msg)
+		return
+	}
 	if c.Scheme != SchemeToken && acts(r) && !f.CheckOrigin(r) {
 		detail(w, http.StatusForbidden, "Origin not allowed")
 		return

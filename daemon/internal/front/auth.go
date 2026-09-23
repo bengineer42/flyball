@@ -236,9 +236,14 @@ func (f *Front) issuerVerbs(issuer, rig string) []string {
 }
 
 // CheckHost is the Host allow-list (merge requirement 8): the local shape
-// answers loopback names only (DNS rebinding), and url: adds its own host.
+// answers loopback names only (DNS rebinding), and url: adds its own host;
+// beyond loopback by --insecure-open, also an IP address and this
+// machine's own names (Plan.HostKnown, D-043).
 func (f *Front) CheckHost(r *http.Request) bool {
 	if f.plan.HostAllow == nil {
+		return true
+	}
+	if f.plan.HostKnown && exposure.KnownHost(r.Host, f.names) {
 		return true
 	}
 	defPort := "80"
@@ -262,6 +267,37 @@ func (f *Front) CheckHost(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// knownHost is D-043's rule for a caller with no credential: Host is an IP
+// address, a loopback name or this machine's own -- or the door already
+// held it to HostAllow (url:'s host and loopback).
+func (f *Front) knownHost(r *http.Request) bool {
+	return f.plan.HostAllow != nil || exposure.KnownHost(r.Host, f.names)
+}
+
+// HostRefusal is D-043's 403 for c on r, "" when c is served: a caller
+// with no credential (anonymous, with verbs to lose) is served only by a
+// name no page elsewhere can own (DNS rebinding); a credential passes any
+// Host. serveProxy uses it, and flyballd's GET /api/rigs.
+func (f *Front) HostRefusal(c Caller, r *http.Request) string {
+	if c.Scheme != SchemeAnonymous || len(c.Scopes) == 0 || f.knownHost(r) {
+		return ""
+	}
+	return "Without a credential this front answers only " + f.known() +
+		"; to reach it by another name, sign in, send a token (Authorization: Bearer ...), or set url: to that name"
+}
+
+// known says which names knownHost takes, for a 403.
+func (f *Front) known() string {
+	s := "an IP address, localhost or this machine's name"
+	if len(f.names) > 0 {
+		s += " (" + strings.Join(f.names, ", ") + ")"
+	}
+	if f.plan.URL != nil {
+		s += ", or url:'s host (" + urlAuthority(f.plan.URL) + ")"
+	}
+	return s
 }
 
 // CheckOrigin is the Origin rule for a request that acts (merge
@@ -354,13 +390,29 @@ func (f *Front) trusted(ip netip.Addr) bool {
 	return false
 }
 
-// scheme is what the client used: https under TLS, or behind an upstream
-// that terminates it (an https url:).
+// scheme is what the hop to this front used (D-047 2): https under TLS,
+// or when an https url: names a TLS proxy and the peer is one -- this
+// machine (loopback, a unix socket) or a trusted_proxies address. A peer
+// elsewhere reaching the front directly over plain HTTP is http, whatever
+// url: says.
 func (f *Front) scheme(r *http.Request) string {
-	if r.TLS != nil || (f.plan.URL != nil && f.plan.URL.Scheme == "https") {
+	if r.TLS != nil {
+		return "https"
+	}
+	if f.plan.URL != nil && f.plan.URL.Scheme == "https" && (isLoopbackPeer(r) || f.trustedPeer(r)) {
 		return "https"
 	}
 	return "http"
+}
+
+// trustedPeer: the TCP peer itself is in trusted_proxies.
+func (f *Front) trustedPeer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && f.trusted(ip.Unmap())
 }
 
 // cookieName is `__Host-flyball` when the cookie is Secure, else
@@ -729,7 +781,10 @@ func (f *Front) createToken(w http.ResponseWriter, r *http.Request, c Caller) {
 		}
 		life = time.Duration(*body.ExpiresIn * float64(time.Second))
 	}
-	cleartext := f.scheme(r) == "http" && !isLoopbackPeer(r)
+	// Cleartext is the hop itself: no TLS on this connection from another
+	// machine, whatever url: says (D-047 2) -- a TLS proxy on another host
+	// forwards over the LAN in the clear.
+	cleartext := r.TLS == nil && !isLoopbackPeer(r)
 	// D-036 safeguard 3: an operate-or-above token minted from the admin
 	// session (what `flyball login` authenticates as, but also anything
 	// else that holds the password) lives at most 30 d, whatever the

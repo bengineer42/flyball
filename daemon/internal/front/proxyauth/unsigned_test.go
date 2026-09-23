@@ -244,8 +244,10 @@ func TestRefusedPresetAnswers503WhereTheProxyPoints(t *testing.T) {
 	}
 	code, body := send(requested, "POST", h("Origin", "http://"+requested, "Content-Type", "application/json",
 		"Remote-User", "mallory", SecretHeader, "s3cret-s3cret-s3cret", "X-Forwarded-For", "203.0.113.9"))
-	if code != 503 || !strings.Contains(body, "misconfigured") || !strings.Contains(body, "readable by every user") {
-		t.Fatalf("the address the proxy points at answered %d %q, want 503", code, body)
+	// The body is generic; the reason is in the banner, not here (D-028, amended).
+	if code != 503 || !strings.Contains(body, "misconfigured") || strings.Contains(body, "readable by every user") ||
+		!strings.Contains(plan.Banner(), "readable by every user") {
+		t.Fatalf("the address the proxy points at answered %d %q, want a generic 503", code, body)
 	}
 	if strings.Contains(body, "s3cret") {
 		t.Fatalf("the refusal leaks the secret: %q", body)
@@ -276,6 +278,22 @@ func TestLoopbackWithSecret(t *testing.T) {
 	// A wrong secret is a presented credential that fails: refused.
 	rg.mustStatus(h("Remote-User", "ben", SecretHeader, "s3cret-s3cret-s3creT"), 401)
 	rg.mustStatus(map[string][]string{"Remote-User": {"ben"}, SecretHeader: {"s3cret-s3cret-s3cret", "x"}}, 401)
+}
+
+// D-047 4: secret_file works with from: unix too -- the documented guard
+// against other processes of the proxy's user, which can connect to the
+// socket: a connection without the secret is not believed.
+func TestUnixWithSecret(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "proxy-secret")
+	if err := os.WriteFile(secret, []byte("s3cret-s3cret-s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rg := newRig(t, front.Config{Listen: unixListen(t), Proxy: &front.ProxyConfig{
+		Preset: "authelia", SecretFile: secret,
+	}}, Options{})
+	rg.mustSub(h("Remote-User", "ben", SecretHeader, "s3cret-s3cret-s3cret"), "proxy:authelia#ben")
+	rg.mustAnonymous(h("Remote-User", "ben"))
+	rg.mustStatus(h("Remote-User", "ben", SecretHeader, "s3cret-s3cret-s3creT"), 401)
 }
 
 // Unit: a vouched non-loopback TCP peer needs no secret; the peer is the

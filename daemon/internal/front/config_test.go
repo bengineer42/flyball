@@ -103,8 +103,18 @@ func TestResolveProxyFactory(t *testing.T) {
 
 func TestResolveLocalInsecureOpen(t *testing.T) {
 	p := Resolve(Config{Listen: "0.0.0.0:9000"}, true)
-	if p.Shape != "local" || p.Listen != "0.0.0.0:9000" || p.Fallback != "" || p.HostAllow != nil {
+	// Not any Host: loopback names, an IP address and the machine's own
+	// names (HostKnown), and url:'s host when set (D-043).
+	if p.Shape != "local" || p.Listen != "0.0.0.0:9000" || p.Fallback != "" || !p.HostKnown ||
+		!slices.Equal(p.HostAllow, []string{"localhost", "127.0.0.1", "[::1]"}) {
 		t.Fatalf("plan: %+v", p)
+	}
+	if u := Resolve(Config{Listen: "0.0.0.0:9000", URL: "http://pi.lab:9000"}, true); !u.HostKnown ||
+		!slices.Equal(u.HostAllow, []string{"pi.lab:9000", "localhost", "127.0.0.1", "[::1]"}) {
+		t.Fatalf("url: plan: %+v", u)
+	}
+	if l := Resolve(Config{}, false); l.HostKnown {
+		t.Fatalf("the loopback local shape takes loopback names only: %+v", l)
 	}
 	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "OPEN") {
 		t.Fatalf("warnings: %v", p.Warnings)

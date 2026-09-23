@@ -117,14 +117,18 @@ func scryptLine(password string) string {
 	return fmt.Sprintf("$scrypt$n=16,r=1,p=1$%s$%s", enc(salt), enc(sum))
 }
 
-// newDaemon serves flyballd's front in shape (local or password).
-func newDaemon(t *testing.T, shape string) *daemon {
+// newDaemon serves flyballd's front in shape (local or password); tweak
+// adjusts the front's config.
+func newDaemon(t *testing.T, shape string, tweak ...func(*front.Config)) *daemon {
 	t.Helper()
 	be := &fakeBackend{t: t, runners: map[string]*fronttest.Runner{}, status: map[string]backend.Status{}}
 	reg := registry.New(be)
 	cfg := front.Config{Listen: "127.0.0.1:0", Auth: shape}
 	if shape == front.ShapePassword {
 		cfg.Password = scryptLine(testPassword)
+	}
+	for _, f := range tweak {
+		f(&cfg)
 	}
 	plan := front.Resolve(cfg, false)
 	if plan.Fallback != "" {
@@ -171,12 +175,17 @@ func (d *daemon) login() *http.Cookie {
 type cred struct {
 	bearer string
 	cookie *http.Cookie
+	host   string // the request's Host; "": the server's address
 }
 
 func (d *daemon) do(method, path string, c cred, body string) (int, string) {
 	d.t.Helper()
 	req, _ := http.NewRequest(method, d.url+path, strings.NewReader(body))
 	req.Header.Set("Origin", d.url)
+	if c.host != "" {
+		req.Host = c.host
+		req.Header.Set("Origin", "http://"+c.host)
+	}
 	if c.bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearer)
 	}
@@ -460,5 +469,31 @@ func TestRigsListsTheRigsTheCallerCanSee(t *testing.T) {
 	local.start("oven", "/oven")
 	if code, body := local.do("GET", "/api/rigs", cred{}, ""); code != 200 || names(body) != "oven@/oven=running" {
 		t.Errorf("the local shape's console: %d %s", code, body)
+	}
+}
+
+// D-043: at flyballd's root, GET /api/rigs answers an anonymous reader only
+// by a name no page elsewhere can own -- a rebound page (Host and Origin
+// both its own) must not list the rigs; a session or a token passes any
+// Host.
+func TestRigsRefusesAReboundAnonymousReader(t *testing.T) {
+	d := newDaemon(t, front.ShapePassword, func(c *front.Config) { c.Anonymous = "read" })
+	d.start("oven", "/oven")
+	evil := "evil.example:8000"
+	code, body := d.do("GET", "/api/rigs", cred{host: evil}, "")
+	if code != 403 || !strings.Contains(body, "Without a credential") || strings.Contains(body, "oven") {
+		t.Fatalf("rebound anonymous GET /api/rigs: %d %s, want 403", code, body)
+	}
+	if code, body := d.do("GET", "/api/rigs", cred{}, ""); code != 200 || !strings.Contains(body, "oven") {
+		t.Errorf("anonymous by IP: %d %s", code, body)
+	}
+	if code, body := d.do("GET", "/api/rigs", cred{host: "localhost:8000"}, ""); code != 200 || !strings.Contains(body, "oven") {
+		t.Errorf("anonymous by localhost: %d %s", code, body)
+	}
+	if code, body := d.do("GET", "/api/rigs", cred{host: evil, bearer: d.token("r", "read")}, ""); code != 200 || !strings.Contains(body, "oven") {
+		t.Errorf("token by a foreign name: %d %s", code, body)
+	}
+	if code, body := d.do("GET", "/api/rigs", cred{host: evil, cookie: d.login()}, ""); code != 200 || !strings.Contains(body, "oven") {
+		t.Errorf("session by a foreign name: %d %s", code, body)
 	}
 }

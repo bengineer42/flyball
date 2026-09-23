@@ -1,7 +1,10 @@
 package exposure
 
 import (
+	"net/netip"
 	"net/url"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -38,6 +41,41 @@ func authority(netloc, scheme string) (name string, port int, ok bool) {
 func LoopbackName(host string) bool {
 	name, _, ok := authority(host, "http")
 	return ok && loopbackNames[name]
+}
+
+// OwnNames is this machine's names (auth.py's own_names): the hostname,
+// its first label, and each with `.local` (mDNS), lower case. None when
+// the hostname cannot be read.
+func OwnNames() []string {
+	name, err := os.Hostname()
+	if err != nil {
+		return nil
+	}
+	name = strings.ToLower(name)
+	first, _, _ := strings.Cut(name, ".")
+	var names []string
+	for _, n := range []string{name, first} {
+		if n != "" && !slices.Contains(names, n) {
+			names = append(names, n, n+".local")
+		}
+	}
+	return names
+}
+
+// KnownHost reports whether a Host header is a name no page elsewhere can
+// own, any port (auth.py's known_host): an IP address, a loopback name, or
+// one of names (OwnNames). Anything else is a DNS name, which whoever owns
+// it may point at this machine (DNS rebinding, D-043).
+func KnownHost(host string, names []string) bool {
+	name, _, ok := authority(host, "http")
+	if !ok {
+		return false
+	}
+	if loopbackNames[name] || slices.Contains(names, name) {
+		return true
+	}
+	_, err := netip.ParseAddr(name)
+	return err == nil
 }
 
 // SameSite reports whether origin is the site a request to host over

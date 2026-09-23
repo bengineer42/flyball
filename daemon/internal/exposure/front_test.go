@@ -1,6 +1,7 @@
 package exposure
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -38,6 +39,27 @@ func TestSameSite(t *testing.T) {
 	} {
 		if got := SameSite(c.origin, c.host, c.scheme); got != c.want {
 			t.Errorf("SameSite(%q, %q, %q) = %v, want %v", c.origin, c.host, c.scheme, got, c.want)
+		}
+	}
+}
+
+// D-043, as auth.py's known_host: an IP address, a loopback name or one
+// of the machine's own names, any port; never another DNS name.
+func TestKnownHost(t *testing.T) {
+	names := []string{"pi", "pi.local"}
+	for host, want := range map[string]bool{
+		"192.168.1.20": true, "192.168.1.20:8000": true, "[fe80::1]:8000": true, "[::1]": true,
+		"localhost:1": true, "127.0.0.1": true, "PI:8000": true, "pi.local": true,
+		"evil.example": false, "evil.example:8000": false, "pi.lab": false, "pi.local.evil.example": false,
+		"": false, "user@192.168.1.20": false, "192.168.1.20/x": false, "[fe80::1%25eth0]:80": true,
+	} {
+		if got := KnownHost(host, names); got != want {
+			t.Errorf("KnownHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+	for _, n := range OwnNames() {
+		if n != strings.ToLower(n) || !KnownHost(n+":8000", OwnNames()) {
+			t.Errorf("own name %q", n)
 		}
 	}
 }

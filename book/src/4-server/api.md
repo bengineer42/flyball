@@ -45,7 +45,10 @@ read: a bare runner refuses the request, a front ignores it.
 
 Before any of that, a front refuses a path with a `.` or `..` segment, a
 backslash or an encoded `.`, `/` or `\` (`400`); a `Host` it does not
-answer to (`403`); and a request that acts -- any method but `GET`, `HEAD`
+answer to (`403`) -- under `--insecure-open` only an IP address, a loopback
+name, the machine's own (`hostname`, `<hostname>.local`) or `url`'s host, on
+every route, and at a `password` or `proxy` front an anonymous caller is
+held to the same names on the rig's `/api`, `/ws` and `/mcp`; and a request that acts -- any method but `GET`, `HEAD`
 and `OPTIONS`, and every websocket -- whose `Origin` is missing, `null` or
 another site's, unless it carries a named token (`403`). A bare runner
 refuses the same `Origin`s (a missing one passes there), and, with no
@@ -90,7 +93,7 @@ sit under its `root_path` the same way.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/rigs` | the rigs the caller holds any verb on: `[{name, root_path, status}]`, sorted by name. Needs no credential: an anonymous caller gets the rigs `anonymous` lets it see (`[]` under `anonymous: none`); a credential that is presented and wrong is `401`. `flyball stop --all` uses it |
+| `GET` | `/api/rigs` | the rigs the caller holds any verb on: `[{name, root_path, status}]`, sorted by name. Needs no credential: an anonymous caller gets the rigs `anonymous` lets it see (`[]` under `anonymous: none`), and only by an IP address, a loopback name, the machine's own name or `url`'s host (`403` by another name: DNS rebinding); a credential that is presented and wrong is `401`. `flyball stop --all` uses it |
 | `GET` | `/api/runners` | every registered runner: `[{name, root_path, restart, status, endpoint, pid, adopted, reason}]` |
 | `GET` | `/api/runners/{name}` | one of them |
 | `POST` | `/api/runners` | a manifest as JSON: register and start it, `202`; `400` a bad manifest, `409` a name or root path taken |

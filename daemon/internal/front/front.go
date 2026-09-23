@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"flyballd/internal/endpoint"
+	"flyballd/internal/exposure"
 	"flyballd/internal/front/store"
 	"flyballd/internal/principal"
 )
@@ -117,6 +118,7 @@ type Front struct {
 	cancels  *cancels
 	cookie   string
 	localSid string
+	names    []string // this machine's own names (exposure.OwnNames): known Hosts, D-043
 	signer   endpoint.Signer
 	ui       http.Handler
 	noUI     bool
@@ -141,6 +143,7 @@ func New(o Options) *Front {
 		hasher:   store.NewHasher(store.HashingSlots),
 		cancels:  newCancels(),
 		localSid: randomHex(16),
+		names:    exposure.OwnNames(),
 		verified: map[string][32]byte{}, transports: map[string]*http.Transport{},
 		stop: make(chan struct{}), done: make(chan struct{}),
 	}
@@ -236,7 +239,13 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !f.CheckHost(r) {
-		plainError(w, http.StatusForbidden, "this front does not answer to that Host")
+		msg := "this front does not answer to that Host"
+		if f.plan.HostKnown {
+			msg = "This front has no sign-in (auth: local, served beyond loopback by --insecure-open), so it answers only " +
+				f.known() + " -- not another DNS name, which a page elsewhere could point at it; set url: to reach it" +
+				" by that name, or choose auth: password or proxy"
+		}
+		plainError(w, http.StatusForbidden, msg)
 		return
 	}
 	path := r.URL.Path

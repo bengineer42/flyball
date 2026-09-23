@@ -70,7 +70,13 @@ names the front answers to and its origin to the pages that may act, and
 when it is `https` the session cookie is marked `Secure` and named
 `__Host-flyball`, also when TLS ends at the proxy. Without it, a password
 or proxy front answers any `Host`, and a request that acts must come from a
-page on the same site as that `Host`.
+page on the same site as that `Host` -- except to a caller with no
+credential: `anonymous: read` is served the rig only by an IP address,
+a loopback name or the machine's own name (`hostname`, and
+`<hostname>.local`), never by another DNS name, which a web page elsewhere
+could point at the front (DNS rebinding). Signing in and the dashboard's
+own files answer any name, and a session or a token is served by any
+name. To let anonymous viewers in by a site DNS name, set `url` to it.
 
 **`tls: {cert, key}`** has the front serve HTTPS itself from a certificate
 and key file (PEM), TLS 1.2 at least. It re-reads both files at most every
@@ -99,7 +105,7 @@ not a `$scrypt$` line, TLS files that cannot be read, a `url` that does not
 parse, or a `proxy` block that cannot be vouched for -- or when the
 `runner.front` block fails validation or cannot be read because the rig file's
 `extends` cannot be resolved, so its shape is unknown, the address it was
-asked to listen on answers every request `503` with the reason, and the
+asked to listen on answers every request `503`, and the
 `local` shape is served somewhere else: a fresh port on `127.0.0.1`, or a
 socket beside a `unix:` one (`front.sock.local` next to `front.sock`). A
 reverse proxy on the same machine keeps forwarding to the address it was
@@ -113,7 +119,11 @@ flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 A plain `flyball stop` goes to that address too, over HTTP, and gets the
 `503`, so the `503` starts with the stops that work, all signals: Ctrl-C in the `flyball run`
 terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
-rig's host, or `systemctl stop` for `flyballd`. `flyball run`'s start notice
+rig's host, or `systemctl stop` for `flyballd`. It then says only that
+authentication is misconfigured and where the reason is -- the `flyball
+run` terminal and its `run.log`, or `journalctl -u flyballd` -- since
+whoever the proxy lets reach that address may be anyone, and a reason
+can quote the file. `flyball run`'s start notice
 then names `flyball stop --front-dir` with its own front-dir.
 
 A `listen` that does not parse serves the `local` shape on
@@ -126,8 +136,12 @@ loopback falls back to `127.0.0.1` on the same port. To serve it on the network 
 `--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in the environment of
 `flyball run` or `flyballd`. There is no file key for it: a file can be
 copied from anywhere, and `extends:` would pass it on. The front then
-answers any name, warns at every start, and the dashboard shows a banner
-that cannot be dismissed. Not on a rig a model can drive.
+answers, on every route (signing in and making tokens included), only an
+IP address, a loopback name, the machine's own name (`hostname`, and
+`<hostname>.local`) or `url`'s host -- never another DNS name, which a web
+page elsewhere could point at it (DNS rebinding); anything else is `403`,
+naming the names it takes. It warns at every start, and the dashboard shows
+a banner that cannot be dismissed. Not on a rig a model can drive.
 
 ## Signing in, sessions and tokens
 
@@ -154,7 +168,8 @@ flyball token create --name bench --config rig.yaml --scope operate --expires 30
 It prints the token once; the file keeps only its hash. Every token
 expires: after 90 days unless it says otherwise, a year at most, and 30
 days at most for `--kind agent` or a token made over plain HTTP from
-another machine. `flyball token list` and `flyball token revoke ID` work on
+another machine -- plain HTTP on the hop to the front itself, whatever
+`url` says, so also through a TLS proxy on another host. `flyball token list` and `flyball token revoke ID` work on
 the same file; a revoked or expired token's open streams and sockets are
 closed within a second. Revoking a token never changes what the hardware is
 doing: a program it started keeps running. The admin session (or anyone
@@ -198,20 +213,35 @@ The front believes whoever can connect to that socket, so the file
 permissions are what keep another local process from posing as the proxy.
 The front makes the socket `0660` (its own user and group, never everyone)
 and will not listen in a directory anyone may write to without the sticky
-bit, or in one of its own that others may enter. A web server proxy
-usually runs as another user (`www-data`, `caddy`), so give the directory to
-the front's user and the proxy's group, setgid so the socket inherits that
-group, and put nobody else in the group (`tailscaled` runs as root and
-needs no group):
+bit, or in one of its own that others may enter. A web server proxy runs
+as another user: make it a user nothing else runs as -- not `www-data`,
+which PHP-FPM, Pi-hole and other web apps on the same machine often share --
+here `flyball-proxy`. Give the directory to the front's user and the proxy's
+group, setgid so the socket inherits that group, and put nobody else in the
+group (`tailscaled` runs as root and needs no group):
 
 ```sh
-sudo install -d -o flyball -g www-data -m 2750 /run/flyball
+sudo install -d -o flyball -g flyball-proxy -m 2750 /run/flyball
 ```
 
 A `systemd` unit can do the same with `RuntimeDirectory=flyball`,
-`RuntimeDirectoryMode=2750` and `Group=www-data`. Every member of that group
-can assert any identity; the audit records the local user behind each new
-one (`proxy.peer`), after the fact.
+`RuntimeDirectoryMode=2750` and `Group=flyball-proxy`. Every process of that
+group, and of the proxy's user, can assert any identity; the audit records
+the local user behind each new one (`proxy.peer`), after the fact. When a
+setting is wrong ([above](#when-a-setting-is-wrong)), the `local` shape is
+served on `front.sock.local`, beside the socket and with its group, so that
+group reaches the local console -- every verb, no sign-in -- until the
+setting is fixed.
+
+`secret_file` works with `from: unix` too: the front then believes a
+connection only when it also sends the secret as `X-Flyball-Proxy-Secret`,
+so where the proxy's user cannot be its own, keep the header in a
+configuration file only root reads (nginx reads its configuration as root:
+a `0640 root:root` include with `proxy_set_header X-Flyball-Proxy-Secret
+"…";`), and other processes of that user cannot pose as the proxy by
+connecting alone. It is a second layer, not the separation: a process can
+often read the memory of another of the same user, the proxy's included.
+A user of the proxy's own is the separation.
 
 Tailscale Serve is the same with `preset: tailscale` and
 `tailscale serve unix:/run/flyball/front.sock` on the Tailscale side
@@ -238,6 +268,13 @@ For every request the front refuses, before anything else:
   `\` (`400`);
 - a `Host` it does not answer to (`403`): at the `local` shape, anything but
   a loopback name; with `url`, anything but that host or a loopback name;
+  at the `local` shape served beyond loopback by `--insecure-open`, anything
+  but an IP address, a loopback name, the machine's own name or `url`'s
+  host;
+- on the rig's `/api`, `/ws` and `/mcp`, a caller with no credential
+  (`anonymous: read`) whose `Host` is not an IP address, a loopback name,
+  the machine's own name or `url`'s host (`403`); a session or a token
+  passes any `Host`;
 - a request that acts -- any method but `GET`, `HEAD` and `OPTIONS`, and
   every websocket -- whose `Origin` is missing, `null`, or not the same site
   as its `Host` (or `url`'s origin) (`403`). A request with no `Origin` passes

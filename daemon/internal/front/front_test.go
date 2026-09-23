@@ -912,11 +912,18 @@ func TestFallbackRefusesRequestedListen(t *testing.T) {
 				"X-Forwarded-For": {"203.0.113.9"}, "Content-Type": {"application/json"}}
 			resp := sendTo(t, requested, "POST", "/api/echo", hdr)
 			b := body(resp)
-			if resp.StatusCode != 503 || !strings.Contains(b, "misconfigured") || !strings.Contains(b, c.reason) {
-				t.Fatalf("the requested listen %s answered %d %q, want 503 naming %q", upstream, resp.StatusCode, b, c.reason)
+			if resp.StatusCode != 503 || !strings.Contains(b, "authentication is misconfigured") {
+				t.Fatalf("the requested listen %s answered %d %q, want 503 saying auth is misconfigured", upstream, resp.StatusCode, b)
 			}
-			if strings.Contains(b, "hunter2") {
-				t.Fatalf("the refusal leaks the password: %q", b)
+			// The body is generic (D-028, amended): the reason stays in the
+			// banner, the log, the audit and /api/auth -- the body says
+			// where to find it, never an absolute path.
+			if strings.Contains(b, c.reason) || strings.Contains(b, plan.Fallback) || strings.Contains(b, "hunter2") {
+				t.Fatalf("the refusal carries the reason: %q", b)
+			}
+			if !strings.Contains(b, "run.log") || !strings.Contains(b, "journalctl -u flyballd") ||
+				regexp.MustCompile("(^|[\\s(`'\"])/\\w").MatchString(b) {
+				t.Fatalf("the refusal %q does not say where the reason is, or names a path", b)
 			}
 			// `flyball stop` prints this body: it says how to stop the
 			// rig, before anything else.
