@@ -226,6 +226,11 @@ func (fr *fakeRunner) serve(w http.ResponseWriter, r *http.Request) {
 		defer conn.Close()
 		writeServerFrame(conn, 0x1, []byte("hello"))
 		io.Copy(io.Discard, brw)
+	case path == "/ws/die":
+		// A runner that dies with a socket open: no close frame.
+		conn, _ := serverUpgrade(w, r)
+		writeServerFrame(conn, 0x1, []byte("hello"))
+		conn.Close()
 	case path == "/ws/kick":
 		conn, _ := serverUpgrade(w, r)
 		writeServerFrame(conn, 0x8, closePayload(4401, "principal refused"))

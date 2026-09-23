@@ -298,3 +298,21 @@ func TestStalledBodyCut(t *testing.T) {
 		}
 	}
 }
+
+// Wave 3 R5: a runner that ends with a socket open (killed, crashed) sends
+// no close frame. The front closes the client's side 1011 rather than
+// dropping it, so the UI can tell the runner's end from a lost network
+// (1006); it reconnects either way.
+func TestRunnerDeathClosesSocket1011(t *testing.T) {
+	h := newHarness(t, Config{})
+	ws, resp := dialWS(t, h.srv.URL, "/ws/die", h.origin())
+	if ws == nil {
+		t.Fatalf("socket: HTTP %d", resp.StatusCode)
+	}
+	if op, p, err := ws.next(2 * time.Second); err != nil || op != 1 || string(p) != "hello" {
+		t.Fatalf("first frame: op %d %q %v", op, p, err)
+	}
+	if code, reason := ws.closeCode(2 * time.Second); code != 1011 {
+		t.Fatalf("the runner ended: close %d %q, want 1011", code, reason)
+	}
+}

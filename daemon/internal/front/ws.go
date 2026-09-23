@@ -22,6 +22,7 @@ import (
 // Websocket close codes the front sends.
 const (
 	closeGoingAway  = 1001 // the front is shutting down
+	closeRunnerGone = 1011 // the runner's side ended with no close frame (it died): the UI retries
 	closeTryLater   = 1013 // over a held-connection cap (caps.go): the UI retries with backoff
 	closeBadGateway = 1014 // the runner refused the front's principal: out of step, not signed out
 	closeSignedOut  = 4401 // the credential is refused, revoked or expired: the UI stops retrying
@@ -238,12 +239,14 @@ func (b *wsBridge) fromRunner() {
 	for {
 		hdr, n, err := readFrameHeader(br)
 		if err != nil {
+			b.runnerGone()
 			return
 		}
 		op, masked := hdr[0]&0x0f, hdr[1]&0x80 != 0
 		if op == 0x8 && !masked && n <= 125 {
 			payload := make([]byte, n)
 			if _, err := io.ReadFull(br, payload); err != nil {
+				b.runnerGone()
 				return
 			}
 			frame := append(hdr, payload...)
@@ -259,6 +262,21 @@ func (b *wsBridge) fromRunner() {
 			return
 		}
 	}
+}
+
+// runnerGone: the runner's side ended between two frames with no close
+// frame -- the runner died or was killed. The client gets 1011 (RFC 6455's
+// "unexpected condition"; not 1012 "service restart", which would promise
+// a restart the front cannot know of), so it can tell this from a lost
+// network (1006). Not when the bridge is already ending: the client went,
+// or a revocation or shutdown closed it with its own code.
+func (b *wsBridge) runnerGone() {
+	select {
+	case <-b.closing:
+		return
+	default:
+	}
+	b.write(closeFrame(closeRunnerGone, "the rig's runner ended"), nil, 0)
 }
 
 // write sends hdr, then n bytes of payload from r, to the client under the
