@@ -218,6 +218,9 @@ func Serve(ctx context.Context, p front.Plan, h http.Handler, ready func(net.Add
 	if err != nil {
 		return err
 	}
+	if bf, ok := h.(interface{ Bound(net.Addr) }); ok {
+		bf.Bound(ln.Addr())
+	}
 	if ready != nil {
 		ready(ln.Addr())
 	}
