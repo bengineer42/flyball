@@ -26,6 +26,7 @@ from flyball.foundation.quantities.si import One
 from flyball.foundation.time import Duration
 from flyball.interfaces.server import create_app, set_rig
 from flyball.rig import Rig
+from flyball.rig import polling as polling_module
 from flyball.sequencing import Program, Programmer, Step, Wait
 from flyball.sequencing.devices import RunCommand
 
@@ -402,6 +403,72 @@ class TestProgrammerLocks:
         rig.run_command(doser, "stop")
         programmer.join(2.0)
         assert not programmer.running
+
+
+# endregion
+
+
+# region 5. Shared collections changed while another thread iterates them
+
+
+class TestSharedCollections:
+    def test_a_stop_during_a_runs_update_does_not_put_the_run_back(self, fresh, monkeypatch):
+        rig = Rig()
+        rig.clock = SteppedClock(0)
+        ticker = Ticker(fresh("ticker"))
+        ticker.poll_s = 1.0
+        rig.add_device(ticker)
+        rig.start_polling(ticker)
+        real = polling_module.replace
+        stopper: list[threading.Thread] = []
+
+        def replace_as_a_stop_lands(run, **changes):  # noqa: ANN001, ANN202
+            # Another thread removes the device between `_update`'s check and its write.
+            if not stopper:
+                stopper.append(threading.Thread(target=rig.polling.stop, args=(ticker.name,)))
+                stopper[0].start()
+                stopper[0].join(0.2)
+            return real(run, **changes)
+
+        monkeypatch.setattr(polling_module, "replace", replace_as_a_stop_lands)
+        rig.polling._update(ticker, read_s=0.1)
+        stopper[0].join(2.0)
+        assert ticker.name not in rig.polling.snapshot(), "no run for a device polled no more"
+
+    def test_stop_all_while_a_device_is_added(self, fresh):
+        rig = Rig()
+        rig.clock = SteppedClock(0)
+        first, second = Ticker(fresh("ticker")), Ticker(fresh("ticker"))
+        for device in (first, second):
+            device.poll_s = 1.0
+            rig.add_device(device)
+        rig.start_polling(first)
+        loop = rig.polling.periodic[first.name]
+        stop = loop.stop
+
+        def stop_as_another_starts(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            rig.start_polling(second)  # a request adding a device, mid-shutdown
+            return stop(*args, **kwargs)
+
+        loop.stop = stop_as_another_starts  # type: ignore[method-assign]
+        rig.polling.stop_all()  # before: "dictionary changed size during iteration"
+
+    def test_close_while_a_writer_is_added(self, fresh):
+        rig = Rig()
+
+        class Writer:
+            def __init__(self, then: object = None) -> None:
+                self.then = then
+                self.stopped = False
+
+            def stop(self, join: bool = True) -> None:
+                self.stopped = True
+                if self.then is not None:  # a delivery makes a writer for another device
+                    rig._writers[Doser(fresh("late"))] = self.then  # type: ignore[assignment]
+
+        late = Writer()
+        rig._writers[Doser(fresh("doser"))] = Writer(then=late)  # type: ignore[assignment]
+        rig.close()  # before: "dictionary changed size during iteration"
 
 
 # endregion

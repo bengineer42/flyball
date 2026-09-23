@@ -13,6 +13,7 @@ condition store.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -63,8 +64,18 @@ class DeviceRun:
 
 
 class Polling:
+    """Every polled device's loop and run.
+
+    Its dicts are changed from the poll threads (a run noted, a device gone
+    offline), from the rig's lock holders (a device added, removed) and from
+    request threads (a restart), so each change and each read of more than one
+    key is under `_lock`. That lock is never held while the rig's is taken, nor
+    across a join: the order is rig, then polling.
+    """
+
     def __init__(self, rig: Rig) -> None:
         self.rig = rig
+        self._lock = threading.RLock()
         self.by_name: dict[str, Device] = {}
         self.periodic: dict[str, PeriodicLoop] = {}
         self.runs: Latest[str, DeviceRun] = Latest()
@@ -88,14 +99,17 @@ class Polling:
 
     def start(self, device: Device, period_s: float) -> None:
         """Poll `device` every `period_s`; one already polled is restarted on the new period."""
-        self.by_name[device.name] = device
-        self._runs.setdefault(device.name, DeviceRun())
-        self._streaks.pop(device.name, None)  # a new period: count reads against it afresh
-        if (loop := self.periodic.pop(device.name, None)) is not None:
-            loop.stop()
+        with self._lock:
+            old = self.periodic.pop(device.name, None)
+        if old is not None:
+            old.stop()  # outside the lock: its read in progress may note its run
         loop = PeriodicLoop(self._read, period_s, False, device, clock=self.rig.clock)
-        self.periodic[device.name] = loop
-        self._update(device, period_s=period_s, running=True)
+        with self._lock:
+            self.by_name[device.name] = device
+            self._runs.setdefault(device.name, DeviceRun())
+            self._streaks.pop(device.name, None)  # a new period: count reads against it afresh
+            self.periodic[device.name] = loop
+            self._update(device, period_s=period_s, running=True)
         loop.start()
 
     def restart(self, name: str) -> DeviceRun:
@@ -138,12 +152,14 @@ class Polling:
         which that read's delivery needs. The read finishes on its own
         thread, finds the device no longer polled, and drops what it read.
         """
-        if (loop := self.periodic.pop(name, None)) is not None:
+        with self._lock:
+            loop = self.periodic.pop(name, None)
+            self.by_name.pop(name, None)
+            self._runs.pop(name, None)
+            self._streaks.pop(name, None)
+            self.runs.discard(name)
+        if loop is not None:
             loop.stop(join=False)
-        self.by_name.pop(name, None)
-        self._runs.pop(name, None)
-        self._streaks.pop(name, None)
-        self.runs.discard(name)
 
     def stop_all(self) -> None:
         """Stop polling every device, waiting at most `STOP_JOIN_S` for reads in progress.
@@ -153,14 +169,16 @@ class Polling:
         is abandoned and logged once by name; if the read ever returns, the
         loop exits without reading again.
         """
-        for loop in self.periodic.values():
+        with self._lock:  # a copy: a device may be added or removed meanwhile
+            loops = [(name, loop, self.by_name[name]) for name, loop in self.periodic.items()]
+        for _, loop, _ in loops:
             loop.stop(join=False)
         deadline = time.monotonic() + STOP_JOIN_S
-        for name, loop in self.periodic.items():
+        for name, loop, device in loops:
             loop.stop(timeout=max(0.0, deadline - time.monotonic()))
             if loop.running:
                 log.warning("gave up waiting for %s's read after %.1f s", name, STOP_JOIN_S)
-            self._update(self.by_name[name], running=False)
+            self._update(device, running=False)
 
     def delivered(self, device: Device, samples: Sequence[Sample]) -> None:
         """Samples `device` read: into the rig, then noted as its latest.
@@ -213,7 +231,9 @@ class Polling:
             self.rig.conditions.set(
                 device, Code.OFFLINE, Severity.ERROR, f"{type(error).__name__}: {error}"
             )
-            if (loop := self.periodic.get(device.name)) is not None:
+            with self._lock:
+                loop = self.periodic.get(device.name)
+            if loop is not None:
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
         if not self._polled(device):
@@ -231,21 +251,22 @@ class Polling:
         flicker: one `raised` and one `cleared` per spell, whatever it does
         in between.
         """
-        if (run := self._runs.get(device.name)) is None:
-            return
-        period = run.period_s
-        over = period is not None and read_s > period
-        self._update(device, read_s=read_s, missed=run.missed + over)
-        if period is None:
-            return
-        slow, fast = self._streaks.get(device.name, (0, 0))
-        if over:
-            slow, fast = slow + 1, 0
-        elif read_s <= FAST_FRACTION * period:
-            slow, fast = 0, fast + 1
-        else:
-            slow, fast = 0, 0
-        self._streaks[device.name] = (slow, fast)
+        with self._lock:
+            if not self._polled(device) or (run := self._runs.get(device.name)) is None:
+                return
+            period = run.period_s
+            over = period is not None and read_s > period
+            self._update(device, read_s=read_s, missed=run.missed + over)
+            if period is None:
+                return
+            slow, fast = self._streaks.get(device.name, (0, 0))
+            if over:
+                slow, fast = slow + 1, 0
+            elif read_s <= FAST_FRACTION * period:
+                slow, fast = 0, fast + 1
+            else:
+                slow, fast = 0, 0
+            self._streaks[device.name] = (slow, fast)
         held = self.rig.conditions.get(device, Code.SLOW) is not None
         if over and (held or slow >= SLOW_AFTER):
             self.rig.conditions.set(
@@ -270,10 +291,15 @@ class Polling:
         return self.by_name.get(device.name) is device
 
     def _update(self, device: Device, **changes: Any) -> None:
-        """Note a change to `device`'s run; a no-op once it is no longer polled."""
-        if not self._polled(device) or (run := self._runs.get(device.name)) is None:
-            return
-        run = replace(run, **changes)
-        self._runs[device.name] = run
-        if self.runs.watched:
-            self.runs.set(device.name, run)
+        """Note a change to `device`'s run; a no-op once it is no longer polled.
+
+        Checked and noted in one hold of the lock: a `stop` between the two would
+        otherwise have its run put back, a device polled no more.
+        """
+        with self._lock:
+            if not self._polled(device) or (run := self._runs.get(device.name)) is None:
+                return
+            run = replace(run, **changes)
+            self._runs[device.name] = run
+            if self.runs.watched:
+                self.runs.set(device.name, run)

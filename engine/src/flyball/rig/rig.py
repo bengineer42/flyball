@@ -328,16 +328,18 @@ class Rig:
         if self._closed:
             return
         self._closed = True
-        with self.lock:
+        with self.lock:  # copies: a delivery or a request may add to them meanwhile
             running = list(self._running)
+            writers = list(self._writers.values())
+            links = list(self.links.items())
         for device in running:
             device.cancel()
         self.polling.stop_all()
-        for writer in self._writers.values():
+        for writer in writers:  # joined outside the lock: a write in flight reports under it
             writer.stop()
         self._stop_recording()
         self.conditions.close()
-        for name, link in self.links.items():
+        for name, link in links:
             close = getattr(link, "close", None)
             if close is None:
                 continue

@@ -51,7 +51,8 @@ class Tunings:
         return dict(self._tunings)
 
     def list(self) -> list[Tuning]:
-        return [Tuning(name=name, config=config) for name, config in self._tunings.items()]
+        # A C-level copy first: `add` runs on request threads while this iterates.
+        return [Tuning(name=name, config=config) for name, config in list(self._tunings.items())]
 
 
 def _open_loop_tuning() -> Tuning:

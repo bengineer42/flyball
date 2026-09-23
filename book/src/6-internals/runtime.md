@@ -209,6 +209,15 @@ most `END_JOIN_S` (5 s), since a caller may hold the rig's lock the worker's
 next step needs; a step still running then is a `step_still_running` event,
 and the call returns False.
 
+A collection that more than one thread changes is either changed and iterated
+under one lock or iterated through a C-level `list(...)` copy (`dict(d)`,
+`list(d.items())` do not let another thread in part-way). `Polling` keeps
+its dicts (`by_name`, `periodic`, the runs, the `slow` streaks) under a lock
+of its own, taken after the rig's and never held across a join, so a run
+noted by a poll thread cannot put back one a `stop` just removed; `stop_all`
+and `rig.close` walk copies of the loops, writers and links, as a request
+may add one while the rig shuts down.
+
 ## Controllers
 
 `Controllers` indexes by the output's address — a demand has at most one
