@@ -39,21 +39,8 @@
     },
     "AuthConfig": {
       "additionalProperties": false,
-      "description": "The `runner.auth` section: who may reach the runner, and for what.\n\nA *password* is for a person at the UI: the login page trades it for a\nsession cookie, so the browser never keeps the secret. A *token* is for\nmachines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.\nEither one turns the door on; with neither the runner is open. What a\ncaller with neither may do is `anonymous`: nothing, or read. Levels are\n`none < read < operate`; a later scheme (several sign-ins, a part of the\nrig locked) changes who gets which level, not what a level admits.\nAn open runner is served on loopback only unless the run itself says otherwise\n(see [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is\nnever a key here, so no file -- nor anything it `extends` -- can open a runner.",
+      "description": "The `runner.auth` section: who may reach a *bare* runner, one with no front.\n\nA *token* is the one credential: machines send it as a bearer header, and a person\ntrades it (or the one-time link the runner prints at start) for a session cookie. What a\ncaller with neither may do is `anonymous`: nothing, or read. With no token the runner is\nopen, and served on loopback only unless the run itself says otherwise (see\n[settle_exposure][flyball.runtime.config.settle_exposure]); that switch is never a key\nhere, so no file -- nor anything it `extends` -- can open a runner.\n\nA runner the front started (`--front-dir`) ignores this section: the front decides who\ngets in. `password`, `session` and `secret` are removed: parsed, so an old file still\nstarts, and ignored with a warning.",
       "properties": {
-        "password": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The password the login page takes: a `$scrypt$` line from `flyball password`, or the plain text.",
-          "title": "Password"
-        },
         "token": {
           "anyOf": [
             {
@@ -64,7 +51,7 @@
             }
           ],
           "default": null,
-          "description": "Bearer token for the CLI, MCP clients and scripts.",
+          "description": "Bearer token for the CLI, MCP clients, scripts and the UI.",
           "title": "Token"
         },
         "anonymous": {
@@ -77,11 +64,33 @@
           "title": "Anonymous",
           "type": "string"
         },
+        "password": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "deprecated": true,
+          "description": "Removed: ignored with a warning. The bare runner has no password login; use `token`, or run it under `flyball run` (`runner.front`).",
+          "title": "Password"
+        },
         "session": {
-          "default": "12h",
-          "description": "How long a login lasts (`12h`, `30m`).",
-          "title": "Session",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "deprecated": true,
+          "description": "Removed: ignored with a warning. A token-link session lasts 12 h.",
+          "title": "Session"
         },
         "secret": {
           "anyOf": [
@@ -93,7 +102,8 @@
             }
           ],
           "default": null,
-          "description": "The key that signs sessions; default: a key file beside the store, else one made for the process (a restart then signs everyone out).",
+          "deprecated": true,
+          "description": "Removed: ignored with a warning. Sessions are no longer signed.",
           "title": "Secret"
         }
       },
@@ -256,6 +266,44 @@
         "signal"
       ],
       "title": "ControllerEntry",
+      "type": "object"
+    },
+    "CustomJwt": {
+      "additionalProperties": false,
+      "description": "`runner.front.proxy.jwt`: a signed assertion the `custom` preset verifies.",
+      "properties": {
+        "header": {
+          "title": "Header",
+          "type": "string"
+        },
+        "jwks_url": {
+          "title": "Jwks Url",
+          "type": "string"
+        },
+        "issuer": {
+          "title": "Issuer",
+          "type": "string"
+        },
+        "audience": {
+          "title": "Audience",
+          "type": "string"
+        },
+        "algorithms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Algorithms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "header",
+        "jwks_url",
+        "issuer",
+        "audience",
+        "algorithms"
+      ],
+      "title": "CustomJwt",
       "type": "object"
     },
     "DeviceEntry": {
@@ -500,6 +548,106 @@
         }
       },
       "title": "FakeUartConfigTagged",
+      "type": "object"
+    },
+    "FrontConfig": {
+      "additionalProperties": false,
+      "description": "`runner.front`: how `flyball run`'s front serves this rig. Read by the front, never here.",
+      "properties": {
+        "listen": {
+          "default": "127.0.0.1:8000",
+          "description": "Where the front listens.",
+          "title": "Listen",
+          "type": "string"
+        },
+        "auth": {
+          "default": "local",
+          "description": "Who gets in: the shape.",
+          "enum": [
+            "local",
+            "password",
+            "proxy",
+            "sso"
+          ],
+          "title": "Auth",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The external URL the rig is reached at.",
+          "title": "Url"
+        },
+        "tls": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TlsFiles"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "password": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`auth: password`: a `$scrypt$` line from `flyball password`.",
+          "title": "Password"
+        },
+        "anonymous": {
+          "default": "none",
+          "enum": [
+            "none",
+            "read"
+          ],
+          "title": "Anonymous",
+          "type": "string"
+        },
+        "proxy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProxyConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "uv": {
+          "default": false,
+          "title": "Uv",
+          "type": "boolean"
+        },
+        "session": {
+          "default": "12h",
+          "title": "Session",
+          "type": "string"
+        },
+        "trusted_proxies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trusted Proxies",
+          "type": "array"
+        }
+      },
+      "title": "FrontConfig",
       "type": "object"
     },
     "FurnaceConfigTagged": {
@@ -1106,6 +1254,158 @@
       "title": "PlantConfigTagged",
       "type": "object"
     },
+    "ProxyConfig": {
+      "additionalProperties": false,
+      "description": "`runner.front.proxy`: the identity layer in front of the front (`auth: proxy`).",
+      "properties": {
+        "preset": {
+          "enum": [
+            "tailscale",
+            "authelia",
+            "oauth2-proxy",
+            "authentik",
+            "pomerium",
+            "cloudflare",
+            "custom"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "const": "unix",
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whose unsigned headers are believed: `unix` (the front's socket), or addresses and CIDRs.",
+          "title": "From"
+        },
+        "secret_file": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret File"
+        },
+        "team": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "cloudflare: the Access team name.",
+          "title": "Team"
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issuer"
+        },
+        "audience": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audience"
+        },
+        "grants": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "A role (names pending D-034) -> subjects and `group:<id>`s.",
+          "title": "Grants",
+          "type": "object"
+        },
+        "user_header": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Header"
+        },
+        "groups_header": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Groups Header"
+        },
+        "separator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Separator"
+        },
+        "jwt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CustomJwt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "preset"
+      ],
+      "title": "ProxyConfig",
+      "type": "object"
+    },
     "PwmConfigTagged": {
       "properties": {
         "chip": {
@@ -1239,7 +1539,19 @@
         },
         "auth": {
           "$ref": "#/$defs/AuthConfig",
-          "description": "Who may reach the runner: password, token, anonymous."
+          "description": "Who may reach a bare runner (no front): token, anonymous."
+        },
+        "front": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrontConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How `flyball run`'s front serves the rig: listen, auth, url, tls. Read by the front only; a runner the front started ignores `host`, `port` and `auth`."
         },
         "compose": {
           "default": false,
@@ -1310,7 +1622,8 @@
         },
         "run": {
           "additionalProperties": true,
-          "description": "Freeform defaults for `flyball run`'s own CLI flags (e.g. `serve_ui`, `uv`) -- Go-CLI-only, never read or validated here; present only so `extra=\"forbid\"` doesn't reject keys that belong to the Go binary, not the runner.",
+          "deprecated": true,
+          "description": "Deprecated: `runner.front`. Accepted for one release: `serve_ui` is read as `front.listen`, `uv` as `front.uv`, with a warning.",
           "title": "Run",
           "type": "object"
         }
@@ -1855,6 +2168,28 @@
       ],
       "title": "TimeUnit",
       "type": "string"
+    },
+    "TlsFiles": {
+      "additionalProperties": false,
+      "description": "`runner.front.tls`: the certificate the front serves, reloaded when renewed.",
+      "properties": {
+        "cert": {
+          "format": "path",
+          "title": "Cert",
+          "type": "string"
+        },
+        "key": {
+          "format": "path",
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cert",
+        "key"
+      ],
+      "title": "TlsFiles",
+      "type": "object"
     },
     "VisaLinkConfigTagged": {
       "properties": {
