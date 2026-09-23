@@ -21,6 +21,7 @@ import (
 	"flyballd/internal/endpoint"
 	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
+	"flyballd/internal/front/proxyauth"
 	"flyballd/internal/webui"
 
 	"gopkg.in/yaml.v3"
@@ -29,15 +30,14 @@ import (
 // Presets are the trusted-header presets (package front/proxyauth) as both
 // fronts use them: Plan resolves through Presets.Factory, and Serve's
 // server sets Presets.ConnContext on each connection (proxyauth reads the
-// SO_PEERCRED uid of a `from: unix` peer from it). The zero value is a
+// SO_PEERCRED uid of a `from: unix` peer from it). The zero Hooks is a
 // build without presets: a proxy shape falls back to local on loopback.
-// Wiring the presets in is this one assignment:
-//
-//	var Presets = Hooks{
-//		Factory:     func(o ProxyOptions) front.ProxyFactory { return proxyauth.Factory(proxyauth.Options{Logger: o.Logger, Audit: o.Audit}) },
-//		ConnContext: proxyauth.ConnContext,
-//	}
-var Presets Hooks
+var Presets = Hooks{
+	Factory: func(o ProxyOptions) front.ProxyFactory {
+		return proxyauth.Factory(proxyauth.Options{Logger: o.Logger, Audit: o.Audit})
+	},
+	ConnContext: proxyauth.ConnContext,
+}
 
 // Hooks are what the presets plug in.
 type Hooks struct {
