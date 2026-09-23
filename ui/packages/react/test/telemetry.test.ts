@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControllerOut, RigClient, StreamHandlers, Subscription } from "@flyball/client";
-import { TelemetryStore, emptyTrace, emptyControllerView, PLAYBACK_DEBOUNCE_MS, PLAYBACK_MARGIN_S } from "../src/store/telemetry.js";
+import { TelemetryStore, emptyTrace, emptyControllerView, controllerSetpointKey, controllerNameFromSetpointKey, PLAYBACK_DEBOUNCE_MS, PLAYBACK_MARGIN_S } from "../src/store/telemetry.js";
 
 /** A rig whose streams are driven by the test. */
 function fakeRig(overrides: Partial<Record<string, unknown>> = {}) {
@@ -91,6 +91,21 @@ describe("TelemetryStore", () => {
     expect(store.read("furnace.zone1", emptyTrace())).toEqual({ t: [1, 2], v: [20, 21] });
     expect(store.signalKeys()).toEqual(["furnace.zone1", "furnace.zone3"]);
     expect(store.nowS()).toBe(2);
+  });
+
+  it("earliestS is null before any signal has a point, then the oldest first row across every signal loaded", () => {
+    const { rig, send } = fakeRig();
+    const store = new TelemetryStore(rig);
+    store.subscribeLatest("furnace.zone1", () => undefined, 0);
+    store.subscribeLatest("furnace.zone2", () => undefined, 0);
+    expect(store.earliestS()).toBeNull();
+    send("samples", samples(["furnace", 10, { zone1: 20 }]));
+    vi.advanceTimersByTime(20);
+    expect(store.earliestS()).toBe(10);
+    // A signal seeded further back (a longer-lived one, or history landing) pulls the earliest back with it.
+    send("samples", samples(["furnace", 5, { zone2: 15 }]));
+    vi.advanceTimersByTime(20);
+    expect(store.earliestS()).toBe(5);
   });
 
   it("feeds a number to the ring and to `latestValue`, but a bool/str/json to `latestValue` only", () => {
@@ -253,6 +268,42 @@ describe("TelemetryStore", () => {
     expect(store.controller("heaters.heater1")?.demand).toBeNull();
     expect(store.controller("heaters.heater1")?.source).toBe("furnace.zone1");
     expect(Object.keys(store.controllers())).toEqual(["heaters.heater1"]);
+  });
+
+  it("keys a controller's setpoint distinctly from any signal address", () => {
+    expect(controllerSetpointKey("heaters.heater1")).toBe("controller-setpoint:heaters.heater1");
+    expect(controllerNameFromSetpointKey("controller-setpoint:heaters.heater1")).toBe("heaters.heater1");
+    expect(controllerNameFromSetpointKey("heaters.heater1")).toBeNull(); // a plain signal address is never mistaken for one
+  });
+
+  it("reads a controller's setpoint through `read`, as a plain trace with gaps as NaN", () => {
+    const { rig, send } = fakeRig();
+    const store = new TelemetryStore(rig);
+    const key = controllerSetpointKey("heaters.heater1");
+    store.subscribeController("heaters.heater1", () => undefined);
+    send("controllers", { controllers: [controller(1, 5)] }); // setpoint 100 (see `controller()`)
+    send("controllers", { controllers: [{ ...controller(2, 5), reference: null, setpoint: null, demand: null, correction: null }] }); // setpointOf finds nothing
+    const view = store.read(key, emptyTrace());
+    expect(view.t).toEqual([1, 2]);
+    expect(view.v[0]).toBe(100);
+    expect(Number.isNaN(view.v[1])).toBe(true);
+  });
+
+  it("wakes a `subscribeTrace` subscriber on a controller tick when given its setpoint key, mixed with real addresses", () => {
+    const { rig, send } = fakeRig();
+    const store = new TelemetryStore(rig);
+    const cb = vi.fn();
+    const stop = store.subscribeTrace(["furnace.zone1", controllerSetpointKey("heaters.heater1")], cb, 0);
+    send("samples", samples(["furnace", 1, { zone1: 20 }]));
+    vi.advanceTimersByTime(20);
+    expect(cb).toHaveBeenCalledTimes(1);
+    send("controllers", { controllers: [controller(1, 5)] });
+    vi.advanceTimersByTime(20);
+    expect(cb).toHaveBeenCalledTimes(2);
+    stop();
+    send("controllers", { controllers: [controller(2, 5)] });
+    vi.advanceTimersByTime(20);
+    expect(cb).toHaveBeenCalledTimes(2); // unsubscribed from both streams
   });
 
   it("seeds controller ticks matched by (target, source) across sessions", async () => {

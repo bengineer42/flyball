@@ -386,4 +386,31 @@ def test_migration_maps_a_0006_session_onto_the_device_model(tmp_path):
     connection.close()
 
 
+def test_a_failed_version_write_rolls_the_migration_back(tmp_path, monkeypatch):
+    """The migration and its version bump are one transaction: neither lands alone."""
+    from flyball.record import migrate
+    from flyball.record.errors import SchemaError
+
+    every = migrate.available()
+    last = max(every)
+    monkeypatch.setattr(migrate, "available", lambda: {v: p for v, p in every.items() if v < last})
+    connection = sqlite3.connect(
+        tmp_path / "half.db", isolation_level=None
+    )  # as the store opens it
+    assert migrate.migrate(connection) == last - 1
+    connection.execute(
+        f"CREATE TRIGGER refuse BEFORE INSERT ON schema_version WHEN NEW.version = {last} "
+        "BEGIN SELECT RAISE(ABORT, 'version write refused'); END"
+    )
+    connection.commit()
+    monkeypatch.setattr(migrate, "available", lambda: every)
+    with pytest.raises(SchemaError, match="version write refused"):
+        migrate.migrate(connection)
+    assert migrate.current(connection) == last - 1
+    connection.execute("DROP TRIGGER refuse")
+    connection.commit()
+    assert migrate.migrate(connection) == last, "the failed migration left nothing half-applied"
+    connection.close()
+
+
 # endregion

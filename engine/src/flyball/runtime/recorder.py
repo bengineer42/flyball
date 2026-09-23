@@ -69,6 +69,7 @@ class Recorder:
         "_buffer",
         "_declared",
         "_events",
+        "_flushing",
         "_last_flush",
         "_last_time_ns",
         "_samples",
@@ -105,6 +106,7 @@ class Recorder:
         self._events: list[StoredEvent] = []
         self._declared: list[Signal] = []
         self._buffer = Lock()  # guards the four lists; held for appends and swaps only
+        self._flushing = Lock()  # one flush at a time: the store's writes are not safe to overlap
         self._last_flush = time.monotonic()
         self._stop = StopEvent()
         self._thread = Thread(target=self._run, daemon=True, name="recorder")
@@ -196,27 +198,31 @@ class Recorder:
     def flush(self) -> None:
         """Write everything buffered, in one transaction per table. Safe from any thread.
 
+        Flushes are serialised: the writer thread's and a caller's never
+        overlap in the store, and each writes its buffers in the order taken.
+
         Raises:
             Exception: Whatever the store raised; the buffers taken are lost.
         """
-        with self._buffer:
-            declared, self._declared = self._declared, []
-            samples, self._samples = self._samples, []
-            ticks, self._ticks = self._ticks, []
-            states, self._states = self._states, []
-            events, self._events = self._events, []
-        self._last_flush = time.monotonic()
-        for signal in sorted(declared, key=lambda s: s.address):
-            self.writer.declare_device(signal.device)
-            self.writer.declare_signal(signal)
-        if samples:
-            self.writer.write_samples(samples)
-        if ticks:
-            self.writer.write_ticks(ticks)
-        for offset_ns, committed in states:
-            self.writer.write_states(offset_ns, committed)
-        for row in events:
-            self.writer.write_event(row)
+        with self._flushing:
+            with self._buffer:
+                declared, self._declared = self._declared, []
+                samples, self._samples = self._samples, []
+                ticks, self._ticks = self._ticks, []
+                states, self._states = self._states, []
+                events, self._events = self._events, []
+            self._last_flush = time.monotonic()
+            for signal in sorted(declared, key=lambda s: s.address):
+                self.writer.declare_device(signal.device)
+                self.writer.declare_signal(signal)
+            if samples:
+                self.writer.write_samples(samples)
+            if ticks:
+                self.writer.write_ticks(ticks)
+            for offset_ns, committed in states:
+                self.writer.write_states(offset_ns, committed)
+            for row in events:
+                self.writer.write_event(row)
 
     def _run(self) -> None:
         """The writer thread: flush every `flush_s` until stopped; a failure ends the recording."""

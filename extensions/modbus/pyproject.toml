@@ -14,7 +14,8 @@ dependencies = ["flyball"]
 
 [project.optional-dependencies]
 # ModbusLink imports pymodbus only when a real client is built; FakeRegisterLink needs nothing.
-modbus = ["pymodbus>=3.6"]
+# 3.10.0 replaced slave=/slaves= with device_id=/device_ids= (pymodbus API_changes.rst).
+modbus = ["pymodbus>=3.10"]
 
 # What `flyball rig check`, the runner and the schema load to make `driver: modbus` valid.
 [project.entry-points."flyball.configs"]

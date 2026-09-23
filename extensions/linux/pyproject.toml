@@ -50,5 +50,11 @@ pythonpath = ["tests"]
 extend = "../../engine/pyproject.toml"
 src = ["src"]
 
+[tool.pyright]
+# gpiod, smbus2 and spidev are optional extras (i2c/spi/gpio), imported lazily
+# inside each real link's __init__ and not installed in the dev venv: pyright
+# cannot resolve them, but the missing import is the point, not a bug.
+reportMissingImports = "warning"
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004", "RUF", "D"]

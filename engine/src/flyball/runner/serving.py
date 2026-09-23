@@ -127,7 +127,7 @@ def serve(
     )
     if settings.mcp:  # `/mcp/<mode>`: a model's way in
         base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
-        mount(app, Client(base, token=auth.token or internal))
+        mount(app, Client(base, token=auth.token or internal), name=rig.name)
     server = uvicorn.Server(
         uvicorn.Config(app, host=settings.host, port=settings.port, log_level=settings.log_level)
     )

@@ -9,14 +9,13 @@ run starts from them.
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.foundation.files import SUFFIXES, dumps_without_none
+from flyball.foundation.files import SUFFIXES, atomic_write_text, dumps_without_none
 from flyball.model.catalog import get_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import ClockEntry, RigConfig, is_simulated, resolve_live
@@ -330,9 +329,7 @@ class Simulation:
             raise ValueError(f"{target}: use one of {', '.join(SUFFIXES)}")
         document = self.config_document()
         text = dumps_without_none(document, target.suffix)
-        partial = target.with_name(target.name + ".tmp")  # a crash mid-write leaves the old file
-        partial.write_text(text)
-        os.replace(partial, target)
+        atomic_write_text(target, text)  # a crash mid-write leaves the old file
         self.document = document  # what is on disk is now the baseline
         self.path = target
         self._changed.clear()

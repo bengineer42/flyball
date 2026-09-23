@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeUnit, fixed, humanise, tickDigits, withUnit } from "@flyball/client";
-import { axisSize, edgeTicks, yRange, type YScale } from "./yscale.js";
+import { describeUnit, fixed, humanise, withUnit } from "@flyball/client";
+import { axisSize, axisValues, edgeTicks, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap } from "./thin.js";
 import { showLatestInLegend } from "./legend.js";
 import { navigation } from "./navigation.js";
@@ -25,8 +25,14 @@ export interface MultiSeriesTrace {
   key?: string;
   /** Any CSS colour. Defaults cycle through `--fb-series-1` … `--fb-series-6`. */
   color?: string;
-  /** Dashed line: `true` for a default dash, or a canvas dash array. */
+  /** Dashed line: `true` for a default dash, or a canvas dash array. A stroke style only -- it
+   * says nothing about how the segments between points are drawn; see `stepped` for that. */
   dash?: boolean | number[];
+  /** Draws as a step (holds the previous value until the next point, then jumps) rather than
+   * interpolating a straight line between points: for a value that only actually changes at a
+   * tick -- a written setpoint, a fixed clamp limit -- confirmed against a sim rig's controller
+   * ticks (a `regulate` write lands between two ticks as an instant step, not a ramp). */
+  stepped?: boolean;
   width?: number;
   /** Shown on hover over the legend entry: what this trace is, in a sentence. */
   hint?: string;
@@ -99,20 +105,8 @@ const axisTitle = (unit: string | undefined, traces: readonly MultiSeriesTrace[]
 const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.unit === undefined || trace.unit === unit ? "y" : `y:${trace.unit}`);
 
 /** A trace's value, formatted the same way whether it is the live legend row or a hover: `"20.5 °C"`, `"—"` when there is none. */
-const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string => (raw == null ? "—" : withUnit(fixed(raw, s.precision ?? 2), s.unit));
-
-/**
- * An axis' tick labels at the signal's precision instead of uPlot's own
- * significant-figure guess (which over-shows digits on a near-flat trace) --
- * but never fewer decimals than tell one tick from the next, or a flat
- * trace reads `0.36, 0.36, 0.36` all the way up.
- */
-const axisValues =
-  (precision: number): uPlot.Axis.Values =>
-  (_u, splits) => {
-    const decimals = tickDigits(splits, precision);
-    return splits.map((v) => (Number.isFinite(v) ? fixed(v, decimals) : ""));
-  };
+const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string =>
+  typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, s.precision ?? 2), s.unit) : "—";
 
 /** Align traces with different time bases onto one x array, nulls where a trace has no point. */
 function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
@@ -155,7 +149,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
   const latest = useRef<uPlot.AlignedData>([[]]);
   // Rebuild only when something structural changes, not on every data tick.
   const shape = JSON.stringify(
-    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.width ?? null, s.precision ?? null]),
+    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.stepped ?? null, s.width ?? null, s.precision ?? null]),
   );
 
   const [yFit, setYFit] = useState<YScale | null>(null);
@@ -235,6 +229,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         value: (_u, raw) => displayValue(raw, s),
       };
       if (s.dash) line.dash = Array.isArray(s.dash) ? s.dash : DASH;
+      if (s.stepped) line.paths = uPlot.paths!.stepped!({ align: 1 });
       plotted.push(line);
     });
 
@@ -310,7 +305,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         // sum of their points near the cap, not each of them, or eight traces make a
         // 20 000-row axis every series has to walk.
         const maxPoints = Math.max(300, Math.floor(pointCap(u?.width ?? host.current?.clientWidth ?? 400) / Math.max(1, keys.length)));
-        const opts = { every: everyRef.current, maxPoints };
+        const opts = { every: everyRef.current, maxPoints, spanS: windowS };
         latest.current = align(keys.map((key, i) => source.store.read(key, views.current[i]!, opts)));
       }
       u?.setData(latest.current);

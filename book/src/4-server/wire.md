@@ -34,6 +34,13 @@ An address that does not resolve on the running rig is a 404, named in the
 error's message; there is no separate decode-by-registry step the way a
 `Channel` once needed one.
 
+A demand's value must be finite. JSON has no NaN or infinity, but the
+server's parser takes the literals `NaN`, `Infinity` and `-Infinity`, so
+a demand carrying one (`PUT /api/signals/{address}`,
+`PUT /api/devices/{name}/demand`, a synthesised `set_<name>` command) is
+refused with a 422 before anything is applied: a NaN would pass every
+limit and rate clamp and reach the device.
+
 ## Units
 
 A field's unit rides in its JSON Schema:

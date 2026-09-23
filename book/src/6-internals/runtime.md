@@ -134,6 +134,18 @@ tick — is arithmetic under the lock. What leaves it:
 
 `rig.stop()` stops all of it: polling, writers, recording.
 
+`rig.remove_device` waits for neither thread. It runs under the lock, which
+a read or a write in flight needs in order to report, so it stops the
+device's poll loop and writer without joining them. Each finishes on its
+own thread, finds under the lock that its device is gone (by identity: a
+device re-added under the same name is another one) and drops what it read
+or wrote.
+
+The server's async routes answer on the event loop and do not take the lock,
+which a delivery may hold for a bus transaction: they iterate a
+`list(...)` snapshot of the rig's dicts, so a device or controller added
+meanwhile is not an error. `Rig.document` and `attach_controller` take it.
+
 ## Controllers
 
 `Controllers` indexes by the target signal's address — a `W` signal has at

@@ -1,11 +1,12 @@
-import type { SessionDetail, SessionTrace } from "../hooks/useSession.js";
-import { useEffect, useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
+import { type SessionDetail, useSessionSeries, useEverShown } from "../hooks/useSession.js";
+import { useEffect, useRef, useState } from "react";
+import { describeDevice, describeEventKind, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
 import { ValueView } from "./ValueView.js";
 import { Ref } from "../links.js";
+import { useVisible } from "../hooks/useVisible.js";
 
 /** A device's recorded config, if any, as a plain object minus what the row already says. */
 function deviceConfig(config: unknown): { label: string | null; rest: Record<string, unknown> } {
@@ -21,6 +22,12 @@ function asDtype(dtype: string): Dtype {
   if (dtype.startsWith("int") || dtype.startsWith("uint")) return "int";
   if (dtype.startsWith("bool")) return "bool";
   return "str";
+}
+
+/** The last point of a trace, formatted -- a generator-based controller write can record a non-numeric value (a ramp's `regulate` object, say), so this guards the same way `ControllerPanel.tsx`'s `value()`/`describeReference` do. */
+function latest(v: number[], precision: number): string {
+  const last = v[v.length - 1];
+  return typeof last === "number" ? fixed(last, precision) : "?";
 }
 
 /** A recorded signal as the charts take one: the row's metadata, no role or tags (not recorded) and no live values. */
@@ -127,13 +134,47 @@ export interface SessionPanelProps {
 
 const when = (s: number) => new Date(s * 1000).toLocaleString();
 
-/** Traces grouped by unit so every signal of a kind shares one axis, in first-seen order. */
-function byUnit(traces: SessionDetail["traces"]): Array<[string, Array<SessionTrace & { key: string }>]> {
-  const groups = new Map<string, Array<SessionTrace & { key: string }>>();
-  for (const [key, trace] of Object.entries(traces)) {
-    (groups.get(trace.unit) ?? groups.set(trace.unit, []).get(trace.unit)!).push({ ...trace, key });
+/**
+ * Whether a recorded signal can ever be a line on a chart: a scalar
+ * (`float`/`int`, `schema.ts`'s `isNumeric`) that is not a device's own
+ * housekeeping trace (`isHousekeeping`: `<device>.conditions`,
+ * `<device>.last.*` -- invocation records and condition lists, not
+ * readings). Everything else -- `enum`, `json`, `str`, `bool`, plus those
+ * two families by name -- is recorded and listed plainly below the charts
+ * (`UnchartedSignals`), never fetched as a series: asking the store for
+ * `blender.mode`'s "series" on every session open is a wasted round trip
+ * for a value that was never going to sit on a %RH axis.
+ */
+function chartable(row: SignalRow): boolean {
+  return isNumeric(asDtype(row.dtype)) && !isHousekeeping({ name: "", address: row.address });
+}
+
+/** Chartable signals grouped by unit so every signal of a kind shares one axis, in first-seen order. */
+function byUnit(signals: readonly SignalRow[]): Array<[string, SignalRow[]]> {
+  const groups = new Map<string, SignalRow[]>();
+  for (const row of signals.filter(chartable)) {
+    (groups.get(row.unit) ?? groups.set(row.unit, []).get(row.unit)!).push(row);
   }
   return [...groups];
+}
+
+/** A recorded signal that is never charted, plainly: its address, dtype and why -- not dropped from the page, just off the axis it was never going on. */
+function UnchartedSignals({ signals }: { signals: readonly SignalRow[] }) {
+  const rows = signals.filter((r) => !chartable(r));
+  if (rows.length === 0) return null;
+  return (
+    <div className="fb-session-uncharted fb-muted">
+      <div>Recorded, not charted -- not a value a line chart can show:</div>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.address}>
+            <Ref kind="signal" name={row.address} /> · {asDtype(row.dtype)}
+            {isHousekeeping({ name: "", address: row.address }) ? " · housekeeping" : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 const duration = (s: number) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
@@ -153,16 +194,119 @@ const defaultSessionName = (session: { id: number; start_ns: number }): string =
 };
 
 /**
+ * A placeholder the size of the chart it stands in for: shown until a
+ * group's series has actually landed, so a chart still loading never reads
+ * as a chart that recorded nothing (`fb-chart-placeholder` is the same class
+ * `MultiSeries`'s own full-size placeholder uses, for the same look).
+ */
+function ChartLoading({ height }: { height: number }) {
+  return (
+    <div className="fb-chart fb-chart-placeholder" style={{ height }}>
+      <span className="fb-muted">loading…</span>
+    </div>
+  );
+}
+
+/**
+ * One unit's chart in the "by unit" grouping. Its own series fetch, gated on
+ * having actually been on screen (`useVisible` + `useEverShown`) -- a group
+ * nobody scrolls to never asks the store for anything. `useSessionSeries`
+ * caches by session id/address/point budget, so switching to "each signal"
+ * and back, or scrolling this group away and back, costs nothing further.
+ */
+function SessionUnitChart({ sessionId, unit, signals, startS, height, yScale, every, live, exports }: { sessionId: number; unit: string; signals: SignalRow[]; startS: number; height: number; yScale?: YScale; every?: number; live: boolean; exports?: SessionExports }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const shown = useEverShown(useVisible(ref, "200px", false));
+  const { traces, loading } = useSessionSeries(sessionId, signals, startS, shown);
+  const loaded = shown && !loading && signals.every((s) => s.address in traces);
+  return (
+    <div className="fb-channel" ref={ref}>
+      <h4>
+        <span>
+          {signals.map((row, i) => (
+            <span key={row.address}>
+              {i > 0 && ", "}
+              <Ref kind="signal" name={row.address} />
+            </span>
+          ))}
+        </span>
+        <span className="fb-latest">{unit}</span>
+      </h4>
+      {loaded ? (
+        <MultiSeries
+          unit={unit}
+          title={unit}
+          height={height}
+          yScale={yScale}
+          every={every}
+          live={live}
+          exportHref={exports && signals.length === 1 ? exports.series(signals[0]!.address, "csv") : undefined}
+          series={signals.map(
+            (row): MultiSeriesTrace => ({
+              label: row.address,
+              unit,
+              t: traces[row.address]!.t,
+              v: traces[row.address]!.v,
+              precision: row.precision ?? 2,
+            }),
+          )}
+        />
+      ) : (
+        <ChartLoading height={height} />
+      )}
+      <div className="fb-muted fb-session-latest">
+        {signals.map((row) => {
+          const tr = traces[row.address];
+          return (
+            <span key={row.address}>
+              {row.address}: {!loaded ? "loading…" : tr!.v.length ? `${latest(tr!.v, row.precision ?? 2)} ${unit} · ${tr!.v.length} pts` : "no points"}
+              {exports && <Download what={row.address} href={(f) => exports.series(row.address, f)} />}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One signal's chart in the "each signal" grouping -- same lazy-fetch and
+ * cache-sharing story as `SessionUnitChart`, one signal at a time.
+ */
+function SessionSignalChart({ sessionId, row, startS, height, yScale, every, live, exports }: { sessionId: number; row: SignalRow; startS: number; height: number; yScale?: YScale; every?: number; live: boolean; exports?: SessionExports }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const shown = useEverShown(useVisible(ref, "200px", false));
+  const signals = [row];
+  const { traces, loading } = useSessionSeries(sessionId, signals, startS, shown);
+  const tr = traces[row.address];
+  const loaded = shown && !loading && tr !== undefined;
+  return (
+    <div className="fb-channel" ref={ref}>
+      <h4>
+        <Ref kind="signal" name={row.address} />
+        <span className="fb-latest">{!loaded ? "loading…" : tr!.v.length ? `${latest(tr!.v, row.precision ?? 2)} ${row.unit} · ${tr!.v.length} pts` : "no points"}</span>
+        {exports && <Download what={row.address} href={(f) => exports.series(row.address, f)} />}
+      </h4>
+      {loaded ? (
+        <TimeSeries signal={asSignal(row)} t={tr!.t} v={tr!.v} height={height} yScale={yScale} every={every} exportHref={exports?.series(row.address, "csv")} live={live} />
+      ) : (
+        <ChartLoading height={height} />
+      )}
+    </div>
+  );
+}
+
+/**
  * One recorded session, top to bottom: header, a chart per signal over the
  * whole session (with spans as annotations under it), the devices, writes
  * and controllers as recorded, then events. Pure: `useSession` supplies
- * the detail.
+ * the shell; each chart fetches its own series once it is actually shown.
  */
 export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScale, controls, every, exports, nowS, onRename }: SessionPanelProps) {
   const [own, setOwn] = useState<SessionGrouping>("unit");
   const mode = grouping ?? own;
   const setMode = (g: SessionGrouping) => (onGrouping ? onGrouping(g) : setOwn(g));
-  const { session, traces, devices, writes, controllers, events, spans, startS } = detail;
+  const { session, signals, devices, writes, controllers, events, spans, startS } = detail;
   const endS = session.end_ns ? session.end_ns / 1e9 : (nowS ?? Date.now() / 1000);
   // A closed session has no live edge to return to: its charts get no "live" button.
   const live = session.end_ns === null;
@@ -274,62 +418,17 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
           {controls && <span className="fb-source-controls">{controls}</span>}
         </h4>
         {mode === "signal" &&
-          Object.entries(traces).map(([key, tr]) => (
-            <div key={key} className="fb-channel">
-              <h4>
-                <Ref kind="signal" name={tr.signal.address} />
-                <span className="fb-latest">
-                  {tr.v.length ? `${fixed(tr.v[tr.v.length - 1]!, tr.signal.precision ?? 2)} ${tr.unit} · ${tr.v.length} pts` : "no points"}
-                </span>
-                {exports && <Download what={key} href={(f) => exports.series(tr.signal.address, f)} />}
-              </h4>
-              <TimeSeries signal={asSignal(tr.signal)} t={tr.t} v={tr.v} height={height} yScale={yScale} every={every} exportHref={exports?.series(tr.signal.address, "csv")} live={live} />
-            </div>
+          signals
+            .filter(chartable)
+            .map((row) => (
+              <SessionSignalChart key={row.address} sessionId={session.id} row={row} startS={startS} height={height} yScale={yScale} every={every} live={live} exports={exports} />
+            ))}
+        {mode === "unit" &&
+          byUnit(signals).map(([unit, group]) => (
+            <SessionUnitChart key={unit} sessionId={session.id} unit={unit} signals={group} startS={startS} height={height} yScale={yScale} every={every} live={live} exports={exports} />
           ))}
-        {mode === "unit" && byUnit(traces).map(([unit, group]) => (
-          <div key={unit} className="fb-channel">
-            <h4>
-              <span>
-                {group.map((tr, i) => (
-                  <span key={tr.key}>
-                    {i > 0 && ", "}
-                    <Ref kind="signal" name={tr.signal.address} />
-                  </span>
-                ))}
-              </span>
-              <span className="fb-latest">{unit}</span>
-            </h4>
-            <MultiSeries
-              unit={unit}
-              title={unit}
-              height={height}
-              yScale={yScale}
-              every={every}
-              live={live}
-              exportHref={
-                exports && group.length === 1 ? exports.series(group[0]!.signal.address, "csv") : undefined
-              }
-              series={group.map(
-                (tr): MultiSeriesTrace => ({
-                  label: tr.key,
-                  unit,
-                  t: tr.t,
-                  v: tr.v,
-                  precision: tr.signal.precision ?? 2,
-                }),
-              )}
-            />
-            <div className="fb-muted fb-session-latest">
-              {group.map((tr) => (
-                <span key={tr.key}>
-                  {tr.key}: {tr.v.length ? `${fixed(tr.v[tr.v.length - 1]!, tr.signal.precision ?? 2)} ${unit} · ${tr.v.length} pts` : "no points"}
-                  {exports && <Download what={tr.key} href={(f) => exports.series(tr.signal.address, f)} />}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-        {Object.keys(traces).length === 0 && <div className="fb-muted">no signals recorded</div>}
+        {signals.filter(chartable).length === 0 && <div className="fb-muted">no chartable signals recorded</div>}
+        <UnchartedSignals signals={signals} />
       </section>
 
       {spans.length > 0 && (

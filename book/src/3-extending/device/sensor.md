@@ -9,7 +9,7 @@ which access flags their signals carry.
 ## Declare what is measured
 
 ```python
---8<-- "sensor.py:10:12"
+--8<-- "sensor.py:quantities"
 ```
 
 A [`Quantity`][flyball.foundation.quantities.quantity.Quantity] is a name and a unit, nothing
@@ -21,7 +21,7 @@ rig can differ in all three.
 ## Declare the tree
 
 ```python
---8<-- "sensor.py:15:22"
+--8<-- "sensor.py:polled-signals"
 ```
 
 Each signal is a **descriptor** on the class: [`Output`][flyball.foundation.device.descriptors.Output]
@@ -65,7 +65,7 @@ what comes back — `read` yields one `Sample` per instant actually read.
 `self.sample(time_ns, **values)` builds one from descriptor names:
 
 ```python
---8<-- "sensor.py:24:29"
+--8<-- "sensor.py:polled-read"
 ```
 
 `time_ns` is the rig's clock at the moment of the poll; stamp the sample
@@ -82,7 +82,7 @@ subscription. Then nothing polls; the device pushes as data arrives, from
 whatever thread that is:
 
 ```python
---8<-- "sensor.py:32:44"
+--8<-- "sensor.py:pushed"
 ```
 
 `self.push(time_ns, **values)` is one sample, one delivery; `signal.push(value)`

@@ -7,6 +7,8 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any
 
 import anyio
@@ -14,12 +16,23 @@ from anyio import to_thread
 from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS
 
+import flyball
 from flyball.interfaces.client import Rig, RigError, SchemaError
 
 from .tools import GUIDES, MODES, Tier, Tool, tools_for
 
 DEFAULT_URL = "http://127.0.0.1:8000"
+
+
+def _version() -> str:
+    try:
+        return _pkg_version("flyball")
+    except PackageNotFoundError:
+        return flyball.__version__
+
 
 INSTRUCTIONS = {
     "read": "Read-only: nothing here changes the rig or its store.",
@@ -40,6 +53,7 @@ def _wire(tool: Tool) -> types.Tool:
         name=tool.name,
         description=tool.description,
         input_schema=tool.schema,
+        output_schema=tool.output_schema,
         annotations=types.ToolAnnotations(
             read_only_hint=tool.tier == Tier.READ,
             destructive_hint=tool.destructive,
@@ -74,8 +88,14 @@ class ToolCache:
         return self._tools
 
 
-def build(rig: Rig, mode: str) -> Server[Any]:
-    """The MCP server for `rig` in `mode`."""
+def build(rig: Rig, mode: str, name: str | None = None) -> Server[Any]:
+    """The MCP server for `rig` in `mode`.
+
+    `name` is the rig's own name, for `instructions`; give it when the caller already
+    knows it (the runner mounting this in-process) rather than have `build` fetch it --
+    the runner is not listening yet when it mounts this, and the rig's own URL, which
+    only makes sense from the runner's loopback, is worse than no address at all.
+    """
     registry = ToolCache(rig, mode)
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
@@ -85,8 +105,12 @@ def build(rig: Rig, mode: str) -> Server[Any]:
         tool = (await registry.get()).get(params.name)
         if tool is None:
             return _error(f"no tool {params.name!r}")
+        arguments = params.arguments or {}
+        missing = [k for k in tool.schema.get("required", ()) if k not in arguments]
+        if missing:
+            raise MCPError(INVALID_PARAMS, f"{tool.name}: missing required argument {missing[0]!r}")
         try:
-            result = await to_thread.run_sync(tool.run, rig, params.arguments or {})
+            result = await to_thread.run_sync(tool.run, rig, arguments)
         except (RigError, SchemaError) as e:
             return _error(str(e))
         if tool.changes_tools:
@@ -124,9 +148,11 @@ def build(rig: Rig, mode: str) -> Server[Any]:
             ]
         )
 
+    rig_desc = f"The rig `{name}`" if name else "This rig"
     return _Server(
         "flyball",
-        instructions=f"The rig at {rig.url}, mode `{mode}`. {INSTRUCTIONS[mode]}",
+        version=_version(),
+        instructions=f"{rig_desc}, mode `{mode}`. {INSTRUCTIONS[mode]}",
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_resources=list_resources,
@@ -187,7 +213,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RigError as e:
         print(f"flyball-mcp: {e}", file=sys.stderr)
         return 2
-    anyio.run(_serve, build(rig, args.mode))
+    try:
+        name = rig.get("/api/health").get("rig")
+    except RigError:  # cosmetic only: `instructions` falls back to "This rig"
+        name = None
+    anyio.run(_serve, build(rig, args.mode, name))
     return 0
 
 

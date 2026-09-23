@@ -4,12 +4,12 @@
 // kinds: clipped  = an element's content is wider than its box and the box hides it (ellipsis or cut)
 //        spill    = a child's box extends past its parent's box (parent not scrollable)
 //        hscroll  = the page itself scrolls horizontally
-import { chromium } from '/home/ben/.npm/_npx/9833c18b2d85bc59/node_modules/playwright-core/index.mjs';
+import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 const args = process.argv.slice(2);
 const url = args[0];
 const opt = (k, d) => { const i = args.indexOf(k); return i < 0 ? d : args[i + 1]; };
 const width = Number(opt('--width', 1440)), height = Number(opt('--height', 900)), wait = Number(opt('--wait', 3000));
-const browser = await chromium.launch({ executablePath: '/home/ben/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' });
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const page = await browser.newPage({ viewport: { width, height }, colorScheme: args.includes('--dark') ? 'dark' : 'light' });
 await page.goto(url); await page.waitForTimeout(wait);
 const out = await page.evaluate(() => {

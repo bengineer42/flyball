@@ -1,14 +1,15 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import uPlot from "uplot";
 import type { ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
-import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed, tickDigits } from "@flyball/client";
+import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed } from "@flyball/client";
 import type { ControllerTrace } from "../hooks/useControllers.js";
 import { useQuery } from "../hooks/useQuery.js";
 import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
 import { useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
 import { thin } from "./thin.js";
-import { yRange, type YScale } from "./yscale.js";
+import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
+import { axisValues, yRange, type YScale } from "./yscale.js";
 
 /** Same fallback order `MultiSeries` cycles through for a trace with no explicit colour. */
 const SERIES_FALLBACK = ["#2a78d6", "#c2410c", "#15803d", "#7e22ce", "#b45309", "#0e7490"];
@@ -18,8 +19,15 @@ interface MiniTrace {
   v: (number | null)[];
   color?: string;
   dash?: boolean;
+  /** Draws as a step (holds the previous value until the next point, then jumps) rather than
+   * interpolating a line between points: for a value that only actually changes at a tick --
+   * a written setpoint, a fixed clamp limit -- not a `dash` style choice. */
+  stepped?: boolean;
   width?: number;
   precision?: number;
+  /** This trace's name and what it means; carried through to the expanded full chart's legend/hover. Not shown on the mini trend itself. */
+  label?: string;
+  hint?: string;
 }
 
 /**
@@ -28,10 +36,12 @@ interface MiniTrace {
  * a chart to read exact values off -- the rows above already carry the
  * numbers) -- but with a minimal axis pair (a user report found a totally
  * bare chart unreadable): 3-4 y ticks at the series' precision, 2-3 sparse
- * time labels, no axis title, no grid on x. Deliberately not `MultiSeries`:
- * that component's toolbar and full axes are the right call for a real
- * chart, but at this widget's ~140px height they would leave little plot
- * area. A small, purpose-built instance keeps most of the height for the line.
+ * time labels, no axis title, no grid on x. Deliberately not `MultiSeries`
+ * while collapsed: that component's toolbar and full axes would leave little
+ * plot area at this widget's ~140px height. A click opens it as a real
+ * `MultiSeries` in the same full-screen overlay every other chart uses (a
+ * trend is a sparkline in this sense too) -- reusing that component rather
+ * than building a second overlay/expand mechanism for this one.
  */
 /** Population standard deviation, ignoring nulls; 0 with fewer than two points. */
 function stdDev(values: (number | null)[]): number {
@@ -60,14 +70,48 @@ function settledBand(center: number, warn: [number, number] | null | undefined, 
   return [Math.min(center - half, ...xs), Math.max(center + half, ...xs)];
 }
 
-function MiniTrend({ series, height, every, yScale, range, windowS, settledBand: settled }: { series: MiniTrace[]; height: number; every?: number; yScale?: YScale; range?: [number, number] | null; windowS?: number; settledBand?: [number, number] | null }) {
+interface MiniTrendProps {
+  series: MiniTrace[];
+  height: number;
+  every?: number;
+  yScale?: YScale;
+  range?: [number, number] | null;
+  windowS?: number;
+  settledBand?: [number, number] | null;
+  /** Heading of the full-size view a click opens; default lists the traces. */
+  title?: string;
+  /** Unit of the primary axis, for the full-size view. */
+  unit?: string;
+  /** The same ticks in the store, as an export URL; the full-size view's download menu offers it. */
+  exportHref?: string;
+}
+
+/** A `MiniTrace`, opened full-size: the same data as a `MultiSeriesTrace` (the export `MiniTrend` uses when clicked). */
+const asMultiSeriesTrace = (s: MiniTrace, i: number, unit: string | undefined): MultiSeriesTrace => ({
+  label: s.label ?? `trace ${i + 1}`,
+  hint: s.hint,
+  unit,
+  t: s.t,
+  v: s.v,
+  color: s.color,
+  dash: s.dash,
+  stepped: s.stepped,
+  width: s.width,
+  precision: s.precision,
+});
+
+function MiniTrend({ series, height, every, yScale, range, windowS, settledBand: settled, title, unit, exportHref }: MiniTrendProps) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
-  const shape = JSON.stringify(series.map((s) => [s.color ?? null, s.dash ?? null, s.width ?? null]));
+  const shape = JSON.stringify(series.map((s) => [s.color ?? null, s.dash ?? null, s.stepped ?? null, s.width ?? null]));
   // A caller-computed settled band stands in for a plain data-fit under "auto"; "range" and fixed bounds still win outright.
   const y = yScale && yScale !== "auto" ? yRange(yScale, range ?? null) : settled ? () => settled : undefined;
   const yKey = y ? y().join(":") : "auto";
   const precision = series[0]?.precision ?? 1;
+  // Uncontrolled, same as a `TimeSeries`/`MultiSeries` sparkline: a click opens it, the overlay's own
+  // Escape/close/backdrop hands back here. Not `MultiSeries` while collapsed -- see the doc comment above.
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
     if (!host.current) return;
@@ -84,6 +128,11 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
           stroke: s.color ?? palette[i % palette.length],
           width: s.width ?? 1.5,
           dash: s.dash ? [4, 3] : undefined,
+          // Holds the previous value until the next tick's x, then jumps: how a written setpoint
+          // or a fixed clamp limit actually moves, confirmed against a sim rig's controller ticks
+          // (a `regulate` write lands as an instant step between two ticks, not a ramp) -- a plain
+          // line would draw a diagonal guess across the interval that never happened.
+          paths: s.stepped ? uPlot.paths!.stepped!({ align: 1 }) : undefined,
           points: { show: false },
           spanGaps: true,
         })),
@@ -100,7 +149,7 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
       // the series' own precision -- a totally axis-free trend read as broken, not "at a glance".
       axes: [
         { show: true, stroke: axisColour, font: "11px system-ui", size: 18, gap: 2, space: 70, grid: { show: false }, ticks: { show: false } },
-        { show: true, stroke: axisColour, font: "11px system-ui", size: 40, gap: 4, space: 34, grid: { stroke: gridColour, width: 1 }, ticks: { show: false }, values: (_u, vals) => vals.map((v) => fixed(v, tickDigits(vals, precision))) },
+        { show: true, stroke: axisColour, font: "11px system-ui", size: 40, gap: 4, space: 34, grid: { stroke: gridColour, width: 1 }, ticks: { show: false }, values: axisValues(precision) },
       ],
       legend: { show: false },
       cursor: { show: false },
@@ -128,7 +177,26 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
     chart.current?.setData([t, ...series.map((s) => thin(s.v, every))] as uPlot.AlignedData);
   }, [series, every]);
 
-  return <div ref={host} className="fb-chart fb-loop-mini" />;
+  if (open) {
+    return (
+      <MultiSeries
+        series={series.map((s, i) => asMultiSeriesTrace(s, i, unit))}
+        unit={unit}
+        title={title}
+        height="fill"
+        windowS={windowS}
+        yScale={yScale}
+        range={range}
+        every={every}
+        exportHref={exportHref}
+        expanded
+        onExpandChange={(next) => {
+          if (!next) close();
+        }}
+      />
+    );
+  }
+  return <div ref={host} className="fb-chart fb-loop-mini" onClick={() => setOpen(true)} title="Open the full chart" />;
 }
 
 export interface ControllerPanelProps {
@@ -361,6 +429,12 @@ export function ControllerPanel({
       t: history.t,
       v: history.reference,
       dash: true,
+      // Holds between ticks rather than interpolating a line to the next one: a written setpoint
+      // moves in a single instant step, not a diagonal ramp across the poll interval (confirmed
+      // against a sim rig's controller ticks -- a `regulate` write shows up as a flat value that
+      // jumps between two adjacent ticks). A generator's own ramp still reads as smooth: it moves
+      // in many small steps, one per tick, close enough together to look like a line.
+      stepped: true,
       color: "var(--fb-series-setpoint)",
       precision,
     },
@@ -389,6 +463,7 @@ export function ControllerPanel({
             t: history.t,
             v: clampedTrace,
             dash: true,
+            stepped: true, // a fixed physical limit, not a value that ramps
             color: "var(--fb-series-setpoint)",
             precision,
           },
@@ -521,14 +596,35 @@ export function ControllerPanel({
             <h4 className="fb-loop-chart-title" title="What the controller measures against where it is aiming">
               Process <span className="fb-muted">{unit}</span>
             </h4>
-            <MiniTrend series={process} height={trendHeight} every={every} yScale={yScale} range={source.range} windowS={windowS} settledBand={setpoint != null ? settledBand(setpoint, source.warn, source.range, history.reading) : null} />
+            <MiniTrend
+              series={process}
+              height={trendHeight}
+              every={every}
+              yScale={yScale}
+              range={source.range}
+              windowS={windowS}
+              settledBand={setpoint != null ? settledBand(setpoint, source.warn, source.range, history.reading) : null}
+              title={`${describeController(controller)} · process`}
+              unit={unit}
+              exportHref={exportHref}
+            />
           </div>
           <div>
             <h4 className="fb-loop-chart-title" title={`What the controller asks of ${controller.target}, and what it can give back`}>
               Drive <span className="fb-muted">{[target ? describeSignal(target) : controller.target, dUnit].filter((part) => part && part.toLowerCase() !== "drive").join(" · ")}</span>
             </h4>
             {/* The target's limits, when known: "at limit" then reads as the line sitting on the rail, not a mystery flat spot. */}
-            <MiniTrend series={drive} height={trendHeight} every={every} yScale={outputRange ? "range" : undefined} range={outputRange} windowS={windowS} />
+            <MiniTrend
+              series={drive}
+              height={trendHeight}
+              every={every}
+              yScale={outputRange ? "range" : undefined}
+              range={outputRange}
+              windowS={windowS}
+              title={`${describeController(controller)} · drive`}
+              unit={dUnit}
+              exportHref={exportHref}
+            />
           </div>
         </div>
       )}

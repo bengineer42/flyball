@@ -232,7 +232,9 @@ def test_the_schema_describes_every_driver_flat_and_layered():
     tags = {
         shape["properties"]["driver"]["const"]
         for variant in by_driver["oneOf"]
-        for shape in variant["oneOf"]
+        # The last variants are the layer forms -- an entry that only adds to a device a base
+        # declared, and `null` to remove one -- neither of which names a driver.
+        for shape in variant.get("oneOf", [])
     }
     assert {
         "sht4x",

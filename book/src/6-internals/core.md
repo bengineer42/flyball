@@ -151,7 +151,10 @@ which subsystem raised it: `NotFoundError`, `ConflictError`, `NotReadyError`,
 `UnachievableError`, `HardwareError`, and `FlyballError` as the root. Each
 mixes in the builtin a consumer would reach for, so `except LookupError`
 behaves as expected. The HTTP layer maps the six once; no other code decides
-status codes.
+status codes. A subsystem's own error inherits its subsystem's base and one of
+the six, and the map finds the second through the MRO: the store's
+`StoreUnavailableError(StoreError, HardwareError)` is a 503 with no entry of
+its own.
 
 ## Topic and Latest
 
@@ -161,7 +164,8 @@ thread nothing.
 
 `Latest` keeps only the newest value per key. The writer does one dict store
 per update; readers poll at their own rate and ask for what changed since the
-version they last saw. A controller at any tick rate costs the same, and a
+version they last saw. A store and a read share a short lock, so a reader on
+another thread never sees a version before the value stored under it. A controller at any tick rate costs the same, and a
 socket sends at most one frame per flush. Controller states, write states,
 polling runs and trigger outcomes all go through `Latest`; only samples are
 a `Topic`. Both are filled only while someone is watching.

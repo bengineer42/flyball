@@ -1,7 +1,7 @@
 // Headless screenshot + console capture. Usage:
 //   node shot.mjs <url> <out.png> [--width 1440] [--height 900] [--wait 4000] [--dark] [--full] [--click "text=Edit"]
 // Writes <out>.log beside the png with every console error/warning and pageerror, and prints a one-line summary.
-import { chromium } from '/home/ben/.npm/_npx/9833c18b2d85bc59/node_modules/playwright-core/index.mjs';
+import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
 const [url, out, ...rest] = process.argv.slice(2);
 const opt = { width: 1440, height: 900, wait: 4000, dark: false, full: false, click: [] };
@@ -14,7 +14,7 @@ for (let i = 0; i < rest.length; i++) {
   else if (a === '--full') opt.full = true;
   else if (a === '--click') opt.click.push(rest[++i]);
 }
-const browser = await chromium.launch({ executablePath: '/home/ben/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' });
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ viewport: { width: opt.width, height: opt.height }, colorScheme: opt.dark ? 'dark' : 'light' });
 const page = await ctx.newPage();
 const log = [];

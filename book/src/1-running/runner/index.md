@@ -22,6 +22,28 @@ sub-path behind a proxy, stopping and restarting from the API -- and
 versions, saving, `--resume`. Every setting the runner takes, as a file
 rather than flags: [The runner section](../../2-config/runner.md).
 
+## With the dashboard: `flyball run`
+
+`flyball-runner` on its own is API and websocket only -- no dashboard. The
+Go [CLI](../cli/index.md)'s `flyball run RIG-FILE --serve-ui ADDR` starts
+the runner and reverse-proxies the built dashboard, `/api`, `/ws` and
+`/mcp` on `ADDR`, so one command is enough to get a rig with a UI:
+
+```
+flyball run rig.yaml --serve-ui :8000
+```
+
+`--uv` runs `flyball-runner` via `uv run --project <rig file's directory>`
+instead of a bare exec, for a rig whose application (`examples/humidity`,
+`examples/furnace`) manages its own venv rather than putting
+`flyball-runner` on `$PATH`. Both flags, and `--port` (where the proxy
+expects the runner to be listening), have a rig-file equivalent under
+`runner.run` -- so a deployment that always wants the same invocation (a
+Pi that runs the same command at every boot) can set it once in the file
+and drop the flags; a flag given on the command line always wins. Full
+flag and key reference: [`flyball run`](../../7-reference/cli.md#local-no-runner-or-daemon-involved),
+[`runner.run`](../../2-config/runner.md#run-flyball-runs-own-flags-in-the-file).
+
 ## Installing
 
 ```
@@ -80,7 +102,10 @@ decides its own:
 | `NotReadyError` | 503 | rig not configured, or no reading yet |
 | `HardwareError` | 503 | a device failed; usually transient |
 
-The body is `{"detail": "<the exception's message>"}`.
+The body is `{"detail": "<the exception's message>"}`. The store's failures
+land on the same rows: a write it refuses (`ConstraintError`) is 409, a store
+it cannot reach (`StoreUnavailableError`) is 503, and anything else it raises
+is a bug and answers 500.
 
 ## Recording
 

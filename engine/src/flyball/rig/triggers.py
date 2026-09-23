@@ -68,8 +68,12 @@ class Triggers:
             if (existing := self._entries.get(name)) is not None and existing.signal is not signal:
                 raise ConflictError(f"Trigger {name!r} is already pending")
             self._entries[name] = _Entry(signal, state)
+            # Published before the hook is set, so a settlement the hook
+            # reports cannot be overwritten by this pending state.
+            self.latest.set(name, state)
         signal.on_settle = lambda s: self._settled(name, s)
-        self.latest.set(name, state)
+        if signal.settled:  # settled before the hook was set, so nothing reported it
+            self._settled(name, signal)
         return state
 
     def remove(self, name: str) -> None:

@@ -49,6 +49,9 @@ class Tool:
     """(method, path) the runner must serve for this tool to be listed; see `MCP.md`."""
     changes_tools: bool = False
     """Attaches or detaches devices: the tool list is rebuilt and clients told."""
+    output_schema: dict[str, Any] | None = None
+    """Declared shape of a non-text result; set on a tool whose `run` returns a named
+    envelope (`_list_of`) rather than the client's bare JSON, so the two stay in sync."""
 
 
 # region Schema shorthands
@@ -83,6 +86,22 @@ def _any(description: str) -> dict[str, Any]:
     return {"description": description}
 
 
+def _list_of(key: str, description: str, nullable: bool = False) -> dict[str, Any]:
+    """A named-envelope output schema `{key: [...]}`, not a bare array or a generic key."""
+    item: dict[str, Any] = {"type": "object"}
+    return {
+        "type": "object",
+        "properties": {
+            key: {
+                "type": "array",
+                "items": {"anyOf": [item, {"type": "null"}]} if nullable else item,
+                "description": description,
+            }
+        },
+        "required": [key],
+    }
+
+
 NAME = _str("The name.")
 ADDRESS = _str("A signal address, e.g. `blender.flows.dry`.")
 DOCUMENT = {"type": "object", "description": "The document, as JSON."}
@@ -98,6 +117,31 @@ def _query(**params: Any) -> str:
     return "?" + "&".join(f"{k}={v}" for k, v in given.items()) if given else ""
 
 
+def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
+    """Project `GET /api/devices` down to what the tool's description promises.
+
+    The route is the tree with live values, commands and conditions -- tens of kB even on a
+    one-device rig, and the obvious second call after `status`. `detail` asks for the rest.
+    The description comes from `/api/schema`, which the client caches after its first fetch,
+    so no extra request reaches the model for it.
+    """
+    devices = rig.get("/api/devices")
+    if a.get("detail"):
+        return {"devices": devices}
+    described = rig.schema["devices"]
+    return {
+        "devices": [
+            {
+                "name": d["name"],
+                "type": d["type"],
+                "label": d["label"],
+                "description": described.get(d["name"], {}).get("description"),
+            }
+            for d in devices
+        ]
+    }
+
+
 READ: tuple[Tool, ...] = (
     Tool(
         "status",
@@ -109,10 +153,14 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "list_devices",
-        "Every device: name, type, label and a one-line description. `describe_device` for one.",
-        _object(),
+        "Every device: name, type, label and a one-line description. `describe_device` for "
+        "one; `detail` here for every device's full tree (signals, commands, inputs).",
+        _object({
+            "detail": _bool("The full tree per device, not just name/type/label/description.")
+        }),
         Tier.READ,
-        lambda rig, a: rig.get("/api/devices"),
+        _list_devices,
+        output_schema=_list_of("devices", "The rig's devices."),
     ),
     Tool(
         "describe_device",
@@ -132,22 +180,21 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "read",
-        "The latest reading of a signal, the sample of a namespace, or every sample of a device.",
-        _object({"address": ADDRESS, "fresh": FRESH}, "address"),
+        "The latest reading of a signal, the sample of a namespace, or every sample of a "
+        "device. Answers from the last poll; `operate` also has a `fresh` flag for a live "
+        "device read.",
+        _object({"address": ADDRESS}, "address"),
         Tier.READ,
-        lambda rig, a: rig.read(a["address"], bool(a.get("fresh", False))),
+        lambda rig, a: rig.read(a["address"], False),
     ),
     Tool(
         "read_many",
-        "Several addresses in one call, in the order given.",
-        _object(
-            {"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}, "fresh": FRESH},
-            "addresses",
-        ),
+        "Several addresses in one call, in the order given, each from the last poll; "
+        "`operate` also has a `fresh` flag for live device reads.",
+        _object({"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}}, "addresses"),
         Tier.READ,
-        lambda rig, a: rig.get(
-            "/api/read" + _query(at=",".join(a["addresses"]), fresh=a.get("fresh") or None)
-        ),
+        lambda rig, a: {"readings": rig.get("/api/read" + _query(at=",".join(a["addresses"])))},
+        output_schema=_list_of("readings", "One per address, in the order given.", nullable=True),
     ),
     Tool(
         "events",
@@ -157,7 +204,10 @@ READ: tuple[Tool, ...] = (
             "level": _str("This level and above.", enum=["DEBUG", "INFO", "WARNING", "ERROR"]),
         }),
         Tier.READ,
-        lambda rig, a: rig.get("/api/events" + _query(limit=a.get("limit"), level=a.get("level"))),
+        lambda rig, a: {
+            "events": rig.get("/api/events" + _query(limit=a.get("limit"), level=a.get("level")))
+        },
+        output_schema=_list_of("events", "The rig's latest events, newest first."),
     ),
     Tool(
         "clock",
@@ -171,7 +221,8 @@ READ: tuple[Tool, ...] = (
         "Every controller: the signal it drives, the one it reads, its mode, setpoint and tuning.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.controllers(),
+        lambda rig, a: {"controllers": rig.controllers()},
+        output_schema=_list_of("controllers", "Every controller on the rig."),
     ),
     Tool(
         "waits",
@@ -192,7 +243,8 @@ READ: tuple[Tool, ...] = (
         "The program library: the newest version of each, with its format.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/programs/library"),
+        lambda rig, a: {"programs": rig.get("/api/programs/library")},
+        output_schema=_list_of("programs", "The program library, newest version of each."),
     ),
     Tool(
         "get_program",
@@ -235,14 +287,18 @@ READ: tuple[Tool, ...] = (
         "Tunings saved to the store, newest version of each.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/history/tunings"),
+        lambda rig, a: {"tunings": rig.get("/api/history/tunings")},
+        output_schema=_list_of("tunings", "Saved tunings, newest version of each."),
     ),
     Tool(
         "list_sessions",
         "Recorded sessions, newest first.",
         _object({"limit": _int("At most this many.", minimum=1)}),
         Tier.READ,
-        lambda rig, a: rig.get("/api/history/sessions" + _query(limit=a.get("limit"))),
+        lambda rig, a: {
+            "sessions": rig.get("/api/history/sessions" + _query(limit=a.get("limit")))
+        },
+        output_schema=_list_of("sessions", "Recorded sessions, newest first."),
     ),
     Tool(
         "session",
@@ -276,11 +332,37 @@ READ: tuple[Tool, ...] = (
         ),
     ),
     Tool(
+        "session_ticks",
+        "A controller's recorded steps over a session: mode, correction and, when logged, "
+        "setpoint, demand and reading -- the data behind a ramp's setpoint curve. "
+        "`session_series` for a plain signal instead.",
+        _object(
+            {
+                "session_id": SESSION,
+                "controller": _str("The controller: the address of the signal it drives."),
+                "start_ns": _int("Window start, rig time in ns; default the session start."),
+                "end_ns": _int("Window end; default the session end."),
+                "every": _int("Keep one tick in every n.", minimum=1),
+            },
+            "session_id",
+            "controller",
+        ),
+        Tier.READ,
+        lambda rig, a: {
+            "ticks": rig.get(
+                f"/api/history/sessions/{a['session_id']}/ticks/{a['controller']}"
+                + _query(start_ns=a.get("start_ns"), end_ns=a.get("end_ns"), every=a.get("every"))
+            )
+        },
+        output_schema=_list_of("ticks", "The controller's recorded steps, in order."),
+    ),
+    Tool(
         "list_dashboards",
         "Saved dashboards for this rig.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/dashboards"),
+        lambda rig, a: {"dashboards": rig.get("/api/dashboards")},
+        output_schema=_list_of("dashboards", "Saved dashboards for this rig."),
     ),
     Tool(
         "get_dashboard",
@@ -687,6 +769,30 @@ DRIVE: tuple[Tool, ...] = (
         Tier.DRIVE,
         lambda rig, a: rig.post(f"/api/devices/{a['name']}/restart"),
     ),
+    Tool(
+        "read",
+        "The latest reading of a signal, the sample of a namespace, or every sample of a "
+        "device; with `fresh`, a live device read instead of the last poll.",
+        _object({"address": ADDRESS, "fresh": FRESH}, "address"),
+        Tier.DRIVE,
+        lambda rig, a: rig.read(a["address"], bool(a.get("fresh", False))),
+    ),
+    Tool(
+        "read_many",
+        "Several addresses in one call, in the order given; with `fresh`, live device reads "
+        "instead of the last poll.",
+        _object(
+            {"addresses": {"type": "array", "items": ADDRESS, "minItems": 1}, "fresh": FRESH},
+            "addresses",
+        ),
+        Tier.DRIVE,
+        lambda rig, a: {
+            "readings": rig.get(
+                "/api/read" + _query(at=",".join(a["addresses"]), fresh=a.get("fresh") or None)
+            )
+        },
+        output_schema=_list_of("readings", "One per address, in the order given.", nullable=True),
+    ),
 )
 
 SIM: tuple[Tool, ...] = (
@@ -873,7 +979,7 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
     )
     if run.returncode != 0:
         raise SchemaError(f"search_drivers: {run.stderr.strip()[-2000:]}")
-    return json.loads(run.stdout)
+    return {"drivers": json.loads(run.stdout)}
 
 
 def _scaffold(rig: Rig, a: dict[str, Any]) -> Any:
@@ -937,6 +1043,7 @@ DRIVERS: tuple[Tool, ...] = (
         ),
         Tier.DRIVE,
         _search_drivers,
+        output_schema=_list_of("drivers", "Matching catalogue entries."),
     ),
     Tool(
         "list_drivers",
@@ -960,11 +1067,21 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "probe_hardware",
+        "What the runner's host has: board model, I2C/SPI/serial buses, GPIO chips. `operate` "
+        "also has a `scan` flag for the addresses answering on each I2C bus (a bus "
+        "transaction: some devices mind), which this tier cannot do.",
+        _object(),
+        Tier.READ,
+        lambda rig, a: rig.get("/api/probe" + _query(scan="false")),
+        route=("get", "/api/probe"),
+    ),
+    Tool(
+        "probe_hardware",
         "What the runner's host has: board model, I2C/SPI/serial buses, GPIO chips; with "
         "`scan`, the addresses answering on each I2C bus (a bus transaction: some devices "
         "mind).",
         _object({"scan": _bool("Scan the I2C buses.")}),
-        Tier.READ,
+        Tier.DRIVE,
         lambda rig, a: rig.get("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
         route=("get", "/api/probe"),
     ),
@@ -1072,7 +1189,8 @@ DRIVERS: tuple[Tool, ...] = (
         "`rig_version` for one's document, `restore_rig_version` to go back.",
         _object({"limit": _int("At most this many.", minimum=1)}),
         Tier.READ,
-        lambda rig, a: rig.get("/api/rig/versions" + _query(limit=a.get("limit"))),
+        lambda rig, a: {"versions": rig.get("/api/rig/versions" + _query(limit=a.get("limit")))},
+        output_schema=_list_of("versions", "Every change, newest first."),
         route=("get", "/api/rig/versions"),
     ),
     Tool(
@@ -1123,14 +1241,20 @@ def _served(rig: Rig) -> set[tuple[str, str]]:
 
 
 def tools_for(rig: Rig, mode: str) -> list[Tool]:
-    """Every tool the mode allows, fixed ones first, then the rig's own commands."""
+    """Every tool the mode allows, fixed ones first, then the rig's own commands.
+
+    A name defined at more than one tier -- `read`, `read_many` and `probe_hardware`
+    each have a plain form at `read` and a full-power form, with `fresh`/`scan`, at
+    `operate` -- keeps only its highest tier the mode allows: later entries win, so
+    the concatenation order below (read tier to drive tier) doubles as precedence.
+    """
     tier = MODES[mode]
     served = _served(rig)
-    tools = [
-        t
-        for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS)
-        if t.tier <= tier and (t.route is None or t.route in served)
-    ]
+    by_name: dict[str, Tool] = {}
+    for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS):
+        if t.tier <= tier and (t.route is None or t.route in served):
+            by_name[t.name] = t
+    tools = list(by_name.values())
     if tier >= Tier.DRIVE:
         simulated = bool(rig.sim().get("simulated"))
         tools.extend(_device_tools(rig, simulated))

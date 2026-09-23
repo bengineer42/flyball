@@ -2,6 +2,30 @@
 
 **Inputs** (`#/inputs`) charts every publishing signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
 
+## Any chart opens almost-fullscreen
+
+Every chart in the app — a dashboard's `chart` and `loop` widgets, a
+`readout` widget's or a Readout panel's sparkline, Inputs' and Graph's
+charts, a controller faceplate's Process/Drive trends, a session's charts —
+opens the same way: a full chart (axes, legend, toolbar already showing) by
+double-clicking the plot or its toolbar's expand button; a sparkline or a
+controller trend (no toolbar of its own at that size) by a single click.
+However it opened, it's the same overlay (`ChartOverlay`,
+`ui/packages/react/src/panels/ChartOverlay.tsx`): Escape, its Close button,
+or a click on the backdrop returns to the page, and focus goes back to
+whatever was clicked to open it. A sparkline stays a sparkline in its tile —
+opening it doesn't resize the tile, it swaps in the full chart inside the
+overlay and swaps back on close. Dragging a dashboard tile in edit mode
+doesn't open its chart: react-grid-layout only starts a drag from the tile's
+own drag handle, never from a click inside the chart.
+
+A controller faceplate's trends (`ControllerPanel`'s `MiniTrend`, on the
+Controllers page and a dashboard's `loop` widget) are a purpose-built,
+axes-only uPlot instance while collapsed — no toolbar or legend fits in
+~140px — so a click swaps in a real `MultiSeries` chart with `expanded`
+forced on, titled for the controller and which trend (`… · process` /
+`… · drive`); closing it swaps the mini trend back.
+
 !!! tip "At the terminal"
     `flyball watch samples` is the live stream as JSON lines; `curl` fetches the same exports the toolbar's menu offers -- [Devices and signals](../cli/devices.md), [Sessions and export](../cli/sessions.md).
 
@@ -22,12 +46,26 @@ chips and a click. Ticked signals draw on one chart that fills the rest of
 the page (a narrow screen gets the picker as a drawer instead of a side
 panel, opened from the page bar).
 
+Below the device branches, a controller with a regulated signal on this rig
+gets a **Setpoints** group of its own (a controller is not a device, so the
+unit/device/tag chips above don't filter it, only the search box does):
+ticking one plots that controller's setpoint alongside the signals, on the
+axis of the signal it regulates (same unit — a controller is named by the
+signal it drives), dashed, and labelled `‹signal title› (setpoint)` so it
+reads apart from the measured line at a glance. Only the setpoint is
+offered here, not the controller's reading/demand/expected/correction —
+that fuller trace is the Controllers page's `ControllerPanel`, not this
+picker.
+
 The selection is carried in the URL (`#/graph?ch=furnace.zone1,level.volume`,
 so a graph is shareable) and mirrored to `localStorage` (so a plain visit to
-`#/graph` comes back to the last one). Each signal keeps the colour slot it
-was first ticked into for as long as the page stays open — unticking one
-signal never repaints the others, and re-ticking it returns its own colour
-(the series palette is fixed per slot, not per signal).
+`#/graph` comes back to the last one). A controller's setpoint is carried
+the same way, keyed as `controller-setpoint:‹name›` — a shape no signal
+address can collide with (an address never contains `:`). Each key keeps
+the colour slot it was first ticked into for as long as the page stays
+open — unticking one series never repaints the others, and re-ticking it
+returns its own colour (the series palette is fixed per slot, not per
+signal).
 
 Signals of different units share one chart with a y axis per unit rather
 than the "second unit is a second chart" rule the rest of the app follows
@@ -52,12 +90,30 @@ Decimation for a dense trace is automatic, per signal, from how many rows it
 actually holds against the chart's width and window — there is no manual
 "sample every Nth point" control.
 
-Known gap: the telemetry store keeps a controller's reference/reading/
-demand/expected/correction ticks (`TelemetryStore.readController`, its
-`ControllerView` shape), but exposes no `TraceRef`-shaped handle for them
-the way `useTraceRef` does for signals, so `MultiSeries` cannot draw a
-controller overlay by reference; the Graph picker offers signals only;
-wiring a controller trace ref through the store is future work.
+The store makes a controller's setpoint readable through the same
+`TraceRef` a signal uses: `TelemetryStore.read`/`subscribeTrace` accept a
+`controllerSetpointKey(name)` alongside a plain address and read it off the
+controller's own ring (the same one `readController`/`ControllerView` use)
+rather than a signal's — so `MultiSeries`, fed by `useTraceRef`, draws it
+exactly as it draws a signal, live or in playback, with no controller-aware
+code of its own. The dashboard's `chart` widget (config-driven, no picker)
+does not offer this yet — plotting a controller's setpoint from a rig file
+would need a config shape for it (a widget currently only takes signal
+addresses) and a small form change, not just the store-level plumbing.
+
+## The window control
+
+The page bar's window control (1 min / 5 min / 15 min / 1 h) sets how much
+history a following chart shows; it scrolls once that much has arrived.
+Its default is not a fixed constant: the first time both ends of it are
+known, it settles to whatever the store has actually loaded, capped at an
+hour — a rig with hours of history (`longrun`, say) does not open on a
+useless 5 min slice, and one that only just started does not open on an
+hour of mostly-empty axis either. It settles once, so it does not keep
+widening under a chart the operator hasn't touched as more history streams
+in; picking the control by hand always overrides it, and a dashboard
+widget's own saved window (`window_s`) never goes through this default at
+all.
 
 ## Chart keyboard shortcuts
 

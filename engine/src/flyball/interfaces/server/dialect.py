@@ -76,7 +76,18 @@ def _time_keys(annotation: Any) -> dict[str, Any] | None:
     return keys or None
 
 
-_FOLDS: dict[type[Command], tuple[str, dict[str, Any]] | None] = {}
+_TIME_FIELDS: dict[type[Command], list[tuple[str, dict[str, Any]]]] = {}
+
+
+def _time_fields(command: type[Command]) -> list[tuple[str, dict[str, Any]]]:
+    """Every duration or rate field of `command`, with the flat keys it may be spelt with."""
+    if command not in _TIME_FIELDS:
+        _TIME_FIELDS[command] = [
+            (name, keys)
+            for name, annotation in get_type_hints(command).items()
+            if name != "tag" and (keys := _time_keys(annotation)) is not None
+        ]
+    return _TIME_FIELDS[command]
 
 
 def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
@@ -86,20 +97,32 @@ def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
     Only when exactly one field is a duration or rate; otherwise flat keys
     would be ambiguous.
     """
-    if command not in _FOLDS:
-        candidates = [
-            (name, keys)
-            for name, annotation in get_type_hints(command).items()
-            if name != "tag" and (keys := _time_keys(annotation)) is not None
-        ]
-        _FOLDS[command] = candidates[0] if len(candidates) == 1 else None
-    return _FOLDS[command]
+    fields = _time_fields(command)
+    return fields[0] if len(fields) == 1 else None
 
 
 def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> dict[str, Any]:
-    """Gather flat time keys into the field they stand for."""
+    """Gather flat time keys into the field they stand for.
+
+    Raises:
+        StepError: A flat time key where `command` has more than one time
+            field, so it could belong to any of them.
+    """
     fold = foldable(command)
     if fold is None:
+        fields = _time_fields(command)
+        if len(fields) > 1:
+            names = {name for name, _ in fields}
+            flat = sorted(
+                key
+                for key in arguments
+                if key not in names and any(key in keys for _, keys in fields)
+            )
+            if flat:
+                raise StepError(
+                    f"{where}: {flat} is ambiguous: it could belong to any of "
+                    f"{sorted(names)}; write it inside one of them"
+                )
         return arguments
     name, keys = fold
     flat = {key: arguments.pop(key) for key in list(arguments) if key in keys}

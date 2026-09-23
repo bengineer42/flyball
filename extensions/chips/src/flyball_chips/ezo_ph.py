@@ -20,7 +20,6 @@ protocol error, not a reading, and raises.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
@@ -32,14 +31,10 @@ from flyball.hardware.uart import UartLink
 
 from flyball_chips._links import UartLinkConfig
 
-READ_COMMAND = b"R\r"
-"""'Returns a single reading' (datasheet p.16)."""
+from ._ezo import decode_text, read_frame
 
 READ_DELAY_S = 1.0
 """The datasheet's single-reading mode: the pH frame follows one second later."""
-
-OK_FRAME = b"*OK\r"
-"""The (default-enabled) command-acknowledged response code; not a reading."""
 
 pH = Fraction.unit("pH", "pH", 1.0, scale=(0.0, 14.0))
 PH = Quantity("pH", pH)
@@ -52,9 +47,7 @@ def parse_ph(frame: bytes) -> float:
         HardwareError: A `*`-prefixed status/error frame (`*ER`, `*OV`, `*UV`, ...)
             in place of a reading, or a frame that is not a decimal number.
     """
-    text = frame.decode("ascii", errors="replace").strip().rstrip("\r")
-    if text.startswith("*"):
-        raise HardwareError(f"EZO-pH status frame instead of a reading: {text!r}")
+    text = decode_text(frame, "EZO-pH")
     try:
         return float(text)
     except ValueError as exc:
@@ -73,12 +66,7 @@ class EzoPhProbe:
 
     def read(self) -> float:
         """The current pH: one `R` command, one reading frame (after any `*OK`)."""
-        self.link.write(READ_COMMAND)
-        if self.sleep:
-            time.sleep(READ_DELAY_S)
-        frame = self.link.read_until(b"\r")
-        if frame == OK_FRAME:
-            frame = self.link.read_until(b"\r")
+        frame = read_frame(self.link, self.sleep, READ_DELAY_S)
         return parse_ph(frame)
 
 
@@ -121,9 +109,7 @@ EzoPh.config_type = EzoPhConfig  # the config is declared after the device it bu
 
 
 __all__ = [
-    "OK_FRAME",
     "PH",
-    "READ_COMMAND",
     "READ_DELAY_S",
     "EzoPh",
     "EzoPhConfig",

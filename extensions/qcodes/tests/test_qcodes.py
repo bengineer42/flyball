@@ -101,6 +101,15 @@ class TestQCoDeS:
         samples = list(device.read(5))
         assert [s.by_name() for s in samples] == [{"volt": 1.25}], "curr is not published"
 
+    def test_a_slightly_early_poll_still_counts_as_due(self, fresh):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        inst = FakeInstrument("smu")
+        device = QCoDeS(fresh("smu"), inst, {"volt": QCoDeSSignal(property="volt", publish=True)})
+        device.signals["volt"].override(poll_s=1.0)
+        list(device.read(0))
+        samples = list(device.read(int(0.95e9)))
+        assert [s.by_name() for s in samples] == [{"volt": 1.25}]
+
     def test_read_skips_a_demand_with_no_getter(self, fresh):
         inst = FakeInstrument("smu")
         inst.parameters["write_only"] = FakeParameter("write_only", gettable=False)

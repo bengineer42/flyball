@@ -33,7 +33,8 @@ installed.
 ## Devices
 
 Every driver is a `Device` with a tree of signals, each `[R]`eadable,
-`[P]`ublishing or `[W]`ritable (`temp-docs/DEVICE-MODEL-PLAN.md`). Its own
+`[P]`ublishing or `[W]`ritable (see the book, *Signals: R, P, W*,
+`book/src/3-extending/model.md`). Its own
 settings sit flat beside the envelope (`driver`, `label`, `poll_s`,
 `signals`, `bound`) or under `config`; the envelope's `signals:` overrides
 range, precision, bands, limits and `poll_s` per signal.

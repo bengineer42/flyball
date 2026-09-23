@@ -66,7 +66,7 @@ def _being_written(session_id: int) -> SessionRow | None:
 
 
 @router.get("/sessions")
-async def read_sessions(
+def read_sessions(
     store: StoreDep,
     limit: int | None = Query(None, ge=1),
     kind: Annotated[
@@ -78,7 +78,7 @@ async def read_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def read_session(store: StoreDep, session_id: int) -> SessionRow:
+def read_session(store: StoreDep, session_id: int) -> SessionRow:
     return store.session(session_id)
 
 
@@ -99,7 +99,7 @@ def end_session(store: StoreDep, session_id: int) -> SessionRow:
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
-async def delete_session(store: StoreDep, session_id: int) -> None:
+def delete_session(store: StoreDep, session_id: int) -> None:
     """Everything the session recorded goes with it. Tunings made in it survive.
 
     409 for the session being recorded right now, and for the scratch record
@@ -116,7 +116,7 @@ async def delete_session(store: StoreDep, session_id: int) -> None:
 
 @router.patch("/sessions/{session_id}")
 @router.put("/sessions/{session_id}")
-async def update_session(store: StoreDep, session_id: int, body: SessionPatch) -> SessionRow:
+def update_session(store: StoreDep, session_id: int, body: SessionPatch) -> SessionRow:
     """Pin/unpin and/or rename, either field or both in one call.
 
     Pinning means a session is never aged out by `retain` or `max_store`; a
@@ -131,7 +131,7 @@ async def update_session(store: StoreDep, session_id: int, body: SessionPatch) -
 
 
 @router.post("/sessions/{session_id}/keep", status_code=201)
-async def keep_range(store: StoreDep, session_id: int, body: KeepRange) -> SessionRow:
+def keep_range(store: StoreDep, session_id: int, body: KeepRange) -> SessionRow:
     """Copy a range of a session into a new, closed session of its own, and return it.
 
     Made for the scratch record: `start_ns` and `end_ns` are absolute, in the
@@ -146,30 +146,30 @@ async def keep_range(store: StoreDep, session_id: int, body: KeepRange) -> Sessi
 
 
 @router.get("/sessions/{session_id}/documents")
-async def read_session_documents(store: StoreDep, session_id: int) -> list[Any]:
+def read_session_documents(store: StoreDep, session_id: int) -> list[Any]:
     """The session as Bluesky event-model documents: `[[name, doc], ...]` in order."""
     return [[name, doc] for name, doc in documents(store, session_id)]
 
 
 @router.get("/sessions/{session_id}/devices")
-async def read_devices(store: StoreDep, session_id: int) -> list[DeviceRow]:
+def read_devices(store: StoreDep, session_id: int) -> list[DeviceRow]:
     return store.devices(session_id)
 
 
 @router.get("/sessions/{session_id}/signals")
-async def read_signals(store: StoreDep, session_id: int) -> list[SignalRow]:
+def read_signals(store: StoreDep, session_id: int) -> list[SignalRow]:
     """Every signal the session recorded, by device; `address` keys the series and writes."""
     return store.signals(session_id)
 
 
 @router.get("/sessions/{session_id}/writes")
-async def read_writes(store: StoreDep, session_id: int) -> list[WriteRow]:
+def read_writes(store: StoreDep, session_id: int) -> list[WriteRow]:
     """The writable signals whose write states the session recorded."""
     return store.writes(session_id)
 
 
 @router.get("/sessions/{session_id}/controllers")
-async def read_controllers(store: StoreDep, session_id: int) -> list[ControllerRow]:
+def read_controllers(store: StoreDep, session_id: int) -> list[ControllerRow]:
     return store.controllers(session_id)
 
 
@@ -179,7 +179,7 @@ async def read_controllers(store: StoreDep, session_id: int) -> list[ControllerR
 
 
 @router.get("/sessions/{session_id}/series/{address}")
-async def read_series(
+def read_series(
     store: StoreDep,
     session_id: int,
     address: str,
@@ -207,7 +207,7 @@ async def read_series(
 
 
 @router.get("/sessions/{session_id}/writes/{address}")
-async def read_write_states(
+def read_write_states(
     store: StoreDep,
     session_id: int,
     address: str,
@@ -219,7 +219,7 @@ async def read_write_states(
 
 
 @router.get("/sessions/{session_id}/ticks/{controller}")
-async def read_ticks(
+def read_ticks(
     store: StoreDep,
     session_id: int,
     controller: str,
@@ -232,7 +232,7 @@ async def read_ticks(
 
 
 @router.get("/sessions/{session_id}/events")
-async def read_events(
+def read_events(
     store: StoreDep,
     session_id: int,
     start_ns: int | None = None,
@@ -243,7 +243,7 @@ async def read_events(
 
 
 @router.get("/sessions/{session_id}/spans")
-async def read_spans(store: StoreDep, session_id: int) -> list[Span]:
+def read_spans(store: StoreDep, session_id: int) -> list[Span]:
     """In start order; nest by `parent_id`."""
     return store.spans(session_id)
 
@@ -263,24 +263,24 @@ class SaveTuning(BaseModel):
 
 
 @router.get("/tunings")
-async def read_tunings(store: StoreDep) -> list[TuningRow]:
+def read_tunings(store: StoreDep) -> list[TuningRow]:
     """The newest version of every name."""
     return store.tunings()
 
 
 @router.get("/tunings/{name}")
-async def read_tuning(store: StoreDep, name: str) -> TuningRow:
+def read_tuning(store: StoreDep, name: str) -> TuningRow:
     return store.tuning(name)
 
 
 @router.get("/tunings/{name}/history")
-async def read_tuning_history(store: StoreDep, name: str) -> list[TuningRow]:
+def read_tuning_history(store: StoreDep, name: str) -> list[TuningRow]:
     """Every version, newest first."""
     return store.tuning_history(name)
 
 
 @router.put("/tunings/{name}", status_code=201)
-async def save_tuning(store: StoreDep, name: str, body: SaveTuning) -> TuningRow:
+def save_tuning(store: StoreDep, name: str, body: SaveTuning) -> TuningRow:
     """Add a version under `name`; earlier versions are kept."""
     return store.save_tuning(
         name, body.law, body.config, body.created_ns, body.session_id, body.controller, body.notes
@@ -288,7 +288,7 @@ async def save_tuning(store: StoreDep, name: str, body: SaveTuning) -> TuningRow
 
 
 @router.delete("/tunings/{name}", status_code=204)
-async def delete_tuning(store: StoreDep, name: str) -> None:
+def delete_tuning(store: StoreDep, name: str) -> None:
     """Every version."""
     store.delete_tuning(name)
 

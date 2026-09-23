@@ -9,6 +9,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from anyio import to_thread
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -82,17 +83,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        rig = current_rig()
-        if rig is not None:
+        # Joins threads and writes the store: on a worker thread, as every store call is.
+        await to_thread.run_sync(_stop)
+
+
+def _stop() -> None:
+    rig = current_rig()
+    if rig is not None:
+        with contextlib.suppress(Exception):
+            rig.polling.stop_all()
+        # Close the session so it does not stay "open" forever in the store;
+        # the runner's sweeps stop first, or they would open the scratch record again.
+        if (retention := current_retention()) is not None:
             with contextlib.suppress(Exception):
-                rig.polling.stop_all()
-            # Close the session so it does not stay "open" forever in the store;
-            # the runner's sweeps stop first, or they would open the scratch record again.
-            if (retention := current_retention()) is not None:
-                with contextlib.suppress(Exception):
-                    retention.stop()
-            with contextlib.suppress(Exception):
-                rig.stop_recording()
+                retention.stop()
+        with contextlib.suppress(Exception):
+            rig.stop_recording()
 
 
 class _Installed:

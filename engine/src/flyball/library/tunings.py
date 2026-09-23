@@ -1,8 +1,7 @@
 """`Tuning`: a saved, named `ControlLawConfig`/`ControlLawView`, independent of any one rig.
 
-Moved off `Rig` (`brain/tasks/registry-redesign.md`, 21 Sep -- "Rig should NOT
-own it"): once a rig is "just the runtime instance," a saved/named config
-doesn't belong on it either, any more than a saved program does
+Not owned by `Rig`: a rig is just the runtime instance, and a saved/named
+config doesn't belong on it any more than a saved program does
 (`server/routes/library.py`'s program library is the same shape: saved,
 named, versioned, read by name). Standalone for now -- wiring `Rig`/the
 server to read tunings from here rather than `rig.tunings` is a future pass,

@@ -9,9 +9,11 @@ format (comments do not survive that; the stored text keeps them).
 from __future__ import annotations
 
 import hashlib
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
+from anyio import to_thread
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -108,7 +110,7 @@ def import_directory(store: Store, directory: Path, now_ns: int) -> list[Program
 
 
 @router.get("")
-async def read_programs(store: StoreDep) -> list[ProgramRow]:
+def read_programs(store: StoreDep) -> list[ProgramRow]:
     """Newest version of every name."""
     return store.programs()
 
@@ -129,25 +131,23 @@ async def read_formats() -> dict[str, str]:
 
 
 @router.get("/{name}")
-async def read_program(store: StoreDep, name: str) -> ProgramRow:
+def read_program(store: StoreDep, name: str) -> ProgramRow:
     return store.program(name)
 
 
 @router.get("/{name}/check")
-async def check_stored(
-    store: StoreDep, dialect: DialectDep, rig: RigDep, name: str
-) -> ProgramCheck:
+def check_stored(store: StoreDep, dialect: DialectDep, rig: RigDep, name: str) -> ProgramCheck:
     """Whether the newest version still parses for this rig, and what it names that it lacks."""
     return _check(store.program(name), dialect, rig)
 
 
 @router.get("/{name}/history")
-async def read_program_history(store: StoreDep, name: str) -> list[ProgramRow]:
+def read_program_history(store: StoreDep, name: str) -> list[ProgramRow]:
     return store.program_history(name)
 
 
 @router.get("/{name}/download")
-async def download_program(
+def download_program(
     store: StoreDep,
     name: str,
     format: Annotated[ProgramFormat | None, Query()] = None,
@@ -208,11 +208,13 @@ async def save_program(
         parse(raw, fmt)
     except FormatError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return store.save_program(name, fmt, raw, rig.clock.now_ns(), label=label, notes=notes)
+    # Async to read the body; the store call goes to a thread, never on the loop.
+    save = partial(store.save_program, name, fmt, raw, rig.clock.now_ns(), label=label, notes=notes)
+    return await to_thread.run_sync(save)
 
 
 @router.delete("/{name}", status_code=204)
-async def delete_program(store: StoreDep, name: str) -> None:
+def delete_program(store: StoreDep, name: str) -> None:
     """Every version."""
     store.delete_program(name)
 
@@ -222,7 +224,7 @@ class Rename(BaseModel):
 
 
 @router.post("/{name}/rename")
-async def rename_program(store: StoreDep, name: str, body: Rename) -> list[ProgramRow]:
+def rename_program(store: StoreDep, name: str, body: Rename) -> list[ProgramRow]:
     """Move the program -- every version, its whole history -- under a new name. 409 if taken."""
     return store.rename_program(name, body.name)
 

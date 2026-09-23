@@ -5,7 +5,7 @@ their signals, the polling, and the recorder. It has no opinion about what
 any controller regulates. Assembly is a handful of calls:
 
 ```python
---8<-- "oven.py:46:66"
+--8<-- "oven.py:build"
 ```
 
 ## Devices
@@ -73,7 +73,7 @@ one list append per tick. See [Storage](../6-internals/db.md).
 ## Serving
 
 ```python
---8<-- "serve.py:1:15"
+--8<-- "serve.py"
 ```
 
 `set_rig` attaches the rig to the FastAPI app and the observer that feeds

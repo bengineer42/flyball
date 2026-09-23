@@ -40,6 +40,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.dimension import Unit
 from flyball.foundation.quantities.errors import UnitNotFoundError
 from flyball.foundation.quantities.si import One
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field
 
 WORDS: dict[str, str] = {
@@ -153,7 +154,7 @@ class PyMeasure(Readable, Committable):
         self.instrument = instrument
         self.channels = dict(channels)
         self._gettable: dict[str, bool] = {}
-        self._last_read: dict[Signal, int] = {}
+        self._scan = Scan()
         available = properties(instrument)
         tree: list[SignalSpec] = []
         for key, channel in self.channels.items():
@@ -178,13 +179,6 @@ class PyMeasure(Readable, Committable):
             )
         self.bind(tree)
 
-    def _due(self, signal: Signal, time_ns: int) -> bool:
-        poll_s = signal.poll_s
-        if poll_s is None:
-            return True
-        last = self._last_read.get(signal)
-        return last is None or (time_ns - last) >= poll_s * 1e9
-
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One read per due, published, actually-readable channel under `node`.
 
@@ -194,16 +188,13 @@ class PyMeasure(Readable, Committable):
         is the value last committed, not a poll.
         """
         target = node if node is not None else self.root
-        for key, channel in self.channels.items():
-            if not self._gettable[key]:
-                continue
-            signal = self.signals[key]
-            if Access.P not in signal.access or not target.contains(signal):
-                continue
-            if not self._due(signal, time_ns):
-                continue
-            value = getattr(self.instrument, channel.property)
-            self._last_read[signal] = time_ns
+        candidates = {
+            self.signals[key]: key
+            for key in self.channels
+            if self._gettable[key] and target.contains(self.signals[key])
+        }
+        for signal in self._scan.due(candidates, time_ns, whole=False):
+            value = getattr(self.instrument, self.channels[candidates[signal]].property)
             yield Sample(self.root, time_ns, {signal: float(value)})
 
     def write_signal(self, signal: Signal, value: float) -> None:

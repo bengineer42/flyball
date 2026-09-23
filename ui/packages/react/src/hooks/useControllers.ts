@@ -56,7 +56,11 @@ export function useControllers(windowS = 3600, every?: number): { controllers: R
     if (name in next && current.seen.get(name) === version) continue;
     const last = store.controller(name)?.reading;
     const fromS = windowS < store.windowS && last ? last.time_ns / 1e9 - windowS : undefined;
-    next[name] = store.readController(name, emptyControllerView(), { ...(fromS !== undefined ? { fromS } : {}), ...(every && every > 1 ? { every } : {}) });
+    next[name] = store.readController(name, emptyControllerView(), {
+      ...(fromS !== undefined ? { fromS } : {}),
+      ...(every && every > 1 ? { every } : {}),
+      spanS: windowS,
+    });
     current.seen.set(name, version);
     changed = true;
   }

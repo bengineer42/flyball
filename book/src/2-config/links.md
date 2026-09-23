@@ -134,7 +134,9 @@ ship in); `fake_pwm` and `fake_onewire` are still `flyball-linux`'s. `uart` (tag
 `uart`, not `serial` -- that tag is the text-instrument link above) is a
 raw byte-level serial port: `write`, `read` an exact length, or `read_until`
 a terminator, for chips with their own binary or ASCII framing (`mhz19`,
-`ezo_ph`) rather than the line-based text protocol `serial` speaks.
+`ezo_ph`) rather than the line-based text protocol `serial` speaks. Its
+`port` (e.g. `/dev/ttyUSB0`) is refused at config time if it is empty or
+contains a byte no device path can (a NUL or a newline).
 
 ## From a package
 

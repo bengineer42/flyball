@@ -1,14 +1,11 @@
 """CI enforcement: every installed `flyball.configs` entry point actually registers something.
 
-Prompted by `brain/tasks/registry-redesign.md`'s root cause: the
-bluesky/qcodes/pymeasure regression, where installing a package was not the
-same as importing it, and importing was not the same as registering. An
-entry point missing a `register(catalog)` function, or one that runs and
-silently registers nothing, is otherwise invisible until a rig file needs a
-tag it should have provided. This is the "CI-level script" option
-`registry-redesign.md`'s own open item 1 picked as the only one that
-actually prevents a repeat, not just makes it easier to test for -- an
-ordinary test in the suite `make test`/CI already runs.
+Guards against the bluesky/qcodes/pymeasure regression, where installing a
+package was not the same as importing it, and importing was not the same as
+registering. An entry point missing a `register(catalog)` function, or one
+that runs and silently registers nothing, is otherwise invisible until a rig
+file needs a tag it should have provided. An ordinary test in the suite,
+so `make test`/CI already runs it -- not a separate CI-level script.
 """
 
 from __future__ import annotations
@@ -51,9 +48,7 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
 
     Laws, feedforwards and generators are all engine-only today (no
     extension ships its own), so this also confirms `control/configs.py`
-    actually registers each of the three kinds, not just laws -- the gap
-    `catalog-wiring` (devices/links) left open, per
-    `brain/tasks/registry-redesign.md`.
+    actually registers each of the three kinds, not just laws.
     """
     catalogs = Catalogs()
     catalogs.discover()

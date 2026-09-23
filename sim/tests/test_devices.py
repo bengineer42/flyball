@@ -7,6 +7,8 @@ quantity) lives in `examples/furnace/tests/test_devices.py` instead --
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from flyball.control.feedforward import Affine
 from flyball.control.laws import PI, P
@@ -18,6 +20,7 @@ from pydantic import ValidationError
 from flyball_sim import (
     DaqPort,
     DrivePort,
+    Lag,
     Noisy,
     PlantConfig,
     SimDaqConfig,
@@ -370,9 +373,7 @@ def test_a_bare_plant_needs_its_quantity_spelled_out():
         SimDaqConfig(link=plant, ports={"t": DaqPort(port="zone1")}).build("tc")
     daq = SimDaqConfig(
         link=plant,
-        ports={
-            "t": {"port": "output", "quantity": "temperature", "unit": "°C", "range": [0, 9]}
-        },
+        ports={"t": {"port": "output", "quantity": "temperature", "unit": "°C", "range": [0, 9]}},
     ).build("tc")
     assert isinstance(daq.plant, Noisy)
     t = daq.signals["t"]
@@ -381,3 +382,40 @@ def test_a_bare_plant_needs_its_quantity_spelled_out():
     assert sample.values[t] == 5.0
     with pytest.raises(ValueError, match="at least one port"):
         SimDaqConfig(link=plant, ports={}).build("tc")
+
+
+class TestABarePlantIsSteppedOncePerInstant:
+    """Two readers of one bare plant must not each step it: time would run at twice its rate."""
+
+    PORTS = {"t": {"port": "output", "quantity": "temperature", "unit": "°C"}}
+
+    def _one_second(self, plants) -> float:
+        daqs = [
+            _built(SimDaqConfig(link="p", ports=self.PORTS), f"d{i}", p)
+            for i, p in enumerate(plants)
+        ]
+        for time_ns in (0, 1_000_000_000):
+            for daq in daqs:
+                list(daq.read(time_ns))
+        return plants[0].output
+
+    def test_one_reader_is_one_time_constant(self):
+        assert self._one_second([Lag(1.0, input=1.0)]) == pytest.approx(1 - math.exp(-1))
+
+    def test_two_readers_of_one_plant_still_see_one_time_constant(self):
+        lag = Lag(1.0, input=1.0)
+        assert self._one_second([lag, lag]) == pytest.approx(1 - math.exp(-1))  # was 0.8647
+
+    def test_shared_through_separate_noise_wrappers(self):
+        lag = Lag(1.0, input=1.0)
+        self._one_second([Noisy(lag, 0.0), Noisy(lag, 0.0)])
+        assert lag.output == pytest.approx(1 - math.exp(-1))
+
+    def test_an_earlier_instant_does_not_step_it_again(self):
+        lag = Lag(1.0, input=1.0)
+        a, b = (_built(SimDaqConfig(link="p", ports=self.PORTS), n, lag) for n in "ab")
+        list(a.read(0))
+        list(a.read(1_000_000_000))
+        list(b.read(500_000_000))  # b's poll stamped a little before a's
+        list(a.read(1_000_000_000))
+        assert lag.output == pytest.approx(1 - math.exp(-1))

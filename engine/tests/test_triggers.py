@@ -65,3 +65,40 @@ class TestSignals:
             signals.register("x", Trigger())
         with pytest.raises(NotFoundError):
             signals.fire("nope")
+
+    def test_a_signal_settling_before_its_hook_is_set_still_shows_settled(self):
+        """Settled between `register` reading the outcome and setting `on_settle`."""
+        s = Trigger()
+
+        class Firing(Clock):
+            def now_ns(self) -> int:  # register stamps the state after reading the outcome
+                s.fire()
+                return super().now_ns()
+
+        signals = Triggers(Firing())
+        signals.register("early", s)
+        assert signals.state("early").outcome is Outcome.FIRED
+        assert signals.latest.get("early").outcome is Outcome.FIRED
+
+    def test_a_signal_settling_as_its_hook_is_set_is_not_overwritten_as_pending(self):
+        """Settled between `on_settle` being set and the pending state being published."""
+
+        class FiresWhenHooked(Trigger):
+            def __init__(self) -> None:
+                self._hook = None
+                super().__init__()
+
+            @property
+            def on_settle(self):  # type: ignore[override]
+                return self._hook
+
+            @on_settle.setter
+            def on_settle(self, hook) -> None:
+                self._hook = hook
+                if hook is not None:
+                    self.fire()
+
+        signals = Triggers(Clock())
+        signals.register("hooked", FiresWhenHooked())
+        assert signals.state("hooked").outcome is Outcome.FIRED
+        assert signals.latest.get("hooked").outcome is Outcome.FIRED

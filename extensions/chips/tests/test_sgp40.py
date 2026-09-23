@@ -84,3 +84,15 @@ class TestSgp40Device:
         assert data[2:5] == sgp40.word_with_crc(sgp40.humidity_ticks(60.0))
         assert data[5:8] == sgp40.word_with_crc(sgp40.temperature_ticks(18.0))
         assert gas.config.address == sgp40.SGP40_ADDRESS
+
+    def test_config_round_trips_the_compensation_sources(self):
+        bus = FakeI2c()
+        gas = sgp40.Sgp40(
+            "gas",
+            bus,
+            sleep=False,
+            humidity_source="air.humidity",
+            temperature_source="air.temperature",
+        )
+        assert gas.config.humidity_source == "air.humidity"
+        assert gas.config.temperature_source == "air.temperature"

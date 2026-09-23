@@ -1,4 +1,5 @@
 import uPlot from "uplot";
+import { fixed, tickDigits } from "@flyball/client";
 
 /**
  * How a chart's y axis is scaled: fit the data (`"auto"`), the signal's
@@ -47,6 +48,24 @@ export const edgeTicks: uPlot.Axis.Filter = (u, splits, axisIdx) => {
   }
   return splits.map((s, i) => (i === lo || i === hi ? s : null));
 };
+
+/**
+ * An axis' tick labels at a signal's own precision, instead of uPlot's own
+ * significant-figure guess (which over-shows digits on a near-flat trace) --
+ * but never fewer decimals than tell one tick from the next. Defensive
+ * against `null`: uPlot's own size-convergence pass (`axesCalc`) and a
+ * `filter` like `edgeTicks` (which nulls out every split but the two it
+ * keeps) both hand this callback splits arrays that carry `null` entries, so
+ * a plain `.toFixed()` throws mid-layout and leaves the canvas unsized --
+ * the chart opens to an empty box. `Number.isFinite` catches `null` and
+ * `NaN` alike.
+ */
+export const axisValues =
+  (precision: number): uPlot.Axis.Values =>
+  (_u, splits) => {
+    const decimals = tickDigits(splits, precision);
+    return splits.map((v) => (Number.isFinite(v) ? fixed(v, decimals) : ""));
+  };
 
 /** uPlot `range` for a y scale, or undefined to let uPlot autoscale. */
 export function yRange(

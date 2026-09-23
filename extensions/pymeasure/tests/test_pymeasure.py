@@ -131,6 +131,17 @@ class TestPyMeasure:
         samples = list(device.read(1))
         assert [s.by_name() for s in samples] == [{"voltage": 1.5}]
 
+    def test_a_slightly_early_poll_still_counts_as_due(self, fresh):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("smu"), inst, {"voltage": PyMeasureSignal(property="voltage", publish=True)}
+        )
+        device.signals["voltage"].override(poll_s=1.0)
+        list(device.read(0))
+        samples = list(device.read(int(0.95e9)))
+        assert [s.by_name() for s in samples] == [{"voltage": 1.5}]
+
     def test_blocking_is_true(self, fresh):
         device = PyMeasure(fresh("x"), FakePyMeasureInstrument(), {})
         assert device.blocking is True

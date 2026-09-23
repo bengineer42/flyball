@@ -1,7 +1,7 @@
 """Apply the numbered SQL files in `flyball/db/migrations` in order.
 
-Each file (`NNNN_name.sql`) is one transaction; `schema_version` records the
-last applied.
+Each file (`NNNN_name.sql`) is one transaction, together with the
+`schema_version` row that records it as the last applied.
 """
 
 from __future__ import annotations
@@ -48,9 +48,16 @@ def migrate(connection: sqlite3.Connection) -> int:
         sql = available()[version].read_text()
         try:
             with connection:
-                connection.executescript("BEGIN;\n" + sql + "\nCOMMIT;")
-                connection.execute("DELETE FROM schema_version")
-                connection.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+                # The version write is part of the script, so a failure in
+                # either rolls both back rather than leaving the schema ahead
+                # of its recorded version.
+                connection.executescript(
+                    "BEGIN;\n"
+                    + sql
+                    + "\n;\nDELETE FROM schema_version;\n"
+                    + f"INSERT INTO schema_version (version) VALUES ({version:d});\n"
+                    + "COMMIT;"
+                )
         except sqlite3.Error as e:
             raise SchemaError(f"migration {version:04d} failed: {e}") from e
     return current(connection)

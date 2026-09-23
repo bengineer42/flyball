@@ -4,7 +4,7 @@
 // Exercises the dashboards editor brief (UI_HANDOFF.md §2 / DESIGN-SPEC.md §4) end to end against
 // a live rig. Exits non-zero and prints a summary of failures; safe to re-run (cleans up its own
 // "e2e-test"/"e2e-import" dashboards first and last).
-import { chromium } from '/home/ben/.npm/_npx/9833c18b2d85bc59/node_modules/playwright-core/index.mjs';
+import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,7 +52,7 @@ async function cleanup() {
 
 await cleanup();
 
-const browser = await chromium.launch({ executablePath: '/home/ben/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' });
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 page.on('console', (m) => {

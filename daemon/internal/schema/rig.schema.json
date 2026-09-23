@@ -640,6 +640,18 @@
           "default": 1.0,
           "title": "B",
           "type": "number"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N"
         }
       },
       "required": [
@@ -900,6 +912,18 @@
           "default": 1.0,
           "title": "B",
           "type": "number"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N"
         }
       },
       "title": "PIDConfig",
@@ -1204,6 +1228,18 @@
           "default": 1.0,
           "title": "B",
           "type": "number"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N"
         }
       },
       "required": [
@@ -1703,7 +1739,7 @@
     },
     "ScpiSignal": {
       "additionalProperties": false,
-      "description": "One line of a `scpi` device's tree: a query, a write template, or both.\n\n`query` alone: an output, `[RP]`. `write`, with or without `query`: a\ndemand, `[RPW]` -- its readback is the value last committed. Metadata\nsuch as range, precision and limits are not here -- they are the\nenvelope's `signals:` overrides (plan \u00a71.5), which apply to any driver's\ntree.",
+      "description": "One line of a `scpi` device's tree: a query, a write template, or both.\n\n`query` alone: an output, `[RP]`. `write`, with or without `query`: a\ndemand, `[RPW]` -- its readback is the value last committed. Metadata\nsuch as range, precision and limits are not here -- they are the\nenvelope's `signals:` overrides, which apply to any driver's\ntree.",
       "properties": {
         "query": {
           "anyOf": [

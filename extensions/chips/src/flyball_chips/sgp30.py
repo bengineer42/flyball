@@ -12,10 +12,10 @@ datasheet has the host read the baseline periodically (about once an hour)
 and write it back after a power cycle, so `Sgp30Sensor.get_baseline` /
 `set_baseline` are part of the API, not an omission.
 
-[Unverified] The write order of the two baseline words in `set_baseline`
-(CO2eq then TVOC, mirroring the order `get_baseline` returns them) follows
-the common convention of Sensirion's own embedded-sgp driver rather than a
-directly re-read datasheet table; treat it as unconfirmed.
+The two baseline words go back in the reverse of the order they come out:
+`get_baseline` reads CO2eq then TVOC, `set_baseline` writes TVOC then CO2eq
+(datasheet v1.0, "Set and Get Baseline"; Sensirion's embedded-sgp
+`sgp30_set_iaq_baseline` does the same).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from typing import NamedTuple
 
 from flyball.foundation.config import resolve
 from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import command as device_command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import PartsPerBillion, PartsPerMillion
 from flyball.hardware.i2c import I2cLink
@@ -103,13 +104,16 @@ class Sgp30Sensor:
         return Baseline(co2eq, tvoc)
 
     def set_baseline(self, baseline: Baseline) -> None:
-        """Restores a baseline read earlier, typically just after `init_air_quality`."""
+        """Restores a baseline read earlier, typically just after `init_air_quality`.
+
+        The chip takes the words as (TVOC, CO2eq), the reverse of `get_baseline`'s order.
+        """
         self.link.write(
             self.address,
             [
                 *command(SET_IAQ_BASELINE),
-                *word_with_crc(baseline.co2eq),
                 *word_with_crc(baseline.tvoc),
+                *word_with_crc(baseline.co2eq),
             ],
         )
 
@@ -150,17 +154,29 @@ class Sgp30(Readable):
         co2eq, tvoc = self.sensor.measure()
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
 
+    @device_command
+    def baseline(self) -> Baseline:
+        """The current IAQ baseline, to save and pass back in as the `baseline` config field."""
+        return self.sensor.get_baseline()
+
 
 class Sgp30Config(DriverConfig[Sgp30], tag="sgp30"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
     address: int = Field(default=SGP30_ADDRESS, ge=0x03, le=0x77)
+    baseline: tuple[int, int] | None = Field(
+        default=None,
+        description="[co2eq, tvoc] IAQ baseline words to restore at startup, as read back "
+        "earlier from Sgp30Sensor.get_baseline; omit to let the chip's own algorithm "
+        "re-settle from cold.",
+    )
 
     def build(self, name: str, label: str | None = None) -> Sgp30:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Sgp30(name, resolve(self.link), self.address, label=label)
+        baseline = None if self.baseline is None else Baseline(*self.baseline)
+        return Sgp30(name, resolve(self.link), self.address, baseline=baseline, label=label)
 
 
 Sgp30.config_type = Sgp30Config

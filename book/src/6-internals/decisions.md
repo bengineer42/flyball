@@ -18,6 +18,8 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-013** | Extensions restructure: `engine/` stays pure core plus hardware protocols only, `sim/` is new (zero third-party deps, pulled in by `flyball[web]`), `extensions/` holds every dependency-gated package (`linux`, `chips`, `modbus`, `visa`, `bluesky`, `qcodes`, `pymeasure`), `examples/furnace/` is the one worked `MultiPlant` scenario moved out | decided |
 | **D-014** | Engine restructure: `core/` split into `foundation/{device,time,router,config,quantities}/`; six implicit global registries (`Config.registry`, `ControlLaws`, `Feedforwards`, `SetPointGenerators`, and `sequencing.command.Commands`) replaced by an explicit `Catalog`/`Config`/`Instance` system in `model/`, now wired into the real build path (`flyball-runner` builds one `Catalogs`, `discover()`s it, and every consumer -- `DeviceEntry.build`, `RigConfig.model_validate`/`model_json_schema`, `/api/drivers`, `/api/drivers/reload`, program-step parsing -- reads from it, not a bare `ClassVar` dict); `rig/`, `library/`, `record/` (renamed from `db/`), `interfaces/` (`server`+`mcp`+`client` grouped), `sequencing/` (renamed from `programmer/`) complete the six-layer reorg | decided |
 | **D-015** | Dashboards: no front-end stack change (the document / kind-registry / schema-form / same-renderer shape is already the one page builders use); widgets gain view × binding × shape -- a shape computed from the signal's metadata, a `view` with `auto` resolved by one `defaultViewFor(shape)` table shared by the generated Overview, the gauge and the pickers, `accepts(shape)` per kind, a by-signal tab in the Add drawer; per-breakpoint stored layouts pending | decided, not yet built |
+| **D-027** | Store errors are classified three ways: a constraint violation is a 409, a store that cannot be reached a 503, anything else stays a 500 because it is a bug; the classification lives in the store's two connection helpers and the existing error map finds it through the class hierarchy | decided |
+| **D-029** | Store work never runs on the event loop: store routes are plain `def` behind four slots, and a session delete or trim goes in batches with the lock released between, marked so a cut-off delete is visible and finished at startup -- atomicity of a delete is given up | decided |
 | **D-030** | Licence: **MIT**, with a copy in every package root (PEP 639 forbids `..` in `license-files`, so one file at the repository root cannot reach the ten Python packages or the npm ones). Apache-2.0 was recommended first and withdrawn: its patent grant covers only *contributors'* patents, which for a solo author with none is an empty set, and the instrumentation field's own publishers ship MIT (National Instruments' `nidaqmx-python`, Microsoft's QCoDeS, Zurich Instruments' `zhinst-toolkit`). MIT keeps driver code flowing both ways with the MIT/BSD projects flyball already adapts to. Contributions are certified by a **DCO** sign-off rather than a CLA; a CLA would additionally allow relicensing others' work later, and can be added the day that matters — but only for contributions from that day on | decided |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
@@ -25,10 +27,11 @@ chapter describes intent rather than fact, it says which.
 
 ## Open questions
 
-- **Limits and interlocks.** A writable signal now carries `limits`,
+- **Limits and clamps.** A writable signal now carries `limits`,
   clamped on every demand (D-006) — that closes the "no setpoint bounds"
-  half of this. Still open: no rate-of-change clamp, no runaway detection,
-  no failsafe on a stale sensor.
+  half of this. A rate-of-change clamp (`max_rate`) and a hold on a stale
+  sensor (`stale_after`) followed ([`signals`](../2-config/devices/index.md#signals));
+  still open: runaway detection.
 - **Adaptation in control.** Estimator and retune policy exist; wiring them
   into a controller is not done.
 - **Model-based control.** MPC is the natural home for limits and would take

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -40,6 +41,18 @@ class SignalOverride(BaseModel):
     readable: bool | None = None
     publishing: bool | None = None
     writable: bool | None = None
+
+    @field_validator("range", "warn", "alarm", "limits")
+    @classmethod
+    def _finite_and_not_inverted(cls, value: Band | None, info: Any) -> Band | None:
+        if value is None:
+            return value
+        lo, hi = value
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            raise ValueError(f"{info.field_name} {value!r}: must be finite")
+        if lo > hi:
+            raise ValueError(f"{info.field_name} {value!r}: inverted, low above high")
+        return value
 
     @field_validator("access")
     @classmethod

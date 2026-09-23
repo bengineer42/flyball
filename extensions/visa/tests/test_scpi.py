@@ -1,4 +1,4 @@
-"""The generic `scpi` device, and the bench rig from plan §2 built over fake_text links."""
+"""The generic `scpi` device, and the bench rig built over fake_text links."""
 
 from __future__ import annotations
 
@@ -73,6 +73,14 @@ class TestScpi:
         third = list(dev.read(11 * NS))
         assert {k for s in third for k in s.by_name()} == {"a", "b"}, "both due by 11s"
 
+    def test_a_slightly_early_poll_still_counts_as_due(self):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        link = FakeTextLink({"A?": "1"})
+        dev = Scpi("d", link, {"a": ScpiSignal(query="A?", unit="V")})
+        dev.signals["a"].override(poll_s=1.0)
+        list(dev.read(0))
+        assert [s.by_name() for s in dev.read(int(0.95 * NS))] == [{"a": 1.0}]
+
     def test_a_write_only_signal_has_no_query(self):
         link = FakeTextLink({})
         psu = Scpi(
@@ -99,7 +107,7 @@ class TestScpi:
         assert fake.blocking is False
 
 
-# region The bench rig, plan §2, over fake_text links
+# region The bench rig, over fake_text links
 
 
 def bench_document() -> dict:
@@ -195,7 +203,9 @@ class TestBenchRig:
         tags = {
             shape["properties"]["driver"]["const"]
             for variant in by_driver["oneOf"]
-            for shape in variant["oneOf"]
+            # `.get`: the layer variants (an entry that only adds to a base's device, and `null`
+            # to remove one) have no nested `oneOf` and name no driver.
+            for shape in variant.get("oneOf", [])
         }
         assert "scpi" in tags
 

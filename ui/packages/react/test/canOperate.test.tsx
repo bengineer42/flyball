@@ -7,6 +7,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 // jsdom) as a side effect of import alone -- stubbed out since these tests never render a trend.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     setData() {}
     setSize() {}
     destroy() {}

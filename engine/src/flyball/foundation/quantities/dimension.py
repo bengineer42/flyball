@@ -263,7 +263,7 @@ class Unit:
         if (unit := _units.get(symbol)) is not None:
             return unit
         if "/" in symbol:
-            num, _, den = symbol.partition("/")
+            num, _, den = symbol.rpartition("/")
             return cls.get(num) / cls.get(den)
         if "·" in symbol:
             a, _, b = symbol.partition("·")

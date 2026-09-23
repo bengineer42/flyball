@@ -11,6 +11,7 @@ bound objects.
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
@@ -238,11 +239,15 @@ class Rig:
         return event
 
     def write_conditions(self) -> list[tuple[str, Condition]]:
-        """Bus failures the writers of blocking devices are seeing now, by device name."""
+        """Bus failures the writers of blocking devices are seeing now, by device name.
+
+        Read from a snapshot, not under the lock: the async health route
+        calls it on the event loop, which must not wait on a delivery.
+        """
         return [
-            (device.name, writer.failed)
-            for device, writer in self._writers.items()
-            if writer.failed is not None
+            (device.name, failed)
+            for device, writer in list(self._writers.items())
+            if (failed := writer.failed) is not None
         ]
 
     def stop(self) -> None:
@@ -480,7 +485,8 @@ class Rig:
             AddressNotFoundError: A name does not resolve under `node`.
             ConflictError: A key is not a writable signal under `node`, or
                 is driven by a controller.
-            ValueError: No values, or one signal named twice.
+            ValueError: No values, one signal named twice, or a value that is
+                not finite (NaN, infinity).
         """
         if not values:
             raise ValueError(f"Demand on '{node.address}' carries no values")
@@ -515,6 +521,9 @@ class Rig:
             if signal in resolved:
                 raise ValueError(f"Demand on '{node.address}' names '{signal.address}' twice")
             resolved[signal] = float(value)
+            if not math.isfinite(resolved[signal]):
+                # NaN slips through every comparison: the limits, the rate clamp.
+                raise ValueError(f"Demand on '{signal.address}' is not finite: {value!r}")
         clamped: dict[Signal, float] = {}
         requested: dict[Signal, float] = {}
         now_ns = self.clock.now_ns()
@@ -562,12 +571,12 @@ class Rig:
     def _rate_clamped(self, signal: Signal, value: float, max_rate: Rate, now_ns: int) -> float:
         """`value`, held to at most `max_rate` away from the last commit's, over the elapsed time.
 
-        Nothing to compare against yet (no prior commit): `value` passes
-        through unclamped, as the first demand on a signal has nothing to
-        ramp from.
+        Nothing to compare against yet (no prior commit), or a last value
+        that is not finite (a readback gone wrong): `value` passes through
+        unclamped, as the first demand on a signal has nothing to ramp from.
         """
         last = self.router.latest.get(signal)
-        if last is None:
+        if last is None or not math.isfinite(last.value):
             return value
         elapsed_s = (now_ns - last.time_ns) / 1e9
         if elapsed_s <= 0:
@@ -664,12 +673,22 @@ class Rig:
             pushed, self._pushed = self._pushed, []
             self._deliver_samples(pushed, noted=True)
 
-    def written(self, device: Committable, time_ns: int) -> None:
-        """A blocking device's writer finished a commit: publish, deliver and record its states."""
+    def written(self, device: Committable, time_ns: int, before: Mapping[Signal, int]) -> None:
+        """A blocking device's writer finished a commit: publish, deliver and record its states.
+
+        `before` is the router's count per signal from just before the
+        commit ran, as in `_states`: a signal counted since was the driver's
+        readback.
+
+        A device removed while the write was in flight is not the rig's any
+        more: its states are dropped.
+        """
         with self.lock:
+            if self.devices.get(device.name) is not device:
+                return
             self._touched = {}  # the context for the readbacks `_states` pushes
             try:
-                filled = self._states(device, time_ns, {})
+                filled = self._states(device, time_ns, before)
             finally:
                 self._touched = None
             self._deliver(filled)
@@ -780,7 +799,12 @@ class Rig:
             self._changed(f"removed device {name}")
 
     def _drop_device(self, device: Device) -> None:
-        """Undo `add_device` and `bind_inputs`, stop its polling; controllers are the caller's."""
+        """Undo `add_device` and `bind_inputs`, stop its polling; controllers are the caller's.
+
+        Waits for no thread: the caller holds the lock, which a read or a
+        write in flight needs to report. Each finds the device gone and drops
+        what it has.
+        """
         self.polling.stop(device.name)
         for signal in list(self._observers):
             if signal.device is device:
@@ -807,7 +831,7 @@ class Rig:
             self.router.cuts.pop(node, None)
             self.samples.discard(node.address)
         if (writer := self._writers.pop(device, None)) is not None:
-            writer.stop()
+            writer.stop(join=False)  # a write in flight lands in `written`, which drops it
         self.release(device.name)
         device.router = Router()
 
@@ -820,33 +844,35 @@ class Rig:
         """
         from flyball.runtime.config import ControllerEntry, RigConfig
 
-        controllers = {
-            name: ControllerEntry(
-                signal=c.source.address,
-                law=c.law.config if c.law is not None else None,
-                # The file's default: the setpoint itself. Left out, as a file would.
-                feedforward=None
-                if c.feedforward.config.tag == "setpoint"
-                else c.feedforward.config,
-                default=self.controllers.default == name,
-                min_period_s=c.min_period_s,
-            )
-            for name, c in self.controllers.items()
-        }
-        links = {
-            name: {
-                "tag": link.config_tag,
-                **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+        with self.lock:  # a consistent view: nothing added or removed while it is read
+            controllers = {
+                name: ControllerEntry(
+                    signal=c.source.address,
+                    law=c.law.config if c.law is not None else None,
+                    # The file's default: the setpoint itself. Left out, as a file would.
+                    feedforward=None
+                    if c.feedforward.config.tag == "setpoint"
+                    else c.feedforward.config,
+                    default=self.controllers.default == name,
+                    min_period_s=c.min_period_s,
+                )
+                for name, c in self.controllers.items()
             }
-            for name, link in self.link_entries.items()
-        }
-        config = RigConfig.model_validate({
-            "name": self.name,
-            **self.header,
-            "links": links,
-            "devices": dict(self.entries),
-            "controllers": controllers,
-        })
+            links = {
+                name: {
+                    "tag": link.config_tag,
+                    **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+                }
+                for name, link in self.link_entries.items()
+            }
+            loaded = {
+                "name": self.name,
+                **self.header,
+                "links": links,
+                "devices": dict(self.entries),
+                "controllers": controllers,
+            }
+        config = RigConfig.model_validate(loaded)
         # Defaults left out, as a hand-written file leaves them: a saved rig
         # says what was chosen, not everything a driver could take.
         document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
@@ -999,18 +1025,19 @@ class Rig:
             states = self.demand(target.node, {target: demand}, by=controller)
             return None if (state := states.get(target)) is None else state.value
 
-        controller = Controller(
-            self.clock,
-            target,
-            source,
-            law=law,
-            feedforward=feedforward,
-            min_period_s=min_period_s,
-            write=write,
-        )
-        self.controllers.add(controller, default=default)
-        self._changed(f"attached controller {controller.name}")
-        return controller
+        with self.lock:  # not while a delivery is looking controllers up
+            controller = Controller(
+                self.clock,
+                target,
+                source,
+                law=law,
+                feedforward=feedforward,
+                min_period_s=min_period_s,
+                write=write,
+            )
+            self.controllers.add(controller, default=default)
+            self._changed(f"attached controller {controller.name}")
+            return controller
 
     def detach_controller(self, name: str) -> Controller:
         """Take the controller off its target: manual demands may drive it again.

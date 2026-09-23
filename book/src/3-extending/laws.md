@@ -9,11 +9,11 @@ the set is open.
 | `open_loop` | — | correction is always zero |
 | `P` | `kp` | proportional |
 | `PI` | `kp`, `ki`, `tt`, `b` | proportional-integral, back-calculation anti-windup with tracking time `tt` |
-| `PID` | `kp`, `ki`, `kd`, `tt`, `b` | derivative on the reading, not the error, so a setpoint step does not kick |
+| `PID` | `kp`, `ki`, `kd`, `tt`, `b`, `n` | derivative on the reading, not the error, so a setpoint step does not kick |
 | `IMC` | `gain`, `tau`, `dead_time`, `lam`, `derivative`, `b` | a PID whose gains come from a first-order-plus-dead-time model by the IMC rule; retune by changing the model |
 | `on_off` | `high`, `low`, `hysteresis` | a relay: `high` below the setpoint, `low` above, held inside the deadband; for an actuator that only switches |
 | `smith` | `kp`, `ki`, `tt`, `gain`, `tau`, `dead_time`, `feedforward`, `b` | a PI on a reading with the dead time predicted out: the Smith predictor |
-| `scheduled` | `points`, `tt`, `b` | a PID whose gains follow the setpoint: rows of `[setpoint, kp, ki, kd]`, interpolated, bumpless |
+| `scheduled` | `points`, `tt`, `b`, `n` | a PID whose gains follow the setpoint: rows of `[setpoint, kp, ki, kd]`, interpolated, bumpless |
 | `sliding` | `k`, `lam`, `boundary` | sliding mode on the surface `e + lam·∫e`, `±k` outside a boundary layer, proportional inside |
 
 Gains are in parallel form: `kp·e + ki·∫e + kd·de/dt`. Tuning rules stated in
@@ -25,7 +25,13 @@ ideal form (`Kp`, `Ti`, `Td`) are converted once by `Gains.of_ideal`.
   `b` (setpoint weight, default 1) scales the setpoint in the proportional
   term only: under 1 it softens the kick a setpoint step gives the demand —
   the overshoot a step test shows — without changing how disturbances are
-  rejected. Two-degree-of-freedom PID.
+  rejected. Two-degree-of-freedom PID. `tt` omitted or 0 disables
+  back-calculation anti-windup outright; a reasonable `tt` is about `Ti`
+  (`kp/ki`) on `PI`, or `√(Ti·Td)` (`Td = kd/kp`) once a derivative term
+  also acts, on `PID`/`Scheduled`. `PID`'s `n`, if given, filters the
+  derivative through a first-order lag of time constant `1/n` before it is
+  scaled by `kd` — raise it for less filtering; omitted, the derivative is
+  the raw rate on the reading.
 - **`IMC`** when you have the plant's model (from a step test or the
   identifier) and would rather keep the model in the rig file than gains
   derived from it. `lam` is the closed-loop time constant asked for; the

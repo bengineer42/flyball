@@ -7,7 +7,7 @@ import { groupByUnit } from "../src/panels/UnitCharts.js";
 import { WaitPrompt } from "../src/panels/WaitPrompt.js";
 
 /** A publishing signal as `GET /api/devices` lists one, with the given bands. */
-function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "range" | "precision" | "warn" | "alarm">> = {}): SignalOut {
+function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "range" | "precision" | "warn" | "alarm" | "limits">> = {}): SignalOut {
   return {
     name: address.slice(address.lastIndexOf(".") + 1),
     address,
@@ -34,9 +34,12 @@ function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "r
 }
 
 describe("Gauge on a SignalOut", () => {
-  it("takes the range from the signal, else pads the widest band, else 0–100", () => {
+  it("takes the range from the signal, else pads the widest band, else its limits, else 0–100", () => {
     expect(gaugeRange(signal("furnace.zone1", "°C", { range: [0, 800] }))).toEqual([0, 800]);
     expect(gaugeRange(signal("furnace.zone1", "°C", { alarm: [100, 200] }))).toEqual([90, 210]);
+    // A signal with no range and no bands but a demand clamp (a blend's 0-2 L/min flow, say) --
+    // the limits beat a meaningless 0-100 default.
+    expect(gaugeRange(signal("blender.dry_flow", "L/min", { limits: [0, 2] }))).toEqual([0, 2]);
     expect(gaugeRange(signal("furnace.zone1", "°C"))).toEqual([0, 100]);
   });
 

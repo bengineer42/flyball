@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
-import { describeSignal, describeUnit, withUnit, type SignalOut, fixed, tickDigits } from "@flyball/client";
-import { axisSize, edgeTicks, yRange, type YScale } from "./yscale.js";
+import { describeSignal, describeUnit, withUnit, type SignalOut, fixed } from "@flyball/client";
+import { axisSize, axisValues, edgeTicks, yRange, type YScale } from "./yscale.js";
 import { thin, pointCap, breakGaps } from "./thin.js";
 import { navigation } from "./navigation.js";
 import { showLatestInLegend } from "./legend.js";
@@ -164,7 +164,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
           stroke: palette.accent,
           points: { show: false },
           width: 1.5,
-          value: (_u, raw) => (raw == null ? "—" : withUnit(fixed(raw, signal.precision ?? 2), signal.unit)),
+          value: (_u, raw) => (typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, signal.precision ?? 2), signal.unit) : "—"),
         },
       ],
       axes: compact
@@ -175,7 +175,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
               // The unit alone: the legend already names the signal, and brackets read as a variable name.
               label: describeUnit(signal.unit) || label,
               size: axisSize,
-              values: (_u, ticks) => ticks.map((x) => fixed(x, tickDigits(ticks, signal.precision != null ? Math.min(signal.precision, 2) : 1))),
+              values: axisValues(signal.precision != null ? Math.min(signal.precision, 2) : 1),
               filter: edgeTicks,
             }),
           ],
@@ -241,7 +241,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         // rows than the target point count, so comparing bucketed spacing against
         // `maxGapS` would flag every bucket boundary as dead time and erase the line.
         const maxPoints = pointCap(u?.width ?? host.current?.clientWidth ?? 400);
-        source.store.read(key, view.current, { every: everyRef.current, maxPoints, maxGapS });
+        source.store.read(key, view.current, { every: everyRef.current, maxPoints, maxGapS, spanS: windowS });
         latest.current = view.current;
         u?.setData([latest.current.t, latest.current.v]);
       } else {

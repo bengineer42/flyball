@@ -36,7 +36,7 @@ from flyball_chips._links import I2cLinkConfig
 MS5611_ADDRESS = 0x77
 """CSB pin low; CSB high answers at 0x76."""
 
-RESET = 0xA0 | 0x1E  # ADC RESET: 0x1E, top bits ignored
+RESET = 0x1E  # TE MS5611-01BA03 datasheet, command table: Reset 0x1E
 _PROM_BASE = 0xA0  # PROM read: 0xA0 + 2*address, address 0..7
 _D1_BASE = 0x40  # convert D1 (pressure)
 _D2_BASE = 0x50  # convert D2 (temperature)

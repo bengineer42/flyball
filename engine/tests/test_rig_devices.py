@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import math
+import threading
+import time
+from collections.abc import Callable, Iterator
 
 import pytest
 
@@ -27,7 +30,7 @@ from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
-from flyball.rig import SourceClaimedError
+from flyball.rig import Rig, SourceClaimedError
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -717,3 +720,147 @@ def test_a_device_may_declare_its_root_atomic(rig, fresh):
     assert device.root.atomic and not Sensors(fresh("set")).root.atomic
     got = rig.read(device.root, fresh=True)
     assert isinstance(got, Sample), "an atomic root reads as one sample, like an atomic namespace"
+
+
+class Stuck(Sensors):
+    """A read that sits on the bus until released, as a slow transaction would."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.inside = threading.Event()
+        self.release = threading.Event()
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        self.inside.set()
+        self.release.wait(2.0)
+        return super().read(time_ns, node)
+
+
+class Gated(Committable):
+    """A blocking device with one demand and no readback; its commit waits on a gate."""
+
+    blocking = True
+    TREE = (SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),)
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.gate = threading.Event()
+        self.committed: list[float] = []
+
+    def commit(self, time_ns: int) -> None:
+        self.gate.wait(2.0)
+        self.committed.extend(self.pending.values())
+
+
+def _within(seconds: float, fn: Callable[[], object]) -> bool:
+    """Run `fn` on a thread; whether it returned within `seconds` of wall time."""
+    done = threading.Event()
+
+    def run() -> None:
+        fn()
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return done.wait(seconds)
+
+
+class TestRemoval:
+    """Removing a device never waits, under the rig lock, on a thread that needs the lock."""
+
+    def test_removing_a_device_mid_read_returns_at_once(self, fresh):
+        rig = Rig()  # the wall clock: the poller is a real thread
+        stuck = Stuck(fresh("stuck"))
+        rig.add_device(stuck)
+        rig.polling.start(stuck, 0.05)
+        loop = rig.polling.periodic[stuck.name]
+        assert stuck.inside.wait(1.0), "the poller is inside read()"
+        removed = _within(1.0, lambda: rig.remove_device(stuck.name))
+        stuck.release.set()
+        assert removed, "remove_device returned within 1 s"
+        assert loop._thread is not None
+        loop._thread.join(1.0)
+        assert not loop.running, "the poll loop exited after its read"
+        assert stuck.name not in rig.polling.by_name and rig.polling.runs.get(stuck.name) is None
+        assert not any(s.device is stuck for s in rig.router.latest), "the late read was dropped"
+
+    def test_a_write_completing_after_removal_is_dropped(self, rig, fresh):
+        gated = Gated(fresh("gated"))
+        rig.add_device(gated)
+        heater = gated.signals["heater"]
+        rig.demand(gated.root, {heater: 1.0})
+        writer = rig._writers[gated]
+        assert _within(0.5, lambda: rig.remove_device(gated.name)), "no wait on the writer"
+        gated.gate.set()
+        writer._thread.join(1.0)
+        assert not writer._thread.is_alive(), "the writer exited after its commit"
+        assert gated.committed == [1.0], "the write in flight reached the bus"
+        assert heater not in gated.written and heater not in rig.router.latest
+
+
+def test_a_blocking_write_with_no_readback_reports_each_committed_value(rig, fresh):
+    """The writer snapshots the router before each commit: the second write is not the first's."""
+    gated = Gated(fresh("gated"))
+    gated.gate.set()
+    rig.add_device(gated)
+    heater = gated.signals["heater"]
+    for value in (1.0, 3.0):
+        rig.demand(gated.root, {heater: value})
+        deadline = time.monotonic() + 2.0
+        while gated.written.get(heater) != WriteState(value=value):
+            assert time.monotonic() < deadline, f"{value} was reported as {gated.written[heater]}"
+            time.sleep(0.005)
+        assert rig.router.value(heater) == value
+    assert gated.committed == [1.0, 3.0]
+    rig.stop()
+
+
+class TestNonFinite:
+    """NaN and infinity never reach a device: a demand refuses them, the rate clamp survives one."""
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_a_demand_refuses_a_value_that_is_not_finite(self, rig, furnace, bad):
+        rig.demand(furnace.root, {"heater1": 10.0})
+        with pytest.raises(ValueError, match=rf"'{furnace.name}.heater1' .* not finite"):
+            rig.demand(furnace.root, {"heater2": 5.0, "heater1": bad})
+        assert furnace.inputs == {"heater1": 10.0}, "nothing of the demand was applied"
+        assert furnace.commits == 1 and furnace.pending == {}
+
+    def test_a_non_finite_last_value_is_no_rate_reference(self, rig, fresh, clock):
+        dev = RateLimited(fresh("rated"))
+        rig.add_device(dev)
+        limited = dev.signals["limited"]
+        limited.push(math.nan, clock.now_ns())  # a driver's readback gone wrong
+        assert rig.demand(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        clock.advance(1.0)
+        states = rig.demand(dev.root, {limited: 100.0})
+        assert states == {limited: WriteState(value=15.0, requested=100.0)}, "5.0 is the reference"
+
+    def test_a_non_finite_demand_over_http_is_a_422(self, rig, furnace):
+        from fastapi.testclient import TestClient
+
+        from flyball.interfaces.server import create_app, set_rig
+
+        set_rig(rig)
+        try:
+            with TestClient(create_app()) as client:
+                put = client.put(
+                    f"/api/signals/{furnace.name}.heater1",
+                    content="NaN",
+                    headers={"content-type": "application/json"},
+                )
+                assert put.status_code == 422, put.text
+                put = client.put(
+                    f"/api/devices/{furnace.name}/demand",
+                    content='{"heater1": Infinity}',
+                    headers={"content-type": "application/json"},
+                )
+                assert put.status_code == 422, put.text
+                post = client.post(
+                    f"/api/devices/{furnace.name}/commands/set_heater1",
+                    content='{"value": NaN}',
+                    headers={"content-type": "application/json"},
+                )
+                assert post.status_code == 422, post.text
+        finally:
+            set_rig(None)
+        assert furnace.commits == 0

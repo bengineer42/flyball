@@ -6,6 +6,15 @@
 Decoded from Bosch's public `BME68x_SensorAPI` reference driver (the BME680
 and BME688 share it); this driver has never been run against real hardware.
 
+**Known wrong: do not trust its readings.** Checked against Bosch's
+`BME68x_SensorAPI`, the byte offsets are off: the raw pressure is taken from
+`data[1..3]` of the 0x1D burst instead of `data[2..4]`; the `par_p*`
+coefficients are read one byte early (`par_p1` from 0x8D/0x8E, where Bosch
+has 0x8E/0x8F); and `res_heat_val`/`res_heat_range` are read from the end of
+the 0xE1 block rather than from their own registers (0x00, 0x02). The tests
+pass only because their fixtures are encoded with this module's own layout.
+The offsets stay wrong until they are re-derived from the Bosch map.
+
 BME680 is the same Bosch T/H/P calibration *family* as BME280 -- register
 words with the same names (`par_t1`, `par_p1`.. etc) turned into physical
 units by a floating-point polynomial against `t_fine` -- but the polynomials
