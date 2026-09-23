@@ -94,7 +94,8 @@ same command at every boot -- sets them once in the file; a flag given on
 the command line always wins. A runner that crashes is started again; the
 run ends with the runner. Closing the terminal does not end it: the front
 and the runner keep running, their output also goes to a log file in the
-state directory, and a notice at start says so. Ctrl-C, SIGTERM or
+state directory (`~/.local/state/flyball/front-<id>/run.log`), and a notice
+at start says so. Ctrl-C, SIGTERM or
 `flyball stop` stop it. Every flag:
 [`flyball run`](../../7-reference/cli.md#flyball-run).
 

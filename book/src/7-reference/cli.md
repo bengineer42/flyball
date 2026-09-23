@@ -176,8 +176,10 @@ for `--front-dir`), 3 (another runner holds the rig), or 4 twice (its
 front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run; a
 second Ctrl-C ends `flyball` at once. A dropped terminal or SSH session
 does not (D-038): the front and the runner ignore the hangup and keep the
-rig running, their output also goes to a log file in the state directory,
-and a notice at start says so. For a rig that should survive a reboot, use
+rig running, their output also goes to `run.log` in the front's state
+directory (below; mode 0600, rotated once to `run.log.1` past 4 MiB), and a
+notice at start says so. If the rig is already running, `flyball run` refuses
+and names the runner's pid and `flyball stop <rig file>`. For a rig that should survive a reboot, use
 [`flyballd`](#the-daemon) under systemd. A front that cannot listen does not
 stop the rig: it says so, and the rig runs on, stoppable by signal or
 `flyball stop`.
