@@ -231,12 +231,13 @@ func hasScope(e echo, verb string) bool {
 // discovery, with keys the test controls.
 
 type idp struct {
-	t    *testing.T
-	srv  *httptest.Server
-	mu   sync.Mutex
-	keys []jose.JSONWebKey
-	hits int
-	fail bool
+	t     *testing.T
+	srv   *httptest.Server
+	mu    sync.Mutex
+	keys  []jose.JSONWebKey
+	hits  int
+	fail  bool
+	delay time.Duration // before each JWKS answer
 }
 
 var jwksPaths = map[string]bool{
@@ -248,6 +249,12 @@ func newIdP(t *testing.T) *idp {
 	t.Helper()
 	p := &idp{t: t}
 	p.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.mu.Lock()
+		delay := p.delay
+		p.mu.Unlock()
+		if jwksPaths[r.URL.Path] {
+			time.Sleep(delay)
+		}
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		switch {
@@ -287,8 +294,9 @@ func (p *idp) add(kid string, priv any, alg jose.SignatureAlgorithm) {
 	p.keys = append(p.keys, jose.JSONWebKey{Key: pub, KeyID: kid, Algorithm: string(alg), Use: "sig"})
 }
 
-func (p *idp) setFail(v bool) { p.mu.Lock(); p.fail = v; p.mu.Unlock() }
-func (p *idp) jwksHits() int  { p.mu.Lock(); defer p.mu.Unlock(); return p.hits }
+func (p *idp) setFail(v bool)           { p.mu.Lock(); p.fail = v; p.mu.Unlock() }
+func (p *idp) setDelay(d time.Duration) { p.mu.Lock(); p.delay = d; p.mu.Unlock() }
+func (p *idp) jwksHits() int            { p.mu.Lock(); defer p.mu.Unlock(); return p.hits }
 
 // client trusts the IdP's certificate.
 func (p *idp) client() *http.Client { return p.srv.Client() }

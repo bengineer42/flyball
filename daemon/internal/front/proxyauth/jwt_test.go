@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -108,6 +109,47 @@ func TestUnknownKidRefetchesOnce(t *testing.T) {
 	rg.mustStatus(tok(rsaKey2, "k3"), 401)
 	if n := p.jwksHits(); n != 3 {
 		t.Fatalf("%d JWKS fetches after 61 s, want 3", n)
+	}
+}
+
+// sec F4: a JWKS fetch runs outside the key set's lock. While requests for
+// an unknown kid wait on a slow IdP, a token whose key is cached is
+// verified at once; the waiting requests share one fetch.
+func TestSlowJWKSDoesNotStallCachedKeys(t *testing.T) {
+	keys(t)
+	p := newIdP(t)
+	p.add("k1", rsaKey, jose.RS256)
+	rg := cloudflareRig(t, p, Options{})
+	tok := func(key any, kid string) map[string][]string {
+		return h("Cf-Access-Jwt-Assertion", sign(t, key, jose.RS256, kid, claims(cfIssuer, "aud-tag-1", "u-1", time.Now())))
+	}
+	rg.mustSub(tok(rsaKey, "k1"), "proxy:"+cfIssuer+"#u-1") // k1 cached
+	const slow = 3 * time.Second
+	p.setDelay(slow)
+	p.add("k2", rsaKey2, jose.RS256)
+	var wg sync.WaitGroup
+	codes := make([]int, 3)
+	for i := range codes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes[i], _ = rg.get(tok(rsaKey2, "k2"))
+		}()
+	}
+	time.Sleep(300 * time.Millisecond) // the k2 refetch is under way
+	start := time.Now()
+	rg.mustSub(tok(rsaKey, "k1"), "proxy:"+cfIssuer+"#u-1")
+	if took := time.Since(start); took > slow/2 {
+		t.Errorf("a token with a cached key took %s: it waited behind the JWKS fetch", took.Round(time.Millisecond))
+	}
+	wg.Wait()
+	for i, c := range codes {
+		if c != 200 {
+			t.Errorf("k2 request %d: %d, want 200 once the refetch brought k2", i, c)
+		}
+	}
+	if n := p.jwksHits(); n != 2 {
+		t.Errorf("%d JWKS fetches, want 2 (the first, and one refetch shared by the k2 requests)", n)
 	}
 }
 

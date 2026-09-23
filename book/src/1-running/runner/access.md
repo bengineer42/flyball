@@ -90,21 +90,33 @@ clear.
 ## When a setting is wrong
 
 A wrong setting in the front never stops the rig: it narrows who can reach
-it. A shape that is not one of the three, `sso`, a password that is missing
-or not a `$scrypt$` line, TLS files that cannot be read, a `proxy` block
-that cannot be vouched for, a `listen` that does not parse, a
-`runner.front` block that fails validation, or a rig file whose `extends`
-cannot be resolved (so its `runner.front` cannot be read) -- each makes the front serve the
-`local` shape on `127.0.0.1` (same port) instead, and say why:
+it. The front serves the `local` shape -- no sign-in, every verb -- on
+loopback instead, and says why.
+
+When the setting that is wrong belongs to a shape with credentials -- a
+shape that is not one of the three, `sso`, a password that is missing or
+not a `$scrypt$` line, TLS files that cannot be read, a `url` that does not
+parse, or a `proxy` block that cannot be vouched for -- or when the
+`runner.front` block fails validation or cannot be read because the rig file's
+`extends` cannot be resolved, so its shape is unknown, the address it was
+asked to listen on answers every request `503` with the reason, and the
+`local` shape is served somewhere else: a fresh port on `127.0.0.1`, or a
+socket beside a `unix:` one (`front.sock.local` next to `front.sock`). A
+reverse proxy on the same machine keeps forwarding to the address it was
+given, and must not find an open console there:
 
 ```
-flyball: front: the password is not a $scrypt$ line (…); plaintext passwords are refused -- `flyball password` makes one -- serving the local shape on 127.0.0.1:8000 only; the rig keeps running (D-028)
+flyball: front: the password is not a $scrypt$ line (…); plaintext passwords are refused -- `flyball password` makes one -- 127.0.0.1:8000 answers 503 (auth misconfigured), and the local shape is served on 127.0.0.1:0 only (a fresh port: the line saying where it serves names it); the rig keeps running (D-028)
+flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 ```
 
-The same line is in `GET /api/auth` (`exposure.warning`), and a
-`fallback` record goes to the front's [audit](#what-is-recorded). The
-`local` shape asked for an address beyond loopback falls back the same
-way. To serve it on the network anyway, say so for that run:
+A `listen` that does not parse serves the `local` shape on
+`127.0.0.1:8000`, with nothing to refuse.
+
+The reason is in `GET /api/auth` (`exposure.warning`, with `exposure.port`
+the console's), and a `fallback` record goes to the front's
+[audit](#what-is-recorded). The `local` shape asked for an address beyond
+loopback falls back to `127.0.0.1` on the same port. To serve it on the network anyway, say so for that run:
 `--insecure-open`, or `FLYBALL_INSECURE_OPEN=1` in the environment of
 `flyball run` or `flyballd`. There is no file key for it: a file can be
 copied from anywhere, and `extends:` would pass it on. The front then

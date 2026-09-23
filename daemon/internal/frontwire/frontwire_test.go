@@ -58,14 +58,22 @@ func TestDecodeRefusesUnknownKeysAndBadTypes(t *testing.T) {
 	}
 }
 
-// A block that cannot be read serves the local shape on loopback, keeping
-// the port asked for, with the reason in the banner (D-028).
+// A block that cannot be read serves the local shape on a fresh loopback
+// address, with the reason in the banner, and refuses (503) the address
+// asked for: the block may have asked for password or proxy, and a reverse
+// proxy may still forward there (D-028, amended: sec F1).
 func TestPlanBadConfigFallsBackToLoopback(t *testing.T) {
 	c := front.Config{Listen: "0.0.0.0:18410"}
 	p, client := Plan(c, errBad("auth: not a string"), false, ProxyOptions{})
 	defer p.Close()
-	if client != nil || p.Shape != front.ShapeLocal || p.Listen != "127.0.0.1:18410" || p.Requested != "0.0.0.0:18410" {
+	if client != nil || p.Shape != front.ShapeLocal || p.Listen != "127.0.0.1:0" || p.Requested != "0.0.0.0:18410" ||
+		p.Refused != "0.0.0.0:18410" {
 		t.Fatalf("plan = %+v", p)
+	}
+	u := front.Config{Listen: "unix:/run/flyball/front.sock"}
+	if q, _ := Plan(u, errBad("lisen: unknown key"), false, ProxyOptions{}); q.Listen != "unix:/run/flyball/front.sock.local" ||
+		q.Refused != "unix:/run/flyball/front.sock" || !strings.Contains(q.Banner(), "cannot be read") {
+		t.Fatalf("unix plan = %+v", q)
 	}
 	if !strings.Contains(p.Banner(), "auth: not a string") || !strings.Contains(p.Banner(), "D-028") {
 		t.Fatalf("banner = %q", p.Banner())

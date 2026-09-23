@@ -181,7 +181,10 @@ is read with the file's `extends` resolved; a file whose `extends` cannot
 be, an unknown key or a wrong type makes the front fall back to the `local` shape
 on `127.0.0.1` ([Access](../1-running/runner/access.md#when-a-setting-is-wrong)),
 as does every error the table marks *falls back*; a key marked *warns* is
-ignored with one warning line and its default used.
+ignored with one warning line and its default used. When `auth` asked for
+anything but `local`, or the block cannot be read, a fallback answers `503` on `listen` and serves the
+`local` shape on a fresh loopback port (or on `<socket>.local` beside a
+`unix:` one) instead.
 
 | key | type | default | |
 | --- | --- | --- | --- |
@@ -259,7 +262,7 @@ proxy: {preset: custom, jwt: {header: X-Lab-Jwt, jwks_url: https://idp.lab.org/k
 | key | |
 | --- | --- |
 | `preset` | one of the above; required |
-| `from` | unsigned presets: whose headers are believed -- `unix` (the default: the front's own socket, so `listen` must be `unix:/path`; the local user behind each new identity is recorded as `proxy.peer`), or a list of the proxy's IPs or CIDRs (then `listen` must be TCP). `/0` is refused. A loopback address, or one of this host's own, stands for every local process, so it also needs `secret_file` |
+| `from` | unsigned presets: whose headers are believed -- `unix` (the default: the front's own socket, so `listen` must be `unix:/path`; the local user behind each new identity is recorded as `proxy.peer`), or a list of the proxy's IPs or CIDRs (then `listen` must be TCP). `/0` is refused; a range wider than one host (`/32`, `/128`) without `secret_file` warns at start, since every host in it can assert any identity. A loopback address, or one of this host's own, stands for every local process, so it also needs `secret_file` |
 | `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused |
 | `issuer`, `audience` | signed presets: the exact `iss`, and a value `aud` must contain |
 | `team` | `cloudflare`: the Access team name (one DNS label) |
@@ -275,7 +278,8 @@ and `iat`), a second copy of an identity header, a copy under another
 spelling (`Remote_User`), groups without a user -- is `401`, never
 anonymous. Keys the front cannot fetch make every such request `503`; keys
 are refetched after an hour, and for an unknown key id at most once a
-minute. A proxy identity is `proxy:<issuer>#<subject>`: for an unsigned
+minute. A fetch holds up only the requests that need it, which share it: a
+token whose key is already known is checked at once. A proxy identity is `proxy:<issuer>#<subject>`: for an unsigned
 preset the issuer is the preset's name (`proxy:authelia#ben`), for a
 signed one the token's `iss`. The subject is the proxy's stable id --
 never the e-mail address: oauth2-proxy run so that the user header carries

@@ -815,20 +815,25 @@ func TestBoundRenamesCookie(t *testing.T) {
 }
 
 // Merge requirement 24: every misconfiguration serves local on loopback
-// with a banner, and the runner still receives requests.
+// with a banner, and the runner still receives requests. (A credential
+// shape's console is on a fresh port: TestFallbackRefusesRequestedListen.)
 func TestFallbacks(t *testing.T) {
 	dir := t.TempDir()
 	for name, c := range map[string]Config{
-		"plaintext password": {Listen: "0.0.0.0:9000", Auth: "password", Password: "change-me"},
-		"sso":                {Listen: "0.0.0.0:9000", Auth: "sso"},
-		"bad TLS files": {Listen: "0.0.0.0:9000", Auth: "password", Password: testScrypt,
+		"plaintext password": {Listen: "127.0.0.1:0", Auth: "password", Password: "change-me"},
+		"sso":                {Listen: "127.0.0.1:0", Auth: "sso"},
+		"bad TLS files": {Listen: "127.0.0.1:0", Auth: "password", Password: testScrypt,
 			TLS: &TLSFiles{Cert: filepath.Join(dir, "x.pem"), Key: filepath.Join(dir, "x.key")}},
-		"unknown shape":      {Listen: "0.0.0.0:9000", Auth: "kerberos"},
+		"unknown shape":      {Listen: "127.0.0.1:0", Auth: "kerberos"},
 		"non-loopback local": {Listen: "0.0.0.0:9000"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t, c)
-			if h.plan.Shape != "local" || h.plan.Listen != "127.0.0.1:9000" || h.plan.Fallback == "" {
+			want := "127.0.0.1:0"
+			if c.Auth == "" {
+				want = "127.0.0.1:9000"
+			}
+			if h.plan.Shape != "local" || h.plan.Listen != want || h.plan.Fallback == "" {
 				t.Fatalf("plan %+v", h.plan)
 			}
 			resp := h.do("POST", "/api/echo", "{}", h.origin())
@@ -845,6 +850,153 @@ func TestFallbacks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// D-028, amended (sec F1): a credential shape that falls back must not serve
+// the local shape where it was asked to listen -- a reverse proxy on the
+// same host still forwards there, and the local shape gives every caller
+// every verb. The requested address answers 503 with the reason; the local
+// console is on a fresh loopback address (a fresh socket beside a unix one).
+func TestFallbackRefusesRequestedListen(t *testing.T) {
+	dir := t.TempDir()
+	sockDir, err := os.MkdirTemp("", "fb-front-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockDir) })
+	os.Chmod(sockDir, 0o700)
+	refused := func(*ProxyConfig, Plan) (Client, error) {
+		return nil, errors.New("secret_file /etc/flyball/secret is readable by every user; chmod o-r it")
+	}
+	for _, c := range []struct {
+		name   string
+		cfg    Config
+		reason string
+	}{
+		{"proxy preset refused", Config{Auth: "proxy", Proxy: &ProxyConfig{Preset: "authelia"}}, "chmod o-r"},
+		{"proxy preset refused, unix", Config{Auth: "proxy", Listen: "unix:" + filepath.Join(sockDir, "front.sock"),
+			Proxy: &ProxyConfig{Preset: "authelia"}}, "chmod o-r"},
+		{"password, bad TLS", Config{Auth: "password", Password: testScrypt,
+			TLS: &TLSFiles{Cert: filepath.Join(dir, "x.pem"), Key: filepath.Join(dir, "x.key")}}, "tls:"},
+		{"plaintext password", Config{Auth: "password", Password: "hunter2"}, "plaintext passwords are refused"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.cfg.Listen == "" {
+				c.cfg.Listen = freeLoopback(t)
+			}
+			requested := c.cfg.Listen
+			plan, client := ResolveWith(c.cfg, false, refused)
+			t.Cleanup(plan.Close)
+			fr := newFakeRunner(t, "run-0123abcd")
+			f := New(Options{Plan: plan, Proxy: client,
+				Route: SingleRig(Rig{Name: "blender", Target: func(context.Context) (Target, error) { return fr.target(), nil }})})
+			t.Cleanup(f.Close)
+			// Serve the plan as frontwire.Serve does.
+			ln, err := Listen(plan)
+			if err != nil {
+				t.Fatalf("the console cannot listen on %s: %v", plan.Listen, err)
+			}
+			f.Bound(ln.Addr())
+			srv := NewServer(plan, f)
+			go srv.Serve(ln)
+			t.Cleanup(func() { srv.Close() })
+			console := ln.Addr().String()
+			if ln.Addr().Network() == "unix" {
+				console = "unix:" + console
+			}
+
+			// A proxied request to the address the proxy points at: Host
+			// rewritten to the upstream, a same-site Origin, identity headers.
+			upstream := strings.TrimPrefix(requested, "unix:")
+			hdr := http.Header{"Origin": {"http://" + hostOf(requested)}, "Remote-User": {"mallory"},
+				"X-Forwarded-For": {"203.0.113.9"}, "Content-Type": {"application/json"}}
+			resp := sendTo(t, requested, "POST", "/api/echo", hdr)
+			b := body(resp)
+			if resp.StatusCode != 503 || !strings.Contains(b, "misconfigured") || !strings.Contains(b, c.reason) {
+				t.Fatalf("the requested listen %s answered %d %q, want 503 naming %q", upstream, resp.StatusCode, b, c.reason)
+			}
+			if strings.Contains(b, "hunter2") {
+				t.Fatalf("the refusal leaks the password: %q", b)
+			}
+			if n := len(fr.requests()); n != 0 {
+				t.Fatalf("the runner received %d requests through the refused address", n)
+			}
+
+			// The console is elsewhere, on loopback, and is the local shape.
+			if console == requested {
+				t.Fatalf("the local console is on the requested address %s", requested)
+			}
+			if !loopbackListen(console) {
+				t.Fatalf("the console %s is not loopback", console)
+			}
+			resp = sendTo(t, console, "POST", "/api/echo", http.Header{"Origin": {"http://" + hostOf(console)}, "Content-Type": {"application/json"}})
+			if resp.StatusCode != 200 {
+				t.Fatalf("console: %d %s", resp.StatusCode, body(resp))
+			}
+			if cl := readJSON[echo](t, resp).Claims; cl.Sub != "local:console" {
+				t.Fatalf("console claims %+v", cl)
+			}
+			info := readJSON[AuthInfo](t, sendTo(t, console, "GET", "/api/auth", nil))
+			e := info.Exposure
+			if info.Shape != "local" || e == nil || !e.Restricted || e.Requested != requested || e.Warning == nil ||
+				!strings.Contains(*e.Warning, c.reason) || !strings.Contains(*e.Warning, "503") {
+				t.Fatalf("/api/auth: %+v %+v", info, e)
+			}
+			if !strings.HasPrefix(console, "unix:") {
+				if _, port, _ := net.SplitHostPort(console); fmt.Sprint(e.Port) != port {
+					t.Fatalf("exposure port %d, want the console's %s", e.Port, port)
+				}
+			}
+		})
+	}
+}
+
+// freeLoopback is a 127.0.0.1 address nobody listens on (just now).
+func freeLoopback(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return addr
+}
+
+// hostOf is the Host a client sends to listen (a unix socket: localhost).
+func hostOf(listen string) string {
+	if strings.HasPrefix(listen, "unix:") {
+		return "localhost"
+	}
+	return listen
+}
+
+// sendTo sends one request to a listen address, TCP or unix:/path.
+func sendTo(t *testing.T, listen, method, path string, hdr http.Header) *http.Response {
+	t.Helper()
+	client := &http.Client{Timeout: 10 * time.Second}
+	if sock, ok := strings.CutPrefix(listen, "unix:"); ok {
+		client.Transport = &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		}}
+	}
+	var rd io.Reader
+	if method == "POST" {
+		rd = strings.NewReader("{}")
+	}
+	req, err := http.NewRequest(method, "http://"+hostOf(listen)+path, rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range hdr {
+		req.Header[k] = v
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s on %s: %v", method, path, listen, err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
 }
 
 // Merge requirement 32.

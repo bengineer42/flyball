@@ -241,7 +241,10 @@ a non-loopback `listen`, for that run only. `flyballd.yaml`'s front keys --
 and mean what they do in [`runner.front`](rig-file.md#the-front); the
 getting-started ones are in [Access](../1-running/runner/access.md). A
 front key that cannot be read makes the front fall back to the `local`
-shape on loopback, with a warning; the rigs run regardless.
+shape on loopback, with a warning; the rigs run regardless. When `auth`
+asked for `password` or `proxy`, or the front keys cannot be read, that fallback answers `503` on `listen`
+and serves the `local` shape on a fresh loopback port, named on the
+`flyballd listening on` line.
 
 | key | default | |
 | --- | --- | --- |

@@ -1,7 +1,11 @@
 package proxyauth
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -10,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"flyballd/internal/front"
 )
@@ -167,7 +172,8 @@ func TestTCPUnvouchedPeerIgnored(t *testing.T) {
 }
 
 // A loopback peer means every local process (F15): with no secret_file
-// the shape is refused and the front falls back to local on loopback.
+// the shape is refused and the front falls back to local on a fresh
+// loopback port, refusing (503) the address asked for (D-028).
 func TestLoopbackWithoutSecretFallsBack(t *testing.T) {
 	for _, from := range []front.StringList{{"127.0.0.1"}, {"127.0.0.0/8"}, {"::1"}, {"10.0.0.0/8", "127.0.0.1/32"}} {
 		plan, client := front.ResolveWith(front.Config{Auth: "proxy", Listen: "0.0.0.0:8000", Proxy: &front.ProxyConfig{
@@ -176,9 +182,80 @@ func TestLoopbackWithoutSecretFallsBack(t *testing.T) {
 		if plan.Shape != front.ShapeLocal || client != nil || !strings.Contains(plan.Fallback, "secret_file") {
 			t.Errorf("from %v: shape %q fallback %q, want local with a secret_file reason", from, plan.Shape, plan.Fallback)
 		}
-		if plan.Listen != "127.0.0.1:8000" {
-			t.Errorf("from %v: listen %q, want loopback", from, plan.Listen)
+		if plan.Listen != "127.0.0.1:0" || plan.Refused != "0.0.0.0:8000" {
+			t.Errorf("from %v: listen %q refused %q, want a fresh loopback port and 0.0.0.0:8000 refused", from, plan.Listen, plan.Refused)
 		}
+	}
+}
+
+// sec F1 (D-028, amended): a preset refused at start -- here a secret_file
+// every user can read -- does not open the local shape on the address the
+// proxy forwards to. A proxied request there is answered 503; the local
+// console is on a fresh loopback port, and the runner sees nothing.
+func TestRefusedPresetAnswers503WhereTheProxyPoints(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "proxy-secret")
+	if err := os.WriteFile(secret, []byte("s3cret-s3cret-s3cret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(secret, 0o644) // o+r whatever the umask
+	ln0, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := ln0.Addr().String()
+	ln0.Close()
+	plan, client := front.ResolveWith(front.Config{Auth: "proxy", Listen: requested, Proxy: &front.ProxyConfig{
+		Preset: "authelia", From: front.StringList{"127.0.0.1"}, SecretFile: secret,
+	}}, false, Factory(Options{}))
+	t.Cleanup(plan.Close)
+	if plan.Shape != front.ShapeLocal || client != nil || !strings.Contains(plan.Fallback, "readable by every user") {
+		t.Fatalf("plan: shape %q fallback %q", plan.Shape, plan.Fallback)
+	}
+	rn := newRunner(t)
+	f := front.New(front.Options{Plan: plan,
+		Route: front.SingleRig(front.Rig{Name: "blender", Target: func(context.Context) (front.Target, error) {
+			return front.Target{Endpoint: rn.ep, Aud: rn.aud, Key: rn.key}, nil
+		}}),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	t.Cleanup(f.Close)
+	ln, err := front.Listen(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Bound(ln.Addr())
+	srv := front.NewServer(plan, f)
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	send := func(addr, method string, hdr map[string][]string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(method, "http://"+addr+"/api/echo", strings.NewReader("{}"))
+		for k, v := range hdr {
+			req.Header[k] = v
+		}
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", addr, err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	code, body := send(requested, "POST", h("Origin", "http://"+requested, "Content-Type", "application/json",
+		"Remote-User", "mallory", SecretHeader, "s3cret-s3cret-s3cret", "X-Forwarded-For", "203.0.113.9"))
+	if code != 503 || !strings.Contains(body, "misconfigured") || !strings.Contains(body, "readable by every user") {
+		t.Fatalf("the address the proxy points at answered %d %q, want 503", code, body)
+	}
+	if strings.Contains(body, "s3cret") {
+		t.Fatalf("the refusal leaks the secret: %q", body)
+	}
+	console := ln.Addr().String()
+	if console == requested {
+		t.Fatalf("the console is on the requested address %s", requested)
+	}
+	if code, body = send(console, "GET", nil); code != 200 || !strings.Contains(body, `"sub":"local:console"`) {
+		t.Fatalf("console: %d %q", code, body)
 	}
 }
 
@@ -235,6 +312,44 @@ func TestPeerAllowList(t *testing.T) {
 }
 
 func noLocalAddrs() ([]netip.Addr, error) { return nil, nil }
+
+// sec F3: a from: range wider than one host (/32, /128) lets every host in
+// it assert any identity with no secret. It is allowed (a proxy whose
+// address changes, in a container network, needs one) but warned of, once,
+// at start; a host route, or a range with secret_file:, is not.
+func TestWideFromRangeWarns(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "proxy-secret")
+	if err := os.WriteFile(secret, []byte("s3cret-s3cret-s3cret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		from   front.StringList
+		secret string
+		warn   string // "" = no warning
+	}{
+		{front.StringList{"10.0.0.0/8"}, "", "10.0.0.0/8"},
+		{front.StringList{"10.9.9.9", "192.168.1.0/24", "fd00::/64"}, "", "192.168.1.0/24, fd00::/64"},
+		{front.StringList{"10.9.9.8/31"}, "", "10.9.9.8/31"},
+		{front.StringList{"10.9.9.9"}, "", ""},
+		{front.StringList{"10.9.9.9/32", "fd00::5", "::ffff:10.9.9.7/128"}, "", ""},
+		{front.StringList{"10.0.0.0/8"}, secret, ""},
+	} {
+		var buf strings.Builder
+		log := slog.New(slog.NewTextHandler(&buf, nil))
+		_, err := New(&front.ProxyConfig{Preset: "authelia", From: c.from, SecretFile: c.secret},
+			front.Plan{Listen: "0.0.0.0:8000"}, Options{Logger: log, LocalAddrs: noLocalAddrs})
+		if err != nil {
+			t.Fatalf("from %v: %v", c.from, err)
+		}
+		out := buf.String()
+		switch {
+		case c.warn == "" && out != "":
+			t.Errorf("from %v: warned %q, want nothing", c.from, out)
+		case c.warn != "" && (strings.Count(out, "\n") != 1 || !strings.Contains(out, "level=WARN") || !strings.Contains(out, c.warn)):
+			t.Errorf("from %v: logged %q, want one warning naming %s", c.from, out, c.warn)
+		}
+	}
+}
 
 // Shapes that cannot be vouched for are refused at start.
 func TestUnsignedShapeRefusals(t *testing.T) {

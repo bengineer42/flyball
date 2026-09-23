@@ -120,6 +120,7 @@ type Front struct {
 	signer   endpoint.Signer
 	ui       http.Handler
 	noUI     bool
+	refused  *http.Server // 503 on Plan.Refused (holdRefused)
 
 	mu         sync.Mutex
 	verified   map[string][32]byte // endpoint|aud -> the key whose handshake passed
@@ -176,17 +177,22 @@ func New(o Options) *Front {
 		f.ui = http.FileServer(http.FS(o.UI))
 	}
 	if f.plan.Fallback != "" {
-		o.Audit.Event("fallback", slog.String("reason", f.plan.Fallback), slog.String("listen", f.plan.Listen))
+		o.Audit.Event("fallback", slog.String("reason", f.plan.Fallback), slog.String("listen", f.plan.Listen),
+			slog.String("refused", f.plan.Refused))
 	}
+	f.holdRefused()
 	go f.sweep()
 	return f
 }
 
 // Close stops the sweeper, closes every websocket and stream it holds
-// (1001) and releases the tokens file. It does not close the Plan (its TLS
-// reloader) or the Audit.
+// (1001), stops answering 503 on Plan.Refused and releases the tokens
+// file. It does not close the Plan (its TLS reloader) or the Audit.
 func (f *Front) Close() {
 	f.once.Do(func() {
+		if f.refused != nil {
+			f.refused.Close()
+		}
 		close(f.stop)
 		<-f.done
 		f.cancels.endAll()

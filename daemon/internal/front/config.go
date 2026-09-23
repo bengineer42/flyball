@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"flyballd/internal/endpoint"
 	"flyballd/internal/exposure"
 	"flyballd/internal/front/store"
 	"flyballd/internal/front/tlsfile"
@@ -121,10 +122,16 @@ type ProxyFactory func(c *ProxyConfig, p Plan) (Client, error)
 
 // Plan is what the front actually serves, after every D-028 fallback.
 type Plan struct {
-	Shape       string   // the shape actually served
-	Requested   string   // the listen address asked for
-	Listen      string   // after the D-028 loopback fallback: host:port, or unix:/path
-	Fallback    string   // "" or why the front fell back to local-on-loopback (banner, /api/auth, audit)
+	Shape     string // the shape actually served
+	Requested string // the listen address asked for
+	Listen    string // after the D-028 loopback fallback: host:port, or unix:/path
+	Fallback  string // "" or why the front fell back to local-on-loopback (banner, /api/auth, audit)
+	// Refused is the address a credential shape asked for, after its D-028
+	// fallback: the front answers 503 there (New holds it), and serves the
+	// local shape on a fresh loopback address (Listen) instead -- a reverse
+	// proxy pointed at the requested address must not reach an open
+	// console. "" otherwise.
+	Refused     string
 	Warnings    []string // cleartext, open, ignored reference keys, ...
 	HostAllow   []string // nil = any Host (credential shapes without url:); loopback names match any port
 	OriginAllow []string // the url: origin, if any; same-site-with-Host is always allowed
@@ -143,7 +150,15 @@ type Plan struct {
 // Banner is the lines to print at start: the fallback, then the warnings.
 func (p Plan) Banner() string {
 	var lines []string
-	if p.Fallback != "" {
+	switch {
+	case p.Refused != "":
+		fresh := ""
+		if strings.HasSuffix(p.Listen, ":0") {
+			fresh = " (a fresh port: the line saying where it serves names it)"
+		}
+		lines = append(lines, fmt.Sprintf("front: %s -- %s answers 503 (auth misconfigured), and the local shape is served on %s only%s; the rig keeps running (D-028)",
+			p.Fallback, p.Refused, p.Listen, fresh))
+	case p.Fallback != "":
 		lines = append(lines, fmt.Sprintf("front: %s -- serving the local shape on %s only; the rig keeps running (D-028)", p.Fallback, p.Listen))
 	}
 	for _, w := range p.Warnings {
@@ -171,8 +186,11 @@ var loopbackNames = []string{"localhost", "127.0.0.1", "[::1]"}
 
 // ResolveWith decides what the front serves. It never fails: every error in
 // c is a fallback to the local shape on loopback, with the reason in
-// Plan.Fallback. insecureOpen is the per-invocation --insecure-open. The
-// returned Client is the proxy shape's provider (nil otherwise).
+// Plan.Fallback. When c asked for a credential shape (anything but local),
+// the fallback does not serve the local shape where c asked to listen
+// (Plan.Refused: answered 503) but on a fresh loopback address. insecureOpen
+// is the per-invocation --insecure-open. The returned Client is the proxy
+// shape's provider (nil otherwise).
 func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client) {
 	p := Plan{Shape: c.Auth, Requested: c.Listen, Listen: c.Listen, Anonymous: "none"}
 	if p.Shape == "" {
@@ -185,12 +203,21 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 		p.Requested = p.Listen
 	}
 	var client Client
+	credentials := p.Shape != ShapeLocal // what was asked for; p.Shape changes on a fallback
+	listenOK := true
 	fallback := func(format string, args ...any) {
 		if p.Fallback != "" {
 			return
 		}
 		p.Fallback = fmt.Sprintf(format, args...)
-		p.Shape, p.Listen = ShapeLocal, loopbackOf(p.Listen)
+		if credentials && listenOK {
+			// A proxy (or a TLS-terminating one in front of password) still
+			// forwards to the requested address: never an open console there.
+			p.Refused = p.Listen
+			p.Shape, p.Listen = ShapeLocal, freshLoopback(p.Listen)
+		} else {
+			p.Shape, p.Listen = ShapeLocal, loopbackOf(p.Listen)
+		}
 		p.URL, p.Secure, p.Password, p.Grants, client = nil, false, "", nil, nil
 		if p.TLS != nil {
 			p.TLS.Close()
@@ -200,7 +227,7 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 
 	if !isUnix(p.Listen) {
 		if _, _, err := net.SplitHostPort(p.Listen); err != nil {
-			p.Listen = DefaultListen
+			p.Listen, listenOK = DefaultListen, false
 			fallback("listen %q is not host:port or unix:/path", c.Listen)
 		}
 	}
@@ -332,6 +359,16 @@ func loopbackOf(listen string) string {
 		return DefaultListen
 	}
 	return net.JoinHostPort("127.0.0.1", port)
+}
+
+// freshLoopback is where a credential shape's fallback serves the local
+// shape: a socket beside a unix one (same directory, so the same
+// permissions), else a fresh port on 127.0.0.1.
+func freshLoopback(listen string) string {
+	if path, ok := strings.CutPrefix(listen, "unix:"); ok && len(path)+len(".local") <= endpoint.MaxSocketPath {
+		return "unix:" + path + ".local"
+	}
+	return "127.0.0.1:0"
 }
 
 func parseURL(s string) (*url.URL, error) {
