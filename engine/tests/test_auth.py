@@ -483,6 +483,34 @@ def test_over_the_socket_a_websocket_closes_4401_after_accept(uds):
 
 # endregion
 
+# region What the routes see
+
+
+def test_every_admitted_request_carries_its_principal():
+    """`request.state.principal` (and `.auth`, the same): what MCP's re-mint and audit read."""
+    from starlette.responses import PlainTextResponse
+
+    from flyball.interfaces.server.auth import Door
+
+    seen: dict = {}
+
+    async def inner(scope, receive, send):
+        seen.update(scope["state"])
+        await PlainTextResponse("ok")(scope, receive, send)
+
+    bare = TestClient(Door(inner, AuthConfig(token="s3cret"), port=1))
+    assert bare.get("/api/health", headers=BEARER).status_code == 200
+    claims = seen["principal"]
+    assert isinstance(claims, Claims) and seen["auth"] is claims and seen["scheme"] == "token"
+    assert (claims.sub, claims.kind, claims.scp) == ("token:bare", "service", frozenset(BOTH))
+    assert claims.aud == bare.app.aud and claims.aud.startswith("bare-")
+    fronted = TestClient(Door(inner, fronted=Fronted(KEY, AUD)))
+    assert fronted.get("/api/health", headers=signed(("read",), via="mcp")).status_code == 200
+    assert seen["principal"].via == "mcp" and seen["principal"].aud == AUD
+
+
+# endregion
+
 # region What is gone
 
 

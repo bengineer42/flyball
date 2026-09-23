@@ -387,6 +387,7 @@ class Door:
         if verbs.allows(claims.scp, scope):
             state = scope.setdefault("state", {})
             state["principal"] = claims
+            state["auth"] = claims  # the name routes read before the principal (stop's actor)
             state["scheme"] = scheme
             await self.app(scope, receive, send)
             return
