@@ -18,10 +18,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"flyballd/internal/grants"
 )
 
 // Token is the bearer token to send, if any: --token wins over
@@ -120,6 +126,21 @@ type LoggedIn struct {
 	Scopes  []string
 	Kind    string
 	Expires time.Time
+	// Elevated is whether Scopes carries anything above read (D-036
+	// safeguard 1): the caller (login.go) prints the "anyone running as
+	// this user" warning when it does.
+	Elevated bool
+	// Path is where the token secret was saved, for that same warning to
+	// name.
+	Path string
+}
+
+// LoginOptions customises Login: `--scope`'s raw values (D-036).
+type LoginOptions struct {
+	// Scopes are --scope's raw values, unresolved (a bare verb, a
+	// qualified "verb:rig" or "verb:*", or the management string); empty
+	// means the default, read-only login ("read", i.e. "read:*").
+	Scopes []string
 }
 
 // tokenRow mirrors enough of store.Token's wire shape (front/auth.go's
@@ -143,7 +164,17 @@ type tokenRow struct {
 // session, is what's persisted, so a front restart (which drops every
 // session) does not silently sign the CLI out. The password itself never
 // touches disk or argv; only the minted secret is saved, 0600.
-func Login(t Target, password string) (LoggedIn, error) {
+//
+// opts.Scopes applies D-036's `--scope` safeguards (resolveLoginScopes):
+// a request for `manage`, or for a bare verb above read whose rig cannot
+// be determined, is refused before the token-create request is ever
+// sent -- refused client-side, in the wording of "The change".
+func Login(t Target, password string, opts LoginOptions) (LoggedIn, error) {
+	scopes, elevated, err := resolveLoginScopes(t, opts.Scopes)
+	if err != nil {
+		return LoggedIn{}, err
+	}
+
 	origin := strings.TrimRight(t.BaseURL, "/")
 	base := origin + t.Prefix
 
@@ -177,7 +208,14 @@ func Login(t Target, password string) (LoggedIn, error) {
 	}
 
 	name := loginTokenName()
-	tokenBody, _ := json.Marshal(map[string]any{"name": name, "scopes": []string{"read"}})
+	body := map[string]any{"name": name, "scopes": scopes}
+	if elevated {
+		// Safeguard 3: at most 30 days for anything above read, whatever
+		// the front's own configured max would otherwise allow -- it
+		// clamps this further (tighten-only), never raises it.
+		body["expires_in"] = elevatedLifetime.Seconds()
+	}
+	tokenBody, _ := json.Marshal(body)
 	req2, err := http.NewRequest("POST", base+"/api/auth/tokens", bytes.NewReader(tokenBody))
 	if err != nil {
 		return LoggedIn{}, err
@@ -207,17 +245,125 @@ func Login(t Target, password string) (LoggedIn, error) {
 	if err := SaveToken(loginKey(t), row.Secret); err != nil {
 		return LoggedIn{}, err
 	}
-	return LoggedIn{ID: row.ID, Name: row.Name, Scopes: row.Scopes, Kind: row.Kind, Expires: row.Expires}, nil
+	path, _ := tokenFilePath(loginKey(t)) // "" only if os.UserConfigDir fails; SaveToken would already have.
+	return LoggedIn{ID: row.ID, Name: row.Name, Scopes: row.Scopes, Kind: row.Kind, Expires: row.Expires,
+		Elevated: elevated, Path: path}, nil
 }
 
-// loginTokenName names the token flyball login mints, so it's
-// recognisable in `flyball token list` and the front's audit.
+// elevatedLifetime is the most an operate-or-above token flyball login
+// mints may live (D-036 safeguard 3). The front's own TokenLifetime
+// clamps a request down further when its configured max is tighter
+// still; it never raises one.
+const elevatedLifetime = 30 * 24 * time.Hour
+
+// tokenNameMax mirrors the store's own limit (front/store/tokens.go's
+// checkName) -- kept local rather than imported, so this package doesn't
+// pull in the whole store package for one constant.
+const tokenNameMax = 64
+
+// resolveLoginScopes turns --scope's raw values into the scopes to
+// request from POST .../api/auth/tokens, applying D-036's safeguards:
+//
+//   - empty raw is the default, unelevated ["read"];
+//   - "manage" (bare or "manage:anything") is refused outright: `flyball
+//     token create --scope manage` on the host is the only way to mint
+//     one ("The change");
+//   - a bare verb other than read is rewritten to "<verb>:<rig>", <rig>
+//     being the rig t is logging in to (safeguard 2) -- if that can't be
+//     determined, the bare verb is refused rather than silently widened
+//     to every rig; "<verb>:*" is only ever used when spelled out.
+//
+// elevated reports whether any resulting scope is above read (safeguard
+// 1's warning, safeguard 3's lifetime cap).
+func resolveLoginScopes(t Target, raw []string) (scopes []string, elevated bool, err error) {
+	if len(raw) == 0 {
+		return []string{grants.Read}, false, nil
+	}
+	rig := bareVerbRig(t)
+	resolved := make([]string, 0, len(raw))
+	for _, s := range raw {
+		verb, _, qualified := strings.Cut(s, ":")
+		if verb == grants.Management() {
+			return nil, false, fmt.Errorf(
+				"--scope %s: manage is refused from `flyball login`; run `flyball token create --scope manage` on the host instead", s)
+		}
+		if !qualified && verb != grants.Read {
+			if rig == "" {
+				return nil, false, fmt.Errorf(
+					"--scope %s: the rig %s logged in to could not be determined; write %s:<rig> or %s:*", s, t.BaseURL, verb, verb)
+			}
+			s = verb + ":" + rig
+		}
+		resolved = append(resolved, s)
+	}
+	normalized, err := grants.NormalizeScopes(resolved)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, s := range normalized {
+		p, perr := grants.ParseScope(s)
+		if perr == nil && !p.Management() && p.Verb != grants.Read {
+			elevated = true
+		}
+	}
+	return normalized, elevated, nil
+}
+
+// bareVerbRig is what a bare, elevated --scope verb resolves against
+// (safeguard 2): the rig name from a flyballd path, either `/<name>` in
+// t.Prefix (an -s-resolved Target) or in the base URL's own path (an
+// explicit `flyball login http://host/<name>`). "" when t addresses a
+// rig with no name in the path at all (a bare `flyball run` front) --
+// nothing here can tell two such rigs apart, so the caller refuses the
+// bare verb rather than guess.
+func bareVerbRig(t Target) string {
+	if p := strings.Trim(t.Prefix, "/"); p != "" {
+		return p
+	}
+	u, err := url.Parse(t.BaseURL)
+	if err != nil {
+		return ""
+	}
+	return strings.Trim(u.Path, "/")
+}
+
+// loginTokenName names the token flyball login mints: `cli:<user>@<host>`
+// (D-036 safeguard 4), so `flyball token list` and the front's audit show
+// which machine and account hold it.
 func loginTokenName() string {
+	u := "unknown"
+	if cur, err := user.Current(); err == nil && cur.Username != "" {
+		u = cur.Username
+	} else if env := os.Getenv("USER"); env != "" {
+		u = env
+	}
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		host = "cli"
+		host = "host"
 	}
-	return "login@" + host
+	return sanitizeTokenName("cli:" + u + "@" + host)
+}
+
+// sanitizeTokenName strips control and format characters and truncates to
+// tokenNameMax runes, so a name built from OS-supplied strings (user,
+// hostname) always satisfies the store's checkName (1-64 characters, no
+// control or format characters). Never empty.
+func sanitizeTokenName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := b.String()
+	if out == "" {
+		return "cli"
+	}
+	if utf8.RuneCountInString(out) > tokenNameMax {
+		out = string([]rune(out)[:tokenNameMax])
+	}
+	return out
 }
 
 // Logout drops the locally saved token for t. It does not ask the front
