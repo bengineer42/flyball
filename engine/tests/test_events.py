@@ -60,3 +60,27 @@ class TestSnapshot:
         with client.websocket_connect("/ws/events") as ws:
             primed = ws.receive_json()
         assert [e["kind"] for e in primed["events"]] == ["first", "second"]
+
+
+class TestQuery:
+    @pytest.mark.parametrize("level", ["warning", "WARNING"])
+    def test_level_keeps_that_level_and_above(self, client, rig, level):
+        rig.event(Level.INFO, "rig", "test", "info", "")
+        rig.event(Level.WARNING, "rig", "test", "warning", "")
+        rig.event(Level.ERROR, "rig", "test", "error", "")
+        response = client.get("/api/events", params={"level": level})
+        assert response.status_code == 200, response.text
+        assert [e["kind"] for e in response.json()] == ["warning", "error"]
+
+    @pytest.mark.parametrize(
+        "query", ["level=bogus", "level=", "limit=0", "limit=-1", "limit=10001", "limit=x"]
+    )
+    def test_a_bad_query_is_a_422(self, client, rig, query):
+        rig.event(Level.INFO, "rig", "test", "info", "")
+        response = client.get(f"/api/events?{query}")
+        assert response.status_code == 422, response.text
+
+    def test_limit_keeps_the_newest(self, client, rig):
+        for kind in ("a", "b", "c"):
+            rig.event(Level.INFO, "rig", "test", kind, "")
+        assert [e["kind"] for e in client.get("/api/events?limit=2").json()] == ["b", "c"]

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
 from flyball.foundation.device import Event, Level
@@ -29,9 +29,19 @@ def event_out(event: Event) -> dict[str, Any]:
     return out
 
 
+type LevelName = Literal["debug", "info", "warning", "error", "DEBUG", "INFO", "WARNING", "ERROR"]
+
+
 @router.get("/api/events")
-def read_events(rig: RigDep, limit: int = 100, level: str | None = None) -> list[dict[str, Any]]:
-    """The most recent events, oldest first; `level` keeps that level and above."""
+def read_events(
+    rig: RigDep,
+    limit: Annotated[int, Query(ge=1, le=10_000)] = 100,
+    level: LevelName | None = None,
+) -> list[dict[str, Any]]:
+    """The most recent events, oldest first; `level` keeps that level and above.
+
+    422 for a `level` that is not one of the four, or a `limit` outside 1 to 10 000.
+    """
     floor = Level[level.upper()] if level else Level.DEBUG
     # A snapshot: another thread appends to the deque while this filters it.
     recent = [e for e in list(rig.recent) if e.level >= floor]
