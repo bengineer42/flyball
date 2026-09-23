@@ -84,7 +84,10 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if err != nil {
 		return fmt.Errorf("front-dir for %s: %w", rig, err)
 	}
-	state := frontwire.RunDir(id)
+	state, err := frontwire.RunDir(id)
+	if err != nil {
+		return err
+	}
 	rl, err := openRunLog(state)
 	if err != nil {
 		return err

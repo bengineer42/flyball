@@ -92,14 +92,31 @@ func TestPlanUsesThePresetsHook(t *testing.T) {
 	}
 }
 
+// With no HOME (and no XDG_STATE_HOME) there is no private state dir:
+// never a shared, predictable one under $TMPDIR.
+func TestStateHomeWithoutHomeIsNotTempDir(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "")
+	if got, err := StateHome(); err == nil || strings.HasPrefix(got, os.TempDir()) {
+		t.Fatalf("StateHome with no HOME = %q, %v; want an error, not a shared temp path", got, err)
+	}
+	if got, err := RunDir("abcd1234"); err == nil {
+		t.Fatalf("RunDir with no HOME = %q, want an error", got)
+	}
+	t.Setenv("XDG_STATE_HOME", "relative/state")
+	if got, err := StateHome(); err == nil {
+		t.Fatalf("StateHome with a relative XDG_STATE_HOME and no HOME = %q, want an error", got)
+	}
+}
+
 func TestStateDirs(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
-	if got := RunDir("abcd1234"); got != "/xdg/state/flyball/front-abcd1234" {
+	if got, _ := RunDir("abcd1234"); got != "/xdg/state/flyball/front-abcd1234" {
 		t.Fatalf("RunDir = %q", got)
 	}
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("HOME", "/home/u")
-	if got := RunDir("abcd1234"); got != "/home/u/.local/state/flyball/front-abcd1234" {
+	if got, _ := RunDir("abcd1234"); got != "/home/u/.local/state/flyball/front-abcd1234" {
 		t.Fatalf("RunDir = %q", got)
 	}
 	got := DaemonDir("data")
