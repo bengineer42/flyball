@@ -259,3 +259,53 @@ func TestTheCapturedLogIsCapped(t *testing.T) {
 		t.Errorf("r.log.1 is %d bytes, less than the cap it was rotated at", fi.Size())
 	}
 }
+
+func mode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode().Perm()
+}
+
+// Runner logs can hold tokens (a ?token= in an access log line): the
+// directory is 0700 and every log file 0600, also ones left 0644 by an
+// older flyballd.
+func TestLogsAreOwnerOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "old.log"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewProcessBackend(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.command = func(string, []string) *exec.Cmd {
+		return exec.Command("sh", "-c", `while :; do echo 0123456789012345678901234567890123456789; sleep 0.002; done`)
+	}
+	b.ready = func(string, string) bool { return false }
+	b.maxLogSize = 1000
+	b.logCheckInterval = 20 * time.Millisecond
+	t.Cleanup(func() { b.Stop("new"); b.Stop("old") })
+
+	if m := mode(t, dir); m != 0o700 {
+		t.Errorf("log dir %v, want 0700", m)
+	}
+	for _, name := range []string{"new", "old"} {
+		if _, err := b.Start(name, Spec{ServerConfig: "rig.yaml", Host: "127.0.0.1", Port: 1}); err != nil {
+			t.Fatal(err)
+		}
+		if m := mode(t, filepath.Join(dir, name+".log")); m != 0o600 {
+			t.Errorf("%s.log %v, want 0600", name, m)
+		}
+	}
+	rotated := filepath.Join(dir, "new.log.1")
+	eventually(t, "new.log.1", func() bool { _, err := os.Stat(rotated); return err == nil })
+	if m := mode(t, rotated); m != 0o600 {
+		t.Errorf("new.log.1 %v, want 0600", m)
+	}
+}

@@ -74,9 +74,15 @@ type runnerProc struct {
 	logClosed bool
 }
 
+// NewProcessBackend keeps runner logs in logDir. Logs can hold secrets (a
+// `?token=` in an access-log line), so the directory is made 0700 and each
+// file 0600 -- also when they already exist with wider modes.
 func NewProcessBackend(logDir string, maxLogSize int64) (*ProcessBackend, error) {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating log dir: %w", err)
+	}
+	if err := os.Chmod(logDir, 0o700); err != nil {
+		return nil, fmt.Errorf("restricting log dir: %w", err)
 	}
 	return &ProcessBackend{
 		logDir:           logDir,
@@ -131,9 +137,13 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 	}
 
 	logPath := filepath.Join(b.logDir, name+".log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("opening log file for %s: %w", name, err)
+	}
+	if err := logFile.Chmod(0o600); err != nil {
+		logFile.Close()
+		return "", fmt.Errorf("restricting log file for %s: %w", name, err)
 	}
 
 	args := []string{
@@ -320,8 +330,12 @@ func copyFile(from, to string) error {
 		return err
 	}
 	defer src.Close()
-	dst, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	dst, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := dst.Chmod(0o600); err != nil {
+		dst.Close()
 		return err
 	}
 	if _, err := io.Copy(dst, src); err != nil {
