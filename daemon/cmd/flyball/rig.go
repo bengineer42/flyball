@@ -66,6 +66,10 @@ func runRigCheck(args []string) error {
 	}
 
 	if err := schema.ValidateRig(document); err != nil {
+		if board, ok := document["board"].(string); ok {
+			return fmt.Errorf("%s: %w\nnote: this rig names board %q, and rig check does not apply board profiles: "+
+				"a device that names a pin: fails here though the runner resolves it", strings.Join(paths, ", "), err, board)
+		}
 		return fmt.Errorf("%s: %w", strings.Join(paths, ", "), err)
 	}
 	if err := rigfile.CheckBusinessRules(document); err != nil {
