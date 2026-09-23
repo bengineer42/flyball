@@ -147,12 +147,12 @@ func stopAllRigs(token, reason string) error {
 		fmt.Printf("%s:\n", rig.Name)
 		target := client.Target{BaseURL: base, Prefix: rig.RootPath}.WithToken(token)
 		if _, err := postStop(target, reason); err != nil {
-			fmt.Printf("  not stopped: %v\n", err)
+			fmt.Printf("  software stop refused or failed: %v\n", err)
 			failed = append(failed, rig.Name)
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("%d of %d rigs not stopped: %s", len(failed), len(rigs), strings.Join(failed, ", "))
+		return fmt.Errorf("%d of %d rigs refused or failed the software stop: %s", len(failed), len(rigs), strings.Join(failed, ", "))
 	}
 	return nil
 }
@@ -231,9 +231,9 @@ func printStopReport(raw []byte) {
 		fmt.Println(string(raw))
 		return
 	}
-	fmt.Printf("stopped: %s by %s (%s) via %s\n", r.Reason, r.Actor.Sub, r.Actor.Kind, r.Actor.Via)
+	fmt.Printf("software stop: %s by %s (%s) via %s\n", r.Reason, r.Actor.Sub, r.Actor.Kind, r.Actor.Via)
 	if r.Interim {
-		fmt.Println("  interim report (the signals work's Stopper has not landed yet)")
+		fmt.Println("  controllers to manual; nothing written -- outputs left as they were")
 	}
 	if r.ProgramInterrupted {
 		fmt.Println("  program interrupted")

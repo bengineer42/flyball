@@ -196,7 +196,7 @@ func TestStopCallsTheRouteWhenTheFrontIsUp(t *testing.T) {
 			t.Fatalf("runStopCommand: %v", err)
 		}
 	})
-	if !strings.Contains(out, "stopped:") || !strings.Contains(out, "program interrupted") {
+	if !strings.Contains(out, "software stop:") || !strings.Contains(out, "program interrupted") {
 		t.Errorf("stdout = %q, want the printed StopReport", out)
 	}
 }

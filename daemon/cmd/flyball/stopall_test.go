@@ -159,7 +159,7 @@ func TestStopAllStopsEveryRig(t *testing.T) {
 			t.Errorf("no report for %s:\n%s", rig, out)
 		}
 	}
-	if strings.Count(out, "\nstopped: ") != 2 || !strings.Contains(out, "program interrupted") {
+	if strings.Count(out, "\nsoftware stop: ") != 2 || !strings.Contains(out, "program interrupted") {
 		t.Errorf("want two stop reports:\n%s", out)
 	}
 	if s := d.be.stoppedNames(); len(s) != 0 {
@@ -178,7 +178,7 @@ func TestStopAllReportsEachRefusal(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "oven") || strings.Contains(err.Error(), "kiln") {
 		t.Fatalf("stop --all with operate on kiln only: %v, want an error naming oven alone\n%s", err, out)
 	}
-	if !strings.Contains(out, "kiln:") || strings.Count(out, "\nstopped: ") != 1 {
+	if !strings.Contains(out, "kiln:") || strings.Count(out, "\nsoftware stop: ") != 1 {
 		t.Errorf("kiln's report missing:\n%s", out)
 	}
 
