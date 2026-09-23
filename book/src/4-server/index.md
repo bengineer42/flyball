@@ -26,11 +26,13 @@ knows anything the API does not publish.
 
 ## Finding a rig
 
-`http://host:8000` by default; `--host 0.0.0.0` and a password or a token
-to be reachable ([an open runner stays on loopback](../1-running/runner/access.md#the-door-a-password-a-token-or-open),
-and answers only to loopback names); a
-[sub-path](../1-running/runner/access.md#a-sub-path) (`--root-path /furnace`) puts
-everything under a prefix. `GET /api/health` is the one-look status;
+`http://127.0.0.1:8000` by default: the front `flyball run` starts, or a
+bare `flyball-runner`. From another machine it needs a door with a sign-in
+-- a front's `password` or `proxy` shape, or a bare runner's token
+([Access](../1-running/runner/access.md)). Under `flyballd`
+(`http://127.0.0.1:9000`) each rig is under its root path, `/furnace/api/…`,
+as is a bare runner started with `--root-path /furnace`
+([a sub-path](../1-running/runner/access.md#a-sub-path)). `GET /api/health` is the one-look status;
 `GET /api/schema` describes every device; `GET /api/runner` says how the
 process was started and what it allows.
 
@@ -58,10 +60,14 @@ rig.devices["furnace"].fail(signal="zone1")  # a device command, checked against
 
 ## Authentication and what is allowed
 
-Open by default. With a password every request needs the session a login
-sets; with a token, `Authorization: Bearer` (`?token=` on a socket or a
-download link); `auth.anonymous: read` lets reads through regardless
-([authentication](api.md#authentication)). Independently, some things are
+Open by default, on this machine only (the `local` shape). Behind a front
+with a sign-in, a person's browser carries the session cookie a sign-in set,
+and code sends a named token as `Authorization: Bearer`; `anonymous: read`
+lets reads through regardless. Each route needs a verb, `read` or
+`operate` (pending D-034), and a stop needs `operate`
+([authentication](api.md#authentication)). A token never goes in a URL.
+The Python client takes it as `Rig(url, token=…)` or `FLYBALL_TOKEN`.
+Independently, some things are
 off unless the runner was started allowing them: building up a hardware
 rig (`--compose`), writing rig files (`--allow-save`), stopping or
 restarting (`--allow-shutdown`), the MCP mount (`--no-mcp` turns it off).

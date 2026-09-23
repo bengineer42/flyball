@@ -102,8 +102,12 @@ options.
 ## Errors
 
 `{"detail": "<message>"}`, with the status code from the error's base. See
-[HTTP and websocket API](api.md#errors). A websocket the daemon refuses is
-closed rather than answered: code 4401 without a session or token, 4404
-for a path outside the daemon's `--root-path`. The session is the cookie
-`flyball_session` ([authentication](api.md#authentication)); its value is
-opaque to a client.
+[HTTP and websocket API](api.md#errors). A refused websocket is accepted
+and then closed, so the client sees why: 4401 without a credential, or with
+one that is wrong, revoked or expired (the UI stops retrying); 4403 for a
+caller lacking the verb; 1014 when the front and the runner are out of
+step; 4404 for a path outside the runner's `--root-path`. A `403` for a
+missing verb says which: `{"detail", "needed": "operate"}`. The session
+cookie (`flyball-<port>` or `__Host-flyball` at a front,
+`flyball-bare-<port>` at a bare runner; [authentication](api.md#authentication))
+is opaque to a client.
