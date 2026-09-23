@@ -116,6 +116,7 @@ type Front struct {
 	limiter  *store.Limiter
 	hasher   *store.Hasher
 	cancels  *cancels
+	held     *held
 	cookie   string
 	localSid string
 	names    []string // this machine's own names (exposure.OwnNames): known Hosts, D-043
@@ -142,6 +143,7 @@ func New(o Options) *Front {
 		limiter:  store.NewLimiter(store.LoginAttempts, store.LoginWindow, store.LimiterEntries, nil),
 		hasher:   store.NewHasher(store.HashingSlots),
 		cancels:  newCancels(),
+		held:     newHeld(),
 		localSid: randomHex(16),
 		names:    exposure.OwnNames(),
 		verified: map[string][32]byte{}, transports: map[string]*http.Transport{},

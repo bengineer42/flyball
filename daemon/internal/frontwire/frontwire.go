@@ -173,14 +173,14 @@ func DaemonDir(dataDir string) string {
 }
 
 // OpenAudit opens the front's audit at dir/audit.jsonl. One that cannot be
-// opened is logged and the front runs on (D-028: the rig is still served)
-// with a front.FailedAudit: sign-ins and token changes, which must be
-// recorded, answer 503.
+// opened is logged and the front runs on (D-028: the rig is still served):
+// sign-ins and token changes, which must be recorded, answer 503 while the
+// open is tried again, at most every front.AuditRetry, and /api/auth's
+// exposure warning says why (front.OpenAuditRetrying).
 func OpenAudit(dir string, logger *slog.Logger) *front.Audit {
-	audit, err := front.OpenAudit(filepath.Join(dir, AuditFile))
+	audit, err := front.OpenAuditRetrying(filepath.Join(dir, AuditFile), nil)
 	if err != nil {
-		orDefault(logger).Error("front: no audit log; sign-ins and token changes are refused", "err", err)
-		return front.FailedAudit(err)
+		orDefault(logger).Error("front: no audit log; sign-ins and token changes are refused until it can be opened", "err", err)
 	}
 	return audit
 }

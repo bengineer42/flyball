@@ -56,6 +56,10 @@ runner:
 The password must be the hashed line `flyball password` prints; a plain
 one is refused. `anonymous: read` lets anyone who reaches the rig watch it
 without signing in (every `GET` and every stream); the default is `none`.
+A dashboard holds four sockets open; the front allows 128 held sockets and
+streams per rig to callers with no credential, and 512 in all, so a crowd
+of viewers cannot shut a signed-in operator out, and the stop is never
+counted ([refusals](../../4-server/api.md#authentication)).
 Most sites need two more keys at most: `url` and `tls` (next). Every other
 key -- session length, token lifetimes, forwarded addresses, the proxy
 presets' details -- is in the [reference](../../7-reference/rig-file.md#the-front).
@@ -148,9 +152,13 @@ a banner that cannot be dismissed. Not on a rig a model can drive.
 **People**, at a `password` front, sign in at the dashboard's login page
 with the admin password. The front keeps the session in memory and gives
 the browser an `HttpOnly` cookie (`flyball-<port>`, or `__Host-flyball`
-under HTTPS); the page keeps no secret. A session ends after 12 idle hours
-(`session:` changes that), 7 days at most, at **Sign out**, or when the
-front restarts. A wrong password is refused after half a second; ten wrong
+under HTTPS); the page keeps no secret. A session ends after 12 hours
+without a request from it (`session:` changes that), 7 days at most, at
+**Sign out**, or when the front restarts. An open, running dashboard polls
+the rig every few seconds, and each poll counts, so while a tab is open
+the session lasts to its 7 days whatever `session:` says; it idles out
+only once the tab is closed, or frozen by the browser or a sleeping
+laptop. A wrong password is refused after half a second; ten wrong
 in a minute from one address are refused until the oldest is a minute
 old. There is one admin password and no user accounts, so the record of an
 action says `local:admin` and a session id, not a person; per-person
@@ -431,8 +439,9 @@ as `local:signal`; the signal's sender is not recorded.
   (`token.revoke` also with its `outcome`). A sign-in or a new token whose
   record cannot be written does not happen (`503`); a revoke still happens,
   and its `503` says so. If the file cannot be opened at all, the front
-  still serves the rig and says so at start, but refuses every sign-in and
-  new token. `flyball token create` and `flyball token revoke`, which work
+  still serves the rig and says so at start and in the dashboard's banner,
+  refuses every sign-in and new token, and tries the file again (at most
+  every 5 seconds) until it opens -- fixing it needs no restart. `flyball token create` and `flyball token revoke`, which work
   on the files directly, append their `token.create` and `token.revoke` to
   the same file, by `local:cli`, under the same rule: no record, no new
   token; a revoke still happens and exits non-zero saying so.

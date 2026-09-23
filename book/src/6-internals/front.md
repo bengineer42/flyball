@@ -135,6 +135,27 @@ A `GET` or a stream is cut when the credential behind it ends (sign-out,
 revocation, expiry), within a second; a write already on its way to
 hardware is not.
 
+A caller who holds no verb on the rig at all (anonymous under `anonymous:
+none`, a token for other rigs) is refused by the front without a
+connection to the runner, with the runner's own answer: `401` (a socket
+closed with 4401) with no credential, `403` `{detail, needed}` (4403)
+otherwise, `needed` being `read` for a `GET` or a socket and `operate` for
+anything else. Every route behind `/api`, `/ws` and `/mcp` needs a verb, so
+nothing is lost.
+
+Each websocket and each event stream (a `GET` asking for
+`text/event-stream`: MCP's server stream) holds a connection to the runner
+for as long as it lasts, and a runner inherits a soft limit of 1024
+descriptors, beyond which it can accept nothing -- the dashboard's stop
+included -- and open no device. So the front holds at most 512 of them per
+rig, 128 of those for callers with no credential (anonymous viewers, or the
+`local` shape's console), so that anonymous viewers cannot shut a signed-in
+operator out. Over the cap a socket is closed with 1013 (try again later;
+the dashboard retries) and a stream is `429` with `Retry-After`. A `POST` is
+never counted, so the stop always gets through. Raising the runner's limit
+instead would move the failure onto serial links: pyserial's `select()`
+refuses a descriptor above 1024.
+
 ## The verb table
 
 `flyball.interfaces.server.verbs` has one row per route and method: the

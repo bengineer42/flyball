@@ -505,14 +505,23 @@ type Exposure struct {
 // no warning.
 func (f *Front) exposure() *Exposure {
 	p := f.plan
-	if p.Fallback == "" && len(p.Warnings) == 0 && loopbackListen(p.Listen) {
+	auditErr := f.o.Audit.Failing()
+	if p.Fallback == "" && len(p.Warnings) == 0 && loopbackListen(p.Listen) && auditErr == nil {
 		return nil
 	}
 	host, port, _ := net.SplitHostPort(p.Listen)
 	n, _ := strconv.Atoi(port)
 	e := &Exposure{Requested: p.Requested, Host: host, Port: n, Open: p.Shape == ShapeLocal,
 		Restricted: p.Listen != p.Requested || p.Refused != "", OpenNetwork: p.Shape == ShapeLocal && !loopbackListen(p.Listen)}
-	if b := p.Banner(); b != "" {
+	b := p.Banner()
+	if auditErr != nil {
+		if b != "" {
+			b += "\n"
+		}
+		b += fmt.Sprintf("front: no audit log (%v) -- sign-ins and token changes are refused until it can be opened; it is tried again every %v",
+			auditErr, AuditRetry)
+	}
+	if b != "" {
 		e.Warning = &b
 	}
 	return e
