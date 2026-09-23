@@ -31,7 +31,7 @@ from flyball.hardware.i2c import I2cLink
 from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field
 
-from flyball_linux.links.i2c import FakeI2c, I2cLinkConfig
+from flyball_linux.links.i2c import I2cLinkConfig
 
 
 class Register(BaseModel):
@@ -93,8 +93,9 @@ class I2cTable(Readable, Committable):
         self.address = address
         self.registers = dict(registers)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
-        # per instance, at build.
-        self.blocking = not isinstance(link, FakeI2c)  # pyright: ignore[reportAttributeAccessIssue]
+        # per instance, at build. The link itself says whether it wants the Writer
+        # thread -- a real bus always does, a fake only if configured to.
+        self.blocking = link.blocking  # pyright: ignore[reportAttributeAccessIssue]
         self._scan = Scan()
         self.bind([
             SignalSpec(
