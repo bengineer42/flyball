@@ -55,3 +55,7 @@ dev-serve/
 # `go build ./cmd/flyball` from daemon/ (per the book's own install instructions) with no -o
 # drops the binary right here.
 /daemon/flyball
+
+# a screenshot script writing with an unset base path lands here (e61bc01); guard against it
+# recurring rather than committing the file again.
+/ui/undefined/

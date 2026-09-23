@@ -4,7 +4,7 @@
 // right one gets the app with its sockets open, sign out gets the login page back. --anonymous-read: the app
 // shows without a login, a write is refused with the nudge, the chip leads to the login page. --token-link:
 // opening ?token=<secret> signs in and strips the query. Prints PASS/FAIL per step and the console counts.
-import { chromium } from '/home/ben/.npm/_npx/9833c18b2d85bc59/node_modules/playwright-core/index.mjs';
+import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
 const [ui, secret, ...rest] = process.argv.slice(2);
 const opt = { shots: null, anonymousRead: false, tokenLink: false };
@@ -14,7 +14,7 @@ for (let i = 0; i < rest.length; i++) {
   else if (rest[i] === '--token-link') opt.tokenLink = true;
 }
 if (opt.shots) fs.mkdirSync(opt.shots, { recursive: true });
-const browser = await chromium.launch({ executablePath: '/home/ben/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' });
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 const counts = { error: 0, warning: 0, pageerror: 0 };
