@@ -23,7 +23,7 @@ var RigSchemaJSON []byte
 // ProgramSchemaJSON is the raw bytes of the checked-in program file schema,
 // exactly as `flyball program schema` (the Python CLI) emits it. Built from
 // the static Commands registry (engine/src/flyball/programmer/command.py),
-// populated by Command subclasses as their modules import -- not plugin
+// populated by Step subclasses as their modules import -- not plugin
 // discovery -- so this schema is genuinely static, unlike the rig schema's
 // driver set.
 //

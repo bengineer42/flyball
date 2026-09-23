@@ -67,7 +67,7 @@ def test_a_failing_first_step_raises_and_leaves_the_programmer_idle(rig, note):
         programmer.start(Program([Note("boom"), Note("never")]))
     assert seen == [] and programmer.running is False
     # A step failing on the calling thread is still a `failed` program, not a
-    # silent `finished` one: an ERROR event, and `state` says so until the next start.
+    # silent `succeeded` one: an ERROR event, and `state` says so until the next start.
     kinds = [e.kind for e in rig.recent]
     assert kinds == ["started", "step", "step_failed", "failed"]
     state = programmer.state
@@ -91,7 +91,7 @@ def test_steps_after_a_prompt_run_on_the_worker_and_a_failure_there_is_an_event(
     programmer.join(2)
     assert seen == ["a", "b"] and programmer.running is False
     # The programmer also narrates: started, one `step` per step, the step that
-    # raised, and a `failed` finish rather than a `finished` one.
+    # raised, and a `failed` finish rather than a `succeeded` one.
     kinds = [e.kind for e in rig.recent]
     assert kinds[0] == "started" and kinds[-1] == "failed" and kinds.count("step") == 4
     (step_event, finish_event) = [e for e in rig.recent if e.level == Level.ERROR]

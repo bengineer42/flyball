@@ -131,7 +131,7 @@ Each device command's request model is derived from the method's signature
 types that cannot cross the wire swapped for wire ones through `WIRE_TYPES`
 (a running control law becomes a `LawConfig | str | None` — a config or the
 name of a stored tuning). `POST /api/devices/{name}/commands/{command}` validates
-the body against it and calls the method with the result. Program commands
+the body against it and calls the method with the result. Program steps
 do the same from their dataclass constructor.
 
 ## Telemetry

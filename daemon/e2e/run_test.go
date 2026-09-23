@@ -60,7 +60,7 @@ type stopReport struct {
 // startProgram starts the ten-hour program through the front.
 func startProgram(t *testing.T, c *http.Client, base string, hdr h) {
 	t.Helper()
-	r := do(t, c, "POST", base+"/api/programs/run?interrupt=true", program, hdr)
+	r := do(t, c, "POST", base+"/api/programs/run?cancel=true", program, hdr)
 	if r.Status != 200 || !strings.Contains(string(r.Body), `"running":true`) {
 		t.Fatalf("starting the program: %v", r)
 	}

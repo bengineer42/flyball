@@ -899,7 +899,7 @@ def test_a_timed_wait_with_a_message_and_a_duration_is_not_a_prompt(client, prog
 def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_it(
     client, programmer
 ):
-    """The bug this guards: the route returned the 404 but the run still narrated `finished`."""
+    """The bug this guards: the route returned the 404 but the run still narrated `succeeded`."""
     body = {"steps": [{"regulate": {"controllers": "heaters.heater1", "setpoint": 20}}]}
     r = client.post("/api/programs/run", json=body)
     assert r.status_code == 404 and r.json() == {"detail": "Controller 'heaters.heater1' not found"}
