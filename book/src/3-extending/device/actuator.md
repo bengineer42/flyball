@@ -9,7 +9,7 @@ signal (`RPW`, or `RW` — a setting re-set by a command sits beside it).
 The minimum is a class, a `Demand` descriptor, and a `write_signal`:
 
 ```python
---8<-- "oven.py:33:43"
+--8<-- "oven.py:heater"
 ```
 
 ## The write side: `apply`, `commit`
@@ -63,7 +63,7 @@ descriptor is its spec; on an instance it is the bound signal. Checked on
 subclassing: pydantic must be able to describe every `vtype`.
 
 ```python
---8<-- "device.py:36:54"
+--8<-- "device.py:heater"
 ```
 
 - **`demand`** has no command of its own, so the rig synthesises
@@ -76,7 +76,7 @@ subclassing: pydantic must be able to describe every `vtype`.
   [Config and build](config.md).
 
 ```python
---8<-- "device.py:56:64"
+--8<-- "device.py:heater-read-commit"
 ```
 
 `commit` reads what was just applied from `self.demand.pending`, not
@@ -100,7 +100,7 @@ clamped to its effective limits, and shown in the schema with the
 demand's address, unit and limits:
 
 ```python
---8<-- "device.py:66:69"
+--8<-- "device.py:heater-command"
 ```
 
 Every parameter and the return type must be describable by pydantic; this
@@ -148,8 +148,8 @@ GET  /api/devices/heater/schema              the config schema, every signal's a
 PUT  /api/devices/heater/demand              {"demand": 120.0}
 POST /api/devices/heater/commands/set_limit  {"fraction": 0.5}
 
-flyball heater
-flyball heater set_limit 0.5
+flyball view heater
+flyball invoke heater set_limit fraction=0.5
 ```
 
 and, on `/ws/samples`, a sample per commit carrying each demand's readback

@@ -33,7 +33,7 @@ reading a `Lag`), a `Heater` (`[W]`, driving it) and the default controller
 between them, then runs it with nothing polling:
 
 ```python
---8<-- "oven.py:71:80"
+--8<-- "oven.py:main"
 ```
 
 With a stepped clock, `rig.read(node, fresh=True)` reads once and delivers
@@ -49,7 +49,8 @@ records demands on itself (`controller.demand`) instead of committing
 anything, which is enough to drive a bare plant by hand:
 
 ```python
-from flyball.control import PI, Controller
+from flyball.control import PI
+from flyball.model.controller import Controller
 from flyball.foundation import Access, Quantity, Reading, Role, SignalSpec
 from flyball.foundation.device.device import Device
 from flyball.foundation.quantities.si import Celsius
@@ -265,8 +266,8 @@ SSR bank would declare under the same device names -- when such drivers
 exist, this file splits into a real `furnace.yaml` (`driver: eurotherm_daq`,
 `driver: ssr_bank`, ...) plus a `sim.yaml` overlay that swaps only the
 `links:` and the two devices' `driver`/`config`, and every dashboard and
-recorded session carries over unchanged (`temp-docs/DEVICE-MODEL-PLAN.md`
-§1.6).
+recorded session carries over unchanged (see [Overlays: real vs
+simulated](../3-extending/model.md#overlays-real-vs-simulated)).
 
 `examples/humidity` already has both halves:
 
