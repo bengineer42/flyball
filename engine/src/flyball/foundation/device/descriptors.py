@@ -277,7 +277,7 @@ class BoundInput:
 
 
 class Input(Descriptor[BoundInput]):
-    """Another device's signal, bound by the rig to this role (`bound: {dry: ...}`).
+    """Another device's signal, bound by the rig to this input (`inputs: {dry: ...}`).
 
     Not in the device's tree: `self.dry_supply` is the source signal once
     bound, and reads `default` (a number, or a config descriptor) before

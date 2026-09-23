@@ -330,7 +330,7 @@ class TestDeviceEntry:
         })
         assert entry.driver_config == {"link": "i2c1", "address": 70}
         assert entry.driver == "sht4x" and entry.poll_s == 5.0 and entry.label == "Wet supply"
-        assert entry.signals == {} and entry.bound == {}
+        assert entry.signals == {} and entry.inputs == {}
         assert entry.model_dump(exclude_defaults=True) == {
             "driver": "sht4x",
             "label": "Wet supply",

@@ -308,7 +308,7 @@ devices:
       # ... one entry per signal; a dotted key puts it in a namespace
   blender:
     driver: sim_drive
-    bound: null
+    inputs: null
     link: chamber
     ports: { humidity: { port: wet_fraction, quantity: humidity, unit: "%RH", limits: [0, 100] } }
 ```

@@ -15,7 +15,7 @@ a fresh read may deliver several at once:
 1. **Every reading lands in `latest`**, whether or not it publishes, and the
    last `RECENT_READINGS` (60) per signal are kept for a stat on request.
 2. **Devices with a bound input are touched.** A device with an `Input`
-   bound to a signal (`bound: { dry: hum_sensors.dry.humidity }`) is added
+   bound to a signal (`inputs: { dry: hum_sensors.dry.humidity }`) is added
    to the delivery's touched set for every reading on that exact signal; a
    device bound to a whole node is touched by any sample carrying something
    under it, but only once it is `published()` — a subscriber hears only

@@ -308,7 +308,7 @@
     },
     "DeviceEntry": {
       "additionalProperties": true,
-      "description": "The envelope of one device in the rig file: flyball's keys, the same for every driver.\n\n`driver:` picks the driver's config model by type; the driver's own\nfields sit flat beside these keys, and every key that is not one of them\nis the driver's ([driver_config][flyball.foundation.device.DeviceEntry.driver_config]).",
+      "description": "The envelope of one device in the rig file: flyball's keys, the same for every driver.\n\n`driver:` picks the driver's config model by type; the driver's own\nfields sit flat beside these keys, and every key that is not one of them\nis the driver's (`driver_config`).",
       "properties": {
         "driver": {
           "title": "Driver",
@@ -352,11 +352,11 @@
           "title": "Signals",
           "type": "object"
         },
-        "bound": {
+        "inputs": {
           "additionalProperties": {
             "type": "string"
           },
-          "title": "Bound",
+          "title": "Inputs",
           "type": "object"
         }
       },
@@ -3567,11 +3567,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -3673,11 +3673,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -3785,11 +3785,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -3877,11 +3877,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -3974,11 +3974,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4092,11 +4092,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4186,11 +4186,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4271,11 +4271,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4356,11 +4356,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4441,11 +4441,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4526,11 +4526,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4655,11 +4655,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4747,11 +4747,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4867,11 +4867,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -4972,11 +4972,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5072,11 +5072,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5202,11 +5202,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5287,11 +5287,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5393,11 +5393,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5497,11 +5497,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5617,11 +5617,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5761,11 +5761,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5862,11 +5862,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -5975,11 +5975,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6078,11 +6078,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6194,11 +6194,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6295,11 +6295,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6410,11 +6410,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6528,11 +6528,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6630,11 +6630,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6732,11 +6732,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6835,11 +6835,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -6919,11 +6919,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -7003,11 +7003,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               },
               "driver": {
@@ -7146,11 +7146,11 @@
                 "title": "Signals",
                 "type": "object"
               },
-              "bound": {
+              "inputs": {
                 "additionalProperties": {
                   "type": "string"
                 },
-                "title": "Bound",
+                "title": "Inputs",
                 "type": "object"
               }
             },

@@ -1,4 +1,4 @@
-"""The rig file's envelope around one device: `driver:`, signal metadata, `bound:`."""
+"""The rig file's envelope around one device: `driver:`, signal metadata, `inputs:`."""
 
 from __future__ import annotations
 
@@ -127,8 +127,8 @@ class DeviceEntry(BaseModel):
     label: str | None = None
     poll_s: float | None = None
     signals: dict[str, SignalMeta | NamespaceMeta] = Field(default_factory=dict)
-    bound: dict[str, str] = Field(default_factory=dict)
-    """Role -> address on another device; the rig resolves it."""
+    inputs: dict[str, str] = Field(default_factory=dict)
+    """Input name -> address on another device; the rig binds it."""
 
     @field_validator("poll_s")
     @classmethod

@@ -257,7 +257,10 @@ class TestParsing:
                 "blender": {
                     "driver": blender_tag,
                     "label": "Pump blender",
-                    "bound": {"dry": "hum_sensors.dry.humidity", "wet": "hum_sensors.wet.humidity"},
+                    "inputs": {
+                        "dry": "hum_sensors.dry.humidity",
+                        "wet": "hum_sensors.wet.humidity",
+                    },
                 },
             },
             "controllers": {
@@ -269,7 +272,7 @@ class TestParsing:
             },
         }
         config = RigConfig.model_validate(document)
-        assert config.devices["blender"].bound == {
+        assert config.devices["blender"].inputs == {
             "dry": "hum_sensors.dry.humidity",
             "wet": "hum_sensors.wet.humidity",
         }
@@ -394,7 +397,7 @@ class TestChecks:
             "devices": {
                 "f": None,
                 "g": {"driver": daq_tag, "zones": 1},
-                "h": {"bound": {"dry": "g.zone1"}, "zones": 3},
+                "h": {"inputs": {"dry": "g.zone1"}, "zones": 3},
             },
         }
         jsonschema.Draft202012Validator(rig_schema()).validate(layer)
@@ -405,7 +408,7 @@ class TestBuild:
         document = {
             "devices": {
                 "hum_sensors": {"driver": sensors_tag},
-                "blender": {"driver": blender_tag, "bound": {"dry": "hum_sensors.dry.humidity"}},
+                "blender": {"driver": blender_tag, "inputs": {"dry": "hum_sensors.dry.humidity"}},
             },
             "controllers": {
                 "blender.humidity": {

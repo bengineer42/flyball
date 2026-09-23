@@ -88,7 +88,7 @@ field named like an envelope key). A nested `config:` is refused.
 | `label` | string, optional | shown instead of the name |
 | `poll_s` | number, optional | inherited down the tree; a namespace's or signal's own wins |
 | `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
-| `bound` | `{role: address}` | inputs this device follows on another device: a `role` on the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
+| `inputs` | `{input: address}` | what this device follows on another device: an input's name from the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
 
 ```yaml
 devices:

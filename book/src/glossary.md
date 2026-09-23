@@ -17,7 +17,7 @@ dots inside a segment.
 with the signed handshake and routes to it again, with no restart
 (D-037).
 
-**bound input** — a signal on another device this one follows (`bound:` in
+**bound input** — a signal on another device this one follows (`inputs:` in
 the rig file, an `Input` descriptor); when it lands the rig commits this
 device, which reads it itself (`self.<input>.value`) in `commit` — there
 is no callback.

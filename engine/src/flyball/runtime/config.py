@@ -873,8 +873,8 @@ class RigConfig(BaseModel):
                 rig.entries[name] = entry
                 built_devices.append(device)
             for name, entry in self.devices.items():
-                if entry.bound:
-                    rig.bind_inputs(rig.devices[name], entry.bound)
+                if entry.inputs:
+                    rig.bind_inputs(rig.devices[name], entry.inputs)
             for output_address, controller in self.controllers.items():
                 output = rig.resolve(output_address)
                 if not isinstance(output, Signal):
@@ -973,7 +973,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
             "required": ["driver", *driver_schema.get("required", [])],
             "not": {"required": ["config"]},
         })
-    # A layer may add to a device a base declared (`bound`, a label, one driver field)
+    # A layer may add to a device a base declared (`inputs`, a label, one driver field)
     # without repeating its driver: envelope keys and any driver field, and no `driver`.
     overlay = {
         "type": "object",

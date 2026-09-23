@@ -37,36 +37,36 @@ import type { ChartSettings } from "../YScaleSelect.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
-/** One `{role, address}` row, freely typed: what a device declares as its inputs is not known before it is built. */
-interface BoundRow {
-  role: string;
+/** One `{input, address}` row, freely typed: what a device declares as its inputs is not known before it is built. */
+interface InputRow {
+  input: string;
   address: string;
 }
 
-function BoundRows({ rows, onChange }: { rows: BoundRow[]; onChange(rows: BoundRow[]): void }) {
-  const set = (i: number, patch: Partial<BoundRow>) => onChange(rows.map((r, j) => (i === j ? { ...r, ...patch } : r)));
+function InputRows({ rows, onChange }: { rows: InputRow[]; onChange(rows: InputRow[]): void }) {
+  const set = (i: number, patch: Partial<InputRow>) => onChange(rows.map((r, j) => (i === j ? { ...r, ...patch } : r)));
   return (
     <Stack spacing={1}>
       <Typography variant="body2" color="text.secondary">
-        Bound inputs (optional): the role this device follows, and the signal address it reads.
+        Inputs (optional): the input this device follows, by its name, and the signal address it reads.
       </Typography>
       {rows.map((row, i) => (
         <Stack key={i} direction="row" spacing={1} alignItems="center">
-          <TextField size="small" label="role" value={row.role} onChange={(e) => set(i, { role: e.target.value })} sx={{ flex: 1 }} />
+          <TextField size="small" label="input" value={row.input} onChange={(e) => set(i, { input: e.target.value })} sx={{ flex: 1 }} />
           <TextField size="small" label="address" value={row.address} onChange={(e) => set(i, { address: e.target.value })} placeholder="device.signal" sx={{ flex: 2 }} />
-          <IconButton aria-label={`remove bound row ${i + 1}`} size="small" onClick={() => onChange(rows.filter((_, j) => j !== i))}>
+          <IconButton aria-label={`remove input row ${i + 1}`} size="small" onClick={() => onChange(rows.filter((_, j) => j !== i))}>
             <DeleteOutlineIcon fontSize="small" />
           </IconButton>
         </Stack>
       ))}
-      <Button size="small" onClick={() => onChange([...rows, { role: "", address: "" }])} sx={{ alignSelf: "flex-start" }}>
-        + bound input
+      <Button size="small" onClick={() => onChange([...rows, { input: "", address: "" }])} sx={{ alignSelf: "flex-start" }}>
+        + input
       </Button>
     </Stack>
   );
 }
 
-/** Name, a driver from the rig schema, that driver's config as a form (`link` offered as a select of the rig's links), label, poll period and bound inputs. */
+/** Name, a driver from the rig schema, that driver's config as a form (`link` offered as a select of the rig's links), label, poll period and inputs. */
 export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; linkNames: string[]; onClose(): void; onCreated(device: DeviceOut): void }) {
   const rig = useRig();
   const [name, setName] = useState("");
@@ -74,7 +74,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [label, setLabel] = useState("");
   const [pollS, setPollS] = useState("");
-  const [bound, setBound] = useState<BoundRow[]>([]);
+  const [inputs, setInputs] = useState<InputRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,7 +91,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
     setConfig({});
     setLabel("");
     setPollS("");
-    setBound([]);
+    setInputs([]);
     setError(null);
   };
 
@@ -102,8 +102,8 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
       const body: NewDevice = { ...config, name: name.trim(), driver };
       if (label.trim()) body.label = label.trim();
       if (pollS.trim() && Number.isFinite(Number(pollS))) body.poll_s = Number(pollS);
-      const boundEntries = bound.filter((r) => r.role.trim() && r.address.trim());
-      if (boundEntries.length) body.bound = Object.fromEntries(boundEntries.map((r) => [r.role.trim(), r.address.trim()]));
+      const inputEntries = inputs.filter((r) => r.input.trim() && r.address.trim());
+      if (inputEntries.length) body.inputs = Object.fromEntries(inputEntries.map((r) => [r.input.trim(), r.address.trim()]));
       const device = await rig.addDevice(body);
       reset();
       onCreated(device);
@@ -147,7 +147,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
             <TextField label="label (optional)" value={label} onChange={(e) => setLabel(e.target.value)} fullWidth />
             <TextField label="poll period (s, optional)" value={pollS} onChange={(e) => setPollS(e.target.value)} inputProps={{ inputMode: "decimal" }} sx={{ minWidth: 180 }} />
           </Stack>
-          <BoundRows rows={bound} onChange={setBound} />
+          <InputRows rows={inputs} onChange={setInputs} />
         </Stack>
         {error && (
           <Alert severity="error" onClose={() => setError(null)} sx={{ mt: 2 }}>

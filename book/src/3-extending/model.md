@@ -54,7 +54,7 @@ device's life. The role sets the signal's default access:
 | `Role.CONFIG` | `R` | effective at build, shown, never set at run time |
 
 An **input** is not a role: it is another device's signal, bound by the rig
-(`bound:`), and not in this device's tree; an `Input` descriptor is told
+(`inputs:`), and not in this device's tree; an `Input` descriptor is told
 apart by its type.
 
 Structure is declared once, as descriptors in the class body (`Namespace`,

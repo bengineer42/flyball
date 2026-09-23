@@ -113,7 +113,7 @@ class TestRig:
     def test_an_input_bound_into_a_removed_device_is_unbound(self, rig: Rig) -> None:
         rig.add_link("t1", link_config(PLANT))
         rig.add_entry("probe", device_entry(DAQ))
-        follower = rig.add_entry("follower", device_entry(DRIVE, bound={"x": "probe.signal"}))
+        follower = rig.add_entry("follower", device_entry(DRIVE, inputs={"x": "probe.signal"}))
         assert follower.bound["x"].address == "probe.signal"
         rig.remove_device("probe")
         assert follower.bound == {}

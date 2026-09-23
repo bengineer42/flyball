@@ -863,7 +863,7 @@ class TestBoundInputs:
         rig.add_device(stage)
         with pytest.raises(
             ConflictError,
-            match=f"{blender.name}.bound.dry: nothing under '{stage.name}.position' publishes",
+            match=f"{blender.name}.inputs.dry: nothing under '{stage.name}.position' publishes",
         ):
             rig.bind_inputs(blender, {"dry": f"{stage.name}.position"})
         assert blender.bound == {}

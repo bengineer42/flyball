@@ -477,4 +477,23 @@ def test_a_stored_rig_version_has_its_device_fields_flat(tmp_path, monkeypatch):
     assert list(document["devices"]) == ["zone", "flat"], "the devices keep their order"
 
 
+def test_a_stored_rig_version_names_a_device_s_inputs(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        16,
+        {
+            "devices": {
+                "blender": {"driver": "dual_pump_blender", "bound": {"dry": "s.dry.humidity"}},
+                "s": {"driver": "sht4x_set", "link": "i2c1"},
+            }
+        },
+    )
+    assert document["devices"]["blender"] == {
+        "driver": "dual_pump_blender",
+        "inputs": {"dry": "s.dry.humidity"},
+    }
+    assert document["devices"]["s"] == {"driver": "sht4x_set", "link": "i2c1"}
+
+
 # endregion

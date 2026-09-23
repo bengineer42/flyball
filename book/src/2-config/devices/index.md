@@ -23,7 +23,7 @@ devices:
 | `label` | string | shown instead of the name |
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
 | `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
-| `bound` | `{role: address}` | inputs this device follows on another: `{dry_humidity: hum_sensors.dry.humidity}` |
+| `inputs` | `{input: address}` | what this device follows on another, by the input's name: `{dry_humidity: hum_sensors.dry.humidity}` |
 | any other key | | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board`. A nested `config:` is refused |
 
 ## `signals`
@@ -52,15 +52,15 @@ null`, which drops only the file's narrowing, never the driver's limits.
 
 ## Binding one device to another
 
-`bound` makes a device follow signals on another -- an input the driver
-declared by role, resolved to an address at build. The humidity blender
+`inputs` makes a device follow signals on another -- each an input the
+driver declared, by its name, bound to an address at build. The humidity blender
 follows the supply humidities its own sensors read:
 
 ```yaml
 devices:
   blender:
     driver: dual_pump_blender
-    bound: { dry_humidity: hum_sensors.dry.humidity, wet_humidity: hum_sensors.wet.humidity }
+    inputs: { dry_humidity: hum_sensors.dry.humidity, wet_humidity: hum_sensors.wet.humidity }
 ```
 
 What a driver may declare as an input, and how it reads one, is in

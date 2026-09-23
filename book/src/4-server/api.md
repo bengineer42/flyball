@@ -170,7 +170,7 @@ saving are never gated.
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
 | `POST` | `/api/links` | body `{name, type, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
 | `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
-| `POST` | `/api/devices` | body the file's device envelope with its `name` (`driver`, `config` or flat settings, `label`, `poll_s`, `signals`, `bound`); 201 `DeviceOut`, bound, polled and recorded; 409 name taken; 404 unknown link or bound address; 422 unknown driver or a config it refuses |
+| `POST` | `/api/devices` | body the file's device envelope with its `name` (`driver`, `label`, `poll_s`, `signals`, `inputs`, and the driver's fields flat beside them); 201 `DeviceOut`, bound, polled and recorded; 409 name taken; 404 unknown link or input address; 422 unknown driver or a config it refuses |
 | `DELETE` | `/api/devices/{name}` | 204; its poll stops, controllers on it are detached, inputs bound into it unbound |
 | `POST` | `/api/rig` | body a rig document (`links`, `devices`, `controllers`; other keys ignored); added in that order; 201 the running document |
 | `GET` | `/api/rig/document` | the running rig as a rig file would build it, defaults left out |

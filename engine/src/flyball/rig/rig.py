@@ -386,8 +386,8 @@ class Rig:
 
     # region Addresses and reads
 
-    def bind_inputs(self, device: Device, roles: Mapping[str, str]) -> None:
-        """Resolve `device`'s bound inputs (`role -> address`) and follow them.
+    def bind_inputs(self, device: Device, inputs: Mapping[str, str]) -> None:
+        """Resolve `device`'s inputs (the rig file's `inputs:`, name -> address) and follow them.
 
         Call after every device is added: an address may name a device
         declared later in the file. From then on, every reading on a bound
@@ -400,19 +400,19 @@ class Rig:
             ConflictError: A signal that does not publish, or a node with
                 nothing published under it.
         """
-        for role, address in roles.items():
+        for role, address in inputs.items():
             target = self.resolve(address)
             if isinstance(target, Signal):
                 if Access.P not in target.access:
                     raise ConflictError(
-                        f"{device.name}.bound.{role}: '{target.address}' [{target.access}]"
+                        f"{device.name}.inputs.{role}: '{target.address}' [{target.access}]"
                         " is not published"
                     )
                 self._observers.setdefault(target, {})[device] = None
             else:
                 if not any(Access.P in s.access for s in target.walk()):
                     raise ConflictError(
-                        f"{device.name}.bound.{role}: nothing under '{target.address}' publishes"
+                        f"{device.name}.inputs.{role}: nothing under '{target.address}' publishes"
                     )
                 self._node_observers.setdefault(target, {})[device] = None
             device.bound[role] = target
@@ -990,8 +990,8 @@ class Rig:
             device = entry.build(name, self.links)
             self.add_device(device)
             try:
-                if entry.bound:
-                    self.bind_inputs(device, entry.bound)
+                if entry.inputs:
+                    self.bind_inputs(device, entry.inputs)
             except Exception:
                 self._drop_device(device)
                 raise

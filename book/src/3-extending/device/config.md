@@ -10,7 +10,7 @@ eventually described in a file rather than in code.
 
 A device's config is a `DriverConfig[D]` — `Config[D]` with `build(name,
 label)` instead of a bare `build()`, since the envelope (the rig file's
-`driver:`/`label:`/`poll_s:`/`signals:`/`bound:` keys, the same for every
+`driver:`/`label:`/`poll_s:`/`signals:`/`inputs:` keys, the same for every
 driver) supplies the name. A link's config is a plain `Config[Link]`; a law's
 or a feedforward's config the same shape again. `runtime.config.role_of()`
 tells the three apart by what they build.
@@ -51,7 +51,7 @@ than as a side effect of importing the module.
 
 ## Envelope keys are reserved
 
-`driver label poll_s signals bound` belong to the rig file's envelope, the
+`driver label poll_s signals inputs` belong to the rig file's envelope, the
 same for every driver, and an entry refuses `config`. A `DriverConfig`
 subclass may not declare a field with one of those names — checked at
 import, the same way a duplicate type is — so every other key of an entry

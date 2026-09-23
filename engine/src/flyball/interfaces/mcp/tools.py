@@ -1135,7 +1135,7 @@ DRIVERS: tuple[Tool, ...] = (
                 "entry": {
                     "type": "object",
                     "description": "The device entry: `driver`, optional `label`, `poll_s`, "
-                    "`signals`, `bound`, and the driver's own fields flat beside them.",
+                    "`signals`, `inputs`, and the driver's own fields flat beside them.",
                 },
             },
             "name",

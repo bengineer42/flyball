@@ -33,7 +33,7 @@ puts a unit on the field, so a number is shown with it.
 ## The envelope is not the driver's
 
 The keys every device shares -- `driver`, `label`, `poll_s`, `signals`,
-`bound` -- belong to the envelope ([Devices](index.md)), and a driver's
+`inputs` -- belong to the envelope ([Devices](index.md)), and a driver's
 config may not declare a field by any of those names, nor `config`, which
 an entry refuses: that is checked when the class is defined, so `signals:`
 on a `scpi` device is always the signal metadata, never the query table (which is why that one is

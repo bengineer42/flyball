@@ -495,7 +495,7 @@ class Committable(Device):
         """Put one committed value on the hardware. Default: nothing -- the device just holds it."""
 
 
-ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "bound", "config"})
+ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "inputs", "config"})
 """The keys of a device entry that are flyball's, the same for every driver; `config` is
 refused outright, so a driver field of that name could never be set."""
 

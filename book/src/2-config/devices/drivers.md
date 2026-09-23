@@ -3,7 +3,7 @@
 Every driver a rig file can name with `driver:`, one section each: what it
 is for, the link it sits on, its own fields, and an entry as it is written.
 The fields under each are the driver's *own* config -- they sit flat beside
-the [envelope](index.md) (`driver`, `label`, `poll_s`, `signals`, `bound`).
+the [envelope](index.md) (`driver`, `label`, `poll_s`, `signals`, `inputs`).
 Where they come from, and where else they show up, is
 [the next page](generated.md).
 
