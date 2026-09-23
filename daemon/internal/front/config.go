@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -39,9 +38,28 @@ type Config struct {
 	Password  string       `yaml:"password"` // must be a $scrypt$ line; plaintext → fallback
 	Anonymous string       `yaml:"anonymous"`
 	Proxy     *ProxyConfig `yaml:"proxy"`
+	// Tokens tightens the named-token lifetime ceilings (store.Lifetimes);
+	// nil: the built-ins (store.DefaultLifetimes).
+	Tokens *TokensConfig `yaml:"tokens"`
 	// Reference-only keys.
 	Session        string   `yaml:"session"`         // idle session lifetime, "12h" / "2d"
 	TrustedProxies []string `yaml:"trusted_proxies"` // peers whose X-Forwarded-For names the client
+}
+
+// TokensConfig is `tokens:`: `runner.front.tokens` in a rig file (for
+// `flyball run`), or flyballd.yaml's top-level `tokens:`. Both fields are
+// duration strings (parseDuration: Go durations plus a `d` suffix for
+// days, e.g. "90d", "36h"); "" means "not set, use the built-in". The
+// Python model is TokensConfig in engine/src/flyball/runtime/config.py,
+// which shapes but does not validate this block -- ResolveLifetimes does.
+type TokensConfig struct {
+	// DefaultLifetime is used when a token is created without an explicit
+	// expires_in. Built-in: store.TokenLifetimeDefault (90 days).
+	DefaultLifetime string `yaml:"default_lifetime"`
+	// MaxLifetime is the hard cap for tokens that are neither cleartext
+	// nor kind agent. It may only tighten the built-in ceiling
+	// (store.TokenLifetimeMax, 365 days), never loosen it.
+	MaxLifetime string `yaml:"max_lifetime"`
 }
 
 // TLSFiles is `tls: {cert, key}` (D-033).
@@ -119,6 +137,7 @@ type Plan struct {
 	SessionIdle time.Duration       // 0: the store's default
 	Trusted     []netip.Prefix      // trusted_proxies
 	Grants      map[string][]string // proxy.grants
+	Lifetimes   store.Lifetimes     // tokens: default_lifetime/max_lifetime, resolved (store.DefaultLifetimes if unset)
 }
 
 // Banner is the lines to print at start: the fallback, then the warnings.
@@ -255,7 +274,7 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 		p.Warnings = append(p.Warnings, fmt.Sprintf("anonymous: %q is not none or read; using none", c.Anonymous))
 	}
 	if c.Session != "" {
-		d, err := parseDuration(c.Session)
+		d, err := store.ParseDuration(c.Session)
 		if err != nil || d <= 0 {
 			p.Warnings = append(p.Warnings, fmt.Sprintf("session: %q is not a duration like 12h or 7d; using the default", c.Session))
 		} else {
@@ -270,6 +289,13 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 		}
 		p.Trusted = append(p.Trusted, pr)
 	}
+	var defaultLifetime, maxLifetime string
+	if c.Tokens != nil {
+		defaultLifetime, maxLifetime = c.Tokens.DefaultLifetime, c.Tokens.MaxLifetime
+	}
+	var lifetimeWarnings []string
+	p.Lifetimes, lifetimeWarnings = store.ResolveLifetimes(defaultLifetime, maxLifetime)
+	p.Warnings = append(p.Warnings, lifetimeWarnings...)
 
 	if p.Shape != ShapeLocal && !loopbackListen(p.Listen) && p.TLS == nil {
 		p.Warnings = append(p.Warnings, exposure.CleartextWarning(p.Listen))
@@ -342,18 +368,6 @@ func originOf(u *url.URL) string {
 		a = strings.TrimSuffix(a, d)
 	}
 	return u.Scheme + "://" + a
-}
-
-// parseDuration is time.ParseDuration plus a whole-days form, "7d".
-func parseDuration(s string) (time.Duration, error) {
-	if days, ok := strings.CutSuffix(s, "d"); ok {
-		n, err := strconv.Atoi(days)
-		if err != nil {
-			return 0, err
-		}
-		return time.Duration(n) * 24 * time.Hour, nil
-	}
-	return time.ParseDuration(s)
 }
 
 func parsePrefix(s string) (netip.Prefix, error) {
