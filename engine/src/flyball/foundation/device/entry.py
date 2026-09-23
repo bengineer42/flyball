@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from dataclasses import MISSING, fields
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -13,7 +14,14 @@ from flyball.model.catalog import Catalogs, get_catalog
 from ..errors import NotFoundError
 from ..time.clock import Rate
 from .device import ENVELOPE_KEYS, Device, DriverConfig
-from .signal import Access, Band, Node, Signal
+from .signal import Access, Band, Node, NodeSpec, Signal, SignalSpec
+
+
+def _period(value: float | None, name: str | None) -> float | None:
+    """A period in seconds, or None: refused unless finite and above zero."""
+    if value is not None and not (math.isfinite(value) and value > 0):
+        raise ValueError(f"{name} {value!r}: must be a finite number of seconds above zero")
+    return value
 
 
 class SignalOverride(BaseModel):
@@ -24,6 +32,11 @@ class SignalOverride(BaseModel):
     declares what it can honour, the file cannot add to it. `limits` only
     narrows the driver's (see
     [Signal.narrow][flyball.foundation.device.signal.Signal.narrow]).
+
+    A key left out leaves the driver's value; a key given as `null` clears
+    it back to the unset default (`label: null` is the titlecased name,
+    `warn: null` no band). `limits: null` clears only the file's narrowing,
+    never the driver's limits.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -56,6 +69,11 @@ class SignalOverride(BaseModel):
             raise ValueError(f"{info.field_name} {value!r}: inverted, low above high")
         return value
 
+    @field_validator("poll_s", "stale_after")
+    @classmethod
+    def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
+        return _period(value, info.field_name)
+
     @field_validator("access")
     @classmethod
     def _wire_form(cls, value: str | None) -> str | None:
@@ -87,6 +105,11 @@ class NamespaceOverride(BaseModel):
     """Applied to every signal under the namespace; a signal's own win."""
     signals: dict[str, SignalOverride | NamespaceOverride] = Field(default_factory=dict)
 
+    @field_validator("poll_s")
+    @classmethod
+    def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
+        return _period(value, info.field_name)
+
 
 NamespaceOverride.model_rebuild()
 
@@ -109,6 +132,11 @@ class DeviceEntry(BaseModel):
     bound: dict[str, str] = Field(default_factory=dict)
     """Role -> address on another device; the rig resolves it."""
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("poll_s")
+    @classmethod
+    def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
+        return _period(value, info.field_name)
 
     @model_validator(mode="before")
     @classmethod
@@ -181,6 +209,29 @@ _SIGNAL_FIELDS = (
 _NODE_FIELDS = ("label", "poll_s", "tags")
 
 
+def _default(spec: type[Any], name: str) -> Any:
+    """What `spec` (a `SignalSpec` or `NodeSpec`) holds for `name` when nothing sets it."""
+    for f in fields(spec):
+        if f.name == name:
+            if f.default is not MISSING:
+                return f.default
+            if f.default_factory is not MISSING:
+                return f.default_factory()
+    raise KeyError(name)  # pragma: no cover -- the field lists name only defaulted fields
+
+
+def _changes(override: BaseModel, names: tuple[str, ...], spec: type[Any]) -> dict[str, Any]:
+    """The fields the file set: a value as given, an explicit `null` as the spec's default.
+
+    A key the file left out is not here, so the driver's value stands.
+    """
+    return {
+        name: _default(spec, name) if (value := getattr(override, name)) is None else value
+        for name in names
+        if name in override.model_fields_set
+    }
+
+
 def _override_under(
     node: Node, overrides: Mapping[str, SignalOverride | NamespaceOverride]
 ) -> None:
@@ -198,10 +249,10 @@ def _override_under(
                     raise ValueError(
                         f"'{address}' is a namespace: {', '.join(sorted(extra))} is a signal's"
                     )
-                override = NamespaceOverride(
-                    label=override.label, poll_s=override.poll_s, tags=override.tags
-                )
-            changes = {f: v for f in _NODE_FIELDS if (v := getattr(override, f)) is not None}
+                override = NamespaceOverride(**{
+                    f: getattr(override, f) for f in override.model_fields_set
+                })
+            changes = _changes(override, ("label", "poll_s"), NodeSpec)
             if changes:
                 child.override(**changes)
             if override.tags:
@@ -213,12 +264,12 @@ def _override_under(
 
 
 def _override_signal(signal: Signal, override: SignalOverride) -> None:
-    changes = {f: v for f in _SIGNAL_FIELDS if (v := getattr(override, f)) is not None}
+    changes = _changes(override, _SIGNAL_FIELDS, SignalSpec)
     if override.tags:
         changes["tags"] = {**signal.spec.tags, **override.tags}
     if changes:
         signal.override(**changes)
-    if override.limits is not None:
+    if "limits" in override.model_fields_set:
         signal.narrow(override.limits)
     value = signal.access.value if override.access is None else Access.parse(override.access).value
     for flag, keep in (

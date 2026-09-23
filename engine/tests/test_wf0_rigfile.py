@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import pytest
+from pydantic import ValidationError
 
 from flyball.control.laws import P
 from flyball.foundation.device import (
@@ -17,6 +18,7 @@ from flyball.foundation.device import (
     Output,
     Sample,
 )
+from flyball.foundation.device.entry import NamespaceOverride, SignalOverride, _override_signal
 from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Percent, Watt
@@ -102,6 +104,32 @@ class TestYamlBooleans:
             loads("on: 1\non: 2\n", ".yaml")
 
 
+class TestExplicitNull:
+    def test_a_null_clears_the_field(self, build):
+        device = build({"free": {"label": "Fan", "precision": 2, "poll_s": 3}})
+        assert device.signals["free"].spec.precision == 2
+        device = build({"free": {"label": None, "precision": None, "poll_s": None}})
+        free = device.signals["free"]
+        assert free.spec.label == "" and free.spec.precision is None and free.spec.poll_s is None
+
+    def test_a_null_clears_a_driver_value(self, build):
+        device = build({})
+        device.signals["free"].override(warn=(0.0, 10.0), stale_after=5.0)
+        _override_signal(device.signals["free"], SignalOverride.model_validate({"warn": None}))
+        assert device.signals["free"].spec.warn is None, "explicit null clears"
+        assert device.signals["free"].spec.stale_after == 5.0, "absent key leaves alone"
+
+    def test_an_absent_key_leaves_it_alone(self, build):
+        device = build({"heater": {"label": "Heater 1"}})
+        assert device.signals["heater"].limits == (0.0, 2500.0)
+        assert device.signals["heater"].label == "Heater 1"
+
+    def test_a_null_limits_does_not_remove_the_driver_s(self, build):
+        heater = build({"heater": {"limits": None}}).signals["heater"]
+        assert heater.limits == (0.0, 2500.0)
+        assert heater.clamp(9000.0) == 2500.0
+
+
 class TestLimitsNarrowOnly:
     def test_a_narrower_band_narrows(self, build):
         heater = build({"heater": {"limits": [100, 2000]}}).signals["heater"]
@@ -179,3 +207,25 @@ class TestInvertedLimits:
         controller.regulate(50.0, transfer=Transfer.RESET)
         assert device.written == {}, "held, not clamped to either end"
         assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == ["limit_unknown"]
+
+
+class TestNamespaceAndDevicePeriods:
+    @pytest.mark.parametrize("value", [math.nan, 0.0, -2.0])
+    def test_are_refused_too(self, blender_tag, value):
+        with pytest.raises(ValidationError, match="poll_s"):
+            DeviceEntry.model_validate({"driver": blender_tag, "poll_s": value})
+        with pytest.raises(ValidationError, match="poll_s"):
+            NamespaceOverride.model_validate({"poll_s": value})
+
+
+class TestOverridePeriods:
+    @pytest.mark.parametrize("field", ["stale_after", "poll_s"])
+    @pytest.mark.parametrize("value", [math.nan, math.inf, 0.0, -1.0])
+    def test_non_positive_or_non_finite_is_refused(self, field, value):
+        with pytest.raises(ValidationError, match=field):
+            SignalOverride.model_validate({field: value})
+
+    @pytest.mark.parametrize("field", ["stale_after", "poll_s"])
+    def test_a_positive_value_and_null_are_accepted(self, field):
+        assert getattr(SignalOverride.model_validate({field: 0.5}), field) == 0.5
+        assert getattr(SignalOverride.model_validate({field: None}), field) is None

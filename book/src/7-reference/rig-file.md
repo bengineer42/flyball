@@ -129,6 +129,13 @@ to and including it. A `NamespaceOverride` is `{label, poll_s, tags, signals}`, 
 the same way into a namespace's own children; its `tags` apply to every
 signal under it, a signal's own winning.
 
+A key left out of an override leaves the driver's value; a key given as
+`null` clears it to the unset default (`label` the titlecased name, a band
+none, `poll_s` inherited) -- `limits: null` clears only the file's
+narrowing, never the driver's limits. `poll_s` (on a device, namespace or
+signal) and `stale_after` must be finite and above zero; `0`, a negative
+number or `.nan` is refused at load.
+
 ## Links
 
 Every link is a tagged config, declared once under `links:` and referred
